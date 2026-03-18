@@ -36,12 +36,14 @@ type Restaurant = {
   orderUrl: string
   image?: string
   description?: string
+  availableDays?: string[] // e.g. ['monday','tuesday',...] — optional field from Sanity
 }
 
 function FullMapInner() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({})
+  const popupsRef = useRef<{ [id: string]: mapboxgl.Popup }>({})   // CHANGE 1: store popups separately
   const searchParams = useSearchParams()
   const locInputRef = useRef<HTMLInputElement>(null)
   const chatBottomRef = useRef<HTMLDivElement>(null)
@@ -60,12 +62,28 @@ function FullMapInner() {
   const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
   const PROXIMITY_MILES = 25
 
+  // CHANGE 5: order date/time filter
+  const [orderDateTime, setOrderDateTime] = useState('')
+
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: "Hi! I'm Disco 🤖 Tell me about your event and I'll find the perfect catering for you!\n\nTry: \"Birthday party for 20 people\" or \"Office lunch, need vegetarian options\"" }
   ])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+
+  // CHANGE 4: geolocation prompt on mount
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        setProximityAnchor({ lat, lng })
+        map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 1.2 })
+      },
+      () => { /* user denied — silently ignore */ }
+    )
+  }, [])
 
   useEffect(() => {
     fetch('/api/restaurants')
@@ -93,7 +111,6 @@ function FullMapInner() {
     }
   }, [searchParams])
 
-  // Init Google Maps Places autocomplete
   const initAutocomplete = useCallback(() => {
     if (!locInputRef.current || !(window as any).google) return
     const ac = new (window as any).google.maps.places.Autocomplete(locInputRef.current, {
@@ -112,7 +129,7 @@ function FullMapInner() {
     })
   }, [])
 
-  // Filter + proximity
+  // Filter logic — includes proximity + date filter
   useEffect(() => {
     let out = restaurants
     if (stageFilter === 'disco') out = out.filter(r => r.isDisco)
@@ -131,16 +148,27 @@ function FullMapInner() {
         .filter((r: any) => r._dist <= PROXIMITY_MILES)
         .sort((a: any, b: any) => a._dist - b._dist)
     }
+    // CHANGE 5: filter by order date — only if restaurant has availableDays data
+    if (orderDateTime) {
+      const dayName = new Date(orderDateTime).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()
+      out = out.filter((r: any) =>
+        !r.availableDays || r.availableDays.length === 0 || r.availableDays.map((d: string) => d.toLowerCase()).includes(dayName)
+      )
+    }
     setFiltered(out)
-  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor])
+  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor, orderDateTime])
 
-  // Update markers
+  // Update markers — CHANGE 1: store popup in popupsRef so sidebar click can open it
   useEffect(() => {
     if (!map.current) return
     const visibleIds = new Set(filtered.map(r => r._id))
 
     Object.entries(markersRef.current).forEach(([id, marker]) => {
-      if (!visibleIds.has(id)) { marker.remove(); delete markersRef.current[id] }
+      if (!visibleIds.has(id)) {
+        marker.remove()
+        delete markersRef.current[id]
+        delete popupsRef.current[id]
+      }
     })
 
     filtered.forEach((r, i) => {
@@ -176,6 +204,9 @@ function FullMapInner() {
           </div>
         `)
 
+      // Store popup reference for sidebar click
+      popupsRef.current[r._id] = popup
+
       el.addEventListener('click', () => {
         setActiveId(r._id)
         mkDiv.style.background = GRADIENT
@@ -190,16 +221,15 @@ function FullMapInner() {
         setActiveId(null)
       })
 
-      new mapboxgl.Marker(el)
+      const marker = new mapboxgl.Marker(el)
         .setLngLat([r.lng, r.lat])
         .setPopup(popup)
         .addTo(map.current!)
 
-      markersRef.current[r._id] = new mapboxgl.Marker(el).setLngLat([r.lng, r.lat])
+      markersRef.current[r._id] = marker
     })
   }, [filtered])
 
-  // Fallback manual search (if user hits Go without picking autocomplete suggestion)
   async function doLocSearch(e: React.FormEvent) {
     e.preventDefault()
     if (!locInput.trim()) return
@@ -259,17 +289,49 @@ function FullMapInner() {
 
   const cuisineCounts: Record<string, number> = {}
   restaurants.forEach(r => { cuisineCounts[r.cuisine] = (cuisineCounts[r.cuisine] || 0) + 1 })
-  const topCuisines = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 7).map(e => e[0])
+  // CHANGE 3: show top 12 instead of 7
+  const topCuisines = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 12).map(e => e[0])
 
-  const fbStyle = (active: boolean): React.CSSProperties => ({
-    padding: '5px 12px', borderRadius: 20,
-    overflow: 'hidden',
+  // CHANGE 2: cuisine pills — black fill when active, gradient only for All/Premium
+  const pillStyle = (active: boolean): React.CSSProperties => ({
+    padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
+    border: `1.5px solid ${active ? '#111' : '#e8e8e8'}`,
+    background: active ? '#111' : '#fff',
+    color: active ? '#fff' : '#555',
+    fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+    fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
+  })
+
+  // Gradient style for All / Premium buttons only
+  const gradientPillStyle = (active: boolean): React.CSSProperties => ({
+    padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
     border: `1.5px solid ${active ? 'transparent' : '#e8e8e8'}`,
     background: active ? GRADIENT : '#fff',
     color: active ? '#fff' : '#555',
     fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
   })
+
+  // CHANGE 1: sidebar click handler — fly instantly and open popup immediately
+  function handleSidebarClick(r: Restaurant) {
+    // Close any open popups first
+    Object.values(popupsRef.current).forEach(p => p.remove())
+
+    setActiveId(r._id)
+    setProximityAnchor({ lat: r.lat, lng: r.lng })
+
+    if (!map.current) return
+
+    // flyTo then open popup once map settles
+    map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 1.6 })
+    map.current.once('moveend', () => {
+      const marker = markersRef.current[r._id]
+      const popup = popupsRef.current[r._id]
+      if (marker && popup && !popup.isOpen()) {
+        marker.togglePopup()
+      }
+    })
+  }
 
   return (
     <>
@@ -278,11 +340,10 @@ function FullMapInner() {
         strategy="afterInteractive"
         onLoad={initAutocomplete}
       />
-
-      {/* Fix Google autocomplete dropdown z-index so it appears above the map */}
       <style>{`
-        .pac-container { z-index: 9999 !important; }
+        .pac-container { z-index: 9999 !important; font-family: 'DM Sans', sans-serif !important; }
         @keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }
+        input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
       `}</style>
 
       <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111' }}>
@@ -292,30 +353,32 @@ function FullMapInner() {
           <Link href="/" style={{ flexShrink: 0, marginRight: 4 }}>
             <Image
               src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=200w"
-              alt="Disco Cater"
-              width={100}
-              height={26}
+              alt="Disco Cater" width={100} height={26}
               style={{ objectFit: 'contain', display: 'block' }}
             />
           </Link>
 
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
 
-          <button style={fbStyle(stageFilter === 'all')} onClick={() => setStageFilter('all')}>All</button>
-          <button style={fbStyle(stageFilter === 'disco')} onClick={() => setStageFilter('disco')}>🪩 Premium</button>
+          {/* All / Premium use gradient style */}
+          <button style={gradientPillStyle(stageFilter === 'all')} onClick={() => setStageFilter('all')}>All</button>
+          <button style={gradientPillStyle(stageFilter === 'disco')} onClick={() => setStageFilter('disco')}>🪩 Premium</button>
 
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
 
-          <button style={fbStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All Cuisines</button>
+          {/* CHANGE 2: cuisine pills use black when active */}
+          <button style={pillStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All Cuisines</button>
+          {/* CHANGE 3: topCuisines is now top 12 */}
           {topCuisines.map(c => (
-            <button key={c} style={fbStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>
+            <button key={c} style={pillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>
           ))}
+
+          <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
 
           {/* Login button */}
           <a
             href="https://www.familymeal.com/?action=signIn"
-            target="_blank"
-            rel="noopener noreferrer"
+            target="_blank" rel="noopener noreferrer"
             style={{
               marginLeft: 'auto', flexShrink: 0,
               display: 'flex', alignItems: 'center', gap: 6,
@@ -327,8 +390,7 @@ function FullMapInner() {
             }}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-              <circle cx="12" cy="7" r="4"/>
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
             </svg>
             Log In
           </a>
@@ -348,7 +410,6 @@ function FullMapInner() {
                 </div>
                 <button onClick={() => setChatOpen(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
               </div>
-
               <div style={{ flex: 1, overflowY: 'auto', padding: '12px 10px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {chatMessages.map((msg, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 6 }}>
@@ -379,7 +440,6 @@ function FullMapInner() {
                 )}
                 <div ref={chatBottomRef} />
               </div>
-
               {chatMessages.length <= 1 && (
                 <div style={{ padding: '8px 10px 4px', background: '#fafafa', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {['Birthday party for 20 🎂', 'Office lunch for 50 💼', 'Vegetarian options 🥗', 'Last-minute catering ⚡'].map(chip => (
@@ -387,7 +447,6 @@ function FullMapInner() {
                   ))}
                 </div>
               )}
-
               <div style={{ padding: '10px', background: '#fff', borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8 }}>
                 <input
                   value={chatInput}
@@ -397,8 +456,7 @@ function FullMapInner() {
                   style={{ flex: 1, padding: '9px 12px', borderRadius: 20, border: '1.5px solid #e8e8e8', fontSize: 12.5, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fafafa', color: '#111' }}
                 />
                 <button
-                  onClick={sendChat}
-                  disabled={chatLoading || !chatInput.trim()}
+                  onClick={sendChat} disabled={chatLoading || !chatInput.trim()}
                   style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: GRADIENT, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
@@ -413,8 +471,7 @@ function FullMapInner() {
               <div style={{ position: 'relative' }}>
                 <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#bbb', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
+                  value={search} onChange={e => setSearch(e.target.value)}
                   placeholder="Search restaurants…"
                   style={{ width: '100%', padding: '9px 10px 9px 32px', borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fafafa', color: '#111', fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }}
                 />
@@ -434,12 +491,8 @@ function FullMapInner() {
               {filtered.map((r, i) => (
                 <div
                   key={r._id}
-                  onClick={() => {
-                    setActiveId(r._id)
-                    map.current?.flyTo({ center: [r.lng, r.lat], zoom: 12, speed: 0.8 })
-                    setTimeout(() => markersRef.current[r._id]?.togglePopup(), 500)
-                    setProximityAnchor({ lat: r.lat, lng: r.lng })
-                  }}
+                  // CHANGE 1: use handleSidebarClick for instant zoom + popup
+                  onClick={() => handleSidebarClick(r)}
                   style={{
                     display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74,
                     borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`,
@@ -475,50 +528,73 @@ function FullMapInner() {
           {/* ── Map container ── */}
           <div style={{ flex: 1, position: 'relative' }}>
 
-            {/* Address search — top left of map */}
-            <form
-              onSubmit={doLocSearch}
-              style={{
-                position: 'absolute', top: 12, left: 12, zIndex: 10,
-                display: 'flex', alignItems: 'stretch', // ← FIX 1: stretch makes Go button fill full height
-                background: '#fff', borderRadius: 10, overflow: 'hidden',
-                boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: '1.5px solid #e8e8e8',
-              }}
-            >
-              <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
-                  <circle cx="12" cy="9" r="2.5"/>
-                </svg>
-              </div>
-              {/* FIX 2: ref attached for Google Places autocomplete suggestions */}
-              <input
-                ref={locInputRef}
-                value={locInput}
-                onChange={e => { setLocInput(e.target.value); setLocError('') }}
-                placeholder="Search by location…"
+            {/* Search controls row — top left of map */}
+            <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', gap: 8, alignItems: 'stretch' }}>
+
+              {/* Location search */}
+              <form
+                onSubmit={doLocSearch}
                 style={{
-                  padding: '9px 4px', fontSize: 12.5, border: 'none', outline: 'none',
-                  background: 'transparent', color: '#111', width: 190,
-                  fontFamily: "'DM Sans',sans-serif",
-                }}
-              />
-              <button
-                type="submit"
-                disabled={locLoading}
-                style={{
-                  // FIX 1: no padding top/bottom — alignItems:stretch on parent fills height automatically
-                  padding: '0 14px', border: 'none', cursor: 'pointer',
-                  background: GRADIENT, color: '#fff', fontSize: 11,
-                  fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
+                  display: 'flex', alignItems: 'stretch',
+                  background: '#fff', borderRadius: 10, overflow: 'hidden',
+                  boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: '1.5px solid #e8e8e8',
                 }}
               >
-                {locLoading ? '...' : 'Go'}
-              </button>
-            </form>
+                <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+                    <circle cx="12" cy="9" r="2.5"/>
+                  </svg>
+                </div>
+                <input
+                  ref={locInputRef}
+                  value={locInput}
+                  onChange={e => { setLocInput(e.target.value); setLocError('') }}
+                  placeholder="Search by location…"
+                  style={{ padding: '9px 4px', fontSize: 12.5, border: 'none', outline: 'none', background: 'transparent', color: '#111', width: 190, fontFamily: "'DM Sans',sans-serif" }}
+                />
+                <button
+                  type="submit" disabled={locLoading}
+                  style={{ padding: '0 14px', border: 'none', cursor: 'pointer', background: GRADIENT, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}
+                >
+                  {locLoading ? '...' : 'Go'}
+                </button>
+              </form>
+
+              {/* CHANGE 5: Order date/time picker */}
+              <div style={{
+                display: 'flex', alignItems: 'stretch',
+                background: '#fff', borderRadius: 10, overflow: 'hidden',
+                boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: `1.5px solid ${orderDateTime ? '#6B6EF9' : '#e8e8e8'}`,
+              }}>
+                <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={orderDateTime ? '#6B6EF9' : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                  </svg>
+                </div>
+                <input
+                  type="datetime-local"
+                  value={orderDateTime}
+                  onChange={e => setOrderDateTime(e.target.value)}
+                  min={new Date().toISOString().slice(0, 16)}
+                  style={{
+                    padding: '9px 4px', fontSize: 12, border: 'none', outline: 'none',
+                    background: 'transparent', color: orderDateTime ? '#111' : '#aaa',
+                    fontFamily: "'DM Sans',sans-serif", cursor: 'pointer', width: 180,
+                  }}
+                />
+                {orderDateTime && (
+                  <button
+                    onClick={() => setOrderDateTime('')}
+                    style={{ padding: '0 10px', border: 'none', background: 'none', cursor: 'pointer', color: '#bbb', fontSize: 16, flexShrink: 0 }}
+                    title="Clear date"
+                  >×</button>
+                )}
+              </div>
+            </div>
 
             {locError && (
-              <div style={{ position: 'absolute', top: 52, left: 12, zIndex: 10, background: '#fff', border: '1px solid #f0c0c8', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#F0468A', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+              <div style={{ position: 'absolute', top: 56, left: 12, zIndex: 10, background: '#fff', border: '1px solid #f0c0c8', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#F0468A', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
                 {locError}
               </div>
             )}
@@ -534,8 +610,7 @@ function FullMapInner() {
                 background: GRADIENT, cursor: 'pointer',
                 boxShadow: '0 4px 20px rgba(107,110,249,0.45)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'transform 0.15s, box-shadow 0.15s',
-                fontSize: 24,
+                transition: 'transform 0.15s', fontSize: 24,
               }}
               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.1)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)' }}
