@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -23,7 +23,7 @@ type Restaurant = {
   description?: string
 }
 
-export default function FullMapPage() {
+function FullMapInner() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({})
@@ -327,5 +327,13 @@ export default function FullMapPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function FullMapPage() {
+  return (
+    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'DM Sans, sans-serif', color: '#999' }}>Loading map…</div>}>
+      <FullMapInner />
+    </Suspense>
   )
 }
