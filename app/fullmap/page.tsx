@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import Script from 'next/script'  // ← CHANGE 4: for Google Maps script
+import Script from 'next/script'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
@@ -11,7 +11,6 @@ mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
 
-// ─── CHANGE 5: Haversine helper for proximity filtering ───────────────────────
 function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 3958.8
   const dLat = ((lat2 - lat1) * Math.PI) / 180
@@ -24,7 +23,6 @@ function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-// ─── CHANGE 5: Chat message type ──────────────────────────────────────────────
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
 type Restaurant = {
@@ -45,9 +43,8 @@ function FullMapInner() {
   const map = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({})
   const searchParams = useSearchParams()
-  const autocompleteRef = useRef<any>(null)      // ← CHANGE 4: Google autocomplete instance
-  const locInputRef = useRef<HTMLInputElement>(null) // ← CHANGE 4: ref for autocomplete input
-  const chatBottomRef = useRef<HTMLDivElement>(null) // ← CHANGE 5: chat scroll anchor
+  const locInputRef = useRef<HTMLInputElement>(null)
+  const chatBottomRef = useRef<HTMLDivElement>(null)
 
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [filtered, setFiltered] = useState<Restaurant[]>([])
@@ -56,31 +53,26 @@ function FullMapInner() {
   const [cuisineFilter, setCuisineFilter] = useState('all')
   const [activeId, setActiveId] = useState<string | null>(null)
 
-  // Address search state (top-left of map)
   const [locInput, setLocInput] = useState('')
   const [locLoading, setLocLoading] = useState(false)
   const [locError, setLocError] = useState('')
 
-  // ─── CHANGE 3: anchor point for proximity filtering ───────────────────────
   const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
-  const PROXIMITY_MILES = 25  // show restaurants within this radius
+  const PROXIMITY_MILES = 25
 
-  // ─── CHANGE 5: chat state ─────────────────────────────────────────────────
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { role: 'assistant', content: "Hi! I'm Disco 🤖 Tell me about your event and I'll find the perfect catering for you!\n\nTry: *\"Birthday party for 20 people\"* or *\"Office lunch, need vegetarian options\"*" }
+    { role: 'assistant', content: "Hi! I'm Disco 🤖 Tell me about your event and I'll find the perfect catering for you!\n\nTry: \"Birthday party for 20 people\" or \"Office lunch, need vegetarian options\"" }
   ])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
 
-  // Fetch restaurants
   useEffect(() => {
     fetch('/api/restaurants')
       .then(r => r.json())
       .then(data => { setRestaurants(data); setFiltered(data) })
   }, [])
 
-  // Init map
   useEffect(() => {
     if (map.current || !mapContainer.current) return
     map.current = new mapboxgl.Map({
@@ -96,13 +88,12 @@ function FullMapInner() {
     if (lat && lng) {
       map.current.on('load', () => {
         map.current?.flyTo({ center: [parseFloat(lng), parseFloat(lat)], zoom: 11, speed: 1.2 })
-        // ─── CHANGE 3: set proximity anchor from URL params ───────────────
         setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lng) })
       })
     }
   }, [searchParams])
 
-  // ─── CHANGE 4: Init Google Maps autocomplete once script loads ─────────────
+  // Init Google Maps Places autocomplete
   const initAutocomplete = useCallback(() => {
     if (!locInputRef.current || !(window as any).google) return
     const ac = new (window as any).google.maps.places.Autocomplete(locInputRef.current, {
@@ -117,13 +108,11 @@ function FullMapInner() {
       setLocInput(place.formatted_address || place.name || '')
       setLocError('')
       map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 1.2 })
-      // ─── CHANGE 3: update proximity anchor when location is picked ────
       setProximityAnchor({ lat, lng })
     })
-    autocompleteRef.current = ac
   }, [])
 
-  // ─── CHANGE 3: filter sidebar by proximity whenever anchor changes ─────────
+  // Filter + proximity
   useEffect(() => {
     let out = restaurants
     if (stageFilter === 'disco') out = out.filter(r => r.isDisco)
@@ -136,11 +125,10 @@ function FullMapInner() {
         r.cuisine.toLowerCase().includes(q)
       )
     }
-    // ─── CHANGE 3: apply proximity filter if anchor is set ────────────────
     if (proximityAnchor) {
       out = out
         .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor.lat, proximityAnchor.lng, r.lat, r.lng) }))
-        .filter(r => r._dist <= PROXIMITY_MILES)
+        .filter((r: any) => r._dist <= PROXIMITY_MILES)
         .sort((a: any, b: any) => a._dist - b._dist)
     }
     setFiltered(out)
@@ -193,7 +181,6 @@ function FullMapInner() {
         mkDiv.style.background = GRADIENT
         mkDiv.style.transform = 'scale(1.2)'
         map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 11), speed: 0.8 })
-        // ─── CHANGE 3: set proximity anchor when marker is clicked ────────
         setProximityAnchor({ lat: r.lat, lng: r.lng })
       })
 
@@ -212,7 +199,7 @@ function FullMapInner() {
     })
   }, [filtered])
 
-  // ─── CHANGE 4 (fallback): manual Nominatim search if user hits "Go" without picking autocomplete ─
+  // Fallback manual search (if user hits Go without picking autocomplete suggestion)
   async function doLocSearch(e: React.FormEvent) {
     e.preventDefault()
     if (!locInput.trim()) return
@@ -238,12 +225,10 @@ function FullMapInner() {
     }
   }
 
-  // ─── CHANGE 5: scroll chat to bottom on new messages ──────────────────────
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
 
-  // ─── CHANGE 5: send chat message via /api/chat ────────────────────────────
   async function sendChat() {
     if (!chatInput.trim() || chatLoading) return
     const userMsg: ChatMessage = { role: 'user', content: chatInput }
@@ -251,7 +236,6 @@ function FullMapInner() {
     setChatMessages(next)
     setChatInput('')
     setChatLoading(true)
-
     try {
       const res = await fetch('/api/disco-chat', {
         method: 'POST',
@@ -277,27 +261,29 @@ function FullMapInner() {
   restaurants.forEach(r => { cuisineCounts[r.cuisine] = (cuisineCounts[r.cuisine] || 0) + 1 })
   const topCuisines = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 7).map(e => e[0])
 
-  // ─── CHANGE 1: fixed pill button style — added overflow:'hidden' ──────────
   const fbStyle = (active: boolean): React.CSSProperties => ({
-    padding: '5px 12px',
-    borderRadius: 20,
-    overflow: 'hidden',            // ← FIX: clips bg color to rounded edges
+    padding: '5px 12px', borderRadius: 20,
+    overflow: 'hidden',
     border: `1.5px solid ${active ? 'transparent' : '#e8e8e8'}`,
     background: active ? GRADIENT : '#fff',
     color: active ? '#fff' : '#555',
     fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
-    WebkitBackgroundClip: active ? 'padding-box' : undefined, // ← FIX: ensures gradient stays inside border
   })
 
   return (
     <>
-      {/* ─── CHANGE 4: Load Google Maps Places script ──────────────────────── */}
       <Script
         src={`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`}
         strategy="afterInteractive"
         onLoad={initAutocomplete}
       />
+
+      {/* Fix Google autocomplete dropdown z-index so it appears above the map */}
+      <style>{`
+        .pac-container { z-index: 9999 !important; }
+        @keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }
+      `}</style>
 
       <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111' }}>
 
@@ -325,28 +311,19 @@ function FullMapInner() {
             <button key={c} style={fbStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>
           ))}
 
-          {/* ─── CHANGE 2: Login button ───────────────────────────────────── */}
+          {/* Login button */}
           <a
             href="https://www.familymeal.com/?action=signIn"
             target="_blank"
             rel="noopener noreferrer"
             style={{
-              marginLeft: 'auto',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '6px 14px',
-              borderRadius: 20,
-              border: '1.5px solid #e8e8e8',
-              background: '#fff',
-              color: '#111',
-              fontSize: 11,
-              fontWeight: 600,
+              marginLeft: 'auto', flexShrink: 0,
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', borderRadius: 20,
+              border: '1.5px solid #e8e8e8', background: '#fff',
+              color: '#111', fontSize: 11, fontWeight: 600,
               fontFamily: "'DM Sans',sans-serif",
-              textDecoration: 'none',
-              whiteSpace: 'nowrap',
-              cursor: 'pointer',
+              textDecoration: 'none', whiteSpace: 'nowrap',
             }}
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -360,56 +337,34 @@ function FullMapInner() {
         {/* ── Main ── */}
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-          {/* ─── CHANGE 5: AI Chat panel (slides in to the left of sidebar) ── */}
+          {/* ── AI Chat panel ── */}
           {chatOpen && (
-            <div style={{
-              width: 320, minWidth: 320,
-              display: 'flex', flexDirection: 'column',
-              borderRight: '1px solid #f0f0f0',
-              background: '#fff',
-            }}>
-              {/* Chat header */}
-              <div style={{
-                padding: '12px 14px', borderBottom: '1px solid #f0f0f0',
-                background: GRADIENT, display: 'flex', alignItems: 'center', gap: 10,
-              }}>
+            <div style={{ width: 320, minWidth: 320, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fff' }}>
+              <div style={{ padding: '12px 14px', borderBottom: '1px solid #f0f0f0', background: GRADIENT, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ fontSize: 22 }}>🤖</div>
                 <div>
                   <div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>Disco AI</div>
                   <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>Catering Assistant</div>
                 </div>
-                <button
-                  onClick={() => setChatOpen(false)}
-                  style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)', fontSize: 18, lineHeight: 1, padding: 0 }}
-                >×</button>
+                <button onClick={() => setChatOpen(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
               </div>
 
-              {/* Messages */}
               <div style={{ flex: 1, overflowY: 'auto', padding: '12px 10px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {chatMessages.map((msg, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 6 }}>
                     {msg.role === 'assistant' && (
-                      <div style={{
-                        width: 26, height: 26, borderRadius: '50%', background: GRADIENT,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 13, flexShrink: 0, marginBottom: 2,
-                      }}>🤖</div>
+                      <div style={{ width: 26, height: 26, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0, marginBottom: 2 }}>🤖</div>
                     )}
                     <div style={{
-                      maxWidth: '82%',
-                      padding: '9px 12px',
+                      maxWidth: '82%', padding: '9px 12px',
                       borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
                       background: msg.role === 'user' ? GRADIENT : '#fff',
                       color: msg.role === 'user' ? '#fff' : '#111',
-                      fontSize: 12.5,
-                      lineHeight: 1.55,
+                      fontSize: 12.5, lineHeight: 1.55,
                       boxShadow: msg.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
                       border: msg.role === 'assistant' ? '1px solid #f0f0f0' : 'none',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                    }}>
-                      {msg.content}
-                    </div>
+                      whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    }}>{msg.content}</div>
                   </div>
                 ))}
                 {chatLoading && (
@@ -417,13 +372,7 @@ function FullMapInner() {
                     <div style={{ width: 26, height: 26, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🤖</div>
                     <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '16px 16px 16px 4px', padding: '10px 14px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {[0, 150, 300].map(delay => (
-                          <div key={delay} style={{
-                            width: 6, height: 6, borderRadius: '50%', background: '#ccc',
-                            animation: 'bounce 1s infinite',
-                            animationDelay: `${delay}ms`,
-                          }} />
-                        ))}
+                        {[0, 150, 300].map(d => <div key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}
                       </div>
                     </div>
                   </div>
@@ -431,50 +380,30 @@ function FullMapInner() {
                 <div ref={chatBottomRef} />
               </div>
 
-              {/* Suggestion chips */}
               {chatMessages.length <= 1 && (
                 <div style={{ padding: '8px 10px 4px', background: '#fafafa', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {['Birthday party for 20 🎂', 'Office lunch for 50 💼', 'Need vegetarian options 🥗', 'Last-minute catering ⚡'].map(chip => (
-                    <button key={chip} onClick={() => setChatInput(chip)} style={{
-                      fontSize: 11, padding: '4px 10px', borderRadius: 12,
-                      border: '1.5px solid #e8e8e8', background: '#fff',
-                      color: '#555', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif",
-                    }}>{chip}</button>
+                  {['Birthday party for 20 🎂', 'Office lunch for 50 💼', 'Vegetarian options 🥗', 'Last-minute catering ⚡'].map(chip => (
+                    <button key={chip} onClick={() => setChatInput(chip)} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 12, border: '1.5px solid #e8e8e8', background: '#fff', color: '#555', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>{chip}</button>
                   ))}
                 </div>
               )}
 
-              {/* Input */}
               <div style={{ padding: '10px', background: '#fff', borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8 }}>
                 <input
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && sendChat()}
                   placeholder="Ask about catering…"
-                  style={{
-                    flex: 1, padding: '9px 12px', borderRadius: 20,
-                    border: '1.5px solid #e8e8e8', fontSize: 12.5,
-                    fontFamily: "'DM Sans',sans-serif", outline: 'none',
-                    background: '#fafafa', color: '#111',
-                  }}
+                  style={{ flex: 1, padding: '9px 12px', borderRadius: 20, border: '1.5px solid #e8e8e8', fontSize: 12.5, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fafafa', color: '#111' }}
                 />
                 <button
                   onClick={sendChat}
                   disabled={chatLoading || !chatInput.trim()}
-                  style={{
-                    width: 36, height: 36, borderRadius: '50%', border: 'none',
-                    background: GRADIENT, cursor: 'pointer', display: 'flex',
-                    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1,
-                  }}
+                  style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: GRADIENT, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>
-                  </svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
                 </button>
               </div>
-
-              <style>{`@keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }`}</style>
             </div>
           )}
 
@@ -493,16 +422,10 @@ function FullMapInner() {
             </div>
             <div style={{ padding: '6px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
               {filtered.length} restaurants
-              {/* ─── CHANGE 3: show proximity badge + clear button ─────────── */}
               {proximityAnchor && (
                 <>
-                  <span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600 }}>
-                    📍 Nearby ({PROXIMITY_MILES}mi)
-                  </span>
-                  <button
-                    onClick={() => setProximityAnchor(null)}
-                    style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
-                  >clear</button>
+                  <span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600 }}>📍 Nearby ({PROXIMITY_MILES}mi)</span>
+                  <button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>clear</button>
                 </>
               )}
             </div>
@@ -515,7 +438,6 @@ function FullMapInner() {
                     setActiveId(r._id)
                     map.current?.flyTo({ center: [r.lng, r.lat], zoom: 12, speed: 0.8 })
                     setTimeout(() => markersRef.current[r._id]?.togglePopup(), 500)
-                    // ─── CHANGE 3: clicking a sidebar item also sets anchor ─
                     setProximityAnchor({ lat: r.lat, lng: r.lng })
                   }}
                   style={{
@@ -558,18 +480,18 @@ function FullMapInner() {
               onSubmit={doLocSearch}
               style={{
                 position: 'absolute', top: 12, left: 12, zIndex: 10,
-                display: 'flex', alignItems: 'center', gap: 0,
+                display: 'flex', alignItems: 'stretch', // ← FIX 1: stretch makes Go button fill full height
                 background: '#fff', borderRadius: 10, overflow: 'hidden',
                 boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: '1.5px solid #e8e8e8',
               }}
             >
-              <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0 }}>
+              <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
                   <circle cx="12" cy="9" r="2.5"/>
                 </svg>
               </div>
-              {/* ─── CHANGE 4: ref attached so Google autocomplete targets this input ── */}
+              {/* FIX 2: ref attached for Google Places autocomplete suggestions */}
               <input
                 ref={locInputRef}
                 value={locInput}
@@ -585,7 +507,8 @@ function FullMapInner() {
                 type="submit"
                 disabled={locLoading}
                 style={{
-                  padding: '8px 14px', border: 'none', cursor: 'pointer',
+                  // FIX 1: no padding top/bottom — alignItems:stretch on parent fills height automatically
+                  padding: '0 14px', border: 'none', cursor: 'pointer',
                   background: GRADIENT, color: '#fff', fontSize: 11,
                   fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
                 }}
@@ -593,6 +516,7 @@ function FullMapInner() {
                 {locLoading ? '...' : 'Go'}
               </button>
             </form>
+
             {locError && (
               <div style={{ position: 'absolute', top: 52, left: 12, zIndex: 10, background: '#fff', border: '1px solid #f0c0c8', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#F0468A', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
                 {locError}
@@ -601,13 +525,14 @@ function FullMapInner() {
 
             <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
 
-            {/* ─── CHANGE 5: Floating Disco robot button ───────────────────── */}
+            {/* Floating Disco robot button */}
             <button
               onClick={() => setChatOpen(o => !o)}
               style={{
                 position: 'absolute', bottom: 24, right: 24, zIndex: 20,
                 width: 52, height: 52, borderRadius: '50%', border: 'none',
-                background: GRADIENT, cursor: 'pointer', boxShadow: '0 4px 20px rgba(107,110,249,0.45)',
+                background: GRADIENT, cursor: 'pointer',
+                boxShadow: '0 4px 20px rgba(107,110,249,0.45)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'transform 0.15s, box-shadow 0.15s',
                 fontSize: 24,
@@ -617,13 +542,8 @@ function FullMapInner() {
               title="Ask Disco AI"
             >
               🤖
-              {/* Green "online" dot */}
               {!chatOpen && (
-                <div style={{
-                  position: 'absolute', top: 3, right: 3,
-                  width: 11, height: 11, borderRadius: '50%',
-                  background: '#22c55e', border: '2px solid #fff',
-                }} />
+                <div style={{ position: 'absolute', top: 3, right: 3, width: 11, height: 11, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />
               )}
             </button>
           </div>
