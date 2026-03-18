@@ -58,8 +58,7 @@ function FullMapInner() {
   const [locInput, setLocInput] = useState('')
   const [locLoading, setLocLoading] = useState(false)
   const [locError, setLocError] = useState('')
-
-  const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
+  const [showLocModal, setShowLocModal] = useState(false), setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
   const PROXIMITY_MILES = 25
 
   // CHANGE 5: order date/time filter
@@ -72,17 +71,24 @@ function FullMapInner() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
 
-  // CHANGE 4: geolocation prompt on mount
-  useEffect(() => {
+  function requestLocation() {
+    setShowLocModal(false)
     if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords
         setProximityAnchor({ lat, lng })
-        map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 1.2 })
+        // CHANGE 4: instant jump with speed:3
+        map.current?.flyTo({ center: [lng, lat], zoom: 12, speed: 3, essential: true })
       },
-      () => { /* user denied — silently ignore */ }
+      () => { /* denied — ignore */ }
     )
+  }
+
+  // CHANGE 3: show location modal after map loads
+  useEffect(() => {
+    const t = setTimeout(() => setShowLocModal(true), 800)
+    return () => clearTimeout(t)
   }, [])
 
   useEffect(() => {
@@ -185,9 +191,25 @@ function FullMapInner() {
       mkDiv.textContent = String(i + 1)
       el.appendChild(mkDiv)
 
-      const popup = new mapboxgl.Popup({ offset: 15, closeButton: true, maxWidth: '290px' })
+  // CHANGE 1+2: popup HTML with clear X button, offset pushes popup above the marker
+      const popup = new mapboxgl.Popup({
+        offset: [0, -44],       // CHANGE 1: popup appears above the number dot
+        closeButton: false,     // CHANGE 2: we render our own X button inside
+        closeOnClick: false,
+        maxWidth: '290px',
+        className: 'disco-popup',
+      })
         .setHTML(`
-          <div style="font-family:'DM Sans',sans-serif;width:270px;border-radius:12px;overflow:hidden">
+          <div style="font-family:'DM Sans',sans-serif;width:270px;border-radius:12px;overflow:hidden;position:relative;box-shadow:0 4px 24px rgba(0,0,0,0.13)">
+            <!-- CHANGE 2: custom X button -->
+            <button onclick="this.closest('.mapboxgl-popup').remove()" style="
+              position:absolute;top:8px;right:8px;z-index:10;
+              width:26px;height:26px;border-radius:50%;
+              background:rgba(0,0,0,0.55);color:#fff;border:none;
+              font-size:14px;font-weight:700;cursor:pointer;
+              display:flex;align-items:center;justify-content:center;
+              line-height:1;backdrop-filter:blur(4px);
+            ">×</button>
             ${r.image ? `<div style="height:140px;overflow:hidden"><img src="${r.image}" style="width:100%;height:100%;object-fit:cover"/></div>` : ''}
             <div style="padding:14px 16px 16px">
               <div style="font-size:14px;font-weight:700;margin-bottom:2px;color:#111">✦ ${r.name}${r.isDisco ? ' 🪩' : ''}</div>
@@ -312,24 +334,18 @@ function FullMapInner() {
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
   })
 
-  // CHANGE 1: sidebar click handler — fly instantly and open popup immediately
+  // CHANGE 4: instant flyTo on sidebar click
   function handleSidebarClick(r: Restaurant) {
-    // Close any open popups first
     Object.values(popupsRef.current).forEach(p => p.remove())
-
     setActiveId(r._id)
     setProximityAnchor({ lat: r.lat, lng: r.lng })
-
     if (!map.current) return
-
-    // flyTo then open popup once map settles
-    map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 1.6 })
+    // speed:3 + essential:true makes it feel instant
+    map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true })
     map.current.once('moveend', () => {
       const marker = markersRef.current[r._id]
       const popup = popupsRef.current[r._id]
-      if (marker && popup && !popup.isOpen()) {
-        marker.togglePopup()
-      }
+      if (marker && popup && !popup.isOpen()) marker.togglePopup()
     })
   }
 
@@ -343,8 +359,55 @@ function FullMapInner() {
       <style>{`
         .pac-container { z-index: 9999 !important; font-family: 'DM Sans', sans-serif !important; }
         @keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
         input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
+        /* CHANGE 1+2: hide default mapbox popup chrome, we style it ourselves */
+        .disco-popup .mapboxgl-popup-content { padding:0; border-radius:12px; overflow:hidden; box-shadow:none; }
+        .disco-popup .mapboxgl-popup-tip { display:none; }
       `}</style>
+
+      {/* CHANGE 3: Custom location permission modal */}
+      {showLocModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 20, padding: '32px 28px', maxWidth: 360, width: '90%',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+            animation: 'fadeUp 0.25s ease',
+            textAlign: 'center', fontFamily: "'DM Sans',sans-serif",
+          }}>
+            <div style={{ fontSize: 44, marginBottom: 12 }}>📍</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#111', marginBottom: 8 }}>Find catering near you</div>
+            <div style={{ fontSize: 13, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>
+              Share your location to instantly see restaurants that can cater near you.
+            </div>
+            <button
+              onClick={requestLocation}
+              style={{
+                width: '100%', padding: '13px', borderRadius: 12, border: 'none',
+                background: GRADIENT, color: '#fff', fontSize: 13, fontWeight: 700,
+                cursor: 'pointer', marginBottom: 10, fontFamily: "'DM Sans',sans-serif",
+              }}
+            >
+              Share my location
+            </button>
+            <button
+              onClick={() => setShowLocModal(false)}
+              style={{
+                width: '100%', padding: '11px', borderRadius: 12,
+                border: '1.5px solid #e8e8e8', background: '#fff',
+                color: '#888', fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', fontFamily: "'DM Sans',sans-serif",
+              }}
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111' }}>
 
