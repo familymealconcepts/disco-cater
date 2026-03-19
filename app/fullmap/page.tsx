@@ -36,14 +36,14 @@ type Restaurant = {
   orderUrl: string
   image?: string
   description?: string
-  availableDays?: string[] // e.g. ['monday','tuesday',...] — optional field from Sanity
+  availableDays?: string[]
 }
 
 function FullMapInner() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
   const markersRef = useRef<{ [id: string]: mapboxgl.Marker }>({})
-  const popupsRef = useRef<{ [id: string]: mapboxgl.Popup }>({})   // CHANGE 1: store popups separately
+  const popupsRef = useRef<{ [id: string]: mapboxgl.Popup }>({})
   const searchParams = useSearchParams()
   const locInputRef = useRef<HTMLInputElement>(null)
   const chatBottomRef = useRef<HTMLDivElement>(null)
@@ -54,17 +54,13 @@ function FullMapInner() {
   const [stageFilter, setStageFilter] = useState<'all' | 'disco'>('all')
   const [cuisineFilter, setCuisineFilter] = useState('all')
   const [activeId, setActiveId] = useState<string | null>(null)
-
   const [locInput, setLocInput] = useState('')
   const [locLoading, setLocLoading] = useState(false)
   const [locError, setLocError] = useState('')
   const [showLocModal, setShowLocModal] = useState(false)
   const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
   const PROXIMITY_MILES = 25
-
-  // CHANGE 5: order date/time filter
   const [orderDateTime, setOrderDateTime] = useState('')
-
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: "Hi! I'm Disco 🤖 Tell me about your event and I'll find the perfect catering for you!\n\nTry: \"Birthday party for 20 people\" or \"Office lunch, need vegetarian options\"" }
@@ -72,6 +68,13 @@ function FullMapInner() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
 
+  // Show location modal after map loads
+  useEffect(() => {
+    const t = setTimeout(() => setShowLocModal(true), 800)
+    return () => clearTimeout(t)
+  }, [])
+
+  // FIX 2: requestLocation now sets proximityAnchor so sidebar filters
   function requestLocation() {
     setShowLocModal(false)
     if (!navigator.geolocation) return
@@ -79,18 +82,11 @@ function FullMapInner() {
       (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords
         setProximityAnchor({ lat, lng })
-        // CHANGE 4: instant jump with speed:3
         map.current?.flyTo({ center: [lng, lat], zoom: 12, speed: 3, essential: true })
       },
-      () => { /* denied — ignore */ }
+      () => { /* denied */ }
     )
   }
-
-  // CHANGE 3: show location modal after map loads
-  useEffect(() => {
-    const t = setTimeout(() => setShowLocModal(true), 800)
-    return () => clearTimeout(t)
-  }, [])
 
   useEffect(() => {
     fetch('/api/restaurants')
@@ -107,7 +103,6 @@ function FullMapInner() {
       zoom: 3.5,
     })
     map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-right')
-
     const lat = searchParams.get('lat')
     const lng = searchParams.get('lng')
     if (lat && lng) {
@@ -131,12 +126,12 @@ function FullMapInner() {
       const lng = place.geometry.location.lng()
       setLocInput(place.formatted_address || place.name || '')
       setLocError('')
-      map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 1.2 })
+      map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 3, essential: true })
       setProximityAnchor({ lat, lng })
     })
   }, [])
 
-  // Filter logic — includes proximity + date filter
+  // Filter + proximity
   useEffect(() => {
     let out = restaurants
     if (stageFilter === 'disco') out = out.filter(r => r.isDisco)
@@ -155,7 +150,6 @@ function FullMapInner() {
         .filter((r: any) => r._dist <= PROXIMITY_MILES)
         .sort((a: any, b: any) => a._dist - b._dist)
     }
-    // CHANGE 5: filter by order date — only if restaurant has availableDays data
     if (orderDateTime) {
       const dayName = new Date(orderDateTime).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()
       out = out.filter((r: any) =>
@@ -165,7 +159,14 @@ function FullMapInner() {
     setFiltered(out)
   }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor, orderDateTime])
 
-  // Update markers — CHANGE 1: store popup in popupsRef so sidebar click can open it
+  // FIX 1: helper to close ALL open popups
+  function closeAllPopups() {
+    Object.values(popupsRef.current).forEach(p => {
+      if (p.isOpen()) p.remove()
+    })
+  }
+
+  // Update markers
   useEffect(() => {
     if (!map.current) return
     const visibleIds = new Set(filtered.map(r => r._id))
@@ -192,49 +193,45 @@ function FullMapInner() {
       mkDiv.textContent = String(i + 1)
       el.appendChild(mkDiv)
 
-  // CHANGE 1+2: popup HTML with clear X button, offset pushes popup above the marker
       const popup = new mapboxgl.Popup({
-        offset: [0, -44],       // CHANGE 1: popup appears above the number dot
-        closeButton: false,     // CHANGE 2: we render our own X button inside
+        offset: [0, -44],
+        closeButton: false,
         closeOnClick: false,
         maxWidth: '290px',
         className: 'disco-popup',
-      })
-        .setHTML(`
-          <div style="font-family:'DM Sans',sans-serif;width:270px;border-radius:12px;overflow:hidden;position:relative;box-shadow:0 4px 24px rgba(0,0,0,0.13)">
-            <!-- CHANGE 2: custom X button -->
-            <button onclick="this.closest('.mapboxgl-popup').remove()" style="
-              position:absolute;top:8px;right:8px;z-index:10;
-              width:26px;height:26px;border-radius:50%;
-              background:rgba(0,0,0,0.55);color:#fff;border:none;
-              font-size:14px;font-weight:700;cursor:pointer;
-              display:flex;align-items:center;justify-content:center;
-              line-height:1;backdrop-filter:blur(4px);
-            ">×</button>
-            ${r.image ? `<div style="height:140px;overflow:hidden"><img src="${r.image}" style="width:100%;height:100%;object-fit:cover"/></div>` : ''}
-            <div style="padding:14px 16px 16px">
-              <div style="font-size:14px;font-weight:700;margin-bottom:2px;color:#111">✦ ${r.name}${r.isDisco ? ' 🪩' : ''}</div>
-              <div style="font-size:11px;color:#999;margin-bottom:8px">${r.location}</div>
-              ${r.description ? `<div style="font-size:11.5px;color:#555;line-height:1.55;margin-bottom:10px">${r.description}</div>` : ''}
-              <div style="display:flex;gap:5px;margin-bottom:12px">
-                <span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${r.cuisine}</span>
-              </div>
-              <a href="${r.orderUrl || '#'}" target="_blank" rel="noopener"
-                style="display:block;width:100%;padding:10px 0;background:${GRADIENT};color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">
-                Order Catering →
-              </a>
+      }).setHTML(`
+        <div style="font-family:'DM Sans',sans-serif;width:270px;border-radius:12px;overflow:hidden;position:relative;box-shadow:0 4px 24px rgba(0,0,0,0.13)">
+          <button onclick="this.closest('.mapboxgl-popup').remove()" style="
+            position:absolute;top:8px;right:8px;z-index:10;
+            width:26px;height:26px;border-radius:50%;
+            background:rgba(0,0,0,0.55);color:#fff;border:none;
+            font-size:14px;font-weight:700;cursor:pointer;
+            display:flex;align-items:center;justify-content:center;
+            line-height:1;backdrop-filter:blur(4px);">×</button>
+          ${r.image ? `<div style="height:140px;overflow:hidden"><img src="${r.image}" style="width:100%;height:100%;object-fit:cover"/></div>` : ''}
+          <div style="padding:14px 16px 16px">
+            <div style="font-size:14px;font-weight:700;margin-bottom:2px;color:#111">✦ ${r.name}${r.isDisco ? ' 🪩' : ''}</div>
+            <div style="font-size:11px;color:#999;margin-bottom:8px">${r.location}</div>
+            ${r.description ? `<div style="font-size:11.5px;color:#555;line-height:1.55;margin-bottom:10px">${r.description}</div>` : ''}
+            <div style="display:flex;gap:5px;margin-bottom:12px">
+              <span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${r.cuisine}</span>
             </div>
+            <a href="${r.orderUrl || '#'}" target="_blank" rel="noopener"
+              style="display:block;width:100%;padding:10px 0;background:${GRADIENT};color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">
+              Order Catering →
+            </a>
           </div>
-        `)
+        </div>
+      `)
 
-      // Store popup reference for sidebar click
       popupsRef.current[r._id] = popup
 
       el.addEventListener('click', () => {
+        closeAllPopups() // FIX 1: close others first
         setActiveId(r._id)
         mkDiv.style.background = GRADIENT
         mkDiv.style.transform = 'scale(1.2)'
-        map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 11), speed: 0.8 })
+        map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 11), speed: 3, essential: true })
         setProximityAnchor({ lat: r.lat, lng: r.lng })
       })
 
@@ -266,7 +263,7 @@ function FullMapInner() {
       const data = await res.json()
       if (data && data[0]) {
         const { lat, lon } = data[0]
-        map.current?.flyTo({ center: [parseFloat(lon), parseFloat(lat)], zoom: 11, speed: 1.2 })
+        map.current?.flyTo({ center: [parseFloat(lon), parseFloat(lat)], zoom: 11, speed: 3, essential: true })
         setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lon) })
       } else {
         setLocError('Not found')
@@ -310,12 +307,24 @@ function FullMapInner() {
     }
   }
 
+  // FIX 1: sidebar click closes all popups before opening the selected one
+  function handleSidebarClick(r: Restaurant) {
+    closeAllPopups()
+    setActiveId(r._id)
+    setProximityAnchor({ lat: r.lat, lng: r.lng })
+    if (!map.current) return
+    map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true })
+    map.current.once('moveend', () => {
+      const marker = markersRef.current[r._id]
+      const popup = popupsRef.current[r._id]
+      if (marker && popup && !popup.isOpen()) marker.togglePopup()
+    })
+  }
+
   const cuisineCounts: Record<string, number> = {}
   restaurants.forEach(r => { cuisineCounts[r.cuisine] = (cuisineCounts[r.cuisine] || 0) + 1 })
-  // CHANGE 3: show top 12 instead of 7
   const topCuisines = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 12).map(e => e[0])
 
-  // CHANGE 2: cuisine pills — black fill when active, gradient only for All/Premium
   const pillStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
     border: `1.5px solid ${active ? '#111' : '#e8e8e8'}`,
@@ -325,7 +334,6 @@ function FullMapInner() {
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
   })
 
-  // Gradient style for All / Premium buttons only
   const gradientPillStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
     border: `1.5px solid ${active ? 'transparent' : '#e8e8e8'}`,
@@ -334,21 +342,6 @@ function FullMapInner() {
     fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
   })
-
-  // CHANGE 4: instant flyTo on sidebar click
-  function handleSidebarClick(r: Restaurant) {
-    Object.values(popupsRef.current).forEach(p => p.remove())
-    setActiveId(r._id)
-    setProximityAnchor({ lat: r.lat, lng: r.lng })
-    if (!map.current) return
-    // speed:3 + essential:true makes it feel instant
-    map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true })
-    map.current.once('moveend', () => {
-      const marker = markersRef.current[r._id]
-      const popup = popupsRef.current[r._id]
-      if (marker && popup && !popup.isOpen()) marker.togglePopup()
-    })
-  }
 
   return (
     <>
@@ -362,12 +355,11 @@ function FullMapInner() {
         @keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }
         @keyframes fadeUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
         input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
-        /* CHANGE 1+2: hide default mapbox popup chrome, we style it ourselves */
         .disco-popup .mapboxgl-popup-content { padding:0; border-radius:12px; overflow:hidden; box-shadow:none; }
         .disco-popup .mapboxgl-popup-tip { display:none; }
       `}</style>
 
-      {/* CHANGE 3: Custom location permission modal */}
+      {/* Location permission modal */}
       {showLocModal && (
         <div style={{
           position: 'fixed', inset: 0, zIndex: 1000,
@@ -375,7 +367,8 @@ function FullMapInner() {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <div style={{
-            background: '#fff', borderRadius: 20, padding: '32px 28px', maxWidth: 360, width: '90%',
+            background: '#fff', borderRadius: 20, padding: '32px 28px',
+            maxWidth: 360, width: '90%',
             boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
             animation: 'fadeUp 0.25s ease',
             textAlign: 'center', fontFamily: "'DM Sans',sans-serif",
@@ -385,25 +378,19 @@ function FullMapInner() {
             <div style={{ fontSize: 13, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>
               Share your location to instantly see restaurants that can cater near you.
             </div>
-            <button
-              onClick={requestLocation}
-              style={{
-                width: '100%', padding: '13px', borderRadius: 12, border: 'none',
-                background: GRADIENT, color: '#fff', fontSize: 13, fontWeight: 700,
-                cursor: 'pointer', marginBottom: 10, fontFamily: "'DM Sans',sans-serif",
-              }}
-            >
+            <button onClick={requestLocation} style={{
+              width: '100%', padding: '13px', borderRadius: 12, border: 'none',
+              background: GRADIENT, color: '#fff', fontSize: 13, fontWeight: 700,
+              cursor: 'pointer', marginBottom: 10, fontFamily: "'DM Sans',sans-serif",
+            }}>
               Share my location
             </button>
-            <button
-              onClick={() => setShowLocModal(false)}
-              style={{
-                width: '100%', padding: '11px', borderRadius: 12,
-                border: '1.5px solid #e8e8e8', background: '#fff',
-                color: '#888', fontSize: 13, fontWeight: 600,
-                cursor: 'pointer', fontFamily: "'DM Sans',sans-serif",
-              }}
-            >
+            <button onClick={() => setShowLocModal(false)} style={{
+              width: '100%', padding: '11px', borderRadius: 12,
+              border: '1.5px solid #e8e8e8', background: '#fff',
+              color: '#888', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', fontFamily: "'DM Sans',sans-serif",
+            }}>
               Maybe later
             </button>
           </div>
@@ -412,7 +399,7 @@ function FullMapInner() {
 
       <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111' }}>
 
-        {/* ── Top bar ── */}
+        {/* Top bar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, overflowX: 'auto', background: '#fff' }}>
           <Link href="/" style={{ flexShrink: 0, marginRight: 4 }}>
             <Image
@@ -421,25 +408,15 @@ function FullMapInner() {
               style={{ objectFit: 'contain', display: 'block' }}
             />
           </Link>
-
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
-
-          {/* All / Premium use gradient style */}
           <button style={gradientPillStyle(stageFilter === 'all')} onClick={() => setStageFilter('all')}>All</button>
           <button style={gradientPillStyle(stageFilter === 'disco')} onClick={() => setStageFilter('disco')}>🪩 Premium</button>
-
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
-
-          {/* CHANGE 2: cuisine pills use black when active */}
           <button style={pillStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All Cuisines</button>
-          {/* CHANGE 3: topCuisines is now top 12 */}
           {topCuisines.map(c => (
             <button key={c} style={pillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>
           ))}
-
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
-
-          {/* Login button */}
           <a
             href="https://www.familymeal.com/?action=signIn"
             target="_blank" rel="noopener noreferrer"
@@ -460,10 +437,10 @@ function FullMapInner() {
           </a>
         </div>
 
-        {/* ── Main ── */}
+        {/* Main */}
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-          {/* ── AI Chat panel ── */}
+          {/* AI Chat panel */}
           {chatOpen && (
             <div style={{ width: 320, minWidth: 320, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fff' }}>
               <div style={{ padding: '12px 14px', borderBottom: '1px solid #f0f0f0', background: GRADIENT, display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -519,17 +496,15 @@ function FullMapInner() {
                   placeholder="Ask about catering…"
                   style={{ flex: 1, padding: '9px 12px', borderRadius: 20, border: '1.5px solid #e8e8e8', fontSize: 12.5, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fafafa', color: '#111' }}
                 />
-                <button
-                  onClick={sendChat} disabled={chatLoading || !chatInput.trim()}
-                  style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: GRADIENT, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}
-                >
+                <button onClick={sendChat} disabled={chatLoading || !chatInput.trim()}
+                  style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: GRADIENT, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── Sidebar ── */}
+          {/* Sidebar */}
           <div style={{ width: 320, minWidth: 320, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fff' }}>
             <div style={{ padding: '10px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
               <div style={{ position: 'relative' }}>
@@ -555,7 +530,6 @@ function FullMapInner() {
               {filtered.map((r, i) => (
                 <div
                   key={r._id}
-                  // CHANGE 1: use handleSidebarClick for instant zoom + popup
                   onClick={() => handleSidebarClick(r)}
                   style={{
                     display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74,
@@ -589,21 +563,16 @@ function FullMapInner() {
             </div>
           </div>
 
-          {/* ── Map container ── */}
+          {/* Map container */}
           <div style={{ flex: 1, position: 'relative' }}>
 
-            {/* Search controls row — top left of map */}
+            {/* Search controls */}
             <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', gap: 8, alignItems: 'stretch' }}>
-
-              {/* Location search */}
-              <form
-                onSubmit={doLocSearch}
-                style={{
-                  display: 'flex', alignItems: 'stretch',
-                  background: '#fff', borderRadius: 10, overflow: 'hidden',
-                  boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: '1.5px solid #e8e8e8',
-                }}
-              >
+              <form onSubmit={doLocSearch} style={{
+                display: 'flex', alignItems: 'stretch',
+                background: '#fff', borderRadius: 10, overflow: 'hidden',
+                boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: '1.5px solid #e8e8e8',
+              }}>
                 <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
@@ -617,15 +586,13 @@ function FullMapInner() {
                   placeholder="Search by location…"
                   style={{ padding: '9px 4px', fontSize: 12.5, border: 'none', outline: 'none', background: 'transparent', color: '#111', width: 190, fontFamily: "'DM Sans',sans-serif" }}
                 />
-                <button
-                  type="submit" disabled={locLoading}
-                  style={{ padding: '0 14px', border: 'none', cursor: 'pointer', background: GRADIENT, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}
-                >
+                <button type="submit" disabled={locLoading}
+                  style={{ padding: '0 14px', border: 'none', cursor: 'pointer', background: GRADIENT, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>
                   {locLoading ? '...' : 'Go'}
                 </button>
               </form>
 
-              {/* CHANGE 5: Order date/time picker */}
+              {/* Date/time picker */}
               <div style={{
                 display: 'flex', alignItems: 'stretch',
                 background: '#fff', borderRadius: 10, overflow: 'hidden',
@@ -641,18 +608,12 @@ function FullMapInner() {
                   value={orderDateTime}
                   onChange={e => setOrderDateTime(e.target.value)}
                   min={new Date().toISOString().slice(0, 16)}
-                  style={{
-                    padding: '9px 4px', fontSize: 12, border: 'none', outline: 'none',
-                    background: 'transparent', color: orderDateTime ? '#111' : '#aaa',
-                    fontFamily: "'DM Sans',sans-serif", cursor: 'pointer', width: 180,
-                  }}
+                  style={{ padding: '9px 4px', fontSize: 12, border: 'none', outline: 'none', background: 'transparent', color: orderDateTime ? '#111' : '#aaa', fontFamily: "'DM Sans',sans-serif", cursor: 'pointer', width: 180 }}
                 />
                 {orderDateTime && (
-                  <button
-                    onClick={() => setOrderDateTime('')}
+                  <button onClick={() => setOrderDateTime('')}
                     style={{ padding: '0 10px', border: 'none', background: 'none', cursor: 'pointer', color: '#bbb', fontSize: 16, flexShrink: 0 }}
-                    title="Clear date"
-                  >×</button>
+                    title="Clear date">×</button>
                 )}
               </div>
             </div>
@@ -665,7 +626,7 @@ function FullMapInner() {
 
             <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
 
-            {/* Floating Disco robot button */}
+            {/* Floating robot button */}
             <button
               onClick={() => setChatOpen(o => !o)}
               style={{
