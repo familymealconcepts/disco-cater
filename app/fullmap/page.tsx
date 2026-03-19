@@ -58,7 +58,8 @@ function FullMapInner() {
   const [locInput, setLocInput] = useState('')
   const [locLoading, setLocLoading] = useState(false)
   const [locError, setLocError] = useState('')
-  const [showLocModal, setShowLocModal] = useState(false), setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
+  const [showLocModal, setShowLocModal] = useState(false)
+  const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
   const PROXIMITY_MILES = 25
 
   // CHANGE 5: order date/time filter
