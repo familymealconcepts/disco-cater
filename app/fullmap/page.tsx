@@ -467,7 +467,22 @@ function FullMapInner() {
                       boxShadow: msg.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
                       border: msg.role === 'assistant' ? '1px solid #f0f0f0' : 'none',
                       whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    }}>{msg.content}</div>
+                    }}>
+                      {msg.role === 'assistant'
+                        ? msg.content.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
+                            /^https?:\/\//.test(part)
+                              ? <a key={j} href={part} target="_blank" rel="noopener noreferrer" style={{
+                                  display: 'inline-block', marginTop: 6,
+                                  padding: '5px 12px', borderRadius: 20,
+                                  background: GRADIENT, color: '#fff',
+                                  fontSize: 11, fontWeight: 700,
+                                  textDecoration: 'none', whiteSpace: 'nowrap',
+                                }}>Order Now →</a>
+                              : <span key={j}>{part}</span>
+                          )
+                        : msg.content
+                      }
+                    </div>
                   </div>
                 ))}
                 {chatLoading && (
