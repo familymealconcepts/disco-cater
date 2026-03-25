@@ -69,9 +69,19 @@ function FullMapInner() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
 
-  // Show location modal after map loads
+  // Directly request geolocation on page load - Chrome shows its own native prompt
   useEffect(() => {
-    const t = setTimeout(() => setShowLocModal(true), 800)
+    const t = setTimeout(() => {
+      if (!navigator.geolocation) return
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude: lat, longitude: lng } = pos.coords
+          setProximityAnchor({ lat, lng })
+          map.current?.flyTo({ center: [lng, lat], zoom: 12, speed: 1.4, essential: true })
+        },
+        () => { /* denied or unavailable */ }
+      )
+    }, 1200)
     return () => clearTimeout(t)
   }, [])
 
