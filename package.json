@@ -11,6 +11,7 @@
   "dependencies": {
     "@sanity/image-url": "^2.0.3",
     "@types/mapbox-gl": "^3.4.1",
+    "csv-parse": "^6.2.1",
     "mapbox-gl": "^3.20.0",
     "next": "16.1.6",
     "next-sanity": "^12.1.1",
