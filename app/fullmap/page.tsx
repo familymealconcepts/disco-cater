@@ -471,13 +471,19 @@ function FullMapInner() {
                       {msg.role === 'assistant'
                         ? msg.content.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
                             /^https?:\/\//.test(part)
-                              ? <a key={j} href={part} target="_blank" rel="noopener noreferrer" style={{
-                                  display: 'inline-block', marginTop: 6,
-                                  padding: '5px 12px', borderRadius: 20,
-                                  background: GRADIENT, color: '#fff',
+                              ? (() => {
+                                // Extract restaurant name from preceding text
+                                const preceding = msg.content.substring(0, msg.content.indexOf(part))
+                                const nameMatch = preceding.match(/\*\*([^*]+)\*\*[^*]*$/) || preceding.match(/[-•]\s*([^\n(]+?)\s*[\n(](?=[^\n]*$)/)
+                                const restaurantName = nameMatch ? nameMatch[1].trim() : 'this restaurant'
+                                return <a key={j} href={part} target="_blank" rel="noopener noreferrer" style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6,
+                                  padding: '7px 14px', borderRadius: 20,
+                                  background: '#1A1028', color: '#fff',
                                   fontSize: 11, fontWeight: 700,
                                   textDecoration: 'none', whiteSpace: 'nowrap',
-                                }}>Order Now →</a>
+                                }}>Order now: {restaurantName} →</a>
+                              })()
                               : <span key={j}>{part}</span>
                           )
                         : msg.content
