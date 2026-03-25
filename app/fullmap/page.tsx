@@ -482,7 +482,7 @@ function FullMapInner() {
                                   background: '#1A1028', color: '#fff',
                                   fontSize: 11, fontWeight: 700,
                                   textDecoration: 'none', whiteSpace: 'nowrap',
-                                }}>Order now: {restaurantName} →</a>
+                                }}>{restaurantName} →</a>
                               })()
                               : <span key={j}>{part}</span>
                           )
