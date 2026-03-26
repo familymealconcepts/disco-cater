@@ -76,6 +76,7 @@ function FullMapInner() {
         (pos) => {
           const { latitude: lat, longitude: lng } = pos.coords
           map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 1.4, essential: true })
+          setProximityAnchor({ lat, lng })
         },
         () => { /* denied or unavailable */ }
       )
@@ -111,7 +112,8 @@ function FullMapInner() {
       projection: { name: 'mercator' },
       center: [-96, 39.5],
       zoom: 4,
-      maxBounds: [[-180, 15], [-50, 75]],
+      maxBounds: [[-168, 15], [-52, 72]],
+      cooperativeGestures: false,
     })
     map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-right')
     const lat = searchParams.get('lat')
@@ -186,6 +188,7 @@ function FullMapInner() {
       Object.assign(mkDiv.style, {
         width: '30px', height: '30px', borderRadius: '50%',
         background: '#111', color: '#fff', fontSize: '10px', fontWeight: '700',
+        position: 'relative',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         border: '2.5px solid #fff', boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
         fontFamily: "'DM Sans',sans-serif", cursor: 'pointer', transition: 'all 0.15s',
@@ -217,7 +220,7 @@ function FullMapInner() {
               <span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${r.cuisine}</span>
             </div>
             <a href="${r.orderUrl || '#'}" target="_blank" rel="noopener"
-              style="display:block;width:100%;padding:10px 0;background:${GRADIENT};color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">
+              style="display:block;width:100%;padding:10px 0;background:#5B6FE8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">
               Order Catering →
             </a>
           </div>
@@ -335,7 +338,7 @@ function FullMapInner() {
   const gradientPillStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
     border: 'none',
-    background: active ? GRADIENT : '#efefef',
+    background: active ? '#1A1028' : '#efefef',
     color: active ? '#fff' : '#555',
     fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
@@ -442,7 +445,7 @@ function FullMapInner() {
           {chatOpen && (
             <div style={{ width: 320, minWidth: 320, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fff' }}>
               <div style={{ padding: '12px 14px', borderBottom: '1px solid #f0f0f0', background: GRADIENT, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ fontSize: 22 }}>🤖</div>
+                <div style={{ fontSize: 22, width: 36, height: 36, borderRadius: '50%', background: '#EFB84A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🤖</div>
                 <div>
                   <div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>Disco AI</div>
                   <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>Catering Assistant</div>
@@ -537,6 +540,12 @@ function FullMapInner() {
             </div>
             <div style={{ padding: '6px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
               {filtered.length} restaurants
+              {proximityAnchor && (
+                <>
+                  <span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span>
+                  <button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button>
+                </>
+              )}
               {proximityAnchor && (
                 <>
                   <span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600 }}>📍 Nearby ({PROXIMITY_MILES}mi)</span>
