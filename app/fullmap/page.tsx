@@ -552,7 +552,14 @@ function FullMapInner() {
                   <span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span>
                   <button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button>
                 </>
-              )
+              )}
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {filtered.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No restaurants match.</div>}
+              {filtered.map((r, i) => (
+                <div
+                  key={r._id}
+                  onClick={() => handleSidebarClick(r)}
                   style={{
                     display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74,
                     borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`,
