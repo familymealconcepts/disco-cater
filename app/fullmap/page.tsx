@@ -158,6 +158,13 @@ function FullMapInner() {
       )
     }
 
+    // Proximity filter - sort and filter by distance when anchor is set
+    if (proximityAnchor) {
+      out = (out as any[])
+        .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor!.lat, proximityAnchor!.lng, r.lat, r.lng) }))
+        .filter(r => r._dist <= PROXIMITY_MILES)
+        .sort((a, b) => a._dist - b._dist)
+    }
     setFiltered(out)
   }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor])
 
