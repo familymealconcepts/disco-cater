@@ -51,6 +51,65 @@ export default function HomePage() {
         }
         .nav-links a:hover { color: #6B6EF9; }
 
+        /* ── Sparkle animation on logo ── */
+        .logo-wrap {
+          position: relative;
+          display: inline-block;
+          margin-bottom: 20px;
+        }
+
+        .logo-wrap .sparkle {
+          position: absolute;
+          border-radius: 50%;
+          pointer-events: none;
+          animation: sparkle-fade 2.4s ease-in-out infinite;
+          opacity: 0;
+        }
+
+        .sparkle-1 {
+          width: 6px; height: 6px;
+          background: #6B6EF9;
+          top: 4px; left: 18%;
+          animation-delay: 0s;
+          box-shadow: 0 0 6px 2px rgba(107,110,249,0.7);
+        }
+        .sparkle-2 {
+          width: 5px; height: 5px;
+          background: #F0468A;
+          top: -4px; left: 45%;
+          animation-delay: 0.6s;
+          box-shadow: 0 0 6px 2px rgba(240,70,138,0.7);
+        }
+        .sparkle-3 {
+          width: 7px; height: 7px;
+          background: #C044C8;
+          top: 8px; right: 20%;
+          animation-delay: 1.2s;
+          box-shadow: 0 0 8px 3px rgba(192,68,200,0.6);
+        }
+        .sparkle-4 {
+          width: 4px; height: 4px;
+          background: #6B6EF9;
+          bottom: 2px; left: 30%;
+          animation-delay: 1.8s;
+          box-shadow: 0 0 5px 2px rgba(107,110,249,0.6);
+        }
+        .sparkle-5 {
+          width: 5px; height: 5px;
+          background: #F0468A;
+          bottom: 6px; right: 30%;
+          animation-delay: 0.9s;
+          box-shadow: 0 0 6px 2px rgba(240,70,138,0.6);
+        }
+
+        @keyframes sparkle-fade {
+          0%   { opacity: 0; transform: scale(0.4) translateY(0px); }
+          30%  { opacity: 1; transform: scale(1) translateY(-4px); }
+          60%  { opacity: 0.6; transform: scale(0.8) translateY(-7px); }
+          100% { opacity: 0; transform: scale(0.3) translateY(-10px); }
+        }
+
+        /* ── Search bar ── */
         .search-wrap {
           display: flex;
           align-items: center;
@@ -139,15 +198,20 @@ export default function HomePage() {
           alignItems: 'center',
           justifyContent: 'center',
           padding: '0 24px',
-          marginTop: '-40px', /* offset nav to true-center the content */
+          marginTop: '-40px',
         }}>
-          {/* Logo */}
-          <div style={{ marginBottom: 20 }}>
+          {/* Logo with sparkles */}
+          <div className="logo-wrap">
+            <span className="sparkle sparkle-1" />
+            <span className="sparkle sparkle-2" />
+            <span className="sparkle sparkle-3" />
+            <span className="sparkle sparkle-4" />
+            <span className="sparkle sparkle-5" />
             <Image
-              src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=400w"
+              src="/disco-cater-logo.png"
               alt="Disco Cater"
-              width={400}
-              height={104}
+              width={600}
+              height={156}
               style={{ objectFit: 'contain', display: 'block' }}
             />
           </div>
@@ -196,7 +260,7 @@ export default function HomePage() {
           </form>
         </main>
 
-        {/* ── Minimal footer to optically balance the nav ── */}
+        {/* ── Footer ── */}
         <footer style={{
           padding: '18px 40px',
           display: 'flex',
@@ -204,13 +268,15 @@ export default function HomePage() {
           justifyContent: 'center',
           gap: 24,
         }}>
-          <a href="https://www.instagram.com/eat.disco" target="_blank" rel="noopener" style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+          <a href="https://www.instagram.com/eat.disco" target="_blank" rel="noopener"
+            style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
             onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
             onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
             Instagram
           </a>
           <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-          <a href="mailto:info@familymeal.com" style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+          <a href="mailto:info@familymeal.com"
+            style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
             onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
             onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
             Contact
