@@ -61,7 +61,6 @@ function FullMapInner() {
   const [showLocModal, setShowLocModal] = useState(false)
   const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
   const PROXIMITY_MILES = 25
-  const [orderDateTime, setOrderDateTime] = useState('')
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: "Hi! I'm Disco 🤖 Tell me about your event and I'll find the perfect catering for you!\n\nTry: \"Birthday party for 20 people\" or \"Office lunch, need vegetarian options\"" }
@@ -76,8 +75,7 @@ function FullMapInner() {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude: lat, longitude: lng } = pos.coords
-          setProximityAnchor({ lat, lng })
-          map.current?.flyTo({ center: [lng, lat], zoom: 12, speed: 1.4, essential: true })
+          map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 1.4, essential: true })
         },
         () => { /* denied or unavailable */ }
       )
@@ -111,7 +109,8 @@ function FullMapInner() {
       container: mapContainer.current,
       style: 'mapbox://styles/mapbox/light-v11',
       center: [-96, 39.5],
-      zoom: 3.5,
+      zoom: 4,
+      maxBounds: [[-180, 15], [-50, 75]],
     })
     map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-right')
     const lat = searchParams.get('lat')
@@ -161,14 +160,8 @@ function FullMapInner() {
         .filter((r: any) => r._dist <= PROXIMITY_MILES)
         .sort((a: any, b: any) => a._dist - b._dist)
     }
-    if (orderDateTime) {
-      const dayName = new Date(orderDateTime).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase()
-      out = out.filter((r: any) =>
-        !r.availableDays || r.availableDays.length === 0 || r.availableDays.map((d: string) => d.toLowerCase()).includes(dayName)
-      )
-    }
     setFiltered(out)
-  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor, orderDateTime])
+  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor])
 
   // FIX 1: helper to close ALL open popups
   function closeAllPopups() {
@@ -347,8 +340,8 @@ function FullMapInner() {
 
   const gradientPillStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
-    border: `1.5px solid ${active ? 'transparent' : '#e8e8e8'}`,
-    background: active ? GRADIENT : '#fff',
+    border: 'none',
+    background: active ? GRADIENT : '#efefef',
     color: active ? '#fff' : '#555',
     fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
@@ -616,10 +609,10 @@ function FullMapInner() {
                   value={locInput}
                   onChange={e => { setLocInput(e.target.value); setLocError('') }}
                   placeholder="Search by location…"
-                  style={{ padding: '9px 4px', fontSize: 12.5, border: 'none', outline: 'none', background: 'transparent', color: '#111', width: 190, fontFamily: "'DM Sans',sans-serif" }}
+                  style={{ padding: '9px 4px', fontSize: 12.5, border: 'none', outline: 'none', background: 'transparent', color: '#111', width: 380, fontFamily: "'DM Sans',sans-serif" }}
                 />
                 <button type="submit" disabled={locLoading}
-                  style={{ padding: '0 14px', border: 'none', cursor: 'pointer', background: GRADIENT, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>
+                  style={{ padding: '0 14px', border: 'none', cursor: 'pointer', background: '#5B6FE8', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>
                   {locLoading ? '...' : 'Go'}
                 </button>
               </form>
