@@ -87,7 +87,7 @@ async function generateDescription(name, editorial, website, cuisine) {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 150,
-        messages: [{ role: 'user', content: 'Write a 1-2 sentence description for "' + name + '" that highlights what makes it great for catering. Base it on: ' + context + '. Focus on food quality, style, and why groups would love it. Max 120 chars. No quotes.' }]
+        messages: [{ role: 'user', content: 'Write a 1-2 sentence catering description for "' + name + '". Base it on this context if available: ' + context + '. If no context, use the restaurant name to infer cuisine style. Focus on what makes it great for group orders, events, or office catering. Max 120 chars. Plain text only, no quotes, no hashtags, no markdown.' }]
       })
     })
     const data = await res.json()

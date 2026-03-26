@@ -88,7 +88,6 @@
     "editorial": "",
     "website": "https://www.peckinghouse.com/"
   },
-  "desc:Pecking House - Chinatown": "A American called Pecking House - Chinatown",
   "details:ChIJH58NSAlZwokR9108aaP8cy8": {
     "types": [
       "establishment",
@@ -99,7 +98,6 @@
     "editorial": "",
     "website": "http://seenoevilpizza.com/"
   },
-  "desc:See No Evil Pizza": "A American called See No Evil Pizza",
   "details:ChIJ8csrYu5ZwokRR88t9X4EXRg": {
     "types": [
       "establishment",
@@ -108,7 +106,6 @@
     "editorial": "",
     "website": "http://www.xxvenue.com/"
   },
-  "desc:xx": "A American called xx",
   "details:ChIJV1BBkp1ZwokRpjqvV01uiqg": {
     "types": [
       "bakery",
@@ -132,7 +129,6 @@
     "editorial": "",
     "website": "https://www.lasandwicherienyc.com/"
   },
-  "desc:La Sandwicherie - Chelsea": "A American called La Sandwicherie - Chelsea",
   "details:ChIJoxRDpKFRwokRl1TFKgoC-pc": {
     "types": [
       "establishment",
@@ -166,7 +162,6 @@
     "editorial": "",
     "website": "https://eatnamkeen.com/"
   },
-  "desc:Namkeen - Chatham": "A American called Namkeen - Chatham",
   "details:ChIJ2zW7aDlbwokRy--jgJ8aXoc": {
     "types": [
       "establishment",
@@ -179,7 +174,6 @@
     "editorial": "",
     "website": "http://taimfalafel.com/"
   },
-  "desc:Taim - FIDI": "A Israeli called Taim - FIDI",
   "details:ChIJwaDNWNBZwokRBOMEq738b9s": {
     "types": [
       "establishment",
@@ -190,7 +184,6 @@
     "editorial": "",
     "website": "https://taimkitchen.com/"
   },
-  "desc:Taim - Broadway": "A Mediterranean called Taim - Broadway",
   "details:ChIJpRaITSRZwokRji4cRJdtswE": {
     "types": [
       "bar",
@@ -213,7 +206,6 @@
     "editorial": "",
     "website": "https://taimkitchen.com/"
   },
-  "desc:Taim - Fresh Meadows, Queens": "A American called Taim - Fresh Meadows, Queens",
   "details:ChIJ0Qj06OI7wokRUrLb-L1i7Zk": {
     "types": [
       "establishment",
@@ -224,7 +216,6 @@
     "editorial": "",
     "website": "https://www.hearthlyburger.com/"
   },
-  "desc:Hearthly Burger - Shrewsbury": "A American called Hearthly Burger - Shrewsbury",
   "details:ChIJVa0oQeb_wokRlwz9D1HqNL0": {
     "types": [
       "bakery",
@@ -250,7 +241,6 @@
     "editorial": "",
     "website": "http://carolinapie.com/"
   },
-  "desc:Sweet Carolina Pies": "A Bakery called Sweet Carolina Pies",
   "details:ChIJnfpomoE5wokR1SBjBgADUjw": {
     "types": [
       "cafe",
@@ -262,7 +252,6 @@
     "editorial": "",
     "website": "http://shoregoodeats.com/"
   },
-  "desc:Shore Good Eats": "A Cafe called Shore Good Eats",
   "details:ChIJLYhWJA8xwokRTgiNG9xB_Eo": {
     "types": [
       "establishment",
@@ -271,7 +260,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Cafe La De Da": "A American called Cafe La De Da",
   "details:ChIJH4G0L__HxokRXVaKAuDCa7M": {
     "types": [
       "establishment",
@@ -282,7 +270,6 @@
     "editorial": "",
     "website": "https://www.ubereats.com/store/tinga-finga-food-truck/sH2T5SLnQdmb7-UpDTBTsw?srsltid=AfmBOopJmyJYcEGinv_DSkMO3neDZXc2Xw96sfhhnTY_3hqsYFLwNsse"
   },
-  "desc:Tings Things Food Truck": "A American called Tings Things Food Truck",
   "details:ChIJYzwersk7wokRn3mltnt9Zfc": {
     "types": [
       "cafe",
@@ -294,7 +281,6 @@
     "editorial": "",
     "website": "http://almosthomegeneral.com/"
   },
-  "desc:Almost Home Sea Bright": "A Cafe called Almost Home Sea Bright",
   "details:ChIJs8mbNsUsDogRUnpg-b_IK5E": {
     "types": [
       "establishment",
@@ -316,7 +302,6 @@
     "editorial": "",
     "website": "http://www.heyitsjulios.com/"
   },
-  "desc:Julio's Pizza Co. – Atlantic Highlands": "A American called Julio's Pizza Co. – Atlantic Highlands",
   "details:ChIJU9HxkOPNw4kROzLlN8m87Vc": {
     "types": [
       "establishment",
@@ -340,7 +325,6 @@
     "editorial": "",
     "website": "http://www.elmwoodparkpizza.com/"
   },
-  "desc:Francesca Catering - Elmwood Park": "A Italian called Francesca Catering - Elmwood Park",
   "details:ChIJs6HClcFPE4cRGp_PXCAHXAk": {
     "types": [
       "establishment",
@@ -350,7 +334,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Yeah Buddy Barbecue": "A American called Yeah Buddy Barbecue",
   "details:ChIJlcy1FMBVwokRvEIwnDm6UWA": {
     "types": [
       "establishment",
@@ -361,7 +344,6 @@
     "editorial": "",
     "website": "https://www.signaturefitnessnj.com/"
   },
-  "desc:Signature Fitness": "A American called Signature Fitness",
   "details:ChIJ9-_0DJbzWYgR31AfwPIB4pc": {
     "types": [
       "establishment",
@@ -384,7 +366,6 @@
     "editorial": "",
     "website": "http://www.thepotatoconcept.com/"
   },
-  "desc:The Potato Concept": "A American called The Potato Concept",
   "details:ChIJ4RTXsuW5xokRbhwvLkW_LoM": {
     "types": [
       "establishment",
@@ -395,7 +376,6 @@
     "editorial": "",
     "website": "http://www.mi-n-tea.com/"
   },
-  "desc:Mi 'N Tea": "A American called Mi 'N Tea",
   "details:ChIJ8cMvhzhfwokRXAPrqYokNNQ": {
     "types": [
       "bar",
@@ -408,7 +388,6 @@
     "website": "http://botterestaurants.com/"
   },
   "desc:Botte - Astoria": "Botte - Astoria serves authentic Roman cuisine in an intimate setting perfect for groups, offering quality traditional dishes, curated wines, and cocktails on a charming patio.",
-  "desc:Signature Fitness - Juice Bar": "A American called Signature Fitness - Juice Bar",
   "details:ChIJ5Q-Ra6BZwokRd1gGerJ74s8": {
     "types": [
       "establishment",
@@ -433,7 +412,6 @@
     "editorial": "",
     "website": "https://order.toasttab.com/online/souzafit-hoboken"
   },
-  "desc:SouzaFit - Hoboken": "A American called SouzaFit - Hoboken",
   "details:ChIJ3dbcl41ZwokRouIrXtQ5erk": {
     "types": [
       "establishment",
@@ -456,7 +434,6 @@
     "editorial": "",
     "website": "https://www.happyboards.com/"
   },
-  "desc:HappyBoards": "A American called HappyBoards",
   "details:ChIJVxxLjhhdwokRljQPK_XWGzw": {
     "types": [
       "establishment",
@@ -477,7 +454,6 @@
     "editorial": "",
     "website": "http://www.gwrapeatery.com/"
   },
-  "desc:Green Wrap Eatery": "A American called Green Wrap Eatery",
   "details:ChIJLyYu-mKi9YgRnurhp2dwDew": {
     "types": [
       "establishment",
@@ -499,7 +475,6 @@
     "editorial": "",
     "website": "https://www.robertjevents.com/"
   },
-  "desc:Robby J Catering": "A American called Robby J Catering",
   "details:ChIJYbkahaa1RIYROE7qjDV9U8M": {
     "types": [
       "establishment",
@@ -536,7 +511,6 @@
     "editorial": "",
     "website": "https://www.broastedbrothers.com/"
   },
-  "desc:Broasted Brothers - Plymouth": "A American called Broasted Brothers - Plymouth",
   "details:ChIJHwY1Up2Ha4cR94zZ0UAlxQc": {
     "types": [
       "establishment",
@@ -581,7 +555,6 @@
     "editorial": "",
     "website": "https://www.hatch44cafe.com/bradleybeachmenu"
   },
-  "desc:Hatch 44 Cafe - Bradley Beach": "A Cafe called Hatch 44 Cafe - Bradley Beach",
   "details:ChIJm1MeBQW1RIYR_x8s-YWWvzw": {
     "types": [
       "bar",
@@ -593,7 +566,6 @@
     "editorial": "",
     "website": "http://eastside.industrytx.com/"
   },
-  "desc:Industry - Austin": "A Bar & Grill called Industry - Austin",
   "details:ChIJ__-TdQAC0oUR22-BJRKM1ww": {
     "types": [
       "bar",
@@ -605,7 +577,6 @@
     "editorial": "",
     "website": "https://tacosdonmanolito.com/sucursales/"
   },
-  "desc:Tacos Don Manolito": "A Bar & Grill called Tacos Don Manolito",
   "details:ChIJtZamTXjXTYYR_7Qal3_9dzg": {
     "types": [
       "bar",
@@ -639,7 +610,6 @@
     "editorial": "",
     "website": "http://www.tattooedpigmedia.com/"
   },
-  "desc:The Tattooed Pig - Media": "A American called The Tattooed Pig - Media",
   "details:ChIJNVd5G721woARZU6UW7m6xcA": {
     "types": [
       "establishment",
@@ -661,7 +631,6 @@
     "editorial": "",
     "website": "https://www.kmeventservice.com/"
   },
-  "desc:Kayleigh Michele's": "A Bakery called Kayleigh Michele's",
   "details:ChIJtbPg81N_bIcR4rBvOG8ukbI": {
     "types": [
       "establishment",
@@ -672,7 +641,6 @@
     "editorial": "",
     "website": "https://order.online/business/red-rocks-og-12628737"
   },
-  "desc:Red Rocks OG": "A American called Red Rocks OG",
   "details:ChIJdzaexZC7woARZ-CpnQWHeQQ": {
     "types": [
       "establishment",
@@ -684,7 +652,6 @@
     "editorial": "",
     "website": "http://tenkatoriwla.com/"
   },
-  "desc:Tenkatori Sawtelle": "A American called Tenkatori Sawtelle",
   "details:ChIJmXG0TsnKvJURhB6qlLk7oDo": {
     "types": [
       "cafe",
@@ -696,7 +663,6 @@
     "editorial": "",
     "website": "https://laideal.ar/"
   },
-  "desc:Cafe Buenos Aires": "A Cafe called Cafe Buenos Aires",
   "details:ChIJuahVbUYFK4cRHIz23dMnvoU": {
     "types": [
       "establishment",
@@ -707,7 +673,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Woo Woo Burgers - Chandler": "A American called Woo Woo Burgers - Chandler",
   "details:ChIJMVxNSKbHwokRGlS01sgA5iU": {
     "types": [
       "cafe",
@@ -719,7 +684,6 @@
     "editorial": "",
     "website": "https://www.winfieldcoffee.com/"
   },
-  "desc:Winfield Street Coffee - Croton": "A Cafe called Winfield Street Coffee - Croton",
   "details:ChIJL5nL_aen9YgR7DmcIukkUts": {
     "types": [
       "establishment",
@@ -740,7 +704,6 @@
     "editorial": "",
     "website": "https://www.sunsetsquares.com/"
   },
-  "desc:Sunset Squares Pizza - Divisadero": "A American called Sunset Squares Pizza - Divisadero",
   "details:ChIJh-9c0ALHQIYRbLMveD_VGE4": {
     "types": [
       "cafe",
@@ -753,7 +716,6 @@
     "editorial": "",
     "website": "https://mylifehealthymarkets.appfront.app/"
   },
-  "desc:MY LIFE CAFE": "A Cafe called MY LIFE CAFE",
   "details:ChIJ6Yqx4ofHwoARuFa4g8eK-OE": {
     "types": [
       "establishment",
@@ -764,7 +726,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Gordito's Burritos": "A American called Gordito's Burritos",
   "details:ChIJSWKSekpFwokRWTVZwsreS_I": {
     "types": [
       "establishment",
@@ -775,7 +736,6 @@
     "editorial": "",
     "website": "https://paninony.com/"
   },
-  "desc:Leporini's Paninis": "A American called Leporini's Paninis",
   "details:ChIJWxHxnKixw4kRsPjpDWHfe0U": {
     "types": [
       "establishment",
@@ -786,7 +746,6 @@
     "editorial": "",
     "website": "https://www.thesaladhouse.com/"
   },
-  "desc:Salad House": "A American called Salad House",
   "details:ChIJ4-AyhAu9woARAZAnvSMhuL0": {
     "types": [
       "establishment",
@@ -797,7 +756,6 @@
     "editorial": "",
     "website": "https://smogenappetizers.com/"
   },
-  "desc:Smögen Appetizers": "A Swedish called Smögen Appetizers",
   "details:ChIJV8pO2h9TW4YRCJc99WUQxJ8": {
     "types": [
       "establishment",
@@ -819,7 +777,6 @@
     "editorial": "",
     "website": "http://fantzye.com/"
   },
-  "desc:Good&Fantzye": "A Cafe called Good&Fantzye",
   "details:ChIJD_pTEsy7j4ARmC6OuQ2GZ0k": {
     "types": [
       "bar",
@@ -842,7 +799,6 @@
     "editorial": "",
     "website": "http://www.petros.com/"
   },
-  "desc:Petro's Chili & Chips": "A Mexican called Petro's Chili & Chips",
   "details:ChIJKUc0T7f0OIgRTACVLOTUvIw": {
     "types": [
       "establishment",
@@ -867,7 +823,6 @@
     "website": "http://www.sweetlakefresh.com/"
   },
   "desc:Sweet Lake Biscuits & Limeade": "Southern biscuit sandwiches, creative limeades & salads top the menu at this inviting stop.",
-  "desc:Hearthly Burger - Sea Bright": "A American called Hearthly Burger - Sea Bright",
   "details:ChIJ6aD8m6a1RIYR7LDtqxq82KU": {
     "types": [
       "bar",
@@ -914,7 +869,6 @@
     "editorial": "",
     "website": "http://www.eggrestaurant.com/"
   },
-  "desc:Little Egg": "A American called Little Egg",
   "details:ChIJb2B_avZZwokRAva5mKW4lVg": {
     "types": [
       "establishment",
@@ -944,7 +898,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:29 Hance Bakehouse": "A American called 29 Hance Bakehouse",
   "details:ChIJLWBE3YNZwokRh2EBs1QXfzM": {
     "types": [
       "establishment",
@@ -980,7 +933,6 @@
     "website": "http://www.urbancoalhouse.com/"
   },
   "desc:Urban CoalHouse - Hoboken": "Specialty pies, cocktails & beers draw crowds to this festive joint with TVs & exposed–brick walls.",
-  "desc:FANTZYE": "A Cafe called FANTZYE",
   "details:ChIJo8E1xw41wokRRsk279fGUY4": {
     "types": [
       "establishment",
@@ -991,7 +943,6 @@
     "editorial": "",
     "website": "http://www.heyitsjulios.com/"
   },
-  "desc:Julio's Pizza Co. – Keansburg": "A American called Julio's Pizza Co. – Keansburg",
   "details:ChIJ_UdC9KAlwokRiAihj0b3sNw": {
     "types": [
       "establishment",
@@ -1002,7 +953,6 @@
     "editorial": "",
     "website": "https://almosthomegeneral.com/"
   },
-  "desc:Almost Home – Oceanport": "A American called Almost Home – Oceanport",
   "details:ChIJOb8F_k3FyIAR-cWHIW6FtYo": {
     "types": [
       "establishment",
@@ -1035,7 +985,6 @@
     "editorial": "",
     "website": "https://eatnamkeen.com/"
   },
-  "desc:Namkeen - Metuchen": "A American called Namkeen - Metuchen",
   "details:ChIJ1330isdv9YgRsYMXKwU4GOA": {
     "types": [
       "establishment",
@@ -1046,7 +995,6 @@
     "editorial": "",
     "website": "http://www.cornerstreettacobar.net/"
   },
-  "desc:The Corner Street Taco Bar": "A American called The Corner Street Taco Bar",
   "details:ChIJRwK-M0PMQIYRW5SgUxb5cvk": {
     "types": [
       "establishment",
@@ -1081,7 +1029,6 @@
     "editorial": "",
     "website": "https://theabakerynyc.com/"
   },
-  "desc:Thea Bakery": "A Bakery called Thea Bakery",
   "details:ChIJRbAPldS6woAR8K9fMXkY4y8": {
     "types": [
       "bar",
@@ -1094,7 +1041,6 @@
     "editorial": "",
     "website": "https://edgemar.la/?utm_source=google"
   },
-  "desc:EdgeMar Restaurant": "A Bar & Grill called EdgeMar Restaurant",
   "details:ChIJqS0QJaAps1IRTmh0vDZj5Fc": {
     "types": [
       "establishment",
@@ -1116,7 +1062,6 @@
     "editorial": "",
     "website": "https://www.moonburger.com/"
   },
-  "desc:Moonburger Brooklyn": "A American called Moonburger Brooklyn",
   "details:ChIJHeUDhMvHwoARiDna7r1DDGQ": {
     "types": [
       "establishment",
@@ -1127,7 +1072,6 @@
     "editorial": "",
     "website": "http://www.pineandcrane.com/"
   },
-  "desc:Pine and Crane DTLA": "A American called Pine and Crane DTLA",
   "details:ChIJI9EEB7bFwoAR4Y-us4szPeI": {
     "types": [
       "establishment",
@@ -1138,7 +1082,6 @@
     "editorial": "",
     "website": "https://www.delcorosehoagies.com/"
   },
-  "desc:Delco Rose Hoagies": "A American called Delco Rose Hoagies",
   "details:ChIJebHcxne7woARF3DaqGztQHM": {
     "types": [
       "bar",
@@ -1150,7 +1093,6 @@
     "editorial": "",
     "website": "https://vamosvamosbar.com/?utm_source=google"
   },
-  "desc:Vamos Vamos": "A Bar & Grill called Vamos Vamos",
   "details:ChIJLb9vlE1awokRL4Ume5zpejQ": {
     "types": [
       "establishment",
@@ -1183,7 +1125,6 @@
     "editorial": "",
     "website": "http://www.backyardbowls.com/"
   },
-  "desc:Backyard Bowls - Santa Monica": "A American called Backyard Bowls - Santa Monica",
   "details:ChIJI7FxfKfK5YgR9mrVw0JaqU8": {
     "types": [
       "establishment",
@@ -1224,7 +1165,6 @@
     "editorial": "",
     "website": "https://seymoursitsgood.square.site/"
   },
-  "desc:Seymour's": "A Bakery called Seymour's",
   "details:ChIJCe_QDIyFwokRY3WDUn35Qtw": {
     "types": [
       "establishment",
@@ -1236,7 +1176,6 @@
     "editorial": "",
     "website": "https://www.theoniontreeseacliff.com/"
   },
-  "desc:The Onion Tree - Sea Cliff": "A American called The Onion Tree - Sea Cliff",
   "details:ChIJcRDICvb92IgR71la1oFBeWA": {
     "types": [
       "establishment",
@@ -1272,7 +1211,6 @@
     "editorial": "",
     "website": "https://www.instagram.com/502bakingco"
   },
-  "desc:502 Baking Company": "A Bakery called 502 Baking Company",
   "details:ChIJGVCGegidskwRpW8dDFo_xIk": {
     "types": [
       "cafe",
@@ -1284,7 +1222,6 @@
     "editorial": "",
     "website": "https://www.uglyducklingmaine.com/"
   },
-  "desc:Ugly Duckling": "A Cafe called Ugly Duckling",
   "details:ChIJ13yxj8UB2YgRY7tPz_Y0BhI": {
     "types": [
       "establishment",
@@ -1308,7 +1245,6 @@
     "editorial": "",
     "website": "https://3pepperburrito.com/fort-myers-college-plaza/"
   },
-  "desc:3 Pepper Burrito Co. Fort Myers – College Plaza": "A American called 3 Pepper Burrito Co. Fort Myers – College Plaza",
   "details:ChIJXcohm1dZwokR-w-Sv7cYZl8": {
     "types": [
       "establishment",
@@ -1319,7 +1255,6 @@
     "editorial": "",
     "website": "https://sondelnorth.com/sondelnorth?utm_source=google"
   },
-  "desc:Son del North - LES": "A American called Son del North - LES",
   "details:ChIJ227INj5ZwokRWbmUY8tFUnc": {
     "types": [
       "establishment",
@@ -1330,7 +1265,6 @@
     "editorial": "",
     "website": "https://sondelnorth.com/sondelnorth-carmine?utm_source=google"
   },
-  "desc:Son del North - West Village": "A American called Son del North - West Village",
   "details:ChIJERYJpierK4cRcVUkYd8I9gs": {
     "types": [
       "establishment",
@@ -1341,7 +1275,6 @@
     "editorial": "",
     "website": "http://www.eggstasyaz.com/"
   },
-  "desc:Eggstasy - Chandler": "A American called Eggstasy - Chandler",
   "details:ChIJ-WtPQyFlK4cR0PjHYqNZRKo": {
     "types": [
       "establishment",
@@ -1365,7 +1298,6 @@
     "editorial": "",
     "website": "https://eggstasyaz.com/"
   },
-  "desc:Eggstasy - Queen Creek": "A American called Eggstasy - Queen Creek",
   "details:ChIJfbF_bNuxIIYRmBnowy2JGss": {
     "types": [
       "establishment",
@@ -1376,7 +1308,6 @@
     "editorial": "",
     "website": "https://www.eatfatboyspizza.com/"
   },
-  "desc:Fat Boy's Pizza - Metairie": "A American called Fat Boy's Pizza - Metairie",
   "details:ChIJg80yTgFfwokRjrMYuqA0VvQ": {
     "types": [
       "establishment",
@@ -1388,7 +1319,6 @@
     "editorial": "",
     "website": "https://rokstarchicken.com/rokstarlic?utm_source=google"
   },
-  "desc:Rokstar Chicken - Long Island City": "A American called Rokstar Chicken - Long Island City",
   "details:ChIJxaHxejz1wokRqGeRppH-NvI": {
     "types": [
       "establishment",
@@ -1400,7 +1330,6 @@
     "editorial": "",
     "website": "https://rokstarchicken.com/rokstarbronx?utm_source=google"
   },
-  "desc:Rokstar Chicken - Bronx": "A American called Rokstar Chicken - Bronx",
   "details:ChIJ_QjNFPaxJIgRYipLrSyYD4A": {
     "types": [
       "establishment",
@@ -1412,7 +1341,6 @@
     "editorial": "",
     "website": "https://www.savvysliders.com/locations/farmington-hills/?utm_source=Google&utm_medium=Organic&utm_campaign=LocalSEO"
   },
-  "desc:Savvy Sliders - Harvey": "A American called Savvy Sliders - Harvey",
   "desc:Savvy Sliders - Covington": "Savvy Sliders - Covington serves mouthwatering gourmet sliders perfect for group events, offering customizable menus and quality American fare that impresses every guest.",
   "details:ChIJFctgQKfGIogR08QZ-tr8v9A": {
     "types": [
@@ -1438,7 +1366,6 @@
     "editorial": "",
     "website": "http://tap42.com/"
   },
-  "desc:Tap 42 - Boca Raton": "A Bar & Grill called Tap 42 - Boca Raton",
   "details:ChIJc-8wFZq32YgRKvrhZknW_bY": {
     "types": [
       "bar",
@@ -1462,7 +1389,6 @@
     "editorial": "",
     "website": "http://tap42.com/"
   },
-  "desc:Tap 42 - Davie": "A Bar & Grill called Tap 42 - Davie",
   "details:ChIJs7AuR4a52YgRT1m7ya5OUy8": {
     "types": [
       "bar",
@@ -1474,7 +1400,6 @@
     "editorial": "",
     "website": "https://tap42.com/doral/"
   },
-  "desc:Tap 42 - Doral": "A Bar & Grill called Tap 42 - Doral",
   "details:ChIJmw-bdVSx2YgRx9Yq7aZgxn4": {
     "types": [
       "bar",
@@ -1497,7 +1422,6 @@
     "editorial": "",
     "website": "https://tap42.com/locations/naples/"
   },
-  "desc:Tap 42 - Naples": "A American called Tap 42 - Naples",
   "details:ChIJ64JuUtsr34gRpSS4yAZAP3k": {
     "types": [
       "establishment",
@@ -1508,8 +1432,6 @@
     "editorial": "",
     "website": "https://www.tap42.com/"
   },
-  "desc:Tap 42 - Palm Beach Gardens": "A American called Tap 42 - Palm Beach Gardens",
-  "desc:Savvy Sliders - San Antonio": "A American called Savvy Sliders - San Antonio",
   "desc:Savvy Sliders - Dallas": "Savvy Sliders - Dallas serves gourmet mini burgers perfect for group dining, offering premium quality and variety that impresses guests while keeping events casual and fun.",
   "desc:BurgerFi - Falls Church": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
   "desc:BurgerFi - Arlington": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
@@ -1564,7 +1486,6 @@
     "editorial": "",
     "website": "https://www.baronsbagels.com/"
   },
-  "desc:Barons Bagel's - Point Pleasant": "A Bakery called Barons Bagel's - Point Pleasant",
   "details:ChIJdzRcardNO4gRSdmDNA9mxAQ": {
     "types": [
       "establishment",
@@ -1588,7 +1509,6 @@
     "editorial": "",
     "website": "http://order.meltshop.com/menu/1014-westchester-ny?utm_source=google&utm_medium=local&utm_campaign=google-local&utm_source=google&utm_medium=local&utm_campaign=google-local"
   },
-  "desc:Melt Shop - Westchester Mall": "A Grilled Cheese called Melt Shop - Westchester Mall",
   "details:ChIJl_cSHAFZwokR4BUrESQmRbI": {
     "types": [
       "establishment",
@@ -1611,7 +1531,6 @@
     "editorial": "",
     "website": "http://junbishop.com/"
   },
-  "desc:Junbi - San Francisco": "A Cafe called Junbi - San Francisco",
   "details:ChIJ_aQTIttZwokRHOEyjXradd4": {
     "types": [
       "establishment",
@@ -1624,7 +1543,6 @@
     "editorial": "",
     "website": "https://taimkitchen.com/"
   },
-  "desc:Taim - City Spire": "A Mediterranean called Taim - City Spire",
   "details:ChIJIbrjyJVZwokRv67V37n-S2w": {
     "types": [
       "establishment",
@@ -1648,7 +1566,6 @@
     "editorial": "",
     "website": "https://taimkitchen.com/"
   },
-  "desc:Taim - Hoyt": "A American called Taim - Hoyt",
   "details:ChIJ_SPENNVbwokRylCgmvWUqhw": {
     "types": [
       "establishment",
@@ -1661,7 +1578,6 @@
     "editorial": "",
     "website": "https://taimkitchen.com/"
   },
-  "desc:Taim - Park Slope": "A American called Taim - Park Slope",
   "details:ChIJYUKy6fq3t4kRuFaDtEcgLP4": {
     "types": [
       "establishment",
@@ -1674,7 +1590,6 @@
     "editorial": "",
     "website": "https://taimkitchen.com/"
   },
-  "desc:Taim - Dupont Circle": "A American called Taim - Dupont Circle",
   "details:ChIJVVXJY6MCxIkRNvUYZ1m7fIM": {
     "types": [
       "establishment",
@@ -1684,7 +1599,6 @@
     "editorial": "",
     "website": "https://www.servis-events.com/contact-private-chefs-near-you"
   },
-  "desc:Servis Events": "A American called Servis Events",
   "details:ChIJwYAsfjkmwokRNnZOzB8g7e0": {
     "types": [
       "establishment",
@@ -1695,7 +1609,6 @@
     "editorial": "",
     "website": "http://www.thespeakeatery.com/"
   },
-  "desc:The Speakeatery": "A American called The Speakeatery",
   "details:ChIJO3yKwJ4zwokRNySPm_QFzE4": {
     "types": [
       "cafe",
@@ -1770,7 +1683,6 @@
     "editorial": "",
     "website": "http://www.blackeyedsuziesupstate.com/"
   },
-  "desc:Black-Eyed Catering": "A American called Black-Eyed Catering",
   "details:ChIJn3x2adU7wokR-qr8Rwywlu8": {
     "types": [
       "bar",
@@ -1795,7 +1707,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Sugar Cubed Bakers": "A Bakery called Sugar Cubed Bakers",
   "details:ChIJpVxwG82HwYkRg0Z7aXpDeUk": {
     "types": [
       "bakery",
@@ -1807,7 +1718,6 @@
     "editorial": "",
     "website": "http://www.kneadedbyladyj.com/"
   },
-  "desc:Kneaded by Lady J": "A Bakery called Kneaded by Lady J",
   "details:ChIJ_1ef6KX8wokRzGSWCZpLmDk": {
     "types": [
       "establishment",
@@ -1830,7 +1740,6 @@
     "editorial": "",
     "website": "https://veganlunaverde.com/"
   },
-  "desc:Luna Verde Vegan Mexican Restaurant": "A American called Luna Verde Vegan Mexican Restaurant",
   "details:ChIJkaMGY1abskwRZPk36BojRg4": {
     "types": [
       "establishment",
@@ -1841,7 +1750,6 @@
     "editorial": "",
     "website": "http://thebirdandco.com/"
   },
-  "desc:Bird & Co.": "A American called Bird & Co.",
   "details:ChIJK1xfuWOHwokRUkjb_cCbGLQ": {
     "types": [
       "establishment",
@@ -1864,7 +1772,6 @@
     "editorial": "",
     "website": "https://botterestaurants.com/"
   },
-  "desc:Botte - Brooklyn": "A Italian called Botte - Brooklyn",
   "details:ChIJiVH7kEPJw4kR9IiZ1_2mzLk": {
     "types": [
       "establishment",
@@ -1876,7 +1783,6 @@
     "editorial": "",
     "website": "https://pizzaheaven777.com/"
   },
-  "desc:Pizza Heaven": "A American called Pizza Heaven",
   "details:ChIJlX4omJiXwoARnmB5PYaDF4M": {
     "types": [
       "establishment",
@@ -1887,7 +1793,6 @@
     "editorial": "",
     "website": "http://www.donnajeanrestaurant.com/"
   },
-  "desc:Donna Jean - Los Angeles": "A American called Donna Jean - Los Angeles",
   "details:ChIJ-4xWkfi7woARM5UrPcdi1HM": {
     "types": [
       "bakery",
@@ -1901,7 +1806,6 @@
     "editorial": "",
     "website": "https://www.cafelandwerla.com/"
   },
-  "desc:Cafe Landwer - Century City": "A Bakery called Cafe Landwer - Century City",
   "details:ChIJn5MsJfZ544kRE8TP-vzSCwc": {
     "types": [
       "cafe",
@@ -1914,7 +1818,6 @@
     "editorial": "",
     "website": "http://www.landwercafe.com/"
   },
-  "desc:Cafe Landwer - Cleveland Circle": "A Cafe called Cafe Landwer - Cleveland Circle",
   "details:ChIJF8-kspfHxokRrWs6IzvaNFg": {
     "types": [
       "bakery",
@@ -1929,7 +1832,6 @@
     "editorial": "",
     "website": "http://www.porcosphilly.com/"
   },
-  "desc:Porco's Porchetteria & Small Oven Pastry Shop": "A Bakery called Porco's Porchetteria & Small Oven Pastry Shop",
   "details:ChIJFRVfSsYsDogRt4XEF8LjjD0": {
     "types": [
       "establishment",
@@ -1951,7 +1853,6 @@
     "editorial": "",
     "website": "http://www.opencrumbdc.com/"
   },
-  "desc:Open Crumb": "A American called Open Crumb",
   "details:ChIJkwtHHbUVkFQRPNehINtKe_s": {
     "types": [
       "bakery",
@@ -1964,7 +1865,6 @@
     "editorial": "",
     "website": "https://www.docedonut.com/"
   },
-  "desc:Doce Donut Co": "A Bakery called Doce Donut Co",
   "details:ChIJEZATTIJ044kRw3u_t-HlFdY": {
     "types": [
       "bar",
@@ -1988,7 +1888,6 @@
     "editorial": "",
     "website": "http://www.elxolotacos.com/"
   },
-  "desc:El Xolo Tacos": "A American called El Xolo Tacos",
   "details:ChIJ48QgFAi15YgRwvqXb9RerP4": {
     "types": [
       "establishment",
@@ -1999,7 +1898,6 @@
     "editorial": "",
     "website": "http://www.tikkabowlsandtacos.com/"
   },
-  "desc:Tikka Bowls and Tacos - Tapestry Park": "A American called Tikka Bowls and Tacos - Tapestry Park",
   "details:ChIJTc37YxLfw4kR1poIOM00oYc": {
     "types": [
       "bakery",
@@ -2011,7 +1909,6 @@
     "editorial": "",
     "website": "http://www.piegirlnj.shop/"
   },
-  "desc:Pie Girl": "A Bakery called Pie Girl",
   "details:ChIJTffOxOXLt4kRvFTRqME26cM": {
     "types": [
       "establishment",
@@ -2033,7 +1930,6 @@
     "editorial": "",
     "website": "https://thewafflechic.com/"
   },
-  "desc:The Pink Waffle": "A American called The Pink Waffle",
   "details:ChIJOygm5DXpwIkRMY51h9NRRWE": {
     "types": [
       "bakery",
@@ -2045,7 +1941,6 @@
     "editorial": "",
     "website": "https://beachbunsbakerynj.com/"
   },
-  "desc:Beach Buns Bakery": "A Bakery called Beach Buns Bakery",
   "details:ChIJi8bSnL0Bw4kRcc03L8UZflU": {
     "types": [
       "establishment",
@@ -2080,7 +1975,6 @@
     "editorial": "",
     "website": "https://www.lahorechatkharaygrill.com/"
   },
-  "desc:Zunkaa Authentic Indian Cuisine": "A American called Zunkaa Authentic Indian Cuisine",
   "details:ChIJFS5ACwALlR4ROgyQgc3xwrU": {
     "types": [
       "bakery",
@@ -2092,7 +1986,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Test Bakery": "A Bakery called Test Bakery",
   "details:ChIJxyFxRZJZwokRPS_w2bOrWg0": {
     "types": [
       "establishment",
@@ -2116,7 +2009,6 @@
     "editorial": "",
     "website": "http://bunnychow.co/"
   },
-  "desc:Bunny Chow - South African Food - North Park Shebeen": "A American called Bunny Chow - South African Food - North Park Shebeen",
   "details:ChIJt299mcyzw4kRZxQHlEws8iU": {
     "types": [
       "establishment",
@@ -2127,7 +2019,6 @@
     "editorial": "",
     "website": "https://www.moaazgrill.com/"
   },
-  "desc:Moaaz Mediterranean Grill": "A American called Moaaz Mediterranean Grill",
   "details:ChIJM54hGxNYwokRkuX_4aXHZ5Q": {
     "types": [
       "cafe",
@@ -2175,7 +2066,6 @@
     "editorial": "",
     "website": "https://www.kalamakigreekla.com/"
   },
-  "desc:Kalamaki Greek La": "A American called Kalamaki Greek La",
   "details:ChIJdwTdF8HwwokR_rinQ3kn7n0": {
     "types": [
       "establishment",
@@ -2186,7 +2076,6 @@
     "editorial": "",
     "website": "http://www.mbgcatering.com/"
   },
-  "desc:MBG Catering": "A American called MBG Catering",
   "details:ChIJwyVU4DKPOIgRrbo-cKzDrd0": {
     "types": [
       "establishment",
@@ -2198,7 +2087,6 @@
     "editorial": "",
     "website": "http://trytastydawg.com/"
   },
-  "desc:Tasty Dawg": "A American called Tasty Dawg",
   "details:ChIJh4nqHodZwokRXQ_QxGDq6Cw": {
     "types": [
       "cafe",
@@ -2209,7 +2097,6 @@
     "editorial": "",
     "website": "https://www.littlecheflittlecafe.com/"
   },
-  "desc:Little Chef Little Cafe": "A Cafe called Little Chef Little Cafe",
   "details:ChIJHfoTG_IxwokRgHf0LZwsXx8": {
     "types": [
       "establishment",
@@ -2220,7 +2107,6 @@
     "editorial": "",
     "website": "https://almosthomegeneral.com/"
   },
-  "desc:Almost Home Red General – Navesink": "A American called Almost Home Red General – Navesink",
   "details:ChIJ616RcJLO54kRMEC1utwMYJY": {
     "types": [
       "cafe",
@@ -2246,7 +2132,6 @@
     "editorial": "",
     "website": "https://www.winfieldcoffee.com/"
   },
-  "desc:Winfield Street Coffee - Stamford": "A Cafe called Winfield Street Coffee - Stamford",
   "details:ChIJs6F9Y_RRwokRnai1YFwp3tg": {
     "types": [
       "establishment",
@@ -2269,7 +2154,6 @@
     "editorial": "",
     "website": "https://www.winfieldcoffee.com/"
   },
-  "desc:Winfield Street Coffee - New York City": "A Cafe called Winfield Street Coffee - New York City",
   "details:ChIJkWxd89KRwokRcHhIMcWGKOs": {
     "types": [
       "cafe",
@@ -2281,7 +2165,6 @@
     "editorial": "",
     "website": "https://www.winfieldcoffee.com/"
   },
-  "desc:Winfield Street Coffee - Rye": "A Cafe called Winfield Street Coffee - Rye",
   "details:ChIJRXL-FC3TRIYR-ZFkUPjVqn4": {
     "types": [
       "bar",
@@ -2304,7 +2187,6 @@
     "editorial": "",
     "website": "https://www.woowooburgers.com/"
   },
-  "desc:Woo Woo Burgers - Kyle": "A American called Woo Woo Burgers - Kyle",
   "details:ChIJBcMPlbVbwokRHViCFL-ICjM": {
     "types": [
       "establishment",
@@ -2326,7 +2208,6 @@
     "editorial": "",
     "website": "http://summersaltnyc.com/"
   },
-  "desc:Summer Salt - Midtown": "A American called Summer Salt - Midtown",
   "details:ChIJrWWDv19ZwokRfJftkBf5KOI": {
     "types": [
       "establishment",
@@ -2349,7 +2230,6 @@
     "editorial": "",
     "website": "https://pixlcatcoffee.com/"
   },
-  "desc:Pixlcat Coffee - Mid Market": "A Cafe called Pixlcat Coffee - Mid Market",
   "details:ChIJ4_wS51eAwokRFpgVas1-jKM": {
     "types": [
       "establishment",
@@ -2360,7 +2240,6 @@
     "editorial": "",
     "website": "https://slicelife.com/restaurants/ny/hicksville/11801/biryani-house/menu?utm_campaign=direct_websites&ajs_aid=&client_id="
   },
-  "desc:Binge Biryani - Long Island City": "A American called Binge Biryani - Long Island City",
   "details:ChIJ_zVVj0Kr3oARGUJoPFL0Bw4": {
     "types": [
       "establishment",
@@ -2370,7 +2249,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Noble Restaurant Co": "A American called Noble Restaurant Co",
   "details:ChIJwx2tB6dVkFQRdipDDMRpLYA": {
     "types": [
       "establishment",
@@ -2381,7 +2259,6 @@
     "editorial": "",
     "website": "https://partytacoma.com/caterer-tacoma/"
   },
-  "desc:Toast & Taste Catering": "A American called Toast & Taste Catering",
   "details:ChIJx4R6OfZ9bIcR0EdzYQMb4UM": {
     "types": [
       "establishment",
@@ -2403,7 +2280,6 @@
     "editorial": "",
     "website": "https://www.casa-modena.com/"
   },
-  "desc:Trattoria Moderna Italian Catering": "A American called Trattoria Moderna Italian Catering",
   "details:ChIJvfwhfERzkFQRXPSOJOK1-Qc": {
     "types": [
       "establishment",
@@ -2427,7 +2303,6 @@
     "editorial": "",
     "website": "https://francoshenrico.com/?utm_source=google"
   },
-  "desc:Franco's Italian Restaurant": "A American called Franco's Italian Restaurant",
   "details:ChIJA_Xy8SlZwokR4-bMwogYGQo": {
     "types": [
       "bar",
@@ -2439,7 +2314,6 @@
     "editorial": "",
     "website": "https://sipandcoev.co/"
   },
-  "desc:Sip + Co East Village": "A Bar & Grill called Sip + Co East Village",
   "details:ChIJKa5H-LxZwokRJfUaodNgwQk": {
     "types": [
       "establishment",
@@ -2462,7 +2336,6 @@
     "editorial": "",
     "website": "http://crispynewyork.com/"
   },
-  "desc:Crispy New York": "A Cafe called Crispy New York",
   "details:ChIJn2czdom1RIYR9F6XLPzus2I": {
     "types": [
       "bar",
@@ -2474,7 +2347,6 @@
     "editorial": "",
     "website": "https://www.lileasyatx.com/"
   },
-  "desc:Lil' Easy": "A Bar & Grill called Lil' Easy",
   "details:ChIJZU2b7zr3wIcRQ49cPLku5sg": {
     "types": [
       "establishment",
@@ -2498,7 +2370,6 @@
     "editorial": "",
     "website": "http://petesbagels.com/"
   },
-  "desc:Pete's Bagels - St. Pete": "A Bakery called Pete's Bagels - St. Pete",
   "details:ChIJVblZWVpawokROc-0xwh42r4": {
     "types": [
       "establishment",
@@ -2508,7 +2379,6 @@
     "editorial": "",
     "website": "http://www.purslane.com/"
   },
-  "desc:Purslane": "A American called Purslane",
   "details:ChIJbS8F4uX_wokRSmCWLMlN7yM": {
     "types": [
       "establishment",
@@ -2541,7 +2411,6 @@
     "editorial": "",
     "website": "http://www.sweetchick.com/"
   },
-  "desc:Sweet Chick - Union Square": "A American called Sweet Chick - Union Square",
   "details:ChIJ0Yluw9vAwoARkERWhSdyRj8": {
     "types": [
       "establishment",
@@ -2667,7 +2536,6 @@
     "editorial": "",
     "website": "https://animonyc.com/"
   },
-  "desc:Ánimo!": "A American called Ánimo!",
   "details:ChIJB7x4l3AVkFQRXwAYMJ2hWRY": {
     "types": [
       "establishment",
@@ -2678,7 +2546,6 @@
     "editorial": "",
     "website": "https://kiposgreek.com/"
   },
-  "desc:Kipos Greek": "A American called Kipos Greek",
   "details:ChIJqzhkS7dbwokRtGCdHcorPvU": {
     "types": [
       "establishment",
@@ -2700,7 +2567,6 @@
     "editorial": "",
     "website": "http://www.indianmountain.org/"
   },
-  "desc:Indian Mountain School – Pickup": "A American called Indian Mountain School – Pickup",
   "details:ChIJmdraqyo6wokR2v_BgVcoGVM": {
     "types": [
       "establishment",
@@ -2710,7 +2576,6 @@
     "editorial": "",
     "website": "http://www.highlandsborough.org/"
   },
-  "desc:COPS": "A American called COPS",
   "details:ChIJlTnYiYJbwokR_5rDalIHtqU": {
     "types": [
       "bakery",
@@ -2722,7 +2587,6 @@
     "editorial": "",
     "website": "http://www.zuckersbagels.com/"
   },
-  "desc:Zucker's Bagels": "A Bakery called Zucker's Bagels",
   "details:ChIJ_wNVWtezwokRtfgsOScCVm0": {
     "types": [
       "establishment",
@@ -2731,7 +2595,6 @@
     "editorial": "",
     "website": "https://northsalemfarmersmarket.org/"
   },
-  "desc:North Salem Farmers Market – Fantzye Pre-Orders": "A American called North Salem Farmers Market – Fantzye Pre-Orders",
   "details:ChIJlUAeDAD_kFQRNOvEXYfwb9M": {
     "types": [
       "establishment",
@@ -2754,7 +2617,6 @@
     "editorial": "",
     "website": "http://www.macielsplantbutcher.com/"
   },
-  "desc:Maciel's Plant-Based Butcher & Deli": "A American called Maciel's Plant-Based Butcher & Deli",
   "details:ChIJWyJTwaa3t4kRe3OEL-GTPPs": {
     "types": [
       "establishment",
@@ -2767,7 +2629,6 @@
     "editorial": "",
     "website": "https://www.alfredadc.com/"
   },
-  "desc:Alfreda": "A American called Alfreda",
   "details:ChIJeTNZ0pxZwokRg3Z1vnWyTmg": {
     "types": [
       "establishment",
@@ -2789,7 +2650,6 @@
     "editorial": "",
     "website": "https://www.strangedelight.nyc/"
   },
-  "desc:Strange Delight": "A American called Strange Delight",
   "details:ChIJNVwdhCJZwokR5fGM44WBTeQ": {
     "types": [
       "establishment",
@@ -2801,7 +2661,6 @@
     "editorial": "",
     "website": "https://www.brownbagny.com/greenwich-village"
   },
-  "desc:Brown Bag Sandwich Co": "A American called Brown Bag Sandwich Co",
   "details:ChIJIUWgkIVZwokRiHNp_gg3hX0": {
     "types": [
       "bakery",
@@ -2861,7 +2720,6 @@
     "editorial": "",
     "website": "http://starvinarvins.com/"
   },
-  "desc:Starvin' Arvin's Catering": "A American called Starvin' Arvin's Catering",
   "details:ChIJuYJQ4VrLj4AR2SC_HS-iUF8": {
     "types": [
       "establishment",
@@ -2883,7 +2741,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Deli-icious": "A American called Deli-icious",
   "details:ChIJT-4sbwCxw4kRDGk_iQq5Dlk": {
     "types": [
       "cafe",
@@ -2896,7 +2753,6 @@
     "editorial": "",
     "website": "https://almosthomegeneral.com/"
   },
-  "desc:Almost Home - Westfield": "A Cafe called Almost Home - Westfield",
   "details:ChIJLVn3KCDFwogRs6tRips8jgU": {
     "types": [
       "bakery",
@@ -2921,7 +2777,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Mill Creek": "A American called Mill Creek",
   "details:ChIJuQDaVseZToYR_qM1sP5y4fU": {
     "types": [
       "establishment",
@@ -2932,7 +2787,6 @@
     "editorial": "",
     "website": "http://oomikitchen.com/"
   },
-  "desc:oomi kitchen": "A Korean called oomi kitchen",
   "details:ChIJtx0PIyqxJIgRDtB6fcSuEmY": {
     "types": [
       "establishment",
@@ -2944,7 +2798,6 @@
     "editorial": "",
     "website": "https://www.savvysliders.com/locations/farmington/?utm_source=Google&utm_medium=Organic&utm_campaign=LocalSEO"
   },
-  "desc:Savvy Sliders - Fort Wayne": "A American called Savvy Sliders - Fort Wayne",
   "details:ChIJIfdQahOp3IgRRqG5PxCBF8w": {
     "types": [
       "establishment",
@@ -2955,7 +2808,6 @@
     "editorial": "",
     "website": "https://3pepperburrito.com/port-charlotte/"
   },
-  "desc:3 Pepper Burrito Port Charlotte": "A American called 3 Pepper Burrito Port Charlotte",
   "details:ChIJ3V5MG5lz24gR5xvJ2faklSg": {
     "types": [
       "establishment",
@@ -2966,8 +2818,6 @@
     "editorial": "",
     "website": "https://3pepperburrito.com/lehigh-acres/"
   },
-  "desc:3 Pepper Burrito Co. Lehigh Acres": "A American called 3 Pepper Burrito Co. Lehigh Acres",
-  "desc:3 Pepper Burrito Co. Bradenton": "A American called 3 Pepper Burrito Co. Bradenton",
   "details:ChIJl5tVmhdH24gReECAc0BAFTE": {
     "types": [
       "establishment",
@@ -3014,7 +2864,6 @@
     "editorial": "",
     "website": "https://tap42.com/coral-springs/"
   },
-  "desc:Tap 42 - Coral Springs": "A Bar & Grill called Tap 42 - Coral Springs",
   "details:ChIJEUBlbeI_24gRb0UT9k9SViA": {
     "types": [
       "establishment",
@@ -3025,7 +2874,6 @@
     "editorial": "",
     "website": "https://tap42.com/locations/fort-myers/"
   },
-  "desc:Tap 42 - Fort Myers": "A American called Tap 42 - Fort Myers",
   "details:ChIJcyNcqIoA2YgRW8B1tgMSez4": {
     "types": [
       "bar",
@@ -3038,7 +2886,6 @@
     "website": "http://www.tap42.com/"
   },
   "desc:Tap 42 - Ft Lauderdale": "Slick space offering dozens of craft beers on draft, plus creative burgers & cocktails.",
-  "desc:Savvy Sliders - Fraser": "A American called Savvy Sliders - Fraser",
   "desc:BurgerFi - Boynton Beach": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
   "desc:BurgerFi - Bowie": "BurgerFi Bowie offers premium beef burgers and craft beverages with eco-conscious style—perfect for impressing groups who appreciate quality food and sustainability.",
   "details:ChIJF2Y82FtZwokRvKoZzBEHroU": {
@@ -3051,7 +2898,6 @@
     "editorial": "",
     "website": "https://www.somethingreen.com/"
   },
-  "desc:Something Green": "A American called Something Green",
   "details:ChIJTd31XR7TJIgRGXzEvw61wlQ": {
     "types": [
       "establishment",
@@ -3063,7 +2909,6 @@
     "editorial": "",
     "website": "https://www.savvysliders.com/locations/detroit_woodward-woodward-warren-ave/?utm_source=Google&utm_medium=Organic&utm_campaign=LocalSEO"
   },
-  "desc:Savvy Sliders - Detroit (Midtown)": "A American called Savvy Sliders - Detroit (Midtown)",
   "details:ChIJmZORJQAzW4YRxXfg12QMA2Q": {
     "types": [
       "establishment",
@@ -3074,7 +2919,6 @@
     "editorial": "",
     "website": "https://rooted-cafe.com/"
   },
-  "desc:Rooted Cafe & Catering": "A American called Rooted Cafe & Catering",
   "details:ChIJ3RLk1hdawokR2qDWYKUW-1I": {
     "types": [
       "establishment",
@@ -3099,7 +2943,6 @@
     "editorial": "",
     "website": "https://brothersdaley.com/"
   },
-  "desc:Club Sandwich": "A Bar & Grill called Club Sandwich",
   "details:ChIJk84XGIRYwokRGrW8KFlR2_g": {
     "types": [
       "establishment",
@@ -3125,7 +2968,6 @@
     "editorial": "",
     "website": "http://www.baronsbagels.com/"
   },
-  "desc:Barons Bagel's - Brick": "A Bakery called Barons Bagel's - Brick",
   "details:ChIJiXJVzLtZwokRbeoV2XxLOdg": {
     "types": [
       "establishment",
@@ -3147,7 +2989,6 @@
     "editorial": "",
     "website": "http://elmercado-oc.com/?utm_source=google&utm_medium=local&utm_campaign=1&utm_content=primary"
   },
-  "desc:El Mercado Mexican Kitchen": "A American called El Mercado Mexican Kitchen",
   "details:ChIJG-BIauK4woARPGTVNnd7Wy4": {
     "types": [
       "establishment",
@@ -3181,7 +3022,6 @@
     "editorial": "",
     "website": "http://peacockpansy.com/"
   },
-  "desc:Peacock Pansy": "A American called Peacock Pansy",
   "details:ChIJTcP6eTwEK4cR8LzeqbHXLSg": {
     "types": [
       "bar",
@@ -3206,7 +3046,6 @@
     "editorial": "",
     "website": "https://www.winfieldcoffee.com/"
   },
-  "desc:Winfield Street Coffee - Westport": "A Cafe called Winfield Street Coffee - Westport",
   "details:ChIJiTr5bRBNW4YRHs7BcAz-Ym0": {
     "types": [
       "establishment",
@@ -3217,7 +3056,6 @@
     "editorial": "",
     "website": "http://whollycowburgers.com/"
   },
-  "desc:Woo Woo Burgers - Avery Ranch": "A American called Woo Woo Burgers - Avery Ranch",
   "details:ChIJM2g8Cm_6wIcRgCnL9JAlhNI": {
     "types": [
       "establishment",
@@ -3229,7 +3067,6 @@
     "editorial": "",
     "website": "http://www.localpig.com/"
   },
-  "desc:Local Pig": "A BBQ called Local Pig",
   "details:ChIJJRTHfaMpQg0RPpl9Nnzi60k": {
     "types": [
       "establishment",
@@ -3261,7 +3098,6 @@
     "editorial": "",
     "website": "http://www.howlinwillys.com/"
   },
-  "desc:Howlin' Willy's - East Cobb": "A American called Howlin' Willy's - East Cobb",
   "details:ChIJq-I0OrUy3YAR_L_0EqxTG5M": {
     "types": [
       "establishment",
@@ -3272,7 +3108,6 @@
     "editorial": "",
     "website": "http://ordertaqueriadonjorge.mobile-webview8.com/"
   },
-  "desc:Tacos Don Jorge": "A American called Tacos Don Jorge",
   "details:ChIJIa8Qm3LNj4ARTvwHQaI3BHs": {
     "types": [
       "establishment",
@@ -3283,7 +3118,6 @@
     "editorial": "",
     "website": "https://sjdowntownfoodhall.com/s/sunset-squares-pizza/96-e-santa-clara-st-san-jose/c00ca331-9c74-4cf8-b36d-6526cb9136a3"
   },
-  "desc:Sunset Squares Pizza - San Jose": "A American called Sunset Squares Pizza - San Jose",
   "details:ChIJ20z9OOOPwIcRHj7O0JqO-Nk": {
     "types": [
       "establishment",
@@ -3294,7 +3128,6 @@
     "editorial": "",
     "website": "https://perkyscafekc.com/"
   },
-  "desc:Perky's Cafe & Catering": "A American called Perky's Cafe & Catering",
   "details:ChIJAYDdy4JfwokRHdMJajK1QpM": {
     "types": [
       "bar",
@@ -3306,7 +3139,6 @@
     "editorial": "",
     "website": "http://aygueynyc.com/"
   },
-  "desc:Ay Guey NYC Mexican Restaurant": "A Bar & Grill called Ay Guey NYC Mexican Restaurant",
   "details:ChIJ4wf_ELF-wokRwaw9pizmB4Y": {
     "types": [
       "establishment",
@@ -3315,7 +3147,6 @@
     "editorial": "",
     "website": "https://thedinerboysny.com/about-us/"
   },
-  "desc:The Diner Boys": "A American called The Diner Boys",
   "details:ChIJA-iEVWlaa4gRzpxxfsWhiYA": {
     "types": [
       "establishment",
@@ -3325,7 +3156,6 @@
     "editorial": "",
     "website": "https://www.huckabyssmokehouse.com/"
   },
-  "desc:Huckaby's Smokehouse": "A American called Huckaby's Smokehouse",
   "details:ChIJ7eOd4tQnwokRFKvFBxdyRZY": {
     "types": [
       "establishment",
@@ -3360,7 +3190,6 @@
     "editorial": "",
     "website": "https://howlinwillys.com/locations/"
   },
-  "desc:Howlin' Willy's - Hapeville": "A American called Howlin' Willy's - Hapeville",
   "details:ChIJN-7Fd6D5wokRgkTfthJyzB4": {
     "types": [
       "establishment",
@@ -3371,7 +3200,6 @@
     "editorial": "",
     "website": "https://myperiperi.com/ppperutherford?utm_source=google"
   },
-  "desc:The Port of Peri Peri": "A American called The Port of Peri Peri",
   "details:ChIJKzrhtFDh2ogR8ubnH5RCByM": {
     "types": [
       "cafe",
@@ -3384,7 +3212,6 @@
     "editorial": "",
     "website": "https://www.winfieldcoffee.com/"
   },
-  "desc:Winfield Street Coffee - Naples South": "A Cafe called Winfield Street Coffee - Naples South",
   "details:ChIJZWcIyvkZ24gRcJgogLumVRU": {
     "types": [
       "cafe",
@@ -3397,7 +3224,6 @@
     "editorial": "",
     "website": "https://www.winfieldcoffee.com/"
   },
-  "desc:Winfield Street Coffee - Naples North": "A Cafe called Winfield Street Coffee - Naples North",
   "details:ChIJ4Us1t4hZwokRGsBUjumzejE": {
     "types": [
       "establishment",
@@ -3421,7 +3247,6 @@
     "editorial": "",
     "website": "https://taimkitchen.com/"
   },
-  "desc:Taim - Plainview": "A Mediterranean called Taim - Plainview",
   "details:ChIJO1_22AhZwokRm6t3InR_YCQ": {
     "types": [
       "establishment",
@@ -3443,7 +3268,6 @@
     "editorial": "Rustic Italian eatery & pizzeria with brunch & full bar including an extensive amaro collection.",
     "website": "http://www.ninaandrafi.com/"
   },
-  "desc:Nina & Rafi": "# Nina & Rafi\n\nRustic Italian pizzeria perfect for groups seeking authentic wood-fired pizzas, elevated brunch fare, and craft cocktails in a warm, convivial setting.",
   "details:ChIJq49pBt3xwokRvR9ieaZdoC4": {
     "types": [
       "establishment",
@@ -3454,7 +3278,6 @@
     "editorial": "",
     "website": "http://www.wannabeechef.com/"
   },
-  "desc:WannaBee Chef": "A American called WannaBee Chef",
   "details:ChIJiQP1-jcwwokRp0XQnUeya9M": {
     "types": [
       "establishment",
@@ -3465,7 +3288,6 @@
     "editorial": "",
     "website": "https://www.mrpizzaslicemenu.com/"
   },
-  "desc:Mr. Pizza Slice": "A American called Mr. Pizza Slice",
   "details:ChIJP3OStGrxwokRqrNQmFcGHI8": {
     "types": [
       "establishment",
@@ -3477,7 +3299,6 @@
     "editorial": "",
     "website": "http://sweetswirlnj.com/"
   },
-  "desc:Keep It Sweet Desserts": "A American called Keep It Sweet Desserts",
   "details:ChIJI-hN5Q3Tw4kR8o_gHvzSmNc": {
     "types": [
       "bar",
@@ -3500,7 +3321,6 @@
     "editorial": "",
     "website": "https://www.osteriabrooklyn.com/location/casa-nono/"
   },
-  "desc:Casa Nono": "A American called Casa Nono",
   "details:ChIJgarb4sdFwokR52YQD5n-9mY": {
     "types": [
       "bakery",
@@ -3514,7 +3334,6 @@
     "editorial": "",
     "website": "https://wildberrycake.com/"
   },
-  "desc:Bakes Gone Wild": "A Bakery called Bakes Gone Wild",
   "details:ChIJ8euWi8dU2YARuaAnVgKFgww": {
     "types": [
       "establishment",
@@ -3536,7 +3355,6 @@
     "editorial": "",
     "website": "http://www.yellas.com/"
   },
-  "desc:Yella's": "A American called Yella's",
   "details:ChIJJyVQq-SHwYkRe5P7Y9O6Yy0": {
     "types": [
       "establishment",
@@ -3593,7 +3411,6 @@
     "editorial": "",
     "website": "http://www.wavershaksdeli.com/"
   },
-  "desc:Wavershak's Deli and Grill": "A American called Wavershak's Deli and Grill",
   "details:ChIJC_7NeRJfwokRsy59UhNZLao": {
     "types": [
       "establishment",
@@ -3628,7 +3445,6 @@
     "editorial": "",
     "website": "https://generaltsoscatering.com/dunwoody/?utm_source=GMBmain&utm_medium=organic"
   },
-  "desc:General Tso's": "A American called General Tso's",
   "details:ChIJUQvP2fjDwogRfqNKGnJTG5w": {
     "types": [
       "establishment",
@@ -3640,7 +3456,6 @@
     "website": "https://www.willastampa.com/"
   },
   "desc:Willa's": "Willa's offers stylish French-American fusion cuisine in a spacious setting, perfect for groups seeking upscale steaks, fresh seafood, and refined brunch in a trendy atmosphere.",
-  "desc:Bunny Chow - South African Food - Miramar Shebeen": "A American called Bunny Chow - South African Food - Miramar Shebeen",
   "details:ChIJQSZs02cH5IkRoXKQcXMzOgk": {
     "types": [
       "bakery",
@@ -3652,7 +3467,6 @@
     "editorial": "",
     "website": "https://www.ediblecreationsbygerry.com/"
   },
-  "desc:Edible Creations by Gerry/Just Gerry's": "A Bakery called Edible Creations by Gerry/Just Gerry's",
   "details:ChIJpVJ40l1rkFQRFXqyjjBmQUQ": {
     "types": [
       "establishment",
@@ -3674,7 +3488,6 @@
     "editorial": "",
     "website": "https://www.soul2goohio.com/"
   },
-  "desc:Soul 2 Go Catering": "A American called Soul 2 Go Catering",
   "details:ChIJtVuOhx5bwokR14FF8JEG6j8": {
     "types": [
       "establishment",
@@ -3754,7 +3567,6 @@
     "editorial": "",
     "website": "https://ricespiceonline.co.uk/"
   },
-  "desc:Rice N Spice": "A American called Rice N Spice",
   "details:ChIJPWQ0r2TnxokRfj5D5D6bMeE": {
     "types": [
       "establishment",
@@ -3765,7 +3577,6 @@
     "editorial": "",
     "website": "http://tattooedpigmedia.com/"
   },
-  "desc:The Tattooed Pig - Aston": "A American called The Tattooed Pig - Aston",
   "details:ChIJafl1xjjxw4kRZxA_G6eWNJA": {
     "types": [
       "establishment",
@@ -3787,7 +3598,6 @@
     "editorial": "",
     "website": "http://famsfav.com/"
   },
-  "desc:Family's Favorite Foods": "A American called Family's Favorite Foods",
   "details:ChIJL66NwuhClIAR9NIqpvGG0Mg": {
     "types": [
       "bar",
@@ -3809,7 +3619,6 @@
     "editorial": "",
     "website": "https://www.larkinscatering.com/"
   },
-  "desc:Larkin's Catering & Events": "A American called Larkin's Catering & Events",
   "details:ChIJ7TbtktBqkFQRuZyeygdwW90": {
     "types": [
       "establishment",
@@ -3847,7 +3656,6 @@
     "editorial": "",
     "website": "https://www.pizzatiusa.com/"
   },
-  "desc:Pizzati": "A American called Pizzati",
   "details:ChIJY_tZkY3mxokR8AgvHz1n3P0": {
     "types": [
       "establishment",
@@ -3857,7 +3665,6 @@
     "editorial": "",
     "website": "http://plumcaterers.com/"
   },
-  "desc:Plum Caterers": "A American called Plum Caterers",
   "details:ChIJD1skg_BbwokRjFBu9VHsDLw": {
     "types": [
       "establishment",
@@ -3869,7 +3676,6 @@
     "editorial": "",
     "website": "http://www.7ethai.com/"
   },
-  "desc:7 Elephants": "A American called 7 Elephants",
   "details:ChIJSfZ0OCtRa4gR-W5Ik3-Upus": {
     "types": [
       "establishment",
@@ -3880,7 +3686,6 @@
     "editorial": "",
     "website": "https://twentytwojuice.com/twentytwojuicegarage?utm_source=google"
   },
-  "desc:Twenty Two Juice Bar": "A American called Twenty Two Juice Bar",
   "details:ChIJAQBDmi6_woARcAHK1TSu02w": {
     "types": [
       "bakery",
@@ -3917,7 +3722,6 @@
     "editorial": "",
     "website": "http://woowooburgers.com/"
   },
-  "desc:Woo Woo Burgers - Scottsdale": "A American called Woo Woo Burgers - Scottsdale",
   "details:ChIJG5K1hdKHhYARTokQT1WnbqU": {
     "types": [
       "bakery",
@@ -3944,7 +3748,6 @@
     "editorial": "",
     "website": "https://www.sunsetsquares.com/"
   },
-  "desc:Sunset Squares Pizza - Mid Market": "A Bar & Grill called Sunset Squares Pizza - Mid Market",
   "details:ChIJYVForeYu6IAR7Vn7dHutmAc": {
     "types": [
       "establishment",
@@ -3989,7 +3792,6 @@
     "editorial": "",
     "website": "https://www.chookchicken.com/"
   },
-  "desc:Chook - Cherry Hills Marketplace": "A American called Chook - Cherry Hills Marketplace",
   "details:ChIJ82VXCgclwokR1jAc1493K9M": {
     "types": [
       "establishment",
@@ -4001,7 +3803,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Dia's Market": "A American called Dia's Market",
   "details:ChIJ8U5fLWhZkFQR2UL_Q3deLmc": {
     "types": [
       "establishment",
@@ -4012,7 +3813,6 @@
     "editorial": "",
     "website": "https://www.westhilldeli.com/"
   },
-  "desc:West Hill Deli": "A American called West Hill Deli",
   "details:ChIJLwOHbzaEwYkR_c03gOMWzkc": {
     "types": [
       "bakery",
@@ -4025,7 +3825,6 @@
     "editorial": "",
     "website": "http://www.colonialranchmarket.com/"
   },
-  "desc:Colonial Ranch Market": "A Bakery called Colonial Ranch Market",
   "details:ChIJk5BvZzQVkFQR0EDhKdrHJms": {
     "types": [
       "establishment",
@@ -4047,7 +3846,6 @@
     "editorial": "",
     "website": "https://rinconcitodomex.com/"
   },
-  "desc:Rinconcito DOMEX": "# Rinconcito DOMEX\n\nAuthentic American cuisine with bold flavors perfect for groups seeking quality catering that impresses with vibrant, shareable dishes.",
   "details:ChIJ29trOxNrkFQRT6b2xhyKYX4": {
     "types": [
       "establishment",
@@ -4058,7 +3856,6 @@
     "editorial": "",
     "website": "https://www.206burgercompany.com/"
   },
-  "desc:206 Burger Company": "A American called 206 Burger Company",
   "details:ChIJI_sn2N1Y7IAR7v4L8Y3oq_I": {
     "types": [
       "establishment",
@@ -4094,7 +3891,6 @@
     "editorial": "",
     "website": "http://petesbagels.com/"
   },
-  "desc:Pete's Bagels - Ybor": "A Bakery called Pete's Bagels - Ybor",
   "details:ChIJD4-OIbm-woARUxfJb9k6BCY": {
     "types": [
       "establishment",
@@ -4177,7 +3973,6 @@
     "editorial": "",
     "website": "http://pepperazzy.com/"
   },
-  "desc:Pepperazzy": "A American called Pepperazzy",
   "details:ChIJ0aFZNlTHJIgRovE34h8yTKU": {
     "types": [
       "establishment",
@@ -4210,7 +4005,6 @@
     "editorial": "",
     "website": "https://www.stacksncordials.com/"
   },
-  "desc:Stacks & Cordials - Royal Oak": "A American called Stacks & Cordials - Royal Oak",
   "details:ChIJgV-a5F5ZwokRENtmcGi-gQQ": {
     "types": [
       "establishment",
@@ -4221,7 +4015,6 @@
     "editorial": "",
     "website": "http://www.lasandwicherienyc.com/"
   },
-  "desc:La Sandwicherie - Upper East Side": "A American called La Sandwicherie - Upper East Side",
   "details:ChIJ389bLUMH3IARV05Ve1GYhTI": {
     "types": [
       "bakery",
@@ -4233,7 +4026,6 @@
     "editorial": "",
     "website": "http://www.getminidonuts.com/?utm_source=GBP&utm_medium=GSC"
   },
-  "desc:The Mini Donut Company - Westfield UTC": "A Bakery called The Mini Donut Company - Westfield UTC",
   "details:ChIJGZU63KQHw4kR1BtjHiy27cw": {
     "types": [
       "establishment",
@@ -4255,7 +4047,6 @@
     "editorial": "",
     "website": "https://www.gertie.nyc/"
   },
-  "desc:GERTIE": "A American called GERTIE",
   "details:ChIJ-YCguZdbwokRocy234iioNQ": {
     "types": [
       "establishment",
@@ -4277,8 +4068,6 @@
     "editorial": "",
     "website": ""
   },
-  "desc:Green Tomato Grill": "A American called Green Tomato Grill",
-  "desc:Stacks & Cordials - Clawson": "A American called Stacks & Cordials - Clawson",
   "details:ChIJ2bw7H9p0ToYRNHx8MoYvXog": {
     "types": [
       "bar",
@@ -4302,7 +4091,6 @@
     "editorial": "",
     "website": "https://rokstarchicken.com/rokstardouglaston?utm_source=google"
   },
-  "desc:Rokstar Chicken - Douglaston": "# Rokstar Chicken - Douglaston\n\nRokstar Chicken delivers bold, flavorful American fare perfect for group gatherings with high-quality, crowd-pleasing dishes that keep everyone satisfied.",
   "details:ChIJ9_GBnUWq2YgRujEBuYH9P88": {
     "types": [
       "establishment",
@@ -4326,7 +4114,6 @@
     "editorial": "",
     "website": "http://pointlobster.com/"
   },
-  "desc:Point Lobster Co": "A American called Point Lobster Co",
   "details:ChIJVXZL5jD92IgRNWvwzNWcK4s": {
     "types": [
       "establishment",
@@ -4351,7 +4138,6 @@
     "editorial": "",
     "website": "https://kitchenettebk.com/"
   },
-  "desc:rhk marketplace": "A Cafe called rhk marketplace",
   "details:ChIJMzNEpcdzsYkRLpfaQ66Owuk": {
     "types": [
       "bakery",
@@ -4364,7 +4150,6 @@
     "editorial": "",
     "website": "https://www.mangasminitreats.com/"
   },
-  "desc:Manga's Mini Treats": "A Bakery called Manga's Mini Treats",
   "details:ChIJoSS_D6MxwokRmI2RCIrKQuw": {
     "types": [
       "bakery",
@@ -4376,7 +4161,6 @@
     "editorial": "",
     "website": "http://www.benchmarkbreads.com/"
   },
-  "desc:Benchmark Breads": "A Bakery called Benchmark Breads",
   "details:ChIJuWupm5hr24gRs2q8fTM856g": {
     "types": [
       "establishment",
@@ -4387,7 +4171,6 @@
     "editorial": "",
     "website": "https://3pepperburrito.com/fort-myers-forum-blvd/"
   },
-  "desc:3 Pepper Burrito Co. Ft Myers - The Forum": "A American called 3 Pepper Burrito Co. Ft Myers - The Forum",
   "details:ChIJ62XHEuNB24gR7AjLc-s4ss0": {
     "types": [
       "establishment",
@@ -4398,7 +4181,6 @@
     "editorial": "",
     "website": "https://3pepperburrito.com/fort-myers-first-street/"
   },
-  "desc:3 Pepper Burrito Co. Ft Myers – Downtown": "# 3 Pepper Burrito Co. Ft Myers – Downtown\n\nFresh, made-to-order burritos and bowls perfect for group catering. Customizable options and quick service make it ideal for any gathering.",
   "details:ChIJp32zLD8V24gR2JMuvOFvR2Q": {
     "types": [
       "establishment",
@@ -4409,7 +4191,6 @@
     "editorial": "",
     "website": "https://3pepperburrito.com/fort-myers-daniels-pkwy/"
   },
-  "desc:3 Pepper Burrito Co. Fort Myers – Daniels Crossing": "A American called 3 Pepper Burrito Co. Fort Myers – Daniels Crossing",
   "details:ChIJt9_CBZYR24gRiG24gkMXfbo": {
     "types": [
       "establishment",
@@ -4420,7 +4201,6 @@
     "editorial": "",
     "website": "https://3pepperburrito.com/estero/"
   },
-  "desc:3 Pepper Burrito Co. Estero": "A American called 3 Pepper Burrito Co. Estero",
   "details:ChIJ33Nif6hZwokRq_w4rFSfOME": {
     "types": [
       "establishment",
@@ -4431,8 +4211,6 @@
     "editorial": "",
     "website": "https://www.brooklyndumplingshop.com/locations/midtown-new-york"
   },
-  "desc:Brooklyn Dumpling Shop - Midtown": "A Chinese called Brooklyn Dumpling Shop - Midtown",
-  "desc:Savvy Sliders - Metairie": "A American called Savvy Sliders - Metairie",
   "details:ChIJoawg6htewokRYxBc4hynN70": {
     "types": [
       "bar",
@@ -4444,7 +4222,6 @@
     "editorial": "",
     "website": "http://bloom-ny.com/"
   },
-  "desc:Bloom Restaurant": "A Bar & Grill called Bloom Restaurant",
   "details:ChIJjfEhCPas2YgRN1EHKOyeFU8": {
     "types": [
       "bar",
@@ -4468,9 +4245,7 @@
     "editorial": "",
     "website": "http://tap42.com/kendall"
   },
-  "desc:Tap 42 - Kendall": "A Bar & Grill called Tap 42 - Kendall",
   "desc:Savvy Sliders - Oak Park": "Savvy Sliders - Oak Park serves gourmet American sliders perfect for group events, with customizable menus and fresh, quality ingredients that impress every guest.",
-  "desc:Savvy Sliders - Port Huron": "A American called Savvy Sliders - Port Huron",
   "details:ChIJDaSoXMLGxokRymjEvM2EBSo": {
     "types": [
       "establishment",
@@ -4481,7 +4256,6 @@
     "editorial": "",
     "website": "https://www.cottonsplacephilly.com/"
   },
-  "desc:Cotton’s Place": "A American called Cotton’s Place",
   "details:ChIJQYAlqmZZwokRqUTnFvJ9bFc": {
     "types": [
       "establishment",
@@ -4492,7 +4266,6 @@
     "editorial": "",
     "website": "https://order.fieldsgoodchicken.com/"
   },
-  "desc:Fields Good Chicken - 52nd & Lex": "A Fried Chicken called Fields Good Chicken - 52nd & Lex",
   "desc:Happy's Pizza - Flint": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
   "desc:Happy's Pizza - Ypsilanti": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
   "desc:Happy's Pizza - Belleville": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
@@ -4518,7 +4291,6 @@
     "editorial": "",
     "website": "http://www.dailychewcatering.com/?utm_source=google&utm_medium=wix_google_business_profile&utm_campaign=4596933977688839903"
   },
-  "desc:Daily Chew Catering": "A American called Daily Chew Catering",
   "details:ChIJsT6vUYO5xokRXBrgagxMBNA": {
     "types": [
       "establishment",
@@ -4528,7 +4300,6 @@
     "editorial": "",
     "website": "http://www.tipsycatering.com/"
   },
-  "desc:Tipsy Cafe & Catering": "A American called Tipsy Cafe & Catering",
   "details:ChIJg_GENbGbskwRbestaVjuJ58": {
     "types": [
       "bakery",
@@ -4540,7 +4311,6 @@
     "editorial": "",
     "website": "http://tinpanbakery.com/"
   },
-  "desc:Tin Pan Bakery": "A Bakery called Tin Pan Bakery",
   "details:ChIJZUD1Wzu5woAR9lygCR3N_MQ": {
     "types": [
       "cafe",
@@ -4566,7 +4336,6 @@
     "website": "http://stevespiccolabussola.com/"
   },
   "desc:Steves Italian Meals": "Easygoing destination with a warm vibe offering hearty servings of old-school Italian fare.",
-  "desc:WannaBee Chef Catering": "A American called WannaBee Chef Catering",
   "details:ChIJI43xgLlYwokR9H-LXHs36gc": {
     "types": [
       "establishment",
@@ -4577,7 +4346,6 @@
     "editorial": "",
     "website": "https://www.botterestaurants.com/"
   },
-  "desc:Botte - UES": "A American called Botte - UES",
   "details:ChIJ7-SBzh9awokRKB5djQIBiC0": {
     "types": [
       "establishment",
@@ -4589,7 +4357,6 @@
     "website": "https://zuttonyc.com/tribeca-location/"
   },
   "desc:Zutto Japanese American Bar": "Zutto offers expertly crafted ramen, sushi & bento boxes in a stylish modern setting, perfect for groups seeking premium Japanese cuisine with curated global beverages.",
-  "desc:Howlin' Willy's - Druid Hills": "A American called Howlin' Willy's - Druid Hills",
   "details:ChIJQx6L8WVZwokRQ1airlTm63Y": {
     "types": [
       "establishment",
@@ -4600,5 +4367,238 @@
     "editorial": "",
     "website": "http://nixtamal.nyc/"
   },
-  "desc:Taqueria Nixtamal": "A Mexican called Taqueria Nixtamal"
+  "desc:Pecking House - Chinatown": "Pecking House - Chinatown serves authentic Chinese cuisine perfect for group dining and corporate events with shareable dishes and family-style service.",
+  "desc:See No Evil Pizza": "See No Evil Pizza delivers wood-fired pizzas perfect for group gatherings and office events with customizable pies that satisfy every palate.",
+  "desc:xx": "I'd be happy to help write a catering description, but I notice \"xx\" appears to be a placeholder rather than an actual restaurant name. Could you provide the real name of the restaurant or catering service you'd like me to describe?",
+  "desc:La Sandwicherie - Chelsea": "La Sandwicherie - Chelsea offers fresh, quality sandwiches perfect for office lunches and group events with customizable options for any dietary need.",
+  "desc:Namkeen - Chatham": "Namkeen - Chatham offers authentic Indian cuisine perfect for group gatherings and office catering with flavorful curries and breads that satisfy diverse palates.",
+  "desc:Taim - FIDI": "Taim - FIDI brings vibrant Israeli cuisine perfect for group catering, offering fresh falafel, sabich, and shakshuka bowls that satisfy diverse tastes and dietary preferences.",
+  "desc:Taim - Broadway": "A Mediterranean called Taim - Broadway",
+  "desc:Taim - Fresh Meadows, Queens": "A American called Taim - Fresh Meadows, Queens",
+  "desc:Hearthly Burger - Shrewsbury": "A American called Hearthly Burger - Shrewsbury",
+  "desc:Sweet Carolina Pies": "A Bakery called Sweet Carolina Pies",
+  "desc:Shore Good Eats": "A Cafe called Shore Good Eats",
+  "desc:Cafe La De Da": "A American called Cafe La De Da",
+  "desc:Tings Things Food Truck": "Tings Things Food Truck serves up delicious American fare perfect for feeding hungry crowds at events and office gatherings. Quick service and flavorful comfort food make it ideal for group catering.",
+  "desc:Almost Home Sea Bright": "A Cafe called Almost Home Sea Bright",
+  "desc:Julio's Pizza Co. – Atlantic Highlands": "A American called Julio's Pizza Co. – Atlantic Highlands",
+  "desc:Francesca Catering - Elmwood Park": "A Italian called Francesca Catering - Elmwood Park",
+  "desc:Yeah Buddy Barbecue": "A American called Yeah Buddy Barbecue",
+  "desc:Signature Fitness": "A American called Signature Fitness",
+  "desc:The Potato Concept": "A American called The Potato Concept",
+  "desc:Mi 'N Tea": "A American called Mi 'N Tea",
+  "desc:Signature Fitness - Juice Bar": "Signature Fitness - Juice Bar offers fresh, nutrient-packed smoothies and cold-pressed juices perfect for energizing team events, wellness programs, and office hydration needs. Ideal for health-conscious group orders and corporate wellness initiatives.",
+  "desc:SouzaFit - Hoboken": "A American called SouzaFit - Hoboken",
+  "desc:HappyBoards": "A American called HappyBoards",
+  "desc:Green Wrap Eatery": "A American called Green Wrap Eatery",
+  "desc:Robby J Catering": "A American called Robby J Catering",
+  "desc:Broasted Brothers - Plymouth": "Broasted Brothers - Plymouth serves up delicious American fried chicken perfect for group gatherings, office parties, and large catering orders with quick service and hearty portions.",
+  "desc:Hatch 44 Cafe - Bradley Beach": "A Cafe called Hatch 44 Cafe - Bradley Beach",
+  "desc:Industry - Austin": "A Bar & Grill called Industry - Austin",
+  "desc:Tacos Don Manolito": "A Bar & Grill called Tacos Don Manolito",
+  "desc:The Tattooed Pig - Media": "The Tattooed Pig - Media brings bold American comfort food perfect for group gatherings and corporate events with hearty portions and crowd-pleasing flavors that satisfy any size party.",
+  "desc:Kayleigh Michele's": "A Bakery called Kayleigh Michele's",
+  "desc:Red Rocks OG": "A American called Red Rocks OG",
+  "desc:Tenkatori Sawtelle": "A American called Tenkatori Sawtelle",
+  "desc:Cafe Buenos Aires": "Cafe Buenos Aires brings authentic Argentine flavors perfect for group gatherings, offering hearty empanadas, grilled meats, and fresh pastries ideal for office events and celebrations.",
+  "desc:Woo Woo Burgers - Chandler": "A American called Woo Woo Burgers - Chandler",
+  "desc:Winfield Street Coffee - Croton": "A Cafe called Winfield Street Coffee - Croton",
+  "desc:Sunset Squares Pizza - Divisadero": "A American called Sunset Squares Pizza - Divisadero",
+  "desc:MY LIFE CAFE": "A Cafe called MY LIFE CAFE",
+  "desc:Gordito's Burritos": "A American called Gordito's Burritos",
+  "desc:Leporini's Paninis": "A American called Leporini's Paninis",
+  "desc:Salad House": "Salad House offers fresh, customizable salads perfect for group orders and office events. Build-your-own options ensure everyone finds something they love.",
+  "desc:Smögen Appetizers": "A Swedish called Smögen Appetizers",
+  "desc:Good&Fantzye": "A Cafe called Good&Fantzye",
+  "desc:Petro's Chili & Chips": "A Mexican called Petro's Chili & Chips",
+  "desc:Hearthly Burger - Sea Bright": "A American called Hearthly Burger - Sea Bright",
+  "desc:Little Egg": "Little Egg brings casual American comfort to your event with shareable small plates and hearty mains perfect for groups and office gatherings.",
+  "desc:29 Hance Bakehouse": "A American called 29 Hance Bakehouse",
+  "desc:FANTZYE": "FANTZYE Cafe offers customizable group orders perfect for office events and gatherings. Experience quality cafe fare designed to impress and satisfy groups of any size.",
+  "desc:Julio's Pizza Co. – Keansburg": "A American called Julio's Pizza Co. – Keansburg",
+  "desc:Almost Home – Oceanport": "A American called Almost Home – Oceanport",
+  "desc:Namkeen - Metuchen": "A American called Namkeen - Metuchen",
+  "desc:The Corner Street Taco Bar": "A American called The Corner Street Taco Bar",
+  "desc:Thea Bakery": "A Bakery called Thea Bakery",
+  "desc:EdgeMar Restaurant": "EdgeMar Restaurant offers delicious Bar & Grill cuisine perfect for group orders and corporate events with flexible catering packages and impressive menu variety.",
+  "desc:Moonburger Brooklyn": "A American called Moonburger Brooklyn",
+  "desc:Pine and Crane DTLA": "A American called Pine and Crane DTLA",
+  "desc:Delco Rose Hoagies": "A American called Delco Rose Hoagies",
+  "desc:Vamos Vamos": "A Bar & Grill called Vamos Vamos",
+  "desc:Backyard Bowls - Santa Monica": "Backyard Bowls - Santa Monica offers fresh, customizable bowls perfect for group orders and office events, with healthy options that satisfy diverse dietary preferences.",
+  "desc:Seymour's": "A Bakery called Seymour's",
+  "desc:The Onion Tree - Sea Cliff": "A American called The Onion Tree - Sea Cliff",
+  "desc:502 Baking Company": "A Bakery called 502 Baking Company",
+  "desc:Ugly Duckling": "Ugly Duckling Cafe offers charming comfort food and beverages perfect for group gatherings and office events with customizable catering packages.",
+  "desc:3 Pepper Burrito Co. Fort Myers – College Plaza": "A American called 3 Pepper Burrito Co. Fort Myers – College Plaza",
+  "desc:Son del North - LES": "A American called Son del North - LES",
+  "desc:Son del North - West Village": "A American called Son del North - West Village",
+  "desc:Eggstasy - Chandler": "A American called Eggstasy - Chandler",
+  "desc:Eggstasy - Queen Creek": "Eggstasy - Queen Creek serves delicious American breakfast and brunch favorites perfect for feeding groups and office events with generous portions and quick service.",
+  "desc:Fat Boy's Pizza - Metairie": "A American called Fat Boy's Pizza - Metairie",
+  "desc:Rokstar Chicken - Long Island City": "A American called Rokstar Chicken - Long Island City",
+  "desc:Rokstar Chicken - Bronx": "A American called Rokstar Chicken - Bronx",
+  "desc:Savvy Sliders - Harvey": "A American called Savvy Sliders - Harvey",
+  "desc:Tap 42 - Boca Raton": "A Bar & Grill called Tap 42 - Boca Raton",
+  "desc:Tap 42 - Davie": "Tap 42 - Davie offers great bar and grill fare perfect for group gatherings and office events with a lively atmosphere and shareable menu options.",
+  "desc:Tap 42 - Doral": "A Bar & Grill called Tap 42 - Doral",
+  "desc:Tap 42 - Naples": "A American called Tap 42 - Naples",
+  "desc:Tap 42 - Palm Beach Gardens": "A American called Tap 42 - Palm Beach Gardens",
+  "desc:Savvy Sliders - San Antonio": "A American called Savvy Sliders - San Antonio",
+  "desc:Barons Bagel's - Point Pleasant": "Baron's Bagels - Point Pleasant offers fresh-baked bagels and breakfast sandwiches perfect for office meetings, events, and group gatherings.",
+  "desc:Melt Shop - Westchester Mall": "A Grilled Cheese called Melt Shop - Westchester Mall",
+  "desc:Junbi - San Francisco": "A Cafe called Junbi - San Francisco",
+  "desc:Taim - City Spire": "A Mediterranean called Taim - City Spire",
+  "desc:Taim - Hoyt": "A American called Taim - Hoyt",
+  "desc:Taim - Park Slope": "Taim - Park Slope offers fresh, customizable Mediterranean bowls and sandwiches perfect for group orders and office catering with quick service and healthy options for any dietary preference.",
+  "desc:Taim - Dupont Circle": "A American called Taim - Dupont Circle",
+  "desc:Servis Events": "A American called Servis Events",
+  "desc:The Speakeatery": "A American called The Speakeatery",
+  "desc:Black-Eyed Catering": "Black-Eyed Catering brings authentic Southern comfort food to your events with hearty portions perfect for groups and gatherings.",
+  "desc:Sugar Cubed Bakers": "A Bakery called Sugar Cubed Bakers",
+  "desc:Kneaded by Lady J": "A Bakery called Kneaded by Lady J",
+  "desc:Luna Verde Vegan Mexican Restaurant": "A American called Luna Verde Vegan Mexican Restaurant",
+  "desc:Bird & Co.": "A American called Bird & Co.",
+  "desc:Botte - Brooklyn": "A Italian called Botte - Brooklyn",
+  "desc:Pizza Heaven": "A American called Pizza Heaven",
+  "desc:Donna Jean - Los Angeles": "Donna Jean brings authentic American cuisine perfect for group gatherings and office events in Los Angeles. Ideal for catering orders that satisfy diverse palates with quality comfort food.",
+  "desc:Cafe Landwer - Century City": "A Bakery called Cafe Landwer - Century City",
+  "desc:Cafe Landwer - Cleveland Circle": "A Cafe called Cafe Landwer - Cleveland Circle",
+  "desc:Porco's Porchetteria & Small Oven Pastry Shop": "A Bakery called Porco's Porchetteria & Small Oven Pastry Shop",
+  "desc:Open Crumb": "A American called Open Crumb",
+  "desc:Doce Donut Co": "A Bakery called Doce Donut Co",
+  "desc:El Xolo Tacos": "A American called El Xolo Tacos",
+  "desc:Tikka Bowls and Tacos - Tapestry Park": "Tikka Bowls and Tacos - Tapestry Park brings bold Indian-inspired flavors and customizable bowls and tacos perfect for group gatherings and office events. Build-your-own options keep everyone satisfied.",
+  "desc:Pie Girl": "A Bakery called Pie Girl",
+  "desc:The Pink Waffle": "A American called The Pink Waffle",
+  "desc:Beach Buns Bakery": "A Bakery called Beach Buns Bakery",
+  "desc:Zunkaa Authentic Indian Cuisine": "A American called Zunkaa Authentic Indian Cuisine",
+  "desc:Test Bakery": "A Bakery called Test Bakery",
+  "desc:Bunny Chow - South African Food - North Park Shebeen": "Authentic South African street food and traditional shebeen fare, perfect for casual group gatherings and team events in North Park.",
+  "desc:Moaaz Mediterranean Grill": "A American called Moaaz Mediterranean Grill",
+  "desc:Kalamaki Greek La": "A American called Kalamaki Greek La",
+  "desc:MBG Catering": "A American called MBG Catering",
+  "desc:Tasty Dawg": "Tasty Dawg serves up delicious hot dogs and classic American fare, perfect for feeding groups and keeping everyone happy at your next event or office gathering.",
+  "desc:Little Chef Little Cafe": "A Cafe called Little Chef Little Cafe",
+  "desc:Almost Home Red General – Navesink": "A American called Almost Home Red General – Navesink",
+  "desc:Winfield Street Coffee - Stamford": "A Cafe called Winfield Street Coffee - Stamford",
+  "desc:Winfield Street Coffee - New York City": "A Cafe called Winfield Street Coffee - New York City",
+  "desc:Winfield Street Coffee - Rye": "A Cafe called Winfield Street Coffee - Rye",
+  "desc:Woo Woo Burgers - Kyle": "Woo Woo Burgers - Kyle serves up delicious customizable burgers perfect for feeding groups and office parties with quick service and crowd-pleasing flavors.",
+  "desc:Summer Salt - Midtown": "A American called Summer Salt - Midtown",
+  "desc:Pixlcat Coffee - Mid Market": "A Cafe called Pixlcat Coffee - Mid Market",
+  "desc:Binge Biryani - Long Island City": "A American called Binge Biryani - Long Island City",
+  "desc:Noble Restaurant Co": "A American called Noble Restaurant Co",
+  "desc:Toast & Taste Catering": "A American called Toast & Taste Catering",
+  "desc:Trattoria Moderna Italian Catering": "Trattoria Moderna Italian Catering brings authentic Italian cuisine to your events, with customizable family-style menus perfect for groups and corporate gatherings.",
+  "desc:Franco's Italian Restaurant": "A American called Franco's Italian Restaurant",
+  "desc:Sip + Co East Village": "A Bar & Grill called Sip + Co East Village",
+  "desc:Crispy New York": "A Cafe called Crispy New York",
+  "desc:Lil' Easy": "Lil' Easy Bar & Grill brings casual New Orleans charm perfect for group gatherings with shareable appetizers, hearty entrees, and craft cocktails that keep crowds happy and satisfied.",
+  "desc:Pete's Bagels - St. Pete": "A Bakery called Pete's Bagels - St. Pete",
+  "desc:Purslane": "A American called Purslane",
+  "desc:Sweet Chick - Union Square": "A American called Sweet Chick - Union Square",
+  "desc:Ánimo!": "Ánimo! brings vibrant American cuisine perfect for group gatherings and office events with bold flavors and generous portions that satisfy diverse tastes.",
+  "desc:Kipos Greek": "Kipos Greek brings authentic Mediterranean flavors perfect for group gatherings and office events. Fresh Greek classics and shareable platters make every celebration memorable.",
+  "desc:Indian Mountain School – Pickup": "A American called Indian Mountain School – Pickup",
+  "desc:COPS": "A American called COPS",
+  "desc:Zucker's Bagels": "A Bakery called Zucker's Bagels",
+  "desc:North Salem Farmers Market – Fantzye Pre-Orders": "A American called North Salem Farmers Market – Fantzye Pre-Orders",
+  "desc:Maciel's Plant-Based Butcher & Deli": "A American called Maciel's Plant-Based Butcher & Deli",
+  "desc:Alfreda": "Alfreda brings classic American comfort food perfect for group gatherings and office events, with hearty portions that satisfy every palate.",
+  "desc:Strange Delight": "A American called Strange Delight",
+  "desc:Brown Bag Sandwich Co": "A American called Brown Bag Sandwich Co",
+  "desc:Starvin' Arvin's Catering": "A American called Starvin' Arvin's Catering",
+  "desc:Deli-icious": "Deli-icious serves up classic American deli favorites perfect for feeding hungry groups and office events with hearty sandwiches, sides, and platters.",
+  "desc:Almost Home - Westfield": "A Cafe called Almost Home - Westfield",
+  "desc:Mill Creek": "A American called Mill Creek",
+  "desc:oomi kitchen": "A Korean called oomi kitchen",
+  "desc:Savvy Sliders - Fort Wayne": "A American called Savvy Sliders - Fort Wayne",
+  "desc:3 Pepper Burrito Port Charlotte": "A American called 3 Pepper Burrito Port Charlotte",
+  "desc:3 Pepper Burrito Co. Lehigh Acres": "A American called 3 Pepper Burrito Co. Lehigh Acres",
+  "desc:3 Pepper Burrito Co. Bradenton": "3 Pepper Burrito Co. Bradenton brings customizable, made-to-order burritos perfect for feeding groups and office events. Fast service and generous portions make catering orders easy and satisfying for any gathering.",
+  "desc:Tap 42 - Coral Springs": "A Bar & Grill called Tap 42 - Coral Springs",
+  "desc:Tap 42 - Fort Myers": "A American called Tap 42 - Fort Myers",
+  "desc:Savvy Sliders - Fraser": "A American called Savvy Sliders - Fraser",
+  "desc:Something Green": "Something Green offers fresh, vibrant American cuisine perfect for group gatherings and office catering with customizable healthy options.",
+  "desc:Savvy Sliders - Detroit (Midtown)": "A American called Savvy Sliders - Detroit (Midtown)",
+  "desc:Rooted Cafe & Catering": "A American called Rooted Cafe & Catering",
+  "desc:Club Sandwich": "A Bar & Grill called Club Sandwich",
+  "desc:Barons Bagel's - Brick": "Barons Bagels - Brick offers fresh-baked bagels and breakfast favorites perfect for office meetings, events, and group gatherings with convenient catering options.",
+  "desc:El Mercado Mexican Kitchen": "A American called El Mercado Mexican Kitchen",
+  "desc:Peacock Pansy": "A American called Peacock Pansy",
+  "desc:Winfield Street Coffee - Westport": "A Cafe called Winfield Street Coffee - Westport",
+  "desc:Woo Woo Burgers - Avery Ranch": "Woo Woo Burgers - Avery Ranch serves delicious American burgers perfect for group gatherings and office events with quick service and customizable options for any dietary need.",
+  "desc:Local Pig": "A BBQ called Local Pig",
+  "desc:Howlin' Willy's - East Cobb": "A American called Howlin' Willy's - East Cobb",
+  "desc:Tacos Don Jorge": "A American called Tacos Don Jorge",
+  "desc:Sunset Squares Pizza - San Jose": "A American called Sunset Squares Pizza - San Jose",
+  "desc:Perky's Cafe & Catering": "A American called Perky's Cafe & Catering",
+  "desc:Ay Guey NYC Mexican Restaurant": "Ay Guey NYC brings authentic Mexican flavors perfect for group gatherings, with shareable platters and vibrant dishes ideal for office events and celebrations.",
+  "desc:The Diner Boys": "A American called The Diner Boys",
+  "desc:Huckaby's Smokehouse": "A American called Huckaby's Smokehouse",
+  "desc:Howlin' Willy's - Hapeville": "A American called Howlin' Willy's - Hapeville",
+  "desc:The Port of Peri Peri": "A American called The Port of Peri Peri",
+  "desc:Winfield Street Coffee - Naples South": "A Cafe called Winfield Street Coffee - Naples South",
+  "desc:Winfield Street Coffee - Naples North": "Winfield Street Coffee - Naples North offers premium coffee, pastries, and light fare perfect for office meetings and events. Ideal for group catering with customizable beverage packages and fresh food options.",
+  "desc:Taim - Plainview": "A Mediterranean called Taim - Plainview",
+  "desc:Nina & Rafi": "Rustic Italian eatery & pizzeria with brunch & full bar including an extensive amaro collection.",
+  "desc:WannaBee Chef": "A American called WannaBee Chef",
+  "desc:Mr. Pizza Slice": "A American called Mr. Pizza Slice",
+  "desc:Keep It Sweet Desserts": "A American called Keep It Sweet Desserts",
+  "desc:Casa Nono": "Casa Nono brings authentic American comfort food perfect for feeding groups and office events with generous portions and crowd-pleasing favorites.",
+  "desc:Bakes Gone Wild": "A Bakery called Bakes Gone Wild",
+  "desc:Yella's": "A American called Yella's",
+  "desc:Wavershak's Deli and Grill": "Wavershak's Deli and Grill serves up classic American fare perfect for feeding groups with hearty sandwiches, grilled specialties, and crowd-pleasing sides ideal for any office event or gathering.",
+  "desc:General Tso's": "A American called General Tso's",
+  "desc:Bunny Chow - South African Food - Miramar Shebeen": "A American called Bunny Chow - South African Food - Miramar Shebeen",
+  "desc:Edible Creations by Gerry/Just Gerry's": "A Bakery called Edible Creations by Gerry/Just Gerry's",
+  "desc:Soul 2 Go Catering": "Soul 2 Go Catering brings authentic Southern soul food to your events, with hearty comfort dishes perfect for feeding groups. Ideal for office parties, gatherings, and celebrations that need delicious, satisfying meals delivered fresh.",
+  "desc:Rice N Spice": "A American called Rice N Spice",
+  "desc:The Tattooed Pig - Aston": "A American called The Tattooed Pig - Aston",
+  "desc:Family's Favorite Foods": "Family's Favorite Foods brings classic American comfort cuisine perfect for feeding crowds at events, offices, and gatherings with hearty, crowd-pleasing dishes everyone loves.",
+  "desc:Larkin's Catering & Events": "A American called Larkin's Catering & Events",
+  "desc:Pizzati": "A American called Pizzati",
+  "desc:Plum Caterers": "A American called Plum Caterers",
+  "desc:7 Elephants": "A American called 7 Elephants",
+  "desc:Twenty Two Juice Bar": "Twenty Two Juice Bar offers fresh, energizing beverages perfect for group orders and office events. Ideal for wellness-focused catering that keeps teams refreshed and healthy.",
+  "desc:Woo Woo Burgers - Scottsdale": "A American called Woo Woo Burgers - Scottsdale",
+  "desc:Sunset Squares Pizza - Mid Market": "A Bar & Grill called Sunset Squares Pizza - Mid Market",
+  "desc:Chook - Cherry Hills Marketplace": "Chook offers delicious American fare perfect for group gatherings and office events at Cherry Hills Marketplace. Their efficient service and shareable menu options make catering for any occasion convenient and satisfying.",
+  "desc:Dia's Market": "A American called Dia's Market",
+  "desc:West Hill Deli": "A American called West Hill Deli",
+  "desc:Colonial Ranch Market": "A Bakery called Colonial Ranch Market",
+  "desc:Rinconcito DOMEX": "A American called Rinconcito DOMEX",
+  "desc:206 Burger Company": "206 Burger Company delivers delicious American burgers perfect for group events and office catering with customizable options for every taste.",
+  "desc:Pete's Bagels - Ybor": "A Bakery called Pete's Bagels - Ybor",
+  "desc:Pepperazzy": "Pepperazzy brings bold, flavorful American fare perfect for feeding hungry crowds at your next event or office gathering. Customize your order with their signature dishes to please every palate on your team.",
+  "desc:Stacks & Cordials - Royal Oak": "A American called Stacks & Cordials - Royal Oak",
+  "desc:La Sandwicherie - Upper East Side": "A American called La Sandwicherie - Upper East Side",
+  "desc:The Mini Donut Company - Westfield UTC": "A Bakery called The Mini Donut Company - Westfield UTC",
+  "desc:GERTIE": "Gertie brings classic American comfort food perfect for group gatherings, with hearty portions and crowd-pleasing menu options ideal for office events and catering orders.",
+  "desc:Green Tomato Grill": "A American called Green Tomato Grill",
+  "desc:Stacks & Cordials - Clawson": "A American called Stacks & Cordials - Clawson",
+  "desc:Rokstar Chicken - Douglaston": "A American called Rokstar Chicken - Douglaston",
+  "desc:Point Lobster Co": "Point Lobster Co specializes in fresh seafood platters perfect for feeding hungry groups and impressing clients at corporate events.",
+  "desc:rhk marketplace": "A Cafe called rhk marketplace",
+  "desc:Manga's Mini Treats": "A Bakery called Manga's Mini Treats",
+  "desc:Benchmark Breads": "A Bakery called Benchmark Breads",
+  "desc:3 Pepper Burrito Co. Ft Myers - The Forum": "A American called 3 Pepper Burrito Co. Ft Myers - The Forum",
+  "desc:3 Pepper Burrito Co. Ft Myers – Downtown": "A American called 3 Pepper Burrito Co. Ft Myers – Downtown",
+  "desc:3 Pepper Burrito Co. Fort Myers – Daniels Crossing": "A American called 3 Pepper Burrito Co. Fort Myers – Daniels Crossing",
+  "desc:3 Pepper Burrito Co. Estero": "3 Pepper Burrito Co. Estero offers customizable burritos and Mexican-inspired fare perfect for feeding groups and office events with quick, satisfying service.",
+  "desc:Brooklyn Dumpling Shop - Midtown": "A Chinese called Brooklyn Dumpling Shop - Midtown",
+  "desc:Savvy Sliders - Metairie": "A American called Savvy Sliders - Metairie",
+  "desc:Bloom Restaurant": "A Bar & Grill called Bloom Restaurant",
+  "desc:Tap 42 - Kendall": "A Bar & Grill called Tap 42 - Kendall",
+  "desc:Savvy Sliders - Port Huron": "A American called Savvy Sliders - Port Huron",
+  "desc:Cotton’s Place": "A American called Cotton’s Place",
+  "desc:Fields Good Chicken - 52nd & Lex": "Fields Good Chicken - 52nd & Lex serves crispy, flavorful fried chicken perfect for feeding groups and office events with quick, satisfying meals.",
+  "desc:Daily Chew Catering": "A American called Daily Chew Catering",
+  "desc:Tipsy Cafe & Catering": "A American called Tipsy Cafe & Catering",
+  "desc:Tin Pan Bakery": "Tin Pan Bakery offers fresh-baked goods and pastries perfect for meetings, events, and office breaks. Customizable platters and bulk orders make group catering effortless.",
+  "desc:WannaBee Chef Catering": "A American called WannaBee Chef Catering",
+  "desc:Botte - UES": "A American called Botte - UES",
+  "desc:Howlin' Willy's - Druid Hills": "A American called Howlin' Willy's - Druid Hills",
+  "desc:Taqueria Nixtamal": "Taqueria Nixtamal brings authentic Mexican flavors perfect for group gatherings with customizable taco platters and family-style service that keeps everyone satisfied."
 }
