@@ -1,0 +1,1758 @@
+{
+  "info:Taim - City Spire": {
+    "cuisine": "Mediterranean",
+    "description": "Fast casual Mediterranean cuisine with fresh ingredients and customizable bowls and pitas."
+  },
+  "info:Taim - FIDI": {
+    "cuisine": "Israeli",
+    "description": "Fast-casual Israeli cuisine with fresh Mediterranean flavors for corporate events."
+  },
+  "info:Taim - Nolita": {
+    "cuisine": "Mediterranean",
+    "description": "Fast-casual Mediterranean cuisine featuring fresh salads, bowls, and grilled items for corporate events."
+  },
+  "info:Taim - West Village": {
+    "cuisine": "Mediterranean",
+    "description": "Fast-casual Mediterranean cuisine featuring fresh falafel, sabich, and salads for group events."
+  },
+  "info:Taim - Broadway": {
+    "cuisine": "Mediterranean",
+    "description": "Fast-casual Mediterranean eatery offering fresh, healthy bowls and wraps for catering events."
+  },
+  "info:Taim - LIC / JACX&CO": {
+    "cuisine": "American",
+    "description": "Taim - LIC / JACX&CO is a partner restaurant on Disco Cater."
+  },
+  "info:Taim - Fresh Meadows, Queens": {
+    "cuisine": "American",
+    "description": "Taim - Fresh Meadows, Queens is a partner restaurant on Disco Cater."
+  },
+  "info:Taim - Plainview": {
+    "cuisine": "Mediterranean",
+    "description": "Fast-casual Mediterranean cuisine featuring fresh bowls, salads, and wraps for catering."
+  },
+  "info:Taim - Hoyt": {
+    "cuisine": "American",
+    "description": "Taim - Hoyt is a partner restaurant on Disco Cater."
+  },
+  "info:Taim - Park Slope": {
+    "cuisine": "American",
+    "description": "Taim - Park Slope is a partner restaurant on Disco Cater."
+  },
+  "info:Taim - Dupont Circle": {
+    "cuisine": "American",
+    "description": "Taim - Dupont Circle is a partner restaurant on Disco Cater."
+  },
+  "info:Hearthly Burger - Shrewsbury": {
+    "cuisine": "American",
+    "description": "Hearthly Burger - Shrewsbury is a partner restaurant on Disco Cater."
+  },
+  "info:Marcel Bakery and Kitchen": {
+    "cuisine": "American",
+    "description": "Marcel Bakery and Kitchen is a partner restaurant on Disco Cater."
+  },
+  "info:5ive Spice LES": {
+    "cuisine": "American",
+    "description": "5ive Spice LES is a partner restaurant on Disco Cater."
+  },
+  "info:Servis Events": {
+    "cuisine": "American",
+    "description": "Servis Events is a partner restaurant on Disco Cater."
+  },
+  "info:The Speakeatery": {
+    "cuisine": "American",
+    "description": "The Speakeatery is a partner restaurant on Disco Cater."
+  },
+  "info:Almost Home – Lincroft": {
+    "cuisine": "American",
+    "description": "Almost Home – Lincroft is a partner restaurant on Disco Cater."
+  },
+  "info:2nd Jetty Seafood": {
+    "cuisine": "Seafood",
+    "description": "Fresh seafood dining experience with quality catches prepared to perfection."
+  },
+  "info:Cookman Creamery": {
+    "cuisine": "American",
+    "description": "Cookman Creamery is a partner restaurant on Disco Cater."
+  },
+  "info:Johns Cracker Barrel": {
+    "cuisine": "American",
+    "description": "Johns Cracker Barrel is a partner restaurant on Disco Cater."
+  },
+  "info:Pancho LS": {
+    "cuisine": "American",
+    "description": "Pancho LS is a partner restaurant on Disco Cater."
+  },
+  "info:Sweet Carolina Pies": {
+    "cuisine": "American",
+    "description": "Sweet Carolina Pies is a partner restaurant on Disco Cater."
+  },
+  "info:Personal Chef Rachael Gabler": {
+    "cuisine": "American",
+    "description": "Personal Chef Rachael Gabler is a partner restaurant on Disco Cater."
+  },
+  "info:Black-Eyed Catering": {
+    "cuisine": "American",
+    "description": "Black-Eyed Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Nina & Rafi": {
+    "cuisine": "American",
+    "description": "Nina & Rafi is a partner restaurant on Disco Cater."
+  },
+  "info:Shore Good Eats": {
+    "cuisine": "American",
+    "description": "Shore Good Eats is a partner restaurant on Disco Cater."
+  },
+  "info:Cafe La De Da": {
+    "cuisine": "American",
+    "description": "Cafe La De Da is a partner restaurant on Disco Cater."
+  },
+  "info:Sandy Hook Seafood": {
+    "cuisine": "Seafood",
+    "description": "Fresh seafood catering specializing in coastal cuisine for events and gatherings."
+  },
+  "info:Tings Things Food Truck": {
+    "cuisine": "American",
+    "description": "Tings Things Food Truck is a partner restaurant on Disco Cater."
+  },
+  "info:Sugar Cubed Bakers": {
+    "cuisine": "American",
+    "description": "Sugar Cubed Bakers is a partner restaurant on Disco Cater."
+  },
+  "info:Kneaded by Lady J": {
+    "cuisine": "American",
+    "description": "Kneaded by Lady J is a partner restaurant on Disco Cater."
+  },
+  "info:WannaBee Chef": {
+    "cuisine": "American",
+    "description": "WannaBee Chef is a partner restaurant on Disco Cater."
+  },
+  "info:Almost Home Sea Bright": {
+    "cuisine": "American",
+    "description": "Almost Home Sea Bright is a partner restaurant on Disco Cater."
+  },
+  "info:Dinner Parties Do Good": {
+    "cuisine": "American",
+    "description": "Dinner Parties Do Good is a partner restaurant on Disco Cater."
+  },
+  "info:Francesca Catering - Glen Rock": {
+    "cuisine": "American",
+    "description": "Francesca Catering - Glen Rock is a partner restaurant on Disco Cater."
+  },
+  "info:Julio's Pizza Co. – Atlantic Highlands": {
+    "cuisine": "American",
+    "description": "Julio's Pizza Co. – Atlantic Highlands is a partner restaurant on Disco Cater."
+  },
+  "info:Toss'd": {
+    "cuisine": "American",
+    "description": "Toss'd is a partner restaurant on Disco Cater."
+  },
+  "info:Francesca Catering - Elmwood Park": {
+    "cuisine": "Italian",
+    "description": "Italian catering services offering authentic cuisine for events and gatherings in Elmwood Park."
+  },
+  "info:Mr. Pizza Slice": {
+    "cuisine": "American",
+    "description": "Mr. Pizza Slice is a partner restaurant on Disco Cater."
+  },
+  "info:Luna Verde Vegan Mexican Restaurant": {
+    "cuisine": "American",
+    "description": "Luna Verde Vegan Mexican Restaurant is a partner restaurant on Disco Cater."
+  },
+  "info:Yeah Buddy Barbecue": {
+    "cuisine": "American",
+    "description": "Yeah Buddy Barbecue is a partner restaurant on Disco Cater."
+  },
+  "info:Keep It Sweet Desserts": {
+    "cuisine": "American",
+    "description": "Keep It Sweet Desserts is a partner restaurant on Disco Cater."
+  },
+  "info:Signature Fitness": {
+    "cuisine": "American",
+    "description": "Signature Fitness is a partner restaurant on Disco Cater."
+  },
+  "info:Pollen Basket": {
+    "cuisine": "American",
+    "description": "Pollen Basket is a partner restaurant on Disco Cater."
+  },
+  "info:Steves Italian Meals": {
+    "cuisine": "American",
+    "description": "Steves Italian Meals is a partner restaurant on Disco Cater."
+  },
+  "info:WannaBee Chef Catering": {
+    "cuisine": "American",
+    "description": "WannaBee Chef Catering is a partner restaurant on Disco Cater."
+  },
+  "info:ActuallyNovember": {
+    "cuisine": "American",
+    "description": "ActuallyNovember is a partner restaurant on Disco Cater."
+  },
+  "info:Daily Chew Catering": {
+    "cuisine": "American",
+    "description": "Daily catering service offering fresh, prepared meals for events and corporate functions."
+  },
+  "info:Black Bear BBQ": {
+    "cuisine": "American",
+    "description": "Black Bear BBQ is a partner restaurant on Disco Cater."
+  },
+  "info:Osteria": {
+    "cuisine": "American",
+    "description": "Osteria is a partner restaurant on Disco Cater."
+  },
+  "info:Casa Nono": {
+    "cuisine": "American",
+    "description": "Casa Nono is a partner restaurant on Disco Cater."
+  },
+  "info:The Potato Concept": {
+    "cuisine": "American",
+    "description": "The Potato Concept is a partner restaurant on Disco Cater."
+  },
+  "info:Bird & Co.": {
+    "cuisine": "American",
+    "description": "Bird & Co. is a partner restaurant on Disco Cater."
+  },
+  "info:Bakes Gone Wild": {
+    "cuisine": "American",
+    "description": "Bakes Gone Wild is a partner restaurant on Disco Cater."
+  },
+  "info:Rock n Roots": {
+    "cuisine": "American",
+    "description": "Rock n Roots is a partner restaurant on Disco Cater."
+  },
+  "info:Tipsy Cafe & Catering": {
+    "cuisine": "American",
+    "description": "Tipsy Cafe & Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Tin Pan Bakery": {
+    "cuisine": "American",
+    "description": "Tin Pan Bakery is a partner restaurant on Disco Cater."
+  },
+  "info:Mi 'N Tea": {
+    "cuisine": "American",
+    "description": "Mi 'N Tea is a partner restaurant on Disco Cater."
+  },
+  "info:Botte - Brooklyn": {
+    "cuisine": "Italian",
+    "description": "Italian cuisine catering service offering traditional dishes for events and gatherings."
+  },
+  "info:Pizza Heaven": {
+    "cuisine": "American",
+    "description": "Pizza Heaven is a partner restaurant on Disco Cater."
+  },
+  "info:Botte - Astoria": {
+    "cuisine": "American",
+    "description": "Botte - Astoria is a partner restaurant on Disco Cater."
+  },
+  "info:Botte - UES": {
+    "cuisine": "American",
+    "description": "Botte - UES is a partner restaurant on Disco Cater."
+  },
+  "info:Signature Fitness - Juice Bar": {
+    "cuisine": "American",
+    "description": "Signature Fitness - Juice Bar is a partner restaurant on Disco Cater."
+  },
+  "info:Lazy Daisy Beverly Hills": {
+    "cuisine": "American",
+    "description": "Lazy Daisy Beverly Hills is a partner restaurant on Disco Cater."
+  },
+  "info:Donna Jean - San Diego": {
+    "cuisine": "American",
+    "description": "Donna Jean - San Diego is a partner restaurant on Disco Cater."
+  },
+  "info:Donna Jean - Los Angeles": {
+    "cuisine": "American",
+    "description": "Donna Jean - Los Angeles is a partner restaurant on Disco Cater."
+  },
+  "info:Lunetta": {
+    "cuisine": "American",
+    "description": "Lunetta is a partner restaurant on Disco Cater."
+  },
+  "info:SouzaFit - Hoboken": {
+    "cuisine": "American",
+    "description": "SouzaFit - Hoboken is a partner restaurant on Disco Cater."
+  },
+  "info:Yella's": {
+    "cuisine": "American",
+    "description": "Yella's is a partner restaurant on Disco Cater."
+  },
+  "info:Cafe Landwer - Century City": {
+    "cuisine": "Israeli",
+    "description": "Catering for events featuring Mediterranean and Middle Eastern cuisine with fresh, locally-sourced ingredients."
+  },
+  "info:Zutto Japanese American Bar": {
+    "cuisine": "American",
+    "description": "Zutto Japanese American Bar is a partner restaurant on Disco Cater."
+  },
+  "info:Cafe Landwer - Cleveland Circle": {
+    "cuisine": "American",
+    "description": "Cafe Landwer - Cleveland Circle is a partner restaurant on Disco Cater."
+  },
+  "info:Pastosa Ravioli - Manasquan": {
+    "cuisine": "American",
+    "description": "Pastosa Ravioli - Manasquan is a partner restaurant on Disco Cater."
+  },
+  "info:Porco's Porchetteria & Small Oven Pastry Shop": {
+    "cuisine": "American",
+    "description": "Porco's Porchetteria & Small Oven Pastry Shop is a partner restaurant on Disco Cater."
+  },
+  "info:Cuisine by Claudette": {
+    "cuisine": "American",
+    "description": "Cuisine by Claudette is a partner restaurant on Disco Cater."
+  },
+  "info:Stockyard Sandwich Co.": {
+    "cuisine": "American",
+    "description": "Stockyard Sandwich Co. is a partner restaurant on Disco Cater."
+  },
+  "info:Shuk": {
+    "cuisine": "American",
+    "description": "Shuk is a partner restaurant on Disco Cater."
+  },
+  "info:Howlin' Willy's - Druid Hills": {
+    "cuisine": "American",
+    "description": "Howlin' Willy's - Druid Hills is a partner restaurant on Disco Cater."
+  },
+  "info:Firenze: Italian Street Food": {
+    "cuisine": "American",
+    "description": "Firenze: Italian Street Food is a partner restaurant on Disco Cater."
+  },
+  "info:Chicas Tacos - Miracle Mile": {
+    "cuisine": "American",
+    "description": "Chicas Tacos - Miracle Mile is a partner restaurant on Disco Cater."
+  },
+  "info:Taqueria Nixtamal": {
+    "cuisine": "Mexican",
+    "description": "Authentic Mexican street tacos and traditional Nixtamal specialties for events."
+  },
+  "info:HappyBoards": {
+    "cuisine": "American",
+    "description": "HappyBoards is a partner restaurant on Disco Cater."
+  },
+  "info:Taqueria Al Pastor - Bushwick": {
+    "cuisine": "American",
+    "description": "Taqueria Al Pastor - Bushwick is a partner restaurant on Disco Cater."
+  },
+  "info:Uncle Paulie's Deli - W 3rd St.": {
+    "cuisine": "American",
+    "description": "Uncle Paulie's Deli - W 3rd St. is a partner restaurant on Disco Cater."
+  },
+  "info:Wavershak's Deli and Grill": {
+    "cuisine": "American",
+    "description": "Wavershak's Deli and Grill is a partner restaurant on Disco Cater."
+  },
+  "info:TONG": {
+    "cuisine": "American",
+    "description": "TONG is a partner restaurant on Disco Cater."
+  },
+  "info:Green Wrap Eatery": {
+    "cuisine": "American",
+    "description": "Green Wrap Eatery is a partner restaurant on Disco Cater."
+  },
+  "info:Open Crumb": {
+    "cuisine": "American",
+    "description": "Open Crumb is a partner restaurant on Disco Cater."
+  },
+  "info:Doce Donut Co": {
+    "cuisine": "American",
+    "description": "Doce Donut Co is a partner restaurant on Disco Cater."
+  },
+  "info:El Burro": {
+    "cuisine": "American",
+    "description": "El Burro is a partner restaurant on Disco Cater."
+  },
+  "info:General Tso's": {
+    "cuisine": "American",
+    "description": "General Tso's is a partner restaurant on Disco Cater."
+  },
+  "info:Duluth Rexall Grill": {
+    "cuisine": "American",
+    "description": "Classic grill restaurant offering hearty American fare perfect for catered events and gatherings."
+  },
+  "info:The Stones Common House & Kitchen": {
+    "cuisine": "American",
+    "description": "The Stones Common House & Kitchen is a partner restaurant on Disco Cater."
+  },
+  "info:Robby J Catering": {
+    "cuisine": "American",
+    "description": "Robby J Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Hoboken Pie": {
+    "cuisine": "American",
+    "description": "Hoboken Pie is a partner restaurant on Disco Cater."
+  },
+  "info:El Xolo Tacos": {
+    "cuisine": "American",
+    "description": "El Xolo Tacos is a partner restaurant on Disco Cater."
+  },
+  "info:Willa's": {
+    "cuisine": "American",
+    "description": "Willa's is a partner restaurant on Disco Cater."
+  },
+  "info:Tikka Bowls and Tacos - Tapestry Park": {
+    "cuisine": "American",
+    "description": "Tikka Bowls and Tacos - Tapestry Park is a partner restaurant on Disco Cater."
+  },
+  "info:Bunny Chow - South African Food - Miramar Shebeen": {
+    "cuisine": "American",
+    "description": "Bunny Chow - South African Food - Miramar Shebeen is a partner restaurant on Disco Cater."
+  },
+  "info:Inga's Alpine Tavern": {
+    "cuisine": "American",
+    "description": "Inga's Alpine Tavern is a partner restaurant on Disco Cater."
+  },
+  "info:Broasted Brothers - Plymouth": {
+    "cuisine": "American",
+    "description": "Broasted Brothers - Plymouth is a partner restaurant on Disco Cater."
+  },
+  "info:Pie Girl": {
+    "cuisine": "American",
+    "description": "Pie Girl is a partner restaurant on Disco Cater."
+  },
+  "info:GREGORIO'S TRATTORIA - BETHESDA": {
+    "cuisine": "Italian",
+    "description": "Traditional Italian trattoria offering authentic cuisine perfect for catered events and private dining."
+  },
+  "info:Edible Creations by Gerry/Just Gerry's": {
+    "cuisine": "American",
+    "description": "Edible Creations by Gerry/Just Gerry's is a partner restaurant on Disco Cater."
+  },
+  "info:Wing Dome - Waterfront": {
+    "cuisine": "American",
+    "description": "Wing Dome - Waterfront is a partner restaurant on Disco Cater."
+  },
+  "info:The Pink Waffle": {
+    "cuisine": "American",
+    "description": "The Pink Waffle is a partner restaurant on Disco Cater."
+  },
+  "info:Soul 2 Go Catering": {
+    "cuisine": "American",
+    "description": "Soul 2 Go Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Vital Root": {
+    "cuisine": "American",
+    "description": "Vital Root is a partner restaurant on Disco Cater."
+  },
+  "info:East Wind Snack Shop": {
+    "cuisine": "American",
+    "description": "East Wind Snack Shop is a partner restaurant on Disco Cater."
+  },
+  "info:Beach Buns Bakery": {
+    "cuisine": "American",
+    "description": "Beach Buns Bakery is a partner restaurant on Disco Cater."
+  },
+  "info:BUONGUSTO PIZZA RESTAURENT & CATERING": {
+    "cuisine": "Italian",
+    "description": "Pizza restaurant offering catering services for events and gatherings."
+  },
+  "info:GREGORIO'S TRATTORIA - POTOMAC": {
+    "cuisine": "American",
+    "description": "GREGORIO'S TRATTORIA - POTOMAC is a partner restaurant on Disco Cater."
+  },
+  "info:GREGORIO'S TRATTORIA - RESTON": {
+    "cuisine": "American",
+    "description": "GREGORIO'S TRATTORIA - RESTON is a partner restaurant on Disco Cater."
+  },
+  "info:10th Ave. Burrito Co.": {
+    "cuisine": "American",
+    "description": "10th Ave. Burrito Co. is a partner restaurant on Disco Cater."
+  },
+  "info:Westwoods BBQ & Spice Co.": {
+    "cuisine": "American",
+    "description": "Westwoods BBQ & Spice Co. is a partner restaurant on Disco Cater."
+  },
+  "info:Zunkaa Authentic Indian Cuisine": {
+    "cuisine": "American",
+    "description": "Zunkaa Authentic Indian Cuisine is a partner restaurant on Disco Cater."
+  },
+  "info:Test Bakery": {
+    "cuisine": "American",
+    "description": "Test Bakery is a partner restaurant on Disco Cater."
+  },
+  "info:Hatch 44 Cafe - Bradley Beach": {
+    "cuisine": "American",
+    "description": "Hatch 44 Cafe - Bradley Beach is a partner restaurant on Disco Cater."
+  },
+  "info:The Dancing Blender Smoothie Co. - A Kosher Business": {
+    "cuisine": "American",
+    "description": "The Dancing Blender Smoothie Co. - A Kosher Business is a partner restaurant on Disco Cater."
+  },
+  "info:Hatch 44 Cafe - Metuchen": {
+    "cuisine": "American",
+    "description": "Hatch 44 Cafe - Metuchen is a partner restaurant on Disco Cater."
+  },
+  "info:Industry - Austin": {
+    "cuisine": "American",
+    "description": "Industry - Austin is a partner restaurant on Disco Cater."
+  },
+  "info:Wing Dome - Kirkland": {
+    "cuisine": "Wings",
+    "description": "Catering wing platters and appetizers for parties and events."
+  },
+  "info:Chef Alyssa Wong": {
+    "cuisine": "American",
+    "description": "Chef Alyssa Wong is a partner restaurant on Disco Cater."
+  },
+  "info:Cocu Rotisserie": {
+    "cuisine": "American",
+    "description": "Cocu Rotisserie is a partner restaurant on Disco Cater."
+  },
+  "info:Bunny Chow - South African Food - North Park Shebeen": {
+    "cuisine": "American",
+    "description": "Bunny Chow - South African Food - North Park Shebeen is a partner restaurant on Disco Cater."
+  },
+  "info:Tacos Don Manolito": {
+    "cuisine": "American",
+    "description": "Tacos Don Manolito is a partner restaurant on Disco Cater."
+  },
+  "info:Moaaz Mediterranean Grill": {
+    "cuisine": "American",
+    "description": "Moaaz Mediterranean Grill is a partner restaurant on Disco Cater."
+  },
+  "info:Sushi Dojo": {
+    "cuisine": "American",
+    "description": "Sushi Dojo is a partner restaurant on Disco Cater."
+  },
+  "info:Pismo's Coastal Grill": {
+    "cuisine": "American",
+    "description": "Pismo's Coastal Grill is a partner restaurant on Disco Cater."
+  },
+  "info:Rice N Spice": {
+    "cuisine": "American",
+    "description": "Rice N Spice is a partner restaurant on Disco Cater."
+  },
+  "info:The Tattooed Pig - Aston": {
+    "cuisine": "American",
+    "description": "The Tattooed Pig - Aston is a partner restaurant on Disco Cater."
+  },
+  "info:Local Smoke BBQ - Red Bank": {
+    "cuisine": "BBQ",
+    "description": "Smoked meats and traditional barbecue catering for events and gatherings."
+  },
+  "info:Panatieri's Pizza & Pasta of Flemington": {
+    "cuisine": "American",
+    "description": "Panatieri's Pizza & Pasta of Flemington is a partner restaurant on Disco Cater."
+  },
+  "info:Family's Favorite Foods": {
+    "cuisine": "American",
+    "description": "Family's Favorite Foods is a partner restaurant on Disco Cater."
+  },
+  "info:Yosemite Ranch": {
+    "cuisine": "American",
+    "description": "Yosemite Ranch is a partner restaurant on Disco Cater."
+  },
+  "info:Park Street Cafe": {
+    "cuisine": "American",
+    "description": "Park Street Cafe is a partner restaurant on Disco Cater."
+  },
+  "info:Industry - San Marcos": {
+    "cuisine": "American",
+    "description": "Industry - San Marcos is a partner restaurant on Disco Cater."
+  },
+  "info:Larkin's Catering & Events": {
+    "cuisine": "American",
+    "description": "Larkin's Catering & Events is a partner restaurant on Disco Cater."
+  },
+  "info:Feed Co. Burgers": {
+    "cuisine": "American",
+    "description": "Feed Co. Burgers is a partner restaurant on Disco Cater."
+  },
+  "info:El Gallo Taqueria": {
+    "cuisine": "American",
+    "description": "El Gallo Taqueria is a partner restaurant on Disco Cater."
+  },
+  "info:The Tattooed Pig - Media": {
+    "cuisine": "American",
+    "description": "Casual dining featuring comfort food and elevated pub fare in a trendy atmosphere."
+  },
+  "info:Perky's Cafe & Catering": {
+    "cuisine": "American",
+    "description": "Perky's Cafe & Catering is a partner restaurant on Disco Cater."
+  },
+  "info:All Star Sandwich Bar": {
+    "cuisine": "American",
+    "description": "All Star Sandwich Bar is a partner restaurant on Disco Cater."
+  },
+  "info:Kalamaki Greek La": {
+    "cuisine": "American",
+    "description": "Kalamaki Greek La is a partner restaurant on Disco Cater."
+  },
+  "info:Ay Guey NYC Mexican Restaurant": {
+    "cuisine": "American",
+    "description": "Ay Guey NYC Mexican Restaurant is a partner restaurant on Disco Cater."
+  },
+  "info:MBG Catering": {
+    "cuisine": "American",
+    "description": "MBG Catering is a partner restaurant on Disco Cater."
+  },
+  "info:TROPICALI Brazilian Kitchen": {
+    "cuisine": "American",
+    "description": "TROPICALI Brazilian Kitchen is a partner restaurant on Disco Cater."
+  },
+  "info:Kayleigh Michele's": {
+    "cuisine": "American",
+    "description": "Kayleigh Michele's is a partner restaurant on Disco Cater."
+  },
+  "info:Pizzati": {
+    "cuisine": "American",
+    "description": "Pizzati is a partner restaurant on Disco Cater."
+  },
+  "info:Tasty Dawg": {
+    "cuisine": "American",
+    "description": "Tasty Dawg is a partner restaurant on Disco Cater."
+  },
+  "info:Plum Caterers": {
+    "cuisine": "American",
+    "description": "Full-service catering for events featuring seasonal cuisine and customized menus."
+  },
+  "info:The Diner Boys": {
+    "cuisine": "American",
+    "description": "The Diner Boys is a partner restaurant on Disco Cater."
+  },
+  "info:Olive and Oak": {
+    "cuisine": "American",
+    "description": "Olive and Oak is a partner restaurant on Disco Cater."
+  },
+  "info:7 Elephants": {
+    "cuisine": "American",
+    "description": "7 Elephants is a partner restaurant on Disco Cater."
+  },
+  "info:Red Rocks OG": {
+    "cuisine": "American",
+    "description": "Red Rocks OG is a partner restaurant on Disco Cater."
+  },
+  "info:Trejo's Tacos": {
+    "cuisine": "American",
+    "description": "Trejo's Tacos is a partner restaurant on Disco Cater."
+  },
+  "info:Tenkatori Sawtelle": {
+    "cuisine": "American",
+    "description": "Tenkatori Sawtelle is a partner restaurant on Disco Cater."
+  },
+  "info:Little Chef Little Cafe": {
+    "cuisine": "American",
+    "description": "Little Chef Little Cafe is a partner restaurant on Disco Cater."
+  },
+  "info:Twenty Two Juice Bar": {
+    "cuisine": "American",
+    "description": "Twenty Two Juice Bar is a partner restaurant on Disco Cater."
+  },
+  "info:Huckaby's Smokehouse": {
+    "cuisine": "American",
+    "description": "Huckaby's Smokehouse is a partner restaurant on Disco Cater."
+  },
+  "info:Trejo's Coffee & Donuts": {
+    "cuisine": "Cafe",
+    "description": "Specialty coffee and gourmet donuts perfect for events and gatherings."
+  },
+  "info:Local Smoke BBQ - Cookstown": {
+    "cuisine": "American",
+    "description": "Local Smoke BBQ - Cookstown is a partner restaurant on Disco Cater."
+  },
+  "info:Local Smoke BBQ - Neptune City": {
+    "cuisine": "American",
+    "description": "Local Smoke BBQ - Neptune City is a partner restaurant on Disco Cater."
+  },
+  "info:Local Smoke BBQ - Sea Girt": {
+    "cuisine": "American",
+    "description": "Local Smoke BBQ - Sea Girt is a partner restaurant on Disco Cater."
+  },
+  "info:Howlin' Willy's - Hapeville": {
+    "cuisine": "American",
+    "description": "Howlin' Willy's - Hapeville is a partner restaurant on Disco Cater."
+  },
+  "info:Almost Home Red General – Navesink": {
+    "cuisine": "American",
+    "description": "Almost Home Red General – Navesink is a partner restaurant on Disco Cater."
+  },
+  "info:Peacock Pansy": {
+    "cuisine": "American",
+    "description": "Peacock Pansy is a partner restaurant on Disco Cater."
+  },
+  "info:The Eatery of Wallingford": {
+    "cuisine": "American",
+    "description": "The Eatery of Wallingford is a partner restaurant on Disco Cater."
+  },
+  "info:Cafe Buenos Aires": {
+    "cuisine": "American",
+    "description": "Cafe Buenos Aires is a partner restaurant on Disco Cater."
+  },
+  "info:Winfield Street Coffee - Stamford": {
+    "cuisine": "Coffee",
+    "description": "Specialty coffee shop offering catering for events and meetings in Stamford."
+  },
+  "info:Z'Tejas - Chandler": {
+    "cuisine": "American",
+    "description": "Z'Tejas - Chandler is a partner restaurant on Disco Cater."
+  },
+  "info:Woo Woo Burgers - Chandler": {
+    "cuisine": "American",
+    "description": "Woo Woo Burgers - Chandler is a partner restaurant on Disco Cater."
+  },
+  "info:The Port of Peri Peri": {
+    "cuisine": "American",
+    "description": "The Port of Peri Peri is a partner restaurant on Disco Cater."
+  },
+  "info:Krewe of McGinley Square": {
+    "cuisine": "American",
+    "description": "Krewe of McGinley Square is a partner restaurant on Disco Cater."
+  },
+  "info:Summer Salt - Flatiron": {
+    "cuisine": "American",
+    "description": "Summer Salt - Flatiron is a partner restaurant on Disco Cater."
+  },
+  "info:Winfield Street Coffee - Westport": {
+    "cuisine": "American",
+    "description": "Winfield Street Coffee - Westport is a partner restaurant on Disco Cater."
+  },
+  "info:Winfield Street Coffee - Croton": {
+    "cuisine": "American",
+    "description": "Winfield Street Coffee - Croton is a partner restaurant on Disco Cater."
+  },
+  "info:Winfield Street Coffee - New York City": {
+    "cuisine": "American",
+    "description": "Winfield Street Coffee - New York City is a partner restaurant on Disco Cater."
+  },
+  "info:Winfield Street Coffee - Rye": {
+    "cuisine": "American",
+    "description": "Winfield Street Coffee - Rye is a partner restaurant on Disco Cater."
+  },
+  "info:Winfield Street Coffee - Naples South": {
+    "cuisine": "American",
+    "description": "Winfield Street Coffee - Naples South is a partner restaurant on Disco Cater."
+  },
+  "info:Winfield Street Coffee - Naples North": {
+    "cuisine": "Coffee",
+    "description": "Specialty coffee shop offering artisan beverages and light refreshments for events."
+  },
+  "info:Z'Tejas - Avery Ranch": {
+    "cuisine": "American",
+    "description": "Z'Tejas - Avery Ranch is a partner restaurant on Disco Cater."
+  },
+  "info:Z'Tejas - Scottsdale": {
+    "cuisine": "American",
+    "description": "Z'Tejas - Scottsdale is a partner restaurant on Disco Cater."
+  },
+  "info:Woo Woo Burgers - Avery Ranch": {
+    "cuisine": "American",
+    "description": "Woo Woo Burgers - Avery Ranch is a partner restaurant on Disco Cater."
+  },
+  "info:Woo Woo Burgers - Kyle": {
+    "cuisine": "American",
+    "description": "Woo Woo Burgers - Kyle is a partner restaurant on Disco Cater."
+  },
+  "info:Woo Woo Burgers - Scottsdale": {
+    "cuisine": "American",
+    "description": "Woo Woo Burgers - Scottsdale is a partner restaurant on Disco Cater."
+  },
+  "info:Memphis Seoul": {
+    "cuisine": "American",
+    "description": "Memphis Seoul is a partner restaurant on Disco Cater."
+  },
+  "info:Summer Salt - Midtown": {
+    "cuisine": "American",
+    "description": "Summer Salt - Midtown is a partner restaurant on Disco Cater."
+  },
+  "info:Summer Salt - Union Square": {
+    "cuisine": "American",
+    "description": "Summer Salt - Union Square is a partner restaurant on Disco Cater."
+  },
+  "info:Local Pig": {
+    "cuisine": "BBQ",
+    "description": "Smoked meats and Southern comfort food catering for events and gatherings."
+  },
+  "info:Maíz Catering": {
+    "cuisine": "American",
+    "description": "Maíz Catering is a partner restaurant on Disco Cater."
+  },
+  "info:The Motown Diet": {
+    "cuisine": "American",
+    "description": "The Motown Diet is a partner restaurant on Disco Cater."
+  },
+  "info:De Nada": {
+    "cuisine": "American",
+    "description": "De Nada is a partner restaurant on Disco Cater."
+  },
+  "info:Pixlcat Coffee - Mid Market": {
+    "cuisine": "American",
+    "description": "Pixlcat Coffee - Mid Market is a partner restaurant on Disco Cater."
+  },
+  "info:Scrumptious Fare Catering": {
+    "cuisine": "American",
+    "description": "Scrumptious Fare Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Howlin' Willy's - East Cobb": {
+    "cuisine": "American",
+    "description": "Howlin' Willy's - East Cobb is a partner restaurant on Disco Cater."
+  },
+  "info:Binge Biryani - Long Island City": {
+    "cuisine": "American",
+    "description": "Binge Biryani - Long Island City is a partner restaurant on Disco Cater."
+  },
+  "info:Pixlcat Coffee - Inner Richmond": {
+    "cuisine": "American",
+    "description": "Pixlcat Coffee - Inner Richmond is a partner restaurant on Disco Cater."
+  },
+  "info:Sunset Squares Pizza - Mid Market": {
+    "cuisine": "American",
+    "description": "Sunset Squares Pizza - Mid Market is a partner restaurant on Disco Cater."
+  },
+  "info:Fire Island Grill - Simi Valley": {
+    "cuisine": "American Grill",
+    "description": "Grilled specialties and coastal-inspired cuisine perfect for any event or celebration."
+  },
+  "info:Tacos Don Jorge": {
+    "cuisine": "American",
+    "description": "Tacos Don Jorge is a partner restaurant on Disco Cater."
+  },
+  "info:Sunset Squares Pizza - San Jose": {
+    "cuisine": "American",
+    "description": "Sunset Squares Pizza - San Jose is a partner restaurant on Disco Cater."
+  },
+  "info:Sunset Squares Pizza - Divisadero": {
+    "cuisine": "American",
+    "description": "Sunset Squares Pizza - Divisadero is a partner restaurant on Disco Cater."
+  },
+  "info:MY LIFE CAFE": {
+    "cuisine": "American",
+    "description": "MY LIFE CAFE is a partner restaurant on Disco Cater."
+  },
+  "info:Noble Restaurant Co": {
+    "cuisine": "American",
+    "description": "Noble Restaurant Co is a partner restaurant on Disco Cater."
+  },
+  "info:Bagel Point - Brooklyn": {
+    "cuisine": "American",
+    "description": "Bagel Point - Brooklyn is a partner restaurant on Disco Cater."
+  },
+  "info:Chook - Platt Park": {
+    "cuisine": "American",
+    "description": "Chook - Platt Park is a partner restaurant on Disco Cater."
+  },
+  "info:Toast & Taste Catering": {
+    "cuisine": "American",
+    "description": "Toast & Taste Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Crackin’ Yolks": {
+    "cuisine": "American Breakfast",
+    "description": "Catering featuring fresh egg dishes and breakfast specialties for your event."
+  },
+  "info:Chook - 8th Ave & Birch St": {
+    "cuisine": "American",
+    "description": "Chook - 8th Ave & Birch St is a partner restaurant on Disco Cater."
+  },
+  "info:Chook - Cherry Hills Marketplace": {
+    "cuisine": "American",
+    "description": "Chook - Cherry Hills Marketplace is a partner restaurant on Disco Cater."
+  },
+  "info:Gordito's Burritos": {
+    "cuisine": "American",
+    "description": "Gordito's Burritos is a partner restaurant on Disco Cater."
+  },
+  "info:Dia's Market": {
+    "cuisine": "American",
+    "description": "Dia's Market is a partner restaurant on Disco Cater."
+  },
+  "info:Trattoria Moderna Italian Catering": {
+    "cuisine": "American",
+    "description": "Trattoria Moderna Italian Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Leporini's Paninis": {
+    "cuisine": "American",
+    "description": "Leporini's Paninis is a partner restaurant on Disco Cater."
+  },
+  "info:West Hill Deli": {
+    "cuisine": "American",
+    "description": "West Hill Deli is a partner restaurant on Disco Cater."
+  },
+  "info:Salad House": {
+    "cuisine": "American",
+    "description": "Salad House is a partner restaurant on Disco Cater."
+  },
+  "info:Colonial Ranch Market": {
+    "cuisine": "American",
+    "description": "Colonial Ranch Market is a partner restaurant on Disco Cater."
+  },
+  "info:The Biz Catering": {
+    "cuisine": "American",
+    "description": "The Biz Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Smögen Appetizers": {
+    "cuisine": "Swedish",
+    "description": "Coastal Swedish appetizers and small plates featuring fresh seafood and traditional Nordic flavors."
+  },
+  "info:Plant Life Vegan Catering": {
+    "cuisine": "American",
+    "description": "Plant Life Vegan Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Razzis Pizzeria - Downtown": {
+    "cuisine": "American",
+    "description": "Razzis Pizzeria - Downtown is a partner restaurant on Disco Cater."
+  },
+  "info:Z'Tejas - Kyle": {
+    "cuisine": "American",
+    "description": "Z'Tejas - Kyle is a partner restaurant on Disco Cater."
+  },
+  "info:Good&Fantzye": {
+    "cuisine": "American",
+    "description": "Good&Fantzye is a partner restaurant on Disco Cater."
+  },
+  "info:Franco's Italian Restaurant": {
+    "cuisine": "American",
+    "description": "Franco's Italian Restaurant is a partner restaurant on Disco Cater."
+  },
+  "info:ROOH Palo Alto": {
+    "cuisine": "American",
+    "description": "ROOH Palo Alto is a partner restaurant on Disco Cater."
+  },
+  "info:Rinconcito DOMEX": {
+    "cuisine": "American",
+    "description": "Rinconcito DOMEX is a partner restaurant on Disco Cater."
+  },
+  "info:Hungry House": {
+    "cuisine": "American",
+    "description": "Hungry House is a partner restaurant on Disco Cater."
+  },
+  "info:206 Burger Company": {
+    "cuisine": "American",
+    "description": "206 Burger Company is a partner restaurant on Disco Cater."
+  },
+  "info:Sip + Co East Village": {
+    "cuisine": "American",
+    "description": "Sip + Co East Village is a partner restaurant on Disco Cater."
+  },
+  "info:Petro's Chili & Chips": {
+    "cuisine": "Mexican",
+    "description": "Casual dining featuring chili and chips, perfect for groups and events."
+  },
+  "info:Mission Sandwich Social": {
+    "cuisine": "American",
+    "description": "Mission Sandwich Social is a partner restaurant on Disco Cater."
+  },
+  "info:Fitzy's Old Fashioned Diner": {
+    "cuisine": "American",
+    "description": "Fitzy's Old Fashioned Diner is a partner restaurant on Disco Cater."
+  },
+  "info:Pismo Fish and Chips": {
+    "cuisine": "American",
+    "description": "Pismo Fish and Chips is a partner restaurant on Disco Cater."
+  },
+  "info:Crispy New York": {
+    "cuisine": "American",
+    "description": "Crispy New York is a partner restaurant on Disco Cater."
+  },
+  "info:Nonna’s Pizza and Sandwiches": {
+    "cuisine": "American",
+    "description": "Nonna’s Pizza and Sandwiches is a partner restaurant on Disco Cater."
+  },
+  "info:Sweet Lake Biscuits & Limeade": {
+    "cuisine": "American",
+    "description": "Sweet Lake Biscuits & Limeade is a partner restaurant on Disco Cater."
+  },
+  "info:Hearthly Burger - Sea Bright": {
+    "cuisine": "American",
+    "description": "Hearthly Burger - Sea Bright is a partner restaurant on Disco Cater."
+  },
+  "info:Lil' Easy": {
+    "cuisine": "American",
+    "description": "Lil' Easy is a partner restaurant on Disco Cater."
+  },
+  "info:Mesob Restaurant": {
+    "cuisine": "American",
+    "description": "Mesob Restaurant is a partner restaurant on Disco Cater."
+  },
+  "info:Pelons Tex Mex": {
+    "cuisine": "American",
+    "description": "Pelons Tex Mex is a partner restaurant on Disco Cater."
+  },
+  "info:Colette's Creations": {
+    "cuisine": "French",
+    "description": "Elegant French cuisine with creative dishes and refined catering for special events."
+  },
+  "info:Pete's Bagels - St. Pete": {
+    "cuisine": "American",
+    "description": "Pete's Bagels - St. Pete is a partner restaurant on Disco Cater."
+  },
+  "info:Con Madre Cocina": {
+    "cuisine": "American",
+    "description": "Con Madre Cocina is a partner restaurant on Disco Cater."
+  },
+  "info:Purslane": {
+    "cuisine": "American",
+    "description": "Purslane is a partner restaurant on Disco Cater."
+  },
+  "info:Pete's Bagels - Ybor": {
+    "cuisine": "American",
+    "description": "Pete's Bagels - Ybor is a partner restaurant on Disco Cater."
+  },
+  "info:Tinga Fresh Mexican": {
+    "cuisine": "American",
+    "description": "Tinga Fresh Mexican is a partner restaurant on Disco Cater."
+  },
+  "info:Little Egg": {
+    "cuisine": "American",
+    "description": "Little Egg is a partner restaurant on Disco Cater."
+  },
+  "info:Best Pizza - Williamsburg": {
+    "cuisine": "American",
+    "description": "Best Pizza - Williamsburg is a partner restaurant on Disco Cater."
+  },
+  "info:Alta Calidad": {
+    "cuisine": "American",
+    "description": "Alta Calidad is a partner restaurant on Disco Cater."
+  },
+  "info:Hugo's West Hollywood": {
+    "cuisine": "American",
+    "description": "Hugo's West Hollywood is a partner restaurant on Disco Cater."
+  },
+  "info:29 Hance Bakehouse": {
+    "cuisine": "American",
+    "description": "29 Hance Bakehouse is a partner restaurant on Disco Cater."
+  },
+  "info:Hugo's Tacos Studio City": {
+    "cuisine": "Mexican",
+    "description": "Casual taco restaurant offering fresh Mexican street food and traditional tacos for events."
+  },
+  "info:Sweet Chick - Union Square": {
+    "cuisine": "American",
+    "description": "Sweet Chick - Union Square is a partner restaurant on Disco Cater."
+  },
+  "info:Hoover's Cooking": {
+    "cuisine": "American",
+    "description": "Hoover's Cooking is a partner restaurant on Disco Cater."
+  },
+  "info:Hugo's Tacos Atwater Village": {
+    "cuisine": "American",
+    "description": "Hugo's Tacos Atwater Village is a partner restaurant on Disco Cater."
+  },
+  "info:Utopia Bagels": {
+    "cuisine": "American",
+    "description": "Utopia Bagels is a partner restaurant on Disco Cater."
+  },
+  "info:Hugo's Studio City": {
+    "cuisine": "American",
+    "description": "Hugo's Studio City is a partner restaurant on Disco Cater."
+  },
+  "info:Sweet Chick - Williamsburg": {
+    "cuisine": "American",
+    "description": "Sweet Chick - Williamsburg is a partner restaurant on Disco Cater."
+  },
+  "info:Sweet Chick - LES": {
+    "cuisine": "American",
+    "description": "Sweet Chick - LES is a partner restaurant on Disco Cater."
+  },
+  "info:Sweet Chick - Prospect Heights": {
+    "cuisine": "American",
+    "description": "Sweet Chick - Prospect Heights is a partner restaurant on Disco Cater."
+  },
+  "info:Sweet Chick - Long Island City": {
+    "cuisine": "American",
+    "description": "Sweet Chick - Long Island City is a partner restaurant on Disco Cater."
+  },
+  "info:Crazy Burger Cafe and Juice Bar": {
+    "cuisine": "American",
+    "description": "Casual burger and juice bar offering custom burgers and fresh juice drinks for any event."
+  },
+  "info:Wax Paper - Frogtown": {
+    "cuisine": "American",
+    "description": "Wax Paper - Frogtown is a partner restaurant on Disco Cater."
+  },
+  "info:Veselka": {
+    "cuisine": "American",
+    "description": "Veselka is a partner restaurant on Disco Cater."
+  },
+  "info:Pepperazzy": {
+    "cuisine": "American",
+    "description": "Pepperazzy is a partner restaurant on Disco Cater."
+  },
+  "info:Zara Mediterranean Grill": {
+    "cuisine": "American",
+    "description": "Zara Mediterranean Grill is a partner restaurant on Disco Cater."
+  },
+  "info:Mekelburg's": {
+    "cuisine": "American",
+    "description": "Mekelburg's is a partner restaurant on Disco Cater."
+  },
+  "info:Panzón": {
+    "cuisine": "American",
+    "description": "Panzón is a partner restaurant on Disco Cater."
+  },
+  "info:Surf Taco - Point Pleasant": {
+    "cuisine": "American",
+    "description": "Surf Taco - Point Pleasant is a partner restaurant on Disco Cater."
+  },
+  "info:Urban CoalHouse - Red Bank": {
+    "cuisine": "American",
+    "description": "Urban CoalHouse - Red Bank is a partner restaurant on Disco Cater."
+  },
+  "info:Das Good Cafe": {
+    "cuisine": "American",
+    "description": "Das Good Cafe is a partner restaurant on Disco Cater."
+  },
+  "info:Surf Taco - Lacey": {
+    "cuisine": "Mexican",
+    "description": "Casual beach-inspired Mexican cuisine featuring fresh tacos and coastal flavors for events."
+  },
+  "info:Surf Taco - Long Branch": {
+    "cuisine": "American",
+    "description": "Surf Taco - Long Branch is a partner restaurant on Disco Cater."
+  },
+  "info:Surf Taco - Manasquan": {
+    "cuisine": "American",
+    "description": "Surf Taco - Manasquan is a partner restaurant on Disco Cater."
+  },
+  "info:Surf Taco - Red Bank": {
+    "cuisine": "American",
+    "description": "Surf Taco - Red Bank is a partner restaurant on Disco Cater."
+  },
+  "info:Surf Taco - Silverton": {
+    "cuisine": "American",
+    "description": "Surf Taco - Silverton is a partner restaurant on Disco Cater."
+  },
+  "info:Surf Taco - Wall": {
+    "cuisine": "American",
+    "description": "Surf Taco - Wall is a partner restaurant on Disco Cater."
+  },
+  "info:Urban CoalHouse - Hoboken": {
+    "cuisine": "American",
+    "description": "Urban CoalHouse - Hoboken is a partner restaurant on Disco Cater."
+  },
+  "info:Urban CoalHouse - Brick": {
+    "cuisine": "BBQ",
+    "description": "Brick-fired barbecue catering featuring smoked meats and coal-roasted specialties."
+  },
+  "info:Pecking House - Chinatown": {
+    "cuisine": "American",
+    "description": "Pecking House - Chinatown is a partner restaurant on Disco Cater."
+  },
+  "info:FANTZYE": {
+    "cuisine": "American",
+    "description": "FANTZYE is a partner restaurant on Disco Cater."
+  },
+  "info:Julio's Pizza Co. – Keansburg": {
+    "cuisine": "American",
+    "description": "Julio's Pizza Co. – Keansburg is a partner restaurant on Disco Cater."
+  },
+  "info:Fotinis Fit Fuel": {
+    "cuisine": "American",
+    "description": "Fotinis Fit Fuel is a partner restaurant on Disco Cater."
+  },
+  "info:Almost Home – Oceanport": {
+    "cuisine": "American",
+    "description": "Almost Home – Oceanport is a partner restaurant on Disco Cater."
+  },
+  "info:Bloomfield Deli + Catering": {
+    "cuisine": "American",
+    "description": "Bloomfield Deli + Catering is a partner restaurant on Disco Cater."
+  },
+  "info:John's Place": {
+    "cuisine": "American",
+    "description": "John's Place is a partner restaurant on Disco Cater."
+  },
+  "info:Wexler’s Deli": {
+    "cuisine": "Deli",
+    "description": "Jewish deli offering sandwiches, cured meats, and traditional catering platters for events."
+  },
+  "info:See No Evil Pizza": {
+    "cuisine": "American",
+    "description": "See No Evil Pizza is a partner restaurant on Disco Cater."
+  },
+  "info:Namkeen - Brooklyn": {
+    "cuisine": "American",
+    "description": "Namkeen - Brooklyn is a partner restaurant on Disco Cater."
+  },
+  "info:xx": {
+    "cuisine": "American",
+    "description": "xx is a partner restaurant on Disco Cater."
+  },
+  "info:Stacks & Cordials - Royal Oak": {
+    "cuisine": "American",
+    "description": "Stacks & Cordials - Royal Oak is a partner restaurant on Disco Cater."
+  },
+  "info:Black Seed Bagels": {
+    "cuisine": "American",
+    "description": "Black Seed Bagels is a partner restaurant on Disco Cater."
+  },
+  "info:La Sandwicherie - Upper East Side": {
+    "cuisine": "American",
+    "description": "La Sandwicherie - Upper East Side is a partner restaurant on Disco Cater."
+  },
+  "info:La Sandwicherie - Chelsea": {
+    "cuisine": "American",
+    "description": "La Sandwicherie - Chelsea is a partner restaurant on Disco Cater."
+  },
+  "info:gtk": {
+    "cuisine": "American",
+    "description": "gtk is a partner restaurant on Disco Cater."
+  },
+  "info:The Mini Donut Company - Liberty Public Market": {
+    "cuisine": "American",
+    "description": "The Mini Donut Company - Liberty Public Market is a partner restaurant on Disco Cater."
+  },
+  "info:Teranga": {
+    "cuisine": "American",
+    "description": "Teranga is a partner restaurant on Disco Cater."
+  },
+  "info:The Mini Donut Company - Westfield UTC": {
+    "cuisine": "Donuts",
+    "description": "Specialty mini donuts and pastries perfect for events and corporate catering."
+  },
+  "info:Namkeen - Chatham": {
+    "cuisine": "American",
+    "description": "Namkeen - Chatham is a partner restaurant on Disco Cater."
+  },
+  "info:Namkeen - Metuchen": {
+    "cuisine": "American",
+    "description": "Namkeen - Metuchen is a partner restaurant on Disco Cater."
+  },
+  "info:Namkeen - Lake Hiawatha": {
+    "cuisine": "American",
+    "description": "Namkeen - Lake Hiawatha is a partner restaurant on Disco Cater."
+  },
+  "info:GERTIE": {
+    "cuisine": "American",
+    "description": "GERTIE is a partner restaurant on Disco Cater."
+  },
+  "info:The Corner Street Taco Bar": {
+    "cuisine": "American",
+    "description": "The Corner Street Taco Bar is a partner restaurant on Disco Cater."
+  },
+  "info:Victors Restaurant & Deli": {
+    "cuisine": "American",
+    "description": "Victors Restaurant & Deli is a partner restaurant on Disco Cater."
+  },
+  "info:Fish Cheeks": {
+    "cuisine": "American",
+    "description": "Fish Cheeks is a partner restaurant on Disco Cater."
+  },
+  "info:Bobby U’s BBQ": {
+    "cuisine": "American",
+    "description": "Bobby U’s BBQ is a partner restaurant on Disco Cater."
+  },
+  "info:Ánimo!": {
+    "cuisine": "American",
+    "description": "Ánimo! is a partner restaurant on Disco Cater."
+  },
+  "info:Kipos Greek": {
+    "cuisine": "American",
+    "description": "Kipos Greek is a partner restaurant on Disco Cater."
+  },
+  "info:Aunts et Uncles": {
+    "cuisine": "German",
+    "description": "Cozy family-style restaurant offering traditional German comfort food and hearty cuisine."
+  },
+  "info:Miss Ada": {
+    "cuisine": "American",
+    "description": "Miss Ada is a partner restaurant on Disco Cater."
+  },
+  "info:Thea Bakery": {
+    "cuisine": "American",
+    "description": "Thea Bakery is a partner restaurant on Disco Cater."
+  },
+  "info:Indian Mountain School – Pickup": {
+    "cuisine": "American",
+    "description": "Indian Mountain School – Pickup is a partner restaurant on Disco Cater."
+  },
+  "info:EdgeMar Restaurant": {
+    "cuisine": "American",
+    "description": "EdgeMar Restaurant is a partner restaurant on Disco Cater."
+  },
+  "info:COPS": {
+    "cuisine": "American",
+    "description": "COPS is a partner restaurant on Disco Cater."
+  },
+  "info:The Winkin' Rooster": {
+    "cuisine": "American",
+    "description": "The Winkin' Rooster is a partner restaurant on Disco Cater."
+  },
+  "info:Moonburger Brooklyn": {
+    "cuisine": "American",
+    "description": "Moonburger Brooklyn is a partner restaurant on Disco Cater."
+  },
+  "info:Zucker's Bagels": {
+    "cuisine": "American",
+    "description": "Zucker's Bagels is a partner restaurant on Disco Cater."
+  },
+  "info:Green Tomato Grill": {
+    "cuisine": "American",
+    "description": "Green Tomato Grill is a partner restaurant on Disco Cater."
+  },
+  "info:North Salem Farmers Market – Fantzye Pre-Orders": {
+    "cuisine": "American",
+    "description": "North Salem Farmers Market – Fantzye Pre-Orders is a partner restaurant on Disco Cater."
+  },
+  "info:Lechon Loco": {
+    "cuisine": "Filipino",
+    "description": "Authentic Filipino roasted pork catering specializing in lechon for events and celebrations."
+  },
+  "info:Maciel's Plant-Based Butcher & Deli": {
+    "cuisine": "American",
+    "description": "Maciel's Plant-Based Butcher & Deli is a partner restaurant on Disco Cater."
+  },
+  "info:Alfreda": {
+    "cuisine": "American",
+    "description": "Alfreda is a partner restaurant on Disco Cater."
+  },
+  "info:Sigri": {
+    "cuisine": "American",
+    "description": "Sigri is a partner restaurant on Disco Cater."
+  },
+  "info:Pine and Crane DTLA": {
+    "cuisine": "American",
+    "description": "Pine and Crane DTLA is a partner restaurant on Disco Cater."
+  },
+  "info:Strange Delight": {
+    "cuisine": "American",
+    "description": "Strange Delight is a partner restaurant on Disco Cater."
+  },
+  "info:Delco Rose Hoagies": {
+    "cuisine": "American",
+    "description": "Delco Rose Hoagies is a partner restaurant on Disco Cater."
+  },
+  "info:Vamos Vamos": {
+    "cuisine": "American",
+    "description": "Vamos Vamos is a partner restaurant on Disco Cater."
+  },
+  "info:Stacks & Cordials - Clawson": {
+    "cuisine": "American",
+    "description": "Stacks & Cordials - Clawson is a partner restaurant on Disco Cater."
+  },
+  "info:Genghis Grill - Lake Worth": {
+    "cuisine": "American",
+    "description": "Genghis Grill - Lake Worth is a partner restaurant on Disco Cater."
+  },
+  "info:Mile End Delicatessen": {
+    "cuisine": "American",
+    "description": "Mile End Delicatessen is a partner restaurant on Disco Cater."
+  },
+  "info:The Budlong Southern Chicken - Hayden Hall": {
+    "cuisine": "Southern Chicken",
+    "description": "Southern-style fried chicken catering perfect for casual gatherings and events."
+  },
+  "info:Rokstar Chicken - Douglaston": {
+    "cuisine": "American",
+    "description": "Rokstar Chicken - Douglaston is a partner restaurant on Disco Cater."
+  },
+  "info:Brown Bag Sandwich Co": {
+    "cuisine": "American",
+    "description": "Brown Bag Sandwich Co is a partner restaurant on Disco Cater."
+  },
+  "info:Mr. M's Sandwich Shop": {
+    "cuisine": "American",
+    "description": "Mr. M's Sandwich Shop is a partner restaurant on Disco Cater."
+  },
+  "info:Purslane x Milk Bar": {
+    "cuisine": "American",
+    "description": "Purslane x Milk Bar is a partner restaurant on Disco Cater."
+  },
+  "info:Backyard Bowls - Beverly Grove": {
+    "cuisine": "American",
+    "description": "Backyard Bowls - Beverly Grove is a partner restaurant on Disco Cater."
+  },
+  "info:Parm Famous Italian - UWS": {
+    "cuisine": "American",
+    "description": "Parm Famous Italian - UWS is a partner restaurant on Disco Cater."
+  },
+  "info:Backyard Bowls - Santa Monica": {
+    "cuisine": "American",
+    "description": "Backyard Bowls - Santa Monica is a partner restaurant on Disco Cater."
+  },
+  "info:BurgerFi - St Johns Town Center": {
+    "cuisine": "American",
+    "description": "BurgerFi - St Johns Town Center is a partner restaurant on Disco Cater."
+  },
+  "info:Morning Squeeze": {
+    "cuisine": "Juice Bar",
+    "description": "Fresh pressed juices and smoothie bowls for healthy breakfast and brunch catering."
+  },
+  "info:Bagel Miller": {
+    "cuisine": "American",
+    "description": "Bagel Miller is a partner restaurant on Disco Cater."
+  },
+  "info:Seymour's": {
+    "cuisine": "American",
+    "description": "Seymour's is a partner restaurant on Disco Cater."
+  },
+  "info:The Onion Tree - Sea Cliff": {
+    "cuisine": "American",
+    "description": "The Onion Tree - Sea Cliff is a partner restaurant on Disco Cater."
+  },
+  "info:Point Lobster Co": {
+    "cuisine": "American",
+    "description": "Point Lobster Co is a partner restaurant on Disco Cater."
+  },
+  "info:BurgerFi - LBTS": {
+    "cuisine": "American",
+    "description": "BurgerFi - LBTS is a partner restaurant on Disco Cater."
+  },
+  "info:BurgerFi - Pompano Beach Pier": {
+    "cuisine": "American",
+    "description": "BurgerFi - Pompano Beach Pier is a partner restaurant on Disco Cater."
+  },
+  "info:Starvin' Arvin's Catering": {
+    "cuisine": "American",
+    "description": "Starvin' Arvin's Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Habana Cuba Restaurant": {
+    "cuisine": "American",
+    "description": "Habana Cuba Restaurant is a partner restaurant on Disco Cater."
+  },
+  "info:rhk marketplace": {
+    "cuisine": "American",
+    "description": "rhk marketplace is a partner restaurant on Disco Cater."
+  },
+  "info:Eggstasy - Scottsdale": {
+    "cuisine": "Breakfast",
+    "description": "Catering specializing in egg dishes and breakfast items for Scottsdale events."
+  },
+  "info:502 Baking Company": {
+    "cuisine": "American",
+    "description": "502 Baking Company is a partner restaurant on Disco Cater."
+  },
+  "info:Deli-icious": {
+    "cuisine": "American",
+    "description": "Deli-icious is a partner restaurant on Disco Cater."
+  },
+  "info:Ugly Duckling": {
+    "cuisine": "American",
+    "description": "Ugly Duckling is a partner restaurant on Disco Cater."
+  },
+  "info:Manga's Mini Treats": {
+    "cuisine": "American",
+    "description": "Manga's Mini Treats is a partner restaurant on Disco Cater."
+  },
+  "info:Benchmark Breads": {
+    "cuisine": "American",
+    "description": "Benchmark Breads is a partner restaurant on Disco Cater."
+  },
+  "info:Almost Home - Westfield": {
+    "cuisine": "American",
+    "description": "Almost Home - Westfield is a partner restaurant on Disco Cater."
+  },
+  "info:Supernatural": {
+    "cuisine": "American",
+    "description": "Supernatural is a partner restaurant on Disco Cater."
+  },
+  "info:Mill Creek": {
+    "cuisine": "American",
+    "description": "Mill Creek is a partner restaurant on Disco Cater."
+  },
+  "info:BurgerFi - O Town/Palm Parkway": {
+    "cuisine": "American",
+    "description": "BurgerFi - O Town/Palm Parkway is a partner restaurant on Disco Cater."
+  },
+  "info:oomi kitchen": {
+    "cuisine": "Korean",
+    "description": "Modern Korean cuisine featuring traditional flavors with contemporary presentation and dining experience."
+  },
+  "info:3 Pepper Burrito Co. Ft Myers - The Forum": {
+    "cuisine": "American",
+    "description": "3 Pepper Burrito Co. Ft Myers - The Forum is a partner restaurant on Disco Cater."
+  },
+  "info:Savvy Sliders - Fort Wayne": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - Fort Wayne is a partner restaurant on Disco Cater."
+  },
+  "info:3 Pepper Burrito Co. Ft Myers – Downtown": {
+    "cuisine": "American",
+    "description": "3 Pepper Burrito Co. Ft Myers – Downtown is a partner restaurant on Disco Cater."
+  },
+  "info:3 Pepper Burrito Co. Fort Myers – Daniels Crossing": {
+    "cuisine": "American",
+    "description": "3 Pepper Burrito Co. Fort Myers – Daniels Crossing is a partner restaurant on Disco Cater."
+  },
+  "info:3 Pepper Burrito Port Charlotte": {
+    "cuisine": "American",
+    "description": "3 Pepper Burrito Port Charlotte is a partner restaurant on Disco Cater."
+  },
+  "info:3 Pepper Burrito Co. Fort Myers – College Plaza": {
+    "cuisine": "American",
+    "description": "3 Pepper Burrito Co. Fort Myers – College Plaza is a partner restaurant on Disco Cater."
+  },
+  "info:3 Pepper Burrito Co. Lehigh Acres": {
+    "cuisine": "American",
+    "description": "3 Pepper Burrito Co. Lehigh Acres is a partner restaurant on Disco Cater."
+  },
+  "info:3 Pepper Burrito Co. Bradenton": {
+    "cuisine": "American",
+    "description": "3 Pepper Burrito Co. Bradenton is a partner restaurant on Disco Cater."
+  },
+  "info:3 Pepper Burrito Co. Cape Coral": {
+    "cuisine": "American",
+    "description": "3 Pepper Burrito Co. Cape Coral is a partner restaurant on Disco Cater."
+  },
+  "info:3 Pepper Burrito Co. Estero": {
+    "cuisine": "American",
+    "description": "3 Pepper Burrito Co. Estero is a partner restaurant on Disco Cater."
+  },
+  "info:Brooklyn Dumpling Shop - Midtown": {
+    "cuisine": "Chinese",
+    "description": "Authentic dumplings and Asian cuisine perfect for corporate events and group catering."
+  },
+  "info:Son del North - LES": {
+    "cuisine": "American",
+    "description": "Son del North - LES is a partner restaurant on Disco Cater."
+  },
+  "info:Brooklyn Dumpling Shop - UES": {
+    "cuisine": "American",
+    "description": "Brooklyn Dumpling Shop - UES is a partner restaurant on Disco Cater."
+  },
+  "info:Savvy Sliders - Metairie": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - Metairie is a partner restaurant on Disco Cater."
+  },
+  "info:Son del North - West Village": {
+    "cuisine": "American",
+    "description": "Son del North - West Village is a partner restaurant on Disco Cater."
+  },
+  "info:Eggstasy - Chandler": {
+    "cuisine": "American",
+    "description": "Eggstasy - Chandler is a partner restaurant on Disco Cater."
+  },
+  "info:Eggstasy - Norterra Ctr.": {
+    "cuisine": "American",
+    "description": "Eggstasy - Norterra Ctr. is a partner restaurant on Disco Cater."
+  },
+  "info:Eggstasy - Mesa": {
+    "cuisine": "American",
+    "description": "Eggstasy - Mesa is a partner restaurant on Disco Cater."
+  },
+  "info:Eggstasy - The Colony": {
+    "cuisine": "American",
+    "description": "Eggstasy - The Colony is a partner restaurant on Disco Cater."
+  },
+  "info:Eggstasy - Queen Creek": {
+    "cuisine": "American",
+    "description": "Eggstasy - Queen Creek is a partner restaurant on Disco Cater."
+  },
+  "info:Bloom Restaurant": {
+    "cuisine": "American",
+    "description": "Bloom Restaurant is a partner restaurant on Disco Cater."
+  },
+  "info:Fat Boy's Pizza - Fort Wayne": {
+    "cuisine": "Pizza",
+    "description": "Classic pizza catering perfect for parties, events, and gatherings of any size."
+  },
+  "info:Fat Boy's Pizza - Metairie": {
+    "cuisine": "American",
+    "description": "Fat Boy's Pizza - Metairie is a partner restaurant on Disco Cater."
+  },
+  "info:Ramen Lab Eatery - West Boca Raton": {
+    "cuisine": "American",
+    "description": "Ramen Lab Eatery - West Boca Raton is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Aventura": {
+    "cuisine": "American",
+    "description": "Tap 42 - Aventura is a partner restaurant on Disco Cater."
+  },
+  "info:Rokstar Chicken - Long Island City": {
+    "cuisine": "American",
+    "description": "Rokstar Chicken - Long Island City is a partner restaurant on Disco Cater."
+  },
+  "info:Rokstar Chicken - Bronx": {
+    "cuisine": "American",
+    "description": "Rokstar Chicken - Bronx is a partner restaurant on Disco Cater."
+  },
+  "info:Savvy Sliders - Harvey": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - Harvey is a partner restaurant on Disco Cater."
+  },
+  "info:Savvy Sliders - Covington": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - Covington is a partner restaurant on Disco Cater."
+  },
+  "info:Fat Boy's Pizza - Harvey": {
+    "cuisine": "American",
+    "description": "Fat Boy's Pizza - Harvey is a partner restaurant on Disco Cater."
+  },
+  "info:Fat Boy's Pizza - Covington": {
+    "cuisine": "American",
+    "description": "Fat Boy's Pizza - Covington is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Boca Raton": {
+    "cuisine": "American Gastropub",
+    "description": "Craft beer and elevated pub fare catering for casual to upscale events."
+  },
+  "info:Tap 42 - Coral Gables": {
+    "cuisine": "American",
+    "description": "Tap 42 - Coral Gables is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Coral Springs": {
+    "cuisine": "American",
+    "description": "Tap 42 - Coral Springs is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Davie": {
+    "cuisine": "American",
+    "description": "Tap 42 - Davie is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Doral": {
+    "cuisine": "American",
+    "description": "Tap 42 - Doral is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Fort Myers": {
+    "cuisine": "American",
+    "description": "Tap 42 - Fort Myers is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Ft Lauderdale": {
+    "cuisine": "American",
+    "description": "Tap 42 - Ft Lauderdale is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Kendall": {
+    "cuisine": "American",
+    "description": "Tap 42 - Kendall is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Miami": {
+    "cuisine": "American",
+    "description": "Tap 42 - Miami is a partner restaurant on Disco Cater."
+  },
+  "info:Tap 42 - Naples": {
+    "cuisine": "American",
+    "description": "Casual dining spot featuring burgers, sandwiches, and craft beers in a relaxed atmosphere."
+  },
+  "info:Tap 42 - Palm Beach Gardens": {
+    "cuisine": "American",
+    "description": "Tap 42 - Palm Beach Gardens is a partner restaurant on Disco Cater."
+  },
+  "info:Savvy Sliders - Oak Park": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - Oak Park is a partner restaurant on Disco Cater."
+  },
+  "info:Savvy Sliders - Fraser": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - Fraser is a partner restaurant on Disco Cater."
+  },
+  "info:Savvy Sliders - San Antonio": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - San Antonio is a partner restaurant on Disco Cater."
+  },
+  "info:Savvy Sliders - Dallas": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - Dallas is a partner restaurant on Disco Cater."
+  },
+  "info:BurgerFi - Boynton Beach": {
+    "cuisine": "American",
+    "description": "BurgerFi - Boynton Beach is a partner restaurant on Disco Cater."
+  },
+  "info:BurgerFi - Bowie": {
+    "cuisine": "American",
+    "description": "BurgerFi - Bowie is a partner restaurant on Disco Cater."
+  },
+  "info:BurgerFi - Falls Church": {
+    "cuisine": "American",
+    "description": "BurgerFi - Falls Church is a partner restaurant on Disco Cater."
+  },
+  "info:BurgerFi - Arlington": {
+    "cuisine": "American",
+    "description": "BurgerFi - Arlington is a partner restaurant on Disco Cater."
+  },
+  "info:Brooklyn Boys Pizza & Deli": {
+    "cuisine": "Italian",
+    "description": "Pizza and deli catering perfect for casual gatherings and events."
+  },
+  "info:Savvy Sliders - Port Huron": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - Port Huron is a partner restaurant on Disco Cater."
+  },
+  "info:Happy's Pizza - Port Huron": {
+    "cuisine": "American",
+    "description": "Happy's Pizza - Port Huron is a partner restaurant on Disco Cater."
+  },
+  "info:Something Green": {
+    "cuisine": "American",
+    "description": "Something Green is a partner restaurant on Disco Cater."
+  },
+  "info:Savvy Sliders - Detroit (Midtown)": {
+    "cuisine": "American",
+    "description": "Savvy Sliders - Detroit (Midtown) is a partner restaurant on Disco Cater."
+  },
+  "info:Cotton’s Place": {
+    "cuisine": "American",
+    "description": "Cotton’s Place is a partner restaurant on Disco Cater."
+  },
+  "info:The Juice Standard": {
+    "cuisine": "American",
+    "description": "The Juice Standard is a partner restaurant on Disco Cater."
+  },
+  "info:Rooted Cafe & Catering": {
+    "cuisine": "American",
+    "description": "Rooted Cafe & Catering is a partner restaurant on Disco Cater."
+  },
+  "info:Barons Bagel's - Point Pleasant": {
+    "cuisine": "American",
+    "description": "Barons Bagel's - Point Pleasant is a partner restaurant on Disco Cater."
+  },
+  "info:Fields Good Chicken - 52nd & Lex": {
+    "cuisine": "Fried Chicken",
+    "description": "Casual fried chicken spot perfect for quick bites and group orders at your event."
+  },
+  "info:Melt Shop - Maiden Ln": {
+    "cuisine": "American",
+    "description": "Melt Shop - Maiden Ln is a partner restaurant on Disco Cater."
+  },
+  "info:Happy's Pizza - Farmington Hills": {
+    "cuisine": "American",
+    "description": "Happy's Pizza - Farmington Hills is a partner restaurant on Disco Cater."
+  },
+  "info:Happy's Pizza - Westland (Store 043)": {
+    "cuisine": "American",
+    "description": "Happy's Pizza - Westland (Store 043) is a partner restaurant on Disco Cater."
+  },
+  "info:Happy's Pizza - Flint": {
+    "cuisine": "American",
+    "description": "Happy's Pizza - Flint is a partner restaurant on Disco Cater."
+  },
+  "info:Happy's Pizza - Ypsilanti": {
+    "cuisine": "American",
+    "description": "Happy's Pizza - Ypsilanti is a partner restaurant on Disco Cater."
+  },
+  "info:Club Sandwich": {
+    "cuisine": "American",
+    "description": "Club Sandwich is a partner restaurant on Disco Cater."
+  },
+  "info:Happy's Pizza - Belleville": {
+    "cuisine": "American",
+    "description": "Happy's Pizza - Belleville is a partner restaurant on Disco Cater."
+  },
+  "info:Happy's Pizza - Wayne": {
+    "cuisine": "American",
+    "description": "Happy's Pizza - Wayne is a partner restaurant on Disco Cater."
+  },
+  "info:eléa": {
+    "cuisine": "American",
+    "description": "eléa is a partner restaurant on Disco Cater."
+  },
+  "info:Melt Shop - Midtown West": {
+    "cuisine": "American",
+    "description": "Melt Shop - Midtown West is a partner restaurant on Disco Cater."
+  },
+  "info:Melt Shop - Westchester Mall": {
+    "cuisine": "Grilled Cheese",
+    "description": "Gourmet grilled cheese sandwiches and comfort food perfect for events."
+  },
+  "info:Fields Good Chicken - 40th & Mad": {
+    "cuisine": "American",
+    "description": "Fields Good Chicken - 40th & Mad is a partner restaurant on Disco Cater."
+  },
+  "info:Happy's Pizza - Dayton": {
+    "cuisine": "American",
+    "description": "Happy's Pizza - Dayton is a partner restaurant on Disco Cater."
+  },
+  "info:Happy's Pizza - Toledo": {
+    "cuisine": "American",
+    "description": "Happy's Pizza - Toledo is a partner restaurant on Disco Cater."
+  },
+  "info:Junbi - San Francisco": {
+    "cuisine": "American",
+    "description": "Junbi - San Francisco is a partner restaurant on Disco Cater."
+  },
+  "info:Barons Bagel's - Brick": {
+    "cuisine": "American",
+    "description": "Barons Bagel's - Brick is a partner restaurant on Disco Cater."
+  },
+  "info:The Commons Chelsea": {
+    "cuisine": "American",
+    "description": "The Commons Chelsea is a partner restaurant on Disco Cater."
+  },
+  "info:El Mercado Mexican Kitchen": {
+    "cuisine": "American",
+    "description": "El Mercado Mexican Kitchen is a partner restaurant on Disco Cater."
+  }
+}

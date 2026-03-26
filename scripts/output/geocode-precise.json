@@ -1,0 +1,792 @@
+{
+  "precise:Surf Taco - Point Pleasant": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belmar, NJ"
+  },
+  "precise:Das Good Cafe": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Philadelphia, PA"
+  },
+  "precise:Surf Taco - Long Branch": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belmar, NJ"
+  },
+  "precise:Surf Taco - Red Bank": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belmar, NJ"
+  },
+  "precise:Dinner Parties Do Good": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Chicago, IL"
+  },
+  "precise:Julio's Pizza Co. – Atlantic Highlands": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Atlantic Highlands, NJ"
+  },
+  "precise:Signature Fitness": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belleville, NJ"
+  },
+  "precise:Black Bear BBQ": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Asheville, NC"
+  },
+  "precise:The Potato Concept": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bedford, NH"
+  },
+  "precise:Signature Fitness - Juice Bar": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belleville, NJ"
+  },
+  "precise:Hoboken Pie": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Austin, TX"
+  },
+  "precise:Inga's Alpine Tavern": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Denver, CO"
+  },
+  "precise:Broasted Brothers - Plymouth": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Detroit, MI"
+  },
+  "precise:Westwoods BBQ & Spice Co.": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fresno, CA"
+  },
+  "precise:Industry - Austin": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Austin, TX"
+  },
+  "precise:The Tattooed Pig - Media": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Aston, PA"
+  },
+  "precise:Tenkatori Sawtelle": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:Gordito's Burritos": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:Salad House": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Westfield, NJ"
+  },
+  "precise:Good&Fantzye": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Kingston, NY"
+  },
+  "precise:Pelons Tex Mex": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Austin, TX"
+  },
+  "precise:Colette's Creations": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Chattanooga, TN"
+  },
+  "precise:Surf Taco - Silverton": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belmar, NJ"
+  },
+  "precise:FANTZYE": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Kingston, NY"
+  },
+  "precise:Julio's Pizza Co. – Keansburg": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Atlantic Highlands, NJ"
+  },
+  "precise:Fotinis Fit Fuel": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Windsor, NJ"
+  },
+  "precise:The Corner Street Taco Bar": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Woodstock, GA"
+  },
+  "precise:The Winkin' Rooster": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Shoreview, MN"
+  },
+  "precise:Delco Rose Hoagies": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:Backyard Bowls - Santa Monica": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:BurgerFi - St Johns Town Center": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Lauderdale, FL"
+  },
+  "precise:Bagel Miller": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Chicago, IL"
+  },
+  "precise:Seymour's": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "St. Petersburg, FL"
+  },
+  "precise:The Onion Tree - Sea Cliff": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Sea Cliff, NY"
+  },
+  "precise:BurgerFi - LBTS": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Lauderdale, FL"
+  },
+  "precise:Eggstasy - Scottsdale": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Scottsdale, AZ"
+  },
+  "precise:502 Baking Company": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Brick, NJ"
+  },
+  "precise:Ugly Duckling": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Portland, ME"
+  },
+  "precise:BurgerFi - O Town/Palm Parkway": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Lauderdale, FL"
+  },
+  "precise:3 Pepper Burrito Co. Fort Myers – College Plaza": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Meyers, FL"
+  },
+  "precise:Eggstasy - Chandler": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Scottsdale, AZ"
+  },
+  "precise:Eggstasy - Norterra Ctr.": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Scottsdale, AZ"
+  },
+  "precise:Eggstasy - Mesa": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Scottsdale, AZ"
+  },
+  "precise:Eggstasy - The Colony": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Scottsdale, AZ"
+  },
+  "precise:Eggstasy - Queen Creek": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Scottsdale, AZ"
+  },
+  "precise:Fat Boy's Pizza - Metairie": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Savvy Sliders - Harvey": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Savvy Sliders - Covington": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Fat Boy's Pizza - Covington": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Tap 42 - Boca Raton": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Tap 42 - Coral Gables": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Tap 42 - Davie": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Tap 42 - Doral": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Tap 42 - Miami": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Tap 42 - Naples": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Tap 42 - Palm Beach Gardens": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Savvy Sliders - San Antonio": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Savvy Sliders - Dallas": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:BurgerFi - Falls Church": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Lauderdale, FL"
+  },
+  "precise:BurgerFi - Arlington": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Lauderdale, FL"
+  },
+  "precise:Brooklyn Boys Pizza & Deli": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Edison, NJ"
+  },
+  "precise:Happy's Pizza - Port Huron": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Happy's Pizza - Westland (Store 043)": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Junbi - San Francisco": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "San Francisco, CA"
+  },
+  "precise:Beach Buns Bakery": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Ocean City, NJ"
+  },
+  "precise:10th Ave. Burrito Co.": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belmar, NJ"
+  },
+  "precise:Moaaz Mediterranean Grill": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Rahway, NJ"
+  },
+  "precise:Industry - San Marcos": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Austin, TX"
+  },
+  "precise:Tasty Dawg": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Columbus, OH"
+  },
+  "precise:Little Chef Little Cafe": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Long Island City, NY"
+  },
+  "precise:The Eatery of Wallingford": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Wallingford, CT"
+  },
+  "precise:Krewe of McGinley Square": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Jersey City, NJ"
+  },
+  "precise:Memphis Seoul": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "New York, NY"
+  },
+  "precise:Toast & Taste Catering": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Burien, WA"
+  },
+  "precise:Trattoria Moderna Italian Catering": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:Plant Life Vegan Catering": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:Franco's Italian Restaurant": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Henrico, VA"
+  },
+  "precise:Mesob Restaurant": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Kansas City, MO"
+  },
+  "precise:Tinga Fresh Mexican": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Montclair, NJ"
+  },
+  "precise:Hugo's Tacos Studio City": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:Hugo's Tacos Atwater Village": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:Surf Taco - Lacey": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belmar, NJ"
+  },
+  "precise:Surf Taco - Manasquan": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belmar, NJ"
+  },
+  "precise:Surf Taco - Wall": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Belmar, NJ"
+  },
+  "precise:Kipos Greek": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Seattle, WA"
+  },
+  "precise:North Salem Farmers Market – Fantzye Pre-Orders": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Kingston, NY"
+  },
+  "precise:Lechon Loco": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Tacoma, WA"
+  },
+  "precise:Alfreda": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Washington, DC"
+  },
+  "precise:Sigri": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "New York, NY"
+  },
+  "precise:Backyard Bowls - Beverly Grove": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:Morning Squeeze": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Scottsdale, AZ"
+  },
+  "precise:Starvin' Arvin's Catering": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Huntington, WV"
+  },
+  "precise:Habana Cuba Restaurant": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "San Jose, CA"
+  },
+  "precise:Supernatural": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Tampa, FL"
+  },
+  "precise:oomi kitchen": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Dallas, TX"
+  },
+  "precise:Savvy Sliders - Fort Wayne": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:3 Pepper Burrito Port Charlotte": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Meyers, FL"
+  },
+  "precise:3 Pepper Burrito Co. Lehigh Acres": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Meyers, FL"
+  },
+  "precise:3 Pepper Burrito Co. Bradenton": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Meyers, FL"
+  },
+  "precise:3 Pepper Burrito Co. Cape Coral": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Meyers, FL"
+  },
+  "precise:Fat Boy's Pizza - Fort Wayne": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Tap 42 - Coral Springs": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Tap 42 - Fort Myers": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Tap 42 - Ft Lauderdale": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Savvy Sliders - Fraser": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:BurgerFi - Boynton Beach": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Lauderdale, FL"
+  },
+  "precise:BurgerFi - Bowie": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Lauderdale, FL"
+  },
+  "precise:Savvy Sliders - Detroit (Midtown)": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Rooted Cafe & Catering": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Austin, TX"
+  },
+  "precise:Happy's Pizza - Farmington Hills": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Happy's Pizza - Toledo": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:The Commons Chelsea": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "New York, NY"
+  },
+  "precise:El Mercado Mexican Kitchen": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Newport Beach, CA"
+  },
+  "precise:Local Pig": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Kansas City, MO"
+  },
+  "precise:Howlin' Willy's - East Cobb": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Atlanta, GA"
+  },
+  "precise:Howlin' Willy's - Hapeville": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Atlanta, GA"
+  },
+  "precise:Keep It Sweet Desserts": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Tenafly, NJ"
+  },
+  "precise:Yella's": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Hawthorne, NJ"
+  },
+  "precise:Chicas Tacos - Miracle Mile": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Los Angeles, CA"
+  },
+  "precise:El Burro": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Pittsburgh, PA"
+  },
+  "precise:General Tso's": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Atlanta, GA"
+  },
+  "precise:East Wind Snack Shop": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Brooklyn, NY"
+  },
+  "precise:Pismo's Coastal Grill": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fresno, CA"
+  },
+  "precise:The Tattooed Pig - Aston": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Aston, PA"
+  },
+  "precise:Yosemite Ranch": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fresno, CA"
+  },
+  "precise:Feed Co. Burgers": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Seattle, WA"
+  },
+  "precise:Plum Caterers": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Aston, PA"
+  },
+  "precise:Bagel Point - Brooklyn": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Brooklyn, NY"
+  },
+  "precise:West Hill Deli": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Auburn, WA"
+  },
+  "precise:Rinconcito DOMEX": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Brooklyn, NY"
+  },
+  "precise:Pismo Fish and Chips": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Pismo Beach, CA"
+  },
+  "precise:Crazy Burger Cafe and Juice Bar": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Narragansett, RI"
+  },
+  "precise:Bloomfield Deli + Catering": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bloomfield Hills, MI"
+  },
+  "precise:John's Place": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Chicago, IL"
+  },
+  "precise:Stacks & Cordials - Royal Oak": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Royal Oak, MI"
+  },
+  "precise:Stacks & Cordials - Clawson": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Royal Oak, MI"
+  },
+  "precise:Mr. M's Sandwich Shop": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Dania Beach, FL"
+  },
+  "precise:Point Lobster Co": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Point Pleasant Beach, NJ"
+  },
+  "precise:BurgerFi - Pompano Beach Pier": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Lauderdale, FL"
+  },
+  "precise:Benchmark Breads": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Atlantic Highlands, NJ"
+  },
+  "precise:3 Pepper Burrito Co. Ft Myers - The Forum": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Meyers, FL"
+  },
+  "precise:3 Pepper Burrito Co. Ft Myers – Downtown": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Meyers, FL"
+  },
+  "precise:3 Pepper Burrito Co. Fort Myers – Daniels Crossing": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Meyers, FL"
+  },
+  "precise:3 Pepper Burrito Co. Estero": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Fort Meyers, FL"
+  },
+  "precise:Savvy Sliders - Metairie": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Tap 42 - Aventura": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Fat Boy's Pizza - Harvey": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Tap 42 - Kendall": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Bal Harbour, FL"
+  },
+  "precise:Savvy Sliders - Oak Park": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Savvy Sliders - Port Huron": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Happy's Pizza - Flint": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Happy's Pizza - Ypsilanti": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Happy's Pizza - Belleville": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Happy's Pizza - Wayne": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Happy's Pizza - Dayton": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Farmington Hills, MI"
+  },
+  "precise:Tipsy Cafe & Catering": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Germantown, PA"
+  },
+  "precise:Zutto Japanese American Bar": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "New York, NY"
+  },
+  "precise:Howlin' Willy's - Druid Hills": {
+    "lat": 39.5,
+    "lng": -98.35,
+    "location": "Atlanta, GA"
+  }
+}

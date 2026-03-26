@@ -624,30 +624,6 @@ function FullMapInner() {
                 </button>
               </form>
 
-              {/* Date/time picker */}
-              <div style={{
-                display: 'flex', alignItems: 'stretch',
-                background: '#fff', borderRadius: 10, overflow: 'hidden',
-                boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: `1.5px solid ${orderDateTime ? '#6B6EF9' : '#e8e8e8'}`,
-              }}>
-                <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={orderDateTime ? '#6B6EF9' : 'currentColor'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-                  </svg>
-                </div>
-                <input
-                  type="datetime-local"
-                  value={orderDateTime}
-                  onChange={e => setOrderDateTime(e.target.value)}
-                  min={new Date().toISOString().slice(0, 16)}
-                  style={{ padding: '9px 4px', fontSize: 12, border: 'none', outline: 'none', background: 'transparent', color: orderDateTime ? '#111' : '#aaa', fontFamily: "'DM Sans',sans-serif", cursor: 'pointer', width: 180 }}
-                />
-                {orderDateTime && (
-                  <button onClick={() => setOrderDateTime('')}
-                    style={{ padding: '0 10px', border: 'none', background: 'none', cursor: 'pointer', color: '#bbb', fontSize: 16, flexShrink: 0 }}
-                    title="Clear date">×</button>
-                )}
-              </div>
             </div>
 
             {locError && (
@@ -658,26 +634,6 @@ function FullMapInner() {
 
             <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
 
-            {/* Floating robot button */}
-            <button
-              onClick={() => setChatOpen(o => !o)}
-              style={{
-                position: 'absolute', bottom: 24, right: 24, zIndex: 20,
-                width: 52, height: 52, borderRadius: '50%', border: 'none',
-                background: GRADIENT, cursor: 'pointer',
-                boxShadow: '0 4px 20px rgba(107,110,249,0.45)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'transform 0.15s', fontSize: 24,
-              }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.1)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)' }}
-              title="Ask Disco AI"
-            >
-              🤖
-              {!chatOpen && (
-                <div style={{ position: 'absolute', top: 3, right: 3, width: 11, height: 11, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />
-              )}
-            </button>
           </div>
         </div>
       </div>
