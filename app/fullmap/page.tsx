@@ -617,6 +617,24 @@ function FullMapInner() {
                 </button>
               </form>
 
+              {/* Disco AI button - right of search bar */}
+              <button
+                onClick={() => setChatOpen(o => !o)}
+                style={{
+                  width: 38, height: 38, borderRadius: '50%', border: 'none',
+                  background: '#EFB84A', cursor: 'pointer', flexShrink: 0,
+                  boxShadow: '0 2px 12px rgba(239,184,74,0.4)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 18, position: 'relative', transition: 'transform 0.15s',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.1)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)' }}
+                title="Ask Disco AI"
+              >
+                🤖
+                {!chatOpen && <div style={{ position: 'absolute', top: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />}
+              </button>
+
             </div>
 
             {locError && (
