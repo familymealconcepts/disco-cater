@@ -1,0 +1,4604 @@
+{
+  "details:ChIJb8GDT8hOwokRWnkFORBmf_I": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.zaracafegrill.com/"
+  },
+  "desc:Zara Mediterranean Grill": "Zara Mediterranean Grill delivers fresh, flavorful Mediterranean cuisine perfect for groups seeking elevated dining. Stylish presentation and quality ingredients make it ideal for memorable catered events.",
+  "details:ChIJUfCp3OlZwokRvRb3hBuLIuA": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://panzonbk.com/"
+  },
+  "desc:Panzón": "Panzón Bar & Grill delivers bold flavors and vibrant atmosphere perfect for group celebrations, with high-quality grilled fare that impresses every palate.",
+  "details:ChIJaySmwOMnwokRxmXvpRtSpYk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+    "website": "https://surftaco.com/"
+  },
+  "desc:Surf Taco - Point Pleasant": "Surf Taco's fresh Californian-Mexican cuisine and vibrant casual vibe make it perfect for group gatherings—serve delicious seafood tacos, chicken wraps, and smoothies that please every palate.",
+  "details:ChIJD_FYVbu5xokRWkNYf5vS2e0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.dasgoodcafe.com/"
+  },
+  "desc:Das Good Cafe": "Das Good Cafe delivers exceptional American cuisine with vibrant style, making it the perfect catering choice for groups seeking quality food and memorable dining experiences.",
+  "details:ChIJtRbRfwElwokRzmgr1ETAb7E": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+    "website": "https://surftaco.com/"
+  },
+  "desc:Surf Taco - Long Branch": "Surf Taco brings fresh California-Mexican flavors perfect for group gatherings, with customizable seafood tacos, wraps, and smoothies that please every palate.",
+  "details:ChIJMcrECUgwwokR1aab1GUFlMs": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+    "website": "https://surftaco.com/"
+  },
+  "desc:Surf Taco - Red Bank": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+  "details:ChIJRdJpDgKFwYkRQuZCerKZFxE": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Former Brooklynite offers old-world, brick-oven pizza plus roasted wings & more at this local chain.",
+    "website": ""
+  },
+  "desc:Urban CoalHouse - Brick": "Urban CoalHouse - Brick specializes in authentic brick-oven pizza and roasted wings, perfect for group dining with bold, shareable flavors and a casual neighborhood vibe.",
+  "details:ChIJiUcz7kBbwokRJnrAWfLcqtk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.peckinghouse.com/"
+  },
+  "desc:Pecking House - Chinatown": "A American called Pecking House - Chinatown",
+  "details:ChIJH58NSAlZwokR9108aaP8cy8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://seenoevilpizza.com/"
+  },
+  "desc:See No Evil Pizza": "A American called See No Evil Pizza",
+  "details:ChIJ8csrYu5ZwokRR88t9X4EXRg": {
+    "types": [
+      "establishment",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://www.xxvenue.com/"
+  },
+  "desc:xx": "A American called xx",
+  "details:ChIJV1BBkp1ZwokRpjqvV01uiqg": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Modern bagel shop for Montreal-style wood-oven bagels plus smoked fish & creative sandwiches.",
+    "website": "https://www.blackseedbagels.com/nolita-bagel-coffee-shop/?utm_source=organic&utm_medium=gmb"
+  },
+  "desc:Black Seed Bagels": "Modern bagel shop for Montreal-style wood-oven bagels plus smoked fish & creative sandwiches.",
+  "details:ChIJSa6p5fJZwokRxrYxg24HujI": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.lasandwicherienyc.com/"
+  },
+  "desc:La Sandwicherie - Chelsea": "A American called La Sandwicherie - Chelsea",
+  "details:ChIJoxRDpKFRwokRl1TFKgoC-pc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Minimalist take-out & delivery outpost for eclectic bites with global flavors & vegan options.",
+    "website": "https://www.hellogtk.com/jerseycity"
+  },
+  "desc:gtk": "Minimalist take-out & delivery outpost for eclectic bites with global flavors & vegan options.",
+  "details:ChIJ91heh9Cr3oARqEOoe4YcuyM": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://getminidonuts.com/?utm_source=GBP-LPM"
+  },
+  "desc:The Mini Donut Company - Liberty Public Market": "The Mini Donut Company offers fresh, gourmet mini donuts perfect for group events with customizable flavors and stunning presentation that delights any crowd.",
+  "details:ChIJr5ndm1ivw4kRXcbNKHI6dS0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://eatnamkeen.com/"
+  },
+  "desc:Namkeen - Chatham": "A American called Namkeen - Chatham",
+  "details:ChIJ2zW7aDlbwokRy--jgJ8aXoc": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://taimfalafel.com/"
+  },
+  "desc:Taim - FIDI": "A Israeli called Taim - FIDI",
+  "details:ChIJwaDNWNBZwokRBOMEq738b9s": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://taimkitchen.com/"
+  },
+  "desc:Taim - Broadway": "A Mediterranean called Taim - Broadway",
+  "details:ChIJpRaITSRZwokRji4cRJdtswE": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Airy, industrial-style food hall offering eclectic global provisions, plus wine and craft beer.",
+    "website": "https://www.mettra.net/"
+  },
+  "desc:Taim - LIC / JACX&CO": "Airy, industrial-style food hall offering eclectic global provisions, plus wine and craft beer.",
+  "details:ChIJM-xRVYdhwokR6e4yVIGvMeo": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://taimkitchen.com/"
+  },
+  "desc:Taim - Fresh Meadows, Queens": "A American called Taim - Fresh Meadows, Queens",
+  "details:ChIJ0Qj06OI7wokRUrLb-L1i7Zk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.hearthlyburger.com/"
+  },
+  "desc:Hearthly Burger - Shrewsbury": "A American called Hearthly Burger - Shrewsbury",
+  "details:ChIJVa0oQeb_wokRlwz9D1HqNL0": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Chill cafe for coffee, baked goods & Mediterranean bites in a modern space with outdoor tables.",
+    "website": "http://marcelkitchen.com/"
+  },
+  "desc:Marcel Bakery and Kitchen": "Marcel Bakery and Kitchen offers impeccably crafted Mediterranean fare and fresh-baked goods in a stylish modern setting, making it an ideal catering choice for groups seeking quality and sophistication.",
+  "details:ChIJH6Wy66usVogRV6kaWVbLyC0": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://carolinapie.com/"
+  },
+  "desc:Sweet Carolina Pies": "A Bakery called Sweet Carolina Pies",
+  "details:ChIJnfpomoE5wokR1SBjBgADUjw": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://shoregoodeats.com/"
+  },
+  "desc:Shore Good Eats": "A Cafe called Shore Good Eats",
+  "details:ChIJLYhWJA8xwokRTgiNG9xB_Eo": {
+    "types": [
+      "establishment",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Cafe La De Da": "A American called Cafe La De Da",
+  "details:ChIJH4G0L__HxokRXVaKAuDCa7M": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.ubereats.com/store/tinga-finga-food-truck/sH2T5SLnQdmb7-UpDTBTsw?srsltid=AfmBOopJmyJYcEGinv_DSkMO3neDZXc2Xw96sfhhnTY_3hqsYFLwNsse"
+  },
+  "desc:Tings Things Food Truck": "A American called Tings Things Food Truck",
+  "details:ChIJYzwersk7wokRn3mltnt9Zfc": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://almosthomegeneral.com/"
+  },
+  "desc:Almost Home Sea Bright": "A Cafe called Almost Home Sea Bright",
+  "details:ChIJs8mbNsUsDogRUnpg-b_IK5E": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Hot spot where Stephanie Izard serves up innovative small plates from a dramatic open kitchen.",
+    "website": "http://www.girlandthegoat.com/"
+  },
+  "desc:Dinner Parties Do Good": "Hot spot where Stephanie Izard serves up innovative small plates from a dramatic open kitchen.",
+  "details:ChIJTcyyvxY3wokRTHrkuQ21wq0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.heyitsjulios.com/"
+  },
+  "desc:Julio's Pizza Co. – Atlantic Highlands": "A American called Julio's Pizza Co. – Atlantic Highlands",
+  "details:ChIJU9HxkOPNw4kROzLlN8m87Vc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.itstossd.com/"
+  },
+  "desc:Toss'd": "Toss'd serves fresh, customizable salads and bowls perfect for group dining, offering healthy variety that satisfies diverse tastes with quality ingredients and efficient service.",
+  "details:ChIJTfi3Afn7wokRm129m3seAzU": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.elmwoodparkpizza.com/"
+  },
+  "desc:Francesca Catering - Elmwood Park": "A Italian called Francesca Catering - Elmwood Park",
+  "details:ChIJs6HClcFPE4cRGp_PXCAHXAk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Yeah Buddy Barbecue": "A American called Yeah Buddy Barbecue",
+  "details:ChIJlcy1FMBVwokRvEIwnDm6UWA": {
+    "types": [
+      "establishment",
+      "gym",
+      "health",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://www.signaturefitnessnj.com/"
+  },
+  "desc:Signature Fitness": "A American called Signature Fitness",
+  "details:ChIJ9-_0DJbzWYgR31AfwPIB4pc": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Low-key, quick-serve outpost offering BBQ smoked meats & sandwiches alongside sides & veggies.",
+    "website": "https://www.blackbearbbqavl.com/"
+  },
+  "desc:Black Bear BBQ": "Low-key, quick-serve outpost offering BBQ smoked meats & sandwiches alongside sides & veggies.",
+  "details:ChIJORwT_5BB66gR9j2Yye7kug0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.thepotatoconcept.com/"
+  },
+  "desc:The Potato Concept": "A American called The Potato Concept",
+  "details:ChIJ4RTXsuW5xokRbhwvLkW_LoM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.mi-n-tea.com/"
+  },
+  "desc:Mi 'N Tea": "A American called Mi 'N Tea",
+  "details:ChIJ8cMvhzhfwokRXAPrqYokNNQ": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Cozy spot whipping up traditional Roman specialties, plus wines, cocktails, and patio seating.",
+    "website": "http://botterestaurants.com/"
+  },
+  "desc:Botte - Astoria": "Botte - Astoria serves authentic Roman cuisine in an intimate setting perfect for groups, offering quality traditional dishes, curated wines, and cocktails on a charming patio.",
+  "desc:Signature Fitness - Juice Bar": "A American called Signature Fitness - Juice Bar",
+  "details:ChIJ5Q-Ra6BZwokRd1gGerJ74s8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Simple pizza place offering slices with creative toppings, whole pies, and other Italian comfort food.",
+    "website": "https://www.lunettapizzaandrestaurant.com/?utm_source=gbp"
+  },
+  "desc:Lunetta": "Simple pizza place offering slices with creative toppings, whole pies, and other Italian comfort food.",
+  "details:ChIJx0R2VfVZwokRohILjJOVfaI": {
+    "types": [
+      "establishment",
+      "food",
+      "health",
+      "meal_delivery",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://order.toasttab.com/online/souzafit-hoboken"
+  },
+  "desc:SouzaFit - Hoboken": "A American called SouzaFit - Hoboken",
+  "details:ChIJ3dbcl41ZwokRouIrXtQ5erk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Place for contemporary Eastern Mediterranean food, wine, and cocktails in a stylish setting.",
+    "website": "http://www.shukanewyork.com/"
+  },
+  "desc:Shuk": "Place for contemporary Eastern Mediterranean food, wine, and cocktails in a stylish setting.",
+  "details:ChIJZ4hoYi9ZwokR2xKawl-nX8c": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.happyboards.com/"
+  },
+  "desc:HappyBoards": "A American called HappyBoards",
+  "details:ChIJVxxLjhhdwokRljQPK_XWGzw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Tacos & traditional Mexican street food in a vibrant setting with colorful tiles & modern interiors.",
+    "website": "https://taqueriaalpastor.com/"
+  },
+  "desc:Taqueria Al Pastor - Bushwick": "Tacos & traditional Mexican street food in a vibrant setting with colorful tiles & modern interiors.",
+  "details:ChIJQTX86S6n9YgR7fRzdIYANN4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://www.gwrapeatery.com/"
+  },
+  "desc:Green Wrap Eatery": "A American called Green Wrap Eatery",
+  "details:ChIJLyYu-mKi9YgRnurhp2dwDew": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Homestyle Southern comfort food staples plated in a neighborhood diner with kitschy decor.",
+    "website": "https://rexallgrill.com/?utm_source=google"
+  },
+  "desc:Duluth Rexall Grill": "Duluth Rexall Grill serves authentic Southern comfort classics in a charming retro diner setting, perfect for groups seeking hearty, quality homestyle fare with nostalgic charm.",
+  "details:ChIJ3R7cM9kpMYgRW02e2jS_ghg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://www.robertjevents.com/"
+  },
+  "desc:Robby J Catering": "A American called Robby J Catering",
+  "details:ChIJYbkahaa1RIYROE7qjDV9U8M": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Slices & pies made with a variety of toppings, from roast pork to vegan cheese, in a popular area.",
+    "website": "http://www.hobokenpie.com/"
+  },
+  "desc:Hoboken Pie": "Slices & pies made with a variety of toppings, from roast pork to vegan cheese, in a popular area.",
+  "details:ChIJz34rgS18bIcREYpi_TFHZPY": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "night_club",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Craft cocktails, beer, wine & creative bites served in a hip space inspired by a Swedish ski cabin.",
+    "website": "http://ingasalpinetavern.net/"
+  },
+  "desc:Inga's Alpine Tavern": "Craft cocktails, beer, wine & creative bites served in a hip space inspired by a Swedish ski cabin.",
+  "details:ChIJRz-Wlz6tJIgR8a5TYW0Fdos": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.broastedbrothers.com/"
+  },
+  "desc:Broasted Brothers - Plymouth": "A American called Broasted Brothers - Plymouth",
+  "details:ChIJHwY1Up2Ha4cR94zZ0UAlxQc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Globally influenced, health-conscious eats from an ultra-stylish all-day counter spot with 2 patios.",
+    "website": "https://ediblebeats.com/restaurants/vital-root/"
+  },
+  "desc:Vital Root": "Globally influenced, health-conscious eats from an ultra-stylish all-day counter spot with 2 patios.",
+  "details:ChIJ4e1WKMc3tokRscUpfGH6Gvg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Comfy, kid-friendly eatery offering pizza & Italian-American favorites, plus gluten-free choices.",
+    "website": "https://gregoriostrattoria.com/gregoriostrattoria-7ulm64?utm_source=google"
+  },
+  "desc:GREGORIO'S TRATTORIA - RESTON": "Comfy, kid-friendly eatery offering pizza & Italian-American favorites, plus gluten-free choices.",
+  "details:ChIJScYI3x9olIARiAQlcFqYJMU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Locally sourced BBQ fare plus draft microbrews & wine served in a casual reclaimed-wood setting.",
+    "website": "https://www.westwoodsbbq.com/"
+  },
+  "desc:Westwoods BBQ & Spice Co.": "Westwoods BBQ & Spice Co. brings locally sourced smoked meats and craft brews to your event in a warm, rustic setting that puts guests at ease.",
+  "details:ChIJVdW0WVQnwokRQkSWbhEs4Ew": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.hatch44cafe.com/bradleybeachmenu"
+  },
+  "desc:Hatch 44 Cafe - Bradley Beach": "A Cafe called Hatch 44 Cafe - Bradley Beach",
+  "details:ChIJm1MeBQW1RIYR_x8s-YWWvzw": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://eastside.industrytx.com/"
+  },
+  "desc:Industry - Austin": "A Bar & Grill called Industry - Austin",
+  "details:ChIJ__-TdQAC0oUR22-BJRKM1ww": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://tacosdonmanolito.com/sucursales/"
+  },
+  "desc:Tacos Don Manolito": "A Bar & Grill called Tacos Don Manolito",
+  "details:ChIJtZamTXjXTYYR_7Qal3_9dzg": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Creative, Asian-inspired dishes with vegan & gluten-free options offered in an industrial-style hub.",
+    "website": "http://sushidojodfw.com/"
+  },
+  "desc:Sushi Dojo": "Creative, Asian-inspired dishes with vegan & gluten-free options offered in an industrial-style hub.",
+  "details:ChIJmedmRTUwwokRHd2f-O6T0gg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "BBQ joint with wood-smoked meats & classic sides such as cornbread & mac 'n' cheese, plus delivery.",
+    "website": "https://localsmokebbq.com/"
+  },
+  "desc:Local Smoke BBQ - Red Bank": "BBQ joint with wood-smoked meats & classic sides such as cornbread & mac 'n' cheese, plus delivery.",
+  "details:ChIJV68WQ1vpxokRZUQVGbMzq5U": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.tattooedpigmedia.com/"
+  },
+  "desc:The Tattooed Pig - Media": "A American called The Tattooed Pig - Media",
+  "details:ChIJNVd5G721woARZU6UW7m6xcA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://www.tropicalibraziliankitchen.com/"
+  },
+  "desc:TROPICALI Brazilian Kitchen": "TROPICALI Brazilian Kitchen brings authentic, vibrant flavors and energetic style perfect for group celebrations with fresh, high-quality cuisine that delights every guest.",
+  "details:ChIJ4xPdDoohTIYRwlva4VSo6jQ": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.kmeventservice.com/"
+  },
+  "desc:Kayleigh Michele's": "A Bakery called Kayleigh Michele's",
+  "details:ChIJtbPg81N_bIcR4rBvOG8ukbI": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://order.online/business/red-rocks-og-12628737"
+  },
+  "desc:Red Rocks OG": "A American called Red Rocks OG",
+  "details:ChIJdzaexZC7woARZ-CpnQWHeQQ": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://tenkatoriwla.com/"
+  },
+  "desc:Tenkatori Sawtelle": "A American called Tenkatori Sawtelle",
+  "details:ChIJmXG0TsnKvJURhB6qlLk7oDo": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://laideal.ar/"
+  },
+  "desc:Cafe Buenos Aires": "A Cafe called Cafe Buenos Aires",
+  "details:ChIJuahVbUYFK4cRHIz23dMnvoU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Woo Woo Burgers - Chandler": "A American called Woo Woo Burgers - Chandler",
+  "details:ChIJMVxNSKbHwokRGlS01sgA5iU": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.winfieldcoffee.com/"
+  },
+  "desc:Winfield Street Coffee - Croton": "A Cafe called Winfield Street Coffee - Croton",
+  "details:ChIJL5nL_aen9YgR7DmcIukkUts": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://scrumptiouseventsatlanta.com/"
+  },
+  "desc:Scrumptious Fare Catering": "Scrumptious Fare Catering delivers elevated American cuisine with fresh, quality ingredients and stylish presentation that impresses groups of any size.",
+  "details:ChIJ5ygPFwCBhYARva0ZOsR-Fgs": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.sunsetsquares.com/"
+  },
+  "desc:Sunset Squares Pizza - Divisadero": "A American called Sunset Squares Pizza - Divisadero",
+  "details:ChIJh-9c0ALHQIYRbLMveD_VGE4": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://mylifehealthymarkets.appfront.app/"
+  },
+  "desc:MY LIFE CAFE": "A Cafe called MY LIFE CAFE",
+  "details:ChIJ6Yqx4ofHwoARuFa4g8eK-OE": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Gordito's Burritos": "A American called Gordito's Burritos",
+  "details:ChIJSWKSekpFwokRWTVZwsreS_I": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://paninony.com/"
+  },
+  "desc:Leporini's Paninis": "A American called Leporini's Paninis",
+  "details:ChIJWxHxnKixw4kRsPjpDWHfe0U": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.thesaladhouse.com/"
+  },
+  "desc:Salad House": "A American called Salad House",
+  "details:ChIJ4-AyhAu9woARAZAnvSMhuL0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://smogenappetizers.com/"
+  },
+  "desc:Smögen Appetizers": "A Swedish called Smögen Appetizers",
+  "details:ChIJV8pO2h9TW4YRCJc99WUQxJ8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Branch of a Southwestern chain eatery known for its large margarita selection & happy-hour deals.",
+    "website": "https://www.ztejas.com/kyle"
+  },
+  "desc:Z'Tejas - Kyle": "Z'Tejas Kyle brings vibrant Southwestern cuisine perfect for group celebrations, featuring signature margaritas and festive flavors that create an unforgettable catering experience.",
+  "details:ChIJ-_GfHH0P3YkR7e_DmearpXI": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://fantzye.com/"
+  },
+  "desc:Good&Fantzye": "A Cafe called Good&Fantzye",
+  "details:ChIJD_pTEsy7j4ARmC6OuQ2GZ0k": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Chic Indian restaurant specializing in curries, fish & meat dishes, plus brunch & unique cocktails.",
+    "website": "https://www.roohrestaurants.com/"
+  },
+  "desc:ROOH Palo Alto": "Chic Indian restaurant specializing in curries, fish & meat dishes, plus brunch & unique cocktails.",
+  "details:ChIJQQoe8gUvXIgRP16aeGdAbtY": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.petros.com/"
+  },
+  "desc:Petro's Chili & Chips": "A Mexican called Petro's Chili & Chips",
+  "details:ChIJKUc0T7f0OIgRTACVLOTUvIw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Checkerboard floors & 1950s decor set the scene at this casual stop serving diner-style fare 24/7.",
+    "website": "https://www.fitzysdiner.com/"
+  },
+  "desc:Fitzy's Old Fashioned Diner": "Checkerboard floors & 1950s decor set the scene at this casual stop serving diner-style fare 24/7.",
+  "details:ChIJDcdhVC31UocRgQbIt0hfO-g": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Southern biscuit sandwiches, creative limeades & salads top the menu at this inviting stop.",
+    "website": "http://www.sweetlakefresh.com/"
+  },
+  "desc:Sweet Lake Biscuits & Limeade": "Southern biscuit sandwiches, creative limeades & salads top the menu at this inviting stop.",
+  "desc:Hearthly Burger - Sea Bright": "A American called Hearthly Burger - Sea Bright",
+  "details:ChIJ6aD8m6a1RIYR7LDtqxq82KU": {
+    "types": [
+      "bar",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Funky saloon offering hearty Mexican eats, margaritas & tequila flights amid several spaces & patio.",
+    "website": "http://www.pelonstexmex.com/"
+  },
+  "desc:Pelons Tex Mex": "Funky saloon offering hearty Mexican eats, margaritas & tequila flights amid several spaces & patio.",
+  "details:ChIJf5zH_WE39h4RXjrvpfWLUI4": {
+    "types": [
+      "establishment",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.yaga.co.za/colette-prinsloo"
+  },
+  "desc:Colette's Creations": "Colette's Creations brings authentic French elegance to every event, offering exquisite cuisine and refined presentation that transforms group gatherings into memorable culinary experiences.",
+  "details:ChIJjUNFEvG0RIYRKRGLREQTKsc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Colorful food truck offering breakfast & lunch tacos, burritos & queso, plus covered patio seating.",
+    "website": "https://linktr.ee/conmadrekitchenatx"
+  },
+  "desc:Con Madre Cocina": "Colorful food truck offering breakfast & lunch tacos, burritos & queso, plus covered patio seating.",
+  "details:ChIJedHcr1FbwokRbjAPXjAg-4o": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.eggrestaurant.com/"
+  },
+  "desc:Little Egg": "A American called Little Egg",
+  "details:ChIJb2B_avZZwokRAva5mKW4lVg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Small, cozy stop serving elevated wood-fired pies with veggies & meats, plus Grandma slices.",
+    "website": "http://www.bestpizzawilliamsburg.com/"
+  },
+  "desc:Best Pizza - Williamsburg": "Small, cozy stop serving elevated wood-fired pies with veggies & meats, plus Grandma slices.",
+  "details:ChIJQ928SqRbwokRKuID55C7xFo": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Tacos, Mexican small plates & shareable main dishes in an energetic setting with communal seating.",
+    "website": "http://www.altacalidadbk.com/"
+  },
+  "desc:Alta Calidad": "Tacos, Mexican small plates & shareable main dishes in an energetic setting with communal seating.",
+  "details:ChIJd7eCHnAwwokRmkpmC8HyXg4": {
+    "types": [
+      "route"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:29 Hance Bakehouse": "A American called 29 Hance Bakehouse",
+  "details:ChIJLWBE3YNZwokRh2EBs1QXfzM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Rustic-chic eatery with American comfort food, such as chicken & waffles, plus cocktails & brunch.",
+    "website": "http://www.sweetchick.com/"
+  },
+  "desc:Sweet Chick - LES": "Rustic-chic eatery with American comfort food, such as chicken & waffles, plus cocktails & brunch.",
+  "details:ChIJ__9zASRZwokReuVkAOW8p6I": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.sweetchick.com/"
+  },
+  "desc:Sweet Chick - Long Island City": "Sweet Chick's elevated comfort food and vibrant atmosphere make it perfect for group celebrations, offering memorable Southern-inspired cuisine in a spacious, Instagram-worthy setting.",
+  "desc:Surf Taco - Silverton": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+  "details:ChIJrXIDBNdZwokRHF5q4Y3ZIcc": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Specialty pies, cocktails & beers draw crowds to this festive joint with TVs & exposed–brick walls.",
+    "website": "http://www.urbancoalhouse.com/"
+  },
+  "desc:Urban CoalHouse - Hoboken": "Specialty pies, cocktails & beers draw crowds to this festive joint with TVs & exposed–brick walls.",
+  "desc:FANTZYE": "A Cafe called FANTZYE",
+  "details:ChIJo8E1xw41wokRRsk279fGUY4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.heyitsjulios.com/"
+  },
+  "desc:Julio's Pizza Co. – Keansburg": "A American called Julio's Pizza Co. – Keansburg",
+  "details:ChIJ_UdC9KAlwokRiAihj0b3sNw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://almosthomegeneral.com/"
+  },
+  "desc:Almost Home – Oceanport": "A American called Almost Home – Oceanport",
+  "details:ChIJOb8F_k3FyIAR-cWHIW6FtYo": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "Compact old-school, new-wave deli offering bagels & sandwiches filled with house-cured meats & fish.",
+    "website": "https://propereatslasvegas.com/"
+  },
+  "desc:Wexler’s Deli": "Compact old-school, new-wave deli offering bagels & sandwiches filled with house-cured meats & fish.",
+  "details:ChIJi-bJgEtZwokRFayt5jCnQz0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://itsteranga.com/"
+  },
+  "desc:Teranga": "Teranga offers vibrant West African cuisine with exceptional quality and bold flavors that create an unforgettable shared dining experience perfect for groups.",
+  "details:ChIJs6IKiLC3w4kRjTMUkO88ewA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://eatnamkeen.com/"
+  },
+  "desc:Namkeen - Metuchen": "A American called Namkeen - Metuchen",
+  "details:ChIJ1330isdv9YgRsYMXKwU4GOA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.cornerstreettacobar.net/"
+  },
+  "desc:The Corner Street Taco Bar": "A American called The Corner Street Taco Bar",
+  "details:ChIJRwK-M0PMQIYRW5SgUxb5cvk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "New York-style deli with familiar sandwiches, homey dinners & breakfast served all day, every day.",
+    "website": "https://victorsdelihouston.com/?utm_source=google"
+  },
+  "desc:Victors Restaurant & Deli": "New York-style deli with familiar sandwiches, homey dinners & breakfast served all day, every day.",
+  "details:ChIJgc7fPIVZwokRQMnqTxTf_Qk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Eatery by chef-brothers from Thailand for shareable Thai seafood plates with cocktails.",
+    "website": "https://www.fishcheeksnyc.com/"
+  },
+  "desc:Fish Cheeks": "Eatery by chef-brothers from Thailand for shareable Thai seafood plates with cocktails.",
+  "details:ChIJD6bwE4NbwokRYza3fSUXZCg": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://theabakerynyc.com/"
+  },
+  "desc:Thea Bakery": "A Bakery called Thea Bakery",
+  "details:ChIJRbAPldS6woAR8K9fMXkY4y8": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "night_club",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://edgemar.la/?utm_source=google"
+  },
+  "desc:EdgeMar Restaurant": "A Bar & Grill called EdgeMar Restaurant",
+  "details:ChIJqS0QJaAps1IRTmh0vDZj5Fc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.winkinrooster.com/"
+  },
+  "desc:The Winkin' Rooster": "The Winkin' Rooster delivers authentic American comfort food with exceptional quality, making it the perfect choice for groups seeking flavorful, satisfying catering that impresses every guest.",
+  "details:ChIJIWDaJFNZwokRTtnOQoWv9b0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.moonburger.com/"
+  },
+  "desc:Moonburger Brooklyn": "A American called Moonburger Brooklyn",
+  "details:ChIJHeUDhMvHwoARiDna7r1DDGQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.pineandcrane.com/"
+  },
+  "desc:Pine and Crane DTLA": "A American called Pine and Crane DTLA",
+  "details:ChIJI9EEB7bFwoAR4Y-us4szPeI": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.delcorosehoagies.com/"
+  },
+  "desc:Delco Rose Hoagies": "A American called Delco Rose Hoagies",
+  "details:ChIJebHcxne7woARF3DaqGztQHM": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://vamosvamosbar.com/?utm_source=google"
+  },
+  "desc:Vamos Vamos": "A Bar & Grill called Vamos Vamos",
+  "details:ChIJLb9vlE1awokRL4Ume5zpejQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Small spot drawing big crowds for smoked meat sandwiches & other Montreal-style Jewish deli staples.",
+    "website": "https://www.mileenddeli.com/"
+  },
+  "desc:Mile End Delicatessen": "Small spot drawing big crowds for smoked meat sandwiches & other Montreal-style Jewish deli staples.",
+  "details:ChIJQ9e62R7TD4gRzqXmA0RMhqs": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Casual counter-serve spot for Nashville-style fried chicken, Southern sides, pies & sodas.",
+    "website": "https://www.thebudlong.com/lincoln-park"
+  },
+  "desc:The Budlong Southern Chicken - Hayden Hall": "The Budlong Southern Chicken offers authentic Nashville-style fried chicken and classic Southern sides perfect for group gatherings in a relaxed, approachable setting.",
+  "details:ChIJNVl1vM6kwoARDsgXjPfvsaw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.backyardbowls.com/"
+  },
+  "desc:Backyard Bowls - Santa Monica": "A American called Backyard Bowls - Santa Monica",
+  "details:ChIJI7FxfKfK5YgR9mrVw0JaqU8": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+    "website": "https://www.burgerfi.com/location/us/fl/jacksonville-st-john-town-center/"
+  },
+  "desc:BurgerFi - St Johns Town Center": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+  "details:ChIJKy7CXKPTD4gRnKvd6o1dPuA": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Homey bakery using its own flour in baked goods & offering grain-focused cafe eats plus a toast bar.",
+    "website": "http://www.bagelmiller.com/"
+  },
+  "desc:Bagel Miller": "Homey bakery using its own flour in baked goods & offering grain-focused cafe eats plus a toast bar.",
+  "details:ChIJV1PLb7zhwogRIMMWNlR0pjw": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://seymoursitsgood.square.site/"
+  },
+  "desc:Seymour's": "A Bakery called Seymour's",
+  "details:ChIJCe_QDIyFwokRY3WDUn35Qtw": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.theoniontreeseacliff.com/"
+  },
+  "desc:The Onion Tree - Sea Cliff": "A American called The Onion Tree - Sea Cliff",
+  "details:ChIJcRDICvb92IgR71la1oFBeWA": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+    "website": "https://www.burgerfi.com/location/us/fl/lauderdale-by-the-sea/"
+  },
+  "desc:BurgerFi - LBTS": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+  "details:ChIJ1_KWcJN0K4cRfKuSDke_FmU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Bright joint offering breakfast fare & sandwiches made from scratch with seasonal ingredients.",
+    "website": "http://www.eggstasyaz.com/"
+  },
+  "desc:Eggstasy - Scottsdale": "Eggstasy brings fresh, made-to-order breakfast and sandwiches with seasonal ingredients to your group—perfect for catered events seeking quality and variety.",
+  "details:ChIJyR0khQuDwYkRlqTq9-S-k1I": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.instagram.com/502bakingco"
+  },
+  "desc:502 Baking Company": "A Bakery called 502 Baking Company",
+  "details:ChIJGVCGegidskwRpW8dDFo_xIk": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.uglyducklingmaine.com/"
+  },
+  "desc:Ugly Duckling": "A Cafe called Ugly Duckling",
+  "details:ChIJ13yxj8UB2YgRY7tPz_Y0BhI": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+    "website": "https://www.burgerfi.com/location/us/fl/2477-e-sunrise-blvd-fort-lauderdale-fl/"
+  },
+  "desc:BurgerFi - O Town/Palm Parkway": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+  "details:ChIJF-2DrEg_24gRCWREl96E3Xs": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://3pepperburrito.com/fort-myers-college-plaza/"
+  },
+  "desc:3 Pepper Burrito Co. Fort Myers – College Plaza": "A American called 3 Pepper Burrito Co. Fort Myers – College Plaza",
+  "details:ChIJXcohm1dZwokR-w-Sv7cYZl8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://sondelnorth.com/sondelnorth?utm_source=google"
+  },
+  "desc:Son del North - LES": "A American called Son del North - LES",
+  "details:ChIJ227INj5ZwokRWbmUY8tFUnc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://sondelnorth.com/sondelnorth-carmine?utm_source=google"
+  },
+  "desc:Son del North - West Village": "A American called Son del North - West Village",
+  "details:ChIJERYJpierK4cRcVUkYd8I9gs": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.eggstasyaz.com/"
+  },
+  "desc:Eggstasy - Chandler": "A American called Eggstasy - Chandler",
+  "details:ChIJ-WtPQyFlK4cR0PjHYqNZRKo": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.eggstasyaz.com/"
+  },
+  "desc:Eggstasy - Norterra Ctr.": "Eggstasy - Norterra Ctr. excels at catering with fresh, creative American breakfast and brunch dishes that impress groups and satisfy diverse tastes.",
+  "desc:Eggstasy - Mesa": "Bright joint offering breakfast fare & sandwiches made from scratch with seasonal ingredients.",
+  "desc:Eggstasy - The Colony": "Bright joint offering breakfast fare & sandwiches made from scratch with seasonal ingredients.",
+  "details:ChIJsVRmX4pNKocRmDvIO1uHcxQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://eggstasyaz.com/"
+  },
+  "desc:Eggstasy - Queen Creek": "A American called Eggstasy - Queen Creek",
+  "details:ChIJfbF_bNuxIIYRmBnowy2JGss": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.eatfatboyspizza.com/"
+  },
+  "desc:Fat Boy's Pizza - Metairie": "A American called Fat Boy's Pizza - Metairie",
+  "details:ChIJg80yTgFfwokRjrMYuqA0VvQ": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://rokstarchicken.com/rokstarlic?utm_source=google"
+  },
+  "desc:Rokstar Chicken - Long Island City": "A American called Rokstar Chicken - Long Island City",
+  "details:ChIJxaHxejz1wokRqGeRppH-NvI": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://rokstarchicken.com/rokstarbronx?utm_source=google"
+  },
+  "desc:Rokstar Chicken - Bronx": "A American called Rokstar Chicken - Bronx",
+  "details:ChIJ_QjNFPaxJIgRYipLrSyYD4A": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.savvysliders.com/locations/farmington-hills/?utm_source=Google&utm_medium=Organic&utm_campaign=LocalSEO"
+  },
+  "desc:Savvy Sliders - Harvey": "A American called Savvy Sliders - Harvey",
+  "desc:Savvy Sliders - Covington": "Savvy Sliders - Covington serves mouthwatering gourmet sliders perfect for group events, offering customizable menus and quality American fare that impresses every guest.",
+  "details:ChIJFctgQKfGIogR08QZ-tr8v9A": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Snug stop offering classic, specialty & build-your-own pies, plus subs, salads & pizza dough to go.",
+    "website": "http://www.fatboysholt.com/"
+  },
+  "desc:Fat Boy's Pizza - Covington": "Snug stop offering classic, specialty & build-your-own pies, plus subs, salads & pizza dough to go.",
+  "details:ChIJjbdaAnUe2YgR6aGcqad2D3U": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://tap42.com/"
+  },
+  "desc:Tap 42 - Boca Raton": "A Bar & Grill called Tap 42 - Boca Raton",
+  "details:ChIJc-8wFZq32YgRKvrhZknW_bY": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Slick space offering dozens of craft beers on draft, plus creative burgers & cocktails.",
+    "website": "http://tap42.com/coral-gables"
+  },
+  "desc:Tap 42 - Coral Gables": "Slick space offering dozens of craft beers on draft, plus creative burgers & cocktails.",
+  "details:ChIJAQDk-4sH2YgRDA3uuKUNdWA": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://tap42.com/"
+  },
+  "desc:Tap 42 - Davie": "A Bar & Grill called Tap 42 - Davie",
+  "details:ChIJs7AuR4a52YgRT1m7ya5OUy8": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://tap42.com/doral/"
+  },
+  "desc:Tap 42 - Doral": "A Bar & Grill called Tap 42 - Doral",
+  "details:ChIJmw-bdVSx2YgRx9Yq7aZgxn4": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Sophisticated local gastropub chain serving innovative meals alongside a range of craft brews.",
+    "website": "https://tap42.com/midtown-miami/"
+  },
+  "desc:Tap 42 - Miami": "Sophisticated local gastropub chain serving innovative meals alongside a range of craft brews.",
+  "details:ChIJc67xoBIf24gRInx1efcsNUc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://tap42.com/locations/naples/"
+  },
+  "desc:Tap 42 - Naples": "A American called Tap 42 - Naples",
+  "details:ChIJ64JuUtsr34gRpSS4yAZAP3k": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.tap42.com/"
+  },
+  "desc:Tap 42 - Palm Beach Gardens": "A American called Tap 42 - Palm Beach Gardens",
+  "desc:Savvy Sliders - San Antonio": "A American called Savvy Sliders - San Antonio",
+  "desc:Savvy Sliders - Dallas": "Savvy Sliders - Dallas serves gourmet mini burgers perfect for group dining, offering premium quality and variety that impresses guests while keeping events casual and fun.",
+  "desc:BurgerFi - Falls Church": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+  "desc:BurgerFi - Arlington": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+  "details:ChIJB1GEjEW2w4kR6ULePOTziOI": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Basic Italian eat-in and take-out spot for hot and cold subs, pizza, pasta, and stromboli.",
+    "website": "https://bkboyspizza.com/"
+  },
+  "desc:Brooklyn Boys Pizza & Deli": "Basic Italian eat-in and take-out spot for hot and cold subs, pizza, pasta, and stromboli.",
+  "details:ChIJRdQzoWu6JIgRgF3zMM7XgmM": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+    "website": "https://www.happyspizza.com/?utm_source=Google&utm_medium=Organic&utm_campaign=LocalSEO"
+  },
+  "desc:Happy's Pizza - Port Huron": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+  "details:ChIJAcz4SjDEyIARBa7AmzCiFt8": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Cheery, grab-&-go known for its signature cold-pressed juices using organic produce plus nut milks.",
+    "website": "https://www.juicestandard.com/"
+  },
+  "desc:The Juice Standard": "Cheery, grab-&-go known for its signature cold-pressed juices using organic produce plus nut milks.",
+  "details:ChIJJ_CSTDKEwYkRonDLcUqj1oM": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.baronsbagels.com/"
+  },
+  "desc:Barons Bagel's - Point Pleasant": "A Bakery called Barons Bagel's - Point Pleasant",
+  "details:ChIJdzRcardNO4gRSdmDNA9mxAQ": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+    "website": "https://www.happyspizza.com/?utm_source=Google&utm_medium=Organic&utm_campaign=LocalSEO"
+  },
+  "desc:Happy's Pizza - Westland (Store 043)": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+  "details:ChIJrTehGtCVwokRrYtNXQff1NI": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://order.meltshop.com/menu/1014-westchester-ny?utm_source=google&utm_medium=local&utm_campaign=google-local&utm_source=google&utm_medium=local&utm_campaign=google-local"
+  },
+  "desc:Melt Shop - Westchester Mall": "A Grilled Cheese called Melt Shop - Westchester Mall",
+  "details:ChIJl_cSHAFZwokR4BUrESQmRbI": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://order.fieldsgoodchicken.com/"
+  },
+  "desc:Fields Good Chicken - 40th & Mad": "Fields Good Chicken - 40th & Mad is perfect for catering with fresh, flavorful American chicken dishes that feed groups efficiently and satisfy diverse tastes.",
+  "details:ChIJ-1EfVACBhYARWm3CpZAzRkg": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://junbishop.com/"
+  },
+  "desc:Junbi - San Francisco": "A Cafe called Junbi - San Francisco",
+  "details:ChIJ_aQTIttZwokRHOEyjXradd4": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://taimkitchen.com/"
+  },
+  "desc:Taim - City Spire": "A Mediterranean called Taim - City Spire",
+  "details:ChIJIbrjyJVZwokRv67V37n-S2w": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Israeli-inspired Mediterranean counter-serve featuring falafel, sandwiches, bowls & smoothies.",
+    "website": "http://www.taimkitchen.com/"
+  },
+  "desc:Taim - West Village": "Israeli-inspired Mediterranean counter-serve featuring falafel, sandwiches, bowls & smoothies.",
+  "details:ChIJxdlEhiFbwokR7Q1Ijg4MBuM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://taimkitchen.com/"
+  },
+  "desc:Taim - Hoyt": "A American called Taim - Hoyt",
+  "details:ChIJ_SPENNVbwokRylCgmvWUqhw": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://taimkitchen.com/"
+  },
+  "desc:Taim - Park Slope": "A American called Taim - Park Slope",
+  "details:ChIJYUKy6fq3t4kRuFaDtEcgLP4": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://taimkitchen.com/"
+  },
+  "desc:Taim - Dupont Circle": "A American called Taim - Dupont Circle",
+  "details:ChIJVVXJY6MCxIkRNvUYZ1m7fIM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://www.servis-events.com/contact-private-chefs-near-you"
+  },
+  "desc:Servis Events": "A American called Servis Events",
+  "details:ChIJwYAsfjkmwokRNnZOzB8g7e0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.thespeakeatery.com/"
+  },
+  "desc:The Speakeatery": "A American called The Speakeatery",
+  "details:ChIJO3yKwJ4zwokRNySPm_QFzE4": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.almosthomegeneral.com/"
+  },
+  "desc:Almost Home – Lincroft": "Almost Home – Lincroft is a charming cafe perfect for group gatherings, offering fresh, quality cuisine with a cozy ambiance that makes every catered event feel intimate and memorable.",
+  "details:ChIJVf4pndY7wokRIfNjObVCTMc": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Popular restaurant with a patio featuring a seafood menu that changes regularly in the summer.",
+    "website": "http://www.2ndjetty.com/"
+  },
+  "desc:2nd Jetty Seafood": "Popular restaurant with a patio featuring a seafood menu that changes regularly in the summer.",
+  "details:ChIJF_eZ1TsmwokR0MFGZXeheDs": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "Family-owned parlor preparing artisanal ice cream in surprising flavors, plus lots of vegan options.",
+    "website": "http://www.cookmancreamery.com/"
+  },
+  "desc:Cookman Creamery": "Family-owned parlor preparing artisanal ice cream in surprising flavors, plus lots of vegan options.",
+  "details:ChIJZcQV228owokR17PQW5QeIuA": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "All-day American comfort fare in a converted home with limited seating & a no-frills interior.",
+    "website": "https://www.riverhillscafebistro.com/"
+  },
+  "desc:Johns Cracker Barrel": "All-day American comfort fare in a converted home with limited seating & a no-frills interior.",
+  "details:ChIJt-oFyQ_wwokRCw5EIysrKaQ": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Upbeat venue serving hefty burritos, sandwiches & platters, plus specialty margaritas & mojitos.",
+    "website": "http://www.panchosburritostogo.com/"
+  },
+  "desc:Pancho LS": "Upbeat venue serving hefty burritos, sandwiches & platters, plus specialty margaritas & mojitos.",
+  "details:ChIJdW8Thian3YkRijK1ql_cGKU": {
+    "types": [
+      "establishment",
+      "food",
+      "grocery_or_supermarket",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.blackeyedsuziesupstate.com/"
+  },
+  "desc:Black-Eyed Catering": "A American called Black-Eyed Catering",
+  "details:ChIJn3x2adU7wokR-qr8Rwywlu8": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "No-frills joint serving straightforward seafood dishes in a nautical-themed space since 1917.",
+    "website": "http://bahrslanding.com/"
+  },
+  "desc:Sandy Hook Seafood": "Sandy Hook Seafood brings over a century of expertise to your event with fresh, straightforward seafood in an authentic nautical setting perfect for group gatherings.",
+  "details:ChIJGYvgPYoDxIkRW9mtPDsdPcg": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Sugar Cubed Bakers": "A Bakery called Sugar Cubed Bakers",
+  "details:ChIJpVxwG82HwYkRg0Z7aXpDeUk": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.kneadedbyladyj.com/"
+  },
+  "desc:Kneaded by Lady J": "A Bakery called Kneaded by Lady J",
+  "details:ChIJ_1ef6KX8wokRzGSWCZpLmDk": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Low-key, counter-serve pizzeria turning out wood-fired pies, heroes, pasta dishes & salads.",
+    "website": "https://glenrockpizza.com/"
+  },
+  "desc:Francesca Catering - Glen Rock": "Low-key, counter-serve pizzeria turning out wood-fired pies, heroes, pasta dishes & salads.",
+  "details:ChIJM1N9DjMnwokRfYUuK-YNxA0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://veganlunaverde.com/"
+  },
+  "desc:Luna Verde Vegan Mexican Restaurant": "A American called Luna Verde Vegan Mexican Restaurant",
+  "details:ChIJkaMGY1abskwRZPk36BojRg4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://thebirdandco.com/"
+  },
+  "desc:Bird & Co.": "A American called Bird & Co.",
+  "details:ChIJK1xfuWOHwokRUkjb_cCbGLQ": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.rocknrootseatery.com/"
+  },
+  "desc:Rock n Roots": "Rock n Roots delivers authentic American cuisine with bold, rustic flavors perfect for groups seeking hearty, memorable meals in a laid-back atmosphere.",
+  "details:ChIJ1U-nemFbwokRLVb7ULwu3B0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://botterestaurants.com/"
+  },
+  "desc:Botte - Brooklyn": "A Italian called Botte - Brooklyn",
+  "details:ChIJiVH7kEPJw4kR9IiZ1_2mzLk": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://pizzaheaven777.com/"
+  },
+  "desc:Pizza Heaven": "A American called Pizza Heaven",
+  "details:ChIJlX4omJiXwoARnmB5PYaDF4M": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.donnajeanrestaurant.com/"
+  },
+  "desc:Donna Jean - Los Angeles": "A American called Donna Jean - Los Angeles",
+  "details:ChIJ-4xWkfi7woARM5UrPcdi1HM": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.cafelandwerla.com/"
+  },
+  "desc:Cafe Landwer - Century City": "A Bakery called Cafe Landwer - Century City",
+  "details:ChIJn5MsJfZ544kRE8TP-vzSCwc": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.landwercafe.com/"
+  },
+  "desc:Cafe Landwer - Cleveland Circle": "A Cafe called Cafe Landwer - Cleveland Circle",
+  "details:ChIJF8-kspfHxokRrWs6IzvaNFg": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.porcosphilly.com/"
+  },
+  "desc:Porco's Porchetteria & Small Oven Pastry Shop": "A Bakery called Porco's Porchetteria & Small Oven Pastry Shop",
+  "details:ChIJFRVfSsYsDogRt4XEF8LjjD0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Easygoing market offering sandwiches on thin schiacciata bread plus create-your-own salads.",
+    "website": "https://firenzestreetfood.com/"
+  },
+  "desc:Firenze: Italian Street Food": "Firenze serves gourmet sandwiches on crispy schiacciata bread and customizable salads, perfect for groups seeking authentic Italian flavors with casual elegance and flexible options.",
+  "details:ChIJJWfbn1O5t4kRZTNm8a8rK1Q": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.opencrumbdc.com/"
+  },
+  "desc:Open Crumb": "A American called Open Crumb",
+  "details:ChIJkwtHHbUVkFQRPNehINtKe_s": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.docedonut.com/"
+  },
+  "desc:Doce Donut Co": "A Bakery called Doce Donut Co",
+  "details:ChIJEZATTIJ044kRw3u_t-HlFdY": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "night_club",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Elevated pub fare, clever cocktails & many craft beers are offered at this buzzy neighborhood spot.",
+    "website": "https://www.thestonescommonhouse.com/?y_source=1_Mjg0OTAxNjgtNzE1LWxvY2F0aW9uLndlYnNpdGU="
+  },
+  "desc:The Stones Common House & Kitchen": "Elevated pub fare, clever cocktails & many craft beers are offered at this buzzy neighborhood spot.",
+  "details:ChIJH0PaKBWzRIYRnFJPJ9kAzeY": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.elxolotacos.com/"
+  },
+  "desc:El Xolo Tacos": "A American called El Xolo Tacos",
+  "details:ChIJ48QgFAi15YgRwvqXb9RerP4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.tikkabowlsandtacos.com/"
+  },
+  "desc:Tikka Bowls and Tacos - Tapestry Park": "A American called Tikka Bowls and Tacos - Tapestry Park",
+  "details:ChIJTc37YxLfw4kR1poIOM00oYc": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.piegirlnj.shop/"
+  },
+  "desc:Pie Girl": "A Bakery called Pie Girl",
+  "details:ChIJTffOxOXLt4kRvFTRqME26cM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Comfy, kid-friendly eatery offering pizza & Italian-American favorites, plus gluten-free choices.",
+    "website": "https://gregoriostrattoria.com/gregoriostrattoria-inesih?utm_source=google"
+  },
+  "desc:GREGORIO'S TRATTORIA - BETHESDA": "Comfy, kid-friendly eatery offering pizza & Italian-American favorites, plus gluten-free choices.",
+  "details:ChIJX979sbllwokR_qIvH-xePco": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://thewafflechic.com/"
+  },
+  "desc:The Pink Waffle": "A American called The Pink Waffle",
+  "details:ChIJOygm5DXpwIkRMY51h9NRRWE": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://beachbunsbakerynj.com/"
+  },
+  "desc:Beach Buns Bakery": "A Bakery called Beach Buns Bakery",
+  "details:ChIJi8bSnL0Bw4kRcc03L8UZflU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://buongustowayne.com/?gclid=EAIaIQobChMI5oyj9sS04QIVCLbICh3wlQo8EAAYASAAEgLqIfD_BwE"
+  },
+  "desc:BUONGUSTO PIZZA RESTAURENT & CATERING": "BUONGUSTO PIZZA RESTAURANT & CATERING delivers authentic Italian pizzas and cuisine, perfect for groups seeking quality, delicious meals with genuine Italian flair and style.",
+  "details:ChIJdQnlfeEnwokRRaalNgLY4dw": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Hopping fixture offering Mexi-Cali cuisine, beer & an extensive tequila list in an art-filled space.",
+    "website": "http://www.tenthaveburrito.com/"
+  },
+  "desc:10th Ave. Burrito Co.": "Hopping fixture offering Mexi-Cali cuisine, beer & an extensive tequila list in an art-filled space.",
+  "details:ChIJV0rXB3nTw4kRFxkmRk-wnXE": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.lahorechatkharaygrill.com/"
+  },
+  "desc:Zunkaa Authentic Indian Cuisine": "A American called Zunkaa Authentic Indian Cuisine",
+  "details:ChIJFS5ACwALlR4ROgyQgc3xwrU": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Test Bakery": "A Bakery called Test Bakery",
+  "details:ChIJxyFxRZJZwokRPS_w2bOrWg0": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Simple counter-serve place specializing in French-inspired roasted chicken & other casual eats.",
+    "website": ""
+  },
+  "desc:Cocu Rotisserie": "Simple counter-serve place specializing in French-inspired roasted chicken & other casual eats.",
+  "details:ChIJWRxD6zoN3IARDGlnf8WYAnY": {
+    "types": [
+      "convenience_store",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://bunnychow.co/"
+  },
+  "desc:Bunny Chow - South African Food - North Park Shebeen": "A American called Bunny Chow - South African Food - North Park Shebeen",
+  "details:ChIJt299mcyzw4kRZxQHlEws8iU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.moaazgrill.com/"
+  },
+  "desc:Moaaz Mediterranean Grill": "A American called Moaaz Mediterranean Grill",
+  "details:ChIJM54hGxNYwokRkuX_4aXHZ5Q": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Easygoing American cafe featuring breakfast fare, sandwiches & salads, plus cakes & other desserts.",
+    "website": "http://parkcafewny.com/"
+  },
+  "desc:Park Street Cafe": "Park Street Cafe offers fresh, crowd-pleasing American fare from breakfast items to sandwiches and salads, perfect for groups seeking quality without fuss.",
+  "details:ChIJHW9730epXIYR9wCLcTHxZas": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Bar/restaurant preparing American fare alongside craft beers & cocktails in an industrial space.",
+    "website": "http://smtx.industrytx.com/"
+  },
+  "desc:Industry - San Marcos": "Bar/restaurant preparing American fare alongside craft beers & cocktails in an industrial space.",
+  "details:ChIJJ_yGWEt344kRl_nlLyxSPvc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "A vast selection of sandwiches, poutine, fries & beer are on offer in a cute upbeat space.",
+    "website": "https://www.allstarsandwichbar.com/"
+  },
+  "desc:All Star Sandwich Bar": "A vast selection of sandwiches, poutine, fries & beer are on offer in a cute upbeat space.",
+  "details:ChIJLTuBQH65woARx88mLjUjZ4I": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.kalamakigreekla.com/"
+  },
+  "desc:Kalamaki Greek La": "A American called Kalamaki Greek La",
+  "details:ChIJdwTdF8HwwokR_rinQ3kn7n0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.mbgcatering.com/"
+  },
+  "desc:MBG Catering": "A American called MBG Catering",
+  "details:ChIJwyVU4DKPOIgRrbo-cKzDrd0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://trytastydawg.com/"
+  },
+  "desc:Tasty Dawg": "A American called Tasty Dawg",
+  "details:ChIJh4nqHodZwokRXQ_QxGDq6Cw": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://www.littlecheflittlecafe.com/"
+  },
+  "desc:Little Chef Little Cafe": "A Cafe called Little Chef Little Cafe",
+  "details:ChIJHfoTG_IxwokRgHf0LZwsXx8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://almosthomegeneral.com/"
+  },
+  "desc:Almost Home Red General – Navesink": "A American called Almost Home Red General – Navesink",
+  "details:ChIJ616RcJLO54kRMEC1utwMYJY": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://wallingfordeatery.com/"
+  },
+  "desc:The Eatery of Wallingford": "The Eatery of Wallingford delivers fresh, expertly crafted cuisine perfect for group gatherings, combining quality ingredients with stylish presentation for memorable catered events.",
+  "details:ChIJ73jB7GqhwokRYdwUGbSWzn8": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.winfieldcoffee.com/"
+  },
+  "desc:Winfield Street Coffee - Stamford": "A Cafe called Winfield Street Coffee - Stamford",
+  "details:ChIJs6F9Y_RRwokRnai1YFwp3tg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Chill spot with a patio serving classic Cajun fare like po' boys, gumbo, jambalaya & crawfish.",
+    "website": "https://krewe-restaurant.com/?utm_source=google"
+  },
+  "desc:Krewe of McGinley Square": "Chill spot with a patio serving classic Cajun fare like po' boys, gumbo, jambalaya & crawfish.",
+  "details:ChIJ4YVYIdZZwokRxZmJ4vTm65E": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.winfieldcoffee.com/"
+  },
+  "desc:Winfield Street Coffee - New York City": "A Cafe called Winfield Street Coffee - New York City",
+  "details:ChIJkWxd89KRwokRcHhIMcWGKOs": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.winfieldcoffee.com/"
+  },
+  "desc:Winfield Street Coffee - Rye": "A Cafe called Winfield Street Coffee - Rye",
+  "details:ChIJRXL-FC3TRIYR-ZFkUPjVqn4": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Branch of a Southwestern chain eatery known for its large margarita selection & happy-hour deals.",
+    "website": "https://www.ztejas.com/"
+  },
+  "desc:Z'Tejas - Avery Ranch": "Branch of a Southwestern chain eatery known for its large margarita selection & happy-hour deals.",
+  "details:ChIJ-yVANp5TW4YRpyiBc5ltDI0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.woowooburgers.com/"
+  },
+  "desc:Woo Woo Burgers - Kyle": "A American called Woo Woo Burgers - Kyle",
+  "details:ChIJBcMPlbVbwokRHViCFL-ICjM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://getmemphisseoul.com/"
+  },
+  "desc:Memphis Seoul": "Memphis Seoul delivers bold, innovative Korean-American fusion cuisine that impresses groups with high-quality dishes and stunning presentation for any event.",
+  "details:ChIJY_WefQVZwokRXRrbG3iWsuQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://summersaltnyc.com/"
+  },
+  "desc:Summer Salt - Midtown": "A American called Summer Salt - Midtown",
+  "details:ChIJrWWDv19ZwokRfJftkBf5KOI": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Down-to-earth restaurant offering California-style Mexican cuisine in a casual atmosphere.",
+    "website": "http://summersaltnyc.com/"
+  },
+  "desc:Summer Salt - Union Square": "Down-to-earth restaurant offering California-style Mexican cuisine in a casual atmosphere.",
+  "details:ChIJc21Q5Y-BhYAR56naU_czXE8": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://pixlcatcoffee.com/"
+  },
+  "desc:Pixlcat Coffee - Mid Market": "A Cafe called Pixlcat Coffee - Mid Market",
+  "details:ChIJ4_wS51eAwokRFpgVas1-jKM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://slicelife.com/restaurants/ny/hicksville/11801/biryani-house/menu?utm_campaign=direct_websites&ajs_aid=&client_id="
+  },
+  "desc:Binge Biryani - Long Island City": "A American called Binge Biryani - Long Island City",
+  "details:ChIJ_zVVj0Kr3oARGUJoPFL0Bw4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Noble Restaurant Co": "A American called Noble Restaurant Co",
+  "details:ChIJwx2tB6dVkFQRdipDDMRpLYA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://partytacoma.com/caterer-tacoma/"
+  },
+  "desc:Toast & Taste Catering": "A American called Toast & Taste Catering",
+  "details:ChIJx4R6OfZ9bIcR0EdzYQMb4UM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Relaxed Australian restaurant specializing in carefully sourced rotisserie chicken dishes & sides.",
+    "website": "https://www.chookchicken.com/"
+  },
+  "desc:Chook - 8th Ave & Birch St": "Relaxed Australian restaurant specializing in carefully sourced rotisserie chicken dishes & sides.",
+  "details:ChIJI8NG5Wq7woARyQiWAHn0yIU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.casa-modena.com/"
+  },
+  "desc:Trattoria Moderna Italian Catering": "A American called Trattoria Moderna Italian Catering",
+  "details:ChIJvfwhfERzkFQRXPSOJOK1-Qc": {
+    "types": [
+      "establishment",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://plantlifemeals.com/"
+  },
+  "desc:Plant Life Vegan Catering": "Plant Life Vegan Catering delivers stunning, chef-crafted plant-based cuisine that impresses groups with bold flavors and elegant presentation.",
+  "details:ChIJ84Q_Ik8YsYkRRTn3iMCDOok": {
+    "types": [
+      "establishment",
+      "food",
+      "liquor_store",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://francoshenrico.com/?utm_source=google"
+  },
+  "desc:Franco's Italian Restaurant": "A American called Franco's Italian Restaurant",
+  "details:ChIJA_Xy8SlZwokR4-bMwogYGQo": {
+    "types": [
+      "bar",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://sipandcoev.co/"
+  },
+  "desc:Sip + Co East Village": "A Bar & Grill called Sip + Co East Village",
+  "details:ChIJKa5H-LxZwokRJfUaodNgwQk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Simple eatery with an industrial vibe fixing up generous subs, including vegetarian & vegan options.",
+    "website": "https://missionsandwich.com/"
+  },
+  "desc:Mission Sandwich Social": "Simple eatery with an industrial vibe fixing up generous subs, including vegetarian & vegan options.",
+  "details:ChIJYdM9jE9bwokROq-MNW9-ivA": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://crispynewyork.com/"
+  },
+  "desc:Crispy New York": "A Cafe called Crispy New York",
+  "details:ChIJn2czdom1RIYR9F6XLPzus2I": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.lileasyatx.com/"
+  },
+  "desc:Lil' Easy": "A Bar & Grill called Lil' Easy",
+  "details:ChIJZU2b7zr3wIcRQ49cPLku5sg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://mesob.nkc.com/"
+  },
+  "desc:Mesob Restaurant": "Mesob Restaurant serves authentic Ethiopian cuisine with vibrant flavors perfect for group dining and memorable shared meals.",
+  "details:ChIJLZ8gf8zjwogRXTIy_pQKG9w": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://petesbagels.com/"
+  },
+  "desc:Pete's Bagels - St. Pete": "A Bakery called Pete's Bagels - St. Pete",
+  "details:ChIJVblZWVpawokROc-0xwh42r4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://www.purslane.com/"
+  },
+  "desc:Purslane": "A American called Purslane",
+  "details:ChIJbS8F4uX_wokRSmCWLMlN7yM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "This mini-chain branch offers Mexican standards in a colorful setting. BYO beer & wine.",
+    "website": "https://www.tingausa.com/"
+  },
+  "desc:Tinga Fresh Mexican": "This mini-chain branch offers Mexican standards in a colorful setting. BYO beer & wine.",
+  "details:ChIJa8kfNxiWwoARD2sK_jeDmXU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Counter-service Mexican eats based on traditional recipes, with some organic, vegan-friendly twists.",
+    "website": "https://www.hugostacos.com/"
+  },
+  "desc:Hugo's Tacos Studio City": "Counter-service Mexican eats based on traditional recipes, with some organic, vegan-friendly twists.",
+  "details:ChIJddgRPhdZwokRrkaP3NdvxWo": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.sweetchick.com/"
+  },
+  "desc:Sweet Chick - Union Square": "A American called Sweet Chick - Union Square",
+  "details:ChIJ0Yluw9vAwoARkERWhSdyRj8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Counter-service Mexican eats based on traditional recipes, with some organic, vegan-friendly twists.",
+    "website": "https://www.hugostacos.com/"
+  },
+  "desc:Hugo's Tacos Atwater Village": "Counter-service Mexican eats based on traditional recipes, with some organic, vegan-friendly twists.",
+  "details:ChIJN-OEkqhbwokReQrau-g8XrA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Rustic eatery with American comfort food, such as chicken and waffles, plus cocktails and brunch.",
+    "website": "http://www.sweetchick.com/"
+  },
+  "desc:Sweet Chick - Prospect Heights": "Rustic eatery with American comfort food, such as chicken and waffles, plus cocktails and brunch.",
+  "details:ChIJE5rDmNHGwoARfppKepkVxKc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Playful take-out cafe for piled-high sandwiches named for celebrities, plus side salads & coffee.",
+    "website": "http://waxpaperco.com/"
+  },
+  "desc:Wax Paper - Frogtown": "Wax Paper's towering celebrity-named sandwiches and fresh sides make it perfect for feeding hungry groups with personality and style.",
+  "details:ChIJlxDiXJxZwokRp4HHbeYqXXU": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Borscht and pierogi are menu highlights at this lively Ukrainian eatery with a rustic vibe and murals on the walls.        ",
+    "website": "https://www.veselka.com/"
+  },
+  "desc:Veselka": "Borscht and pierogi are menu highlights at this lively Ukrainian eatery with a rustic vibe and murals on the walls.        ",
+  "details:ChIJEdfDyr5bwokRV7yHSUveCJE": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Classic diner fare in a down-home corner shop setting, popular with Pratt students & other locals.",
+    "website": "https://mikescoffeeshopbk.com/"
+  },
+  "desc:Mekelburg's": "Classic diner fare in a down-home corner shop setting, popular with Pratt students & other locals.",
+  "details:ChIJkVuhPzUwwokR0StA2-fsEK4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Former Brooklynite brings old-world brick-oven pizza plus roasted chicken wings & more to Red Bank.",
+    "website": "https://www.urbancoalhouse.com/"
+  },
+  "desc:Urban CoalHouse - Red Bank": "Former Brooklynite brings old-world brick-oven pizza plus roasted chicken wings & more to Red Bank.",
+  "desc:Surf Taco - Lacey": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+  "details:ChIJnWgldjOGwYkRe2ogsh6pG3c": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+    "website": "https://surftaco.com/"
+  },
+  "desc:Surf Taco - Manasquan": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+  "details:ChIJz5bHK_CHwYkRxuG70lh-rxo": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+    "website": "https://surftaco.com/"
+  },
+  "desc:Surf Taco - Wall": "Relaxed chain serving seafood tacos, chicken wraps & other Californian-Mexican fare, plus smoothies.",
+  "details:ChIJwRJFh-xZwokRPUKz_quhEX4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Eatery specializing in spicy chicken and waffles with a Pakistani twist.",
+    "website": "https://eatnamkeen.com/"
+  },
+  "desc:Namkeen - Brooklyn": "Eatery specializing in spicy chicken and waffles with a Pakistani twist.",
+  "details:ChIJKZmKK2x8wokRE0YIqSzKmew": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://bbqeastofharlem.com/"
+  },
+  "desc:Bobby U’s BBQ": "Bobby U's BBQ delivers authentic, slow-smoked meats and flavorful sides perfect for feeding crowds. Groups love the hearty, crowd-pleasing portions and genuine BBQ quality that makes every catering event memorable.",
+  "details:ChIJZf0rfQBZwokRvRHby7vh1js": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://animonyc.com/"
+  },
+  "desc:Ánimo!": "A American called Ánimo!",
+  "details:ChIJB7x4l3AVkFQRXwAYMJ2hWRY": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://kiposgreek.com/"
+  },
+  "desc:Kipos Greek": "A American called Kipos Greek",
+  "details:ChIJqzhkS7dbwokRtGCdHcorPvU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Chef-owned spot for contemporary Israeli and Mediterranean food plus cocktails, with backyard seating.",
+    "website": "http://www.missadanyc.com/"
+  },
+  "desc:Miss Ada": "Chef-owned spot for contemporary Israeli and Mediterranean food plus cocktails, with backyard seating.",
+  "details:ChIJSXp8ttd_3YkRjgvN7_GAjO4": {
+    "types": [
+      "establishment",
+      "point_of_interest",
+      "school",
+      "secondary_school"
+    ],
+    "editorial": "",
+    "website": "http://www.indianmountain.org/"
+  },
+  "desc:Indian Mountain School – Pickup": "A American called Indian Mountain School – Pickup",
+  "details:ChIJmdraqyo6wokR2v_BgVcoGVM": {
+    "types": [
+      "establishment",
+      "point_of_interest",
+      "police"
+    ],
+    "editorial": "",
+    "website": "http://www.highlandsborough.org/"
+  },
+  "desc:COPS": "A American called COPS",
+  "details:ChIJlTnYiYJbwokR_5rDalIHtqU": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.zuckersbagels.com/"
+  },
+  "desc:Zucker's Bagels": "A Bakery called Zucker's Bagels",
+  "details:ChIJ_wNVWtezwokRtfgsOScCVm0": {
+    "types": [
+      "establishment",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://northsalemfarmersmarket.org/"
+  },
+  "desc:North Salem Farmers Market – Fantzye Pre-Orders": "A American called North Salem Farmers Market – Fantzye Pre-Orders",
+  "details:ChIJlUAeDAD_kFQRNOvEXYfwb9M": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.lechonlocorestaurant.com/"
+  },
+  "desc:Lechon Loco": "Lechon Loco brings authentic Filipino roasted pork perfection to your event with impressive presentation and crowd-pleasing flavors that make group celebrations unforgettable.",
+  "details:ChIJnQemVdvFwoARY0XpGrKFElc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.macielsplantbutcher.com/"
+  },
+  "desc:Maciel's Plant-Based Butcher & Deli": "A American called Maciel's Plant-Based Butcher & Deli",
+  "details:ChIJWyJTwaa3t4kRe3OEL-GTPPs": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.alfredadc.com/"
+  },
+  "desc:Alfreda": "A American called Alfreda",
+  "details:ChIJeTNZ0pxZwokRg3Z1vnWyTmg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Richly spiced Sri Lankan cuisine is the crowd-pleasing specialty of this tiny, no-frills eatery.",
+    "website": "https://www.sigiriny.com/"
+  },
+  "desc:Sigri": "Richly spiced Sri Lankan cuisine is the crowd-pleasing specialty of this tiny, no-frills eatery.",
+  "details:ChIJSZ__agBbwokRFqNZkOBfbsk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.strangedelight.nyc/"
+  },
+  "desc:Strange Delight": "A American called Strange Delight",
+  "details:ChIJNVwdhCJZwokR5fGM44WBTeQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.brownbagny.com/greenwich-village"
+  },
+  "desc:Brown Bag Sandwich Co": "A American called Brown Bag Sandwich Co",
+  "details:ChIJIUWgkIVZwokRiHNp_gg3hX0": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "Christina Tosi's flagship offering an expanded menu of inventive desserts & customizable sweets.",
+    "website": "https://www.milkbarstore.com/"
+  },
+  "desc:Purslane x Milk Bar": "Christina Tosi's flagship offering an expanded menu of inventive desserts & customizable sweets.",
+  "details:ChIJDSWGokq5woARttwzw9_LHcc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.backyardbowls.com/"
+  },
+  "desc:Backyard Bowls - Beverly Grove": "Backyard Bowls - Beverly Grove offers fresh, vibrant bowls perfect for group dining with customizable options that impress any crowd.",
+  "details:ChIJOcB1BotYwokRDAfplGJHyTM": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Chicken parm & other Italian-American classics go gourmet at this hip, diner-inspired space.",
+    "website": "https://www.parmitalian.com/?utm_medium=Click&utm_source=GoogleMyBusiness"
+  },
+  "desc:Parm Famous Italian - UWS": "Chicken parm & other Italian-American classics go gourmet at this hip, diner-inspired space.",
+  "details:ChIJzc4Deb4LK4cR5J8hnljts04": {
+    "types": [
+      "bar",
+      "cafe",
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Locally sourced breakfast, brunch & lunch items are dispatched in this cheery, contemporary cafe.",
+    "website": "http://morningsqueeze.com/scottsdale/"
+  },
+  "desc:Morning Squeeze": "Locally sourced breakfast, brunch & lunch items are dispatched in this cheery, contemporary cafe.",
+  "details:ChIJSUx_kV8JRogRaFBlAV1wDb8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://starvinarvins.com/"
+  },
+  "desc:Starvin' Arvin's Catering": "A American called Starvin' Arvin's Catering",
+  "details:ChIJuYJQ4VrLj4AR2SC_HS-iUF8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "This festive spot serves traditional Cuban fare & Spanish wine in a colorful space with patio seats.",
+    "website": "https://998cuba.com/?utm_source=google"
+  },
+  "desc:Habana Cuba Restaurant": "This festive spot serves traditional Cuban fare & Spanish wine in a colorful space with patio seats.",
+  "details:ChIJFcOEg7ldwokR4w8TquT4rl4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Deli-icious": "A American called Deli-icious",
+  "details:ChIJT-4sbwCxw4kRDGk_iQq5Dlk": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://almosthomegeneral.com/"
+  },
+  "desc:Almost Home - Westfield": "A Cafe called Almost Home - Westfield",
+  "details:ChIJLVn3KCDFwogRs6tRips8jgU": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "grocery_or_supermarket",
+      "liquor_store",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://supernaturaltpa.com/"
+  },
+  "desc:Supernatural": "Supernatural Bakery delivers artisan-crafted pastries and baked goods perfect for any gathering, combining exceptional quality with stunning presentation that impresses groups of any size.",
+  "details:ChIJQ6Dtd8FXwokR9YLebIeZKnc": {
+    "types": [
+      "establishment",
+      "point_of_interest",
+      "shopping_mall"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Mill Creek": "A American called Mill Creek",
+  "details:ChIJuQDaVseZToYR_qM1sP5y4fU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://oomikitchen.com/"
+  },
+  "desc:oomi kitchen": "A Korean called oomi kitchen",
+  "details:ChIJtx0PIyqxJIgRDtB6fcSuEmY": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.savvysliders.com/locations/farmington/?utm_source=Google&utm_medium=Organic&utm_campaign=LocalSEO"
+  },
+  "desc:Savvy Sliders - Fort Wayne": "A American called Savvy Sliders - Fort Wayne",
+  "details:ChIJIfdQahOp3IgRRqG5PxCBF8w": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://3pepperburrito.com/port-charlotte/"
+  },
+  "desc:3 Pepper Burrito Port Charlotte": "A American called 3 Pepper Burrito Port Charlotte",
+  "details:ChIJ3V5MG5lz24gR5xvJ2faklSg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://3pepperburrito.com/lehigh-acres/"
+  },
+  "desc:3 Pepper Burrito Co. Lehigh Acres": "A American called 3 Pepper Burrito Co. Lehigh Acres",
+  "desc:3 Pepper Burrito Co. Bradenton": "A American called 3 Pepper Burrito Co. Bradenton",
+  "details:ChIJl5tVmhdH24gReECAc0BAFTE": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Easygoing, strip-mall venue offering Mexican eats such as burritos with meat & veggie fillings.",
+    "website": "https://3pepperburrito.com/cape-coral/"
+  },
+  "desc:3 Pepper Burrito Co. Cape Coral": "Easygoing, strip-mall venue offering Mexican eats such as burritos with meat & veggie fillings.",
+  "details:ChIJ4Y4cuP9ZwokRGZzQkA4znvM": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.brooklyndumplingshop.com/locations/upper-east-side"
+  },
+  "desc:Brooklyn Dumpling Shop - UES": "Brooklyn Dumpling Shop - UES serves authentic handmade dumplings perfect for group dining, offering delicious Asian-American fare that satisfies every palate.",
+  "details:ChIJV-JpYBvi2IgRQ66A6EomRD8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Ramen, poke bowls, donburi & Asian tapas offered in a compact, industrial-chic space.",
+    "website": "https://www.ramenlabeatery.com/"
+  },
+  "desc:Ramen Lab Eatery - West Boca Raton": "Ramen, poke bowls, donburi & Asian tapas offered in a compact, industrial-chic space.",
+  "details:ChIJMwkx6Z8F2YgRhmNPFxgn60E": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://tap42.com/coral-springs/"
+  },
+  "desc:Tap 42 - Coral Springs": "A Bar & Grill called Tap 42 - Coral Springs",
+  "details:ChIJEUBlbeI_24gRb0UT9k9SViA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://tap42.com/locations/fort-myers/"
+  },
+  "desc:Tap 42 - Fort Myers": "A American called Tap 42 - Fort Myers",
+  "details:ChIJcyNcqIoA2YgRW8B1tgMSez4": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Slick space offering dozens of craft beers on draft, plus creative burgers & cocktails.",
+    "website": "http://www.tap42.com/"
+  },
+  "desc:Tap 42 - Ft Lauderdale": "Slick space offering dozens of craft beers on draft, plus creative burgers & cocktails.",
+  "desc:Savvy Sliders - Fraser": "A American called Savvy Sliders - Fraser",
+  "desc:BurgerFi - Boynton Beach": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+  "desc:BurgerFi - Bowie": "BurgerFi Bowie offers premium beef burgers and craft beverages with eco-conscious style—perfect for impressing groups who appreciate quality food and sustainability.",
+  "details:ChIJF2Y82FtZwokRvKoZzBEHroU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.somethingreen.com/"
+  },
+  "desc:Something Green": "A American called Something Green",
+  "details:ChIJTd31XR7TJIgRGXzEvw61wlQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.savvysliders.com/locations/detroit_woodward-woodward-warren-ave/?utm_source=Google&utm_medium=Organic&utm_campaign=LocalSEO"
+  },
+  "desc:Savvy Sliders - Detroit (Midtown)": "A American called Savvy Sliders - Detroit (Midtown)",
+  "details:ChIJmZORJQAzW4YRxXfg12QMA2Q": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://rooted-cafe.com/"
+  },
+  "desc:Rooted Cafe & Catering": "A American called Rooted Cafe & Catering",
+  "details:ChIJ3RLk1hdawokR2qDWYKUW-1I": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Upmarket counter serve offering antibiotic-free chicken in creative salads, sandwiches & bowls.",
+    "website": "https://order.meltshop.com/"
+  },
+  "desc:Melt Shop - Maiden Ln": "Upmarket counter serve offering antibiotic-free chicken in creative salads, sandwiches & bowls.",
+  "desc:Happy's Pizza - Farmington Hills": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+  "details:ChIJE9srMKs7wokRFCIF3s24kjI": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "night_club",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://brothersdaley.com/"
+  },
+  "desc:Club Sandwich": "A Bar & Grill called Club Sandwich",
+  "details:ChIJk84XGIRYwokRGrW8KFlR2_g": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Bi-level eatery with Greek Island vibes, exposed beam wood ceilings, & seafood-forward menu.",
+    "website": "http://www.eleanyc.com/"
+  },
+  "desc:eléa": "Bi-level eatery with Greek Island vibes, exposed beam wood ceilings, & seafood-forward menu.",
+  "desc:Happy's Pizza - Toledo": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+  "details:ChIJyXIGj4WDwYkREfK8an7WfAU": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.baronsbagels.com/"
+  },
+  "desc:Barons Bagel's - Brick": "A Bakery called Barons Bagel's - Brick",
+  "details:ChIJiXJVzLtZwokRbeoV2XxLOdg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Casual cafe with creative breakfast fare & sandwiches plus coffee drinks in a modern setting.",
+    "website": "https://www.thecommonschelsea.com/"
+  },
+  "desc:The Commons Chelsea": "The Commons Chelsea offers creative, quality breakfast fare and artisan sandwiches in a stylish modern cafe—ideal for groups seeking casual yet impressive catered fare and specialty coffee.",
+  "details:ChIJs286GQDh3IAR28EVnRbtVq0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://elmercado-oc.com/?utm_source=google&utm_medium=local&utm_campaign=1&utm_content=primary"
+  },
+  "desc:El Mercado Mexican Kitchen": "A American called El Mercado Mexican Kitchen",
+  "details:ChIJG-BIauK4woARPGTVNnd7Wy4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Colorful, art-filled taqueria for meat, vegan & vegetarian specialties, aguas frescas & kombucha.",
+    "website": "https://www.trejostacos.com/"
+  },
+  "desc:Trejo's Tacos": "Colorful, art-filled taqueria for meat, vegan & vegetarian specialties, aguas frescas & kombucha.",
+  "details:ChIJZ4oWzTJowYkRSFeDJhq5g0k": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "BBQ joint with wood-smoked meats & classic sides such as cornbread & mac 'n' cheese, plus delivery.",
+    "website": "https://localsmokebbq.com/"
+  },
+  "desc:Local Smoke BBQ - Cookstown": "BBQ joint with wood-smoked meats & classic sides such as cornbread & mac 'n' cheese, plus delivery.",
+  "details:ChIJPf_o5JWBhYARQiydAgJWsHg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://peacockpansy.com/"
+  },
+  "desc:Peacock Pansy": "A American called Peacock Pansy",
+  "details:ChIJTcP6eTwEK4cR8LzeqbHXLSg": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Branch of a Southwestern chain eatery known for its large margarita selection & happy-hour deals.",
+    "website": "https://www.ztejas.com/"
+  },
+  "desc:Z'Tejas - Chandler": "Branch of a Southwestern chain eatery known for its large margarita selection & happy-hour deals.",
+  "details:ChIJza8LqiEc6IkRCJUpSH896kk": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.winfieldcoffee.com/"
+  },
+  "desc:Winfield Street Coffee - Westport": "A Cafe called Winfield Street Coffee - Westport",
+  "details:ChIJiTr5bRBNW4YRHs7BcAz-Ym0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://whollycowburgers.com/"
+  },
+  "desc:Woo Woo Burgers - Avery Ranch": "A American called Woo Woo Burgers - Avery Ranch",
+  "details:ChIJM2g8Cm_6wIcRgCnL9JAlhNI": {
+    "types": [
+      "establishment",
+      "food",
+      "grocery_or_supermarket",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.localpig.com/"
+  },
+  "desc:Local Pig": "A BBQ called Local Pig",
+  "details:ChIJJRTHfaMpQg0RPpl9Nnzi60k": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://micecatering.com/"
+  },
+  "desc:Maíz Catering": "Maíz Catering delivers vibrant, chef-crafted cuisine perfect for groups seeking bold flavors and exceptional quality in every bite.",
+  "details:ChIJYzTW7YK1RIYRCW0QG4_Eik4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Cozy locale with outdoor seating, prepping traditional Mexican fare like barbacoa & carnitas.",
+    "website": "https://denadacantina.com/"
+  },
+  "desc:De Nada": "Cozy locale with outdoor seating, prepping traditional Mexican fare like barbacoa & carnitas.",
+  "details:ChIJJ8y9G5QN9YgR2b-qIYoY93M": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.howlinwillys.com/"
+  },
+  "desc:Howlin' Willy's - East Cobb": "A American called Howlin' Willy's - East Cobb",
+  "details:ChIJq-I0OrUy3YAR_L_0EqxTG5M": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://ordertaqueriadonjorge.mobile-webview8.com/"
+  },
+  "desc:Tacos Don Jorge": "A American called Tacos Don Jorge",
+  "details:ChIJIa8Qm3LNj4ARTvwHQaI3BHs": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://sjdowntownfoodhall.com/s/sunset-squares-pizza/96-e-santa-clara-st-san-jose/c00ca331-9c74-4cf8-b36d-6526cb9136a3"
+  },
+  "desc:Sunset Squares Pizza - San Jose": "A American called Sunset Squares Pizza - San Jose",
+  "details:ChIJ20z9OOOPwIcRHj7O0JqO-Nk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://perkyscafekc.com/"
+  },
+  "desc:Perky's Cafe & Catering": "A American called Perky's Cafe & Catering",
+  "details:ChIJAYDdy4JfwokRHdMJajK1QpM": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://aygueynyc.com/"
+  },
+  "desc:Ay Guey NYC Mexican Restaurant": "A Bar & Grill called Ay Guey NYC Mexican Restaurant",
+  "details:ChIJ4wf_ELF-wokRwaw9pizmB4Y": {
+    "types": [
+      "establishment",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://thedinerboysny.com/about-us/"
+  },
+  "desc:The Diner Boys": "A American called The Diner Boys",
+  "details:ChIJA-iEVWlaa4gRzpxxfsWhiYA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://www.huckabyssmokehouse.com/"
+  },
+  "desc:Huckaby's Smokehouse": "A American called Huckaby's Smokehouse",
+  "details:ChIJ7eOd4tQnwokRFKvFBxdyRZY": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "BBQ joint with wood-smoked meats & classic sides such as cornbread & mac 'n' cheese, plus delivery.",
+    "website": "https://localsmokebbq.com/"
+  },
+  "desc:Local Smoke BBQ - Neptune City": "BBQ joint with wood-smoked meats & classic sides such as cornbread & mac 'n' cheese, plus delivery.",
+  "details:ChIJQ3rvLnaHwYkRt0BoEDhfCzk": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "BBQ joint with wood-smoked meats & classic sides such as cornbread & mac 'n' cheese, plus delivery.",
+    "website": "http://www.localsmokebbq.com/"
+  },
+  "desc:Local Smoke BBQ - Sea Girt": "Local Smoke BBQ brings authentic wood-smoked meats and classic sides to your event, with convenient delivery perfect for groups seeking hearty, flavorful catering.",
+  "details:ChIJb90BAnX99IgRZH_6dtNLeF0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://howlinwillys.com/locations/"
+  },
+  "desc:Howlin' Willy's - Hapeville": "A American called Howlin' Willy's - Hapeville",
+  "details:ChIJN-7Fd6D5wokRgkTfthJyzB4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://myperiperi.com/ppperutherford?utm_source=google"
+  },
+  "desc:The Port of Peri Peri": "A American called The Port of Peri Peri",
+  "details:ChIJKzrhtFDh2ogR8ubnH5RCByM": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.winfieldcoffee.com/"
+  },
+  "desc:Winfield Street Coffee - Naples South": "A Cafe called Winfield Street Coffee - Naples South",
+  "details:ChIJZWcIyvkZ24gRcJgogLumVRU": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.winfieldcoffee.com/"
+  },
+  "desc:Winfield Street Coffee - Naples North": "A Cafe called Winfield Street Coffee - Naples North",
+  "details:ChIJ4Us1t4hZwokRGsBUjumzejE": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Israeli-inspired Mediterranean counter-serve featuring falafel, sandwiches, bowls & smoothies.",
+    "website": "https://taimkitchen.com/"
+  },
+  "desc:Taim - Nolita": "Israeli-inspired Mediterranean counter-serve featuring falafel, sandwiches, bowls & smoothies.",
+  "details:ChIJVbVqv3GBwokRQveqV6ShoSw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://taimkitchen.com/"
+  },
+  "desc:Taim - Plainview": "A Mediterranean called Taim - Plainview",
+  "details:ChIJO1_22AhZwokRm6t3InR_YCQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Laid-back cafe with a big patio whipping up Vietnamese eats like pho, banh mi & banh xeo “tacos.\"",
+    "website": "http://5ivespiceles.com/"
+  },
+  "desc:5ive Spice LES": "Laid-back cafe with a big patio whipping up Vietnamese eats like pho, banh mi & banh xeo “tacos.\"",
+  "details:ChIJ5yFN9mgD9YgRnB2z8rSxBFU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Rustic Italian eatery & pizzeria with brunch & full bar including an extensive amaro collection.",
+    "website": "http://www.ninaandrafi.com/"
+  },
+  "desc:Nina & Rafi": "# Nina & Rafi\n\nRustic Italian pizzeria perfect for groups seeking authentic wood-fired pizzas, elevated brunch fare, and craft cocktails in a warm, convivial setting.",
+  "details:ChIJq49pBt3xwokRvR9ieaZdoC4": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://www.wannabeechef.com/"
+  },
+  "desc:WannaBee Chef": "A American called WannaBee Chef",
+  "details:ChIJiQP1-jcwwokRp0XQnUeya9M": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.mrpizzaslicemenu.com/"
+  },
+  "desc:Mr. Pizza Slice": "A American called Mr. Pizza Slice",
+  "details:ChIJP3OStGrxwokRqrNQmFcGHI8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://sweetswirlnj.com/"
+  },
+  "desc:Keep It Sweet Desserts": "A American called Keep It Sweet Desserts",
+  "details:ChIJI-hN5Q3Tw4kR8o_gHvzSmNc": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Upscale Italian fare & cocktails in a warm setting with old-world decor, an open kitchen & a patio.",
+    "website": "http://osterianj.com/"
+  },
+  "desc:Osteria": "Upscale Italian fare & cocktails in a warm setting with old-world decor, an open kitchen & a patio.",
+  "details:ChIJKSiagdlbwokRUHoMAaqi2NE": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.osteriabrooklyn.com/location/casa-nono/"
+  },
+  "desc:Casa Nono": "A American called Casa Nono",
+  "details:ChIJgarb4sdFwokR52YQD5n-9mY": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://wildberrycake.com/"
+  },
+  "desc:Bakes Gone Wild": "A Bakery called Bakes Gone Wild",
+  "details:ChIJ8euWi8dU2YARuaAnVgKFgww": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Homey locale for seasonal vegan eats, kombucha and beer with a spacious patio & herb garden.",
+    "website": "https://donnajeanrestaurant.com/"
+  },
+  "desc:Donna Jean - San Diego": "Homey locale for seasonal vegan eats, kombucha and beer with a spacious patio & herb garden.",
+  "details:ChIJ9-mDn7L9wokR4aG1pdDDWD4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.yellas.com/"
+  },
+  "desc:Yella's": "A American called Yella's",
+  "details:ChIJJyVQq-SHwYkRe5P7Y9O6Yy0": {
+    "types": [
+      "establishment",
+      "food",
+      "grocery_or_supermarket",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.pastosa.com/"
+  },
+  "desc:Pastosa Ravioli - Manasquan": "Pastosa Ravioli offers fresh, handmade Italian pasta dishes perfect for groups seeking authentic, high-quality catering with classic comfort food appeal.",
+  "details:ChIJtzBkR9LHxokRjhrrqoe09GA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "An all-day, sandwich-centric menu, along with salads & sides at this casual spot.",
+    "website": "http://www.stockyardphilly.com/"
+  },
+  "desc:Stockyard Sandwich Co.": "An all-day, sandwich-centric menu, along with salads & sides at this casual spot.",
+  "details:ChIJc89vorXHwoARzHq_wehVxf8": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Unique twists on tacos, salads & aguas frescas in a corner shop with a funky outdoor dining space.",
+    "website": "http://chicastacos.com/"
+  },
+  "desc:Chicas Tacos - Miracle Mile": "Unique twists on tacos, salads & aguas frescas in a corner shop with a funky outdoor dining space.",
+  "details:ChIJy1Vl2py5woAR4ohEs5nF2Xk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Italian-American deli store, with heroes & other goods available by the pound at the counter.",
+    "website": "https://unclepauliesdeli.com/"
+  },
+  "desc:Uncle Paulie's Deli - W 3rd St.": "Italian-American deli store, with heroes & other goods available by the pound at the counter.",
+  "details:ChIJ6d9Z3eF3wYkRMM8S0MwwbP0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.wavershaksdeli.com/"
+  },
+  "desc:Wavershak's Deli and Grill": "A American called Wavershak's Deli and Grill",
+  "details:ChIJC_7NeRJfwokRsy59UhNZLao": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Modern Thai restaurant & bar offering up small plates (kub klaem) in an industrial-chic space.",
+    "website": "https://tongbrooklyn.com/"
+  },
+  "desc:TONG": "Modern Thai restaurant & bar offering up small plates (kub klaem) in an industrial-chic space.",
+  "details:ChIJKcgUmvfzNIgRBLShl8PA9U8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "This compact, hip Mexican joint with classic tacos & burritos also offers rotating vegan specials.",
+    "website": "http://www.elburropgh.com/"
+  },
+  "desc:El Burro": "This compact, hip Mexican joint with classic tacos & burritos also offers rotating vegan specials.",
+  "details:ChIJHTB7lzUL9YgRe990NqX-0pI": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://generaltsoscatering.com/dunwoody/?utm_source=GMBmain&utm_medium=organic"
+  },
+  "desc:General Tso's": "A American called General Tso's",
+  "details:ChIJUQvP2fjDwogRfqNKGnJTG5w": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Trendy, roomy restaurant presenting French-American fusion cooking, plus brunch, steaks & seafood.",
+    "website": "https://www.willastampa.com/"
+  },
+  "desc:Willa's": "Willa's offers stylish French-American fusion cuisine in a spacious setting, perfect for groups seeking upscale steaks, fresh seafood, and refined brunch in a trendy atmosphere.",
+  "desc:Bunny Chow - South African Food - Miramar Shebeen": "A American called Bunny Chow - South African Food - Miramar Shebeen",
+  "details:ChIJQSZs02cH5IkRoXKQcXMzOgk": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.ediblecreationsbygerry.com/"
+  },
+  "desc:Edible Creations by Gerry/Just Gerry's": "A Bakery called Edible Creations by Gerry/Just Gerry's",
+  "details:ChIJpVJ40l1rkFQRFXqyjjBmQUQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Chicken wings with choice of spice & dressing, plus salads, burgers, sandwiches & beer.",
+    "website": "https://thewingdome.com/"
+  },
+  "desc:Wing Dome - Waterfront": "Chicken wings with choice of spice & dressing, plus salads, burgers, sandwiches & beer.",
+  "details:ChIJNzCD08-JOIgRwF6-vJKvBJE": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.soul2goohio.com/"
+  },
+  "desc:Soul 2 Go Catering": "A American called Soul 2 Go Catering",
+  "details:ChIJtVuOhx5bwokR14FF8JEG6j8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Red-and-white eatery devoted to dumplings, bao & other Chinese specialties, plus bubble tea.",
+    "website": "http://www.eastwindsnackshop.com/"
+  },
+  "desc:East Wind Snack Shop": "Red-and-white eatery devoted to dumplings, bao & other Chinese specialties, plus bubble tea.",
+  "details:ChIJabCZ38jNt4kRdN9eBFjs1ug": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Comfy, kid-friendly eatery offering pizza & Italian-American favorites, plus gluten-free choices.",
+    "website": "https://gregoriostrattoria.com/gregoriostrattoria-fpg7wu?utm_source=google"
+  },
+  "desc:GREGORIO'S TRATTORIA - POTOMAC": "Comfy, kid-friendly eatery offering pizza & Italian-American favorites, plus gluten-free choices.",
+  "details:ChIJDZkwvYWsw4kRpkGZXwMO9-0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Compact outpost providing fruit smoothies, salads, sandwiches & acai bowls in a comfortable setting.",
+    "website": "http://thedancingblenderv2.com/"
+  },
+  "desc:The Dancing Blender Smoothie Co. - A Kosher Business": "Compact outpost providing fruit smoothies, salads, sandwiches & acai bowls in a comfortable setting.",
+  "details:ChIJDXCum8-3w4kRXucKvDkLYKM": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Omelets, coffee & other brunch fare in a cheery destination featuring seasonal specials.",
+    "website": "http://hatch44cafe.com/"
+  },
+  "desc:Hatch 44 Cafe - Metuchen": "Hatch 44 Cafe serves exceptional omelets and artisanal coffee in a vibrant space perfect for group brunches with seasonal specials that delight every palate.",
+  "details:ChIJJ-zw6ecSkFQR29-cifUp4oo": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Chicken wings with choice of spice & dressing, plus salads, burgers, sandwiches & beer.",
+    "website": "http://thewingdome.com/"
+  },
+  "desc:Wing Dome - Kirkland": "Chicken wings with choice of spice & dressing, plus salads, burgers, sandwiches & beer.",
+  "details:ChIJFyzZsR9olIARaj-bi2THfhA": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "American seafood menu is served in a lodgelike eatery with a bar & separate seafood deli counter.",
+    "website": "http://www.pismos.com/?utm_source=google&utm_medium=local&utm_campaign=gmb_listing"
+  },
+  "desc:Pismo's Coastal Grill": "American seafood menu is served in a lodgelike eatery with a bar & separate seafood deli counter.",
+  "details:ChIJE_zSBSVFcUgRFicN0NP4mEI": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://ricespiceonline.co.uk/"
+  },
+  "desc:Rice N Spice": "A American called Rice N Spice",
+  "details:ChIJPWQ0r2TnxokRfj5D5D6bMeE": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://tattooedpigmedia.com/"
+  },
+  "desc:The Tattooed Pig - Aston": "A American called The Tattooed Pig - Aston",
+  "details:ChIJafl1xjjxw4kRZxA_G6eWNJA": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Local chain serving specialty pizzas, familiar pasta dishes, salads & subs in modest surrounds.",
+    "website": "http://panatierispizza.com/flemington"
+  },
+  "desc:Panatieri's Pizza & Pasta of Flemington": "Local chain serving specialty pizzas, familiar pasta dishes, salads & subs in modest surrounds.",
+  "details:ChIJj14BZ0yn9YgRONBw5C5yvSw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://famsfav.com/"
+  },
+  "desc:Family's Favorite Foods": "A American called Family's Favorite Foods",
+  "details:ChIJL66NwuhClIAR9NIqpvGG0Mg": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Steaks, seafood & roasted dinners like prime rib served in a relaxed setting with weekly live music.",
+    "website": "https://yosemiteranch.com/"
+  },
+  "desc:Yosemite Ranch": "Steaks, seafood & roasted dinners like prime rib served in a relaxed setting with weekly live music.",
+  "details:ChIJwXDksSMxWIgRX_zU7djsw1U": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "https://www.larkinscatering.com/"
+  },
+  "desc:Larkin's Catering & Events": "A American called Larkin's Catering & Events",
+  "details:ChIJ7TbtktBqkFQRuZyeygdwW90": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Burgers & sides using area-sourced ingredients offered in a spartan setting with outdoor seats.",
+    "website": "https://feedcoburgers.com/"
+  },
+  "desc:Feed Co. Burgers": "Burgers & sides using area-sourced ingredients offered in a spartan setting with outdoor seats.",
+  "details:ChIJBVo9iPxEwokRNNNs__03yts": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Customizable tacos & snacks turned out in a bright, counter-service location with seating.",
+    "website": "http://elgallobk.com/"
+  },
+  "desc:El Gallo Taqueria": "El Gallo Taqueria offers customizable tacos and snacks perfect for group events, combining fresh quality fare with efficient counter service in a vibrant setting.",
+  "details:ChIJQ-IMvRKfToYRtVIAWXhyhaM": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.pizzatiusa.com/"
+  },
+  "desc:Pizzati": "A American called Pizzati",
+  "details:ChIJY_tZkY3mxokR8AgvHz1n3P0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://plumcaterers.com/"
+  },
+  "desc:Plum Caterers": "A American called Plum Caterers",
+  "details:ChIJD1skg_BbwokRjFBu9VHsDLw": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.7ethai.com/"
+  },
+  "desc:7 Elephants": "A American called 7 Elephants",
+  "details:ChIJSfZ0OCtRa4gR-W5Ik3-Upus": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://twentytwojuice.com/twentytwojuicegarage?utm_source=google"
+  },
+  "desc:Twenty Two Juice Bar": "A American called Twenty Two Juice Bar",
+  "details:ChIJAQBDmi6_woARcAHK1TSu02w": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "A coffee & donut shop from Mexican-American actor Danny Trejo, with inventive fritter flavors.",
+    "website": "https://www.trejosdonuts.com/"
+  },
+  "desc:Trejo's Coffee & Donuts": "A coffee & donut shop from Mexican-American actor Danny Trejo, with inventive fritter flavors.",
+  "desc:Summer Salt - Flatiron": "Down-to-earth restaurant offering California-style Mexican cuisine in a casual atmosphere.",
+  "details:ChIJ61ZVUp0LK4cRYpd74fY4fVI": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Branch of a Southwestern chain eatery known for its large margarita selection & happy-hour deals.",
+    "website": "https://www.ztejas.com/"
+  },
+  "desc:Z'Tejas - Scottsdale": "Branch of a Southwestern chain eatery known for its large margarita selection & happy-hour deals.",
+  "details:ChIJJ_JthoALK4cRjn0f9GJ6RnI": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://woowooburgers.com/"
+  },
+  "desc:Woo Woo Burgers - Scottsdale": "A American called Woo Woo Burgers - Scottsdale",
+  "details:ChIJG5K1hdKHhYARTokQT1WnbqU": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.pixlcatcoffee.com/"
+  },
+  "desc:Pixlcat Coffee - Inner Richmond": "Pixlcat Coffee's artisanal pastries and specialty beverages offer Instagram-worthy elegance for group gatherings in the Inner Richmond.",
+  "details:ChIJ-Sx0sn-BhYAR2OcfvKzUO2w": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "meal_delivery",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.sunsetsquares.com/"
+  },
+  "desc:Sunset Squares Pizza - Mid Market": "A Bar & Grill called Sunset Squares Pizza - Mid Market",
+  "details:ChIJYVForeYu6IAR7Vn7dHutmAc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Counter-serve kitchen featuring health-focused Hawaiian fare in an airy, island-inspired space.",
+    "website": "https://www.fireislandgrill.com/"
+  },
+  "desc:Fire Island Grill - Simi Valley": "Counter-serve kitchen featuring health-focused Hawaiian fare in an airy, island-inspired space.",
+  "details:ChIJDQQddHhZwokRycolQOqW1RM": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "Informal spot serving diverse options of hand-rolled bagels & cream cheese all day.",
+    "website": "https://bagelpoint.com/?utm_source=google_business_profile"
+  },
+  "desc:Bagel Point - Brooklyn": "Informal spot serving diverse options of hand-rolled bagels & cream cheese all day.",
+  "details:ChIJ621njwB_bIcRQnT2JACANts": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Small, easygoing & modern corner stop offering charcoal rotisserie poultry & hearty sides.",
+    "website": "https://www.chookchicken.com/"
+  },
+  "desc:Chook - Platt Park": "Small, easygoing & modern corner stop offering charcoal rotisserie poultry & hearty sides.",
+  "details:ChIJTWKjp2OBbIcRgW6BK5UoC2k": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.chookchicken.com/"
+  },
+  "desc:Chook - Cherry Hills Marketplace": "A American called Chook - Cherry Hills Marketplace",
+  "details:ChIJ82VXCgclwokR1jAc1493K9M": {
+    "types": [
+      "establishment",
+      "food",
+      "grocery_or_supermarket",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Dia's Market": "A American called Dia's Market",
+  "details:ChIJ8U5fLWhZkFQR2UL_Q3deLmc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.westhilldeli.com/"
+  },
+  "desc:West Hill Deli": "A American called West Hill Deli",
+  "details:ChIJLwOHbzaEwYkR_c03gOMWzkc": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "grocery_or_supermarket",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.colonialranchmarket.com/"
+  },
+  "desc:Colonial Ranch Market": "A Bakery called Colonial Ranch Market",
+  "details:ChIJk5BvZzQVkFQR0EDhKdrHJms": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Relaxed parlor serving a variety of pizza styles including traditional, gluten-free & vegan options.",
+    "website": "http://www.razzis.com/"
+  },
+  "desc:Razzis Pizzeria - Downtown": "Relaxed parlor serving a variety of pizza styles including traditional, gluten-free & vegan options.",
+  "details:ChIJz_D6CvFbwokRVugq6M6aIbw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://rinconcitodomex.com/"
+  },
+  "desc:Rinconcito DOMEX": "# Rinconcito DOMEX\n\nAuthentic American cuisine with bold flavors perfect for groups seeking quality catering that impresses with vibrant, shareable dishes.",
+  "details:ChIJ29trOxNrkFQRT6b2xhyKYX4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.206burgercompany.com/"
+  },
+  "desc:206 Burger Company": "A American called 206 Burger Company",
+  "details:ChIJI_sn2N1Y7IAR7v4L8Y3oq_I": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Longtime family-run spot for fish & chips & clam chowder, with old-school decor & booth seating.",
+    "website": "https://www.pismofishandchips.com/"
+  },
+  "desc:Pismo Fish and Chips": "Longtime family-run spot for fish & chips & clam chowder, with old-school decor & booth seating.",
+  "details:ChIJAz6nV9osDogR8x8RGLjBib8": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Sister to Formento's restaurant, this counter-serve has subs & salads plus house wines & sauces.",
+    "website": "http://nonnaschicago.com/"
+  },
+  "desc:Nonna’s Pizza and Sandwiches": "Sister to Formento's restaurant, this counter-serve has subs & salads plus house wines & sauces.",
+  "details:ChIJi2MctQXFwogRImbp4SgW2mo": {
+    "types": [
+      "bakery",
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://petesbagels.com/"
+  },
+  "desc:Pete's Bagels - Ybor": "A Bakery called Pete's Bagels - Ybor",
+  "details:ChIJD4-OIbm-woARUxfJb9k6BCY": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Simple, all-day cafe with a menu emphasizing health-focused Californian fare, plus a full bar.",
+    "website": "https://www.hugosrestaurant.com/"
+  },
+  "desc:Hugo's West Hollywood": "Simple, all-day cafe with a menu emphasizing health-focused Californian fare, plus a full bar.",
+  "details:ChIJtbH2SZO1RIYRb9rykmS8BJw": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Chicken-fried steak, pork ribs, sandwiches & sides are the calling cards of this Southern kitchen.",
+    "website": "https://hooverscooking.com/?utm_source=google"
+  },
+  "desc:Hoover's Cooking": "Chicken-fried steak, pork ribs, sandwiches & sides are the calling cards of this Southern kitchen.",
+  "details:ChIJzQo92mGKwokRKkozpRqTV-g": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Bustling mainstay for fresh New York-style bagels & deli sandwiches in a compact, simple space.",
+    "website": "https://www.utopiabagelsny.com/"
+  },
+  "desc:Utopia Bagels": "Bustling mainstay for fresh New York-style bagels & deli sandwiches in a compact, simple space.",
+  "details:ChIJ6cIVzBmWwoARhSdO0XcmXdk": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Informal, all-day cafe with a menu emphasizing health-focused fare, plus a patio.",
+    "website": "https://www.hugosrestaurant.com/"
+  },
+  "desc:Hugo's Studio City": "Hugo's Studio City is a casual all-day cafe perfect for group catering, featuring fresh, health-focused cuisine and a spacious patio ideal for gatherings.",
+  "details:ChIJEw37uV1ZwokRWHsTZx1hg1A": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Gourmet chicken & waffles star at this hip, down-home Southern comfort-food resource with cocktails.",
+    "website": "https://www.sweetchick.com/"
+  },
+  "desc:Sweet Chick - Williamsburg": "Gourmet chicken & waffles star at this hip, down-home Southern comfort-food resource with cocktails.",
+  "details:ChIJ2d_mn_a75YkRgoce6x2rIpI": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Inviting, busy BYOB with a large menu of specialty burgers, vegan options, breakfast & smoothies.",
+    "website": "https://crazyburger.com/?utm_source=google"
+  },
+  "desc:Crazy Burger Cafe and Juice Bar": "Inviting, busy BYOB with a large menu of specialty burgers, vegan options, breakfast & smoothies.",
+  "details:ChIJz_n2CwC1RIYRcXIItKDX0iw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://pepperazzy.com/"
+  },
+  "desc:Pepperazzy": "A American called Pepperazzy",
+  "details:ChIJ0aFZNlTHJIgRovE34h8yTKU": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "Family-run operation supplying a variety of sandwiches, soups & salads, plus breakfast options.",
+    "website": "http://www.bloomfielddeli.com/"
+  },
+  "desc:Bloomfield Deli + Catering": "Family-run operation supplying a variety of sandwiches, soups & salads, plus breakfast options.",
+  "details:ChIJA8U0hmbSD4gRErhH7u8GZcA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Family-friendly neighborhood staple for regional American comfort food, brunch & outdoor dining.",
+    "website": "http://johnsplace.com/"
+  },
+  "desc:John's Place": "Family-friendly neighborhood staple for regional American comfort food, brunch & outdoor dining.",
+  "details:ChIJL3wa6k_HJIgRDl72esGhjhI": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.stacksncordials.com/"
+  },
+  "desc:Stacks & Cordials - Royal Oak": "A American called Stacks & Cordials - Royal Oak",
+  "details:ChIJgV-a5F5ZwokRENtmcGi-gQQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://www.lasandwicherienyc.com/"
+  },
+  "desc:La Sandwicherie - Upper East Side": "A American called La Sandwicherie - Upper East Side",
+  "details:ChIJ389bLUMH3IARV05Ve1GYhTI": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.getminidonuts.com/?utm_source=GBP&utm_medium=GSC"
+  },
+  "desc:The Mini Donut Company - Westfield UTC": "A Bakery called The Mini Donut Company - Westfield UTC",
+  "details:ChIJGZU63KQHw4kR1BtjHiy27cw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://eatnamkeen.com/"
+  },
+  "desc:Namkeen - Lake Hiawatha": "Namkeen - Lake Hiawatha excels at catering with flavorful Indian cuisine and elegant presentation that impresses group guests.",
+  "details:ChIJ1aKpNABbwokRIFh0cLCWP4w": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.gertie.nyc/"
+  },
+  "desc:GERTIE": "A American called GERTIE",
+  "details:ChIJ-YCguZdbwokRocy234iioNQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Relaxed vegan eatery serving plant-based burgers, breakfast sandwiches & sides, plus cocktails.",
+    "website": "http://www.auntsetuncles.com/"
+  },
+  "desc:Aunts et Uncles": "Relaxed vegan eatery serving plant-based burgers, breakfast sandwiches & sides, plus cocktails.",
+  "details:ChIJT3fPW6VZwokRas9yxQ3lSo4": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": ""
+  },
+  "desc:Green Tomato Grill": "A American called Green Tomato Grill",
+  "desc:Stacks & Cordials - Clawson": "A American called Stacks & Cordials - Clawson",
+  "details:ChIJ2bw7H9p0ToYRNHx8MoYvXog": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Colorful chain with a large variety of ingredients for build-your-own & chef-made bowls.",
+    "website": "https://genghisgrill.com/"
+  },
+  "desc:Genghis Grill - Lake Worth": "Colorful chain with a large variety of ingredients for build-your-own & chef-made bowls.",
+  "details:ChIJE59oInBjwokRADIpnuRlq9M": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://rokstarchicken.com/rokstardouglaston?utm_source=google"
+  },
+  "desc:Rokstar Chicken - Douglaston": "# Rokstar Chicken - Douglaston\n\nRokstar Chicken delivers bold, flavorful American fare perfect for group gatherings with high-quality, crowd-pleasing dishes that keep everyone satisfied.",
+  "details:ChIJ9_GBnUWq2YgRujEBuYH9P88": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Family-owned counter serve for subs, deli sandwiches, soups & salads dished in no-frills digs.",
+    "website": "https://mrmssandwichshop.com/?utm_source=google"
+  },
+  "desc:Mr. M's Sandwich Shop": "Family-owned counter serve for subs, deli sandwiches, soups & salads dished in no-frills digs.",
+  "details:ChIJ59eFgOOFwYkRWnk-UxhNlTg": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://pointlobster.com/"
+  },
+  "desc:Point Lobster Co": "A American called Point Lobster Co",
+  "details:ChIJVXZL5jD92IgRNWvwzNWcK4s": {
+    "types": [
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+    "website": "https://www.burgerfi.com/location/us/fl/pompano-beach-pier/"
+  },
+  "desc:BurgerFi - Pompano Beach Pier": "Stylish, eco-minded chain serving beef burgers, plus hot dogs, craft beer & wine.",
+  "details:ChIJTyT4MKxbwokR5M6KsTW3HZE": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://kitchenettebk.com/"
+  },
+  "desc:rhk marketplace": "A Cafe called rhk marketplace",
+  "details:ChIJMzNEpcdzsYkRLpfaQ66Owuk": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "",
+    "website": "https://www.mangasminitreats.com/"
+  },
+  "desc:Manga's Mini Treats": "A Bakery called Manga's Mini Treats",
+  "details:ChIJoSS_D6MxwokRmI2RCIrKQuw": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://www.benchmarkbreads.com/"
+  },
+  "desc:Benchmark Breads": "A Bakery called Benchmark Breads",
+  "details:ChIJuWupm5hr24gRs2q8fTM856g": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://3pepperburrito.com/fort-myers-forum-blvd/"
+  },
+  "desc:3 Pepper Burrito Co. Ft Myers - The Forum": "A American called 3 Pepper Burrito Co. Ft Myers - The Forum",
+  "details:ChIJ62XHEuNB24gR7AjLc-s4ss0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://3pepperburrito.com/fort-myers-first-street/"
+  },
+  "desc:3 Pepper Burrito Co. Ft Myers – Downtown": "# 3 Pepper Burrito Co. Ft Myers – Downtown\n\nFresh, made-to-order burritos and bowls perfect for group catering. Customizable options and quick service make it ideal for any gathering.",
+  "details:ChIJp32zLD8V24gR2JMuvOFvR2Q": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://3pepperburrito.com/fort-myers-daniels-pkwy/"
+  },
+  "desc:3 Pepper Burrito Co. Fort Myers – Daniels Crossing": "A American called 3 Pepper Burrito Co. Fort Myers – Daniels Crossing",
+  "details:ChIJt9_CBZYR24gRiG24gkMXfbo": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://3pepperburrito.com/estero/"
+  },
+  "desc:3 Pepper Burrito Co. Estero": "A American called 3 Pepper Burrito Co. Estero",
+  "details:ChIJ33Nif6hZwokRq_w4rFSfOME": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.brooklyndumplingshop.com/locations/midtown-new-york"
+  },
+  "desc:Brooklyn Dumpling Shop - Midtown": "A Chinese called Brooklyn Dumpling Shop - Midtown",
+  "desc:Savvy Sliders - Metairie": "A American called Savvy Sliders - Metairie",
+  "details:ChIJoawg6htewokRYxBc4hynN70": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://bloom-ny.com/"
+  },
+  "desc:Bloom Restaurant": "A Bar & Grill called Bloom Restaurant",
+  "details:ChIJjfEhCPas2YgRN1EHKOyeFU8": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Vibrant fixture offering eclectic American eats, craft brews & cocktails in a bright, modern venue.",
+    "website": "https://tap42.com/aventura/"
+  },
+  "desc:Tap 42 - Aventura": "Vibrant fixture offering eclectic American eats, craft brews & cocktails in a bright, modern venue.",
+  "details:ChIJJwAuui_B2YgR6dLct8l6sXw": {
+    "types": [
+      "bar",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://tap42.com/kendall"
+  },
+  "desc:Tap 42 - Kendall": "A Bar & Grill called Tap 42 - Kendall",
+  "desc:Savvy Sliders - Oak Park": "Savvy Sliders - Oak Park serves gourmet American sliders perfect for group events, with customizable menus and fresh, quality ingredients that impress every guest.",
+  "desc:Savvy Sliders - Port Huron": "A American called Savvy Sliders - Port Huron",
+  "details:ChIJDaSoXMLGxokRymjEvM2EBSo": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.cottonsplacephilly.com/"
+  },
+  "desc:Cotton’s Place": "A American called Cotton’s Place",
+  "details:ChIJQYAlqmZZwokRqUTnFvJ9bFc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://order.fieldsgoodchicken.com/"
+  },
+  "desc:Fields Good Chicken - 52nd & Lex": "A Fried Chicken called Fields Good Chicken - 52nd & Lex",
+  "desc:Happy's Pizza - Flint": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+  "desc:Happy's Pizza - Ypsilanti": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+  "desc:Happy's Pizza - Belleville": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+  "desc:Happy's Pizza - Wayne": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+  "details:ChIJvwnm0PxYwokRZO2H939rSi8": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Counter-service grilled cheese sandwich shop serving fancy combos, plus tater tots, soups & shakes.",
+    "website": "http://order.meltshop.com/menu/1003-50th-ny?utm_source=google&utm_medium=local&utm_campaign=google-local&utm_source=google&utm_medium=local&utm_campaign=google-local"
+  },
+  "desc:Melt Shop - Midtown West": "Melt Shop's gourmet grilled cheese combos and crispy tater tots make it ideal for group catering with upscale comfort food that satisfies diverse tastes.",
+  "desc:Happy's Pizza - Dayton": "Chain offering a broad menu of pizza, barbecue & other familiar fare in a straightforward setting.",
+  "details:ChIJ0wIh7qar3oARJeq1O1V6fHQ": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://www.dailychewcatering.com/?utm_source=google&utm_medium=wix_google_business_profile&utm_campaign=4596933977688839903"
+  },
+  "desc:Daily Chew Catering": "A American called Daily Chew Catering",
+  "details:ChIJsT6vUYO5xokRXBrgagxMBNA": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest"
+    ],
+    "editorial": "",
+    "website": "http://www.tipsycatering.com/"
+  },
+  "desc:Tipsy Cafe & Catering": "A American called Tipsy Cafe & Catering",
+  "details:ChIJg_GENbGbskwRbestaVjuJ58": {
+    "types": [
+      "bakery",
+      "establishment",
+      "food",
+      "point_of_interest",
+      "store"
+    ],
+    "editorial": "",
+    "website": "http://tinpanbakery.com/"
+  },
+  "desc:Tin Pan Bakery": "A Bakery called Tin Pan Bakery",
+  "details:ChIJZUD1Wzu5woAR9lygCR3N_MQ": {
+    "types": [
+      "cafe",
+      "establishment",
+      "food",
+      "meal_takeaway",
+      "point_of_interest",
+      "restaurant",
+      "store"
+    ],
+    "editorial": "Understated cafe serving breakfast, plus familiar fare like sandwiches, salads & burgers.",
+    "website": "https://www.eatlazydaisy.com/"
+  },
+  "desc:Lazy Daisy Beverly Hills": "Understated cafe serving breakfast, plus familiar fare like sandwiches, salads & burgers.",
+  "details:ChIJ9e0bfEaHwokRoFeVDfg8FMw": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Easygoing destination with a warm vibe offering hearty servings of old-school Italian fare.",
+    "website": "http://stevespiccolabussola.com/"
+  },
+  "desc:Steves Italian Meals": "Easygoing destination with a warm vibe offering hearty servings of old-school Italian fare.",
+  "desc:WannaBee Chef Catering": "A American called WannaBee Chef Catering",
+  "details:ChIJI43xgLlYwokR9H-LXHs36gc": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "https://www.botterestaurants.com/"
+  },
+  "desc:Botte - UES": "A American called Botte - UES",
+  "details:ChIJ7-SBzh9awokRKB5djQIBiC0": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "Japanese eatery serving ramen, sushi, bento boxes & global beer & wines in a modern space.",
+    "website": "https://zuttonyc.com/tribeca-location/"
+  },
+  "desc:Zutto Japanese American Bar": "Zutto offers expertly crafted ramen, sushi & bento boxes in a stylish modern setting, perfect for groups seeking premium Japanese cuisine with curated global beverages.",
+  "desc:Howlin' Willy's - Druid Hills": "A American called Howlin' Willy's - Druid Hills",
+  "details:ChIJQx6L8WVZwokRQ1airlTm63Y": {
+    "types": [
+      "establishment",
+      "food",
+      "point_of_interest",
+      "restaurant"
+    ],
+    "editorial": "",
+    "website": "http://nixtamal.nyc/"
+  },
+  "desc:Taqueria Nixtamal": "A Mexican called Taqueria Nixtamal"
+}
