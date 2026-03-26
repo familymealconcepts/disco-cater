@@ -321,7 +321,7 @@ function FullMapInner() {
     closeAllPopups()
     setActiveId(r._id)
     if (!map.current) return
-    map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true })
+    map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true, offset: [0, -100] })
     map.current.once('moveend', () => {
       const marker = markersRef.current[r._id]
       const popup = popupsRef.current[r._id]
