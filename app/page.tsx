@@ -44,8 +44,8 @@ export default function HomePage() {
         .nav-links a { color: #444; text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.15s; }
         .nav-links a:hover { color: #6B6EF9; }
 
-          .hero { display: grid; grid-template-columns: 1fr 380px; gap: 48px; align-items: center; max-width: 1100px; margin: 0 auto; padding: 96px 48px; }
-          .hero-img { width: 100%; height: 440px; object-fit: cover; object-position: center top; border-radius: 20px; display: block; box-shadow: 0 8px 40px rgba(0,0,0,0.12); }
+        .hero { display: grid; grid-template-columns: 1fr 380px; gap: 48px; align-items: center; max-width: 1100px; margin: 0 auto; padding: 96px 48px; }
+        .hero-img { width: 100%; height: 440px; object-fit: cover; object-position: center top; border-radius: 20px; display: block; box-shadow: 0 8px 40px rgba(0,0,0,0.12); }
 
         /* About section */
         .about { display: grid; grid-template-columns: 420px 1fr; gap: 0; align-items: stretch; border-top: 1px solid #f0f0f0; border-bottom: 1px solid #f0f0f0; padding: 64px 48px; gap: 56px; }
@@ -77,40 +77,31 @@ export default function HomePage() {
 
       <div style={{ fontFamily: "'DM Sans', sans-serif", background: '#fff', color: '#111', minHeight: '100vh' }}>
 
-        {/* ── Nav ── */}
-        <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 48px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 50 }}>
-          <Link href="/">
-            <Image
-              src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=400w"
-              alt="Disco Cater" width={140} height={36}
-              style={{ objectFit: 'contain', display: 'block' }}
-            />
-          </Link>
+        {/* ── Nav (no logo on homepage — Map + FAQ only, centered) ── */}
+        <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '18px 48px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 50 }}>
           <div className="nav-links" style={{ display: 'flex', gap: 32 }}>
             <Link href="/fullmap">Maps</Link>
             <Link href="/faq">FAQ</Link>
-            <a href="https://www.instagram.com/eat.disco" target="_blank" rel="noopener">Instagram</a>
           </div>
         </nav>
 
         {/* ── Hero ── */}
         <section className="hero">
-          {/* Left — text + search */}
+          {/* Left — logo + tagline + search */}
           <div>
-            {/* Wordmark */}
-            <div style={{ marginBottom: 20 }}>
-              <span style={{
-                fontSize: 'clamp(72px, 10vw, 130px)', fontWeight: 900,
-                letterSpacing: '-3px', lineHeight: 0.9, display: 'block',
-                background: GRADIENT, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-              }}>disco</span>
+            {/* Logo */}
+            <div style={{ marginBottom: 24 }}>
+              <Image
+                src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=400w"
+                alt="Disco Cater"
+                width={280}
+                height={72}
+                style={{ objectFit: 'contain', display: 'block' }}
+              />
             </div>
 
-            <h1 style={{ fontSize: 'clamp(18px, 2.2vw, 26px)', fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.35, marginBottom: 12, color: '#111' }}>
-              Premium catering, perfectly curated.
-            </h1>
-            <p style={{ fontSize: 15, color: '#777', lineHeight: 1.7, marginBottom: 36, maxWidth: 400 }}>
-              We make it simple & fun to discover and order the best restaurant catering. 🪩
+            <p style={{ fontSize: 16, color: '#777', lineHeight: 1.7, marginBottom: 36, maxWidth: 400 }}>
+              Welcome to the party. 🪩
             </p>
 
             {/* Search */}
@@ -146,7 +137,7 @@ export default function HomePage() {
             </form>
           </div>
 
-          {/* Right — food photo, smaller and rounded */}
+          {/* Right — food photo */}
           <div>
             <img src="/images/hero-food.jpg" alt="Catering spread" className="hero-img" />
           </div>
@@ -154,12 +145,9 @@ export default function HomePage() {
 
         {/* ── About — disco balls left, text right ── */}
         <section className="about">
-          {/* Left — disco balls image */}
           <div style={{ overflow: 'hidden' }}>
             <img src="/images/disco-balls.jpg" alt="Disco balls" className="about-img" />
           </div>
-
-          {/* Right — about text */}
           <div className="about-text">
             <p style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#bbb', marginBottom: 16, margin: '0 0 16px' }}>About Us</p>
             <h2 style={{ fontSize: 'clamp(26px, 3vw, 38px)', fontWeight: 800, letterSpacing: '-1px', lineHeight: 1.2, marginBottom: 18, color: '#111' }}>
