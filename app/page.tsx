@@ -6,7 +6,6 @@ import Image from 'next/image'
 
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
 
-// ── Replace with your actual Google Maps API key ──
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
 
 declare global {
@@ -25,7 +24,6 @@ export default function HomePage() {
   const autocompleteRef = useRef<any>(null)
 
   useEffect(() => {
-    // Load Google Maps script if not already loaded
     if (!document.getElementById('google-maps-script')) {
       window.initGooglePlaces = initAutocomplete
       const script = document.createElement('script')
@@ -42,15 +40,25 @@ export default function HomePage() {
   function initAutocomplete() {
     if (!inputRef.current || !window.google) return
 
-    // Create autocomplete with NO location bias — searches all of US
     autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
       types: ['geocode'],
       componentRestrictions: { country: 'us' },
-      // No bounds or location set — overrides any Chrome location filtering
       fields: ['geometry', 'formatted_address'],
+      // Do NOT pass bounds here — setting it later to null kills the IP/location bias
     })
 
-    // Prevent Enter from submitting form before place is selected
+    // ── Key fix: disable location bias entirely ──
+    // Setting bounds to a world-spanning rectangle prevents Google from
+    // prioritizing results near the user's IP or Chrome location
+    const worldBounds = new window.google.maps.LatLngBounds(
+      new window.google.maps.LatLng(-90, -180),
+      new window.google.maps.LatLng(90, 180)
+    )
+    autocompleteRef.current.setBounds(worldBounds)
+    // strictBounds: false means results still aren't restricted to the box,
+    // but the world-spanning box neutralizes any IP/location weighting
+    autocompleteRef.current.setOptions({ strictBounds: false })
+
     inputRef.current.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') e.stopPropagation()
     })
@@ -70,8 +78,6 @@ export default function HomePage() {
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
     if (!address.trim()) return
-
-    // If user typed but didn't select from dropdown, geocode manually
     setLoading(true)
     setError('')
     try {
@@ -186,7 +192,7 @@ export default function HomePage() {
         .search-btn:hover { background: #6B6EF9; }
         .search-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        /* ── Override Google autocomplete dropdown styles ── */
+        /* ── Google autocomplete dropdown styles ── */
         .pac-container {
           border-radius: 14px !important;
           border: 1.5px solid #e0e0e0 !important;
@@ -318,13 +324,6 @@ export default function HomePage() {
           justifyContent: 'center',
           gap: 24,
         }}>
-          <a href="https://www.instagram.com/eat.disco" target="_blank" rel="noopener"
-            style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
-            onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-            onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
-            Instagram
-          </a>
-          <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
           <a href="mailto:info@familymeal.com"
             style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
             onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
@@ -332,7 +331,7 @@ export default function HomePage() {
             Contact
           </a>
           <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-          <span style={{ fontSize: 13, color: '#ccc' }}>© 2024 FamilyMeal Concepts</span>
+          <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 FamilyMeal Concepts</span>
         </footer>
 
       </div>
