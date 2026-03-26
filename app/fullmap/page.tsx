@@ -68,8 +68,12 @@ function FullMapInner() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
 
-  // Directly request geolocation on page load - Chrome shows its own native prompt
+  // Only request geolocation if user arrived directly (no lat/lng params from homepage search)
   useEffect(() => {
+    const latParam = searchParams.get('lat')
+    const lngParam = searchParams.get('lng')
+    if (latParam && lngParam) return // came from homepage search — skip geolocation entirely
+
     const t = setTimeout(() => {
       if (!navigator.geolocation) return
       navigator.geolocation.getCurrentPosition(
@@ -82,9 +86,8 @@ function FullMapInner() {
       )
     }, 1200)
     return () => clearTimeout(t)
-  }, [])
+  }, [searchParams])
 
-  // FIX 2: requestLocation now sets proximityAnchor so sidebar filters
   function requestLocation() {
     setShowLocModal(false)
     if (!navigator.geolocation) return
@@ -158,7 +161,6 @@ function FullMapInner() {
       )
     }
 
-    // Proximity filter - sort and filter by distance when anchor is set
     if (proximityAnchor) {
       out = (out as any[])
         .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor!.lat, proximityAnchor!.lng, r.lat, r.lng) }))
@@ -168,7 +170,6 @@ function FullMapInner() {
     setFiltered(out)
   }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor])
 
-  // FIX 1: helper to close ALL open popups
   function closeAllPopups() {
     Object.values(popupsRef.current).forEach(p => {
       if (p.isOpen()) p.remove()
@@ -237,7 +238,7 @@ function FullMapInner() {
       popupsRef.current[r._id] = popup
 
       el.addEventListener('click', () => {
-        closeAllPopups() // FIX 1: close others first
+        closeAllPopups()
         setActiveId(r._id)
         mkDiv.style.background = GRADIENT
         mkDiv.style.transform = 'scale(1.2)'
@@ -316,7 +317,6 @@ function FullMapInner() {
     }
   }
 
-  // FIX 1: sidebar click closes all popups before opening the selected one
   function handleSidebarClick(r: Restaurant) {
     closeAllPopups()
     setActiveId(r._id)
@@ -479,7 +479,6 @@ function FullMapInner() {
                         ? msg.content.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
                             /^https?:\/\//.test(part)
                               ? (() => {
-                                // Extract restaurant name from preceding text
                                 const preceding = msg.content.substring(0, msg.content.indexOf(part))
                                 const nameMatch = preceding.match(/\*\*([^*]+)\*\*[^*]*$/) || preceding.match(/[-•]\s*([^\n(]+?)\s*[\n(](?=[^\n]*$)/)
                                 const restaurantName = nameMatch ? nameMatch[1].trim() : 'this restaurant'
@@ -621,7 +620,7 @@ function FullMapInner() {
                 </button>
               </form>
 
-              {/* Disco AI button - right of search bar */}
+              {/* Disco AI button */}
               <button
                 onClick={() => setChatOpen(o => !o)}
                 style={{
@@ -638,7 +637,6 @@ function FullMapInner() {
                 🤖
                 {!chatOpen && <div style={{ position: 'absolute', top: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />}
               </button>
-
             </div>
 
             {locError && (
@@ -648,7 +646,6 @@ function FullMapInner() {
             )}
 
             <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
-
           </div>
         </div>
       </div>
@@ -663,4 +660,3 @@ export default function FullMapPage() {
     </Suspense>
   )
 }
-// force rebuild Thu Mar 26 14:23:36 EDT 2026
