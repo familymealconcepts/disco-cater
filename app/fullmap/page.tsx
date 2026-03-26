@@ -107,7 +107,8 @@ function FullMapInner() {
     if (map.current || !mapContainer.current) return
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/light-v11',
+      style: 'mapbox://styles/mapbox/light-v10',
+      projection: { name: 'mercator' },
       center: [-96, 39.5],
       zoom: 4,
       maxBounds: [[-180, 15], [-50, 75]],
@@ -154,12 +155,7 @@ function FullMapInner() {
         r.cuisine.toLowerCase().includes(q)
       )
     }
-    if (proximityAnchor) {
-      out = out
-        .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor.lat, proximityAnchor.lng, r.lat, r.lng) }))
-        .filter((r: any) => r._dist <= PROXIMITY_MILES)
-        .sort((a: any, b: any) => a._dist - b._dist)
-    }
+
     setFiltered(out)
   }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor])
 
@@ -236,7 +232,6 @@ function FullMapInner() {
         mkDiv.style.background = GRADIENT
         mkDiv.style.transform = 'scale(1.2)'
         map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 11), speed: 3, essential: true })
-        setProximityAnchor({ lat: r.lat, lng: r.lng })
       })
 
       popup.on('close', () => {
@@ -315,7 +310,6 @@ function FullMapInner() {
   function handleSidebarClick(r: Restaurant) {
     closeAllPopups()
     setActiveId(r._id)
-    setProximityAnchor({ lat: r.lat, lng: r.lng })
     if (!map.current) return
     map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true })
     map.current.once('moveend', () => {
@@ -331,8 +325,8 @@ function FullMapInner() {
 
   const pillStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
-    border: `1.5px solid ${active ? '#111' : '#e8e8e8'}`,
-    background: active ? '#111' : '#fff',
+    border: 'none',
+    background: active ? '#1A1028' : '#efefef',
     color: active ? '#fff' : '#555',
     fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
@@ -522,7 +516,7 @@ function FullMapInner() {
                   style={{ flex: 1, padding: '9px 12px', borderRadius: 20, border: '1.5px solid #e8e8e8', fontSize: 12.5, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fafafa', color: '#111' }}
                 />
                 <button onClick={sendChat} disabled={chatLoading || !chatInput.trim()}
-                  style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: GRADIENT, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}>
+                  style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#5B6FE8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
                 </button>
               </div>
