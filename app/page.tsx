@@ -44,19 +44,14 @@ export default function HomePage() {
       types: ['geocode'],
       componentRestrictions: { country: 'us' },
       fields: ['geometry', 'formatted_address'],
-      // Do NOT pass bounds here — setting it later to null kills the IP/location bias
     })
 
-    // ── Key fix: disable location bias entirely ──
-    // Setting bounds to a world-spanning rectangle prevents Google from
-    // prioritizing results near the user's IP or Chrome location
+    // Disable location bias by setting world-spanning bounds
     const worldBounds = new window.google.maps.LatLngBounds(
       new window.google.maps.LatLng(-90, -180),
       new window.google.maps.LatLng(90, 180)
     )
     autocompleteRef.current.setBounds(worldBounds)
-    // strictBounds: false means results still aren't restricted to the box,
-    // but the world-spanning box neutralizes any IP/location weighting
     autocompleteRef.current.setOptions({ strictBounds: false })
 
     inputRef.current.addEventListener('keydown', (e) => {
@@ -117,33 +112,6 @@ export default function HomePage() {
         }
         .nav-links a:hover { color: #6B6EF9; }
 
-        /* ── Sparkle animation ── */
-        .logo-wrap {
-          position: relative;
-          display: inline-block;
-          margin-bottom: 20px;
-        }
-        .logo-wrap .sparkle {
-          position: absolute;
-          border-radius: 50%;
-          pointer-events: none;
-          animation: sparkle-fade 2.4s ease-in-out infinite;
-          opacity: 0;
-        }
-        .sparkle-1 { width: 6px; height: 6px; background: #6B6EF9; top: 4px; left: 18%; animation-delay: 0s; box-shadow: 0 0 6px 2px rgba(107,110,249,0.7); }
-        .sparkle-2 { width: 5px; height: 5px; background: #F0468A; top: -4px; left: 45%; animation-delay: 0.6s; box-shadow: 0 0 6px 2px rgba(240,70,138,0.7); }
-        .sparkle-3 { width: 7px; height: 7px; background: #C044C8; top: 8px; right: 20%; animation-delay: 1.2s; box-shadow: 0 0 8px 3px rgba(192,68,200,0.6); }
-        .sparkle-4 { width: 4px; height: 4px; background: #6B6EF9; bottom: 2px; left: 30%; animation-delay: 1.8s; box-shadow: 0 0 5px 2px rgba(107,110,249,0.6); }
-        .sparkle-5 { width: 5px; height: 5px; background: #F0468A; bottom: 6px; right: 30%; animation-delay: 0.9s; box-shadow: 0 0 6px 2px rgba(240,70,138,0.6); }
-
-        @keyframes sparkle-fade {
-          0%   { opacity: 0; transform: scale(0.4) translateY(0px); }
-          30%  { opacity: 1; transform: scale(1) translateY(-4px); }
-          60%  { opacity: 0.6; transform: scale(0.8) translateY(-7px); }
-          100% { opacity: 0; transform: scale(0.3) translateY(-10px); }
-        }
-
-        /* ── Search bar ── */
         .search-wrap {
           display: flex;
           align-items: center;
@@ -192,7 +160,7 @@ export default function HomePage() {
         .search-btn:hover { background: #6B6EF9; }
         .search-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        /* ── Google autocomplete dropdown styles ── */
+        /* Google autocomplete dropdown */
         .pac-container {
           border-radius: 14px !important;
           border: 1.5px solid #e0e0e0 !important;
@@ -254,13 +222,8 @@ export default function HomePage() {
           padding: '0 24px',
           marginTop: '-40px',
         }}>
-          {/* Logo with sparkles */}
-          <div className="logo-wrap">
-            <span className="sparkle sparkle-1" />
-            <span className="sparkle sparkle-2" />
-            <span className="sparkle sparkle-3" />
-            <span className="sparkle sparkle-4" />
-            <span className="sparkle sparkle-5" />
+          {/* Logo */}
+          <div style={{ marginBottom: 24 }}>
             <Image
               src="/disco-cater-logo.png"
               alt="Disco Cater"
@@ -269,6 +232,19 @@ export default function HomePage() {
               style={{ objectFit: 'contain', display: 'block' }}
             />
           </div>
+
+          {/* Description */}
+          <p style={{
+            fontSize: 16,
+            fontWeight: 400,
+            color: '#555',
+            marginBottom: 8,
+            letterSpacing: '-0.01em',
+            textAlign: 'center',
+            maxWidth: 480,
+          }}>
+            Order office, holiday and event catering from the best restaurants in your area.
+          </p>
 
           {/* Tagline */}
           <p style={{
