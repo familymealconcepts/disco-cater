@@ -1,36 +1,96 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
 
+// ── Replace with your actual Google Maps API key ──
+const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+
+declare global {
+  interface Window {
+    google: any
+    initGooglePlaces: () => void
+  }
+}
+
 export default function HomePage() {
   const router = useRouter()
   const [address, setAddress] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const autocompleteRef = useRef<any>(null)
+
+  useEffect(() => {
+    // Load Google Maps script if not already loaded
+    if (!document.getElementById('google-maps-script')) {
+      window.initGooglePlaces = initAutocomplete
+      const script = document.createElement('script')
+      script.id = 'google-maps-script'
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&callback=initGooglePlaces`
+      script.async = true
+      script.defer = true
+      document.head.appendChild(script)
+    } else if (window.google) {
+      initAutocomplete()
+    }
+  }, [])
+
+  function initAutocomplete() {
+    if (!inputRef.current || !window.google) return
+
+    // Create autocomplete with NO location bias — searches all of US
+    autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
+      types: ['geocode'],
+      componentRestrictions: { country: 'us' },
+      // No bounds or location set — overrides any Chrome location filtering
+      fields: ['geometry', 'formatted_address'],
+    })
+
+    // Prevent Enter from submitting form before place is selected
+    inputRef.current.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') e.stopPropagation()
+    })
+
+    autocompleteRef.current.addListener('place_changed', () => {
+      const place = autocompleteRef.current.getPlace()
+      if (place?.geometry?.location) {
+        const lat = place.geometry.location.lat()
+        const lng = place.geometry.location.lng()
+        router.push(`/fullmap?lat=${lat}&lng=${lng}`)
+      } else {
+        setError('Please select a location from the dropdown.')
+      }
+    })
+  }
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
     if (!address.trim()) return
+
+    // If user typed but didn't select from dropdown, geocode manually
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=us`,
-        { headers: { 'Accept-Language': 'en' } }
+      const geocoder = new window.google.maps.Geocoder()
+      geocoder.geocode(
+        { address, region: 'us' },
+        (results: any, status: any) => {
+          if (status === 'OK' && results[0]) {
+            const lat = results[0].geometry.location.lat()
+            const lng = results[0].geometry.location.lng()
+            router.push(`/fullmap?lat=${lat}&lng=${lng}`)
+          } else {
+            setError('Address not found. Try a city, zip, or full address.')
+            setLoading(false)
+          }
+        }
       )
-      const data = await res.json()
-      if (data && data[0]) {
-        router.push(`/fullmap?lat=${data[0].lat}&lng=${data[0].lon}`)
-      } else {
-        setError('Address not found. Try a city, zip, or full address.')
-      }
     } catch {
       setError('Something went wrong. Please try again.')
-    } finally {
       setLoading(false)
     }
   }
@@ -51,13 +111,12 @@ export default function HomePage() {
         }
         .nav-links a:hover { color: #6B6EF9; }
 
-        /* ── Sparkle animation on logo ── */
+        /* ── Sparkle animation ── */
         .logo-wrap {
           position: relative;
           display: inline-block;
           margin-bottom: 20px;
         }
-
         .logo-wrap .sparkle {
           position: absolute;
           border-radius: 50%;
@@ -65,42 +124,11 @@ export default function HomePage() {
           animation: sparkle-fade 2.4s ease-in-out infinite;
           opacity: 0;
         }
-
-        .sparkle-1 {
-          width: 6px; height: 6px;
-          background: #6B6EF9;
-          top: 4px; left: 18%;
-          animation-delay: 0s;
-          box-shadow: 0 0 6px 2px rgba(107,110,249,0.7);
-        }
-        .sparkle-2 {
-          width: 5px; height: 5px;
-          background: #F0468A;
-          top: -4px; left: 45%;
-          animation-delay: 0.6s;
-          box-shadow: 0 0 6px 2px rgba(240,70,138,0.7);
-        }
-        .sparkle-3 {
-          width: 7px; height: 7px;
-          background: #C044C8;
-          top: 8px; right: 20%;
-          animation-delay: 1.2s;
-          box-shadow: 0 0 8px 3px rgba(192,68,200,0.6);
-        }
-        .sparkle-4 {
-          width: 4px; height: 4px;
-          background: #6B6EF9;
-          bottom: 2px; left: 30%;
-          animation-delay: 1.8s;
-          box-shadow: 0 0 5px 2px rgba(107,110,249,0.6);
-        }
-        .sparkle-5 {
-          width: 5px; height: 5px;
-          background: #F0468A;
-          bottom: 6px; right: 30%;
-          animation-delay: 0.9s;
-          box-shadow: 0 0 6px 2px rgba(240,70,138,0.6);
-        }
+        .sparkle-1 { width: 6px; height: 6px; background: #6B6EF9; top: 4px; left: 18%; animation-delay: 0s; box-shadow: 0 0 6px 2px rgba(107,110,249,0.7); }
+        .sparkle-2 { width: 5px; height: 5px; background: #F0468A; top: -4px; left: 45%; animation-delay: 0.6s; box-shadow: 0 0 6px 2px rgba(240,70,138,0.7); }
+        .sparkle-3 { width: 7px; height: 7px; background: #C044C8; top: 8px; right: 20%; animation-delay: 1.2s; box-shadow: 0 0 8px 3px rgba(192,68,200,0.6); }
+        .sparkle-4 { width: 4px; height: 4px; background: #6B6EF9; bottom: 2px; left: 30%; animation-delay: 1.8s; box-shadow: 0 0 5px 2px rgba(107,110,249,0.6); }
+        .sparkle-5 { width: 5px; height: 5px; background: #F0468A; bottom: 6px; right: 30%; animation-delay: 0.9s; box-shadow: 0 0 6px 2px rgba(240,70,138,0.6); }
 
         @keyframes sparkle-fade {
           0%   { opacity: 0; transform: scale(0.4) translateY(0px); }
@@ -157,6 +185,26 @@ export default function HomePage() {
         }
         .search-btn:hover { background: #6B6EF9; }
         .search-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        /* ── Override Google autocomplete dropdown styles ── */
+        .pac-container {
+          border-radius: 14px !important;
+          border: 1.5px solid #e0e0e0 !important;
+          box-shadow: 0 8px 24px rgba(0,0,0,0.10) !important;
+          font-family: 'DM Sans', sans-serif !important;
+          margin-top: 6px !important;
+          overflow: hidden !important;
+        }
+        .pac-item {
+          padding: 10px 16px !important;
+          font-size: 14px !important;
+          cursor: pointer !important;
+          font-family: 'DM Sans', sans-serif !important;
+        }
+        .pac-item:hover { background: #f9f5ff !important; }
+        .pac-item-selected { background: #f9f5ff !important; }
+        .pac-matched { color: #6B6EF9 !important; font-weight: 600 !important; }
+        .pac-icon { display: none !important; }
 
         @media (max-width: 768px) {
           nav { padding: 14px 20px !important; }
@@ -237,11 +285,13 @@ export default function HomePage() {
                 </svg>
               </div>
               <input
+                ref={inputRef}
                 className="search-input"
                 type="text"
                 value={address}
                 onChange={e => setAddress(e.target.value)}
                 placeholder="Enter city, neighborhood, or zip…"
+                autoComplete="off"
               />
               <button className="search-btn" type="submit" disabled={loading}>
                 {loading ? (
