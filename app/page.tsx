@@ -43,7 +43,7 @@ export default function HomePage() {
         body { margin: 0; }
 
         .nav-links a {
-          color: #444;
+          color: #555;
           text-decoration: none;
           font-size: 14px;
           font-weight: 500;
@@ -54,20 +54,22 @@ export default function HomePage() {
         .search-wrap {
           display: flex;
           align-items: center;
-          border: 2px solid #111;
-          border-radius: 14px;
+          border: 1.5px solid #e0e0e0;
+          border-radius: 999px;
           overflow: hidden;
           background: #fff;
-          width: 460px;
+          width: 480px;
           max-width: calc(100vw - 48px);
+          box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+          transition: box-shadow 0.2s ease, border-color 0.2s ease;
         }
         .search-wrap:focus-within {
-          border-color: #6B6EF9;
-          box-shadow: 0 0 0 3px rgba(107,110,249,0.12);
+          border-color: #C044C8;
+          box-shadow: 0 4px 20px rgba(192,68,200,0.13);
         }
         .search-input {
           flex: 1;
-          padding: 14px 12px 14px 4px;
+          padding: 15px 12px 15px 4px;
           font-size: 15px;
           border: none;
           outline: none;
@@ -77,11 +79,12 @@ export default function HomePage() {
         }
         .search-input::placeholder { color: #bbb; }
         .search-btn {
-          padding: 0 24px;
-          height: 52px;
+          margin: 5px;
+          padding: 0 22px;
+          height: 44px;
           border: none;
           cursor: pointer;
-          background: #111;
+          background: #1A1028;
           color: #fff;
           font-size: 13px;
           font-weight: 700;
@@ -91,6 +94,7 @@ export default function HomePage() {
           display: flex;
           align-items: center;
           gap: 6px;
+          border-radius: 999px;
         }
         .search-btn:hover { background: #6B6EF9; }
         .search-btn:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -101,18 +105,24 @@ export default function HomePage() {
         }
       `}</style>
 
-      <div style={{ fontFamily: "'DM Sans', sans-serif", background: '#fff', color: '#111', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{
+        fontFamily: "'DM Sans', sans-serif",
+        color: '#111',
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        background: 'radial-gradient(ellipse at 10% 0%, rgba(107,110,249,0.07) 0%, transparent 55%), radial-gradient(ellipse at 90% 10%, rgba(240,70,138,0.06) 0%, transparent 50%), #fff',
+      }}>
 
-        {/* ── Nav — links top right only ── */}
+        {/* ── Nav ── */}
         <nav style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
           padding: '18px 40px',
-          borderBottom: '1px solid #f0f0f0',
           position: 'sticky',
           top: 0,
-          background: '#fff',
           zIndex: 50,
         }}>
           <div className="nav-links" style={{ display: 'flex', gap: 32 }}>
@@ -129,27 +139,34 @@ export default function HomePage() {
           alignItems: 'center',
           justifyContent: 'center',
           padding: '0 24px',
+          marginTop: '-40px', /* offset nav to true-center the content */
         }}>
           {/* Logo */}
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 20 }}>
             <Image
               src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=400w"
               alt="Disco Cater"
-              width={300}
-              height={78}
+              width={400}
+              height={104}
               style={{ objectFit: 'contain', display: 'block' }}
             />
           </div>
 
           {/* Tagline */}
-          <p style={{ fontSize: 16, color: '#777', marginBottom: 32, letterSpacing: '-0.01em' }}>
+          <p style={{
+            fontSize: 17,
+            fontWeight: 500,
+            color: '#444',
+            marginBottom: 32,
+            letterSpacing: '-0.01em',
+          }}>
             Welcome to the party. 🪩
           </p>
 
           {/* Search */}
           <form onSubmit={handleSearch}>
             <div className="search-wrap">
-              <div style={{ padding: '0 12px', color: '#bbb', flexShrink: 0 }}>
+              <div style={{ padding: '0 14px 0 20px', color: '#bbb', flexShrink: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
                   <circle cx="12" cy="9" r="2.5"/>
@@ -175,9 +192,32 @@ export default function HomePage() {
                 )}
               </button>
             </div>
-            {error && <p style={{ color: '#F0468A', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{error}</p>}
+            {error && <p style={{ color: '#F0468A', fontSize: 13, marginTop: 10, textAlign: 'center' }}>{error}</p>}
           </form>
         </main>
+
+        {/* ── Minimal footer to optically balance the nav ── */}
+        <footer style={{
+          padding: '18px 40px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 24,
+        }}>
+          <a href="https://www.instagram.com/eat.disco" target="_blank" rel="noopener" style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+            onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
+            onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+            Instagram
+          </a>
+          <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+          <a href="mailto:info@familymeal.com" style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+            onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
+            onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+            Contact
+          </a>
+          <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+          <span style={{ fontSize: 13, color: '#ccc' }}>© 2024 FamilyMeal Concepts</span>
+        </footer>
 
       </div>
     </>
