@@ -191,7 +191,7 @@ export default function HomePage() {
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        background: 'radial-gradient(ellipse at 10% 0%, rgba(107,110,249,0.07) 0%, transparent 55%), radial-gradient(ellipse at 90% 10%, rgba(240,70,138,0.06) 0%, transparent 50%), #fff',
+        background: '#FAF8F5',
       }}>
 
         {/* ── Nav ── */}
@@ -236,24 +236,12 @@ export default function HomePage() {
             fontSize: 16,
             fontWeight: 400,
             color: '#555',
-            marginBottom: 8,
-            letterSpacing: '-0.01em',
-            textAlign: 'center',
-            maxWidth: 480,
-          }}>
-            Premium restaurants. Intelligent recommendations. Delivered with care.
-          </p>
-
-          {/* Tagline */}
-          <p style={{
-            fontSize: 17,
-            fontWeight: 500,
-            color: '#444',
             marginBottom: 32,
             letterSpacing: '-0.01em',
             textAlign: 'center',
+            whiteSpace: 'nowrap',
           }}>
-            You&apos;ve got great taste. So should your catering. 🪩
+            Premium restaurants. Intelligent recommendations. Delivered with care.
           </p>
 
           {/* Search */}
@@ -289,6 +277,18 @@ export default function HomePage() {
             </div>
             {error && <p style={{ color: '#F0468A', fontSize: 13, marginTop: 10, textAlign: 'center' }}>{error}</p>}
           </form>
+
+          {/* Tagline — below search */}
+          <p style={{
+            fontSize: 15,
+            fontWeight: 500,
+            color: '#888',
+            marginTop: 20,
+            letterSpacing: '-0.01em',
+            textAlign: 'center',
+          }}>
+            You&apos;ve got great taste. So should your catering. 🪩
+          </p>
         </main>
 
         {/* ── Footer ── */}
