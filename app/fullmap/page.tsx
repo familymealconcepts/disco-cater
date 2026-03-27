@@ -351,6 +351,15 @@ function FullMapInner() {
   fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
 })
 
+const darkPillStyle = (active: boolean): React.CSSProperties => ({
+  padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
+  border: 'none',
+  background: active ? '#1A1028' : '#efefef',
+  color: active ? '#fff' : '#555',
+  fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+  fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
+})
+
   return (
     <>
       <Script
@@ -417,7 +426,7 @@ function FullMapInner() {
             />
           </Link>
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
-          <button style={gradientPillStyle(stageFilter === 'all')} onClick={() => setStageFilter('all')}>All</button>
+          <button style={darkPillStyle(stageFilter === 'all')} onClick={() => setStageFilter('all')}>All</button>
           <button style={gradientPillStyle(stageFilter === 'disco')} onClick={() => setStageFilter('disco')}>🪩 Premium</button>
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
           <button style={pillStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All Cuisines</button>
