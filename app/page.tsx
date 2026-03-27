@@ -46,7 +46,6 @@ export default function HomePage() {
       fields: ['geometry', 'formatted_address'],
     })
 
-    // Disable location bias by setting world-spanning bounds
     const worldBounds = new window.google.maps.LatLngBounds(
       new window.google.maps.LatLng(-90, -180),
       new window.google.maps.LatLng(90, 180)
@@ -160,7 +159,6 @@ export default function HomePage() {
         .search-btn:hover { background: #6B6EF9; }
         .search-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        /* Google autocomplete dropdown */
         .pac-container {
           border-radius: 14px !important;
           border: 1.5px solid #e0e0e0 !important;
@@ -243,7 +241,7 @@ export default function HomePage() {
             textAlign: 'center',
             maxWidth: 480,
           }}>
-            Order office, holiday and event catering from the best restaurants in your area.
+            Premium restaurants. Intelligent recommendations. Delivered with care.
           </p>
 
           {/* Tagline */}
@@ -253,8 +251,9 @@ export default function HomePage() {
             color: '#444',
             marginBottom: 32,
             letterSpacing: '-0.01em',
+            textAlign: 'center',
           }}>
-            Welcome to the party. 🪩
+            You&apos;ve got great taste. So should your catering. 🪩
           </p>
 
           {/* Search */}
