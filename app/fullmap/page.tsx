@@ -343,13 +343,13 @@ function FullMapInner() {
   })
 
   const gradientPillStyle = (active: boolean): React.CSSProperties => ({
-    padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
-    border: 'none',
-    background: active ? '#1A1028' : '#efefef',
-    color: active ? '#fff' : '#555',
-    fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-    fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
-  })
+  padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
+  border: 'none',
+  background: active ? 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)' : '#efefef',
+  color: active ? '#fff' : '#555',
+  fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+  fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
+})
 
   return (
     <>
