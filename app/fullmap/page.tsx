@@ -82,8 +82,8 @@ function FullMapInner() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
 
-  // Mobile-specific: toggle map visibility (map is de-prioritised on mobile)
-  const [mobileMapOpen, setMobileMapOpen] = useState(false)
+  // Mobile-specific: toggle restaurant search visibility
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
 
   useEffect(() => {
     const latParam = searchParams.get('lat')
@@ -145,12 +145,7 @@ function FullMapInner() {
     }
   }, [searchParams])
 
-  // Resize map when mobile map panel opens/closes
-  useEffect(() => {
-    if (isMobile) {
-      setTimeout(() => map.current?.resize(), 50)
-    }
-  }, [mobileMapOpen, isMobile])
+  // (map resize handled by mapbox internally)
 
   const initAutocomplete = useCallback(() => {
     if (!locInputRef.current || !(window as any).google) return
@@ -167,8 +162,6 @@ function FullMapInner() {
       setLocError('')
       map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 3, essential: true })
       setProximityAnchor({ lat, lng })
-      // On mobile: open map after location search
-      if (isMobile) setMobileMapOpen(true)
     })
   }, [isMobile])
 
@@ -293,7 +286,6 @@ function FullMapInner() {
         const { lat, lon } = data[0]
         map.current?.flyTo({ center: [parseFloat(lon), parseFloat(lat)], zoom: 11, speed: 3, essential: true })
         setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lon) })
-        if (isMobile) setMobileMapOpen(true)
       } else {
         setLocError('Location not found')
       }
@@ -340,8 +332,6 @@ function FullMapInner() {
     closeAllPopups()
     setActiveId(r._id)
     if (!map.current) return
-    // On mobile: open map when user taps a restaurant
-    if (isMobile) setMobileMapOpen(true)
     map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true, offset: [0, -100] })
     map.current.once('moveend', () => {
       const marker = markersRef.current[r._id]
@@ -597,37 +587,46 @@ function FullMapInner() {
             ))}
           </div>
 
-          {/* ── 4. RESTAURANT SEARCH + COUNT ────────────────────────────── */}
-          <div style={{ padding: '10px 16px 6px', flexShrink: 0, background: '#fff' }}>
-            <div style={{ position: 'relative' }}>
-              <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#bbb', pointerEvents: 'none' }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search restaurants…"
-                style={{ width: '100%', padding: '11px 12px 11px 36px', borderRadius: 10, border: '1.5px solid #e8e8e8', background: '#fafafa', color: '#111', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }}
-              />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, paddingLeft: 2 }}>
-              <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
-              {/* Map toggle */}
-              <button
-                onClick={() => setMobileMapOpen(o => !o)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: mobileMapOpen ? '#6B6EF9' : '#888', background: mobileMapOpen ? '#f0f0ff' : '#f5f5f5', border: 'none', borderRadius: 20, padding: '5px 12px', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
-                {mobileMapOpen ? 'Hide map' : 'Show map'}
-              </button>
-            </div>
+          {/* ── 4. COUNT + SEARCH TOGGLE (hidden feature) ───────────────── */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', flexShrink: 0, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
+            <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
+            <button
+              onClick={() => setMobileMapOpen(o => !o)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', padding: 4, display: 'flex', alignItems: 'center' }}
+              title="Search restaurants"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </button>
           </div>
 
-          {/* ── 5. MAP (collapsible, de-prioritised) ─────────────────────── */}
-          <div style={{ overflow: 'hidden', transition: 'max-height 0.3s ease', maxHeight: mobileMapOpen ? '45vh' : '0', flexShrink: 0 }}>
-            <div ref={mapContainer} style={{ width: '100%', height: '45vh' }} />
-          </div>
-
-          {/* ── 6. RESTAURANT LIST (scrollable, fills remaining space) ──── */}
+          {/* ── 5. RESTAURANT LIST + inline MAP card (all in one scroll) ── */}
           <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
+
+            {/* Restaurant search — hidden by default, toggled via icon */}
+            {mobileSearchOpen && (
+              <div style={{ padding: '10px 16px', background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ position: 'relative' }}>
+                  <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#bbb', pointerEvents: 'none' }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input
+                    autoFocus
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search restaurants…"
+                    style={{ width: '100%', padding: '11px 36px 11px 36px', borderRadius: 10, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  <button onClick={() => { setMobileSearchOpen(false); setSearch('') }} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
+                </div>
+              </div>
+            )}
+
+            {/* Map card — inline in scroll, fixed height, doesn't push layout */}
+            <div style={{ margin: '12px 16px', borderRadius: 14, overflow: 'hidden', border: '1px solid #e8e8e8', height: 200, position: 'relative', flexShrink: 0 }}>
+              <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
+              {/* Subtle "expand" hint */}
+              <div style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(255,255,255,0.9)', borderRadius: 8, padding: '4px 8px', fontSize: 10, fontWeight: 600, color: '#888', backdropFilter: 'blur(4px)', pointerEvents: 'none', fontFamily: "'DM Sans',sans-serif" }}>
+                Tap a pin for details
+              </div>
+            </div>
             {filtered.length === 0 && (
               <div style={{ padding: '48px 24px', textAlign: 'center', color: '#bbb', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
