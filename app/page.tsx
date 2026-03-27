@@ -192,7 +192,36 @@ export default function HomePage() {
         flexDirection: 'column',
         overflow: 'hidden',
         background: '#FAF8F5',
+        position: 'relative',
       }}>
+
+        {/* ── Disco tile background ── */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+          <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="disco" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse">
+                {/* tile grid — 4 cols × 4 rows of 7×7 tiles with 1px gaps */}
+                {[0,1,2,3].flatMap(col => [0,1,2,3].map(row => {
+                  const x = col * 8 + 0.5
+                  const y = row * 8 + 0.5
+                  const seed = col * 4 + row
+                  const lightness = 88 + (seed % 5) * 2
+                  const hue = 240 + (seed % 7) * 10
+                  const sat = 12 + (seed % 4) * 4
+                  return (
+                    <rect
+                      key={`${col}-${row}`}
+                      x={x} y={y} width="7" height="7"
+                      rx="0.5"
+                      fill={`hsl(${hue}, ${sat}%, ${lightness}%)`}
+                    />
+                  )
+                }))}
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#disco)" opacity="0.55" />
+          </svg>
+        </div>
 
         {/* ── Nav ── */}
         <nav style={{
@@ -219,6 +248,8 @@ export default function HomePage() {
           justifyContent: 'center',
           padding: '0 24px',
           marginTop: '-40px',
+          position: 'relative',
+          zIndex: 1,
         }}>
           {/* Logo */}
           <div style={{ marginBottom: 24 }}>
@@ -298,6 +329,8 @@ export default function HomePage() {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 24,
+          position: 'relative',
+          zIndex: 1,
         }}>
           <a href="mailto:info@familymeal.com"
             style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
