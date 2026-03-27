@@ -124,7 +124,7 @@ function FullMapInner() {
       .then(data => { setRestaurants(data); setFiltered(data) })
   }, [])
 
-  useEffect(() => {
+  function initMap() {
     if (map.current || !mapContainer.current) return
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
@@ -144,17 +144,29 @@ function FullMapInner() {
         setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lng) })
       })
     }
-  }, [searchParams])
+  }
 
-  // (map resize handled by mapbox internally)
+  // Desktop: init on mount
+  useEffect(() => {
+    if (isMobile) return
+    initMap()
+  }, [isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Trigger map resize after toggle animation completes so Mapbox gets correct dimensions
+  // Mobile: defer init until map panel first opened, then resize after CSS transition
   useEffect(() => {
     if (!isMobile || !mobileMapOpen) return
-    // Wait for the CSS transition (300ms) + a frame to ensure container is painted
+    if (!map.current) {
+      // First open — wait for 300ms transition so container has real px dimensions
+      const t = setTimeout(() => {
+        initMap()
+        map.current?.once('load', () => map.current?.resize())
+      }, 320)
+      return () => clearTimeout(t)
+    }
+    // Subsequent opens — just resize
     const t = setTimeout(() => map.current?.resize(), 320)
     return () => clearTimeout(t)
-  }, [mobileMapOpen, isMobile])
+  }, [mobileMapOpen, isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const initAutocomplete = useCallback(() => {
     if (!locInputRef.current || !(window as any).google) return
