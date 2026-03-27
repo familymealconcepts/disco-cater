@@ -244,42 +244,10 @@ export default function FAQPage() {
       </header>
 
       {/* ── Hero ───────────────────────────────────────────────────── */}
-      <div style={{ background: 'linear-gradient(180deg, #faf8ff 0%, #fff 100%)', padding: '56px 24px 40px', textAlign: 'center' }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#f0f0ff', borderRadius: 20, padding: '5px 14px', marginBottom: 18 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#6B6EF9', fontFamily: "'DM Sans', sans-serif" }}>Help Center</span>
-        </div>
-        <h1 style={{ fontSize: 'clamp(28px, 5vw, 44px)', fontWeight: 700, color: '#111', fontFamily: "'DM Sans', sans-serif", lineHeight: 1.15, marginBottom: 14 }}>
+      <div style={{ padding: '48px 24px 24px', textAlign: 'center' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 600, color: '#888', fontFamily: "'DM Sans', sans-serif", letterSpacing: '0.01em' }}>
           Frequently Asked Questions
         </h1>
-        <p style={{ fontSize: 16, color: '#888', fontFamily: "'DM Sans', sans-serif", maxWidth: 480, margin: '0 auto 28px' }}>
-          Everything you need to know about Disco Cater.
-        </p>
-        <a href="mailto:concierge@discocater.com" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '11px 22px', borderRadius: 24, background: GRADIENT, color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
-          ✉ Still have questions? Email us
-        </a>
-      </div>
-
-      {/* ── Section nav pills ──────────────────────────────────────── */}
-      <div style={{ borderBottom: '1px solid #f0f0f0', background: '#fff', position: 'sticky', top: 57, zIndex: 90, overflowX: 'auto' }}>
-        <div style={{ display: 'flex', gap: 4, padding: '10px 24px', width: 'max-content' }}>
-          {sections.map(s => (
-            <a
-              key={s.title}
-              href={`#${s.title.toLowerCase().replace(/\s+/g, '-')}`}
-              className="section-pill"
-              style={{
-                fontSize: 12, fontWeight: 600, color: '#555',
-                padding: '5px 14px', borderRadius: 20,
-                background: '#f5f5f5',
-                textDecoration: 'none', whiteSpace: 'nowrap',
-                fontFamily: "'DM Sans', sans-serif",
-                transition: 'background 0.15s',
-              }}
-            >
-              {s.title}
-            </a>
-          ))}
-        </div>
       </div>
 
       {/* ── FAQ content ────────────────────────────────────────────── */}
@@ -291,13 +259,8 @@ export default function FAQPage() {
             style={{ paddingTop: 48 }}
           >
             {/* Section header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <div style={{ width: 32, height: 32, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                {['✦', '🛒', '💳', '🍽', '🎯', '🏪'][si] && (
-                  <span style={{ fontSize: 14 }}>{['✦', '🛒', '💳', '🍽', '🎯', '🏪'][si]}</span>
-                )}
-              </div>
-              <h2 style={{ fontSize: 20, fontWeight: 700, color: '#111', fontFamily: "'DM Sans', sans-serif" }}>
+            <div style={{ marginBottom: 8 }}>
+              <h2 style={{ fontSize: 13, fontWeight: 700, color: '#aaa', fontFamily: "'DM Sans', sans-serif", textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 {section.title}
               </h2>
             </div>
@@ -310,21 +273,20 @@ export default function FAQPage() {
         ))}
 
         {/* Bottom CTA */}
-        <div style={{ marginTop: 64, padding: '36px 32px', borderRadius: 20, background: 'linear-gradient(135deg, #f7f4ff 0%, #fff0f8 100%)', border: '1px solid #ece8f8', textAlign: 'center' }}>
-          <div style={{ fontSize: 28, marginBottom: 12 }}>🪩</div>
-          <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111', fontFamily: "'DM Sans', sans-serif", marginBottom: 8 }}>
-            Ready to order?
+        <div style={{ marginTop: 64, padding: '36px 32px', borderRadius: 20, background: '#fafafa', border: '1px solid #f0f0f0', textAlign: 'center' }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111', fontFamily: "'DM Sans', sans-serif", marginBottom: 8 }}>
+            Still have questions?
           </h3>
           <p style={{ fontSize: 14, color: '#888', fontFamily: "'DM Sans', sans-serif", marginBottom: 20 }}>
-            Browse our restaurant partners and find the perfect catering for your next event.
+            Our team is happy to help.
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/fullmap" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, background: GRADIENT, color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
-              Browse Restaurants →
-            </Link>
-            <a href="mailto:concierge@discocater.com" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, border: '1.5px solid #e0e0e0', background: '#fff', color: '#111', fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
-              Contact Concierge
+            <a href="mailto:hello@discocater.com" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
+              Email us →
             </a>
+            <Link href="/fullmap" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, border: '1.5px solid #e0e0e0', background: '#fff', color: '#111', fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
+              Browse Restaurants
+            </Link>
           </div>
         </div>
       </main>
