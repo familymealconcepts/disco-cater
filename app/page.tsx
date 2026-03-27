@@ -221,7 +221,7 @@ export default function HomePage() {
           marginTop: '-40px',
         }}>
           {/* Logo */}
-          <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 4 }}>
             <Image
               src="/disco-cater-logo.png"
               alt="Disco Cater"
@@ -287,7 +287,7 @@ export default function HomePage() {
             textAlign: 'center',
             maxWidth: 420,
           }}>
-            Discover premium office, holiday and event catering options in your area. Refine your search with AI or chat with a concierge (human!). Always fun. Always handled with care.
+            Discover premium office, holiday and event catering options in your area. Refine your search with AI or chat with a (human!) concierge. Order and enjoy.
           </p>
         </main>
 
