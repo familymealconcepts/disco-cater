@@ -69,23 +69,6 @@ const sections: Section[] = [
     ],
   },
   {
-    title: 'Restaurants & Partners',
-    items: [
-      {
-        q: 'How are restaurants selected for Disco?',
-        a: 'Disco is an invite-only marketplace. We curate partners based on their commitment to an elevated catering experience, strong brand recognition, and quality of food and service. Not every restaurant can join — only the best.',
-      },
-      {
-        q: "Who are some of Disco's notable restaurant partners?",
-        a: 'Current notable partners include Sweet Chick, Alidoro, Uncle Paulie\'s, Jame, Malibu Farm, Popup Bagels, Bludso\'s BBQ, Two Hands, Prince St. Pizza, Little Fatty, Court Street Grocers, and Wax Paper — with more being added regularly.',
-      },
-      {
-        q: 'Can my restaurant join Disco?',
-        a: <>If your restaurant meets the criteria — elevated catering commitment, strong brand recognition, and a great working relationship — you can inquire about partnership. Reach out to <a href="mailto:chris@familymeal.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>chris@familymeal.com</a> to learn more. There are no terms and no risk to joining.</>,
-      },
-    ],
-  },
-  {
     title: 'Concierge Service',
     items: [
       {
@@ -236,10 +219,6 @@ export default function FAQPage() {
           <Link href="/faq" style={{ fontSize: 13, fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '6px 14px', borderRadius: 20, background: GRADIENT, fontFamily: "'DM Sans', sans-serif" }}>
             FAQ
           </Link>
-          <a href="https://www.familymeal.com/?action=signIn" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 20, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 13, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", textDecoration: 'none', marginLeft: 4 }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            Log In
-          </a>
         </nav>
       </header>
 
