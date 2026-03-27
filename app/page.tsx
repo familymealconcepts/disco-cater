@@ -130,7 +130,7 @@ export default function HomePage() {
         .search-input {
           flex: 1;
           padding: 15px 12px 15px 4px;
-          font-size: 15px;
+          font-size: 16px;
           border: none;
           outline: none;
           background: transparent;
@@ -179,23 +179,26 @@ export default function HomePage() {
         .pac-icon { display: none !important; }
 
         @media (max-width: 768px) {
-          nav { padding: 14px 20px !important; }
+          .home-nav { padding: 14px 20px !important; }
           .nav-links { gap: 20px !important; }
+          .home-logo { width: 240px !important; height: auto !important; }
+          .home-tagline { font-size: 15px !important; margin-bottom: 24px !important; }
+          .home-description { font-size: 13px !important; margin-top: 20px !important; padding: 0 8px; }
+          .search-btn span:last-child { display: none; }
         }
       `}</style>
 
       <div style={{
         fontFamily: "'DM Sans', sans-serif",
         color: '#111',
-        height: '100vh',
+        minHeight: '100svh',
         display: 'flex',
         flexDirection: 'column',
-        overflow: 'hidden',
         background: 'radial-gradient(ellipse at 10% 0%, rgba(107,110,249,0.07) 0%, transparent 55%), radial-gradient(ellipse at 90% 10%, rgba(240,70,138,0.06) 0%, transparent 50%), #fff',
       }}>
 
         {/* ── Nav ── */}
-        <nav style={{
+        <nav className="home-nav" style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'flex-end',
@@ -223,6 +226,7 @@ export default function HomePage() {
           {/* Logo */}
           <div style={{ marginBottom: 4 }}>
             <Image
+              className="home-logo"
               src="/disco-cater-logo.png"
               alt="Disco Cater"
               width={600}
@@ -232,7 +236,7 @@ export default function HomePage() {
           </div>
 
           {/* Tagline — bold, right below logo */}
-          <p style={{
+          <p className="home-tagline" style={{
             fontSize: 18,
             fontWeight: 700,
             color: '#111',
@@ -244,7 +248,7 @@ export default function HomePage() {
           </p>
 
           {/* Search */}
-          <form onSubmit={handleSearch}>
+          <form onSubmit={handleSearch} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
             <div className="search-wrap">
               <div style={{ padding: '0 14px 0 20px', color: '#bbb', flexShrink: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -274,15 +278,15 @@ export default function HomePage() {
                 )}
               </button>
             </div>
-            {error && <p style={{ color: '#F0468A', fontSize: 13, marginTop: 10, textAlign: 'center' }}>{error}</p>}
           </form>
+          {error && <p style={{ color: '#F0468A', fontSize: 13, marginTop: 10, textAlign: 'center' }}>{error}</p>}
 
-          {/* Description — below search */}
-          <p style={{
+          {/* Description — below search, pushed lower */}
+          <p className="home-description" style={{
             fontSize: 14,
             fontWeight: 400,
             color: '#888',
-            marginTop: 20,
+            marginTop: 40,
             lineHeight: 1.65,
             textAlign: 'center',
             maxWidth: 420,
@@ -298,6 +302,7 @@ export default function HomePage() {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 24,
+          paddingBottom: 'max(18px, env(safe-area-inset-bottom))',
         }}>
           <a href="mailto:info@familymeal.com"
             style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
