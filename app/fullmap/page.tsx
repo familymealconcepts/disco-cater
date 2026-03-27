@@ -1,4 +1,4 @@
-// v2 — mobile optimized
+// v3 — mobile optimised, map fix
 'use client'
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -24,7 +24,6 @@ function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-// ─── Mobile detection hook ───────────────────────────────────────────────────
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
@@ -81,16 +80,13 @@ function FullMapInner() {
   ])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
-
-  // Mobile-specific state
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [mobileMapOpen, setMobileMapOpen] = useState(false)
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
 
   useEffect(() => {
     const latParam = searchParams.get('lat')
     const lngParam = searchParams.get('lng')
     if (latParam && lngParam) return
-
     const t = setTimeout(() => {
       if (!navigator.geolocation) return
       navigator.geolocation.getCurrentPosition(
@@ -124,7 +120,9 @@ function FullMapInner() {
       .then(data => { setRestaurants(data); setFiltered(data) })
   }, [])
 
-  function initMap() {
+  // Map always inits on mount. The container div is always in the DOM with
+  // real pixel dimensions (off-screen when mobile+closed, on-screen otherwise).
+  useEffect(() => {
     if (map.current || !mapContainer.current) return
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
@@ -144,29 +142,14 @@ function FullMapInner() {
         setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lng) })
       })
     }
-  }
+  }, [searchParams])
 
-  // Desktop: init on mount
-  useEffect(() => {
-    if (isMobile) return
-    initMap()
-  }, [isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Mobile: defer init until map panel first opened, then resize after CSS transition
+  // When mobile map panel opens, resize so Mapbox fills the now-visible container
   useEffect(() => {
     if (!isMobile || !mobileMapOpen) return
-    if (!map.current) {
-      // First open — wait for 300ms transition so container has real px dimensions
-      const t = setTimeout(() => {
-        initMap()
-        map.current?.once('load', () => map.current?.resize())
-      }, 320)
-      return () => clearTimeout(t)
-    }
-    // Subsequent opens — just resize
-    const t = setTimeout(() => map.current?.resize(), 320)
+    const t = setTimeout(() => map.current?.resize(), 50)
     return () => clearTimeout(t)
-  }, [mobileMapOpen, isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mobileMapOpen, isMobile])
 
   const initAutocomplete = useCallback(() => {
     if (!locInputRef.current || !(window as any).google) return
@@ -184,7 +167,7 @@ function FullMapInner() {
       map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 3, essential: true })
       setProximityAnchor({ lat, lng })
     })
-  }, [isMobile])
+  }, [])
 
   useEffect(() => {
     let out = restaurants
@@ -366,51 +349,61 @@ function FullMapInner() {
   const topCuisines = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 12).map(e => e[0])
 
   const pillStyle = (active: boolean): React.CSSProperties => ({
-    padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
-    border: 'none',
-    background: active ? '#1A1028' : '#efefef',
-    color: active ? '#fff' : '#555',
+    padding: '5px 12px', borderRadius: 20, overflow: 'hidden', border: 'none',
+    background: active ? '#1A1028' : '#efefef', color: active ? '#fff' : '#555',
     fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
   })
-
   const gradientPillStyle = (active: boolean): React.CSSProperties => ({
-    padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
-    border: 'none',
+    padding: '5px 12px', borderRadius: 20, overflow: 'hidden', border: 'none',
     background: active ? 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)' : '#efefef',
     color: active ? '#fff' : '#555',
     fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
   })
-
   const darkPillStyle = (active: boolean): React.CSSProperties => ({
-    padding: '5px 12px', borderRadius: 20, overflow: 'hidden',
-    border: 'none',
-    background: active ? '#1A1028' : '#efefef',
-    color: active ? '#fff' : '#555',
+    padding: '5px 12px', borderRadius: 20, overflow: 'hidden', border: 'none',
+    background: active ? '#1A1028' : '#efefef', color: active ? '#fff' : '#555',
     fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     fontFamily: "'DM Sans',sans-serif", flexShrink: 0,
   })
-
-  // ─── Mobile pill style (larger touch targets) ─────────────────────────────
   const mobilePillStyle = (active: boolean, gradient = false): React.CSSProperties => ({
-    padding: '8px 16px',
-    borderRadius: 999,
-    border: 'none',
-    background: gradient && active
-      ? 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
+    padding: '8px 16px', borderRadius: 999, border: 'none',
+    background: gradient && active ? 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
       : active ? '#1A1028' : '#f0f0f0',
     color: active ? '#fff' : '#555',
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap' as const,
-    fontFamily: "'DM Sans',sans-serif",
-    flexShrink: 0,
-    minHeight: 36,
-    display: 'flex',
-    alignItems: 'center',
+    fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const,
+    fontFamily: "'DM Sans',sans-serif", flexShrink: 0, minHeight: 36,
+    display: 'flex', alignItems: 'center',
   })
+
+  // ─── KEY FIX ──────────────────────────────────────────────────────────────
+  // The map div must ALWAYS be in the DOM with real pixel dimensions so Mapbox
+  // can initialise correctly. We never use display:none or max-height:0 on it.
+  //
+  // When mobile + closed: render it off-screen via position:fixed at left:-9999px.
+  //   → real size (320×240), painted, measured — Mapbox is happy.
+  // When mobile + open: position:absolute filling its rounded container.
+  // When desktop: position:static filling the full right panel.
+  // ─────────────────────────────────────────────────────────────────────────
+  const mapDivStyle: React.CSSProperties = (!isMobile)
+    ? { width: '100%', height: '100%' }
+    : mobileMapOpen
+      ? { position: 'absolute', inset: 0 }
+      : { position: 'fixed', left: -9999, top: 0, width: 320, height: 240, visibility: 'hidden' }
+
+  // Shared location modal
+  const locModal = showLocModal && (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: 20, padding: '32px 28px', maxWidth: 360, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', animation: 'fadeUp 0.25s ease', textAlign: 'center', fontFamily: "'DM Sans',sans-serif" }}>
+        <div style={{ fontSize: 44, marginBottom: 12 }}>📍</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#111', marginBottom: 8 }}>Find catering near you</div>
+        <div style={{ fontSize: 13, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>Share your location to instantly see restaurants that can cater near you.</div>
+        <button onClick={requestLocation} style={{ width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: GRADIENT, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 10, fontFamily: "'DM Sans',sans-serif" }}>Share my location</button>
+        <button onClick={() => setShowLocModal(false)} style={{ width: '100%', padding: '11px', borderRadius: 12, border: '1.5px solid #e8e8e8', background: '#fff', color: '#888', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Maybe later</button>
+      </div>
+    </div>
+  )
 
   // ═══════════════════════════════════════════════════════════════════════════
   // MOBILE LAYOUT
@@ -418,73 +411,40 @@ function FullMapInner() {
   if (isMobile) {
     return (
       <>
-        <Script
-          src={`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`}
-          strategy="afterInteractive"
-          onLoad={initAutocomplete}
-        />
+        <Script src={`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`} strategy="afterInteractive" onLoad={initAutocomplete} />
         <style>{`
           .pac-container { z-index: 9999 !important; font-family: 'DM Sans', sans-serif !important; }
           @keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }
           @keyframes fadeUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
-          @keyframes slideDown { from { opacity:0; max-height:0 } to { opacity:1; max-height:400px } }
           .disco-popup .mapboxgl-popup-content { padding:0; border-radius:12px; overflow:hidden; box-shadow:none; }
           .disco-popup .mapboxgl-popup-tip { display:none; }
-          /* Hide filter scrollbar on mobile */
-          .mobile-filter-scroll::-webkit-scrollbar { display: none; }
-          .mobile-filter-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+          .mobile-filter-scroll::-webkit-scrollbar { display:none; }
+          .mobile-filter-scroll { -ms-overflow-style:none; scrollbar-width:none; }
         `}</style>
 
-        {/* Location permission modal */}
-        {showLocModal && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ background: '#fff', borderRadius: 20, padding: '32px 28px', maxWidth: 360, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', animation: 'fadeUp 0.25s ease', textAlign: 'center', fontFamily: "'DM Sans',sans-serif" }}>
-              <div style={{ fontSize: 44, marginBottom: 12 }}>📍</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: '#111', marginBottom: 8 }}>Find catering near you</div>
-              <div style={{ fontSize: 13, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>Share your location to instantly see restaurants that can cater near you.</div>
-              <button onClick={requestLocation} style={{ width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: GRADIENT, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 10, fontFamily: "'DM Sans',sans-serif" }}>Share my location</button>
-              <button onClick={() => setShowLocModal(false)} style={{ width: '100%', padding: '11px', borderRadius: 12, border: '1.5px solid #e8e8e8', background: '#fff', color: '#888', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Maybe later</button>
-            </div>
-          </div>
-        )}
+        {locModal}
 
-        {/* AI Chat full-screen overlay on mobile */}
+        {/* AI Chat full-screen overlay */}
         {chatOpen && (
           <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: '#fff', display: 'flex', flexDirection: 'column', fontFamily: "'DM Sans',sans-serif" }}>
             <div style={{ padding: '12px 16px', background: GRADIENT, display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
               <div style={{ fontSize: 22 }}>🤖</div>
-              <div>
-                <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Disco AI</div>
-                <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>Catering Assistant</div>
-              </div>
+              <div><div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Disco AI</div><div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>Catering Assistant</div></div>
               <button onClick={() => setChatOpen(false)} style={{ marginLeft: 'auto', background: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 20, lineHeight: 1, padding: '6px 10px', borderRadius: 8 }}>×</button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 14px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: 12 }}>
               {chatMessages.map((msg, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 8 }}>
-                  {msg.role === 'assistant' && (
-                    <div style={{ width: 30, height: 30, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>🤖</div>
-                  )}
-                  <div style={{
-                    maxWidth: '80%', padding: '11px 14px',
-                    borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                    background: msg.role === 'user' ? GRADIENT : '#fff',
-                    color: msg.role === 'user' ? '#fff' : '#111',
-                    fontSize: 14, lineHeight: 1.6,
-                    boxShadow: msg.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
-                    border: msg.role === 'assistant' ? '1px solid #f0f0f0' : 'none',
-                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  }}>
+                  {msg.role === 'assistant' && <div style={{ width: 30, height: 30, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>🤖</div>}
+                  <div style={{ maxWidth: '80%', padding: '11px 14px', borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px', background: msg.role === 'user' ? GRADIENT : '#fff', color: msg.role === 'user' ? '#fff' : '#111', fontSize: 14, lineHeight: 1.6, boxShadow: msg.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none', border: msg.role === 'assistant' ? '1px solid #f0f0f0' : 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {msg.role === 'assistant'
                       ? msg.content.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
-                          /^https?:\/\//.test(part)
-                            ? (() => {
-                              const preceding = msg.content.substring(0, msg.content.indexOf(part))
-                              const nameMatch = preceding.match(/\*\*([^*]+)\*\*[^*]*$/) || preceding.match(/[-•]\s*([^\n(]+?)\s*[\n(](?=[^\n]*$)/)
-                              const restaurantName = nameMatch ? nameMatch[1].trim() : 'this restaurant'
-                              return <a key={j} href={part} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, padding: '9px 16px', borderRadius: 20, background: '#1A1028', color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>{restaurantName} →</a>
-                            })()
-                            : <span key={j}>{part}</span>
+                          /^https?:\/\//.test(part) ? (() => {
+                            const preceding = msg.content.substring(0, msg.content.indexOf(part))
+                            const nameMatch = preceding.match(/\*\*([^*]+)\*\*[^*]*$/) || preceding.match(/[-•]\s*([^\n(]+?)\s*[\n(](?=[^\n]*$)/)
+                            const restaurantName = nameMatch ? nameMatch[1].trim() : 'this restaurant'
+                            return <a key={j} href={part} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, padding: '9px 16px', borderRadius: 20, background: '#1A1028', color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>{restaurantName} →</a>
+                          })() : <span key={j}>{part}</span>
                         )
                       : msg.content}
                   </div>
@@ -493,10 +453,8 @@ function FullMapInner() {
               {chatLoading && (
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
                   <div style={{ width: 30, height: 30, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🤖</div>
-                  <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '18px 18px 18px 4px', padding: '12px 16px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-                    <div style={{ display: 'flex', gap: 5 }}>
-                      {[0, 150, 300].map(d => <div key={d} style={{ width: 7, height: 7, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}
-                    </div>
+                  <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '18px 18px 18px 4px', padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', gap: 5 }}>{[0,150,300].map(d => <div key={d} style={{ width: 7, height: 7, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}</div>
                   </div>
                 </div>
               )}
@@ -510,81 +468,39 @@ function FullMapInner() {
               </div>
             )}
             <div style={{ padding: '12px 14px', background: '#fff', borderTop: '1px solid #f0f0f0', display: 'flex', gap: 10, paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
-              <input
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && sendChat()}
-                placeholder="Ask about catering…"
-                style={{ flex: 1, padding: '12px 16px', borderRadius: 24, border: '1.5px solid #e8e8e8', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fafafa', color: '#111' }}
-              />
-              <button onClick={sendChat} disabled={chatLoading || !chatInput.trim()}
-                style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: '#5B6FE8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}>
+              <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChat()} placeholder="Ask about catering…" style={{ flex: 1, padding: '12px 16px', borderRadius: 24, border: '1.5px solid #e8e8e8', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fafafa', color: '#111' }} />
+              <button onClick={sendChat} disabled={chatLoading || !chatInput.trim()} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: '#5B6FE8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
               </button>
             </div>
           </div>
         )}
 
-        {/* ── MOBILE MAIN LAYOUT ─────────────────────────────────────────── */}
         <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100svh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111', overflow: 'hidden' }}>
 
-          {/* ── 1. STICKY HEADER: Logo + Login ──────────────────────────── */}
+          {/* 1. Header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: '#fff', paddingTop: 'max(10px, env(safe-area-inset-top))' }}>
-            <Link href="/">
-              <Image
-                src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=200w"
-                alt="Disco Cater" width={90} height={24}
-                style={{ objectFit: 'contain', display: 'block' }}
-              />
-            </Link>
+            <Link href="/"><Image src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=200w" alt="Disco Cater" width={90} height={24} style={{ objectFit: 'contain', display: 'block' }} /></Link>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              {/* Disco AI button */}
-              <button
-                onClick={() => setChatOpen(true)}
-                style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#EFB84A', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, position: 'relative', boxShadow: '0 2px 10px rgba(239,184,74,0.4)' }}
-                title="Ask Disco AI"
-              >
-                🤖
-                <div style={{ position: 'absolute', top: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />
+              <button onClick={() => setChatOpen(true)} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#EFB84A', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, position: 'relative', boxShadow: '0 2px 10px rgba(239,184,74,0.4)' }}>
+                🤖<div style={{ position: 'absolute', top: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />
               </button>
-              <a
-                href="https://www.familymeal.com/?action=signIn"
-                target="_blank" rel="noopener noreferrer"
-                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 20, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", textDecoration: 'none' }}
-              >
+              <a href="https://www.familymeal.com/?action=signIn" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 20, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", textDecoration: 'none' }}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                 Log In
               </a>
             </div>
           </div>
 
-          {/* ── 2. LOCATION SEARCH (most important) ─────────────────────── */}
+          {/* 2. Location search */}
           <div style={{ padding: '12px 16px 8px', background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
             <form onSubmit={doLocSearch} style={{ display: 'flex', gap: 8 }}>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: '#f5f5f5', borderRadius: 12, padding: '0 14px', border: '1.5px solid #e8e8e8', gap: 8 }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
-                  <circle cx="12" cy="9" r="2.5"/>
-                </svg>
-                <input
-                  ref={locInputRef}
-                  value={locInput}
-                  onChange={e => { setLocInput(e.target.value); setLocError('') }}
-                  placeholder="Enter city or zip code…"
-                  // font-size 16px prevents iOS auto-zoom
-                  style={{ flex: 1, padding: '13px 0', fontSize: 16, border: 'none', outline: 'none', background: 'transparent', color: '#111', fontFamily: "'DM Sans',sans-serif" }}
-                />
-                {locInput && (
-                  <button type="button" onClick={() => { setLocInput(''); setProximityAnchor(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
-                )}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                <input ref={locInputRef} value={locInput} onChange={e => { setLocInput(e.target.value); setLocError('') }} placeholder="Enter city or zip code…" style={{ flex: 1, padding: '13px 0', fontSize: 16, border: 'none', outline: 'none', background: 'transparent', color: '#111', fontFamily: "'DM Sans',sans-serif" }} />
+                {locInput && <button type="button" onClick={() => { setLocInput(''); setProximityAnchor(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>}
               </div>
-              <button
-                type="submit"
-                disabled={locLoading}
-                style={{ padding: '0 18px', borderRadius: 12, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", flexShrink: 0, minHeight: 48 }}
-              >
-                {locLoading ? '…' : 'Go'}
-              </button>
+              <button type="submit" disabled={locLoading} style={{ padding: '0 18px', borderRadius: 12, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", flexShrink: 0, minHeight: 48 }}>{locLoading ? '…' : 'Go'}</button>
             </form>
             {locError && <div style={{ marginTop: 6, fontSize: 12, color: '#F0468A', paddingLeft: 4 }}>{locError}</div>}
             {proximityAnchor && (
@@ -595,100 +511,55 @@ function FullMapInner() {
             )}
           </div>
 
-          {/* ── 3. CUISINE FILTERS (second priority) — horizontal scroll ── */}
-          <div
-            className="mobile-filter-scroll"
-            style={{ display: 'flex', gap: 8, padding: '10px 16px', overflowX: 'auto', flexShrink: 0, background: '#fff', borderBottom: '1px solid #f0f0f0', alignItems: 'center' }}
-          >
+          {/* 3. Cuisine filters */}
+          <div className="mobile-filter-scroll" style={{ display: 'flex', gap: 8, padding: '10px 16px', overflowX: 'auto', flexShrink: 0, background: '#fff', borderBottom: '1px solid #f0f0f0', alignItems: 'center' }}>
             <button style={mobilePillStyle(stageFilter === 'disco', true)} onClick={() => setStageFilter(s => s === 'disco' ? 'all' : 'disco')}>🪩 Premium</button>
             <div style={{ width: 1, height: 20, background: '#e0e0e0', flexShrink: 0 }} />
             <button style={mobilePillStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All</button>
-            {topCuisines.map(c => (
-              <button key={c} style={mobilePillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>
-            ))}
+            {topCuisines.map(c => <button key={c} style={mobilePillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>)}
           </div>
 
-          {/* ── 4. COUNT + SEARCH + MAP TOGGLES ─────────────────────────── */}
+          {/* 4. Count + toggles */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', flexShrink: 0, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
             <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {/* Map toggle */}
-              <button
-                onClick={() => setMobileMapOpen(o => !o)}
-                style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: mobileMapOpen ? '#6B6EF9' : '#888', background: mobileMapOpen ? '#f0f0ff' : 'none', border: 'none', borderRadius: 20, padding: '4px 10px', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
-              >
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <button onClick={() => setMobileMapOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: mobileMapOpen ? '#6B6EF9' : '#888', background: mobileMapOpen ? '#f0f0ff' : 'none', border: 'none', borderRadius: 20, padding: '4px 10px', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
                 Map
               </button>
-              {/* Search toggle */}
-              <button
-                onClick={() => setMobileSearchOpen(o => !o)}
-                style={{ display: 'flex', alignItems: 'center', padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: mobileSearchOpen ? '#6B6EF9' : '#bbb' }}
-                title="Search restaurants"
-              >
+              <button onClick={() => setMobileSearchOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: mobileSearchOpen ? '#6B6EF9' : '#bbb' }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
             </div>
           </div>
 
-          {/* ── 5. MAP — collapsible, proper resize on open ──────────────── */}
-          <div style={{ overflow: 'hidden', transition: 'max-height 0.3s ease', maxHeight: mobileMapOpen ? '240px' : '0', flexShrink: 0, background: '#fff' }}>
+          {/* 5. Map panel — container always in DOM, just shown/hidden via position */}
+          <div style={{ overflow: 'hidden', transition: 'max-height 0.3s ease', maxHeight: mobileMapOpen ? '240px' : '0', flexShrink: 0 }}>
             <div style={{ margin: '12px 16px 0', borderRadius: 14, overflow: 'hidden', border: '1px solid #e8e8e8', height: 216, position: 'relative' }}>
-              <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
-              <div style={{ position: 'absolute', bottom: 8, right: 8, background: 'rgba(255,255,255,0.9)', borderRadius: 8, padding: '4px 8px', fontSize: 10, fontWeight: 600, color: '#888', backdropFilter: 'blur(4px)', pointerEvents: 'none', fontFamily: "'DM Sans',sans-serif" }}>
-                Tap a pin for details
-              </div>
+              {/* mapDivStyle handles off-screen vs on-screen — see comment above */}
+              <div ref={mapContainer} style={mapDivStyle} />
             </div>
           </div>
 
-          {/* ── 6. RESTAURANT LIST (scrollable, fills remaining space) ──── */}
+          {/* 6. Scrollable list */}
           <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
-
-            {/* Restaurant search — hidden by default */}
             {mobileSearchOpen && (
               <div style={{ padding: '10px 16px', background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
                 <div style={{ position: 'relative' }}>
                   <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#bbb', pointerEvents: 'none' }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  <input
-                    autoFocus
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    placeholder="Search restaurants…"
-                    style={{ width: '100%', padding: '11px 36px 11px 36px', borderRadius: 10, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }}
-                  />
+                  <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search restaurants…" style={{ width: '100%', padding: '11px 36px 11px 36px', borderRadius: 10, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }} />
                   <button onClick={() => { setMobileSearchOpen(false); setSearch('') }} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
                 </div>
               </div>
             )}
-            {filtered.length === 0 && (
-              <div style={{ padding: '48px 24px', textAlign: 'center', color: '#bbb', fontSize: 14, fontFamily: "'DM Sans',sans-serif" }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
-                No restaurants match. Try adjusting your filters.
-              </div>
-            )}
+            {filtered.length === 0 && <div style={{ padding: '48px 24px', textAlign: 'center', color: '#bbb', fontSize: 14 }}><div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>No restaurants match.</div>}
             {filtered.map((r, i) => (
-              <div
-                key={r._id}
-                onClick={() => handleSidebarClick(r)}
-                style={{
-                  display: 'flex', alignItems: 'center', cursor: 'pointer',
-                  minHeight: 80,
-                  borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`,
-                  background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff',
-                  borderBottom: '1px solid #f5f5f5',
-                  transition: 'all 0.12s',
-                }}
-              >
-                {r.image
-                  ? <img src={r.image} alt={r.name} style={{ width: 80, height: 80, objectFit: 'cover', flexShrink: 0 }} />
-                  : <div style={{ width: 80, height: 80, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✦</div>
-                }
+              <div key={r._id} onClick={() => handleSidebarClick(r)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 80, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', borderBottom: '1px solid #f5f5f5', transition: 'all 0.12s' }}>
+                {r.image ? <img src={r.image} alt={r.name} style={{ width: 80, height: 80, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 80, height: 80, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✦</div>}
                 <div style={{ flex: 1, padding: '12px 14px', minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                     <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#999', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {r.name}{r.isDisco ? ' 🪩' : ''}
-                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{r.isDisco ? ' 🪩' : ''}</div>
                   </div>
                   <div style={{ fontSize: 12, color: '#bbb', marginBottom: 5 }}>{r.location}</div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -698,7 +569,6 @@ function FullMapInner() {
                 </div>
               </div>
             ))}
-            {/* Bottom safe area padding */}
             <div style={{ height: 'env(safe-area-inset-bottom, 16px)', minHeight: 16 }} />
           </div>
         </div>
@@ -707,15 +577,11 @@ function FullMapInner() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // DESKTOP LAYOUT — unchanged from original
+  // DESKTOP LAYOUT — identical to original v2
   // ═══════════════════════════════════════════════════════════════════════════
   return (
     <>
-      <Script
-        src={`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`}
-        strategy="afterInteractive"
-        onLoad={initAutocomplete}
-      />
+      <Script src={`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`} strategy="afterInteractive" onLoad={initAutocomplete} />
       <style>{`
         .pac-container { z-index: 9999 !important; font-family: 'DM Sans', sans-serif !important; }
         @keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }
@@ -725,32 +591,17 @@ function FullMapInner() {
         .disco-popup .mapboxgl-popup-tip { display:none; }
       `}</style>
 
-      {showLocModal && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 20, padding: '32px 28px', maxWidth: 360, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', animation: 'fadeUp 0.25s ease', textAlign: 'center', fontFamily: "'DM Sans',sans-serif" }}>
-            <div style={{ fontSize: 44, marginBottom: 12 }}>📍</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#111', marginBottom: 8 }}>Find catering near you</div>
-            <div style={{ fontSize: 13, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>Share your location to instantly see restaurants that can cater near you.</div>
-            <button onClick={requestLocation} style={{ width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: GRADIENT, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 10, fontFamily: "'DM Sans',sans-serif" }}>Share my location</button>
-            <button onClick={() => setShowLocModal(false)} style={{ width: '100%', padding: '11px', borderRadius: 12, border: '1.5px solid #e8e8e8', background: '#fff', color: '#888', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Maybe later</button>
-          </div>
-        </div>
-      )}
+      {locModal}
 
       <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111' }}>
-        {/* Top bar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, overflowX: 'auto', background: '#fff' }}>
-          <Link href="/" style={{ flexShrink: 0, marginRight: 4 }}>
-            <Image src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=200w" alt="Disco Cater" width={100} height={26} style={{ objectFit: 'contain', display: 'block' }} />
-          </Link>
+          <Link href="/" style={{ flexShrink: 0, marginRight: 4 }}><Image src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=200w" alt="Disco Cater" width={100} height={26} style={{ objectFit: 'contain', display: 'block' }} /></Link>
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
           <button style={darkPillStyle(stageFilter === 'all')} onClick={() => setStageFilter('all')}>All</button>
           <button style={gradientPillStyle(stageFilter === 'disco')} onClick={() => setStageFilter('disco')}>🪩 Premium</button>
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
           <button style={pillStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All Cuisines</button>
-          {topCuisines.map(c => (
-            <button key={c} style={pillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>
-          ))}
+          {topCuisines.map(c => <button key={c} style={pillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>)}
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
           <a href="https://www.familymeal.com/?action=signIn" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", textDecoration: 'none', whiteSpace: 'nowrap' }}>
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -763,29 +614,22 @@ function FullMapInner() {
             <div style={{ width: 320, minWidth: 320, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fff' }}>
               <div style={{ padding: '12px 14px', borderBottom: '1px solid #f0f0f0', background: GRADIENT, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ fontSize: 22 }}>🤖</div>
-                <div>
-                  <div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>Disco AI</div>
-                  <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>Catering Assistant</div>
-                </div>
+                <div><div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>Disco AI</div><div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>Catering Assistant</div></div>
                 <button onClick={() => setChatOpen(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '12px 10px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {chatMessages.map((msg, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 6 }}>
-                    {msg.role === 'assistant' && (
-                      <div style={{ width: 26, height: 26, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0, marginBottom: 2 }}>🤖</div>
-                    )}
+                    {msg.role === 'assistant' && <div style={{ width: 26, height: 26, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0, marginBottom: 2 }}>🤖</div>}
                     <div style={{ maxWidth: '82%', padding: '9px 12px', borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', background: msg.role === 'user' ? GRADIENT : '#fff', color: msg.role === 'user' ? '#fff' : '#111', fontSize: 12.5, lineHeight: 1.55, boxShadow: msg.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none', border: msg.role === 'assistant' ? '1px solid #f0f0f0' : 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {msg.role === 'assistant'
                         ? msg.content.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
-                            /^https?:\/\//.test(part)
-                              ? (() => {
-                                const preceding = msg.content.substring(0, msg.content.indexOf(part))
-                                const nameMatch = preceding.match(/\*\*([^*]+)\*\*[^*]*$/) || preceding.match(/[-•]\s*([^\n(]+?)\s*[\n(](?=[^\n]*$)/)
-                                const restaurantName = nameMatch ? nameMatch[1].trim() : 'this restaurant'
-                                return <a key={j} href={part} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, padding: '7px 14px', borderRadius: 20, background: '#1A1028', color: '#fff', fontSize: 11, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>{restaurantName} →</a>
-                              })()
-                              : <span key={j}>{part}</span>
+                            /^https?:\/\//.test(part) ? (() => {
+                              const preceding = msg.content.substring(0, msg.content.indexOf(part))
+                              const nameMatch = preceding.match(/\*\*([^*]+)\*\*[^*]*$/) || preceding.match(/[-•]\s*([^\n(]+?)\s*[\n(](?=[^\n]*$)/)
+                              const restaurantName = nameMatch ? nameMatch[1].trim() : 'this restaurant'
+                              return <a key={j} href={part} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, padding: '7px 14px', borderRadius: 20, background: '#1A1028', color: '#fff', fontSize: 11, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>{restaurantName} →</a>
+                            })() : <span key={j}>{part}</span>
                           )
                         : msg.content}
                     </div>
@@ -794,10 +638,8 @@ function FullMapInner() {
                 {chatLoading && (
                   <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
                     <div style={{ width: 26, height: 26, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🤖</div>
-                    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '16px 16px 16px 4px', padding: '10px 14px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {[0, 150, 300].map(d => <div key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}
-                      </div>
+                    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '16px 16px 16px 4px', padding: '10px 14px' }}>
+                      <div style={{ display: 'flex', gap: 4 }}>{[0,150,300].map(d => <div key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}</div>
                     </div>
                   </div>
                 )}
@@ -819,7 +661,6 @@ function FullMapInner() {
             </div>
           )}
 
-          {/* Sidebar */}
           <div style={{ width: 320, minWidth: 320, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fff' }}>
             <div style={{ padding: '10px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
               <div style={{ position: 'relative' }}>
@@ -829,21 +670,13 @@ function FullMapInner() {
             </div>
             <div style={{ padding: '6px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
               {filtered.length} restaurants
-              {proximityAnchor && (
-                <>
-                  <span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span>
-                  <button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button>
-                </>
-              )}
+              {proximityAnchor && (<><span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span><button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button></>)}
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {filtered.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No restaurants match.</div>}
               {filtered.map((r, i) => (
                 <div key={r._id} onClick={() => handleSidebarClick(r)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'all 0.12s' }}>
-                  {r.image
-                    ? <img src={r.image} alt={r.name} style={{ width: 74, height: 74, objectFit: 'cover', flexShrink: 0 }} />
-                    : <div style={{ width: 74, height: 74, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>✦</div>
-                  }
+                  {r.image ? <img src={r.image} alt={r.name} style={{ width: 74, height: 74, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 74, height: 74, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>✦</div>}
                   <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                       <div style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#999', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
@@ -857,23 +690,19 @@ function FullMapInner() {
             </div>
           </div>
 
-          {/* Map container */}
           <div style={{ flex: 1, position: 'relative' }}>
             <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', gap: 8, alignItems: 'stretch' }}>
               <form onSubmit={doLocSearch} style={{ display: 'flex', alignItems: 'stretch', background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: '1.5px solid #e8e8e8' }}>
-                <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
-                </div>
+                <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0, display: 'flex', alignItems: 'center' }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg></div>
                 <input ref={locInputRef} value={locInput} onChange={e => { setLocInput(e.target.value); setLocError('') }} placeholder="Search by location…" style={{ padding: '9px 4px', fontSize: 12.5, border: 'none', outline: 'none', background: 'transparent', color: '#111', width: 380, fontFamily: "'DM Sans',sans-serif" }} />
                 <button type="submit" disabled={locLoading} style={{ padding: '0 14px', border: 'none', cursor: 'pointer', background: '#5B6FE8', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>{locLoading ? '...' : 'Go'}</button>
               </form>
               <button onClick={() => setChatOpen(o => !o)} style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', background: '#EFB84A', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 12px rgba(239,184,74,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, position: 'relative', transition: 'transform 0.15s' }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.1)' }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)' }} title="Ask Disco AI">
-                🤖
-                {!chatOpen && <div style={{ position: 'absolute', top: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />}
+                🤖{!chatOpen && <div style={{ position: 'absolute', top: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />}
               </button>
             </div>
             {locError && <div style={{ position: 'absolute', top: 56, left: 12, zIndex: 10, background: '#fff', border: '1px solid #f0c0c8', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#F0468A', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>{locError}</div>}
-            <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
+            <div ref={mapContainer} style={mapDivStyle} />
           </div>
         </div>
       </div>
@@ -883,7 +712,7 @@ function FullMapInner() {
 
 export default function FullMapPage() {
   return (
-    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'DM Sans, sans-serif', color: '#999' }}>Loading map…</div>}>
+    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'DM Sans, sans-serif', color: '#999', fontSize: 14 }}>Loading…</div>}>
       <FullMapInner />
     </Suspense>
   )
