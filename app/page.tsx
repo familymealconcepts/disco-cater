@@ -184,7 +184,13 @@ export default function HomePage() {
           .home-logo { width: 240px !important; height: auto !important; }
           .home-tagline { font-size: 15px !important; margin-bottom: 24px !important; }
           .home-description { font-size: 13px !important; margin-top: 20px !important; padding: 0 8px; }
-          .search-btn span:last-child { display: none; }
+          .search-btn { padding: 0 14px !important; }
+          .btn-long { display: none !important; }
+          .btn-short { display: inline !important; }
+          .btn-arrow { display: none !important; }
+        }
+        @media (min-width: 769px) {
+          .btn-short { display: none; }
         }
       `}</style>
 
@@ -270,8 +276,9 @@ export default function HomePage() {
                   <span>Searching…</span>
                 ) : (
                   <>
-                    <span>Find Catering</span>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <span className="btn-long">Find Catering</span>
+                    <span className="btn-short">Search</span>
+                    <svg className="btn-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
                     </svg>
                   </>
