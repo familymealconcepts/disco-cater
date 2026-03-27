@@ -191,37 +191,8 @@ export default function HomePage() {
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        background: '#FAF8F5',
-        position: 'relative',
+        background: 'radial-gradient(ellipse at 10% 0%, rgba(107,110,249,0.07) 0%, transparent 55%), radial-gradient(ellipse at 90% 10%, rgba(240,70,138,0.06) 0%, transparent 50%), #fff',
       }}>
-
-        {/* ── Disco tile background ── */}
-        <div style={{ position: 'absolute', inset: 0, zIndex: 0, overflow: 'hidden', pointerEvents: 'none' }}>
-          <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <pattern id="disco" x="0" y="0" width="32" height="32" patternUnits="userSpaceOnUse">
-                {/* tile grid — 4 cols × 4 rows of 7×7 tiles with 1px gaps */}
-                {[0,1,2,3].flatMap(col => [0,1,2,3].map(row => {
-                  const x = col * 8 + 0.5
-                  const y = row * 8 + 0.5
-                  const seed = col * 4 + row
-                  const lightness = 88 + (seed % 5) * 2
-                  const hue = 240 + (seed % 7) * 10
-                  const sat = 12 + (seed % 4) * 4
-                  return (
-                    <rect
-                      key={`${col}-${row}`}
-                      x={x} y={y} width="7" height="7"
-                      rx="0.5"
-                      fill={`hsl(${hue}, ${sat}%, ${lightness}%)`}
-                    />
-                  )
-                }))}
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#disco)" opacity="0.55" />
-          </svg>
-        </div>
 
         {/* ── Nav ── */}
         <nav style={{
@@ -248,11 +219,9 @@ export default function HomePage() {
           justifyContent: 'center',
           padding: '0 24px',
           marginTop: '-40px',
-          position: 'relative',
-          zIndex: 1,
         }}>
           {/* Logo */}
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 12 }}>
             <Image
               src="/disco-cater-logo.png"
               alt="Disco Cater"
@@ -262,17 +231,16 @@ export default function HomePage() {
             />
           </div>
 
-          {/* Description */}
+          {/* Tagline — bold, right below logo */}
           <p style={{
-            fontSize: 16,
-            fontWeight: 400,
-            color: '#555',
+            fontSize: 18,
+            fontWeight: 700,
+            color: '#111',
             marginBottom: 32,
-            letterSpacing: '-0.01em',
+            letterSpacing: '-0.02em',
             textAlign: 'center',
-            whiteSpace: 'nowrap',
           }}>
-            Premium restaurants. Intelligent recommendations. Delivered with care.
+            You&apos;ve got great taste. So should your catering. 🪩
           </p>
 
           {/* Search */}
@@ -309,16 +277,17 @@ export default function HomePage() {
             {error && <p style={{ color: '#F0468A', fontSize: 13, marginTop: 10, textAlign: 'center' }}>{error}</p>}
           </form>
 
-          {/* Tagline — below search */}
+          {/* Description — below search */}
           <p style={{
-            fontSize: 15,
-            fontWeight: 500,
+            fontSize: 14,
+            fontWeight: 400,
             color: '#888',
             marginTop: 20,
-            letterSpacing: '-0.01em',
+            lineHeight: 1.65,
             textAlign: 'center',
+            maxWidth: 420,
           }}>
-            You&apos;ve got great taste. So should your catering. 🪩
+            Discover premium office, holiday and event catering options in your area. Refine your search with AI or chat with a concierge (human!). Always fun. Always handled with care.
           </p>
         </main>
 
@@ -329,8 +298,6 @@ export default function HomePage() {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 24,
-          position: 'relative',
-          zIndex: 1,
         }}>
           <a href="mailto:info@familymeal.com"
             style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
