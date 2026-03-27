@@ -591,7 +591,7 @@ function FullMapInner() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', flexShrink: 0, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
             <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
             <button
-              onClick={() => setMobileMapOpen(o => !o)}
+              onClick={() => setMobileSearchOpen(o => !o)}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', padding: 4, display: 'flex', alignItems: 'center' }}
               title="Search restaurants"
             >
