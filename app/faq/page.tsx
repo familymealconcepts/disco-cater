@@ -198,7 +198,7 @@ export default function FAQPage() {
       {/* ── Header ─────────────────────────────────────────────────── */}
       <header style={{
         position: 'sticky', top: 0, zIndex: 100,
-        background: 'radial-gradient(ellipse at 10% 0%, rgba(107,110,249,0.07) 0%, transparent 55%), radial-gradient(ellipse at 90% 10%, rgba(240,70,138,0.06) 0%, transparent 50%), #fff',
+        background: 'linear-gradient(180deg, rgba(107,110,249,0.08) 0%, rgba(240,70,138,0.04) 100%), #fff',
         borderBottom: '1px solid #f0f0f0',
         padding: '10px 24px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
