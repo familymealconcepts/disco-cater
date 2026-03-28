@@ -207,8 +207,8 @@ export default function FAQPage() {
           <Image
             src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=200w"
             alt="Disco Cater"
-            width={110}
-            height={28}
+            width={100}
+            height={26}
             style={{ objectFit: 'contain', display: 'block' }}
           />
         </Link>
