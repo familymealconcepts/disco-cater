@@ -268,7 +268,7 @@ export default function HomePage() {
                 type="text"
                 value={address}
                 onChange={e => setAddress(e.target.value)}
-                placeholder="Enter city, neighborhood, or zip…"
+                placeholder="Search by location…"
                 autoComplete="off"
               />
               <button className="search-btn" type="submit" disabled={loading}>
