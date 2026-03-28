@@ -64,6 +64,7 @@ function FullMapInner() {
 
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [filtered, setFiltered] = useState<Restaurant[]>([])
+  const [restaurantsLoaded, setRestaurantsLoaded] = useState(false)
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState<'all' | 'disco'>('all')
   const [cuisineFilter, setCuisineFilter] = useState('all')
@@ -82,6 +83,7 @@ function FullMapInner() {
   const [chatLoading, setChatLoading] = useState(false)
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [mobileMapOpen, setMobileMapOpen] = useState(false)
+  const filteredRef = useRef<Restaurant[]>([])
 
   useEffect(() => {
     const latParam = searchParams.get('lat')
@@ -117,7 +119,7 @@ function FullMapInner() {
   useEffect(() => {
     fetch('/api/restaurants')
       .then(r => r.json())
-      .then(data => { setRestaurants(data); setFiltered(data) })
+      .then(data => { setRestaurants(data); setFiltered(data); setRestaurantsLoaded(true) })
   }, [])
 
   // Map init function — extracted so we can call it from multiple places
@@ -156,14 +158,19 @@ function FullMapInner() {
       // Modal just mounted — init after a frame so the div has layout
       const t = setTimeout(() => {
         initMapInstance()
-        map.current?.once('load', () => map.current?.resize())
+        map.current?.once('load', () => {
+          map.current?.resize()
+          addMarkersToMap(filteredRef.current)
+        })
       }, 50)
       return () => clearTimeout(t)
     } else {
-      // Modal just unmounted — destroy map so it re-inits cleanly next open
+      // Modal just unmounted — destroy map and clear markers so they re-add on next open
       if (map.current) {
         map.current.remove()
         map.current = null
+        markersRef.current = {}
+        popupsRef.current = {}
       }
     }
   }, [mobileMapOpen, isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -205,15 +212,17 @@ function FullMapInner() {
         .sort((a, b) => a._dist - b._dist)
     }
     setFiltered(out)
+    filteredRef.current = out
   }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor])
 
   function closeAllPopups() {
     Object.values(popupsRef.current).forEach(p => { if (p.isOpen()) p.remove() })
   }
 
-  useEffect(() => {
+  // Extracted so mobile map init can call it directly after load
+  function addMarkersToMap(list: Restaurant[]) {
     if (!map.current) return
-    const visibleIds = new Set(filtered.map(r => r._id))
+    const visibleIds = new Set(list.map(r => r._id))
     Object.entries(markersRef.current).forEach(([id, marker]) => {
       if (!visibleIds.has(id)) {
         marker.remove()
@@ -221,7 +230,7 @@ function FullMapInner() {
         delete popupsRef.current[id]
       }
     })
-    filtered.forEach((r, i) => {
+    list.forEach((r, i) => {
       if (markersRef.current[r._id]) return
       const el = document.createElement('div')
       const mkDiv = document.createElement('div')
@@ -274,7 +283,16 @@ function FullMapInner() {
         setActiveId(r._id)
         mkDiv.style.background = GRADIENT
         mkDiv.style.transform = 'scale(1.2)'
-        map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 11), speed: 3, essential: true })
+        const mapH = mapContainer.current?.clientHeight ?? 600
+        const popupH = r.image ? 340 : 220
+        const verticalOffset = Math.round((mapH / 2) - (popupH / 2) - 44)
+        map.current?.flyTo({
+          center: [r.lng, r.lat],
+          zoom: Math.max(map.current.getZoom(), 11),
+          speed: 3,
+          essential: true,
+          offset: [0, -verticalOffset],
+        })
       })
 
       popup.on('close', () => {
@@ -290,7 +308,11 @@ function FullMapInner() {
 
       markersRef.current[r._id] = marker
     })
-  }, [filtered])
+  }
+
+  useEffect(() => {
+    addMarkersToMap(filtered)
+  }, [filtered]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function doLocSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -353,7 +375,19 @@ function FullMapInner() {
     closeAllPopups()
     setActiveId(r._id)
     if (!map.current) return
-    map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true, offset: [0, -100] })
+    // Calculate vertical offset so the popup appears centered in the visible map area.
+    // Popup renders ~200px above the marker (offset + card height). Shift map center
+    // down by half the map height minus half the popup height so it sits in the middle.
+    const mapH = mapContainer.current?.clientHeight ?? 600
+    const popupH = r.image ? 340 : 220  // approx popup card height
+    const verticalOffset = Math.round((mapH / 2) - (popupH / 2) - 44)
+    map.current.flyTo({
+      center: [r.lng, r.lat],
+      zoom: 14,
+      speed: 3,
+      essential: true,
+      offset: [0, -verticalOffset],
+    })
     map.current.once('moveend', () => {
       const marker = markersRef.current[r._id]
       const popup = popupsRef.current[r._id]
@@ -595,7 +629,7 @@ function FullMapInner() {
                 </div>
               </div>
             )}
-            {filtered.length === 0 && <div style={{ padding: '48px 24px', textAlign: 'center', color: '#bbb', fontSize: 14 }}><div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>No restaurants match.</div>}
+            {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: '48px 24px', textAlign: 'center', color: '#bbb', fontSize: 14 }}><div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>No restaurants match.</div>}
             {filtered.map((r, i) => (
               <div key={r._id} onClick={() => handleSidebarClick(r)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 80, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', borderBottom: '1px solid #f5f5f5', transition: 'all 0.12s' }}>
                 {r.image ? <img src={r.image} alt={r.name} style={{ width: 80, height: 80, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 80, height: 80, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✦</div>}
@@ -716,7 +750,7 @@ function FullMapInner() {
               {proximityAnchor && (<><span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span><button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button></>)}
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              {filtered.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No restaurants match.</div>}
+              {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No restaurants match.</div>}
               {filtered.map((r, i) => (
                 <div key={r._id} onClick={() => handleSidebarClick(r)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'all 0.12s' }}>
                   {r.image ? <img src={r.image} alt={r.name} style={{ width: 74, height: 74, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 74, height: 74, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>✦</div>}
