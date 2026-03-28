@@ -120,9 +120,8 @@ function FullMapInner() {
       .then(data => { setRestaurants(data); setFiltered(data) })
   }, [])
 
-  // Map always inits on mount. The container div is always in the DOM with
-  // real pixel dimensions (off-screen when mobile+closed, on-screen otherwise).
-  useEffect(() => {
+  // Map init function — extracted so we can call it from multiple places
+  function initMapInstance() {
     if (map.current || !mapContainer.current) return
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
@@ -142,7 +141,32 @@ function FullMapInner() {
         setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lng) })
       })
     }
-  }, [searchParams])
+  }
+
+  // Desktop: init map on mount normally
+  useEffect(() => {
+    if (isMobile) return
+    initMapInstance()
+  }, [isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mobile: init map when modal opens (div just mounted), destroy when closed
+  useEffect(() => {
+    if (!isMobile) return
+    if (mobileMapOpen) {
+      // Modal just mounted — init after a frame so the div has layout
+      const t = setTimeout(() => {
+        initMapInstance()
+        map.current?.once('load', () => map.current?.resize())
+      }, 50)
+      return () => clearTimeout(t)
+    } else {
+      // Modal just unmounted — destroy map so it re-inits cleanly next open
+      if (map.current) {
+        map.current.remove()
+        map.current = null
+      }
+    }
+  }, [mobileMapOpen, isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const initAutocomplete = useCallback(() => {
     if (!locInputRef.current || !(window as any).google) return
@@ -373,13 +397,6 @@ function FullMapInner() {
   // Desktop: map fills its container normally. Mobile: map not shown.
   const mapDivStyle: React.CSSProperties = { width: '100%', height: '100%' }
 
-  // When mobile map modal opens, resize Mapbox after it's painted
-  useEffect(() => {
-    if (!isMobile || !mobileMapOpen) return
-    const t = setTimeout(() => map.current?.resize(), 50)
-    return () => clearTimeout(t)
-  }, [mobileMapOpen, isMobile])
-
   // Shared location modal
   const locModal = showLocModal && (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -404,6 +421,7 @@ function FullMapInner() {
           .pac-container { z-index: 9999 !important; font-family: 'DM Sans', sans-serif !important; }
           @keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }
           @keyframes fadeUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
+          @keyframes slideUp { from { transform:translateY(100%) } to { transform:translateY(0) } }
           .disco-popup .mapboxgl-popup-content { padding:0; border-radius:12px; overflow:hidden; box-shadow:none; }
           .disco-popup .mapboxgl-popup-tip { display:none; }
           .mobile-filter-scroll::-webkit-scrollbar { display:none; }
@@ -525,45 +543,46 @@ function FullMapInner() {
             </div>
           </div>
 
-          {/* Map full-screen modal — always rendered so Mapbox has real dimensions */}
-          <div style={{
-            position: 'fixed', inset: 0, zIndex: 400,
-            display: 'flex', flexDirection: 'column',
-            transform: mobileMapOpen ? 'translateY(0)' : 'translateY(100%)',
-            transition: 'transform 0.3s cubic-bezier(0.32,0,0.67,0)',
-            background: '#fff',
-          }}>
-            {/* Map modal header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: '#fff', paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: '#111', fontFamily: "'DM Sans',sans-serif" }}>Map</span>
-              <button onClick={() => setMobileMapOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#555', background: '#f0f0f0', border: 'none', borderRadius: 20, padding: '6px 14px', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
-                ✕ Close
-              </button>
+          {/* Map full-screen modal — only rendered when open so Mapbox inits into a real container */}
+          {mobileMapOpen && (
+            <div style={{
+              position: 'fixed', inset: 0, zIndex: 400,
+              display: 'flex', flexDirection: 'column',
+              background: '#fff',
+              animation: 'slideUp 0.28s cubic-bezier(0.32,0,0.67,0)',
+            }}>
+              {/* Map modal header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: '#fff', paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#111', fontFamily: "'DM Sans',sans-serif" }}>Map</span>
+                <button onClick={() => setMobileMapOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#555', background: '#f0f0f0', border: 'none', borderRadius: 20, padding: '6px 14px', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
+                  ✕ Close
+                </button>
+              </div>
+              {/* Location search inside map modal */}
+              <div style={{ padding: '10px 16px', background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
+                <form onSubmit={doLocSearch} style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: '#f5f5f5', borderRadius: 10, padding: '0 12px', border: '1.5px solid #e8e8e8', gap: 8 }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                    <input value={locInput} onChange={e => { setLocInput(e.target.value); setLocError('') }} placeholder="Search by location…" style={{ flex: 1, padding: '11px 0', fontSize: 16, border: 'none', outline: 'none', background: 'transparent', color: '#111', fontFamily: "'DM Sans',sans-serif" }} />
+                  </div>
+                  <button type="submit" disabled={locLoading} style={{ padding: '0 16px', borderRadius: 10, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>{locLoading ? '…' : 'Go'}</button>
+                </form>
+              </div>
+              {/* The map — fills remaining height, inits here for real dimensions */}
+              <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+                <div ref={mapContainer} style={{ position: 'absolute', inset: 0 }} />
+                {proximityAnchor && (
+                  <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
+                    <button onClick={() => { setProximityAnchor(null); setLocInput('') }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 20, background: '#fff', border: '1px solid #e0e0e0', fontSize: 12, fontWeight: 600, color: '#555', cursor: 'pointer', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', fontFamily: "'DM Sans',sans-serif" }}>
+                      📍 Showing nearby · Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* Bottom safe area */}
+              <div style={{ height: 'env(safe-area-inset-bottom, 0px)', background: '#fff', flexShrink: 0 }} />
             </div>
-            {/* Location search inside map modal */}
-            <div style={{ padding: '10px 16px', background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-              <form onSubmit={async (e) => { await doLocSearch(e) }} style={{ display: 'flex', gap: 8 }}>
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: '#f5f5f5', borderRadius: 10, padding: '0 12px', border: '1.5px solid #e8e8e8', gap: 8 }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
-                  <input value={locInput} onChange={e => { setLocInput(e.target.value); setLocError('') }} placeholder="Search by location…" style={{ flex: 1, padding: '11px 0', fontSize: 16, border: 'none', outline: 'none', background: 'transparent', color: '#111', fontFamily: "'DM Sans',sans-serif" }} />
-                </div>
-                <button type="submit" disabled={locLoading} style={{ padding: '0 16px', borderRadius: 10, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>{locLoading ? '…' : 'Go'}</button>
-              </form>
-            </div>
-            {/* The map — always in DOM, full remaining height */}
-            <div style={{ flex: 1, position: 'relative' }}>
-              <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
-              {proximityAnchor && (
-                <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
-                  <button onClick={() => { setProximityAnchor(null); setLocInput('') }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 20, background: '#fff', border: '1px solid #e0e0e0', fontSize: 12, fontWeight: 600, color: '#555', cursor: 'pointer', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', fontFamily: "'DM Sans',sans-serif" }}>
-                    📍 Showing nearby · Clear
-                  </button>
-                </div>
-              )}
-            </div>
-            {/* Bottom safe area */}
-            <div style={{ height: 'env(safe-area-inset-bottom, 0px)', background: '#fff', flexShrink: 0 }} />
-          </div>
+          )}
 
           {/* 5. Scrollable list */}
           <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
