@@ -81,6 +81,7 @@ function FullMapInner() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
+  const [mobileMapOpen, setMobileMapOpen] = useState(false)
 
   useEffect(() => {
     const latParam = searchParams.get('lat')
@@ -372,6 +373,13 @@ function FullMapInner() {
   // Desktop: map fills its container normally. Mobile: map not shown.
   const mapDivStyle: React.CSSProperties = { width: '100%', height: '100%' }
 
+  // When mobile map modal opens, resize Mapbox after it's painted
+  useEffect(() => {
+    if (!isMobile || !mobileMapOpen) return
+    const t = setTimeout(() => map.current?.resize(), 50)
+    return () => clearTimeout(t)
+  }, [mobileMapOpen, isMobile])
+
   // Shared location modal
   const locModal = showLocModal && (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -407,7 +415,7 @@ function FullMapInner() {
         {/* AI Chat full-screen overlay */}
         {chatOpen && (
           <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: '#fff', display: 'flex', flexDirection: 'column', fontFamily: "'DM Sans',sans-serif" }}>
-            <div style={{ padding: '12px 16px', background: GRADIENT, display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
+            <div style={{ padding: '12px 16px', background: '#EFB84A', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
               <div style={{ fontSize: 22 }}>🤖</div>
               <div><div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Disco AI</div><div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>Catering Assistant</div></div>
               <button onClick={() => setChatOpen(false)} style={{ marginLeft: 'auto', background: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 20, lineHeight: 1, padding: '6px 10px', borderRadius: 8 }}>×</button>
@@ -415,7 +423,7 @@ function FullMapInner() {
             <div style={{ flex: 1, overflowY: 'auto', padding: '16px 14px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: 12 }}>
               {chatMessages.map((msg, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 8 }}>
-                  {msg.role === 'assistant' && <div style={{ width: 30, height: 30, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>🤖</div>}
+                  {msg.role === 'assistant' && <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#EFB84A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>🤖</div>}
                   <div style={{ maxWidth: '80%', padding: '11px 14px', borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px', background: msg.role === 'user' ? GRADIENT : '#fff', color: msg.role === 'user' ? '#fff' : '#111', fontSize: 14, lineHeight: 1.6, boxShadow: msg.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none', border: msg.role === 'assistant' ? '1px solid #f0f0f0' : 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     {msg.role === 'assistant'
                       ? msg.content.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
@@ -432,7 +440,7 @@ function FullMapInner() {
               ))}
               {chatLoading && (
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🤖</div>
+                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#EFB84A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🤖</div>
                   <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '18px 18px 18px 4px', padding: '12px 16px' }}>
                     <div style={{ display: 'flex', gap: 5 }}>{[0,150,300].map(d => <div key={d} style={{ width: 7, height: 7, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}</div>
                   </div>
@@ -499,12 +507,62 @@ function FullMapInner() {
             {topCuisines.map(c => <button key={c} style={mobilePillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>)}
           </div>
 
-          {/* 4. Count + search toggle */}
+          {/* 4. Count + search + map toggles */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px 8px', flexShrink: 0, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
             <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
-            <button onClick={() => setMobileSearchOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: mobileSearchOpen ? '#6B6EF9' : '#bbb' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            </button>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              {/* Open Map button */}
+              <button
+                onClick={() => setMobileMapOpen(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: '#555', background: '#f0f0f0', border: 'none', borderRadius: 20, padding: '5px 12px', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+                Map
+              </button>
+              <button onClick={() => setMobileSearchOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: mobileSearchOpen ? '#6B6EF9' : '#bbb' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Map full-screen modal — always rendered so Mapbox has real dimensions */}
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 400,
+            display: 'flex', flexDirection: 'column',
+            transform: mobileMapOpen ? 'translateY(0)' : 'translateY(100%)',
+            transition: 'transform 0.3s cubic-bezier(0.32,0,0.67,0)',
+            background: '#fff',
+          }}>
+            {/* Map modal header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: '#fff', paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#111', fontFamily: "'DM Sans',sans-serif" }}>Map</span>
+              <button onClick={() => setMobileMapOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#555', background: '#f0f0f0', border: 'none', borderRadius: 20, padding: '6px 14px', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
+                ✕ Close
+              </button>
+            </div>
+            {/* Location search inside map modal */}
+            <div style={{ padding: '10px 16px', background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
+              <form onSubmit={async (e) => { await doLocSearch(e) }} style={{ display: 'flex', gap: 8 }}>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: '#f5f5f5', borderRadius: 10, padding: '0 12px', border: '1.5px solid #e8e8e8', gap: 8 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                  <input value={locInput} onChange={e => { setLocInput(e.target.value); setLocError('') }} placeholder="Search by location…" style={{ flex: 1, padding: '11px 0', fontSize: 16, border: 'none', outline: 'none', background: 'transparent', color: '#111', fontFamily: "'DM Sans',sans-serif" }} />
+                </div>
+                <button type="submit" disabled={locLoading} style={{ padding: '0 16px', borderRadius: 10, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>{locLoading ? '…' : 'Go'}</button>
+              </form>
+            </div>
+            {/* The map — always in DOM, full remaining height */}
+            <div style={{ flex: 1, position: 'relative' }}>
+              <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
+              {proximityAnchor && (
+                <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
+                  <button onClick={() => { setProximityAnchor(null); setLocInput('') }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 20, background: '#fff', border: '1px solid #e0e0e0', fontSize: 12, fontWeight: 600, color: '#555', cursor: 'pointer', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', fontFamily: "'DM Sans',sans-serif" }}>
+                    📍 Showing nearby · Clear
+                  </button>
+                </div>
+              )}
+            </div>
+            {/* Bottom safe area */}
+            <div style={{ height: 'env(safe-area-inset-bottom, 0px)', background: '#fff', flexShrink: 0 }} />
           </div>
 
           {/* 5. Scrollable list */}
@@ -578,7 +636,7 @@ function FullMapInner() {
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
           {chatOpen && (
             <div style={{ width: 320, minWidth: 320, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fff' }}>
-              <div style={{ padding: '12px 14px', borderBottom: '1px solid #f0f0f0', background: GRADIENT, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ padding: '12px 14px', borderBottom: '1px solid #f0f0f0', background: '#EFB84A', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ fontSize: 22 }}>🤖</div>
                 <div><div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>Disco AI</div><div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>Catering Assistant</div></div>
                 <button onClick={() => setChatOpen(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
@@ -586,7 +644,7 @@ function FullMapInner() {
               <div style={{ flex: 1, overflowY: 'auto', padding: '12px 10px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {chatMessages.map((msg, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 6 }}>
-                    {msg.role === 'assistant' && <div style={{ width: 26, height: 26, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0, marginBottom: 2 }}>🤖</div>}
+                    {msg.role === 'assistant' && <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#EFB84A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0, marginBottom: 2 }}>🤖</div>}
                     <div style={{ maxWidth: '82%', padding: '9px 12px', borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', background: msg.role === 'user' ? GRADIENT : '#fff', color: msg.role === 'user' ? '#fff' : '#111', fontSize: 12.5, lineHeight: 1.55, boxShadow: msg.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none', border: msg.role === 'assistant' ? '1px solid #f0f0f0' : 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {msg.role === 'assistant'
                         ? msg.content.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
@@ -603,7 +661,7 @@ function FullMapInner() {
                 ))}
                 {chatLoading && (
                   <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
-                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🤖</div>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#EFB84A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🤖</div>
                     <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '16px 16px 16px 4px', padding: '10px 14px' }}>
                       <div style={{ display: 'flex', gap: 4 }}>{[0,150,300].map(d => <div key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}</div>
                     </div>
