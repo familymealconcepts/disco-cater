@@ -12,6 +12,12 @@ mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
 
+function trackEvent(name: string, params?: Record<string, string>) {
+  if (typeof window !== 'undefined' && (window as any).gtag) {
+    (window as any).gtag('event', name, params)
+  }
+}
+
 function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 3958.8
   const dLat = ((lat2 - lat1) * Math.PI) / 180
@@ -122,7 +128,6 @@ function FullMapInner() {
       .then(data => { setRestaurants(data); setFiltered(data); setRestaurantsLoaded(true) })
   }, [])
 
-  // Map init function — extracted so we can call it from multiple places
   function initMapInstance() {
     if (map.current || !mapContainer.current) return
     map.current = new mapboxgl.Map({
@@ -145,17 +150,14 @@ function FullMapInner() {
     }
   }
 
-  // Desktop: init map on mount normally
   useEffect(() => {
     if (isMobile) return
     initMapInstance()
   }, [isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Mobile: init map when modal opens (div just mounted), destroy when closed
   useEffect(() => {
     if (!isMobile) return
     if (mobileMapOpen) {
-      // Modal just mounted — init after a frame so the div has layout
       const t = setTimeout(() => {
         initMapInstance()
         map.current?.once('load', () => {
@@ -165,7 +167,6 @@ function FullMapInner() {
       }, 50)
       return () => clearTimeout(t)
     } else {
-      // Modal just unmounted — destroy map and clear markers so they re-add on next open
       if (map.current) {
         map.current.remove()
         map.current = null
@@ -219,7 +220,6 @@ function FullMapInner() {
     Object.values(popupsRef.current).forEach(p => { if (p.isOpen()) p.remove() })
   }
 
-  // Extracted so mobile map init can call it directly after load
   function addMarkersToMap(list: Restaurant[]) {
     if (!map.current) return
     const visibleIds = new Set(list.map(r => r._id))
@@ -281,6 +281,7 @@ function FullMapInner() {
       el.addEventListener('click', () => {
         closeAllPopups()
         setActiveId(r._id)
+        trackEvent('restaurant_click', { restaurant_name: r.name, cuisine: r.cuisine })
         mkDiv.style.background = GRADIENT
         mkDiv.style.transform = 'scale(1.2)'
         const mapH = mapContainer.current?.clientHeight ?? 600
@@ -345,6 +346,7 @@ function FullMapInner() {
 
   async function sendChat() {
     if (!chatInput.trim() || chatLoading) return
+    trackEvent('ai_chat_message_sent', { message_preview: chatInput.slice(0, 50) })
     const userMsg: ChatMessage = { role: 'user', content: chatInput }
     const next = [...chatMessages, userMsg]
     setChatMessages(next)
@@ -372,14 +374,12 @@ function FullMapInner() {
   }
 
   function handleSidebarClick(r: Restaurant) {
+    trackEvent('restaurant_click', { restaurant_name: r.name, cuisine: r.cuisine })
     closeAllPopups()
     setActiveId(r._id)
     if (!map.current) return
-    // Calculate vertical offset so the popup appears centered in the visible map area.
-    // Popup renders ~200px above the marker (offset + card height). Shift map center
-    // down by half the map height minus half the popup height so it sits in the middle.
     const mapH = mapContainer.current?.clientHeight ?? 600
-    const popupH = r.image ? 340 : 220  // approx popup card height
+    const popupH = r.image ? 340 : 220
     const verticalOffset = Math.round((mapH / 2) - (popupH / 2) - 44)
     map.current.flyTo({
       center: [r.lng, r.lat],
@@ -428,10 +428,8 @@ function FullMapInner() {
     display: 'flex', alignItems: 'center',
   })
 
-  // Desktop: map fills its container normally. Mobile: map not shown.
   const mapDivStyle: React.CSSProperties = { width: '100%', height: '100%' }
 
-  // Shared location modal
   const locModal = showLocModal && (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: '#fff', borderRadius: 20, padding: '32px 28px', maxWidth: 360, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', animation: 'fadeUp 0.25s ease', textAlign: 'center', fontFamily: "'DM Sans',sans-serif" }}>
@@ -563,7 +561,6 @@ function FullMapInner() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px 8px', flexShrink: 0, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
             <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
             <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-              {/* Open Map button */}
               <button
                 onClick={() => setMobileMapOpen(true)}
                 style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: '#555', background: '#f0f0f0', border: 'none', borderRadius: 20, padding: '5px 12px', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
@@ -577,7 +574,7 @@ function FullMapInner() {
             </div>
           </div>
 
-          {/* Map full-screen modal — only rendered when open so Mapbox inits into a real container */}
+          {/* Map full-screen modal */}
           {mobileMapOpen && (
             <div style={{
               position: 'fixed', inset: 0, zIndex: 400,
@@ -585,14 +582,12 @@ function FullMapInner() {
               background: '#fff',
               animation: 'slideUp 0.28s cubic-bezier(0.32,0,0.67,0)',
             }}>
-              {/* Map modal header */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: '#fff', paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
                 <span style={{ fontSize: 15, fontWeight: 700, color: '#111', fontFamily: "'DM Sans',sans-serif" }}>Map</span>
                 <button onClick={() => setMobileMapOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#555', background: '#f0f0f0', border: 'none', borderRadius: 20, padding: '6px 14px', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
                   ✕ Close
                 </button>
               </div>
-              {/* Location search inside map modal */}
               <div style={{ padding: '10px 16px', background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
                 <form onSubmit={doLocSearch} style={{ display: 'flex', gap: 8 }}>
                   <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: '#f5f5f5', borderRadius: 10, padding: '0 12px', border: '1.5px solid #e8e8e8', gap: 8 }}>
@@ -602,7 +597,6 @@ function FullMapInner() {
                   <button type="submit" disabled={locLoading} style={{ padding: '0 16px', borderRadius: 10, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>{locLoading ? '…' : 'Go'}</button>
                 </form>
               </div>
-              {/* The map — fills remaining height, inits here for real dimensions */}
               <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
                 <div ref={mapContainer} style={{ position: 'absolute', inset: 0 }} />
                 {proximityAnchor && (
@@ -613,7 +607,6 @@ function FullMapInner() {
                   </div>
                 )}
               </div>
-              {/* Bottom safe area */}
               <div style={{ height: 'env(safe-area-inset-bottom, 0px)', background: '#fff', flexShrink: 0 }} />
             </div>
           )}
@@ -624,7 +617,7 @@ function FullMapInner() {
               <div style={{ padding: '10px 16px', background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
                 <div style={{ position: 'relative' }}>
                   <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#bbb', pointerEvents: 'none' }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search restaurants…" style={{ width: '100%', padding: '11px 36px 11px 36px', borderRadius: 10, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+                  <input autoFocus value={search} onChange={e => { setSearch(e.target.value); if (e.target.value.length > 2) trackEvent('search_performed', { search_term: e.target.value }) }} placeholder="Search restaurants…" style={{ width: '100%', padding: '11px 36px 11px 36px', borderRadius: 10, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }} />
                   <button onClick={() => { setMobileSearchOpen(false); setSearch('') }} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
                 </div>
               </div>
@@ -654,7 +647,7 @@ function FullMapInner() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // DESKTOP LAYOUT — identical to original v2
+  // DESKTOP LAYOUT
   // ═══════════════════════════════════════════════════════════════════════════
   return (
     <>
@@ -742,7 +735,7 @@ function FullMapInner() {
             <div style={{ padding: '10px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
               <div style={{ position: 'relative' }}>
                 <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#bbb', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search restaurants…" style={{ width: '100%', padding: '9px 10px 9px 32px', borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fafafa', color: '#111', fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }} />
+                <input value={search} onChange={e => { setSearch(e.target.value); if (e.target.value.length > 2) trackEvent('search_performed', { search_term: e.target.value }) }} placeholder="Search restaurants…" style={{ width: '100%', padding: '9px 10px 9px 32px', borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fafafa', color: '#111', fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }} />
               </div>
             </div>
             <div style={{ padding: '6px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
