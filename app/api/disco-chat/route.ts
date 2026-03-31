@@ -41,11 +41,12 @@ function buildEnrichedContext(restaurantsFromSanity: any[]) {
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, restaurants } = await req.json()
+  try {
+    const { messages, restaurants } = await req.json()
 
-  const restaurantContext = buildEnrichedContext(restaurants)
+    const restaurantContext = buildEnrichedContext(restaurants || [])
 
-  const systemPrompt = `You are Disco, a friendly and knowledgeable catering assistant for Disco Cater.
+    const systemPrompt = `You are Disco, a friendly and knowledgeable catering assistant for Disco Cater.
 
 Your job is to help customers find the perfect restaurant for their catering needs. Be warm, concise, and specific.
 
@@ -62,23 +63,55 @@ Key facts:
 Available restaurants:
 ${restaurantContext}`
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1000,
-      system: systemPrompt,
-      messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
-    }),
-  })
+    // Anthropic requires the first message to be role: 'user'.
+    // The frontend sends the initial greeting ("Hi! I'm Disco...") as an assistant
+    // message at index 0, which causes Anthropic to reject every multi-turn request.
+    // Fix: strip leading assistant messages and any messages with empty content.
+    const cleanedMessages = messages
+      .filter((m: any) => m.content != null && String(m.content).trim() !== '')
+      .reduce((acc: any[], m: any) => {
+        if (acc.length === 0 && m.role === 'assistant') return acc
+        acc.push({ role: m.role, content: m.content })
+        return acc
+      }, [])
 
-  const data = await res.json()
-  const reply = data.content?.[0]?.text ?? 'Sorry, I had trouble responding. Please try again!'
+    if (cleanedMessages.length === 0) {
+      return NextResponse.json({ reply: "Hi! Tell me about your event and I'll find the perfect catering for you!" })
+    }
 
-  return NextResponse.json({ reply })
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: systemPrompt,
+        messages: cleanedMessages,
+      }),
+    })
+
+    if (!res.ok) {
+      const errorBody = await res.text()
+      console.error('Anthropic API error:', res.status, errorBody)
+      return NextResponse.json({ reply: "Sorry, I'm having trouble right now. Please try again in a moment!" })
+    }
+
+    const data = await res.json()
+    const reply = data.content?.[0]?.text
+
+    if (!reply) {
+      console.error('Unexpected Anthropic response shape:', JSON.stringify(data))
+      return NextResponse.json({ reply: "Sorry, I didn't get a response. Please try again!" })
+    }
+
+    return NextResponse.json({ reply })
+
+  } catch (e) {
+    console.error('disco-chat route error:', e)
+    return NextResponse.json({ reply: "Sorry, something went wrong. Please try again!" })
+  }
 }
