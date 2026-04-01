@@ -1,4 +1,4 @@
-// v3 — mobile optimised, map fix
+// v4 — FAQ link, #5B6FE8 user bubbles, multi-turn chat fix
 'use client'
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -366,8 +366,10 @@ function FullMapInner() {
           })),
         }),
       })
+      if (!res.ok) throw new Error(`API ${res.status}`)
       const data = await res.json()
-      setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
+      const reply = data.reply || "Sorry, I couldn't get a response. Please try again!"
+      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
     } catch {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again!' }])
     } finally {
@@ -521,14 +523,11 @@ function FullMapInner() {
           {/* 1. Header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: 'linear-gradient(180deg, rgba(107,110,249,0.08) 0%, rgba(240,70,138,0.04) 100%), #fff', paddingTop: 'max(10px, env(safe-area-inset-top))' }}>
             <Link href="/"><Image src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=200w" alt="Disco Cater" width={90} height={24} style={{ objectFit: 'contain', display: 'block' }} /></Link>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <button onClick={() => setChatOpen(true)} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#EFB84A', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, position: 'relative', boxShadow: '0 2px 10px rgba(239,184,74,0.4)' }}>
                 🤖<div style={{ position: 'absolute', top: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />
               </button>
-              <a href="https://www.familymeal.com/?action=signIn" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 20, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 12, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", textDecoration: 'none' }}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                Log In
-              </a>
+              <Link href="/faq" style={{ fontSize: 13, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
             </div>
           </div>
 
@@ -675,10 +674,7 @@ function FullMapInner() {
           <button style={pillStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All Cuisines</button>
           {topCuisines.map(c => <button key={c} style={pillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>)}
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
-          <a href="https://www.familymeal.com/?action=signIn" target="_blank" rel="noopener noreferrer" style={{ marginLeft: 'auto', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif", textDecoration: 'none', whiteSpace: 'nowrap' }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            Log In
-          </a>
+          <Link href="/faq" style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 13, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
         </div>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
