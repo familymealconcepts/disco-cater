@@ -90,6 +90,7 @@ function FullMapInner() {
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [mobileMapOpen, setMobileMapOpen] = useState(false)
   const filteredRef = useRef<Restaurant[]>([])
+  const lastTapTimes = useRef<{ [id: string]: number }>({})
 
   useEffect(() => {
     const latParam = searchParams.get('lat')
@@ -625,20 +626,46 @@ function FullMapInner() {
             )}
             {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: '48px 24px', textAlign: 'center', color: '#bbb', fontSize: 14 }}><div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>No restaurants match.</div>}
             {filtered.map((r, i) => (
-              <div key={r._id} onClick={() => handleSidebarClick(r)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 80, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', borderBottom: '1px solid #f5f5f5', transition: 'all 0.12s' }}>
-                {r.image ? <img src={r.image} alt={r.name} style={{ width: 80, height: 80, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 80, height: 80, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✦</div>}
-                <div style={{ flex: 1, padding: '12px 14px', minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                    <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#999', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{r.isDisco ? ' 🪩' : ''}</div>
-                  </div>
-                  <div style={{ fontSize: 12, color: '#bbb', marginBottom: 5 }}>{r.location}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 11, background: '#f5f1eb', padding: '2px 8px', borderRadius: 10, color: '#888' }}>{r.cuisine}</span>
-                    <span style={{ fontSize: 12, color: '#6B6EF9', fontWeight: 600 }}>Order →</span>
+                <div
+                  key={r._id}
+                  onClick={() => {
+                    const now = Date.now()
+                    const last = (lastTapTimes.current[r._id] ?? 0)
+                    if (now - last < 350) {
+                      if (r.orderUrl) window.open(r.orderUrl, '_blank', 'noopener,noreferrer')
+                      lastTapTimes.current[r._id] = 0
+                    } else {
+                      lastTapTimes.current[r._id] = now
+                      handleSidebarClick(r)
+                    }
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 80, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', borderBottom: '1px solid #f5f5f5', transition: 'all 0.12s' }}
+                >
+                  {r.image ? <img src={r.image} alt={r.name} style={{ width: 80, height: 80, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 80, height: 80, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✦</div>}
+                  <div style={{ flex: 1, padding: '12px 14px', minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                      <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#999', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{r.isDisco ? ' 🪩' : ''}</div>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#bbb', marginBottom: 5 }}>{r.location}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: 11, background: '#f5f1eb', padding: '2px 8px', borderRadius: 10, color: '#888' }}>{r.cuisine}</span>
+                      {r.orderUrl ? (
+                        <a
+                          href={r.orderUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          style={{ fontSize: 12, color: '#fff', fontWeight: 700, background: '#5B6FE8', padding: '4px 12px', borderRadius: 20, textDecoration: 'none' }}
+                        >
+                          Order →
+                        </a>
+                      ) : (
+                        <span style={{ fontSize: 12, color: '#bbb', fontWeight: 600 }}>No order link</span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
             ))}
             <div style={{ height: 'env(safe-area-inset-bottom, 16px)', minHeight: 16 }} />
           </div>
@@ -674,7 +701,7 @@ function FullMapInner() {
           <button style={pillStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All Cuisines</button>
           {topCuisines.map(c => <button key={c} style={pillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>)}
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
-          <Link href="/faq" style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 14, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif", paddingRight: 8 }}>FAQ</Link>
+          <Link href="/faq" style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 13, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
         </div>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
