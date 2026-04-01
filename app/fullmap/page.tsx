@@ -674,7 +674,7 @@ function FullMapInner() {
           <button style={pillStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All Cuisines</button>
           {topCuisines.map(c => <button key={c} style={pillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>)}
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
-          <Link href="/faq" style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 13, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
+          <Link href="/faq" style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 14, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif", paddingRight: 8 }}>FAQ</Link>
         </div>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
