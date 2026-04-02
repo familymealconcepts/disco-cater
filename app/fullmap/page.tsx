@@ -49,6 +49,7 @@ type Restaurant = {
   name: string
   location: string
   cuisine: string
+  cuisines?: string[]
   lat: number
   lng: number
   isDisco: boolean
@@ -198,13 +199,16 @@ function FullMapInner() {
   useEffect(() => {
     let out = restaurants
     if (stageFilter === 'disco') out = out.filter(r => r.isDisco)
-    if (cuisineFilter !== 'all') out = out.filter(r => r.cuisine === cuisineFilter)
+    if (cuisineFilter !== 'all') out = out.filter(r =>
+      (r.cuisines && r.cuisines.includes(cuisineFilter)) || r.cuisine === cuisineFilter
+    )
     if (search.trim()) {
       const q = search.toLowerCase()
       out = out.filter(r =>
         r.name.toLowerCase().includes(q) ||
         r.location.toLowerCase().includes(q) ||
-        r.cuisine.toLowerCase().includes(q)
+        r.cuisine.toLowerCase().includes(q) ||
+        (r.cuisines || []).some(c => c.toLowerCase().includes(q))
       )
     }
     if (proximityAnchor) {
@@ -269,7 +273,7 @@ function FullMapInner() {
             <div style="font-size:11px;color:#999;margin-bottom:8px">${r.location}</div>
             ${r.description ? `<div style="font-size:11.5px;color:#555;line-height:1.55;margin-bottom:10px">${r.description}</div>` : ''}
             <div style="display:flex;gap:5px;margin-bottom:12px">
-              <span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${r.cuisine}</span>
+              ${((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => `<span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${tag}</span>`).join('')}
             </div>
             <a href="${r.orderUrl || '#'}" target="_blank" rel="noopener"
               style="display:block;width:100%;padding:10px 0;background:#5B6FE8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">
@@ -401,7 +405,10 @@ function FullMapInner() {
   }
 
   const cuisineCounts: Record<string, number> = {}
-  restaurants.forEach(r => { cuisineCounts[r.cuisine] = (cuisineCounts[r.cuisine] || 0) + 1 })
+  restaurants.forEach(r => {
+    const tags = (r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]
+    tags.forEach(t => { if (t) cuisineCounts[t] = (cuisineCounts[t] || 0) + 1 })
+  })
   const topCuisines = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 12).map(e => e[0])
 
   const pillStyle = (active: boolean): React.CSSProperties => ({
@@ -649,7 +656,11 @@ function FullMapInner() {
                     </div>
                     <div style={{ fontSize: 12, color: '#bbb', marginBottom: 5 }}>{r.location}</div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 11, background: '#f5f1eb', padding: '2px 8px', borderRadius: 10, color: '#888' }}>{r.cuisine}</span>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1, marginRight: 8 }}>
+                        {((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => (
+                          <span key={tag} style={{ fontSize: 11, background: '#f5f1eb', padding: '2px 8px', borderRadius: 10, color: '#888' }}>{tag}</span>
+                        ))}
+                      </div>
                       {r.orderUrl ? (
                         <a
                           href={r.orderUrl}
@@ -778,7 +789,11 @@ function FullMapInner() {
                       <div style={{ fontSize: 13, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{r.isDisco ? ' 🪩' : ''}</div>
                     </div>
                     <div style={{ fontSize: 11, color: '#bbb', marginBottom: 4 }}>{r.location}</div>
-                    <span style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888' }}>{r.cuisine}</span>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => (
+                        <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888' }}>{tag}</span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ))}
