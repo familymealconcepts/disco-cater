@@ -243,10 +243,11 @@ function FullMapInner() {
       const mkDiv = document.createElement('div')
       Object.assign(mkDiv.style, {
         width: '30px', height: '30px', borderRadius: '50%',
-        background: '#111', color: '#fff', fontSize: '10px', fontWeight: '700',
+        background: '#5B6FE8', color: '#fff', fontSize: '10px', fontWeight: '700',
         position: 'relative',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        border: '2.5px solid #fff', boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+        border: r.isDisco ? '2.5px solid #EFB84A' : '2.5px solid #fff',
+        boxShadow: r.isDisco ? '0 2px 10px rgba(239,184,74,0.4)' : '0 2px 10px rgba(0,0,0,0.15)',
         fontFamily: "'DM Sans',sans-serif", cursor: 'pointer', transition: 'all 0.15s',
       })
       mkDiv.textContent = String(i + 1)
@@ -304,7 +305,8 @@ function FullMapInner() {
       })
 
       popup.on('close', () => {
-        mkDiv.style.background = '#111'
+        mkDiv.style.background = '#5B6FE8'
+        mkDiv.style.border = r.isDisco ? '2.5px solid #EFB84A' : '2.5px solid #fff'
         mkDiv.style.transform = 'scale(1)'
         setActiveId(null)
       })
