@@ -404,6 +404,9 @@ function FullMapInner() {
     })
   }
 
+  const [showMoreCuisines, setShowMoreCuisines] = useState(false)
+  const MAX_VISIBLE_CUISINES = 6
+
   const cuisineCounts: Record<string, number> = {}
   restaurants.forEach(r => {
     const tags = (r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]
@@ -470,6 +473,7 @@ function FullMapInner() {
           .disco-popup .mapboxgl-popup-tip { display:none; }
           .mobile-filter-scroll::-webkit-scrollbar { display:none; }
           .mobile-filter-scroll { -ms-overflow-style:none; scrollbar-width:none; }
+          @keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
         `}</style>
 
         {locModal}
@@ -631,6 +635,18 @@ function FullMapInner() {
                 </div>
               </div>
             )}
+            {!restaurantsLoaded && (
+              Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', minHeight: 80, borderBottom: '1px solid #f5f5f5' }}>
+                  <div style={{ width: 80, height: 80, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite', flexShrink: 0 }} />
+                  <div style={{ flex: 1, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ height: 13, width: '65%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
+                    <div style={{ height: 11, width: '40%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
+                    <div style={{ height: 11, width: '25%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
+                  </div>
+                </div>
+              ))
+            )}
             {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: '48px 24px', textAlign: 'center', color: '#bbb', fontSize: 14 }}><div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>No restaurants match.</div>}
             {filtered.map((r, i) => (
                 <div
@@ -698,21 +714,46 @@ function FullMapInner() {
         input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
         .disco-popup .mapboxgl-popup-content { padding:0; border-radius:12px; overflow:hidden; box-shadow:none; }
         .disco-popup .mapboxgl-popup-tip { display:none; }
+        @keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
       `}</style>
 
       {locModal}
 
       <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, overflowX: 'auto', background: 'linear-gradient(180deg, rgba(107,110,249,0.08) 0%, rgba(240,70,138,0.04) 100%), #fff' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: 'linear-gradient(180deg, rgba(107,110,249,0.08) 0%, rgba(240,70,138,0.04) 100%), #fff', overflow: 'visible' }}>
           <Link href="/" style={{ flexShrink: 0, marginRight: 4 }}><Image src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=200w" alt="Disco Cater" width={100} height={26} style={{ objectFit: 'contain', display: 'block' }} /></Link>
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
           <button style={darkPillStyle(stageFilter === 'all')} onClick={() => setStageFilter('all')}>All</button>
           <button style={gradientPillStyle(stageFilter === 'disco')} onClick={() => setStageFilter('disco')}>🪩 Premium</button>
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
           <button style={pillStyle(cuisineFilter === 'all')} onClick={() => setCuisineFilter('all')}>All Cuisines</button>
-          {topCuisines.map(c => <button key={c} style={pillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>)}
+          {topCuisines.slice(0, MAX_VISIBLE_CUISINES).map(c => (
+            <button key={c} style={pillStyle(cuisineFilter === c)} onClick={() => setCuisineFilter(c)}>{c}</button>
+          ))}
+          {topCuisines.length > MAX_VISIBLE_CUISINES && (
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <button
+                onClick={() => setShowMoreCuisines(o => !o)}
+                style={pillStyle(showMoreCuisines || topCuisines.slice(MAX_VISIBLE_CUISINES).includes(cuisineFilter))}
+              >
+                {topCuisines.slice(MAX_VISIBLE_CUISINES).includes(cuisineFilter) ? cuisineFilter : 'More ▾'}
+              </button>
+              {showMoreCuisines && (
+                <>
+                  <div onClick={() => setShowMoreCuisines(false)} style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
+                  <div style={{ position: 'absolute', top: 'calc(100% + 8px)', left: 0, zIndex: 100, background: '#fff', border: '1.5px solid #e8e8e8', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 6, minWidth: 160, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {topCuisines.slice(MAX_VISIBLE_CUISINES).map(c => (
+                      <button key={c} onClick={() => { setCuisineFilter(c); setShowMoreCuisines(false) }} style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: cuisineFilter === c ? '#1A1028' : 'transparent', color: cuisineFilter === c ? '#fff' : '#555', fontSize: 12, fontWeight: 600, cursor: 'pointer', textAlign: 'left', fontFamily: "'DM Sans',sans-serif" }}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
-          <Link href="/faq" style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 13, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
+          <Link href="/faq" style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 13, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif", paddingRight: 8 }}>FAQ</Link>
         </div>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -779,6 +820,18 @@ function FullMapInner() {
               {proximityAnchor && (<><span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span><button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button></>)}
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
+              {!restaurantsLoaded && (
+                Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', minHeight: 74, borderBottom: '1px solid #f5f5f5' }}>
+                    <div style={{ width: 74, height: 74, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite', flexShrink: 0 }} />
+                    <div style={{ flex: 1, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ height: 12, width: '70%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
+                      <div style={{ height: 10, width: '45%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
+                      <div style={{ height: 10, width: '30%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
+                    </div>
+                  </div>
+                ))
+              )}
               {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No restaurants match.</div>}
               {filtered.map((r, i) => (
                 <div key={r._id} onClick={() => handleSidebarClick(r)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'all 0.12s' }}>
