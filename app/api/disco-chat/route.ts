@@ -40,6 +40,20 @@ function buildEnrichedContext(restaurantsFromSanity: any[]) {
   }).join('\n\n')
 }
 
+async function fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
+  for (let i = 0; i < retries; i++) {
+    const res = await fetch(url, options)
+    if (res.status === 529 && i < retries - 1) {
+      const delay = 1000 * 2 ** i // 1s → 2s → 4s
+      console.warn(`Anthropic overloaded (529), retrying in ${delay}ms... (attempt ${i + 1}/${retries})`)
+      await new Promise(r => setTimeout(r, delay))
+      continue
+    }
+    return res
+  }
+  throw new Error('Max retries exceeded')
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { messages, restaurants } = await req.json()
@@ -63,10 +77,6 @@ Key facts:
 Available restaurants:
 ${restaurantContext}`
 
-    // Anthropic requires the first message to be role: 'user'.
-    // The frontend sends the initial greeting ("Hi! I'm Disco...") as an assistant
-    // message at index 0, which causes Anthropic to reject every multi-turn request.
-    // Fix: strip leading assistant messages and any messages with empty content.
     const cleanedMessages = messages
       .filter((m: any) => m.content != null && String(m.content).trim() !== '')
       .reduce((acc: any[], m: any) => {
@@ -79,25 +89,33 @@ ${restaurantContext}`
       return NextResponse.json({ reply: "Hi! Tell me about your event and I'll find the perfect catering for you!" })
     }
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        system: systemPrompt,
-        messages: cleanedMessages,
-      }),
-    })
+    const res = await fetchWithRetry(
+      'https://api.anthropic.com/v1/messages',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY!,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: cleanedMessages,
+        }),
+      }
+    )
 
     if (!res.ok) {
       const errorBody = await res.text()
       console.error('Anthropic API error:', res.status, errorBody)
-      return NextResponse.json({ reply: "Sorry, I'm having trouble right now. Please try again in a moment!" })
+      const isOverloaded = res.status === 529
+      return NextResponse.json({
+        reply: isOverloaded
+          ? "Disco AI is a little busy right now — try again in a sec! 🪩"
+          : "Sorry, I'm having trouble right now. Please try again in a moment!"
+      })
     }
 
     const data = await res.json()
