@@ -1,4 +1,4 @@
-// v4 — FAQ link, #5B6FE8 user bubbles, multi-turn chat fix
+// v5 — guided decision tree chat panel
 'use client'
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
@@ -59,6 +59,10 @@ type Restaurant = {
   availableDays?: string[]
 }
 
+const OCCASIONS = ['Corporate Lunch', 'Office Party', 'Birthday / Celebration', 'Team Dinner', 'Other']
+const GROUP_SIZES = ['Under 20 people', '20–50 people', '50–100 people', '100+ people']
+const CUISINES = ['American', 'Italian', 'Mexican', 'Asian', 'Mediterranean', 'Surprise Me 🎲']
+
 function FullMapInner() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
@@ -67,6 +71,7 @@ function FullMapInner() {
   const searchParams = useSearchParams()
   const locInputRef = useRef<HTMLInputElement>(null)
   const chatBottomRef = useRef<HTMLDivElement>(null)
+  const treeBottomRef = useRef<HTMLDivElement>(null)
   const isMobile = useIsMobile()
 
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
@@ -83,19 +88,20 @@ function FullMapInner() {
   const [showLocModal, setShowLocModal] = useState(false)
   const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
   const PROXIMITY_MILES = 25
-  const CHAT_STEPS = [
-    { q: "What's your event?", key: 'event', options: ['Corporate Lunch 💼', 'Birthday Party 🎂', 'Office Party 🥳', 'Social Gathering 🎉'] },
-    { q: 'How many guests?', key: 'size', options: ['Under 20', '20–50 people', '50–100 people', '100+ people'] },
-    { q: 'Dietary preferences?', key: 'diet', options: ['No preference', 'Vegetarian friendly', 'Gluten-free options', 'Mixed / anything'] },
-  ]
   const [chatOpen, setChatOpen] = useState(false)
-  const [chatStep, setChatStep] = useState(0)
-  const [chatSelections, setChatSelections] = useState<Record<string, string>>({})
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { role: 'assistant', content: "Hi! I'm Disco 🤖 Let's find perfect catering for your event. Use the buttons above to get started!" }
-  ])
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+
+  // Decision tree state
+  const [treeStep, setTreeStep] = useState<0 | 1 | 2 | 3>(0)
+  const [treeOccasion, setTreeOccasion] = useState('')
+  const [treeGroupSize, setTreeGroupSize] = useState('')
+  const [treeCuisine, setTreeCuisine] = useState('')
+  const [treeResults, setTreeResults] = useState<Restaurant[]>([])
+  const [treeAiText, setTreeAiText] = useState('')
+  const [treeLoading, setTreeLoading] = useState(false)
+
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [mobileMapOpen, setMobileMapOpen] = useState(false)
   const filteredRef = useRef<Restaurant[]>([])
@@ -361,21 +367,45 @@ function FullMapInner() {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
 
-  async function sendChat(overrideMsg?: string) {
-    const msg = overrideMsg ?? chatInput
-    if (!msg.trim() || chatLoading) return
-    trackEvent('ai_chat_message_sent', { message_preview: msg.slice(0, 50) })
-    const userMsg: ChatMessage = { role: 'user', content: msg }
-    const next = [...chatMessages, userMsg]
-    setChatMessages(next)
-    if (!overrideMsg) setChatInput('')
-    setChatLoading(true)
+  // ── Decision tree helpers ──────────────────────────────────────────────────
+
+  function extractRecommendedRestaurants(aiText: string, allRestaurants: Restaurant[]): Restaurant[] {
+    const boldNames = [...aiText.matchAll(/\*\*([^*]+)\*\*/g)].map(m => m[1].trim())
+    const results: Restaurant[] = []
+    for (const name of boldNames) {
+      const match = allRestaurants.find(r =>
+        r.name.toLowerCase() === name.toLowerCase() ||
+        r.name.toLowerCase().includes(name.toLowerCase()) ||
+        name.toLowerCase().includes(r.name.toLowerCase())
+      )
+      if (match && !results.find(r => r._id === match._id)) results.push(match)
+      if (results.length >= 3) break
+    }
+    if (results.length === 0) {
+      const numbered = [...aiText.matchAll(/\d+\.\s+\*?\*?([^*\n(,]+)/g)].map(m => m[1].trim())
+      for (const name of numbered) {
+        const key = name.toLowerCase().slice(0, 12)
+        const match = allRestaurants.find(r =>
+          r.name.toLowerCase().includes(key) || key.includes(r.name.toLowerCase().slice(0, 12))
+        )
+        if (match && !results.find(r => r._id === match._id)) results.push(match)
+        if (results.length >= 3) break
+      }
+    }
+    return results
+  }
+
+  async function runDiscoTree(occasion: string, groupSize: string, cuisine: string) {
+    setTreeLoading(true)
+    setTreeStep(3)
+    const prompt = `I need catering for a ${occasion}. Group size: ${groupSize}. Cuisine preference: ${cuisine === 'Surprise Me 🎲' ? 'anything fun and interesting — surprise me!' : cuisine}.`
+    trackEvent('ai_tree_submitted', { occasion, groupSize, cuisine })
     try {
       const res = await fetch('/api/disco-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: next,
+          messages: [{ role: 'user', content: prompt }],
           restaurants: restaurants.map(r => ({
             name: r.name, cuisine: r.cuisine, location: r.location,
             isDisco: r.isDisco, orderUrl: r.orderUrl, description: r.description,
@@ -384,8 +414,44 @@ function FullMapInner() {
       })
       if (!res.ok) throw new Error(`API ${res.status}`)
       const data = await res.json()
-      const reply = data.reply || "Sorry, I couldn't get a response. Please try again!"
-      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }])
+      const reply: string = data.reply || ''
+      setTreeAiText(reply)
+      setTreeResults(extractRecommendedRestaurants(reply, restaurants))
+    } catch {
+      setTreeAiText("Sorry, I couldn't get recommendations. Please try again!")
+      setTreeResults([])
+    } finally {
+      setTreeLoading(false)
+      setTimeout(() => treeBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 150)
+    }
+  }
+
+  async function sendChat() {
+    if (!chatInput.trim() || chatLoading) return
+    trackEvent('ai_chat_message_sent', { message_preview: chatInput.slice(0, 50) })
+    const userMsg: ChatMessage = { role: 'user', content: chatInput }
+    const contextPrefix: ChatMessage[] = treeOccasion
+      ? [{ role: 'user', content: `[Context: catering for ${treeOccasion}, ${treeGroupSize}, ${treeCuisine} cuisine]` }]
+      : []
+    const next = [...chatMessages, userMsg]
+    setChatMessages(next)
+    setChatInput('')
+    setChatLoading(true)
+    try {
+      const res = await fetch('/api/disco-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [...contextPrefix, ...next],
+          restaurants: restaurants.map(r => ({
+            name: r.name, cuisine: r.cuisine, location: r.location,
+            isDisco: r.isDisco, orderUrl: r.orderUrl, description: r.description,
+          })),
+        }),
+      })
+      if (!res.ok) throw new Error(`API ${res.status}`)
+      const data = await res.json()
+      setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply || "Sorry, try again!" }])
     } catch {
       setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again!' }])
     } finally {
@@ -393,22 +459,16 @@ function FullMapInner() {
     }
   }
 
-  function handleStepSelect(option: string) {
-    const step = CHAT_STEPS[chatStep]
-    const newSelections = { ...chatSelections, [step.key]: option }
-    setChatSelections(newSelections)
-    const nextStep = chatStep + 1
-    setChatStep(nextStep)
-    if (nextStep === CHAT_STEPS.length) {
-      const msg = `${newSelections.event}, ${newSelections.size}, dietary needs: ${newSelections.diet}`
-      sendChat(msg)
-    }
-  }
-
-  function resetChat() {
-    setChatStep(0)
-    setChatSelections({})
-    setChatMessages([{ role: 'assistant', content: "Hi! I'm Disco 🤖 Let's find perfect catering for your event. Use the buttons above to get started!" }])
+  function resetTree() {
+    setTreeStep(0)
+    setTreeOccasion('')
+    setTreeGroupSize('')
+    setTreeCuisine('')
+    setTreeResults([])
+    setTreeAiText('')
+    setTreeLoading(false)
+    setChatMessages([])
+    setChatInput('')
   }
 
   function handleSidebarClick(r: Restaurant) {
@@ -492,6 +552,261 @@ function FullMapInner() {
     </div>
   )
 
+  // ── Decision tree panel renderer ───────────────────────────────────────────
+
+  function renderTreeContent(compact: boolean) {
+    const p = compact ? '14px 12px' : '20px 18px'
+    const titleSz = compact ? 14 : 16
+    const bodySz = compact ? 12 : 13
+    const pillPadding = compact ? '9px 14px' : '11px 20px'
+    const pillFontSz = compact ? 12 : 13
+    const cardImgH = compact ? 110 : 130
+
+    const treePillStyle = (selected: boolean): React.CSSProperties => ({
+      padding: pillPadding,
+      borderRadius: 999,
+      border: selected ? 'none' : '1.5px solid #e0e0e0',
+      background: selected ? '#6B6EF9' : '#f5f5f5',
+      color: selected ? '#fff' : '#444',
+      fontSize: pillFontSz,
+      fontWeight: selected ? 700 : 500,
+      cursor: 'pointer',
+      fontFamily: "'DM Sans',sans-serif",
+      transition: 'background 0.12s, color 0.12s',
+      lineHeight: 1.3,
+    })
+
+    const progressBar = (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: compact ? 18 : 22 }}>
+        {[0, 1, 2].map(i => {
+          const done = treeStep === 3 || i < treeStep
+          const current = treeStep < 3 && treeStep === i
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, flex: i < 2 ? 1 : 0 }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+                background: done ? '#6B6EF9' : current ? 'transparent' : '#ddd',
+                border: current ? '2.5px solid #6B6EF9' : 'none',
+                transition: 'all 0.25s',
+              }} />
+              {i < 2 && <div style={{ flex: 1, height: 2, background: done ? '#6B6EF9' : '#ddd', transition: 'all 0.25s', borderRadius: 2 }} />}
+            </div>
+          )
+        })}
+        <span style={{ fontSize: 11, color: '#aaa', marginLeft: 8, fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {treeStep < 3 ? `Step ${treeStep + 1} of 3` : 'Your picks'}
+        </span>
+      </div>
+    )
+
+    // Steps 0–2
+    if (treeStep < 3) {
+      const stepConfig = [
+        {
+          question: "What's the occasion?",
+          options: OCCASIONS,
+          current: treeOccasion,
+          onSelect: (v: string) => { setTreeOccasion(v); setTreeStep(1) },
+        },
+        {
+          question: 'How many people?',
+          options: GROUP_SIZES,
+          current: treeGroupSize,
+          onSelect: (v: string) => { setTreeGroupSize(v); setTreeStep(2) },
+        },
+        {
+          question: 'Cuisine preference?',
+          options: CUISINES,
+          current: treeCuisine,
+          onSelect: (v: string) => { setTreeCuisine(v); runDiscoTree(treeOccasion, treeGroupSize, v) },
+        },
+      ][treeStep]
+
+      return (
+        <div key={`step-${treeStep}`} style={{ padding: p, animation: 'treeSlide 0.22s ease' }}>
+          {progressBar}
+          {/* Breadcrumb chips for completed steps */}
+          {(treeOccasion || treeGroupSize) && (
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 12 }}>
+              {treeOccasion && (
+                <span style={{ fontSize: 10, background: '#ede9fe', color: '#6B6EF9', padding: '3px 9px', borderRadius: 20, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
+                  {treeOccasion}
+                </span>
+              )}
+              {treeGroupSize && treeStep > 1 && (
+                <span style={{ fontSize: 10, background: '#ede9fe', color: '#6B6EF9', padding: '3px 9px', borderRadius: 20, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
+                  {treeGroupSize}
+                </span>
+              )}
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: compact ? 14 : 18 }}>
+            <div style={{ fontSize: titleSz, fontWeight: 700, color: '#111', fontFamily: "'DM Sans',sans-serif" }}>
+              {stepConfig.question}
+            </div>
+            {treeStep > 0 && (
+              <button
+                onClick={() => setTreeStep(s => (s - 1) as 0 | 1 | 2)}
+                style={{ fontSize: 11, color: '#6B6EF9', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', fontFamily: "'DM Sans',sans-serif", fontWeight: 600, flexShrink: 0, marginLeft: 8 }}
+              >
+                ← Back
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {stepConfig.options.map(o => (
+              <button key={o} onClick={() => stepConfig.onSelect(o)} style={treePillStyle(stepConfig.current === o)}>
+                {o}
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    // Loading
+    if (treeLoading) {
+      return (
+        <div key="loading" style={{ padding: p }}>
+          {progressBar}
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ fontSize: 32, marginBottom: 14 }}>✨</div>
+            <div style={{ fontSize: bodySz, color: '#777', marginBottom: 20, fontFamily: "'DM Sans',sans-serif" }}>
+              Finding your perfect match…
+            </div>
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+              {[0, 150, 300].map(d => (
+                <div key={d} style={{ width: 8, height: 8, borderRadius: '50%', background: '#6B6EF9', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Results (treeStep === 3, not loading)
+    return (
+      <div key="results" style={{ padding: p }}>
+        {progressBar}
+        {/* Selection summary */}
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 14 }}>
+          {[treeOccasion, treeGroupSize, treeCuisine].filter(Boolean).map(s => (
+            <span key={s} style={{ fontSize: 10, background: '#ede9fe', color: '#6B6EF9', padding: '3px 9px', borderRadius: 20, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
+              {s}
+            </span>
+          ))}
+        </div>
+
+        <div style={{ fontSize: compact ? 13 : 14, fontWeight: 700, color: '#111', marginBottom: 14, fontFamily: "'DM Sans',sans-serif" }}>
+          {treeResults.length > 0 ? 'Here are your top picks 🎉' : 'Here\'s what we found'}
+        </div>
+
+        {/* Fallback text when no restaurant cards matched */}
+        {treeResults.length === 0 && treeAiText && (
+          <div style={{ fontSize: bodySz, color: '#555', lineHeight: 1.65, marginBottom: 16, fontFamily: "'DM Sans',sans-serif", whiteSpace: 'pre-wrap', background: '#fff', border: '1px solid #f0f0f0', borderRadius: 12, padding: compact ? '12px 14px' : '14px 16px' }}>
+            {treeAiText}
+          </div>
+        )}
+
+        {/* Restaurant cards */}
+        {treeResults.map(r => (
+          <div key={r._id} style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #e8e8e8', overflow: 'hidden', marginBottom: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
+            {r.image && (
+              <img src={r.image} alt={r.name} style={{ width: '100%', height: cardImgH, objectFit: 'cover', display: 'block' }} />
+            )}
+            <div style={{ padding: compact ? '10px 12px 13px' : '13px 14px 15px' }}>
+              <div style={{ fontSize: compact ? 13 : 14, fontWeight: 700, color: '#111', marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>
+                {r.name}{r.isDisco ? ' 🪩' : ''}
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+                {((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => (
+                  <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888', fontFamily: "'DM Sans',sans-serif" }}>{tag}</span>
+                ))}
+              </div>
+              {r.orderUrl ? (
+                <a
+                  href={r.orderUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'block', textAlign: 'center', padding: compact ? '9px 0' : '10px 0', background: '#6B6EF9', color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: compact ? 12 : 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}
+                >
+                  Order Now →
+                </a>
+              ) : (
+                <div style={{ textAlign: 'center', padding: compact ? '9px 0' : '10px 0', background: '#f5f5f5', color: '#bbb', borderRadius: 8, fontSize: compact ? 12 : 13, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
+                  No order link available
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* Follow-up bubbles */}
+        {chatMessages.length > 0 && (
+          <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {chatMessages.map((m, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                <div style={{
+                  maxWidth: '88%', padding: '8px 12px',
+                  borderRadius: m.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+                  background: m.role === 'user' ? '#5B6FE8' : '#fff',
+                  color: m.role === 'user' ? '#fff' : '#111',
+                  fontSize: compact ? 12 : 13, lineHeight: 1.55,
+                  fontFamily: "'DM Sans',sans-serif",
+                  border: m.role === 'assistant' ? '1px solid #f0f0f0' : 'none',
+                  boxShadow: m.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none',
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                }}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div style={{ display: 'flex' }}>
+                <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '14px 14px 14px 4px', padding: '10px 14px' }}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[0, 150, 300].map(d => <div key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Follow-up input */}
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: '#aaa', marginBottom: 7, fontFamily: "'DM Sans',sans-serif" }}>Have a follow-up question?</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && sendChat()}
+              placeholder="Ask something…"
+              style={{ flex: 1, padding: compact ? '8px 11px' : '9px 13px', borderRadius: 20, border: '1.5px solid #e8e8e8', fontSize: compact ? 12 : 12.5, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fff', color: '#111' }}
+            />
+            <button
+              onClick={sendChat}
+              disabled={chatLoading || !chatInput.trim()}
+              style={{ width: compact ? 34 : 38, height: compact ? 34 : 38, borderRadius: '50%', border: 'none', background: '#5B6FE8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1, alignSelf: 'center' }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Start Over */}
+        <button
+          onClick={resetTree}
+          style={{ width: '100%', padding: compact ? '9px' : '10px', borderRadius: 8, border: '1.5px solid #e0e0e0', background: '#fff', color: '#999', fontSize: compact ? 12 : 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
+        >
+          ↺ Start Over
+        </button>
+
+        <div ref={treeBottomRef} />
+      </div>
+    )
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // MOBILE LAYOUT
   // ═══════════════════════════════════════════════════════════════════════════
@@ -504,6 +819,7 @@ function FullMapInner() {
           @keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }
           @keyframes fadeUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
           @keyframes slideUp { from { transform:translateY(100%) } to { transform:translateY(0) } }
+          @keyframes treeSlide { from { opacity:0; transform:translateX(10px) } to { opacity:1; transform:translateX(0) } }
           .disco-popup .mapboxgl-popup-content { padding:0; border-radius:12px; overflow:hidden; box-shadow:none; }
           .disco-popup .mapboxgl-popup-tip { display:none; }
           .mobile-filter-scroll::-webkit-scrollbar { display:none; }
@@ -515,87 +831,19 @@ function FullMapInner() {
 
         {/* AI Chat full-screen overlay */}
         {chatOpen && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: '#fff', display: 'flex', flexDirection: 'column', fontFamily: "'DM Sans',sans-serif" }}>
-            {/* Header */}
+          <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: '#fafafa', display: 'flex', flexDirection: 'column', fontFamily: "'DM Sans',sans-serif" }}>
             <div style={{ padding: '12px 16px', background: '#EFB84A', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
               <div style={{ fontSize: 22 }}>🤖</div>
-              <div><div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Disco AI</div><div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>Catering Finder</div></div>
+              <div>
+                <div style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>Disco AI</div>
+                <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>Catering Assistant</div>
+              </div>
               <button onClick={() => setChatOpen(false)} style={{ marginLeft: 'auto', background: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 20, lineHeight: 1, padding: '6px 10px', borderRadius: 8 }}>×</button>
             </div>
-
-            {/* Decision tree */}
-            <div style={{ padding: '16px 16px 14px', background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-              {chatStep < CHAT_STEPS.length ? (
-                <>
-                  <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
-                    {CHAT_STEPS.map((_, i) => (
-                      <div key={i} style={{ height: 4, flex: 1, borderRadius: 2, background: i < chatStep ? '#22c55e' : i === chatStep ? '#5B6FE8' : '#e8e8e8', transition: 'background 0.2s' }} />
-                    ))}
-                  </div>
-                  {chatStep > 0 && (
-                    <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 12 }}>
-                      {CHAT_STEPS.slice(0, chatStep).map(step => (
-                        <span key={step.key} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, background: '#f0fdf4', color: '#15803d', fontWeight: 600, border: '1px solid #bbf7d0' }}>
-                          {chatSelections[step.key]} ✓
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#111', marginBottom: 12 }}>{CHAT_STEPS[chatStep].q}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 9 }}>
-                    {CHAT_STEPS[chatStep].options.map(opt => (
-                      <button key={opt} onClick={() => handleStepSelect(opt)}
-                        style={{ padding: '10px 16px', borderRadius: 22, border: '1.5px solid #5B6FE8', background: '#fff', color: '#5B6FE8', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
-                        {opt}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 13, color: '#888' }}>Your recommendations are below</span>
-                  <button onClick={resetChat} style={{ fontSize: 13, color: '#5B6FE8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", fontWeight: 600 }}>← Start over</button>
-                </div>
-              )}
+            <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
+              {renderTreeContent(false)}
             </div>
-
-            {/* Messages */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 14px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {chatMessages.map((msg, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 8 }}>
-                  {msg.role === 'assistant' && <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#EFB84A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>🤖</div>}
-                  <div style={{ maxWidth: '85%', padding: '11px 14px', borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px', background: msg.role === 'user' ? '#5B6FE8' : '#fff', color: msg.role === 'user' ? '#fff' : '#111', fontSize: 14, lineHeight: 1.6, boxShadow: msg.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none', border: msg.role === 'assistant' ? '1px solid #f0f0f0' : 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    {msg.role === 'assistant'
-                      ? msg.content.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
-                          /^https?:\/\//.test(part) ? (() => {
-                            const preceding = msg.content.substring(0, msg.content.indexOf(part))
-                            const nameMatch = preceding.match(/\*\*([^*]+)\*\*[^*]*$/) || preceding.match(/[-•]\s*([^\n(]+?)\s*[\n(](?=[^\n]*$)/)
-                            const restaurantName = nameMatch ? nameMatch[1].trim() : 'this restaurant'
-                            return <a key={j} href={part} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: 10, padding: '13px 18px', borderRadius: 12, background: GRADIENT, color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', textAlign: 'center' }}>Order from {restaurantName} →</a>
-                          })() : <span key={j}>{part}</span>
-                        )
-                      : msg.content}
-                  </div>
-                </div>
-              ))}
-              {chatLoading && (
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-                  <div style={{ width: 30, height: 30, borderRadius: '50%', background: '#EFB84A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🤖</div>
-                  <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '18px 18px 18px 4px', padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', gap: 5 }}>{[0,150,300].map(d => <div key={d} style={{ width: 7, height: 7, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}</div>
-                  </div>
-                </div>
-              )}
-              <div ref={chatBottomRef} />
-            </div>
-
-            {/* Text input fallback */}
-            <div style={{ padding: '12px 14px', background: '#fff', borderTop: '1px solid #f0f0f0', display: 'flex', gap: 10, paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
-              <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChat()} placeholder="Or type your request…" style={{ flex: 1, padding: '12px 16px', borderRadius: 24, border: '1.5px solid #e8e8e8', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fafafa', color: '#111' }} />
-              <button onClick={() => sendChat()} disabled={chatLoading || !chatInput.trim()} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: '#5B6FE8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
-              </button>
-            </div>
+            <div style={{ height: 'env(safe-area-inset-bottom, 0px)', background: '#fafafa', flexShrink: 0 }} />
           </div>
         )}
 
@@ -780,6 +1028,7 @@ function FullMapInner() {
         .pac-container { z-index: 9999 !important; font-family: 'DM Sans', sans-serif !important; }
         @keyframes bounce { 0%,80%,100% { transform:translateY(0) } 40% { transform:translateY(-6px) } }
         @keyframes fadeUp { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:translateY(0) } }
+        @keyframes treeSlide { from { opacity:0; transform:translateX(10px) } to { opacity:1; transform:translateX(0) } }
         input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
         .disco-popup .mapboxgl-popup-content { padding:0; border-radius:12px; overflow:hidden; box-shadow:none; }
         .disco-popup .mapboxgl-popup-tip { display:none; }
@@ -826,87 +1075,19 @@ function FullMapInner() {
         </div>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          {/* AI decision tree panel */}
           {chatOpen && (
-            <div style={{ width: 416, minWidth: 416, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fff' }}>
-              {/* Header */}
+            <div style={{ width: 380, minWidth: 380, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fafafa' }}>
               <div style={{ padding: '12px 14px', borderBottom: '1px solid #f0f0f0', background: '#EFB84A', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                 <div style={{ fontSize: 22 }}>🤖</div>
-                <div><div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>Disco AI</div><div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>Catering Finder</div></div>
+                <div>
+                  <div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>Disco AI</div>
+                  <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>Catering Assistant</div>
+                </div>
                 <button onClick={() => setChatOpen(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.8)', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
               </div>
-
-              {/* Decision tree */}
-              <div style={{ padding: '14px 12px', background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
-                {chatStep < CHAT_STEPS.length ? (
-                  <>
-                    <div style={{ display: 'flex', gap: 3, marginBottom: 12 }}>
-                      {CHAT_STEPS.map((_, i) => (
-                        <div key={i} style={{ height: 3, flex: 1, borderRadius: 2, background: i < chatStep ? '#22c55e' : i === chatStep ? '#5B6FE8' : '#e8e8e8', transition: 'background 0.2s' }} />
-                      ))}
-                    </div>
-                    {chatStep > 0 && (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
-                        {CHAT_STEPS.slice(0, chatStep).map(step => (
-                          <span key={step.key} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#f0fdf4', color: '#15803d', fontWeight: 600, border: '1px solid #bbf7d0' }}>
-                            {chatSelections[step.key]} ✓
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 10 }}>{CHAT_STEPS[chatStep].q}</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-                      {CHAT_STEPS[chatStep].options.map(opt => (
-                        <button key={opt} onClick={() => handleStepSelect(opt)}
-                          style={{ padding: '8px 13px', borderRadius: 20, border: '1.5px solid #5B6FE8', background: '#fff', color: '#5B6FE8', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
-                          {opt}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: 12, color: '#888' }}>Results below</span>
-                    <button onClick={resetChat} style={{ fontSize: 12, color: '#5B6FE8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", fontWeight: 600 }}>← Start over</button>
-                  </div>
-                )}
-              </div>
-
-              {/* Messages */}
-              <div style={{ flex: 1, overflowY: 'auto', padding: '12px 10px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {chatMessages.map((msg, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', alignItems: 'flex-end', gap: 6 }}>
-                    {msg.role === 'assistant' && <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#EFB84A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0, marginBottom: 2 }}>🤖</div>}
-                    <div style={{ maxWidth: '85%', padding: '9px 12px', borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px', background: msg.role === 'user' ? '#5B6FE8' : '#fff', color: msg.role === 'user' ? '#fff' : '#111', fontSize: 12.5, lineHeight: 1.55, boxShadow: msg.role === 'assistant' ? '0 1px 4px rgba(0,0,0,0.06)' : 'none', border: msg.role === 'assistant' ? '1px solid #f0f0f0' : 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                      {msg.role === 'assistant'
-                        ? msg.content.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
-                            /^https?:\/\//.test(part) ? (() => {
-                              const preceding = msg.content.substring(0, msg.content.indexOf(part))
-                              const nameMatch = preceding.match(/\*\*([^*]+)\*\*[^*]*$/) || preceding.match(/[-•]\s*([^\n(]+?)\s*[\n(](?=[^\n]*$)/)
-                              const restaurantName = nameMatch ? nameMatch[1].trim() : 'this restaurant'
-                              return <a key={j} href={part} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: 10, padding: '11px 16px', borderRadius: 10, background: GRADIENT, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none', textAlign: 'center' }}>Order from {restaurantName} →</a>
-                            })() : <span key={j}>{part}</span>
-                          )
-                        : msg.content}
-                    </div>
-                  </div>
-                ))}
-                {chatLoading && (
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
-                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#EFB84A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🤖</div>
-                    <div style={{ background: '#fff', border: '1px solid #f0f0f0', borderRadius: '16px 16px 16px 4px', padding: '10px 14px' }}>
-                      <div style={{ display: 'flex', gap: 4 }}>{[0,150,300].map(d => <div key={d} style={{ width: 6, height: 6, borderRadius: '50%', background: '#ccc', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />)}</div>
-                    </div>
-                  </div>
-                )}
-                <div ref={chatBottomRef} />
-              </div>
-
-              {/* Text input fallback */}
-              <div style={{ padding: '10px', background: '#fff', borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8 }}>
-                <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendChat()} placeholder="Or type your request…" style={{ flex: 1, padding: '9px 12px', borderRadius: 20, border: '1.5px solid #e8e8e8', fontSize: 12.5, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fafafa', color: '#111' }} />
-                <button onClick={() => sendChat()} disabled={chatLoading || !chatInput.trim()} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#5B6FE8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (chatLoading || !chatInput.trim()) ? 0.4 : 1 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>
-                </button>
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                {renderTreeContent(true)}
               </div>
             </div>
           )}
