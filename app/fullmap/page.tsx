@@ -76,6 +76,7 @@ function FullMapInner() {
   const [stageFilter, setStageFilter] = useState<'all' | 'disco'>('all')
   const [cuisineFilter, setCuisineFilter] = useState('all')
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [locInput, setLocInput] = useState('')
   const [locLoading, setLocLoading] = useState(false)
   const [locError, setLocError] = useState('')
@@ -414,7 +415,13 @@ function FullMapInner() {
     const tags = (r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]
     tags.forEach(t => { if (t) cuisineCounts[t] = (cuisineCounts[t] || 0) + 1 })
   })
-  const topCuisines = Object.entries(cuisineCounts).sort((a, b) => b[1] - a[1]).slice(0, 12).map(e => e[0])
+  const PREFERRED_CUISINES = ['Pizza', 'Bakery', 'Tacos', 'Wings', 'Burritos', 'Salads']
+  const EXCLUDED_CUISINES = ['American', 'Cafe']
+  const preferredAvailable = PREFERRED_CUISINES.filter(c => cuisineCounts[c] > 0)
+  const otherCuisines = Object.entries(cuisineCounts)
+    .filter(([c]) => !PREFERRED_CUISINES.includes(c) && !EXCLUDED_CUISINES.includes(c))
+    .sort((a, b) => b[1] - a[1]).map(e => e[0])
+  const topCuisines = [...preferredAvailable, ...otherCuisines].slice(0, 12)
 
   const pillStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 20, overflow: 'hidden', border: 'none',
@@ -836,7 +843,7 @@ function FullMapInner() {
               )}
               {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No restaurants match.</div>}
               {filtered.map((r, i) => (
-                <div key={r._id} onClick={() => handleSidebarClick(r)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'all 0.12s' }}>
+                <div key={r._id} onClick={() => handleSidebarClick(r)} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.07)' : hoveredId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'background 0.18s, border-color 0.18s' }}>
                   {r.image ? <img src={r.image} alt={r.name} style={{ width: 74, height: 74, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 74, height: 74, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>✦</div>}
                   <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
