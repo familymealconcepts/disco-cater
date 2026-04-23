@@ -257,7 +257,7 @@ function FullMapInner() {
       const mkDiv = document.createElement('div')
       Object.assign(mkDiv.style, {
         width: '30px', height: '30px', borderRadius: '50%',
-        background: '#5B6FE8', color: '#fff', fontSize: '10px', fontWeight: '700',
+        background: '#22C55E', color: '#fff', fontSize: '10px', fontWeight: '700',
         position: 'relative',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         border: r.isDisco ? '2.5px solid #EFB84A' : '2.5px solid #fff',
@@ -291,7 +291,7 @@ function FullMapInner() {
               ${((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => `<span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${tag}</span>`).join('')}
             </div>
             <a href="${r.orderUrl || '#'}" target="_blank" rel="noopener"
-              style="display:block;width:100%;padding:10px 0;background:#5B6FE8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">
+              style="display:block;width:100%;padding:10px 0;background:#22C55E;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">
               Order Catering →
             </a>
           </div>
@@ -319,7 +319,7 @@ function FullMapInner() {
       })
 
       popup.on('close', () => {
-        mkDiv.style.background = '#5B6FE8'
+        mkDiv.style.background = '#22C55E'
         mkDiv.style.border = r.isDisco ? '2.5px solid #EFB84A' : '2.5px solid #fff'
         mkDiv.style.transform = 'scale(1)'
         setActiveId(null)
