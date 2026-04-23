@@ -108,19 +108,49 @@ function FullMapInner() {
   const lastTapTimes = useRef<{ [id: string]: number }>({})
   const isMobileRef = useRef(false)
   const mobileSliderRef = useRef<HTMLDivElement>(null)
+  const sliderScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { isMobileRef.current = isMobile }, [isMobile])
 
-  // Scroll active card to center of slider on mobile
+  // When activeId changes (marker tap), scroll slider to that card
   useEffect(() => {
     if (!isMobileRef.current || !mobileMapOpen || !activeId || !mobileSliderRef.current) return
     const slider = mobileSliderRef.current
     const idx = filtered.findIndex(r => r._id === activeId)
     if (idx < 0) return
-    const card = slider.children[idx] as HTMLElement
-    if (!card) return
-    slider.scrollTo({ left: card.offsetLeft - slider.offsetWidth / 2 + card.offsetWidth / 2, behavior: 'smooth' })
+    slider.scrollTo({ left: idx * slider.offsetWidth, behavior: 'smooth' })
   }, [activeId, mobileMapOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When activeId changes, sync marker visual state
+  useEffect(() => {
+    Object.entries(markersRef.current).forEach(([id, marker]) => {
+      const mkDiv = marker.getElement().firstChild as HTMLElement
+      if (!mkDiv) return
+      const r = restaurants.find(rest => rest._id === id)
+      if (id === activeId) {
+        mkDiv.style.background = GRADIENT
+        mkDiv.style.transform = 'scale(1.2)'
+      } else {
+        mkDiv.style.background = '#5B6FE8'
+        if (r) mkDiv.style.border = r.isDisco ? '2.5px solid #EFB84A' : '2.5px solid #fff'
+        mkDiv.style.transform = 'scale(1)'
+      }
+    })
+  }, [activeId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleSliderScroll(e: React.UIEvent<HTMLDivElement>) {
+    const slider = e.currentTarget
+    if (sliderScrollTimerRef.current) clearTimeout(sliderScrollTimerRef.current)
+    sliderScrollTimerRef.current = setTimeout(() => {
+      if (!mobileSliderRef.current) return
+      const idx = Math.round(mobileSliderRef.current.scrollLeft / mobileSliderRef.current.offsetWidth)
+      const r = filtered[idx]
+      if (r && r._id !== activeId) {
+        setActiveId(r._id)
+        map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 11), speed: 2, essential: true })
+      }
+    }, 120)
+  }
 
   useEffect(() => {
     const latParam = searchParams.get('lat')
@@ -282,65 +312,55 @@ function FullMapInner() {
       mkDiv.textContent = String(i + 1)
       el.appendChild(mkDiv)
 
-      const popup = new mapboxgl.Popup({
-        offset: [0, -44],
-        closeButton: false,
-        closeOnClick: false,
-        maxWidth: '290px',
-        className: 'disco-popup',
-      }).setHTML(`
-        <div style="font-family:'DM Sans',sans-serif;width:270px;border-radius:12px;overflow:hidden;position:relative;box-shadow:0 4px 24px rgba(0,0,0,0.13)">
-          <button onclick="this.closest('.mapboxgl-popup').remove()" style="
-            position:absolute;top:8px;right:8px;z-index:10;
-            width:26px;height:26px;border-radius:50%;
-            background:rgba(0,0,0,0.55);color:#fff;border:none;
-            font-size:14px;font-weight:700;cursor:pointer;
-            display:flex;align-items:center;justify-content:center;
-            line-height:1;backdrop-filter:blur(4px);">×</button>
-          ${r.image ? `<div style="height:140px;overflow:hidden"><img src="${r.image}" style="width:100%;height:100%;object-fit:cover"/></div>` : ''}
-          <div style="padding:14px 16px 16px">
-            <div style="font-size:14px;font-weight:700;margin-bottom:2px;color:#111">✦ ${r.name}${r.isDisco ? ' 🪩' : ''}</div>
-            <div style="font-size:11px;color:#999;margin-bottom:8px">${r.location}</div>
-            ${r.description ? `<div style="font-size:11.5px;color:#555;line-height:1.55;margin-bottom:10px">${r.description}</div>` : ''}
-            <div style="display:flex;gap:5px;margin-bottom:12px">
-              ${((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => `<span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${tag}</span>`).join('')}
-            </div>
-            <a href="${r.orderUrl || '#'}" target="_blank" rel="noopener"
-              style="display:block;width:100%;padding:10px 0;background:#5B6FE8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">
-              Order Catering →
-            </a>
-          </div>
-        </div>
-      `)
+      const marker = new mapboxgl.Marker(el).setLngLat([r.lng, r.lat])
 
-      popupsRef.current[r._id] = popup
-
-      el.addEventListener('click', () => {
-        closeAllPopups()
-        setActiveId(r._id)
-        trackEvent('restaurant_click', { restaurant_name: r.name, cuisine: r.cuisine })
-        mkDiv.style.background = GRADIENT
-        mkDiv.style.transform = 'scale(1.2)'
-        if (isMobileRef.current) {
-          // Mobile: fly to marker, slider scroll handled by useEffect
+      if (isMobileRef.current) {
+        // Mobile: no popup at all — tap just activates the card in the slider
+        el.addEventListener('click', () => {
+          setActiveId(r._id)
+          trackEvent('restaurant_click', { restaurant_name: r.name, cuisine: r.cuisine })
           map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 13), speed: 3, essential: true })
-        } else {
+        })
+      } else {
+        // Desktop: full popup
+        const popup = new mapboxgl.Popup({
+          offset: [0, -44], closeButton: false, closeOnClick: false, maxWidth: '290px', className: 'disco-popup',
+        }).setHTML(`
+          <div style="font-family:'DM Sans',sans-serif;width:270px;border-radius:12px;overflow:hidden;position:relative;box-shadow:0 4px 24px rgba(0,0,0,0.13)">
+            <button onclick="this.closest('.mapboxgl-popup').remove()" style="position:absolute;top:8px;right:8px;z-index:10;width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,0.55);color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;backdrop-filter:blur(4px);">×</button>
+            ${r.image ? `<div style="height:140px;overflow:hidden"><img src="${r.image}" style="width:100%;height:100%;object-fit:cover"/></div>` : ''}
+            <div style="padding:14px 16px 16px">
+              <div style="font-size:14px;font-weight:700;margin-bottom:2px;color:#111">✦ ${r.name}${r.isDisco ? ' 🪩' : ''}</div>
+              <div style="font-size:11px;color:#999;margin-bottom:8px">${r.location}</div>
+              ${r.description ? `<div style="font-size:11.5px;color:#555;line-height:1.55;margin-bottom:10px">${r.description}</div>` : ''}
+              <div style="display:flex;gap:5px;margin-bottom:12px">
+                ${((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => `<span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${tag}</span>`).join('')}
+              </div>
+              <a href="${r.orderUrl || '#'}" target="_blank" rel="noopener" style="display:block;width:100%;padding:10px 0;background:#5B6FE8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">Order Catering →</a>
+            </div>
+          </div>
+        `)
+        popupsRef.current[r._id] = popup
+        popup.on('close', () => {
+          mkDiv.style.background = '#5B6FE8'
+          mkDiv.style.border = r.isDisco ? '2.5px solid #EFB84A' : '2.5px solid #fff'
+          mkDiv.style.transform = 'scale(1)'
+          setActiveId(null)
+        })
+        el.addEventListener('click', () => {
+          closeAllPopups()
+          setActiveId(r._id)
+          trackEvent('restaurant_click', { restaurant_name: r.name, cuisine: r.cuisine })
+          mkDiv.style.background = GRADIENT
+          mkDiv.style.transform = 'scale(1.2)'
           const mapH = mapContainer.current?.clientHeight ?? 600
           const popupH = r.image ? 340 : 220
           const verticalOffset = Math.round((mapH / 2) - (popupH / 2) - 44)
           map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 11), speed: 3, essential: true, offset: [0, -verticalOffset] })
-        }
-      })
+        })
+        marker.setPopup(popup)
+      }
 
-      popup.on('close', () => {
-        mkDiv.style.background = '#5B6FE8'
-        mkDiv.style.border = r.isDisco ? '2.5px solid #EFB84A' : '2.5px solid #fff'
-        mkDiv.style.transform = 'scale(1)'
-        setActiveId(null)
-      })
-
-      const marker = new mapboxgl.Marker(el).setLngLat([r.lng, r.lat])
-      if (!isMobileRef.current) marker.setPopup(popup)
       marker.addTo(map.current!)
 
       markersRef.current[r._id] = marker
@@ -948,43 +968,49 @@ function FullMapInner() {
                     </button>
                   </div>
                 )}
-                {/* Restaurant card slider */}
+                {/* Restaurant card slider — 1 card at a time, full width */}
                 {filtered.length > 0 && (
-                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to top, rgba(0,0,0,0.28) 0%, transparent 100%)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
-                    <div ref={mobileSliderRef} className="mobile-filter-scroll" style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: '20px 16px 16px', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' as any }}>
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to top, rgba(0,0,0,0.32) 0%, transparent 100%)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
+                    <div
+                      ref={mobileSliderRef}
+                      className="mobile-filter-scroll"
+                      onScroll={handleSliderScroll}
+                      style={{ display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' as any }}
+                    >
                       {filtered.map((r, i) => (
-                        <div
-                          key={r._id}
-                          onClick={() => handleSidebarClick(r)}
-                          style={{ flexShrink: 0, width: 220, background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.18)', scrollSnapAlign: 'start', cursor: 'pointer', border: `2.5px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, transition: 'border-color 0.15s' }}
-                        >
-                          {r.image
-                            ? <img src={r.image} alt={r.name} style={{ width: '100%', height: 110, objectFit: 'cover', display: 'block' }} />
-                            : <div style={{ height: 110, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>✦</div>
-                          }
-                          <div style={{ padding: '10px 12px 12px' }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: "'DM Sans',sans-serif" }}>
-                              {i + 1}. {r.name}{r.isDisco ? ' 🪩' : ''}
-                            </div>
-                            <div style={{ display: 'flex', gap: 4, marginBottom: 10, overflow: 'hidden' }}>
-                              {((r.cuisines && r.cuisines.length > 0) ? r.cuisines.slice(0, 2) : [r.cuisine]).map(tag => (
-                                <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888', whiteSpace: 'nowrap' }}>{tag}</span>
-                              ))}
-                            </div>
-                            {r.orderUrl ? (
-                              <a href={r.orderUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                                style={{ display: 'block', textAlign: 'center', padding: '8px 0', background: '#5B6FE8', color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>
-                                Order Catering →
-                              </a>
-                            ) : (
-                              <div style={{ textAlign: 'center', padding: '8px 0', background: '#f5f5f5', color: '#bbb', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
-                                No order link
+                        <div key={r._id} style={{ flexShrink: 0, width: '100%', scrollSnapAlign: 'start', padding: '16px 16px 12px' }}>
+                          <div
+                            onClick={() => handleSidebarClick(r)}
+                            style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.18)', cursor: 'pointer', border: `2.5px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, transition: 'border-color 0.15s' }}
+                          >
+                            {r.image
+                              ? <img src={r.image} alt={r.name} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
+                              : <div style={{ height: 120, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>✦</div>
+                            }
+                            <div style={{ padding: '10px 14px 14px' }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: "'DM Sans',sans-serif" }}>
+                                {i + 1}. {r.name}{r.isDisco ? ' 🪩' : ''}
                               </div>
-                            )}
+                              <div style={{ fontSize: 12, color: '#bbb', marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>{r.location}</div>
+                              <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+                                {((r.cuisines && r.cuisines.length > 0) ? r.cuisines.slice(0, 3) : [r.cuisine]).map(tag => (
+                                  <span key={tag} style={{ fontSize: 11, background: '#f5f1eb', padding: '2px 8px', borderRadius: 10, color: '#888', whiteSpace: 'nowrap' }}>{tag}</span>
+                                ))}
+                              </div>
+                              {r.orderUrl ? (
+                                <a href={r.orderUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                  style={{ display: 'block', textAlign: 'center', padding: '10px 0', background: '#5B6FE8', color: '#fff', borderRadius: 10, textDecoration: 'none', fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>
+                                  Order Catering →
+                                </a>
+                              ) : (
+                                <div style={{ textAlign: 'center', padding: '10px 0', background: '#f5f5f5', color: '#bbb', borderRadius: 10, fontSize: 13, fontWeight: 600 }}>
+                                  No order link
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
-                      <div style={{ flexShrink: 0, width: 4 }} />
                     </div>
                   </div>
                 )}
