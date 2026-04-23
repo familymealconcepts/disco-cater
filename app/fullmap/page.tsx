@@ -494,14 +494,14 @@ function FullMapInner() {
   }
 
   const [showMoreCuisines, setShowMoreCuisines] = useState(false)
-  const MAX_VISIBLE_CUISINES = 6
+  const MAX_VISIBLE_CUISINES = 7
 
   const cuisineCounts: Record<string, number> = {}
   restaurants.forEach(r => {
     const tags = (r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]
     tags.forEach(t => { if (t) cuisineCounts[t] = (cuisineCounts[t] || 0) + 1 })
   })
-  const PREFERRED_CUISINES = ['Pizza', 'Bakery', 'Tacos', 'Wings', 'Burritos', 'Salads']
+  const PREFERRED_CUISINES = ['Sandwiches', 'Bagels', 'Deli', 'Chicken', 'Breakfast', 'Mexican', 'Pizza']
   const EXCLUDED_CUISINES = ['American', 'Cafe']
   const preferredAvailable = PREFERRED_CUISINES.filter(c => cuisineCounts[c] > 0)
   const otherCuisines = Object.entries(cuisineCounts)
