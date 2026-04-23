@@ -110,17 +110,14 @@ function FullMapInner() {
   const isMobileRef = useRef(false)
   const mobileSliderRef = useRef<HTMLDivElement>(null)
   const sliderScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // True when a tap (not a swipe) just set sortAnchor — tells the filtering effect to scroll after re-sort
+  const tapResortPendingRef = useRef(false)
 
   useEffect(() => { isMobileRef.current = isMobile }, [isMobile])
 
-  // When activeId changes (marker/card tap) or filtered re-sorts, scroll slider to that card
-  useEffect(() => {
-    if (!isMobileRef.current || !mobileMapOpen || !activeId || !mobileSliderRef.current) return
-    const slider = mobileSliderRef.current
-    const idx = filtered.findIndex(r => r._id === activeId)
-    if (idx < 0) return
-    slider.scrollTo({ left: idx * slider.offsetWidth, behavior: 'smooth' })
-  }, [activeId, filtered, mobileMapOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Sync marker visual state when activeId changes
+  // (slider scroll is handled inside the filtering effect for tap-triggered re-sorts,
+  //  and skipped for swipe-triggered activeId changes via the currentIdx guard)
 
   // When activeId changes, sync marker visual state
   useEffect(() => {
@@ -140,17 +137,18 @@ function FullMapInner() {
   }, [activeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSliderScroll(e: React.UIEvent<HTMLDivElement>) {
-    const slider = e.currentTarget
     if (sliderScrollTimerRef.current) clearTimeout(sliderScrollTimerRef.current)
     sliderScrollTimerRef.current = setTimeout(() => {
       if (!mobileSliderRef.current) return
-      const idx = Math.round(mobileSliderRef.current.scrollLeft / mobileSliderRef.current.offsetWidth)
-      const r = filtered[idx]
+      const slider = mobileSliderRef.current
+      const idx = Math.round(slider.scrollLeft / slider.offsetWidth)
+      const r = filteredRef.current[idx]
       if (r && r._id !== activeId) {
+        // Swipe does NOT set tapResortPendingRef — no re-sort, no programmatic scroll needed
         setActiveId(r._id)
         map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 11), speed: 2, essential: true })
       }
-    }, 120)
+    }, 150)
   }
 
   useEffect(() => {
@@ -285,7 +283,20 @@ function FullMapInner() {
     }
     setFiltered(out)
     filteredRef.current = out
-  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor, sortAnchor])
+
+    // After a tap-triggered re-sort, scroll slider to the active card using fresh data
+    if (tapResortPendingRef.current && isMobileRef.current && mobileSliderRef.current) {
+      tapResortPendingRef.current = false
+      const currentActiveId = activeId  // capture from closure
+      const idx = out.findIndex(r => r._id === currentActiveId)
+      if (idx >= 0) {
+        const slider = mobileSliderRef.current
+        setTimeout(() => {
+          slider.scrollTo({ left: idx * slider.offsetWidth, behavior: 'smooth' })
+        }, 0)
+      }
+    }
+  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor, sortAnchor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function closeAllPopups() {
     Object.values(popupsRef.current).forEach(p => { if (p.isOpen()) p.remove() })
@@ -320,8 +331,9 @@ function FullMapInner() {
       const marker = new mapboxgl.Marker(el).setLngLat([r.lng, r.lat])
 
       if (isMobileRef.current) {
-        // Mobile: no popup at all — tap just activates the card in the slider
+        // Mobile: no popup — tap activates the card and re-sorts by proximity to this restaurant
         el.addEventListener('click', () => {
+          tapResortPendingRef.current = true
           setActiveId(r._id)
           setSortAnchor({ lat: r.lat, lng: r.lng })
           trackEvent('restaurant_click', { restaurant_name: r.name, cuisine: r.cuisine })
@@ -516,7 +528,8 @@ function FullMapInner() {
     setActiveId(r._id)
     if (!map.current) return
     if (isMobileRef.current) {
-      // Mobile: fly to restaurant, no popup — slider scroll handled by useEffect
+      // Mobile: fly to restaurant, re-sort by proximity, scroll slider via filtering effect
+      tapResortPendingRef.current = true
       setSortAnchor({ lat: r.lat, lng: r.lng })
       map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true })
     } else {
@@ -985,32 +998,32 @@ function FullMapInner() {
                       style={{ display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' as any }}
                     >
                       {filtered.map((r, i) => (
-                        <div key={r._id} style={{ flexShrink: 0, width: '100%', scrollSnapAlign: 'start', padding: '16px 16px 12px' }}>
+                        <div key={r._id} style={{ flexShrink: 0, width: '100%', scrollSnapAlign: 'start', padding: '12px 16px 10px' }}>
                           <div
                             onClick={() => handleSidebarClick(r)}
                             style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.18)', cursor: 'pointer', border: `2.5px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, transition: 'border-color 0.15s' }}
                           >
                             {r.image
-                              ? <img src={r.image} alt={r.name} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
-                              : <div style={{ height: 120, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>✦</div>
+                              ? <img src={r.image} alt={r.name} style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
+                              : <div style={{ height: 96, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>✦</div>
                             }
-                            <div style={{ padding: '10px 14px 14px' }}>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: "'DM Sans',sans-serif" }}>
+                            <div style={{ padding: '8px 12px 10px' }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: "'DM Sans',sans-serif" }}>
                                 {i + 1}. {r.name}{r.isDisco ? ' 🪩' : ''}
                               </div>
-                              <div style={{ fontSize: 12, color: '#bbb', marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>{r.location}</div>
-                              <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+                              <div style={{ fontSize: 11, color: '#bbb', marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>{r.location}</div>
+                              <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
                                 {((r.cuisines && r.cuisines.length > 0) ? r.cuisines.slice(0, 3) : [r.cuisine]).map(tag => (
-                                  <span key={tag} style={{ fontSize: 11, background: '#f5f1eb', padding: '2px 8px', borderRadius: 10, color: '#888', whiteSpace: 'nowrap' }}>{tag}</span>
+                                  <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888', whiteSpace: 'nowrap' }}>{tag}</span>
                                 ))}
                               </div>
                               {r.orderUrl ? (
                                 <a href={r.orderUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                                  style={{ display: 'block', textAlign: 'center', padding: '10px 0', background: '#5B6FE8', color: '#fff', borderRadius: 10, textDecoration: 'none', fontSize: 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>
+                                  style={{ display: 'block', textAlign: 'center', padding: '8px 0', background: '#5B6FE8', color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>
                                   Order Catering →
                                 </a>
                               ) : (
-                                <div style={{ textAlign: 'center', padding: '10px 0', background: '#f5f5f5', color: '#bbb', borderRadius: 10, fontSize: 13, fontWeight: 600 }}>
+                                <div style={{ textAlign: 'center', padding: '8px 0', background: '#f5f5f5', color: '#bbb', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
                                   No order link
                                 </div>
                               )}
