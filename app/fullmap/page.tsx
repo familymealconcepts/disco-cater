@@ -31,6 +31,24 @@ function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+function nearestNeighborOrder(list: Restaurant[], start: { lat: number; lng: number }): Restaurant[] {
+  if (list.length === 0) return []
+  const remaining = [...list]
+  const result: Restaurant[] = []
+  let cur = start
+  while (remaining.length > 0) {
+    let minIdx = 0, minDist = Infinity
+    remaining.forEach((r, i) => {
+      const d = getDistanceMiles(cur.lat, cur.lng, r.lat, r.lng)
+      if (d < minDist) { minDist = d; minIdx = i }
+    })
+    result.push(remaining[minIdx])
+    cur = { lat: remaining[minIdx].lat, lng: remaining[minIdx].lng }
+    remaining.splice(minIdx, 1)
+  }
+  return result
+}
+
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
@@ -272,16 +290,13 @@ function FullMapInner() {
       )
     }
     if (proximityAnchor) {
-      out = (out as any[])
+      const nearby = (out as any[])
         .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor.lat, proximityAnchor.lng, r.lat, r.lng) }))
         .filter(r => r._dist <= PROXIMITY_MILES)
-        .sort((a, b) => a._dist - b._dist)
+      out = nearestNeighborOrder(nearby, proximityAnchor)
     } else {
-      // Sort by distance from tap anchor if set, otherwise default to Manhattan
-      const anchor = sortAnchor ?? MANHATTAN
-      out = (out as any[])
-        .map(r => ({ ...r, _dist: getDistanceMiles(anchor.lat, anchor.lng, r.lat, r.lng) }))
-        .sort((a, b) => a._dist - b._dist)
+      // Nearest-neighbor chain starting from tap anchor or Manhattan by default
+      out = nearestNeighborOrder(out, sortAnchor ?? MANHATTAN)
     }
     setFiltered(out)
     filteredRef.current = out
