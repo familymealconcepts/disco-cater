@@ -11,6 +11,7 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
+const MANHATTAN = { lat: 40.7580, lng: -73.9855 }
 
 function trackEvent(name: string, params?: Record<string, string>) {
   if (typeof window !== 'undefined' && (window as any).gtag) {
@@ -141,7 +142,8 @@ function FullMapInner() {
     sliderScrollTimerRef.current = setTimeout(() => {
       if (!mobileSliderRef.current) return
       const slider = mobileSliderRef.current
-      const idx = Math.round(slider.scrollLeft / slider.offsetWidth)
+      const stride = (slider.children[0] as HTMLElement)?.offsetWidth + 12 || slider.offsetWidth
+      const idx = Math.round(slider.scrollLeft / stride)
       const r = filteredRef.current[idx]
       if (r && r._id !== activeId) {
         // Swipe does NOT set tapResortPendingRef — no re-sort, no programmatic scroll needed
@@ -274,12 +276,12 @@ function FullMapInner() {
         .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor.lat, proximityAnchor.lng, r.lat, r.lng) }))
         .filter(r => r._dist <= PROXIMITY_MILES)
         .sort((a, b) => a._dist - b._dist)
-    } else if (sortAnchor) {
-      out = (out as any[])
-        .map(r => ({ ...r, _dist: getDistanceMiles(sortAnchor.lat, sortAnchor.lng, r.lat, r.lng) }))
-        .sort((a, b) => a._dist - b._dist)
     } else {
-      out = [...out].sort((a, b) => (b.isDisco ? 1 : 0) - (a.isDisco ? 1 : 0))
+      // Sort by distance from tap anchor if set, otherwise default to Manhattan
+      const anchor = sortAnchor ?? MANHATTAN
+      out = (out as any[])
+        .map(r => ({ ...r, _dist: getDistanceMiles(anchor.lat, anchor.lng, r.lat, r.lng) }))
+        .sort((a, b) => a._dist - b._dist)
     }
     setFiltered(out)
     filteredRef.current = out
@@ -292,7 +294,8 @@ function FullMapInner() {
       if (idx >= 0) {
         const slider = mobileSliderRef.current
         setTimeout(() => {
-          slider.scrollTo({ left: idx * slider.offsetWidth, behavior: 'smooth' })
+          const stride = (slider.children[0] as HTMLElement)?.offsetWidth + 12 || slider.offsetWidth
+          slider.scrollTo({ left: idx * stride, behavior: 'smooth' })
         }, 0)
       }
     }
@@ -995,10 +998,10 @@ function FullMapInner() {
                       ref={mobileSliderRef}
                       className="mobile-filter-scroll"
                       onScroll={handleSliderScroll}
-                      style={{ display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' as any }}
+                      style={{ display: 'flex', gap: '12px', overflowX: 'auto', scrollSnapType: 'x mandatory', scrollPaddingLeft: '16px', WebkitOverflowScrolling: 'touch' as any, paddingBottom: '10px' }}
                     >
                       {filtered.map((r, i) => (
-                        <div key={r._id} style={{ flexShrink: 0, width: '100%', scrollSnapAlign: 'start', padding: '12px 16px 10px' }}>
+                        <div key={r._id} style={{ flexShrink: 0, width: 'calc(100% - 64px)', scrollSnapAlign: 'start', marginLeft: i === 0 ? 16 : 0, paddingTop: 12 }}>
                           <div
                             onClick={() => handleSidebarClick(r)}
                             style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.18)', cursor: 'pointer', border: `2.5px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, transition: 'border-color 0.15s' }}
@@ -1031,6 +1034,7 @@ function FullMapInner() {
                           </div>
                         </div>
                       ))}
+                      <div style={{ flexShrink: 0, width: 16 }} />
                     </div>
                   </div>
                 )}
