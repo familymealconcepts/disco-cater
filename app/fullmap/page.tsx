@@ -930,14 +930,53 @@ function FullMapInner() {
               <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
                 <div ref={mapContainer} style={{ position: 'absolute', inset: 0 }} />
                 {proximityAnchor && (
-                  <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
+                  <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
                     <button onClick={() => { setProximityAnchor(null); setLocInput('') }} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 20, background: '#fff', border: '1px solid #e0e0e0', fontSize: 12, fontWeight: 600, color: '#555', cursor: 'pointer', boxShadow: '0 2px 12px rgba(0,0,0,0.1)', fontFamily: "'DM Sans',sans-serif" }}>
                       📍 Showing nearby · Clear
                     </button>
                   </div>
                 )}
+                {/* Restaurant card slider */}
+                {filtered.length > 0 && (
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to top, rgba(0,0,0,0.28) 0%, transparent 100%)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
+                    <div className="mobile-filter-scroll" style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: '20px 16px 16px', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' as any }}>
+                      {filtered.map((r, i) => (
+                        <div
+                          key={r._id}
+                          onClick={() => handleSidebarClick(r)}
+                          style={{ flexShrink: 0, width: 220, background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.18)', scrollSnapAlign: 'start', cursor: 'pointer', border: `2.5px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, transition: 'border-color 0.15s' }}
+                        >
+                          {r.image
+                            ? <img src={r.image} alt={r.name} style={{ width: '100%', height: 110, objectFit: 'cover', display: 'block' }} />
+                            : <div style={{ height: 110, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>✦</div>
+                          }
+                          <div style={{ padding: '10px 12px 12px' }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: "'DM Sans',sans-serif" }}>
+                              {i + 1}. {r.name}{r.isDisco ? ' 🪩' : ''}
+                            </div>
+                            <div style={{ display: 'flex', gap: 4, marginBottom: 10, overflow: 'hidden' }}>
+                              {((r.cuisines && r.cuisines.length > 0) ? r.cuisines.slice(0, 2) : [r.cuisine]).map(tag => (
+                                <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888', whiteSpace: 'nowrap' }}>{tag}</span>
+                              ))}
+                            </div>
+                            {r.orderUrl ? (
+                              <a href={r.orderUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                style={{ display: 'block', textAlign: 'center', padding: '8px 0', background: '#5B6FE8', color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>
+                                Order Catering →
+                              </a>
+                            ) : (
+                              <div style={{ textAlign: 'center', padding: '8px 0', background: '#f5f5f5', color: '#bbb', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                                No order link
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ flexShrink: 0, width: 4 }} />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div style={{ height: 'env(safe-area-inset-bottom, 0px)', background: '#fff', flexShrink: 0 }} />
             </div>
           )}
 
