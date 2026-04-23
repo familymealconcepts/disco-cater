@@ -106,6 +106,21 @@ function FullMapInner() {
   const [mobileMapOpen, setMobileMapOpen] = useState(false)
   const filteredRef = useRef<Restaurant[]>([])
   const lastTapTimes = useRef<{ [id: string]: number }>({})
+  const isMobileRef = useRef(false)
+  const mobileSliderRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { isMobileRef.current = isMobile }, [isMobile])
+
+  // Scroll active card to center of slider on mobile
+  useEffect(() => {
+    if (!isMobileRef.current || !mobileMapOpen || !activeId || !mobileSliderRef.current) return
+    const slider = mobileSliderRef.current
+    const idx = filtered.findIndex(r => r._id === activeId)
+    if (idx < 0) return
+    const card = slider.children[idx] as HTMLElement
+    if (!card) return
+    slider.scrollTo({ left: card.offsetLeft - slider.offsetWidth / 2 + card.offsetWidth / 2, behavior: 'smooth' })
+  }, [activeId, mobileMapOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const latParam = searchParams.get('lat')
@@ -306,16 +321,15 @@ function FullMapInner() {
         trackEvent('restaurant_click', { restaurant_name: r.name, cuisine: r.cuisine })
         mkDiv.style.background = GRADIENT
         mkDiv.style.transform = 'scale(1.2)'
-        const mapH = mapContainer.current?.clientHeight ?? 600
-        const popupH = r.image ? 340 : 220
-        const verticalOffset = Math.round((mapH / 2) - (popupH / 2) - 44)
-        map.current?.flyTo({
-          center: [r.lng, r.lat],
-          zoom: Math.max(map.current.getZoom(), 11),
-          speed: 3,
-          essential: true,
-          offset: [0, -verticalOffset],
-        })
+        if (isMobileRef.current) {
+          // Mobile: fly to marker, slider scroll handled by useEffect
+          map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 13), speed: 3, essential: true })
+        } else {
+          const mapH = mapContainer.current?.clientHeight ?? 600
+          const popupH = r.image ? 340 : 220
+          const verticalOffset = Math.round((mapH / 2) - (popupH / 2) - 44)
+          map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 11), speed: 3, essential: true, offset: [0, -verticalOffset] })
+        }
       })
 
       popup.on('close', () => {
@@ -325,10 +339,9 @@ function FullMapInner() {
         setActiveId(null)
       })
 
-      const marker = new mapboxgl.Marker(el)
-        .setLngLat([r.lng, r.lat])
-        .setPopup(popup)
-        .addTo(map.current!)
+      const marker = new mapboxgl.Marker(el).setLngLat([r.lng, r.lat])
+      if (!isMobileRef.current) marker.setPopup(popup)
+      marker.addTo(map.current!)
 
       markersRef.current[r._id] = marker
     })
@@ -476,21 +489,20 @@ function FullMapInner() {
     closeAllPopups()
     setActiveId(r._id)
     if (!map.current) return
-    const mapH = mapContainer.current?.clientHeight ?? 600
-    const popupH = r.image ? 340 : 220
-    const verticalOffset = Math.round((mapH / 2) - (popupH / 2) - 44)
-    map.current.flyTo({
-      center: [r.lng, r.lat],
-      zoom: 14,
-      speed: 3,
-      essential: true,
-      offset: [0, -verticalOffset],
-    })
-    map.current.once('moveend', () => {
-      const marker = markersRef.current[r._id]
-      const popup = popupsRef.current[r._id]
-      if (marker && popup && !popup.isOpen()) marker.togglePopup()
-    })
+    if (isMobileRef.current) {
+      // Mobile: fly to restaurant, no popup — slider scroll handled by useEffect
+      map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true })
+    } else {
+      const mapH = mapContainer.current?.clientHeight ?? 600
+      const popupH = r.image ? 340 : 220
+      const verticalOffset = Math.round((mapH / 2) - (popupH / 2) - 44)
+      map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true, offset: [0, -verticalOffset] })
+      map.current.once('moveend', () => {
+        const marker = markersRef.current[r._id]
+        const popup = popupsRef.current[r._id]
+        if (marker && popup && !popup.isOpen()) marker.togglePopup()
+      })
+    }
   }
 
   const [showMoreCuisines, setShowMoreCuisines] = useState(false)
@@ -939,7 +951,7 @@ function FullMapInner() {
                 {/* Restaurant card slider */}
                 {filtered.length > 0 && (
                   <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to top, rgba(0,0,0,0.28) 0%, transparent 100%)', paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
-                    <div className="mobile-filter-scroll" style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: '20px 16px 16px', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' as any }}>
+                    <div ref={mobileSliderRef} className="mobile-filter-scroll" style={{ display: 'flex', gap: 12, overflowX: 'auto', padding: '20px 16px 16px', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' as any }}>
                       {filtered.map((r, i) => (
                         <div
                           key={r._id}
