@@ -87,6 +87,7 @@ function FullMapInner() {
   const [locError, setLocError] = useState('')
   const [showLocModal, setShowLocModal] = useState(false)
   const [proximityAnchor, setProximityAnchor] = useState<{ lat: number; lng: number } | null>(null)
+  const [sortAnchor, setSortAnchor] = useState<{ lat: number; lng: number } | null>(null)
   const PROXIMITY_MILES = 25
   const [chatOpen, setChatOpen] = useState(false)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -112,14 +113,14 @@ function FullMapInner() {
 
   useEffect(() => { isMobileRef.current = isMobile }, [isMobile])
 
-  // When activeId changes (marker tap), scroll slider to that card
+  // When activeId changes (marker/card tap) or filtered re-sorts, scroll slider to that card
   useEffect(() => {
     if (!isMobileRef.current || !mobileMapOpen || !activeId || !mobileSliderRef.current) return
     const slider = mobileSliderRef.current
     const idx = filtered.findIndex(r => r._id === activeId)
     if (idx < 0) return
     slider.scrollTo({ left: idx * slider.offsetWidth, behavior: 'smooth' })
-  }, [activeId, mobileMapOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeId, filtered, mobileMapOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // When activeId changes, sync marker visual state
   useEffect(() => {
@@ -272,15 +273,19 @@ function FullMapInner() {
     }
     if (proximityAnchor) {
       out = (out as any[])
-        .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor!.lat, proximityAnchor!.lng, r.lat, r.lng) }))
+        .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor.lat, proximityAnchor.lng, r.lat, r.lng) }))
         .filter(r => r._dist <= PROXIMITY_MILES)
+        .sort((a, b) => a._dist - b._dist)
+    } else if (sortAnchor) {
+      out = (out as any[])
+        .map(r => ({ ...r, _dist: getDistanceMiles(sortAnchor.lat, sortAnchor.lng, r.lat, r.lng) }))
         .sort((a, b) => a._dist - b._dist)
     } else {
       out = [...out].sort((a, b) => (b.isDisco ? 1 : 0) - (a.isDisco ? 1 : 0))
     }
     setFiltered(out)
     filteredRef.current = out
-  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor])
+  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor, sortAnchor])
 
   function closeAllPopups() {
     Object.values(popupsRef.current).forEach(p => { if (p.isOpen()) p.remove() })
@@ -318,6 +323,7 @@ function FullMapInner() {
         // Mobile: no popup at all — tap just activates the card in the slider
         el.addEventListener('click', () => {
           setActiveId(r._id)
+          setSortAnchor({ lat: r.lat, lng: r.lng })
           trackEvent('restaurant_click', { restaurant_name: r.name, cuisine: r.cuisine })
           map.current?.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.current.getZoom(), 13), speed: 3, essential: true })
         })
@@ -511,6 +517,7 @@ function FullMapInner() {
     if (!map.current) return
     if (isMobileRef.current) {
       // Mobile: fly to restaurant, no popup — slider scroll handled by useEffect
+      setSortAnchor({ lat: r.lat, lng: r.lng })
       map.current.flyTo({ center: [r.lng, r.lat], zoom: 14, speed: 3, essential: true })
     } else {
       const mapH = mapContainer.current?.clientHeight ?? 600
