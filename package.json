@@ -9,10 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
+    "@sanity/client": "^7.21.0",
     "@sanity/image-url": "^2.0.3",
     "@types/mapbox-gl": "^3.4.1",
     "csv-parse": "^6.2.1",
     "dotenv": "^17.3.1",
+    "jsdom": "^29.0.2",
     "mapbox-gl": "^3.20.0",
     "next": "16.1.6",
     "next-sanity": "^12.1.1",
