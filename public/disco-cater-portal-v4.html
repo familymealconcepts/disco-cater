@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Disco Cater — Customer Portal</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;font-size:13px;background:#f5f5f5;display:flex;align-items:flex-start;justify-content:center;min-height:100vh;padding:32px 16px;}
+:root{--dc-blue:#5B6FE8;--dc-grad:linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%);}
+
+.shell{width:100%;max-width:1100px;display:flex;flex-direction:column;border:1px solid #e0e0e0;border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 4px 32px rgba(0,0,0,0.08);}
+
+/* ── Top nav ── */
+.topnav{display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:1px solid #f0f0f0;background:linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff;flex-shrink:0;}
+.logo-text{font-size:15px;font-weight:700;background:var(--dc-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:-0.3px;margin-right:4px;}
+.nav-div{width:1px;height:18px;background:#e8e8e8;flex-shrink:0;}
+.nav-pill{padding:4px 12px;border-radius:20px;border:none;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:all 0.12s;}
+.nav-pill.active{background:#1A1028;color:#fff;}
+.nav-pill:not(.active){background:#efefef;color:#555;}
+.nav-pill:not(.active):hover{background:#e0e0e0;}
+.nav-right{margin-left:auto;}
+
+/* Avatar + dropdown */
+.av-wrap{position:relative;display:inline-block;}
+.av-btn{width:32px;height:32px;border-radius:50%;border:none;cursor:pointer;font-size:11px;font-weight:700;color:#fff;background:var(--dc-grad);display:flex;align-items:center;justify-content:center;}
+.av-btn:hover{opacity:0.85;}
+.av-menu{display:none;position:absolute;top:calc(100% + 8px);right:0;background:#fff;border:1px solid #e8e8e8;border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,0.12);min-width:210px;z-index:400;overflow:hidden;}
+.av-menu.open{display:block;}
+.av-user{padding:12px 14px 10px;border-bottom:1px solid #f0f0f0;}
+.av-name{font-size:12px;font-weight:700;color:#111;}
+.av-email{font-size:10px;color:#bbb;margin-top:1px;}
+.av-group{padding:5px 0;}
+.av-item{display:flex;align-items:center;gap:9px;padding:8px 14px;cursor:pointer;font-size:12px;color:#444;font-weight:500;transition:background 0.1s;border:none;background:transparent;width:100%;font-family:'DM Sans',sans-serif;text-align:left;}
+.av-item:hover{background:#f5f5f5;}
+.av-item svg{flex-shrink:0;color:#999;}
+.av-item.red{color:#E24B4A;}
+.av-item.red svg{color:#E24B4A;}
+.av-sep{height:1px;background:#f0f0f0;margin:3px 0;}
+
+/* ── Body layout ── */
+.body{display:flex;min-height:640px;}
+
+/* ── Icon sidebar — nav only, no footer ── */
+.sidebar{width:56px;min-width:56px;border-right:1px solid #f0f0f0;display:flex;flex-direction:column;align-items:center;background:#fafafa;padding:12px 0 16px;gap:4px;}
+.si{position:relative;width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.12s;border:none;background:transparent;}
+.si:hover{background:#efefef;}
+.si.active{background:rgba(107,110,249,0.1);}
+.si svg{color:#888;pointer-events:none;}
+.si.active svg{color:#6B6EF9;}
+.tip{position:absolute;left:50px;top:50%;transform:translateY(-50%);background:#1A1028;color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:7px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity 0.15s;z-index:300;font-family:'DM Sans',sans-serif;}
+.tip::before{content:'';position:absolute;right:100%;top:50%;transform:translateY(-50%);border:5px solid transparent;border-right-color:#1A1028;}
+.si:hover .tip{opacity:1;}
+.si-dot{position:absolute;top:5px;right:5px;width:7px;height:7px;background:#6B6EF9;border-radius:50%;border:1.5px solid #fafafa;}
+
+/* ── Main ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+.main-header{display:flex;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid #f0f0f0;flex-shrink:0;}
+.page-title{font-size:15px;font-weight:700;color:#111;}
+.page-sub{font-size:11px;color:#bbb;margin-top:2px;}
+.hdr-right{display:flex;gap:8px;align-items:center;}
+.view-tog{display:flex;background:#f0f0f0;border-radius:8px;padding:2px;gap:2px;}
+.vtbtn{padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:none;background:transparent;color:#888;font-family:'DM Sans',sans-serif;}
+.vtbtn.active{background:#fff;color:#111;border:0.5px solid #e0e0e0;}
+.btn-out{background:transparent;border:1px solid #e0e0e0;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:600;cursor:pointer;color:#555;font-family:'DM Sans',sans-serif;}
+.btn-out:hover{background:#f5f5f5;}
+.btn-pri{background:#5B6FE8;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.btn-pri:hover{background:#4a5ed4;}
+.content{flex:1;padding:18px 20px;overflow-y:auto;}
+
+/* ── Stats ── */
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;}
+.stat-card{background:#fafafa;border-radius:8px;padding:12px 14px;}
+.stat-lbl{font-size:10px;color:#bbb;margin-bottom:4px;font-weight:600;}
+.stat-val{font-size:22px;font-weight:700;color:#111;}
+.stat-sub{font-size:10px;color:#bbb;margin-top:2px;}
+
+/* ── Calendar ── */
+.cal-nav-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.cal-month{font-size:13px;font-weight:700;color:#111;}
+.cal-legend{display:flex;gap:14px;align-items:center;margin-left:14px;}
+.leg-item{display:flex;align-items:center;gap:4px;font-size:10px;color:#888;}
+.leg-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0;}
+.cal-nav-btns{display:flex;gap:4px;}
+.cal-nb{background:#f0f0f0;border:none;border-radius:6px;padding:3px 10px;font-size:13px;cursor:pointer;color:#555;font-family:'DM Sans',sans-serif;}
+.cal-nb:hover{background:#e0e0e0;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);border:1px solid #e8e8e8;border-radius:10px;overflow:hidden;}
+.cal-dh{background:#fafafa;text-align:center;font-size:9px;color:#bbb;padding:7px 2px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;border-bottom:1px solid #f0f0f0;}
+.cal-cell{background:#fff;min-height:72px;padding:6px;cursor:pointer;border-right:0.5px solid #f5f5f5;border-bottom:0.5px solid #f5f5f5;transition:background 0.1s;}
+.cal-cell:hover{background:#fafafa;}
+.cal-cell.today{background:#f0f0ff;}
+.cal-cell.other{opacity:0.3;}
+.day-n{font-size:10px;font-weight:600;color:#888;margin-bottom:3px;}
+.cal-cell.today .day-n{color:#6B6EF9;font-weight:700;}
+.ev{font-size:9px;padding:2px 5px;border-radius:3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;cursor:pointer;}
+.ev.rec{background:#EEEDFE;color:#3C3489;}
+.ev.cat{background:#E1F5EE;color:#085041;}
+.ev.pau{background:#FAEEDA;color:#633806;}
+
+/* ── Right detail panel ── */
+.rp{width:252px;min-width:252px;border-left:1px solid #f0f0f0;display:none;flex-direction:column;background:#fff;overflow-y:auto;}
+.rp-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #f0f0f0;}
+.rp-title{font-size:12px;font-weight:700;color:#111;}
+.rp-x{background:none;border:none;cursor:pointer;color:#bbb;font-size:18px;line-height:1;padding:0;}
+.rp-x:hover{color:#555;}
+.oc{margin:10px 10px 0;border:1px solid #ebebeb;border-radius:10px;padding:11px;}
+.oc-name{font-size:12px;font-weight:700;color:#111;margin-bottom:1px;}
+.oc-meta{font-size:10px;color:#888;}
+.oc-tag{display:inline-block;font-size:9px;padding:2px 7px;border-radius:20px;font-weight:700;margin-top:5px;}
+.tag-rec{background:#EEEDFE;color:#3C3489;}
+.tag-cat{background:#E1F5EE;color:#085041;}
+.tag-pau{background:#FAEEDA;color:#633806;}
+.oc-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:0.5px solid #f0f0f0;}
+.oc-amt{font-size:13px;font-weight:700;color:#111;}
+.oc-nxt{font-size:10px;color:#111;font-weight:600;}
+.db{margin:8px 10px 10px;background:#fafafa;border-radius:8px;padding:10px;}
+.dr{display:flex;justify-content:space-between;font-size:10px;padding:2px 0;}
+.dl{color:#bbb;}
+.dv{color:#111;font-weight:600;}
+.act-row{display:flex;gap:5px;margin-top:8px;}
+.act-btn{flex:1;padding:6px;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;text-align:center;font-family:'DM Sans',sans-serif;}
+.act-btn.p{background:#5B6FE8;color:#fff;border:none;}
+.act-btn.s{background:transparent;border:0.5px solid #e0e0e0;color:#555;}
+.act-btn.danger{background:transparent;border:0.5px solid #F09595;color:#E24B4A;}
+.il{margin:4px 0 6px;}
+.il-row{display:flex;justify-content:space-between;font-size:10px;padding:1px 0;}
+.il-n{color:#333;font-weight:500;}
+.il-p{color:#888;}
+.il-div{height:0.5px;background:#e8e8e8;margin:5px 0;}
+
+/* ── List rows ── */
+.olr{display:flex;align-items:center;padding:11px 10px;border-bottom:1px solid #f5f5f5;gap:12px;cursor:pointer;border-radius:8px;transition:background 0.1s;}
+.olr:hover{background:#fafafa;}
+.olr-ic{width:40px;height:40px;border-radius:8px;flex-shrink:0;background:#f5f1eb;display:flex;align-items:center;justify-content:center;font-size:17px;}
+.olr-m{flex:1;min-width:0;}
+.olr-name{font-size:12px;font-weight:700;color:#111;}
+.olr-meta{font-size:10px;color:#888;margin-top:1px;}
+.olr-r{text-align:right;flex-shrink:0;}
+.olr-amt{font-size:12px;font-weight:700;color:#111;}
+.olr-date{font-size:10px;color:#111;font-weight:600;margin-top:2px;}
+.paid{color:#1D9E75;font-weight:600;}
+.unpaid{color:#E24B4A;font-weight:600;}
+
+/* Past orders toggle */
+.past-tog{display:flex;align-items:center;justify-content:space-between;padding:10px;cursor:pointer;border-radius:8px;margin-top:8px;background:#fafafa;border:1px solid #f0f0f0;}
+.past-tog:hover{background:#f0f0f0;}
+.past-tog-lbl{font-size:11px;font-weight:600;color:#555;}
+.past-arr{font-size:11px;color:#bbb;transition:transform 0.2s;}
+.past-arr.open{transform:rotate(180deg);}
+.past-wrap{overflow:hidden;transition:max-height 0.3s ease;max-height:0;}
+.past-wrap.open{max-height:600px;}
+
+/* Discover CTA (list + history only) */
+.dcta{display:flex;align-items:center;gap:10px;margin-top:16px;padding:12px 14px;border:1px dashed #c8cafd;border-radius:10px;cursor:pointer;background:linear-gradient(135deg,rgba(107,110,249,0.04),rgba(192,68,200,0.04));text-decoration:none;}
+.dcta:hover{background:linear-gradient(135deg,rgba(107,110,249,0.09),rgba(192,68,200,0.07));}
+.dcta-ic{font-size:22px;flex-shrink:0;}
+.dcta-t{font-size:12px;font-weight:700;color:#6B6EF9;}
+.dcta-s{font-size:10px;color:#aaa;margin-top:1px;}
+.dcta-arr{margin-left:auto;font-size:14px;color:#6B6EF9;}
+
+/* ── Favorites ── */
+.fav-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;}
+.fav-card{border:1px solid #ebebeb;border-radius:12px;overflow:visible;position:relative;transition:border-color 0.12s,box-shadow 0.12s;}
+.fav-card:hover{border-color:#c0c0c0;box-shadow:0 2px 12px rgba(0,0,0,0.07);}
+.fav-x{position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;background:#fff;border:1px solid #e0e0e0;display:none;align-items:center;justify-content:center;font-size:11px;color:#888;cursor:pointer;z-index:10;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
+.fav-x:hover{background:#FCEBEB;border-color:#F09595;color:#E24B4A;}
+.fav-card:hover .fav-x{display:flex;}
+.fav-img{width:100%;height:86px;background:#f5f1eb;display:flex;align-items:center;justify-content:center;font-size:26px;border-radius:11px 11px 0 0;}
+.fav-body{padding:9px 11px 11px;}
+.fav-name{font-size:12px;font-weight:700;color:#111;margin-bottom:6px;}
+.fav-btn{display:block;text-align:center;padding:6px;background:#5B6FE8;color:#fff;border:none;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;width:100%;}
+.fav-btn:hover{background:#4a5ed4;}
+.fav-disc{border:1px dashed #c8cafd;border-radius:12px;cursor:pointer;transition:all 0.12s;background:linear-gradient(135deg,rgba(107,110,249,0.03),rgba(192,68,200,0.03));}
+.fav-disc:hover{border-color:#6B6EF9;box-shadow:0 2px 12px rgba(107,110,249,0.12);}
+.fav-disc-img{width:100%;height:86px;display:flex;align-items:center;justify-content:center;font-size:30px;border-radius:11px 11px 0 0;}
+.fav-disc-body{padding:9px 11px 11px;text-align:center;}
+.fav-disc-name{font-size:11px;font-weight:700;color:#6B6EF9;margin-bottom:6px;}
+.fav-disc-btn{display:block;text-align:center;padding:6px;background:var(--dc-grad);color:#fff;border:none;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;width:100%;}
+
+/* ── Subscriptions ── */
+.sub-card{border:1px solid #ebebeb;border-radius:12px;padding:14px;margin-bottom:10px;display:flex;align-items:flex-start;gap:14px;}
+.sub-card.a{border-left:3px solid #6B6EF9;}
+.sub-card.p{border-left:3px solid #BA7517;}
+.sub-ic{width:38px;height:38px;border-radius:8px;background:#EEEDFE;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+.sub-info{flex:1;min-width:0;}
+.sub-name{font-size:13px;font-weight:700;color:#111;}
+.sub-meta{font-size:11px;color:#888;margin-top:1px;}
+.sub-freq{font-size:10px;color:#6B6EF9;font-weight:600;margin-top:3px;}
+.sub-r{text-align:right;flex-shrink:0;}
+.sub-amt{font-size:14px;font-weight:700;color:#111;}
+.sub-nxt{font-size:10px;color:#111;font-weight:600;margin-top:2px;}
+.sub-acts{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;}
+.sbtn{padding:5px 12px;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.sbtn.e{background:#5B6FE8;color:#fff;border:none;}
+.sbtn.s{background:transparent;border:0.5px solid #e0e0e0;color:#555;}
+.sbtn.c{background:transparent;border:0.5px solid #F09595;color:#E24B4A;}
+.sbtn.r{background:#1D9E75;color:#fff;border:none;}
+
+/* ── Forms ── */
+.fg{margin-bottom:12px;}
+.fl{font-size:10px;color:#bbb;margin-bottom:3px;display:block;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;}
+.fi{width:100%;padding:8px 10px;border:1px solid #e8e8e8;border-radius:7px;font-size:12px;color:#111;background:#fafafa;font-family:'DM Sans',sans-serif;outline:none;}
+.fi:focus{border-color:#6B6EF9;background:#fff;}
+.freq-row{display:flex;gap:5px;}
+.fb{flex:1;padding:7px 4px;border:1px solid #e0e0e0;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;text-align:center;font-family:'DM Sans',sans-serif;background:#fff;color:#555;}
+.fb.active{border-color:#6B6EF9;color:#6B6EF9;background:#EEEDFE;}
+.sum-blk{background:#fafafa;border-radius:10px;padding:14px;margin-bottom:14px;border:1px solid #ebebeb;}
+.sum-lbl{font-size:10px;color:#bbb;margin-bottom:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;}
+.sum-tbl{width:100%;font-size:11px;border-collapse:collapse;}
+.sum-tbl td{padding:3px 0;}
+.sum-tbl .sl{color:#bbb;}
+.sum-tbl .sv{text-align:right;color:#111;font-weight:600;}
+.sum-tbl .tot td{border-top:1px solid #f0f0f0;padding-top:7px;}
+.sum-tbl .tot .sl{color:#111;font-weight:700;font-size:12px;}
+.sum-tbl .tot .sv{color:#5B6FE8;font-weight:700;font-size:15px;}
+.info-box{background:#E1F5EE;border-radius:8px;padding:10px 12px;font-size:11px;color:#085041;margin-bottom:14px;line-height:1.6;}
+.warn-box{background:#FAEEDA;border-radius:8px;padding:10px 12px;font-size:11px;color:#633806;margin-bottom:14px;line-height:1.6;}
+.mf{display:flex;gap:8px;margin-top:4px;}
+.mf-c{flex:1;padding:9px;border-radius:7px;border:1px solid #e0e0e0;background:#fff;color:#888;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.mf-ok{flex:2;padding:9px;border-radius:7px;border:none;background:#5B6FE8;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.mf-ok:hover{background:#4a5ed4;}
+.ok-wrap{text-align:center;padding:60px 20px;}
+.ok-ic{width:56px;height:56px;border-radius:50%;background:#E1F5EE;display:flex;align-items:center;justify-content:center;margin:0 auto 18px;}
+
+/* ── Account ── */
+.acct{max-width:440px;}
+.acct-div{height:1px;background:#f0f0f0;margin:20px 0;}
+.acct-h{font-size:11px;font-weight:700;color:#111;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:14px;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.dz{border:1px solid #F09595;border-radius:10px;padding:14px;margin-top:8px;}
+.dz-t{font-size:12px;font-weight:700;color:#E24B4A;margin-bottom:6px;}
+.dz-d{font-size:11px;color:#888;margin-bottom:10px;line-height:1.6;}
+.btn-del{background:transparent;border:1px solid #E24B4A;color:#E24B4A;border-radius:7px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.btn-del:hover{background:#FCEBEB;}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ── Top nav ── -->
+  <div class="topnav">
+    <span class="logo-text">disco cater</span>
+    <div class="nav-div"></div>
+    <button class="nav-pill active" onclick="setNav('orders',this)">Orders</button>
+    <button class="nav-pill" onclick="setNav('subscriptions',this)">Subscriptions</button>
+    <button class="nav-pill" onclick="setNav('history',this)">History</button>
+    <button class="nav-pill" onclick="setNav('favorites',this)">Favorites</button>
+    <div class="nav-right">
+      <div class="av-wrap" id="av-wrap">
+        <button class="av-btn" onclick="toggleMenu(event)">JD</button>
+        <div class="av-menu" id="av-menu">
+          <div class="av-user">
+            <div class="av-name">Jamie Donovan</div>
+            <div class="av-email">jamie@acmecorp.com</div>
+          </div>
+          <div class="av-group">
+            <button class="av-item" onclick="ddGo('payment')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+              Payment methods
+            </button>
+            <button class="av-item" onclick="ddGo('notifs')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              Notifications
+              <span style="margin-left:auto;background:#EFB84A;color:#5A3800;font-size:9px;font-weight:700;padding:1px 6px;border-radius:10px;">1</span>
+            </button>
+            <button class="av-item" onclick="ddGo('account')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              Account settings
+            </button>
+          </div>
+          <div class="av-sep"></div>
+          <div class="av-group">
+            <button class="av-item red" onclick="closeMenu()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- ── Icon sidebar — Orders, Subscriptions, History, Favorites only ── -->
+    <div class="sidebar">
+      <!-- Orders -->
+      <button class="si active" id="si-orders" onclick="setSide(this,'orders')">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        <span class="tip">Orders</span>
+        <span class="si-dot"></span>
+      </button>
+      <!-- Subscriptions -->
+      <button class="si" id="si-subscriptions" onclick="setSide(this,'subscriptions')">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        <span class="tip">Subscriptions</span>
+        <span class="si-dot"></span>
+      </button>
+      <!-- History -->
+      <button class="si" id="si-history" onclick="setSide(this,'history')">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="tip">History</span>
+      </button>
+      <!-- Favorites -->
+      <button class="si" id="si-favorites" onclick="setSide(this,'favorites')">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        <span class="tip">Favorites</span>
+      </button>
+    </div>
+
+    <!-- ── Main content ── -->
+    <div class="main">
+      <div class="main-header">
+        <div>
+          <div class="page-title" id="page-title">Orders</div>
+          <div class="page-sub" id="page-sub">3 upcoming · 2 recurring</div>
+        </div>
+        <div class="hdr-right">
+          <div class="view-tog" id="view-tog">
+            <button class="vtbtn" onclick="setView('list',this)">List</button>
+            <button class="vtbtn active" onclick="setView('cal',this)">Calendar</button>
+          </div>
+          <button class="btn-out" id="new-order-btn" onclick="goFav()">+ New order</button>
+        </div>
+      </div>
+
+      <div class="content">
+
+        <!-- Calendar -->
+        <div id="sec-calendar">
+          <div class="stats-row">
+            <div class="stat-card"><div class="stat-lbl">Active orders</div><div class="stat-val">3</div><div class="stat-sub">2 recurring · 1 one-time</div></div>
+            <div class="stat-card"><div class="stat-lbl">Total orders placed</div><div class="stat-val">47</div><div class="stat-sub">since Jan 2025</div></div>
+            <div class="stat-card"><div class="stat-lbl">Next order</div><div class="stat-val" style="font-size:16px;padding-top:3px;">May 6</div><div class="stat-sub">Taim — Nolita · 12:00 PM</div></div>
+          </div>
+          <div class="cal-nav-row">
+            <div style="display:flex;align-items:center;">
+              <span class="cal-month" id="cal-lbl">May 2026</span>
+              <div class="cal-legend">
+                <div class="leg-item"><div class="leg-dot" style="background:#6B6EF9;"></div>Recurring</div>
+                <div class="leg-item"><div class="leg-dot" style="background:#1D9E75;"></div>Catering</div>
+                <div class="leg-item"><div class="leg-dot" style="background:#BA7517;"></div>Paused</div>
+              </div>
+            </div>
+            <div class="cal-nav-btns">
+              <button class="cal-nb" onclick="chM(-1)">&#8249;</button>
+              <button class="cal-nb" onclick="chM(1)">&#8250;</button>
+            </div>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+
+        <!-- List view -->
+        <div id="sec-list" style="display:none;">
+          <div style="font-size:11px;color:#bbb;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;padding:0 2px;margin-bottom:8px;">Upcoming</div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic">🥙</div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div><div style="margin-top:3px;"><span class="oc-tag tag-rec">Weekly recurring</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">May 6, 12:00 PM</div></div></div>
+          <div class="olr" onclick="openRP(1)"><div class="olr-ic">🌮</div><div class="olr-m"><div class="olr-name">Son del Norte — LES</div><div class="olr-meta">60 people · Delivery · <span class="paid">Paid</span></div><div style="margin-top:3px;"><span class="oc-tag tag-cat">Event catering</span></div></div><div class="olr-r"><div class="olr-amt">$2,100</div><div class="olr-date">May 14, 11:30 AM</div></div></div>
+          <div class="olr" onclick="openRP(2)"><div class="olr-ic">🥢</div><div class="olr-m"><div class="olr-name">Pecking House</div><div class="olr-meta">25 people · Pickup · <span class="unpaid">Unpaid</span></div><div style="margin-top:3px;"><span class="oc-tag tag-pau">Paused — payment failed</span></div></div><div class="olr-r"><div class="olr-amt">$680</div><div class="olr-date" style="color:#BA7517;">Paused</div></div></div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic">🥙</div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div><div style="margin-top:3px;"><span class="oc-tag tag-rec">Weekly recurring</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">May 13, 12:00 PM</div></div></div>
+          <div class="past-tog" onclick="togglePast()">
+            <span class="past-tog-lbl">Past orders (12)</span>
+            <span class="past-arr" id="past-arr">▾</span>
+          </div>
+          <div class="past-wrap" id="past-wrap">
+            <div class="olr" onclick="openRP(0)"><div class="olr-ic">🥙</div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 29, 2026</div></div></div>
+            <div class="olr" onclick="openRP(1)"><div class="olr-ic">🌮</div><div class="olr-m"><div class="olr-name">Son del Norte — LES</div><div class="olr-meta">55 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,925</div><div class="olr-date">Apr 22, 2026</div></div></div>
+            <div class="olr" onclick="openRP(0)"><div class="olr-ic">🥙</div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 15, 2026</div></div></div>
+            <div class="olr" onclick="openRP(2)"><div class="olr-ic">🥢</div><div class="olr-m"><div class="olr-name">Pecking House</div><div class="olr-meta">25 people · Pickup · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$680</div><div class="olr-date">Apr 8, 2026</div></div></div>
+          </div>
+          <a href="https://www.discocater.com/fullmap" class="dcta" target="_blank"><span class="dcta-ic">🪩</span><div><div class="dcta-t">Discover more restaurants</div><div class="dcta-s">Find new catering options on Disco Cater</div></div><span class="dcta-arr">→</span></a>
+        </div>
+
+        <!-- Confirm -->
+        <div id="sec-confirm" style="display:none;">
+          <div style="max-width:400px;">
+            <div class="sum-blk"><div class="sum-lbl">Order summary</div><table class="sum-tbl"><tr><td class="sl">Restaurant</td><td class="sv">Taim — Nolita</td></tr><tr><td class="sl">Items</td><td class="sv">Team Lunch Box</td></tr><tr><td class="sl">Headcount</td><td class="sv">30 people</td></tr><tr><td class="sl">Type</td><td class="sv">Recurring — weekly</td></tr><tr><td class="sl">Service</td><td class="sv">Delivery</td></tr><tr><td class="sl">Order date</td><td class="sv">Every Tuesday</td></tr><tr><td class="sl">Order time</td><td class="sv">12:00 PM</td></tr><tr class="tot"><td class="sl">Est. per order</td><td class="sv">$840</td></tr></table></div>
+            <div class="info-box">A confirmation email will be sent 24 hours before each order. You can skip or cancel anytime.</div>
+            <div style="font-size:11px;color:#bbb;margin-bottom:14px;">Payment: <span style="color:#111;font-weight:600;">Visa ···4821</span> &nbsp;·&nbsp; <span style="color:#6B6EF9;cursor:pointer;font-weight:600;">Change</span></div>
+            <div class="mf"><button class="mf-c" onclick="setSide(document.getElementById('si-favorites'),'favorites')">&larr; Back</button><button class="mf-ok" onclick="showSec('success')">Place order</button></div>
+          </div>
+        </div>
+
+        <!-- Success -->
+        <div id="sec-success" style="display:none;">
+          <div class="ok-wrap">
+            <div class="ok-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div style="font-size:18px;font-weight:700;color:#111;margin-bottom:10px;">Order confirmed!</div>
+            <div style="font-size:13px;color:#888;line-height:1.8;margin-bottom:28px;">Your recurring order with <strong>Taim — Nolita</strong><br>is set for every Tuesday at 12:00 PM.<br>First order: May 6, 2026.</div>
+            <button class="btn-pri" onclick="setSide(document.getElementById('si-orders'),'orders')" style="padding:10px 24px;font-size:13px;">Back to orders</button>
+          </div>
+        </div>
+
+        <!-- Payment failed -->
+        <div id="sec-payment" style="display:none;">
+          <div style="max-width:400px;">
+            <div class="warn-box"><strong>Payment failed for Pecking House.</strong> Your order has been paused. Update your card to resume.</div>
+            <div class="fg"><span class="fl">Card number</span><input type="text" class="fi" placeholder="1234 5678 9012 3456"></div>
+            <div style="display:flex;gap:10px;"><div class="fg" style="flex:1;"><span class="fl">Expiry</span><input type="text" class="fi" placeholder="MM / YY"></div><div class="fg" style="flex:1;"><span class="fl">CVC</span><input type="text" class="fi" placeholder="123"></div></div>
+            <div class="mf"><button class="mf-c" onclick="setSide(document.getElementById('si-orders'),'orders')">Cancel</button><button class="mf-ok" onclick="setSide(document.getElementById('si-orders'),'orders')">Update &amp; resume</button></div>
+          </div>
+        </div>
+
+        <!-- History -->
+        <div id="sec-history" style="display:none;">
+          <div style="font-size:11px;color:#bbb;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;padding:0 2px;margin-bottom:8px;">All past orders</div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic">🥙</div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 29, 2026</div></div></div>
+          <div class="olr" onclick="openRP(1)"><div class="olr-ic">🌮</div><div class="olr-m"><div class="olr-name">Son del Norte — LES</div><div class="olr-meta">55 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,925</div><div class="olr-date">Apr 22, 2026</div></div></div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic">🥙</div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 15, 2026</div></div></div>
+          <div class="olr" onclick="openRP(2)"><div class="olr-ic">🥢</div><div class="olr-m"><div class="olr-name">Pecking House</div><div class="olr-meta">25 people · Pickup · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$680</div><div class="olr-date">Apr 8, 2026</div></div></div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic">🥙</div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 1, 2026</div></div></div>
+          <a href="https://www.discocater.com/fullmap" class="dcta" target="_blank"><span class="dcta-ic">🪩</span><div><div class="dcta-t">Discover more restaurants</div><div class="dcta-s">Find new catering options on Disco Cater</div></div><span class="dcta-arr">→</span></a>
+        </div>
+
+        <!-- Favorites -->
+        <div id="sec-favorites" style="display:none;">
+          <div class="fav-grid" id="fav-grid">
+            <div class="fav-card" id="fav-0"><button class="fav-x" onclick="rmFav(event,'fav-0')">✕</button><div class="fav-img">🥙</div><div class="fav-body"><div class="fav-name">Taim — Nolita</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-card" id="fav-1"><button class="fav-x" onclick="rmFav(event,'fav-1')">✕</button><div class="fav-img">🌮</div><div class="fav-body"><div class="fav-name">Son del Norte — LES</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-card" id="fav-2"><button class="fav-x" onclick="rmFav(event,'fav-2')">✕</button><div class="fav-img">🥢</div><div class="fav-body"><div class="fav-name">Pecking House</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-card" id="fav-3"><button class="fav-x" onclick="rmFav(event,'fav-3')">✕</button><div class="fav-img">🌶️</div><div class="fav-body"><div class="fav-name">5ive Spice LES</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-card" id="fav-4"><button class="fav-x" onclick="rmFav(event,'fav-4')">✕</button><div class="fav-img">🥪</div><div class="fav-body"><div class="fav-name">Melt Shop</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-disc" onclick="window.open('https://www.discocater.com/fullmap','_blank')"><div class="fav-disc-img">🪩</div><div class="fav-disc-body"><div class="fav-disc-name">Discover more options</div><button class="fav-disc-btn">Browse Disco Cater</button></div></div>
+          </div>
+        </div>
+
+        <!-- Subscriptions -->
+        <div id="sec-subscriptions" style="display:none;">
+          <div class="sub-card a">
+            <div class="sub-ic">🥙</div>
+            <div class="sub-info"><div class="sub-name">Taim — Nolita</div><div class="sub-meta">40 people · Delivery</div><div class="sub-freq">Every Tuesday · 12:00 PM</div>
+            <div class="sub-acts"><button class="sbtn e">Edit</button><button class="sbtn s">Skip next</button><button class="sbtn c">Cancel subscription</button></div></div>
+            <div class="sub-r"><div class="sub-amt">$1,240</div><div class="sub-nxt">Next: May 6</div></div>
+          </div>
+          <div class="sub-card p">
+            <div class="sub-ic">🥢</div>
+            <div class="sub-info"><div class="sub-name">Pecking House</div><div class="sub-meta">25 people · Pickup</div><div class="sub-freq" style="color:#BA7517;">Bi-weekly · Paused — payment failed</div>
+            <div class="sub-acts"><button class="sbtn r" onclick="setSide(document.getElementById('si-orders'),'payment')">Update card</button><button class="sbtn c">Cancel subscription</button></div></div>
+            <div class="sub-r"><div class="sub-amt">$680</div><div class="sub-nxt" style="color:#BA7517;">Paused</div></div>
+          </div>
+        </div>
+
+        <!-- Account -->
+        <div id="sec-account" style="display:none;">
+          <div class="acct">
+            <div class="acct-h">Personal info</div>
+            <div class="two-col"><div class="fg"><span class="fl">First name</span><input class="fi" type="text" value="Jamie"></div><div class="fg"><span class="fl">Last name</span><input class="fi" type="text" value="Donovan"></div></div>
+            <div class="fg"><span class="fl">Email address</span><input class="fi" type="email" value="jamie@acmecorp.com"></div>
+            <div class="fg"><span class="fl">Phone number</span><input class="fi" type="tel" value="+1 (212) 555-0147"></div>
+            <div class="acct-div"></div>
+            <div class="acct-h">Addresses</div>
+            <div class="fg"><span class="fl">Home address</span><input class="fi" type="text" value="88 Charles St, New York, NY 10014"></div>
+            <div class="fg"><span class="fl">Work address</span><input class="fi" type="text" value="350 Fifth Ave, New York, NY 10118"></div>
+            <div class="acct-div"></div>
+            <div class="acct-h">Security</div>
+            <div class="fg"><span class="fl">Current password</span><input class="fi" type="password" placeholder="••••••••"></div>
+            <div class="two-col"><div class="fg"><span class="fl">New password</span><input class="fi" type="password" placeholder="••••••••"></div><div class="fg"><span class="fl">Confirm password</span><input class="fi" type="password" placeholder="••••••••"></div></div>
+            <button class="btn-pri" style="margin-bottom:20px;">Save changes</button>
+            <div class="acct-div"></div>
+            <div class="acct-h">Danger zone</div>
+            <div class="dz"><div class="dz-t">Delete account</div><div class="dz-d">Permanently delete your Disco Cater account and all associated order history. This action cannot be undone.</div><button class="btn-del">Delete my account</button></div>
+          </div>
+        </div>
+
+        <!-- Notifications placeholder -->
+        <div id="sec-notifs" style="display:none;">
+          <div style="padding:8px 2px 14px;font-size:11px;color:#bbb;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Notifications</div>
+          <div style="border:1px solid #EFB84A;background:#FEF9EC;border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#BA7517" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <div><div style="font-size:12px;font-weight:700;color:#111;">Payment failed — Pecking House</div><div style="font-size:11px;color:#888;margin-top:2px;">Your bi-weekly order has been paused. Update your card to resume.</div></div>
+          </div>
+        </div>
+
+        <!-- Payment methods placeholder -->
+        <div id="sec-paymentmethods" style="display:none;">
+          <div style="padding:8px 2px 14px;font-size:11px;color:#bbb;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">Payment methods</div>
+          <div style="border:1px solid #ebebeb;border-radius:10px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#555" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+              <div><div style="font-size:12px;font-weight:700;color:#111;">Visa ending in 4821</div><div style="font-size:10px;color:#bbb;margin-top:1px;">Expires 09/28 · Default</div></div>
+            </div>
+            <button class="btn-out" style="font-size:10px;padding:5px 10px;">Update</button>
+          </div>
+          <button class="btn-out" style="margin-top:12px;font-size:11px;">+ Add payment method</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── Right panel (order detail) ── -->
+    <div class="rp" id="rp">
+      <div class="rp-hdr"><span class="rp-title" id="rp-title">Order detail</span><button class="rp-x" onclick="closeRP()">✕</button></div>
+      <div id="rp-0">
+        <div class="oc"><div class="oc-name">Taim — Nolita</div><div class="oc-meta">40 people</div><div><span class="oc-tag tag-rec">Weekly recurring</span></div><div class="oc-foot"><span class="oc-amt">$1,240</span><span class="oc-nxt">May 6, 12:00 PM</span></div></div>
+        <div class="db"><div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">Items</div><div class="il"><div class="il-row"><span class="il-n">Team Lunch Box (x1)</span><span class="il-p">$28/pp</span></div><div class="il-row"><span class="il-n">Hummus & Pita Add-on</span><span class="il-p">$4/pp</span></div><div class="il-row"><span class="il-n">Beverages (x40)</span><span class="il-p">$3/pp</span></div></div><div class="il-div"></div><div class="dr"><span class="dl">Type</span><span class="dv">Recurring</span></div><div class="dr"><span class="dl">Service</span><span class="dv">Delivery</span></div><div class="dr"><span class="dl">Order date</span><span class="dv">Every Tuesday</span></div><div class="dr"><span class="dl">Order time</span><span class="dv">12:00 PM</span></div><div class="dr"><span class="dl">Payment</span><span class="dv" style="color:#1D9E75;">Paid</span></div><div class="act-row"><div class="act-btn p">Edit</div><div class="act-btn s">Skip next</div></div></div>
+      </div>
+      <div id="rp-1" style="display:none;">
+        <div class="oc"><div class="oc-name">Son del Norte — LES</div><div class="oc-meta">60 people</div><div><span class="oc-tag tag-cat">Event catering</span></div><div class="oc-foot"><span class="oc-amt">$2,100</span><span class="oc-nxt">May 14, 11:30 AM</span></div></div>
+        <div class="db"><div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">Items</div><div class="il"><div class="il-row"><span class="il-n">Taco Bar Deluxe (x1)</span><span class="il-p">$30/pp</span></div><div class="il-row"><span class="il-n">Guac & Chips Station</span><span class="il-p">$5/pp</span></div></div><div class="il-div"></div><div class="dr"><span class="dl">Type</span><span class="dv">One-time</span></div><div class="dr"><span class="dl">Service</span><span class="dv">Delivery</span></div><div class="dr"><span class="dl">Order date</span><span class="dv">May 14, 2026</span></div><div class="dr"><span class="dl">Order time</span><span class="dv">11:30 AM</span></div><div class="dr"><span class="dl">Payment</span><span class="dv" style="color:#1D9E75;">Paid</span></div><div class="act-row"><div class="act-btn p">Edit</div><div class="act-btn danger">Cancel</div></div></div>
+      </div>
+      <div id="rp-2" style="display:none;">
+        <div class="oc"><div class="oc-name">Pecking House</div><div class="oc-meta">25 people</div><div><span class="oc-tag tag-pau">Paused — payment failed</span></div><div class="oc-foot"><span class="oc-amt">$680</span><span class="oc-nxt" style="color:#BA7517;">Paused</span></div></div>
+        <div class="db"><div style="font-size:10px;font-weight:700;color:#bbb;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">Items</div><div class="il"><div class="il-row"><span class="il-n">Office Feast (x1)</span><span class="il-p">$26/pp</span></div><div class="il-row"><span class="il-n">Spring Rolls (x25)</span><span class="il-p">$2/pp</span></div></div><div class="il-div"></div><div class="dr"><span class="dl">Type</span><span class="dv">Recurring</span></div><div class="dr"><span class="dl">Service</span><span class="dv">Pickup</span></div><div class="dr"><span class="dl">Order date</span><span class="dv">Bi-weekly</span></div><div class="dr"><span class="dl">Order time</span><span class="dv">12:30 PM</span></div><div class="dr"><span class="dl">Payment</span><span class="dv" style="color:#E24B4A;">Unpaid</span></div><div class="act-row"><div class="act-btn p" onclick="ddGo('payment')">Update card</div><div class="act-btn danger">Cancel</div></div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const MO=['January','February','March','April','May','June','July','August','September','October','November','December'];
+let cY=2026,cM=4,cView='cal';
+
+const EVS={
+  6:[{l:'Taim',t:'rec',i:0}],12:[{l:'Taim',t:'rec',i:0}],
+  13:[{l:'Son del Norte',t:'cat',i:1}],14:[{l:'Son del Norte',t:'cat',i:1}],
+  19:[{l:'Taim',t:'rec',i:0}],20:[{l:'Pecking House',t:'pau',i:2}],
+  26:[{l:'Taim',t:'rec',i:0}],27:[{l:'Team offsite',t:'cat',i:1}],
+};
+
+function buildCal(y,m){
+  const g=document.getElementById('cal-grid');
+  if(!g)return;
+  g.innerHTML='';
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{
+    const h=document.createElement('div');h.className='cal-dh';h.textContent=d;g.appendChild(h);
+  });
+  const first=new Date(y,m,1).getDay(),days=new Date(y,m+1,0).getDate(),prev=new Date(y,m,0).getDate();
+  const td=new Date();
+  for(let i=0;i<first;i++){const c=document.createElement('div');c.className='cal-cell other';const n=document.createElement('div');n.className='day-n';n.textContent=prev-first+1+i;c.appendChild(n);g.appendChild(c);}
+  for(let d=1;d<=days;d++){
+    const c=document.createElement('div');
+    c.className='cal-cell'+(td.getFullYear()===y&&td.getMonth()===m&&td.getDate()===d?' today':'');
+    const n=document.createElement('div');n.className='day-n';n.textContent=d;c.appendChild(n);
+    if(EVS[d])EVS[d].forEach(ev=>{const e=document.createElement('div');e.className='ev '+ev.t;e.textContent=ev.l;e.onclick=ev2=>{ev2.stopPropagation();openRP(ev.i);};c.appendChild(e);});
+    g.appendChild(c);
+  }
+  const rem=(first+days)%7;
+  for(let i=1;i<=(rem?7-rem:0);i++){const c=document.createElement('div');c.className='cal-cell other';const n=document.createElement('div');n.className='day-n';n.textContent=i;c.appendChild(n);g.appendChild(c);}
+  document.getElementById('cal-lbl').textContent=MO[m]+' '+y;
+}
+function chM(d){cM+=d;if(cM>11){cM=0;cY++;}if(cM<0){cM=11;cY--;}buildCal(cY,cM);}
+
+function openRP(i){
+  const rp=document.getElementById('rp');rp.style.display='flex';
+  [0,1,2].forEach(n=>{const el=document.getElementById('rp-'+n);if(el)el.style.display=n===i?'block':'none';});
+  document.getElementById('rp-title').textContent=['Taim — Nolita','Son del Norte','Pecking House'][i]||'Order detail';
+}
+function closeRP(){document.getElementById('rp').style.display='none';}
+
+function toggleMenu(e){e.stopPropagation();document.getElementById('av-menu').classList.toggle('open');}
+function closeMenu(){document.getElementById('av-menu').classList.remove('open');}
+document.addEventListener('click',()=>closeMenu());
+
+function ddGo(page){
+  closeMenu();
+  const secMap={payment:'sec-paymentmethods',notifs:'sec-notifs',account:'sec-account'};
+  const titleMap={payment:'Payment methods',notifs:'Notifications',account:'Account settings'};
+  const subMap={payment:'Manage saved cards',notifs:'',account:'Manage your profile'};
+  document.querySelectorAll('.si').forEach(s=>s.classList.remove('active'));
+  closeRP();
+  document.getElementById('page-title').textContent=titleMap[page]||page;
+  document.getElementById('page-sub').textContent=subMap[page]||'';
+  document.getElementById('view-tog').style.display='none';
+  document.getElementById('new-order-btn').style.display='none';
+  showSec(secMap[page]||'sec-account');
+}
+
+function setView(v,btn){
+  cView=v;document.querySelectorAll('.vtbtn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  closeRP();showSec(v==='cal'?'calendar':'list');
+}
+
+function goFav(){setSide(document.getElementById('si-favorites'),'favorites');}
+
+function setNav(page,btn){
+  document.querySelectorAll('.nav-pill').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  const m={orders:'si-orders',subscriptions:'si-subscriptions',history:'si-history',favorites:'si-favorites'};
+  if(m[page])setSide(document.getElementById(m[page]),page);
+}
+
+function setSide(el,page){
+  document.querySelectorAll('.si').forEach(s=>s.classList.remove('active'));
+  if(el)el.classList.add('active');
+  closeRP();
+  const pt=document.getElementById('page-title');
+  const ps=document.getElementById('page-sub');
+  const tog=document.getElementById('view-tog');
+  const nb=document.getElementById('new-order-btn');
+  const cfg={
+    orders:{t:'Orders',s:'3 upcoming · 2 recurring',tog:true,nb:true,sec:cView==='cal'?'calendar':'list'},
+    subscriptions:{t:'Subscriptions',s:'2 active subscriptions',tog:false,nb:false,sec:'subscriptions'},
+    history:{t:'History',s:'All past orders',tog:false,nb:false,sec:'history'},
+    favorites:{t:'Favorites',s:'Your saved restaurants',tog:false,nb:false,sec:'favorites'},
+    payment:{t:'Payment methods',s:'',tog:false,nb:false,sec:'sec-paymentmethods'},
+  };
+  const c=cfg[page]||{t:page,s:'',tog:false,nb:false,sec:'calendar'};
+  if(pt)pt.textContent=c.t;if(ps)ps.textContent=c.s;
+  if(tog)tog.style.display=c.tog?'flex':'none';
+  if(nb)nb.style.display=c.nb?'block':'none';
+  // Handle payment page going directly to section id
+  if(page==='payment'){showSec('paymentmethods');}else{showSec(c.sec);}
+}
+
+function showSec(s){
+  // normalize — strip 'sec-' prefix if passed with it
+  const id=s.startsWith('sec-')?s:'sec-'+s;
+  ['sec-calendar','sec-list','sec-confirm','sec-success','sec-payment','sec-history','sec-favorites','sec-subscriptions','sec-account','sec-notifs','sec-paymentmethods'].forEach(sid=>{
+    const el=document.getElementById(sid);if(el)el.style.display=sid===id?'block':'none';
+  });
+}
+
+function togglePast(){
+  const w=document.getElementById('past-wrap'),a=document.getElementById('past-arr');
+  const o=w.classList.contains('open');w.classList.toggle('open',!o);a.classList.toggle('open',!o);
+}
+
+function rmFav(e,id){
+  e.stopPropagation();const el=document.getElementById(id);
+  if(el){el.style.opacity='0';el.style.transform='scale(0.85)';el.style.transition='all 0.2s';setTimeout(()=>el.remove(),200);}
+}
+
+function setFb(r,btn){document.querySelectorAll('#'+r+' .fb').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
+
+buildCal(cY,cM);
+</script>
+</body>
+</html>
