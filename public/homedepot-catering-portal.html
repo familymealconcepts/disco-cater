@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Home Depot — Corporate Catering Portal</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:13px;background:#EEEEEE;display:flex;justify-content:center;padding:32px 16px;min-height:100vh;}
+:root{
+  --hd-orange:#F96302;
+  --hd-orange-dark:#C44D00;
+  --hd-orange-light:#FEF0E6;
+  --hd-black:#1D1D1D;
+  --hd-gray:#F5F5F5;
+  --hd-border:#E0E0E0;
+  --hd-text:#333333;
+  --hd-muted:#767676;
+  --hd-green:#2E7D32;
+  --hd-green-light:#EDF7EE;
+  --hd-amber:#E65100;
+  --hd-amber-light:#FFF3E0;
+  --hd-red:#C62828;
+  --hd-red-light:#FEECEC;
+  --hd-blue:#1565C0;
+  --hd-blue-light:#E8F0FB;
+}
+
+.shell{width:100%;max-width:1100px;display:flex;flex-direction:column;border:1px solid var(--hd-border);border-radius:4px;overflow:hidden;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,0.14);}
+
+/* ── Top nav ── */
+.topnav{display:flex;align-items:center;gap:0;padding:0 18px;background:var(--hd-orange);height:54px;flex-shrink:0;}
+.hd-logo{display:flex;align-items:center;gap:10px;margin-right:18px;text-decoration:none;}
+.hd-logo-box{width:38px;height:38px;background:#fff;display:flex;align-items:center;justify-content:center;border-radius:2px;flex-shrink:0;}
+.hd-logo-text{font-size:13px;font-weight:700;color:#fff;letter-spacing:0.02em;line-height:1.25;}
+.hd-logo-sub{font-size:10px;color:rgba(255,255,255,0.8);font-weight:400;}
+.nav-div{width:1px;height:22px;background:rgba(255,255,255,0.3);margin:0 14px;flex-shrink:0;}
+.nav-pill{padding:5px 13px;border-radius:2px;border:none;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap;transition:all 0.1s;}
+.nav-pill.active{background:#fff;color:var(--hd-orange-dark);}
+.nav-pill:not(.active){background:transparent;color:#fff;}
+.nav-pill:not(.active):hover{background:rgba(255,255,255,0.18);}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+
+/* Avatar dropdown */
+.av-wrap{position:relative;}
+.av-btn{width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,0.6);cursor:pointer;font-size:11px;font-weight:700;color:var(--hd-orange);background:#fff;display:flex;align-items:center;justify-content:center;}
+.av-btn:hover{border-color:#fff;}
+.av-menu{display:none;position:absolute;top:calc(100% + 8px);right:0;background:#fff;border:1px solid var(--hd-border);border-radius:4px;box-shadow:0 4px 20px rgba(0,0,0,0.14);min-width:216px;z-index:400;overflow:hidden;}
+.av-menu.open{display:block;}
+.av-user{padding:12px 14px 10px;border-bottom:1px solid var(--hd-border);background:var(--hd-gray);}
+.av-name{font-size:12px;font-weight:700;color:var(--hd-black);}
+.av-email{font-size:10px;color:var(--hd-muted);margin-top:2px;}
+.av-group{padding:4px 0;}
+.av-item{display:flex;align-items:center;gap:9px;padding:8px 14px;cursor:pointer;font-size:12px;color:var(--hd-text);font-weight:500;transition:background 0.1s;border:none;background:transparent;width:100%;font-family:inherit;text-align:left;}
+.av-item:hover{background:var(--hd-gray);}
+.av-item i{color:var(--hd-muted);font-size:15px;}
+.av-item.red{color:var(--hd-red);}
+.av-item.red i{color:var(--hd-red);}
+.av-sep{height:1px;background:var(--hd-border);}
+
+/* ── Body ── */
+.body{display:flex;min-height:660px;}
+
+/* ── Icon sidebar ── */
+.sidebar{width:54px;min-width:54px;border-right:1px solid var(--hd-border);display:flex;flex-direction:column;align-items:center;background:#FAFAFA;padding:12px 0;gap:3px;}
+.si{position:relative;width:40px;height:40px;border-radius:2px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.1s;border:none;background:transparent;}
+.si:hover{background:#EEEEEE;}
+.si.active{background:var(--hd-orange-light);}
+.si i{color:#888;font-size:19px;}
+.si.active i{color:var(--hd-orange);}
+.tip{position:absolute;left:48px;top:50%;transform:translateY(-50%);background:var(--hd-black);color:#fff;font-size:11px;font-weight:600;padding:4px 9px;border-radius:2px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity 0.15s;z-index:300;font-family:inherit;}
+.tip::before{content:'';position:absolute;right:100%;top:50%;transform:translateY(-50%);border:4px solid transparent;border-right-color:var(--hd-black);}
+.si:hover .tip{opacity:1;}
+.si-dot{position:absolute;top:5px;right:5px;width:7px;height:7px;background:var(--hd-orange);border-radius:50%;border:1.5px solid #FAFAFA;}
+
+/* ── Main ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+.main-header{display:flex;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid var(--hd-border);flex-shrink:0;background:#fff;}
+.page-title{font-size:15px;font-weight:700;color:var(--hd-black);}
+.page-sub{font-size:11px;color:var(--hd-muted);margin-top:2px;}
+.hdr-right{display:flex;gap:8px;align-items:center;}
+.view-tog{display:flex;background:#EEEEEE;border-radius:2px;padding:2px;gap:2px;}
+.vtbtn{padding:4px 10px;border-radius:2px;font-size:11px;font-weight:600;cursor:pointer;border:none;background:transparent;color:#888;font-family:inherit;}
+.vtbtn.active{background:#fff;color:var(--hd-black);border:0.5px solid var(--hd-border);}
+.btn-pri{background:var(--hd-orange);color:#fff;border:none;border-radius:2px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;}
+.btn-pri:hover{background:var(--hd-orange-dark);}
+.btn-out{background:transparent;border:1px solid var(--hd-border);border-radius:2px;padding:6px 12px;font-size:11px;font-weight:600;cursor:pointer;color:var(--hd-text);font-family:inherit;}
+.btn-out:hover{background:var(--hd-gray);}
+.content{flex:1;padding:18px 20px;overflow-y:auto;}
+
+/* ── Stats ── */
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;}
+.stat-card{background:var(--hd-gray);border-radius:2px;padding:12px 14px;border-left:4px solid var(--hd-orange);}
+.stat-lbl{font-size:10px;color:var(--hd-muted);margin-bottom:4px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;}
+.stat-val{font-size:21px;font-weight:700;color:var(--hd-black);}
+.stat-sub{font-size:10px;color:var(--hd-muted);margin-top:2px;}
+
+/* ── Calendar ── */
+.cal-nav-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.cal-month{font-size:13px;font-weight:700;color:var(--hd-black);}
+.cal-legend{display:flex;gap:14px;align-items:center;margin-left:14px;}
+.leg-item{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--hd-muted);}
+.leg-dot{width:8px;height:8px;border-radius:1px;flex-shrink:0;}
+.cal-nav-btns{display:flex;gap:4px;}
+.cal-nb{background:#EEEEEE;border:none;border-radius:2px;padding:3px 10px;font-size:14px;cursor:pointer;color:var(--hd-text);font-family:inherit;}
+.cal-nb:hover{background:#DDDDDD;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);border:1px solid var(--hd-border);border-radius:2px;overflow:hidden;}
+.cal-dh{background:var(--hd-black);text-align:center;font-size:9px;color:#fff;padding:7px 2px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;border-bottom:none;}
+.cal-cell{background:#fff;min-height:72px;padding:6px;cursor:pointer;border-right:0.5px solid #F0F0F0;border-bottom:0.5px solid #F0F0F0;transition:background 0.1s;}
+.cal-cell:hover{background:#FFFAF6;}
+.cal-cell.today{background:var(--hd-orange-light);}
+.cal-cell.other{opacity:0.3;}
+.day-n{font-size:10px;font-weight:600;color:var(--hd-muted);margin-bottom:3px;}
+.cal-cell.today .day-n{color:var(--hd-orange);font-weight:700;}
+.ev{font-size:9px;padding:2px 5px;border-radius:2px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:700;cursor:pointer;}
+.ev.rec{background:var(--hd-orange-light);color:var(--hd-orange-dark);}
+.ev.cat{background:var(--hd-green-light);color:#1B5E20;}
+.ev.pau{background:var(--hd-amber-light);color:#BF360C;}
+
+/* ── Right detail panel ── */
+.rp{width:252px;min-width:252px;border-left:1px solid var(--hd-border);display:none;flex-direction:column;background:#fff;overflow-y:auto;}
+.rp-hdr{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-bottom:1px solid var(--hd-border);background:var(--hd-gray);}
+.rp-title{font-size:12px;font-weight:700;color:var(--hd-black);}
+.rp-x{background:none;border:none;cursor:pointer;color:var(--hd-muted);font-size:17px;line-height:1;padding:0;}
+.rp-x:hover{color:var(--hd-black);}
+.oc{margin:10px 10px 0;border:1px solid var(--hd-border);border-radius:2px;padding:11px;}
+.oc-name{font-size:12px;font-weight:700;color:var(--hd-black);margin-bottom:1px;}
+.oc-meta{font-size:10px;color:var(--hd-muted);}
+.oc-tag{display:inline-block;font-size:9px;padding:2px 7px;border-radius:2px;font-weight:700;margin-top:5px;}
+.tag-rec{background:var(--hd-orange-light);color:var(--hd-orange-dark);}
+.tag-cat{background:var(--hd-green-light);color:#1B5E20;}
+.tag-pau{background:var(--hd-amber-light);color:#BF360C;}
+.oc-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:0.5px solid var(--hd-border);}
+.oc-amt{font-size:13px;font-weight:700;color:var(--hd-black);}
+.oc-nxt{font-size:10px;color:var(--hd-black);font-weight:600;}
+.db{margin:8px 10px 10px;background:var(--hd-gray);border-radius:2px;padding:10px;}
+.db-h{font-size:10px;font-weight:700;color:var(--hd-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;}
+.il-row{display:flex;justify-content:space-between;font-size:10px;padding:2px 0;}
+.il-n{color:var(--hd-text);font-weight:500;}
+.il-p{color:var(--hd-muted);}
+.il-div{height:0.5px;background:var(--hd-border);margin:6px 0;}
+.dr{display:flex;justify-content:space-between;font-size:10px;padding:2px 0;}
+.dl{color:var(--hd-muted);}
+.dv{color:var(--hd-black);font-weight:600;}
+.act-row{display:flex;gap:5px;margin-top:9px;}
+.act-btn{flex:1;padding:6px;border-radius:2px;font-size:10px;font-weight:700;cursor:pointer;text-align:center;font-family:inherit;transition:background 0.1s;}
+.act-btn.p{background:var(--hd-orange);color:#fff;border:none;}
+.act-btn.p:hover{background:var(--hd-orange-dark);}
+.act-btn.s{background:transparent;border:0.5px solid var(--hd-border);color:var(--hd-text);}
+.act-btn.s:hover{background:var(--hd-gray);}
+.act-btn.danger{background:transparent;border:0.5px solid #F09595;color:var(--hd-red);}
+.act-btn.danger:hover{background:var(--hd-red-light);}
+
+/* ── List rows ── */
+.olr{display:flex;align-items:center;padding:11px 8px;border-bottom:1px solid #F5F5F5;gap:12px;cursor:pointer;border-radius:2px;transition:background 0.1s;}
+.olr:hover{background:#FFFAF6;}
+.olr-ic{width:40px;height:40px;border-radius:2px;flex-shrink:0;background:var(--hd-gray);display:flex;align-items:center;justify-content:center;}
+.olr-ic i{font-size:19px;color:#AAA;}
+.olr-m{flex:1;min-width:0;}
+.olr-name{font-size:12px;font-weight:700;color:var(--hd-black);}
+.olr-meta{font-size:10px;color:var(--hd-muted);margin-top:1px;}
+.olr-r{text-align:right;flex-shrink:0;}
+.olr-amt{font-size:12px;font-weight:700;color:var(--hd-black);}
+.olr-date{font-size:10px;color:var(--hd-black);font-weight:600;margin-top:2px;}
+.paid{color:var(--hd-green);font-weight:600;}
+.unpaid{color:var(--hd-red);font-weight:600;}
+
+/* Past orders collapse */
+.past-tog{display:flex;align-items:center;justify-content:space-between;padding:9px 10px;cursor:pointer;border-radius:2px;margin-top:8px;background:var(--hd-gray);border:1px solid var(--hd-border);}
+.past-tog:hover{background:#EEEEEE;}
+.past-tog-lbl{font-size:11px;font-weight:600;color:var(--hd-text);}
+.past-arr{font-size:11px;color:var(--hd-muted);transition:transform 0.2s;}
+.past-arr.open{transform:rotate(180deg);}
+.past-wrap{overflow:hidden;transition:max-height 0.3s ease;max-height:0;}
+.past-wrap.open{max-height:500px;}
+
+/* Discover CTA */
+.dcta{display:flex;align-items:center;gap:12px;margin-top:16px;padding:13px 15px;border:1px solid var(--hd-border);border-left:4px solid var(--hd-orange);border-radius:2px;cursor:pointer;background:var(--hd-orange-light);text-decoration:none;}
+.dcta:hover{background:#FDDBC5;}
+.dcta-t{font-size:12px;font-weight:700;color:var(--hd-orange-dark);}
+.dcta-s{font-size:10px;color:var(--hd-muted);margin-top:2px;}
+.dcta-arr{margin-left:auto;font-size:16px;color:var(--hd-orange);font-weight:700;}
+
+/* ── Favorites ── */
+.fav-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:12px;}
+.fav-card{border:1px solid var(--hd-border);border-radius:2px;overflow:visible;position:relative;transition:border-color 0.1s,box-shadow 0.1s;}
+.fav-card:hover{border-color:var(--hd-orange);box-shadow:0 2px 8px rgba(249,99,2,0.12);}
+.fav-x{position:absolute;top:-8px;right:-8px;width:22px;height:22px;border-radius:50%;background:#fff;border:1px solid var(--hd-border);display:none;align-items:center;justify-content:center;font-size:11px;color:var(--hd-muted);cursor:pointer;z-index:10;box-shadow:0 1px 4px rgba(0,0,0,0.1);}
+.fav-x:hover{background:var(--hd-red-light);border-color:#F09595;color:var(--hd-red);}
+.fav-card:hover .fav-x{display:flex;}
+.fav-img{width:100%;height:88px;background:var(--hd-gray);display:flex;align-items:center;justify-content:center;border-radius:1px 1px 0 0;}
+.fav-img i{font-size:30px;color:#CCC;}
+.fav-body{padding:10px 11px 11px;}
+.fav-name{font-size:12px;font-weight:700;color:var(--hd-black);margin-bottom:7px;}
+.fav-btn{display:block;text-align:center;padding:7px;background:var(--hd-orange);color:#fff;border:none;border-radius:2px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;width:100%;}
+.fav-btn:hover{background:var(--hd-orange-dark);}
+.fav-disc{border:1px dashed var(--hd-border);border-radius:2px;cursor:pointer;transition:all 0.1s;background:var(--hd-gray);}
+.fav-disc:hover{border-color:var(--hd-orange);background:var(--hd-orange-light);}
+.fav-disc-img{width:100%;height:88px;display:flex;align-items:center;justify-content:center;}
+.fav-disc-img i{font-size:30px;color:#CCC;}
+.fav-disc:hover .fav-disc-img i{color:var(--hd-orange);}
+.fav-disc-body{padding:10px 11px 11px;text-align:center;}
+.fav-disc-name{font-size:11px;font-weight:700;color:var(--hd-orange-dark);margin-bottom:7px;}
+.fav-disc-btn{display:block;text-align:center;padding:7px;background:var(--hd-orange);color:#fff;border:none;border-radius:2px;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;width:100%;}
+.fav-disc-btn:hover{background:var(--hd-orange-dark);}
+
+/* ── Subscriptions ── */
+.sub-card{border:1px solid var(--hd-border);border-radius:2px;padding:14px;margin-bottom:10px;display:flex;align-items:flex-start;gap:14px;}
+.sub-card.a{border-left:4px solid var(--hd-orange);}
+.sub-card.p{border-left:4px solid var(--hd-amber);}
+.sub-ic{width:38px;height:38px;border-radius:2px;background:var(--hd-orange-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.sub-ic i{font-size:18px;color:var(--hd-orange);}
+.sub-info{flex:1;min-width:0;}
+.sub-name{font-size:13px;font-weight:700;color:var(--hd-black);}
+.sub-meta{font-size:11px;color:var(--hd-muted);margin-top:2px;}
+.sub-freq{font-size:10px;color:var(--hd-orange-dark);font-weight:600;margin-top:3px;}
+.sub-r{text-align:right;flex-shrink:0;}
+.sub-amt{font-size:14px;font-weight:700;color:var(--hd-black);}
+.sub-nxt{font-size:10px;color:var(--hd-black);font-weight:600;margin-top:2px;}
+.sub-acts{display:flex;gap:5px;margin-top:9px;flex-wrap:wrap;}
+.sbtn{padding:5px 11px;border-radius:2px;font-size:10px;font-weight:600;cursor:pointer;font-family:inherit;}
+.sbtn.e{background:var(--hd-orange);color:#fff;border:none;}
+.sbtn.e:hover{background:var(--hd-orange-dark);}
+.sbtn.s{background:transparent;border:0.5px solid var(--hd-border);color:var(--hd-text);}
+.sbtn.s:hover{background:var(--hd-gray);}
+.sbtn.c{background:transparent;border:0.5px solid #F09595;color:var(--hd-red);}
+.sbtn.c:hover{background:var(--hd-red-light);}
+.sbtn.r{background:var(--hd-green);color:#fff;border:none;}
+
+/* ── Forms ── */
+.fg{margin-bottom:12px;}
+.fl{font-size:10px;color:var(--hd-muted);margin-bottom:3px;display:block;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;}
+.fi{width:100%;padding:8px 10px;border:1px solid var(--hd-border);border-radius:2px;font-size:12px;color:var(--hd-black);background:#fff;font-family:inherit;outline:none;}
+.fi:focus{border-color:var(--hd-orange);box-shadow:0 0 0 2px rgba(249,99,2,0.1);}
+.freq-row{display:flex;gap:5px;}
+.fb{flex:1;padding:7px 4px;border:1px solid var(--hd-border);border-radius:2px;font-size:10px;font-weight:600;cursor:pointer;text-align:center;font-family:inherit;background:#fff;color:var(--hd-text);transition:all 0.1s;}
+.fb:hover{border-color:#AAA;}
+.fb.active{border-color:var(--hd-orange);color:var(--hd-orange-dark);background:var(--hd-orange-light);}
+.sum-blk{background:var(--hd-gray);border-radius:2px;padding:14px;margin-bottom:14px;border:1px solid var(--hd-border);}
+.sum-lbl{font-size:10px;color:var(--hd-muted);margin-bottom:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;}
+.sum-tbl{width:100%;font-size:11px;border-collapse:collapse;}
+.sum-tbl td{padding:3px 0;}
+.sum-tbl .sl{color:var(--hd-muted);}
+.sum-tbl .sv{text-align:right;color:var(--hd-black);font-weight:600;}
+.sum-tbl .tot td{border-top:1px solid var(--hd-border);padding-top:7px;}
+.sum-tbl .tot .sl{color:var(--hd-black);font-weight:700;font-size:12px;}
+.sum-tbl .tot .sv{color:var(--hd-orange-dark);font-weight:700;font-size:15px;}
+.info-box{background:var(--hd-green-light);border-radius:2px;padding:10px 12px;font-size:11px;color:#1B5E20;margin-bottom:14px;line-height:1.6;border-left:4px solid var(--hd-green);}
+.warn-box{background:var(--hd-amber-light);border-radius:2px;padding:10px 12px;font-size:11px;color:#BF360C;margin-bottom:14px;line-height:1.6;border-left:4px solid var(--hd-amber);}
+.mf{display:flex;gap:8px;margin-top:4px;}
+.mf-c{flex:1;padding:9px;border-radius:2px;border:1px solid var(--hd-border);background:#fff;color:var(--hd-text);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;}
+.mf-c:hover{background:var(--hd-gray);}
+.mf-ok{flex:2;padding:9px;border-radius:2px;border:none;background:var(--hd-orange);color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;}
+.mf-ok:hover{background:var(--hd-orange-dark);}
+.ok-wrap{text-align:center;padding:60px 20px;}
+.ok-ic{width:56px;height:56px;border-radius:50%;background:var(--hd-green-light);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;}
+
+/* ── Account ── */
+.acct{max-width:440px;}
+.acct-div{height:1px;background:var(--hd-border);margin:20px 0;}
+.acct-h{font-size:11px;font-weight:700;color:var(--hd-black);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:13px;}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.dz{border:1px solid #F09595;border-radius:2px;padding:14px;margin-top:8px;}
+.dz-t{font-size:12px;font-weight:700;color:var(--hd-red);margin-bottom:6px;}
+.dz-d{font-size:11px;color:var(--hd-muted);margin-bottom:10px;line-height:1.6;}
+.btn-del{background:transparent;border:1px solid var(--hd-red);color:var(--hd-red);border-radius:2px;padding:7px 14px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;}
+.btn-del:hover{background:var(--hd-red-light);}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Top nav -->
+  <div class="topnav">
+    <a class="hd-logo" href="#">
+      <div class="hd-logo-box">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <polygon points="14,2 26,8 26,20 14,26 2,20 2,8" fill="#F96302"/>
+          <polygon points="14,6 22,11 22,17 14,22 6,17 6,11" fill="#fff"/>
+          <polygon points="14,10 18,12.5 18,15.5 14,18 10,15.5 10,12.5" fill="#F96302"/>
+        </svg>
+      </div>
+      <div>
+        <div class="hd-logo-text">The Home Depot</div>
+        <div class="hd-logo-sub">Corporate Catering</div>
+      </div>
+    </a>
+    <div class="nav-div"></div>
+    <button class="nav-pill active" onclick="setNav('orders',this)">Orders</button>
+    <button class="nav-pill" onclick="setNav('subscriptions',this)">Subscriptions</button>
+    <button class="nav-pill" onclick="setNav('history',this)">History</button>
+    <button class="nav-pill" onclick="setNav('favorites',this)">Favorites</button>
+    <div class="nav-right">
+      <div class="av-wrap" id="av-wrap">
+        <button class="av-btn" onclick="toggleMenu(event)">JD</button>
+        <div class="av-menu" id="av-menu">
+          <div class="av-user">
+            <div class="av-name">Jamie Donovan</div>
+            <div class="av-email">j.donovan@homedepot.com</div>
+          </div>
+          <div class="av-group">
+            <button class="av-item" onclick="ddGo('payment')"><i class="ti ti-credit-card"></i>Payment methods</button>
+            <button class="av-item" onclick="ddGo('notifs')"><i class="ti ti-bell"></i>Notifications<span style="margin-left:auto;background:#F96302;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:2px;">1</span></button>
+            <button class="av-item" onclick="ddGo('account')"><i class="ti ti-user"></i>Account settings</button>
+          </div>
+          <div class="av-sep"></div>
+          <div class="av-group">
+            <button class="av-item red" onclick="closeMenu()"><i class="ti ti-logout"></i>Sign out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="body">
+
+    <!-- Icon sidebar -->
+    <div class="sidebar">
+      <button class="si active" id="si-orders" onclick="setSide(this,'orders')">
+        <i class="ti ti-calendar"></i>
+        <span class="tip">Orders</span>
+        <span class="si-dot"></span>
+      </button>
+      <button class="si" id="si-subscriptions" onclick="setSide(this,'subscriptions')">
+        <i class="ti ti-repeat"></i>
+        <span class="tip">Subscriptions</span>
+        <span class="si-dot"></span>
+      </button>
+      <button class="si" id="si-history" onclick="setSide(this,'history')">
+        <i class="ti ti-clock"></i>
+        <span class="tip">History</span>
+      </button>
+      <button class="si" id="si-favorites" onclick="setSide(this,'favorites')">
+        <i class="ti ti-star"></i>
+        <span class="tip">Favorites</span>
+      </button>
+    </div>
+
+    <!-- Main content -->
+    <div class="main">
+      <div class="main-header">
+        <div>
+          <div class="page-title" id="page-title">Orders</div>
+          <div class="page-sub" id="page-sub">3 upcoming · 2 recurring</div>
+        </div>
+        <div class="hdr-right">
+          <div class="view-tog" id="view-tog">
+            <button class="vtbtn" onclick="setView('list',this)">List</button>
+            <button class="vtbtn active" onclick="setView('cal',this)">Calendar</button>
+          </div>
+          <button class="btn-out" id="new-order-btn" onclick="goFav()">+ New order</button>
+        </div>
+      </div>
+
+      <div class="content">
+
+        <!-- Calendar -->
+        <div id="sec-calendar">
+          <div class="stats-row">
+            <div class="stat-card"><div class="stat-lbl">Active orders</div><div class="stat-val">3</div><div class="stat-sub">2 recurring · 1 one-time</div></div>
+            <div class="stat-card"><div class="stat-lbl">Total orders placed</div><div class="stat-val">47</div><div class="stat-sub">since Jan 2025</div></div>
+            <div class="stat-card"><div class="stat-lbl">Next order</div><div class="stat-val" style="font-size:15px;padding-top:3px;">May 6</div><div class="stat-sub">Taim — Nolita · 12:00 PM</div></div>
+          </div>
+          <div class="cal-nav-row">
+            <div style="display:flex;align-items:center;">
+              <span class="cal-month" id="cal-lbl">May 2026</span>
+              <div class="cal-legend">
+                <div class="leg-item"><div class="leg-dot" style="background:#F96302;"></div>Recurring</div>
+                <div class="leg-item"><div class="leg-dot" style="background:#2E7D32;"></div>Catering</div>
+                <div class="leg-item"><div class="leg-dot" style="background:#E65100;"></div>Paused</div>
+              </div>
+            </div>
+            <div class="cal-nav-btns">
+              <button class="cal-nb" onclick="chM(-1)">&#8249;</button>
+              <button class="cal-nb" onclick="chM(1)">&#8250;</button>
+            </div>
+          </div>
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+
+        <!-- List -->
+        <div id="sec-list" style="display:none;">
+          <div style="font-size:10px;color:var(--hd-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;padding:0 2px;margin-bottom:8px;">Upcoming</div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic"><i class="ti ti-salad"></i></div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div><div style="margin-top:3px;"><span class="oc-tag tag-rec">Weekly recurring</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">May 6, 12:00 PM</div></div></div>
+          <div class="olr" onclick="openRP(1)"><div class="olr-ic"><i class="ti ti-meat"></i></div><div class="olr-m"><div class="olr-name">Son del Norte — LES</div><div class="olr-meta">60 people · Delivery · <span class="paid">Paid</span></div><div style="margin-top:3px;"><span class="oc-tag tag-cat">Event catering</span></div></div><div class="olr-r"><div class="olr-amt">$2,100</div><div class="olr-date">May 14, 11:30 AM</div></div></div>
+          <div class="olr" onclick="openRP(2)"><div class="olr-ic"><i class="ti ti-bowl-chopsticks"></i></div><div class="olr-m"><div class="olr-name">Pecking House</div><div class="olr-meta">25 people · Pickup · <span class="unpaid">Unpaid</span></div><div style="margin-top:3px;"><span class="oc-tag tag-pau">Paused — payment failed</span></div></div><div class="olr-r"><div class="olr-amt">$680</div><div class="olr-date" style="color:var(--hd-amber);">Paused</div></div></div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic"><i class="ti ti-salad"></i></div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div><div style="margin-top:3px;"><span class="oc-tag tag-rec">Weekly recurring</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">May 13, 12:00 PM</div></div></div>
+          <div class="past-tog" onclick="togglePast()">
+            <span class="past-tog-lbl">Past orders (12)</span>
+            <span class="past-arr" id="past-arr">&#9660;</span>
+          </div>
+          <div class="past-wrap" id="past-wrap">
+            <div class="olr" onclick="openRP(0)"><div class="olr-ic"><i class="ti ti-salad"></i></div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 29, 2026</div></div></div>
+            <div class="olr" onclick="openRP(1)"><div class="olr-ic"><i class="ti ti-meat"></i></div><div class="olr-m"><div class="olr-name">Son del Norte — LES</div><div class="olr-meta">55 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,925</div><div class="olr-date">Apr 22, 2026</div></div></div>
+            <div class="olr" onclick="openRP(0)"><div class="olr-ic"><i class="ti ti-salad"></i></div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 15, 2026</div></div></div>
+            <div class="olr" onclick="openRP(2)"><div class="olr-ic"><i class="ti ti-bowl-chopsticks"></i></div><div class="olr-m"><div class="olr-name">Pecking House</div><div class="olr-meta">25 people · Pickup · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$680</div><div class="olr-date">Apr 8, 2026</div></div></div>
+          </div>
+          <a href="https://www.discocater.com/fullmap" class="dcta" target="_blank">
+            <i class="ti ti-search" style="font-size:20px;color:var(--hd-orange);flex-shrink:0;"></i>
+            <div><div class="dcta-t">Browse more restaurants</div><div class="dcta-s">Find new catering options on Disco Cater</div></div>
+            <span class="dcta-arr">›</span>
+          </a>
+        </div>
+
+        <!-- Confirm -->
+        <div id="sec-confirm" style="display:none;">
+          <div style="max-width:400px;">
+            <div class="sum-blk"><div class="sum-lbl">Order summary</div><table class="sum-tbl"><tr><td class="sl">Restaurant</td><td class="sv">Taim — Nolita</td></tr><tr><td class="sl">Items</td><td class="sv">Team Lunch Box</td></tr><tr><td class="sl">Headcount</td><td class="sv">30 people</td></tr><tr><td class="sl">Type</td><td class="sv">Recurring — weekly</td></tr><tr><td class="sl">Service</td><td class="sv">Delivery</td></tr><tr><td class="sl">Order date</td><td class="sv">Every Tuesday</td></tr><tr><td class="sl">Order time</td><td class="sv">12:00 PM</td></tr><tr class="tot"><td class="sl">Est. per order</td><td class="sv">$840</td></tr></table></div>
+            <div class="info-box">A confirmation email will be sent 24 hours before each order. You can skip or cancel anytime.</div>
+            <div style="font-size:11px;color:var(--hd-muted);margin-bottom:14px;">Payment: <span style="color:var(--hd-black);font-weight:600;">Visa ···4821</span> &nbsp;·&nbsp; <span style="color:var(--hd-orange);cursor:pointer;font-weight:600;">Change</span></div>
+            <div class="mf"><button class="mf-c" onclick="setSide(document.getElementById('si-favorites'),'favorites')">&larr; Back</button><button class="mf-ok" onclick="showSec('success')">Place order</button></div>
+          </div>
+        </div>
+
+        <!-- Success -->
+        <div id="sec-success" style="display:none;">
+          <div class="ok-wrap">
+            <div class="ok-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2E7D32" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <div style="font-size:18px;font-weight:700;color:var(--hd-black);margin-bottom:10px;">Order confirmed!</div>
+            <div style="font-size:13px;color:var(--hd-muted);line-height:1.8;margin-bottom:28px;">Your recurring order with <strong>Taim — Nolita</strong><br>is set for every Tuesday at 12:00 PM.</div>
+            <button class="btn-pri" onclick="setSide(document.getElementById('si-orders'),'orders')" style="padding:10px 24px;font-size:13px;">Back to orders</button>
+          </div>
+        </div>
+
+        <!-- Payment failed -->
+        <div id="sec-payment" style="display:none;">
+          <div style="max-width:400px;">
+            <div class="warn-box"><strong>Payment failed for Pecking House.</strong> Your order has been paused. Update your card to resume.</div>
+            <div class="fg"><span class="fl">Card number</span><input type="text" class="fi" placeholder="1234 5678 9012 3456"></div>
+            <div style="display:flex;gap:10px;"><div class="fg" style="flex:1;"><span class="fl">Expiry</span><input type="text" class="fi" placeholder="MM / YY"></div><div class="fg" style="flex:1;"><span class="fl">CVC</span><input type="text" class="fi" placeholder="123"></div></div>
+            <div class="mf"><button class="mf-c" onclick="setSide(document.getElementById('si-orders'),'orders')">Cancel</button><button class="mf-ok" onclick="setSide(document.getElementById('si-orders'),'orders')">Update &amp; resume</button></div>
+          </div>
+        </div>
+
+        <!-- History -->
+        <div id="sec-history" style="display:none;">
+          <div style="font-size:10px;color:var(--hd-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;padding:0 2px;margin-bottom:8px;">All past orders</div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic"><i class="ti ti-salad"></i></div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 29, 2026</div></div></div>
+          <div class="olr" onclick="openRP(1)"><div class="olr-ic"><i class="ti ti-meat"></i></div><div class="olr-m"><div class="olr-name">Son del Norte — LES</div><div class="olr-meta">55 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,925</div><div class="olr-date">Apr 22, 2026</div></div></div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic"><i class="ti ti-salad"></i></div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 15, 2026</div></div></div>
+          <div class="olr" onclick="openRP(2)"><div class="olr-ic"><i class="ti ti-bowl-chopsticks"></i></div><div class="olr-m"><div class="olr-name">Pecking House</div><div class="olr-meta">25 people · Pickup · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$680</div><div class="olr-date">Apr 8, 2026</div></div></div>
+          <div class="olr" onclick="openRP(0)"><div class="olr-ic"><i class="ti ti-salad"></i></div><div class="olr-m"><div class="olr-name">Taim — Nolita</div><div class="olr-meta">40 people · Delivery · <span class="paid">Paid</span></div></div><div class="olr-r"><div class="olr-amt">$1,240</div><div class="olr-date">Apr 1, 2026</div></div></div>
+          <a href="https://www.discocater.com/fullmap" class="dcta" target="_blank">
+            <i class="ti ti-search" style="font-size:20px;color:var(--hd-orange);flex-shrink:0;"></i>
+            <div><div class="dcta-t">Browse more restaurants</div><div class="dcta-s">Find new catering options on Disco Cater</div></div>
+            <span class="dcta-arr">›</span>
+          </a>
+        </div>
+
+        <!-- Favorites -->
+        <div id="sec-favorites" style="display:none;">
+          <div class="fav-grid" id="fav-grid">
+            <div class="fav-card" id="fav-0"><button class="fav-x" onclick="rmFav(event,'fav-0')">&#x2715;</button><div class="fav-img"><i class="ti ti-salad"></i></div><div class="fav-body"><div class="fav-name">Taim — Nolita</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-card" id="fav-1"><button class="fav-x" onclick="rmFav(event,'fav-1')">&#x2715;</button><div class="fav-img"><i class="ti ti-meat"></i></div><div class="fav-body"><div class="fav-name">Son del Norte — LES</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-card" id="fav-2"><button class="fav-x" onclick="rmFav(event,'fav-2')">&#x2715;</button><div class="fav-img"><i class="ti ti-bowl-chopsticks"></i></div><div class="fav-body"><div class="fav-name">Pecking House</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-card" id="fav-3"><button class="fav-x" onclick="rmFav(event,'fav-3')">&#x2715;</button><div class="fav-img"><i class="ti ti-pizza"></i></div><div class="fav-body"><div class="fav-name">5ive Spice LES</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-card" id="fav-4"><button class="fav-x" onclick="rmFav(event,'fav-4')">&#x2715;</button><div class="fav-img"><i class="ti ti-sandwich"></i></div><div class="fav-body"><div class="fav-name">Melt Shop</div><button class="fav-btn" onclick="showSec('confirm')">Order catering</button></div></div>
+            <div class="fav-disc" onclick="window.open('https://www.discocater.com/fullmap','_blank')">
+              <div class="fav-disc-img"><i class="ti ti-search"></i></div>
+              <div class="fav-disc-body"><div class="fav-disc-name">Browse more options</div><button class="fav-disc-btn">Discover restaurants</button></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subscriptions -->
+        <div id="sec-subscriptions" style="display:none;">
+          <div class="sub-card a">
+            <div class="sub-ic"><i class="ti ti-salad"></i></div>
+            <div class="sub-info"><div class="sub-name">Taim — Nolita</div><div class="sub-meta">40 people · Delivery</div><div class="sub-freq">Every Tuesday · 12:00 PM</div>
+            <div class="sub-acts"><button class="sbtn e">Edit</button><button class="sbtn s">Skip next</button><button class="sbtn c">Cancel subscription</button></div></div>
+            <div class="sub-r"><div class="sub-amt">$1,240</div><div class="sub-nxt">Next: May 6</div></div>
+          </div>
+          <div class="sub-card p">
+            <div class="sub-ic"><i class="ti ti-bowl-chopsticks"></i></div>
+            <div class="sub-info"><div class="sub-name">Pecking House</div><div class="sub-meta">25 people · Pickup</div><div class="sub-freq" style="color:#BF360C;">Bi-weekly · Paused — payment failed</div>
+            <div class="sub-acts"><button class="sbtn r" onclick="setSide(document.getElementById('si-orders'),'payment')">Update card</button><button class="sbtn c">Cancel subscription</button></div></div>
+            <div class="sub-r"><div class="sub-amt">$680</div><div class="sub-nxt" style="color:#BF360C;">Paused</div></div>
+          </div>
+        </div>
+
+        <!-- Account -->
+        <div id="sec-account" style="display:none;">
+          <div class="acct">
+            <div class="acct-h">Personal info</div>
+            <div class="two-col"><div class="fg"><span class="fl">First name</span><input class="fi" type="text" value="Jamie"></div><div class="fg"><span class="fl">Last name</span><input class="fi" type="text" value="Donovan"></div></div>
+            <div class="fg"><span class="fl">Email address</span><input class="fi" type="email" value="j.donovan@homedepot.com"></div>
+            <div class="fg"><span class="fl">Phone number</span><input class="fi" type="tel" value="+1 (770) 433-8211"></div>
+            <div class="acct-div"></div>
+            <div class="acct-h">Addresses</div>
+            <div class="fg"><span class="fl">Home address</span><input class="fi" type="text" value="2455 Paces Ferry Rd NW, Atlanta, GA 30339"></div>
+            <div class="fg"><span class="fl">Work address</span><input class="fi" type="text" value="2455 Paces Ferry Rd NW, Atlanta, GA 30339"></div>
+            <div class="acct-div"></div>
+            <div class="acct-h">Security</div>
+            <div class="fg"><span class="fl">Current password</span><input class="fi" type="password" placeholder="••••••••"></div>
+            <div class="two-col"><div class="fg"><span class="fl">New password</span><input class="fi" type="password" placeholder="••••••••"></div><div class="fg"><span class="fl">Confirm password</span><input class="fi" type="password" placeholder="••••••••"></div></div>
+            <button class="btn-pri" style="margin-bottom:20px;">Save changes</button>
+            <div class="acct-div"></div>
+            <div class="acct-h">Danger zone</div>
+            <div class="dz"><div class="dz-t">Delete account</div><div class="dz-d">Permanently delete your catering account and all associated order history. This action cannot be undone.</div><button class="btn-del">Delete my account</button></div>
+          </div>
+        </div>
+
+        <!-- Notifications -->
+        <div id="sec-notifs" style="display:none;">
+          <div style="font-size:10px;color:var(--hd-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">Notifications</div>
+          <div style="border:1px solid var(--hd-orange);background:var(--hd-orange-light);border-radius:2px;padding:13px 15px;display:flex;align-items:center;gap:12px;">
+            <i class="ti ti-alert-triangle" style="font-size:20px;color:var(--hd-orange);flex-shrink:0;"></i>
+            <div><div style="font-size:12px;font-weight:700;color:var(--hd-black);">Payment failed — Pecking House</div><div style="font-size:11px;color:var(--hd-muted);margin-top:2px;">Your bi-weekly order has been paused. Update your payment method to resume.</div></div>
+          </div>
+        </div>
+
+        <!-- Payment methods -->
+        <div id="sec-paymentmethods" style="display:none;">
+          <div style="font-size:10px;color:var(--hd-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">Payment methods</div>
+          <div style="border:1px solid var(--hd-border);border-radius:2px;padding:13px 15px;display:flex;align-items:center;justify-content:space-between;background:#fff;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <i class="ti ti-credit-card" style="font-size:22px;color:var(--hd-muted);"></i>
+              <div><div style="font-size:12px;font-weight:700;color:var(--hd-black);">Visa ending in 4821</div><div style="font-size:10px;color:var(--hd-muted);margin-top:2px;">Expires 09/28 · Default</div></div>
+            </div>
+            <button class="btn-out" style="font-size:10px;padding:5px 10px;">Update</button>
+          </div>
+          <button class="btn-out" style="margin-top:10px;font-size:11px;">+ Add payment method</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Right detail panel -->
+    <div class="rp" id="rp">
+      <div class="rp-hdr"><span class="rp-title" id="rp-title">Order detail</span><button class="rp-x" onclick="closeRP()">&#x2715;</button></div>
+      <div id="rp-0">
+        <div class="oc"><div class="oc-name">Taim — Nolita</div><div class="oc-meta">40 people</div><div><span class="oc-tag tag-rec">Weekly recurring</span></div><div class="oc-foot"><span class="oc-amt">$1,240</span><span class="oc-nxt">May 6, 12:00 PM</span></div></div>
+        <div class="db"><div class="db-h">Items</div><div class="il-row"><span class="il-n">Team Lunch Box (x1)</span><span class="il-p">$28/pp</span></div><div class="il-row"><span class="il-n">Hummus &amp; Pita Add-on</span><span class="il-p">$4/pp</span></div><div class="il-row"><span class="il-n">Beverages (x40)</span><span class="il-p">$3/pp</span></div><div class="il-div"></div><div class="dr"><span class="dl">Type</span><span class="dv">Recurring</span></div><div class="dr"><span class="dl">Service</span><span class="dv">Delivery</span></div><div class="dr"><span class="dl">Order date</span><span class="dv">Every Tuesday</span></div><div class="dr"><span class="dl">Order time</span><span class="dv">12:00 PM</span></div><div class="dr"><span class="dl">Payment</span><span class="dv" style="color:var(--hd-green);">Paid</span></div><div class="act-row"><div class="act-btn p">Edit</div><div class="act-btn s">Skip next</div></div></div>
+      </div>
+      <div id="rp-1" style="display:none;">
+        <div class="oc"><div class="oc-name">Son del Norte — LES</div><div class="oc-meta">60 people</div><div><span class="oc-tag tag-cat">Event catering</span></div><div class="oc-foot"><span class="oc-amt">$2,100</span><span class="oc-nxt">May 14, 11:30 AM</span></div></div>
+        <div class="db"><div class="db-h">Items</div><div class="il-row"><span class="il-n">Taco Bar Deluxe (x1)</span><span class="il-p">$30/pp</span></div><div class="il-row"><span class="il-n">Guac &amp; Chips Station</span><span class="il-p">$5/pp</span></div><div class="il-div"></div><div class="dr"><span class="dl">Type</span><span class="dv">One-time</span></div><div class="dr"><span class="dl">Service</span><span class="dv">Delivery</span></div><div class="dr"><span class="dl">Order date</span><span class="dv">May 14, 2026</span></div><div class="dr"><span class="dl">Order time</span><span class="dv">11:30 AM</span></div><div class="dr"><span class="dl">Payment</span><span class="dv" style="color:var(--hd-green);">Paid</span></div><div class="act-row"><div class="act-btn p">Edit</div><div class="act-btn danger">Cancel</div></div></div>
+      </div>
+      <div id="rp-2" style="display:none;">
+        <div class="oc"><div class="oc-name">Pecking House</div><div class="oc-meta">25 people</div><div><span class="oc-tag tag-pau">Paused — payment failed</span></div><div class="oc-foot"><span class="oc-amt">$680</span><span class="oc-nxt" style="color:#BF360C;">Paused</span></div></div>
+        <div class="db"><div class="db-h">Items</div><div class="il-row"><span class="il-n">Office Feast (x1)</span><span class="il-p">$26/pp</span></div><div class="il-row"><span class="il-n">Spring Rolls (x25)</span><span class="il-p">$2/pp</span></div><div class="il-div"></div><div class="dr"><span class="dl">Type</span><span class="dv">Recurring</span></div><div class="dr"><span class="dl">Service</span><span class="dv">Pickup</span></div><div class="dr"><span class="dl">Order date</span><span class="dv">Bi-weekly</span></div><div class="dr"><span class="dl">Order time</span><span class="dv">12:30 PM</span></div><div class="dr"><span class="dl">Payment</span><span class="dv" style="color:var(--hd-red);">Unpaid</span></div><div class="act-row"><div class="act-btn p">Update card</div><div class="act-btn danger">Cancel</div></div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const MO=['January','February','March','April','May','June','July','August','September','October','November','December'];
+let cY=2026,cM=4,cView='cal';
+const EVS={6:[{l:'Taim',t:'rec',i:0}],12:[{l:'Taim',t:'rec',i:0}],13:[{l:'Son del Norte',t:'cat',i:1}],14:[{l:'Son del Norte',t:'cat',i:1}],19:[{l:'Taim',t:'rec',i:0}],20:[{l:'Pecking House',t:'pau',i:2}],26:[{l:'Taim',t:'rec',i:0}],27:[{l:'Team offsite',t:'cat',i:1}]};
+
+function buildCal(y,m){
+  const g=document.getElementById('cal-grid');if(!g)return;g.innerHTML='';
+  ['SUN','MON','TUE','WED','THU','FRI','SAT'].forEach(d=>{const h=document.createElement('div');h.className='cal-dh';h.textContent=d;g.appendChild(h);});
+  const first=new Date(y,m,1).getDay(),days=new Date(y,m+1,0).getDate(),prev=new Date(y,m,0).getDate();
+  const td=new Date();
+  for(let i=0;i<first;i++){const c=document.createElement('div');c.className='cal-cell other';const n=document.createElement('div');n.className='day-n';n.textContent=prev-first+1+i;c.appendChild(n);g.appendChild(c);}
+  for(let d=1;d<=days;d++){
+    const c=document.createElement('div');c.className='cal-cell'+(td.getFullYear()===y&&td.getMonth()===m&&td.getDate()===d?' today':'');
+    const n=document.createElement('div');n.className='day-n';n.textContent=d;c.appendChild(n);
+    if(EVS[d])EVS[d].forEach(ev=>{const e=document.createElement('div');e.className='ev '+ev.t;e.textContent=ev.l;e.onclick=e2=>{e2.stopPropagation();openRP(ev.i);};c.appendChild(e);});
+    g.appendChild(c);
+  }
+  const rem=(first+days)%7;for(let i=1;i<=(rem?7-rem:0);i++){const c=document.createElement('div');c.className='cal-cell other';const n=document.createElement('div');n.className='day-n';n.textContent=i;c.appendChild(n);g.appendChild(c);}
+  document.getElementById('cal-lbl').textContent=MO[m]+' '+y;
+}
+function chM(d){cM+=d;if(cM>11){cM=0;cY++;}if(cM<0){cM=11;cY--;}buildCal(cY,cM);}
+function openRP(i){const rp=document.getElementById('rp');rp.style.display='flex';[0,1,2].forEach(n=>{const el=document.getElementById('rp-'+n);if(el)el.style.display=n===i?'block':'none';});document.getElementById('rp-title').textContent=['Taim — Nolita','Son del Norte','Pecking House'][i]||'Order detail';}
+function closeRP(){document.getElementById('rp').style.display='none';}
+function toggleMenu(e){e.stopPropagation();document.getElementById('av-menu').classList.toggle('open');}
+function closeMenu(){document.getElementById('av-menu').classList.remove('open');}
+document.addEventListener('click',()=>closeMenu());
+function ddGo(p){closeMenu();const m={payment:'sec-paymentmethods',notifs:'sec-notifs',account:'sec-account'};const t={payment:'Payment methods',notifs:'Notifications',account:'Account settings'};document.querySelectorAll('.si').forEach(s=>s.classList.remove('active'));closeRP();document.getElementById('page-title').textContent=t[p]||p;document.getElementById('page-sub').textContent='';document.getElementById('view-tog').style.display='none';document.getElementById('new-order-btn').style.display='none';showSec(m[p]||'sec-account');}
+function setView(v,btn){cView=v;document.querySelectorAll('.vtbtn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');closeRP();showSec(v==='cal'?'calendar':'list');}
+function goFav(){setSide(document.getElementById('si-favorites'),'favorites');}
+function setNav(p,btn){document.querySelectorAll('.nav-pill').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const m={orders:'si-orders',subscriptions:'si-subscriptions',history:'si-history',favorites:'si-favorites'};if(m[p])setSide(document.getElementById(m[p]),p);}
+function setSide(el,page){document.querySelectorAll('.si').forEach(s=>s.classList.remove('active'));if(el)el.classList.add('active');closeRP();const pt=document.getElementById('page-title'),ps=document.getElementById('page-sub'),tog=document.getElementById('view-tog'),nb=document.getElementById('new-order-btn');const cfg={orders:{t:'Orders',s:'3 upcoming · 2 recurring',tog:true,nb:true,sec:cView==='cal'?'calendar':'list'},subscriptions:{t:'Subscriptions',s:'2 active subscriptions',tog:false,nb:false,sec:'subscriptions'},history:{t:'History',s:'All past orders',tog:false,nb:false,sec:'history'},favorites:{t:'Favorites',s:'Your saved restaurants',tog:false,nb:false,sec:'favorites'}};const c=cfg[page]||{t:page,s:'',tog:false,nb:false,sec:'calendar'};if(pt)pt.textContent=c.t;if(ps)ps.textContent=c.s;if(tog)tog.style.display=c.tog?'flex':'none';if(nb)nb.style.display=c.nb?'block':'none';showSec(c.sec);}
+function showSec(s){const id=s.startsWith('sec-')?s:'sec-'+s;['sec-calendar','sec-list','sec-confirm','sec-success','sec-payment','sec-history','sec-favorites','sec-subscriptions','sec-account','sec-notifs','sec-paymentmethods'].forEach(sid=>{const el=document.getElementById(sid);if(el)el.style.display=sid===id?'block':'none';});}
+function togglePast(){const w=document.getElementById('past-wrap'),a=document.getElementById('past-arr');const o=w.classList.contains('open');w.classList.toggle('open',!o);a.classList.toggle('open',!o);}
+function rmFav(e,id){e.stopPropagation();const el=document.getElementById(id);if(el){el.style.opacity='0';el.style.transform='scale(0.9)';el.style.transition='all 0.2s';setTimeout(()=>el.remove(),200);}}
+buildCal(cY,cM);
+</script>
+</body>
+</html>
