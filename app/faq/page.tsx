@@ -28,7 +28,7 @@ const faqSchema = {
       name: 'How is Disco Cater different from ezCater?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Disco Cater differs from ezCater in three ways: zero commission and zero monthly fees to restaurants (ezCater charges up to 15% per order), proprietary holiday and social event menus exclusive to the marketplace, and Disco AI — an AI-powered catering assistant built on Anthropic\'s Claude.',
+        text: 'Disco Cater differs from ezCater in three ways: zero commission and zero monthly fees to restaurants (ezCater charges up to 40% per order), proprietary holiday and social event menus exclusive to the marketplace, and Disco AI — an AI-powered catering assistant built on Anthropic\'s Claude.',
       },
     },
     {
