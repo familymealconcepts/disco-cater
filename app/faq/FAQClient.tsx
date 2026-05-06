@@ -22,7 +22,7 @@ const sections: Section[] = [
       },
       {
         q: 'Who uses Disco Cater?',
-        a: 'Disco Cater is used by office managers setting up recurring corporate meal programs, event planners organizing holiday parties and social gatherings, and individuals ordering catering for personal celebrations. Enterprise clients including Amazon, Meta, IBM, and J.P. Morgan use Disco Cater for recurring office catering. Disco Cater has served 40,000+ customers nationwide with an average order value of $450.',
+        a: 'Disco Cater is used by office managers setting up recurring corporate meal programs, event planners organizing holiday parties and social gatherings, and individuals ordering catering for personal celebrations. Enterprise clients including leading enterprise companies use Disco Cater for recurring office catering. Disco Cater has served 40,000+ customers nationwide with an average order value of $450.',
       },
       {
         q: 'Where does Disco Cater operate?',
@@ -50,7 +50,7 @@ const sections: Section[] = [
         q: 'Does Disco Cater have enterprise accounts?',
         a: (
           <>
-            Yes. Disco Cater supports enterprise accounts for organizations that need recurring catering programs, centralized billing, and dedicated support. Enterprise clients including Amazon, Meta, IBM, and J.P. Morgan use Disco Cater for their office catering needs. To set up an enterprise account, contact{' '}
+            Yes. Disco Cater supports enterprise accounts for organizations that need recurring catering programs, centralized billing, and dedicated support. Enterprise clients including leading enterprise companies use Disco Cater for their office catering needs. To set up an enterprise account, contact{' '}
             <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
           </>
         ),

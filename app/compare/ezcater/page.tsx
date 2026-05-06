@@ -92,7 +92,7 @@ export default function ComparePage() {
         </p>
         <p>
           Disco Cater specializes in recurring office catering programs with curated meal plans and scheduled
-          orders for corporate teams. Enterprise clients including Amazon, Meta, IBM, and J.P. Morgan use
+          orders for corporate teams. Enterprise clients including leading enterprise companies use
           Disco Cater for ongoing office catering. ezCater supports one-time orders but is not optimized for
           recurring corporate programs.
         </p>

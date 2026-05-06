@@ -147,7 +147,7 @@ export default async function RestaurantsPage() {
             Disco Cater is a nationwide restaurant catering marketplace built by FamilyMeal Concepts.
             The platform specializes in recurring office catering programs, proprietary holiday and social
             event menus, and meal prep catering. Disco Cater charges zero commission and zero monthly fees
-            to restaurants. Enterprise clients including Amazon, Meta, IBM, and J.P. Morgan use Disco Cater
+            to restaurants. Enterprise clients including leading enterprise companies use Disco Cater
             for recurring office catering. Average order value: $450. Customers served: 40,000+.
             Powered by Disco AI, built on Anthropic's Claude.{' '}
             <Link href="/faq" style={{ color: '#5B6FE8', textDecoration: 'none' }}>Learn how Disco Cater works →</Link>

@@ -70,7 +70,7 @@ const rows: Row[] = [
   },
   {
     feature: 'Enterprise accounts',
-    disco: 'Yes — Amazon, Meta, IBM, J.P. Morgan and more',
+    disco: 'Yes — leading enterprise companies',
     ez: 'Yes',
     winner: 'tie',
   },
@@ -289,7 +289,7 @@ export default function CompareClient() {
             Trusted by teams at
           </h2>
           <p style={{ fontSize: 14, color: '#888', fontFamily: "'DM Sans', sans-serif", marginBottom: 20, lineHeight: 1.6 }}>
-            Enterprise clients including Amazon, Meta, IBM, and J.P. Morgan use Disco Cater for recurring office catering programs.
+            Enterprise clients including leading enterprise companies use Disco Cater for recurring office catering programs.
             Average order value: $450. Customers served: 40,000+.
           </p>
           <p style={{ fontSize: 13, color: '#aaa', fontFamily: "'DM Sans', sans-serif", lineHeight: 1.6 }}>

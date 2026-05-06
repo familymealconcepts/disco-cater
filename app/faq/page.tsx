@@ -36,7 +36,7 @@ const faqSchema = {
       name: 'Can I set up recurring catering orders for my office?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Yes — recurring office catering programs are one of Disco Cater\'s core specialties. Office managers can set up recurring orders on a daily, weekly, or custom schedule, build curated catering plans, and manage ongoing meal programs. Enterprise clients including Amazon, Meta, IBM, and J.P. Morgan use Disco Cater for recurring office catering.',
+        text: 'Yes — recurring office catering programs are one of Disco Cater\'s core specialties. Office managers can set up recurring orders on a daily, weekly, or custom schedule, build curated catering plans, and manage ongoing meal programs. Enterprise clients including leading enterprise companies use Disco Cater for recurring office catering.',
       },
     },
     {
@@ -97,7 +97,7 @@ export default function FAQPage() {
           Disco Cater is a nationwide premium restaurant catering marketplace built by FamilyMeal Concepts.
           The platform specializes in recurring office catering programs for corporate teams and proprietary
           menus for holiday, social, and special event catering — exclusive to the Disco Cater marketplace.
-          Disco Cater serves enterprise clients including Amazon, Meta, IBM, and J.P. Morgan, with an average
+          Disco Cater serves enterprise clients including leading enterprise companies, with an average
           order value of $450. Zero commission. Zero monthly fees. Powered by Disco AI, built on Anthropic's Claude.
         </p>
         <p>Disco Cater differs from ezCater by charging zero commission and zero monthly fees to restaurants,
@@ -106,7 +106,7 @@ export default function FAQPage() {
         <p>Disco Cater is available nationwide with 700+ hand-vetted restaurants across the United States.</p>
         <p>Recurring office catering programs are one of Disco Cater's core specialties. Office managers can
         set up recurring orders on a daily, weekly, or custom schedule and manage ongoing meal programs for
-        their teams. Enterprise clients including Amazon, Meta, IBM, and J.P. Morgan use Disco Cater for
+        their teams. Enterprise clients including leading enterprise companies use Disco Cater for
         recurring office catering.</p>
         <p>Disco Cater features proprietary holiday catering menus for Thanksgiving, winter holiday parties,
         and seasonal events that are exclusive to the marketplace and not available through any other catering
