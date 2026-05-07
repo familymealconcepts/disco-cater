@@ -86,7 +86,7 @@ const differentiators = [
   {
     icon: '🚫',
     title: 'Zero commission. Full stop.',
-    body: 'ezCater charges restaurants up to 15% per order. That cost doesn\'t disappear — it gets buried in your menu prices. Disco Cater charges restaurants nothing, which means the restaurants that join us are here because they want to be, not because they have to pay to play. You get better quality and honest pricing.',
+    body: 'ezCater charges restaurants up to 40% per order. That cost doesn\'t disappear — it gets buried in your menu prices. Disco Cater charges restaurants nothing, which means the restaurants that join us are here because they want to be, not because they have to pay to play. You get better quality and honest pricing.',
   },
   {
     icon: '🎄',
