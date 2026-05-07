@@ -230,16 +230,16 @@ function AccordionItem({ item }: { item: FAQItem }) {
           {open ? '−' : '+'}
         </span>
       </button>
-      {open && (
-        <div style={{
-          paddingBottom: 20, paddingRight: 44,
+      <div style={{
+          paddingBottom: open ? 20 : 0, paddingRight: 44,
           fontSize: 14, color: '#555', lineHeight: 1.7,
           fontFamily: "'DM Sans', sans-serif",
-          animation: 'fadeIn 0.15s ease',
+          maxHeight: open ? '2000px' : '0px',
+          overflow: 'hidden',
+          transition: 'max-height 0.2s ease, padding-bottom 0.2s ease',
         }}>
           {item.a}
         </div>
-      )}
     </div>
   )
 }
