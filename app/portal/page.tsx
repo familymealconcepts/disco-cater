@@ -399,7 +399,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                   <div style={{ fontSize: 10, color: '#bbb', marginBottom: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Order summary</div>
                   <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
                     {[['Restaurant','Taim — Nolita'],['Items','Team Lunch Box'],['Headcount','30 people'],['Type','Recurring — weekly'],['Service','Delivery'],['Order date','Every Tuesday'],['Order time','12:00 PM'],['Est. per order','$840']].map(([l,v],i) => (
-                      <tr key={i}><td style={{ color: '#bbb', padding: '3px 0', borderTop: i === 7 ? '1px solid #f0f0f0' : 'none', paddingTop: i === 7 ? 7 : 3, fontWeight: i === 7 ? 700 : 400, color: i === 7 ? '#111' : '#bbb' }}>{l}</td><td style={{ textAlign: 'right', fontWeight: i === 7 ? 700 : 600, color: i === 7 ? '#5B6FE8' : '#111', fontSize: i === 7 ? 15 : 11 }}>{v}</td></tr>
+                      <tr key={i}><td style={{ padding: '3px 0', borderTop: i === 7 ? '1px solid #f0f0f0' : 'none', paddingTop: i === 7 ? 7 : 3, fontWeight: i === 7 ? 700 : 400, color: i === 7 ? '#111' : '#bbb' }}>{l}</td><td style={{ textAlign: 'right', fontWeight: i === 7 ? 700 : 600, color: i === 7 ? '#5B6FE8' : '#111', fontSize: i === 7 ? 15 : 11 }}>{v}</td></tr>
                     ))}
                   </table>
                 </div>
@@ -441,7 +441,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {page === 'history' && (
               <div>
                 <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 2px', marginBottom: 8 }}>All past orders</div>
-                {[...ORDERS, ...PAST].map((o, i) => <OLR key={i} o={{ ...o, tag: o.tag || '', tagLabel: '' }} onClick={() => openRP(Math.min(o.id || 0, 2))} />)}
+                {[...ORDERS, ...PAST].map((o, i) => <OLR key={i} o={{ ...(o as any), tag: (o as any).tag || '', tagLabel: '' }} onClick={() => openRP(Math.min((o as any).id || 0, 2))} />)}
                 <DiscoverCTA />
               </div>
             )}
