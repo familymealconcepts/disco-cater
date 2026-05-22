@@ -267,13 +267,18 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
 
       {/* Top nav */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0 }}>
-        <span style={{ fontSize: 15, fontWeight: 700, background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', letterSpacing: '-0.3px', marginRight: 4 }}>disco cater</span>
+        <Link href="/" style={{ textDecoration: 'none' }}>
+          <span style={{ fontSize: 15, fontWeight: 700, background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', letterSpacing: '-0.3px', marginRight: 4 }}>disco cater</span>
+        </Link>
         <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0 }} />
         {(['orders','subscriptions','history','favorites'] as const).map(p => (
           <button key={p} onClick={() => { setPage(p); closeRP() }} style={{ padding: '4px 12px', borderRadius: 20, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap', transition: 'all 0.12s', background: page === p ? '#1A1028' : '#efefef', color: page === p ? '#fff' : '#555' }}>
             {p.charAt(0).toUpperCase() + p.slice(1)}
           </button>
         ))}
+        <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0, marginLeft: 8 }} />
+        <Link href="/fullmap" style={{ fontSize: 11, fontWeight: 600, color: '#555', textDecoration: 'none', whiteSpace: 'nowrap', fontFamily: "'DM Sans',sans-serif" }}>Catering Map</Link>
+        <Link href="/faq" style={{ fontSize: 11, fontWeight: 600, color: '#555', textDecoration: 'none', whiteSpace: 'nowrap', fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
         <div style={{ marginLeft: 'auto', position: 'relative' }}>
           <button onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#fff', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif" }}>
             {initials}
