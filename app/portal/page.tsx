@@ -409,24 +409,12 @@ function AccountTab({ onSignOut }: { onSignOut: () => void }) {
       const user = JSON.parse(stored)
       if (!user?.token) return
 
-      fetch('/api/fm-user', {
-        headers: { 'Authorization': `Bearer ${user.token}` }
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (data.firstName) setFirstName(data.firstName)
-          if (data.lastName) setLastName(data.lastName)
-          if (data.email) setEmail(data.email)
-          if (data.phoneNumber) setPhone(data.phoneNumber)
-          setProfileLoading(false)
-        })
-        .catch(() => {
-          // Fall back to stored data
-          setFirstName(user.firstName || '')
-          setLastName(user.lastName || '')
-          setEmail(user.email || '')
-          setProfileLoading(false)
-        })
+      // Use data stored at login time
+      setFirstName(user.firstName || '')
+      setLastName(user.lastName || '')
+      setEmail(user.email || '')
+      setPhone(user.phoneNumber || '')
+      setProfileLoading(false)
     } catch {
       setProfileLoading(false)
     }
