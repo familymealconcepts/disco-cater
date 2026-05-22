@@ -251,7 +251,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
   ]
 
   return (
-    <div style={{ width: '100%', maxWidth: 1100, display: 'flex', flexDirection: 'column', border: '1px solid #e0e0e0', borderRadius: 14, overflow: 'hidden', background: '#fff', boxShadow: '0 4px 32px rgba(0,0,0,0.08)' }}>
+    <div style={{ width: '100%', minHeight: '100svh', display: 'flex', flexDirection: 'column', background: '#fff' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; }
@@ -692,8 +692,6 @@ export default function PortalPage() {
   if (!user) return <LoginScreen onLogin={u => setUser(u)} />
 
   return (
-    <div style={{ minHeight: '100svh', background: '#f5f5f5', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '32px 16px', fontFamily: "'DM Sans',sans-serif" }}>
-      <Portal user={user} onSignOut={() => { localStorage.removeItem(STORAGE_KEY); window.location.href = '/' }} />
-    </div>
+    <Portal user={user} onSignOut={() => { localStorage.removeItem(STORAGE_KEY); window.location.href = '/' }} />
   )
 }
