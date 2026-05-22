@@ -483,10 +483,18 @@ function Portal({ onSignOut }: { onSignOut: () => void }) {
       if (!user?.token) return
 
       fetch('/api/fm-orders', {
-        headers: { 'Authorization': `Bearer ${user.token}` }
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'x-refresh-token': user.refreshToken || ''
+        }
       })
         .then(r => r.json())
         .then(data => {
+          // Update token if refreshed
+          if (data._newToken) {
+            const updated = { ...user, token: data._newToken }
+            localStorage.setItem('disco_user', JSON.stringify(updated))
+          }
           console.log('Orders API response:', JSON.stringify(data).slice(0, 300))
           const orders = data.content || data.orders || data || []
           setRealOrders(Array.isArray(orders) ? orders : [])
