@@ -81,6 +81,7 @@ export default function GlobalHeader() {
     localStorage.removeItem(STORAGE_KEY)
     setUser(null)
     setShowMenu(false)
+    window.location.href = '/'
   }
 
   const navLinks = [

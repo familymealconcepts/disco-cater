@@ -621,5 +621,8 @@ export default function PortalPage() {
   }, [])
 
   if (view === 'login') return <LoginScreen onLogin={() => setView('portal')} />
-  return <Portal onSignOut={() => setView('login')} />
+  return <Portal onSignOut={() => {
+    localStorage.removeItem('disco_user')
+    window.location.href = '/'
+  }} />
 }
