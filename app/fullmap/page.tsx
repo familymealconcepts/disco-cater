@@ -6,7 +6,6 @@ import Link from 'next/link'
 import Image from 'next/image'
 import Script from 'next/script'
 import mapboxgl from 'mapbox-gl'
-import NavAuthButton from '../components/NavAuthButton'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
