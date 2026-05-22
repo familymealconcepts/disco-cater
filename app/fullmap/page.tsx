@@ -6,6 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import Script from 'next/script'
 import mapboxgl from 'mapbox-gl'
+import NavAuthButton from '../components/NavAuthButton'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
@@ -927,6 +928,7 @@ function FullMapInner() {
                 🤖<div style={{ position: 'absolute', top: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />
               </button>
               <Link href="/faq" style={{ fontSize: 13, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
+              <NavAuthButton variant="light" />
             </div>
           </div>
 
@@ -1188,6 +1190,7 @@ function FullMapInner() {
           )}
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
           <Link href="/faq" style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 13, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif", paddingRight: 8 }}>FAQ</Link>
+          <NavAuthButton variant="light" />
         </div>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

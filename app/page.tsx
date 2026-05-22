@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
+import NavAuthButton from './components/NavAuthButton'
 
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
 
@@ -216,6 +217,7 @@ export default function HomePage() {
           <div className="nav-links" style={{ display: 'flex', gap: 32 }}>
             <Link href="/fullmap">Catering Map</Link>
             <Link href="/faq">FAQ</Link>
+            <NavAuthButton variant="dark" />
           </div>
         </nav>
 
