@@ -239,7 +239,7 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
 }
 
 // ── Orders Tab ────────────────────────────────────────────────────────────────
-function OrdersTab() {
+function OrdersTab({ realOrders = [], ordersLoading = false }: { realOrders?: any[], ordersLoading?: boolean }) {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
   const [showPast, setShowPast] = useState(false)
 
@@ -262,12 +262,36 @@ function OrdersTab() {
 
       {/* Upcoming */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK, margin: 0 }}>Upcoming</h3>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK, margin: 0 }}>Your Orders</h3>
         <Link href="/fullmap" style={{ fontSize: 13, color: DISCO_PURPLE, textDecoration: 'none', fontWeight: 600 }}>+ New order</Link>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-        {UPCOMING_ORDERS.map(o => <OrderCard key={o.id} order={o} onSelect={setSelectedOrder} />)}
-      </div>
+      {ordersLoading && (
+        <div style={{ textAlign: 'center', padding: '48px 0', color: '#bbb', fontSize: 14 }}>Loading your orders…</div>
+      )}
+      {!ordersLoading && realOrders.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '48px 0' }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: '#888', marginBottom: 8 }}>No orders yet</div>
+          <Link href="/fullmap" style={{ fontSize: 14, color: DISCO_PURPLE, textDecoration: 'none', fontWeight: 600 }}>Browse restaurants →</Link>
+        </div>
+      )}
+      {!ordersLoading && realOrders.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+          {realOrders.map((o: any) => (
+            <div key={o.reference || o.id} style={{ background: '#fff', border: '1.5px solid #f0f0f0', borderRadius: 16, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
+              <div style={{ fontSize: 28, flexShrink: 0, width: 48, height: 48, background: '#F5F4FF', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🍽️</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK, marginBottom: 2 }}>{o.restaurantName || o.restaurant?.name || 'Restaurant'}</div>
+                <div style={{ fontSize: 13, color: '#888' }}>{o.orderType || o.type || ''} · {o.orderDate || o.date || ''}</div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK }}>${((o.total || o.amount || 0) / 100).toFixed(2)}</div>
+                <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{o.status || ''}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Past */}
       <button
@@ -448,6 +472,30 @@ function AccountTab({ onSignOut }: { onSignOut: () => void }) {
 
 // ── Main Portal ───────────────────────────────────────────────────────────────
 function Portal({ onSignOut }: { onSignOut: () => void }) {
+  const [realOrders, setRealOrders] = useState<any[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(true)
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('disco_user')
+      if (!stored) return
+      const user = JSON.parse(stored)
+      if (!user?.token) return
+
+      fetch('/api/fm-orders', {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+        .then(r => r.json())
+        .then(data => {
+          const orders = data.content || data.orders || data || []
+          setRealOrders(Array.isArray(orders) ? orders : [])
+          setOrdersLoading(false)
+        })
+        .catch(() => setOrdersLoading(false))
+    } catch {
+      setOrdersLoading(false)
+    }
+  }, [])
   const [activeTab, setActiveTab] = useState<Tab>('orders')
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -524,7 +572,7 @@ function Portal({ onSignOut }: { onSignOut: () => void }) {
             {activeTab === 'orders' && <p style={{ fontSize: 14, color: '#888', margin: 0 }}>3 upcoming · 2 recurring</p>}
           </div>
 
-          {activeTab === 'orders' && <OrdersTab />}
+          {activeTab === 'orders' && <OrdersTab realOrders={realOrders} ordersLoading={ordersLoading} />}
           {activeTab === 'subscriptions' && <SubscriptionsTab />}
           {activeTab === 'history' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
