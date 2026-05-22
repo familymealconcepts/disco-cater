@@ -217,7 +217,7 @@ export default function HomePage() {
           <div className="nav-links" style={{ display: 'flex', gap: 32 }}>
             <Link href="/fullmap">Catering Map</Link>
             <Link href="/faq">FAQ</Link>
-            <NavAuthButton variant="dark" />
+            <a href="/portal" style={{ fontSize: 14, color: '#fff', textDecoration: 'none', fontWeight: 700, background: '#1A1028', padding: '7px 16px', borderRadius: 999, fontFamily: "'DM Sans', sans-serif" }}>Log in</a>
           </div>
         </nav>
 
