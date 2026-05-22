@@ -70,6 +70,7 @@ export default function GlobalHeader() {
       setShowLogin(false)
       setLoginEmail('')
       setLoginPassword('')
+      window.location.href = '/portal'
     } catch {
       setLoginError('Something went wrong. Please try again.')
     } finally {
