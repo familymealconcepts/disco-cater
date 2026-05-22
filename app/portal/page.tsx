@@ -487,6 +487,7 @@ function Portal({ onSignOut }: { onSignOut: () => void }) {
       })
         .then(r => r.json())
         .then(data => {
+          console.log('Orders API response:', JSON.stringify(data).slice(0, 300))
           const orders = data.content || data.orders || data || []
           setRealOrders(Array.isArray(orders) ? orders : [])
           setOrdersLoading(false)
