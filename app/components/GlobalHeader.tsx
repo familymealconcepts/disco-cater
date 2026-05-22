@@ -18,6 +18,7 @@ const STORAGE_KEY = 'disco_user'
 
 export default function GlobalHeader() {
   const pathname = usePathname()
+  if (pathname === '/portal') return null
   const [user, setUser] = useState<User | null>(null)
   const [showLogin, setShowLogin] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
