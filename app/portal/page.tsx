@@ -395,10 +395,67 @@ function FavoritesTab() {
 // ── Account Tab ───────────────────────────────────────────────────────────────
 function AccountTab({ onSignOut }: { onSignOut: () => void }) {
   const [saved, setSaved] = useState(false)
-  const [firstName, setFirstName] = useState('Jamie')
-  const [lastName, setLastName] = useState('Donovan')
-  const [email, setEmail] = useState('jamie@acmecorp.com')
-  const [phone, setPhone] = useState('+1 (212) 555-0192')
+  const [saving, setSaving] = useState(false)
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [profileLoading, setProfileLoading] = useState(true)
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('disco_user')
+      if (!stored) return
+      const user = JSON.parse(stored)
+      if (!user?.token) return
+
+      fetch('/api/fm-user', {
+        headers: { 'Authorization': `Bearer ${user.token}` }
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.firstName) setFirstName(data.firstName)
+          if (data.lastName) setLastName(data.lastName)
+          if (data.email) setEmail(data.email)
+          if (data.phoneNumber) setPhone(data.phoneNumber)
+          setProfileLoading(false)
+        })
+        .catch(() => {
+          // Fall back to stored data
+          setFirstName(user.firstName || '')
+          setLastName(user.lastName || '')
+          setEmail(user.email || '')
+          setProfileLoading(false)
+        })
+    } catch {
+      setProfileLoading(false)
+    }
+  }, [])
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      const stored = localStorage.getItem('disco_user')
+      if (!stored) return
+      const user = JSON.parse(stored)
+      await fetch('/api/fm-user', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ firstName, lastName, email, phoneNumber: phone }),
+      })
+      // Update stored user
+      localStorage.setItem('disco_user', JSON.stringify({ ...user, firstName, lastName, email }))
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch {
+      console.error('Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -430,9 +487,9 @@ function AccountTab({ onSignOut }: { onSignOut: () => void }) {
           </div>
         ))}
         <button
-          onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2000) }}
-          style={{ padding: '11px 24px', fontSize: 14, fontWeight: 700, color: '#fff', background: saved ? '#22c55e' : DISCO_DARK, border: 'none', borderRadius: 10, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", transition: 'background 0.2s' }}
-        >{saved ? '✓ Saved' : 'Save changes'}</button>
+          onClick={handleSave}
+          style={{ padding: '11px 24px', fontSize: 14, fontWeight: 700, color: '#fff', background: saved ? '#22c55e' : DISCO_DARK, border: 'none', borderRadius: 10, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: "'DM Sans', sans-serif", transition: 'background 0.2s' }}
+        >{saved ? '✓ Saved' : saving ? 'Saving…' : 'Save changes'}</button>
       </div>
 
       {/* Payment methods */}
