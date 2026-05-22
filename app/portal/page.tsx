@@ -553,6 +553,16 @@ function Portal({ onSignOut }: { onSignOut: () => void }) {
 export default function PortalPage() {
   const [view, setView] = useState<View>('login')
 
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('disco_user')
+      if (stored) {
+        const user = JSON.parse(stored)
+        if (user?.token) setView('portal')
+      }
+    } catch {}
+  }, [])
+
   if (view === 'login') return <LoginScreen onLogin={() => setView('portal')} />
   return <Portal onSignOut={() => setView('login')} />
 }
