@@ -60,14 +60,7 @@ export default async function RestaurantsPage() {
   return (
     <>
       {/* ── Minimal header ─────────────────────────────────────── */}
-      <header style={{ padding: '16px 24px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Link href="/" style={{ fontSize: 14, fontWeight: 700, color: '#1A1028', textDecoration: 'none', fontFamily: 'sans-serif' }}>
-          ← Disco Cater
-        </Link>
-        <Link href="/fullmap" style={{ fontSize: 13, color: '#5B6FE8', textDecoration: 'none', fontFamily: 'sans-serif', fontWeight: 600 }}>
-          Open Map →
-        </Link>
-      </header>
+      
 
       <main style={{ maxWidth: 860, margin: '0 auto', padding: '40px 24px 80px', fontFamily: 'sans-serif' }}>
 

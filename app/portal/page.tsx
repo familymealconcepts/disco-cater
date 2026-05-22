@@ -70,15 +70,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap'); * { box-sizing: border-box; } body { margin: 0; }`}</style>
 
       {/* Nav */}
-      <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 40px' }}>
-        <Link href="/">
-          <img src="/disco-cater-logo.png" alt="Disco Cater" style={{ height: 36, objectFit: 'contain' }} />
-        </Link>
-        <div style={{ display: 'flex', gap: 24 }}>
-          <Link href="/fullmap" style={{ fontSize: 14, color: '#555', textDecoration: 'none', fontWeight: 500 }}>Catering Map</Link>
-          <Link href="/faq" style={{ fontSize: 14, color: '#555', textDecoration: 'none', fontWeight: 500 }}>FAQ</Link>
-        </div>
-      </nav>
+      
 
       {/* Login card */}
       <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
@@ -474,45 +466,7 @@ function Portal({ onSignOut }: { onSignOut: () => void }) {
       `}</style>
 
       {/* Header */}
-      <header className="portal-header" style={{ background: '#fff', borderBottom: '1.5px solid #f0f0f0', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
-        <Link href="/">
-          <img src="/disco-cater-logo.png" alt="Disco Cater" style={{ height: 32, objectFit: 'contain' }} />
-        </Link>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          {/* Notification dot */}
-          <button style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#f5f5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-            🔔
-            <div style={{ position: 'absolute', top: 7, right: 7, width: 8, height: 8, borderRadius: '50%', background: DISCO_PINK, border: '2px solid #fff' }} />
-          </button>
-          {/* Avatar */}
-          <button
-            onClick={() => setMenuOpen(v => !v)}
-            style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: GRADIENT, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', fontFamily: "'DM Sans', sans-serif", position: 'relative' }}
-          >
-            JD
-          </button>
-          {menuOpen && (
-            <div style={{ position: 'absolute', top: 56, right: 32, background: '#fff', border: '1.5px solid #eee', borderRadius: 14, padding: '8px 0', minWidth: 200, boxShadow: '0 8px 32px rgba(0,0,0,0.12)', zIndex: 200 }}>
-              <div style={{ padding: '10px 16px', borderBottom: '1px solid #f5f5f5', marginBottom: 4 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: DISCO_DARK }}>Jamie Donovan</div>
-                <div style={{ fontSize: 12, color: '#888' }}>jamie@acmecorp.com</div>
-              </div>
-              {[
-                { label: 'Payment methods', tab: 'account' as Tab },
-                { label: 'Notifications 1', tab: 'account' as Tab },
-                { label: 'Account settings', tab: 'account' as Tab },
-              ].map(item => (
-                <button key={item.label} onClick={() => { setActiveTab(item.tab); setMenuOpen(false) }} style={{ width: '100%', padding: '10px 16px', fontSize: 14, color: '#555', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: "'DM Sans', sans-serif" }}>
-                  {item.label}
-                </button>
-              ))}
-              <div style={{ borderTop: '1px solid #f5f5f5', marginTop: 4, paddingTop: 4 }}>
-                <button onClick={onSignOut} style={{ width: '100%', padding: '10px 16px', fontSize: 14, color: DISCO_PINK, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: "'DM Sans', sans-serif" }}>Sign out</button>
-              </div>
-            </div>
-          )}
-        </div>
-      </header>
+      
 
       <div style={{ display: 'flex', minHeight: 'calc(100svh - 65px)' }}>
         {/* Sidebar */}
