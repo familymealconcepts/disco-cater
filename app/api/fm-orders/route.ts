@@ -4,12 +4,9 @@ const FM_API = 'https://api.familymeal.com'
 
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization')
-    const token = authHeader?.replace('Bearer ', '')
-    
-    console.log('Token present:', !!token)
-    console.log('Token length:', token?.length)
-    console.log('Token preview:', token?.slice(0, 20))
+    const authHeader = req.headers.get('authorization') || ''
+    // Strip any existing Bearer prefix then re-add cleanly
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim()
 
     if (!token) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -19,6 +16,7 @@ export async function GET(req: NextRequest) {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json',
+        'Content-Type': 'application/json',
       },
     })
 
@@ -26,11 +24,12 @@ export async function GET(req: NextRequest) {
 
     if (!res.ok) {
       const errText = await res.text()
-      console.log('FM orders error:', errText.slice(0, 200))
-      return NextResponse.json({ error: 'Failed to fetch orders', status: res.status }, { status: res.status })
+      console.log('FM orders error body:', errText.slice(0, 300))
+      return NextResponse.json({ error: 'Failed to fetch orders', fmStatus: res.status }, { status: res.status })
     }
 
     const data = await res.json()
+    console.log('FM orders success, count:', JSON.stringify(data).slice(0, 100))
     return NextResponse.json(data)
 
   } catch (err) {
