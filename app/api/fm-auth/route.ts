@@ -25,36 +25,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Fetch user profile
-    const profileRes = await fetch(`${FM_API}/api/users`, {
-      headers: {
-        'Authorization': `Bearer ${data.authorization}`,
-        'Accept': 'application/json',
-      },
-    })
-
-    let firstName = ''
-    let lastName = ''
-    let reference = ''
-
-    if (profileRes.ok) {
-      const profile = await profileRes.json()
-      console.log('FM profile:', JSON.stringify(profile).slice(0, 200))
-      firstName = profile.firstName || profile.first_name || profile.name?.split(' ')[0] || ''
-      lastName = profile.lastName || profile.last_name || profile.name?.split(' ')[1] || ''
-      reference = profile.reference || profile.id || ''
-    } else {
-      console.log('Profile fetch failed:', profileRes.status)
-      firstName = email.split('@')[0]
-    }
-
     return NextResponse.json({
-      email,
-      firstName,
-      lastName,
-      reference,
+      email: data.email || email,
+      firstName: data.firstName || data.first_name || '',
+      lastName: data.lastName || data.last_name || '',
+      reference: data.reference || data.id || '',
       token: data.authorization,
       refreshToken: data.refreshToken,
+      role: data.role,
     })
 
   } catch (err) {
