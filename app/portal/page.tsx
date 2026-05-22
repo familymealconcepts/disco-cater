@@ -239,13 +239,91 @@ function OrderDetail({ order, onClose }: { order: Order; onClose: () => void }) 
 }
 
 // ── Orders Tab ────────────────────────────────────────────────────────────────
-function OrdersTab({ realOrders = [], ordersLoading = false }: { realOrders?: any[], ordersLoading?: boolean }) {
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
-  const [showPast, setShowPast] = useState(false)
+function CalendarView() {
+  const now = new Date()
+  const [viewYear, setViewYear] = useState(now.getFullYear())
+  const [viewMonth, setViewMonth] = useState(now.getMonth())
+
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+
+  const CALENDAR_EVENTS: Record<string, { type: 'recurring' | 'catering' | 'paused'; label: string }[]> = {
+    '2026-05-06': [{ type: 'recurring', label: 'Taim — Nolita' }],
+    '2026-05-13': [{ type: 'recurring', label: 'Taim — Nolita' }],
+    '2026-05-14': [{ type: 'catering', label: 'Son del Norte' }],
+    '2026-05-20': [{ type: 'recurring', label: 'Taim — Nolita' }],
+    '2026-05-27': [{ type: 'paused', label: 'Pecking House' }],
+  }
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay()
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1) }
+    else setViewMonth(m => m - 1)
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1) }
+    else setViewMonth(m => m + 1)
+  }
+
+  const cells: (number | null)[] = []
+  for (let i = 0; i < firstDay; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
 
   return (
     <div>
-      {/* Stats row */}
+      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' as const }}>
+        {[
+          { color: '#6B6EF9', label: 'Recurring' },
+          { color: '#22c55e', label: 'Catering' },
+          { color: '#F0468A', label: 'Paused' },
+        ].map(item => (
+          <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: item.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: '#888', fontFamily: "'DM Sans', sans-serif" }}>{item.label}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ background: '#fff', border: '1.5px solid #f0f0f0', borderRadius: 16, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f5f5f5' }}>
+          <button onClick={prevMonth} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', background: '#f5f5f5', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>&#8249;</button>
+          <div style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK, fontFamily: "'DM Sans', sans-serif" }}>{MONTH_NAMES[viewMonth]} {viewYear}</div>
+          <button onClick={nextMonth} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', background: '#f5f5f5', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>&#8250;</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid #f5f5f5' }}>
+          {DAY_NAMES.map(d => (
+            <div key={d} style={{ padding: '8px 4px', textAlign: 'center' as const, fontSize: 11, fontWeight: 600, color: '#bbb', fontFamily: "'DM Sans', sans-serif" }}>{d}</div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+          {cells.map((day, idx) => {
+            if (!day) return <div key={`e-${idx}`} style={{ minHeight: 72, borderRight: '1px solid #f5f5f5', borderBottom: '1px solid #f5f5f5', background: '#fafafa' }} />
+            const dateKey = `${viewYear}-${String(viewMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
+            const events = CALENDAR_EVENTS[dateKey] || []
+            const isToday = day === now.getDate() && viewMonth === now.getMonth() && viewYear === now.getFullYear()
+            return (
+              <div key={day} style={{ minHeight: 72, padding: '6px 4px', borderRight: '1px solid #f5f5f5', borderBottom: '1px solid #f5f5f5' }}>
+                <div style={{ width: 24, height: 24, borderRadius: '50%', background: isToday ? DISCO_PURPLE : 'transparent', color: isToday ? '#fff' : '#333', fontSize: 12, fontWeight: isToday ? 700 : 400, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 4, fontFamily: "'DM Sans', sans-serif" }}>{day}</div>
+                {events.map((ev, i) => (
+                  <div key={i} style={{ fontSize: 9, fontWeight: 600, padding: '2px 4px', borderRadius: 4, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, background: ev.type === 'recurring' ? '#EEF0FF' : ev.type === 'catering' ? '#F0FDF4' : '#FFF0F3', color: ev.type === 'recurring' ? DISCO_PURPLE : ev.type === 'catering' ? '#16a34a' : DISCO_PINK, fontFamily: "'DM Sans', sans-serif" }}>{ev.label}</div>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OrdersTab({ realOrders = [], ordersLoading = false }: { realOrders?: any[], ordersLoading?: boolean }) {
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const [showPast, setShowPast] = useState(false)
+  const [view, setView] = useState<'list' | 'calendar'>('list')
+
+  return (
+    <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Active orders', value: '3', sub: '2 recurring · 1 one-time' },
@@ -254,73 +332,69 @@ function OrdersTab({ realOrders = [], ordersLoading = false }: { realOrders?: an
         ].map(s => (
           <div key={s.label} style={{ background: '#fff', border: '1.5px solid #f0f0f0', borderRadius: 16, padding: '16px 20px' }}>
             <div style={{ fontSize: 22, fontWeight: 800, color: DISCO_DARK, letterSpacing: '-0.03em' }}>{s.value}</div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#888', marginTop: 2, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>{s.label}</div>
             <div style={{ fontSize: 12, color: '#aaa', marginTop: 4 }}>{s.sub}</div>
           </div>
         ))}
       </div>
 
-      {/* Upcoming */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK, margin: 0 }}>Your Orders</h3>
-        <Link href="/fullmap" style={{ fontSize: 13, color: DISCO_PURPLE, textDecoration: 'none', fontWeight: 600 }}>+ New order</Link>
-      </div>
-      {ordersLoading && (
-        <div style={{ textAlign: 'center', padding: '48px 0', color: '#bbb', fontSize: 14 }}>Loading your orders…</div>
-      )}
-      {!ordersLoading && realOrders.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '48px 0' }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#888', marginBottom: 8 }}>No orders yet</div>
-          <Link href="/fullmap" style={{ fontSize: 14, color: DISCO_PURPLE, textDecoration: 'none', fontWeight: 600 }}>Browse restaurants →</Link>
-        </div>
-      )}
-      {!ordersLoading && realOrders.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-          {realOrders.map((o: any) => (
-            <div key={o.reference || o.id} style={{ background: '#fff', border: '1.5px solid #f0f0f0', borderRadius: 16, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
-              <div style={{ fontSize: 28, flexShrink: 0, width: 48, height: 48, background: '#F5F4FF', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🍽️</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK, marginBottom: 2 }}>{o.restaurantName || o.restaurant?.name || 'Restaurant'}</div>
-                <div style={{ fontSize: 13, color: '#888' }}>{o.orderType || o.type || ''} · {o.orderDate || o.date || ''}</div>
-              </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK }}>${((o.total || o.amount || 0) / 100).toFixed(2)}</div>
-                <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{o.status || ''}</div>
-              </div>
-            </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', background: '#f5f5f5', borderRadius: 10, padding: 3, gap: 2 }}>
+          {(['list', 'calendar'] as const).map(v => (
+            <button key={v} onClick={() => setView(v)} style={{ padding: '6px 16px', borderRadius: 8, border: 'none', background: view === v ? '#fff' : 'transparent', color: view === v ? DISCO_DARK : '#888', fontSize: 13, fontWeight: view === v ? 700 : 500, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.08)' : 'none', transition: 'all 0.15s' }}>
+              {v === 'list' ? '☰ List' : '📅 Calendar'}
+            </button>
           ))}
         </div>
+        <Link href="/fullmap" style={{ fontSize: 13, color: DISCO_PURPLE, textDecoration: 'none', fontWeight: 600 }}>+ New order</Link>
+      </div>
+
+      {view === 'calendar' && <CalendarView />}
+
+      {view === 'list' && (
+        <>
+          {ordersLoading && <div style={{ textAlign: 'center', padding: '48px 0', color: '#bbb', fontSize: 14 }}>Loading your orders…</div>}
+          {!ordersLoading && realOrders.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>📦</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: '#888', marginBottom: 8 }}>No orders yet</div>
+              <Link href="/fullmap" style={{ fontSize: 14, color: DISCO_PURPLE, textDecoration: 'none', fontWeight: 600 }}>Browse restaurants →</Link>
+            </div>
+          )}
+          {!ordersLoading && realOrders.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+              {realOrders.map((o: any) => (
+                <div key={o.reference || o.id} style={{ background: '#fff', border: '1.5px solid #f0f0f0', borderRadius: 16, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
+                  <div style={{ fontSize: 28, flexShrink: 0, width: 48, height: 48, background: '#F5F4FF', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🍽️</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK, marginBottom: 2 }}>{o.restaurantName || o.restaurant?.name || 'Restaurant'}</div>
+                    <div style={{ fontSize: 13, color: '#888' }}>{o.orderType || o.type || ''} · {o.orderDate || o.date || ''}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: DISCO_DARK }}>${((o.total || o.amount || 0) / 100).toFixed(2)}</div>
+                    <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{o.status || ''}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <button onClick={() => setShowPast(v => !v)} style={{ fontSize: 14, fontWeight: 600, color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontFamily: "'DM Sans', sans-serif" }}>
+            Past orders {showPast ? '▴' : '▾'}
+          </button>
+          <Link href="/fullmap" style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'linear-gradient(135deg, #F5F4FF 0%, #FFF0F8 100%)', border: '1.5px solid #eeebff', borderRadius: 16, padding: '16px 20px', textDecoration: 'none', marginBottom: 8 }}>
+            <span style={{ fontSize: 22 }}>🪩</span>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: DISCO_DARK, fontFamily: "'DM Sans', sans-serif" }}>Discover more restaurants</div>
+              <div style={{ fontSize: 13, color: '#888', fontFamily: "'DM Sans', sans-serif" }}>Find new catering options on Disco Cater →</div>
+            </div>
+          </Link>
+        </>
       )}
-
-      {/* Past */}
-      <button
-        onClick={() => setShowPast(v => !v)}
-        style={{ fontSize: 14, fontWeight: 600, color: '#888', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}
-      >
-        Past orders ({PAST_ORDERS.length}) {showPast ? '▴' : '▾'}
-      </button>
-      {showPast && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-          {PAST_ORDERS.map(o => <OrderCard key={o.id} order={o} onSelect={setSelectedOrder} />)}
-        </div>
-      )}
-
-      {/* Discover CTA */}
-      <Link href="/fullmap" style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'linear-gradient(135deg, #F5F4FF 0%, #FFF0F8 100%)', border: '1.5px solid #eeebff', borderRadius: 16, padding: '16px 20px', textDecoration: 'none', marginBottom: 8 }}>
-        <span style={{ fontSize: 22 }}>🪩</span>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: DISCO_DARK }}>Discover more restaurants</div>
-          <div style={{ fontSize: 13, color: '#888' }}>Find new catering options on Disco Cater →</div>
-        </div>
-      </Link>
-
       {selectedOrder && <OrderDetail order={selectedOrder} onClose={() => setSelectedOrder(null)} />}
     </div>
   )
 }
 
-// ── Subscriptions Tab ─────────────────────────────────────────────────────────
 function SubscriptionsTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
