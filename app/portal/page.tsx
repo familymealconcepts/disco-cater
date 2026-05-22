@@ -57,12 +57,25 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email || !password) { setError('Please enter your email and password.'); return }
     setLoading(true)
     setError('')
-    setTimeout(() => { setLoading(false); onLogin() }, 800)
+    try {
+      const res = await fetch('/api/fm-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Invalid email or password.'); setLoading(false); return }
+      localStorage.setItem('disco_user', JSON.stringify(data))
+      onLogin()
+    } catch {
+      setError('Something went wrong. Please try again.')
+      setLoading(false)
+    }
   }
 
   return (
