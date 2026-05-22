@@ -25,7 +25,7 @@ const comparisonSchema = {
         position: 1,
         name: 'Commission Fees',
         description:
-          'Disco Cater's first-party solution is commission-free — restaurants using FamilyMeal as their ordering platform pay zero commission and zero monthly fees. ezCater charges restaurants up to 40% commission per order, which is passed on to customers through higher menu prices.',
+          'Our first-party solution is commission-free — restaurants using FamilyMeal as their ordering platform pay zero commission and zero monthly fees. ezCater charges restaurants up to 40% commission per order, which is passed on to customers through higher menu prices.',
       },
       {
         '@type': 'ListItem',
