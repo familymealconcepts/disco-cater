@@ -205,21 +205,7 @@ export default function HomePage() {
       }}>
 
         {/* ── Nav ── */}
-        <nav className="home-nav" style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          padding: '18px 40px',
-          position: 'sticky',
-          top: 0,
-          zIndex: 50,
-        }}>
-          <div className="nav-links" style={{ display: 'flex', gap: 32 }}>
-            <Link href="/fullmap">Catering Map</Link>
-            <Link href="/faq">FAQ</Link>
-            <a href="/portal" style={{ fontSize: 14, color: '#fff', textDecoration: 'none', fontWeight: 700, background: '#1A1028', padding: '7px 16px', borderRadius: 999, fontFamily: "'DM Sans', sans-serif" }}>Log in</a>
-          </div>
-        </nav>
+        
 
         {/* ── Centered content ── */}
         <main style={{
