@@ -4,7 +4,13 @@ const FM_API = 'https://api.familymeal.com'
 
 export async function GET(req: NextRequest) {
   try {
-    const token = req.headers.get('authorization')?.replace('Bearer ', '')
+    const authHeader = req.headers.get('authorization')
+    const token = authHeader?.replace('Bearer ', '')
+    
+    console.log('Token present:', !!token)
+    console.log('Token length:', token?.length)
+    console.log('Token preview:', token?.slice(0, 20))
+
     if (!token) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
@@ -16,8 +22,12 @@ export async function GET(req: NextRequest) {
       },
     })
 
+    console.log('FM orders status:', res.status)
+
     if (!res.ok) {
-      return NextResponse.json({ error: 'Failed to fetch orders' }, { status: res.status })
+      const errText = await res.text()
+      console.log('FM orders error:', errText.slice(0, 200))
+      return NextResponse.json({ error: 'Failed to fetch orders', status: res.status }, { status: res.status })
     }
 
     const data = await res.json()
