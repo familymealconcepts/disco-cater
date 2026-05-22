@@ -35,6 +35,17 @@ export default function GlobalHeader() {
       const stored = localStorage.getItem(STORAGE_KEY)
       if (stored) setUser(JSON.parse(stored))
     } catch {}
+
+    // Listen for login/logout from any page
+    function onStorage(e: StorageEvent) {
+      if (e.key === STORAGE_KEY) {
+        try {
+          setUser(e.newValue ? JSON.parse(e.newValue) : null)
+        } catch {}
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
   }, [])
 
   const initials = user
