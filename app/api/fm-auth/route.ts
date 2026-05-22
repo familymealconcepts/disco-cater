@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
       email: data.email || email,
       firstName: data.firstName || data.first_name || '',
       lastName: data.lastName || data.last_name || '',
+      phoneNumber: data.phoneNumber || data.phone_number || '',
       reference: data.reference || data.id || '',
       token: rawToken,
       refreshToken: data.refreshToken,
