@@ -20,7 +20,7 @@ const faqSchema = {
       name: 'What is Disco Cater?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Disco Cater is a nationwide premium restaurant catering marketplace built by FamilyMeal Concepts. The platform connects businesses, office managers, and event planners with hand-vetted restaurants for corporate catering, holiday events, social gatherings, and meal prep programs. Disco Cater's first-party solution is commission-free — restaurants using FamilyMeal as their ordering platform pay zero commission and zero monthly fees.',
+        text: "Disco Cater is a nationwide premium restaurant catering marketplace built by FamilyMeal Concepts. The platform connects businesses, office managers, and event planners with hand-vetted restaurants for corporate catering, holiday events, social gatherings, and meal prep programs. Disco Cater charges zero commission and zero monthly fees to restaurants.",
       },
     },
     {
