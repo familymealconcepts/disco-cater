@@ -108,8 +108,11 @@ export default function GlobalHeader() {
           />
         </Link>
 
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
         {/* Nav links */}
-        <nav style={{ display: 'flex', alignItems: 'center', gap: 28, flex: 1 }}>
+        <nav style={{ display: 'flex', alignItems: 'center', gap: 28, marginRight: 24 }}>
           {navLinks.map(link => (
             <Link
               key={link.href}

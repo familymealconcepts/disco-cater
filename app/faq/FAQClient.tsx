@@ -256,31 +256,7 @@ export default function FAQClient() {
       `}</style>
 
       {/* ── Header ─────────────────────────────────────────────────── */}
-      <header style={{
-        position: 'sticky', top: 0, zIndex: 100,
-        background: 'linear-gradient(180deg, rgba(107,110,249,0.08) 0%, rgba(240,70,138,0.04) 100%), #fff',
-        borderBottom: '1px solid #f0f0f0',
-        padding: '10px 24px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <Link href="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
-          <Image
-            src="https://images.squarespace-cdn.com/content/v1/66b4e6b122f497787aca9a8d/b9850e99-4990-4bca-8105-90d3004d4d1e/disco-cater-horizontal-hires.png?format=200w"
-            alt="Disco Cater"
-            width={100}
-            height={26}
-            style={{ objectFit: 'contain', display: 'block' }}
-          />
-        </Link>
-        <nav style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <Link href="/fullmap" className="faq-nav-link" style={{ fontSize: 13, fontWeight: 600, color: '#555', textDecoration: 'none', padding: '6px 12px', borderRadius: 20, fontFamily: "'DM Sans', sans-serif", transition: 'color 0.15s' }}>
-            Catering Map
-          </Link>
-          <Link href="/faq" style={{ fontSize: 13, fontWeight: 600, color: '#fff', textDecoration: 'none', padding: '6px 14px', borderRadius: 20, background: GRADIENT, fontFamily: "'DM Sans', sans-serif" }}>
-            FAQ
-          </Link>
-        </nav>
-      </header>
+      
 
       {/* ── Hero ───────────────────────────────────────────────────── */}
       <div style={{ padding: '48px 24px 24px', textAlign: 'center' }}>
