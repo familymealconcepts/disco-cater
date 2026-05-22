@@ -447,15 +447,7 @@ function AccountTab({ onSignOut }: { onSignOut: () => void }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Notification banner */}
-      <div style={{ background: '#FFF8EC', border: '1.5px solid #FFE8B0', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ fontSize: 18 }}>⚠️</span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#92600A' }}>Payment failed — Pecking House</div>
-          <div style={{ fontSize: 13, color: '#B07830' }}>Your bi-weekly order has been paused. Update your card to resume.</div>
-        </div>
-        <button style={{ padding: '7px 14px', fontSize: 12, fontWeight: 700, color: '#fff', background: DISCO_GOLD, border: 'none', borderRadius: 8, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif", flexShrink: 0 }}>Fix now</button>
-      </div>
+
 
       {/* Personal info */}
       <div style={{ background: '#fff', border: '1.5px solid #f0f0f0', borderRadius: 16, padding: 24 }}>
