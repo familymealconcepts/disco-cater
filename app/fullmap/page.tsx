@@ -1122,7 +1122,6 @@ function FullMapInner() {
             ))}
             <div style={{ height: 'env(safe-area-inset-bottom, 16px)', minHeight: 16 }} />
           </div>
-        </div>
       </>
     )
   }
