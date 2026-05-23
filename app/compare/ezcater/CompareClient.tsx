@@ -1,4 +1,5 @@
 'use client'
+import GlobalHeader from '../../components/GlobalHeader'
 import Link from 'next/link'
 import Image from 'next/image'
 

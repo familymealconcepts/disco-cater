@@ -1,4 +1,5 @@
 'use client'
+import GlobalHeader from '../components/GlobalHeader'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useState } from 'react'
@@ -207,6 +208,8 @@ const sections: Section[] = [
 function AccordionItem({ item }: { item: FAQItem }) {
   const [open, setOpen] = useState(false)
   return (
+    <>
+    <GlobalHeader />
     <div style={{ borderBottom: '1px solid #f0f0f0' }}>
       <button
         onClick={() => setOpen(o => !o)}
