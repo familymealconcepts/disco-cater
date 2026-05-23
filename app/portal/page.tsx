@@ -319,6 +319,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             </>
           )}
         </div>
+        </div>
       </div>
 
       {/* Body */}
