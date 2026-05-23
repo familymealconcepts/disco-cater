@@ -268,7 +268,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
       {/* Top nav */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0, position: 'sticky', top: 0, zIndex: 200 }}>
         <Link href="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', letterSpacing: '-0.3px' }}>disco cater</span>
+          <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}><span style={{ background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span><span style={{ color: '#999' }}> cater</span></span>
         </Link>
         <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0 }} />
         {(['orders','subscriptions','history','favorites'] as const).map(p => (
