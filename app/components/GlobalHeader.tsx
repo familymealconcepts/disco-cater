@@ -1,7 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 
 const STORAGE_KEY = 'disco_user'
 const F = "'DM Sans', sans-serif"
@@ -17,8 +16,7 @@ const IconFavs = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="non
 
 interface User { firstName?: string; lastName?: string; email?: string; token?: string }
 
-export default function GlobalHeader() {
-  const pathname = usePathname()
+export default function GlobalHeader({ centerContent, rightLinks = true, onSignOut }: { centerContent?: React.ReactNode; rightLinks?: boolean; onSignOut?: () => void }) {
   const [user, setUser] = useState<User | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [showLogin, setShowLogin] = useState(false)
@@ -28,28 +26,18 @@ export default function GlobalHeader() {
   const [loginError, setLoginError] = useState('')
 
   useEffect(() => {
-    const syncUser = () => {
-      try {
-        const s = localStorage.getItem(STORAGE_KEY)
-        setUser(s ? JSON.parse(s) : null)
-      } catch {}
+    const sync = () => {
+      try { const s = localStorage.getItem(STORAGE_KEY); setUser(s ? JSON.parse(s) : null) } catch {}
     }
-    syncUser()
-    window.addEventListener('focus', syncUser)
-    window.addEventListener('storage', syncUser)
-    return () => {
-      window.removeEventListener('focus', syncUser)
-      window.removeEventListener('storage', syncUser)
-    }
+    sync()
+    window.addEventListener('focus', sync)
+    window.addEventListener('storage', sync)
+    return () => { window.removeEventListener('focus', sync); window.removeEventListener('storage', sync) }
   }, [])
-
-  // Portal has its own header
-  if (pathname === '/portal') return null
 
   function signOut() {
     localStorage.removeItem(STORAGE_KEY)
-    setUser(null)
-    setMenuOpen(false)
+    setUser(null); setMenuOpen(false)
     window.location.href = '/'
   }
 
@@ -58,24 +46,17 @@ export default function GlobalHeader() {
     if (!loginEmail || !loginPassword) { setLoginError('Please enter your email and password.'); return }
     setLoginLoading(true); setLoginError('')
     try {
-      const res = await fetch('/api/fm-auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
-      })
+      const res = await fetch('/api/fm-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: loginEmail, password: loginPassword }) })
       const data = await res.json()
       if (!res.ok) { setLoginError(data.error || 'Invalid email or password.'); setLoginLoading(false); return }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-      setUser(data)
-      setShowLogin(false)
-      setLoginEmail(''); setLoginPassword('')
+      setUser(data); setShowLogin(false); setLoginEmail(''); setLoginPassword('')
       window.location.href = '/portal'
     } catch { setLoginError('Something went wrong.') }
     finally { setLoginLoading(false) }
   }
 
   const initials = user ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() : ''
-  const isFullmap = pathname === '/fullmap'
 
   return (
     <>
@@ -83,33 +64,30 @@ export default function GlobalHeader() {
         .dc-pill { padding: 4px 12px; border-radius: 20px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'DM Sans',sans-serif; white-space: nowrap; transition: all 0.12s; background: #efefef; color: #555; text-decoration: none; display: inline-flex; align-items: center; }
         .dc-pill:hover { background: #e0e0e0; }
         .dc-pill.active { background: #1A1028 !important; color: #fff !important; }
-        .dc-link { font-size: 13px; font-weight: 500; color: #555; text-decoration: none; font-family: 'DM Sans',sans-serif; white-space: nowrap; }
+        .dc-link { font-size: 13px; font-weight: 500; color: #555; text-decoration: none; font-family: 'DM Sans',sans-serif; }
         .dc-link:hover { color: #111; }
         .dc-menu-link { display: flex; align-items: center; gap: 9px; padding: 8px 14px; font-size: 12px; color: #444; font-weight: 500; text-decoration: none; font-family: 'DM Sans',sans-serif; transition: background 0.1s; }
         .dc-menu-link:hover { background: #f5f5f5; }
         .dc-menu-btn { display: flex; align-items: center; gap: 9px; padding: 8px 14px; cursor: pointer; font-size: 12px; font-weight: 500; border: none; background: transparent; width: 100%; font-family: 'DM Sans',sans-serif; text-align: left; transition: background 0.1s; }
         .dc-menu-btn:hover { background: #f5f5f5; }
+        .dc-pill { padding: 4px 12px; border-radius: 20px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'DM Sans',sans-serif; white-space: nowrap; transition: all 0.12s; background: #efefef; color: #555; }
       `}</style>
 
       <header style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0, position: 'sticky', top: 0, zIndex: 200 }}>
 
-        {/* Logo */}
         <Link href="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 700, background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', letterSpacing: '-0.3px' }}>disco cater</span>
         </Link>
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0 }} />
+        {centerContent && <>
+          <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0 }} />
+          {centerContent}
+        </>}
 
-        {/* Fullmap: no center pills — fullmap has its own filter bar below the header */}
-        {/* Other pages: no center pills */}
-
-        {/* Right side */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
-          {!isFullmap && <Link href="/fullmap" className="dc-link">Catering Map</Link>}
-          <Link href="/faq" className="dc-link">FAQ</Link>
+          {rightLinks && <Link href="/fullmap" className="dc-link">Catering Map</Link>}
+          {rightLinks && <Link href="/faq" className="dc-link">FAQ</Link>}
 
-          {/* Auth */}
           {user ? (
             <div style={{ position: 'relative' }}>
               <button onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#fff', background: GRAD, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>
@@ -140,7 +118,7 @@ export default function GlobalHeader() {
                     </div>
                     <div style={{ height: 1, background: '#f0f0f0', margin: '3px 0' }} />
                     <div style={{ padding: '5px 0' }}>
-                      <button onClick={signOut} className="dc-menu-btn" style={{ color: '#E24B4A' }}>
+                      <button onClick={onSignOut || signOut} className="dc-menu-btn" style={{ color: '#E24B4A' }}>
                         <span style={{ color: '#E24B4A', flexShrink: 0 }}><IconSignOut /></span>
                         Sign out
                       </button>
@@ -157,7 +135,6 @@ export default function GlobalHeader() {
         </div>
       </header>
 
-      {/* Login modal */}
       {showLogin && (
         <>
           <div onClick={() => setShowLogin(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
