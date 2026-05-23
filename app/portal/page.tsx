@@ -267,9 +267,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
 
       {/* Top nav */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0 }}>
-        <Link href="/" style={{ textDecoration: 'none' }}>
-          <span style={{ fontSize: 15, fontWeight: 700, background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', letterSpacing: '-0.3px', marginRight: 4 }}>disco cater</span>
-        </Link>
+        <Link href="/" style={{ textDecoration: 'none' }}><span style={{ fontSize: 15, fontWeight: 700, background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', letterSpacing: '-0.3px', marginRight: 4 }}>disco cater</span></Link>
         <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0 }} />
         {(['orders','subscriptions','history','favorites'] as const).map(p => (
           <button key={p} onClick={() => { setPage(p); closeRP() }} style={{ padding: '4px 12px', borderRadius: 20, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap', transition: 'all 0.12s', background: page === p ? '#1A1028' : '#efefef', color: page === p ? '#fff' : '#555' }}>
@@ -277,8 +275,8 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
           </button>
         ))}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
-          <Link href="/fullmap" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', whiteSpace: 'nowrap', fontFamily: "'DM Sans',sans-serif" }}>Catering Map</Link>
-          <Link href="/faq" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', whiteSpace: 'nowrap', fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
+          <Link href="/fullmap" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', fontFamily: "'DM Sans',sans-serif" }}>Catering Map</Link>
+          <Link href="/faq" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
           <div style={{ position: 'relative' }}>
           <button onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#fff', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif" }}>
             {initials}
@@ -404,7 +402,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                   <div style={{ fontSize: 10, color: '#bbb', marginBottom: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Order summary</div>
                   <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
                     {[['Restaurant','Taim — Nolita'],['Items','Team Lunch Box'],['Headcount','30 people'],['Type','Recurring — weekly'],['Service','Delivery'],['Order date','Every Tuesday'],['Order time','12:00 PM'],['Est. per order','$840']].map(([l,v],i) => (
-                      <tr key={i}><td style={{ padding: '3px 0', borderTop: i === 7 ? '1px solid #f0f0f0' : 'none', paddingTop: i === 7 ? 7 : 3, fontWeight: i === 7 ? 700 : 400, color: i === 7 ? '#111' : '#bbb' }}>{l}</td><td style={{ textAlign: 'right', fontWeight: i === 7 ? 700 : 600, color: i === 7 ? '#5B6FE8' : '#111', fontSize: i === 7 ? 15 : 11 }}>{v}</td></tr>
+                      <tr key={i}><td style={{ color: '#bbb', padding: '3px 0', borderTop: i === 7 ? '1px solid #f0f0f0' : 'none', paddingTop: i === 7 ? 7 : 3, fontWeight: i === 7 ? 700 : 400, color: i === 7 ? '#111' : '#bbb' }}>{l}</td><td style={{ textAlign: 'right', fontWeight: i === 7 ? 700 : 600, color: i === 7 ? '#5B6FE8' : '#111', fontSize: i === 7 ? 15 : 11 }}>{v}</td></tr>
                     ))}
                   </table>
                 </div>
