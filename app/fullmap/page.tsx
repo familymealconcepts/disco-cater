@@ -1,4 +1,3 @@
-import React from 'react'
 // v5 — guided decision tree chat panel
 'use client'
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
@@ -928,7 +927,7 @@ function FullMapInner() {
                 🤖<div style={{ position: 'absolute', top: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />
               </button>
               <Link href="/faq" style={{ fontSize: 13, color: '#555', textDecoration: 'none', fontWeight: 500, fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
-              <FullmapAuthBtn />
+              <a href="/portal" style={{ fontSize: 13, color: '#fff', textDecoration: 'none', fontWeight: 700, background: '#1A1028', padding: '7px 18px', borderRadius: 999, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>Log in</a>
             </div>
           </div>
 
@@ -1273,26 +1272,6 @@ function FullMapInner() {
         </div>
       </div>
     </>
-  )
-}
-
-function FullmapAuthBtn() {
-  const [user, setUser] = React.useState<{firstName?:string;lastName?:string}|null>(null)
-  React.useEffect(() => {
-    try {
-      const s = localStorage.getItem('disco_user')
-      if (s) setUser(JSON.parse(s))
-    } catch {}
-    const sync = () => { try { const s = localStorage.getItem('disco_user'); setUser(s ? JSON.parse(s) : null) } catch {} }
-    window.addEventListener('focus', sync)
-    return () => window.removeEventListener('focus', sync)
-  }, [])
-  const initials = user ? `${user.firstName?.[0]??''}${user.lastName?.[0]??''}`.toUpperCase() : ''
-  if (user) return (
-    <a href="/portal" style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', textDecoration: 'none', flexShrink: 0 }}>{initials}</a>
-  )
-  return (
-    <a href="/portal" style={{ fontSize: 13, color: '#fff', textDecoration: 'none', fontWeight: 700, background: '#1A1028', padding: '7px 18px', borderRadius: 999, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>Log in</a>
   )
 }
 
