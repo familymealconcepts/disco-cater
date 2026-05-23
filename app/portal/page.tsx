@@ -68,25 +68,25 @@ function RightPanel({ idx, onClose, onPayment }: { idx: number; onClose: () => v
     <div style={{ width: 252, minWidth: 252, borderLeft: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', background: '#fff', overflowY: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid #f0f0f0' }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{o.name}</span>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 18, lineHeight: 1, padding: 0 }}>✕</button>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#777', fontSize: 18, lineHeight: 1, padding: 0 }}>✕</button>
       </div>
       <div style={{ margin: '10px 10px 0', border: '1px solid #ebebeb', borderRadius: 10, padding: 11 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#111', marginBottom: 1 }}>{o.name}</div>
-        <div style={{ fontSize: 10, color: '#888' }}>{o.people} people</div>
+        <div style={{ fontSize: 10, color: '#555' }}>{o.people} people</div>
         <Tag t={o.tag} label={o.tagLabel} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTop: '0.5px solid #f0f0f0' }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>${o.amt.toLocaleString()}</span>
           <span style={{ fontSize: 10, color: isPaused ? '#BA7517' : '#111', fontWeight: 600 }}>{o.date}</span>
         </div>
       </div>
-      <div style={{ margin: '8px 10px 10px', background: '#fafafa', borderRadius: 8, padding: 10 }}>
+      <div style={{ margin: '8px 10px 10px', background: '#f5f5f5', borderRadius: 8, padding: 10 }}>
         {o.items && o.items.length > 0 && (
           <>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Items</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#777', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Items</div>
             {o.items.map((item, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '1px 0' }}>
                 <span style={{ color: '#333', fontWeight: 500 }}>{item.n}</span>
-                <span style={{ color: '#888' }}>{item.p}</span>
+                <span style={{ color: '#555' }}>{item.p}</span>
               </div>
             ))}
             <div style={{ height: '0.5px', background: '#e8e8e8', margin: '5px 0' }} />
@@ -94,7 +94,7 @@ function RightPanel({ idx, onClose, onPayment }: { idx: number; onClose: () => v
         )}
         {[['Type', o.type], ['Service', o.service], ['Order date', o.orderDate], ['Order time', o.orderTime], ['Payment', o.paid ? 'Paid' : 'Unpaid']].map(([l, v]) => (
           <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0' }}>
-            <span style={{ color: '#bbb' }}>{l}</span>
+            <span style={{ color: '#777' }}>{l}</span>
             <span style={{ color: l === 'Payment' ? (o.paid ? '#1D9E75' : '#E24B4A') : '#111', fontWeight: 600 }}>{v}</span>
           </div>
         ))}
@@ -142,7 +142,7 @@ function Calendar({ onOpenRP }: { onOpenRP: (i: number) => void }) {
             {[{ c: '#6B6EF9', l: 'Recurring' }, { c: '#1D9E75', l: 'Catering' }, { c: '#BA7517', l: 'Paused' }].map(x => (
               <div key={x.l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: x.c, flexShrink: 0 }} />
-                <span style={{ fontSize: 10, color: '#888' }}>{x.l}</span>
+                <span style={{ fontSize: 10, color: '#555' }}>{x.l}</span>
               </div>
             ))}
           </div>
@@ -154,7 +154,7 @@ function Calendar({ onOpenRP }: { onOpenRP: (i: number) => void }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', border: '1px solid #e8e8e8', borderRadius: 10, overflow: 'hidden' }}>
         {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
-          <div key={d} style={{ background: '#fafafa', textAlign: 'center', fontSize: 9, color: '#bbb', padding: '7px 2px', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '1px solid #f0f0f0' }}>{d}</div>
+          <div key={d} style={{ background: '#f5f5f5', textAlign: 'center', fontSize: 9, color: '#777', padding: '7px 2px', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '1px solid #f0f0f0' }}>{d}</div>
         ))}
         {cells.map((cell, i) => {
           const evs = cell.cur ? (CAL_EVS[cell.d] || []) : []
@@ -190,7 +190,7 @@ function OLR({ o, onClick }: { o: any; onClick: () => void }) {
       <div style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>{o.emoji}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{o.name}</div>
-        <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{o.people} people · {o.service} · <span style={{ color: o.paid ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>{o.paid ? 'Paid' : 'Unpaid'}</span></div>
+        <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>{o.people} people · {o.service} · <span style={{ color: o.paid ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>{o.paid ? 'Paid' : 'Unpaid'}</span></div>
         {o.tagLabel && <div style={{ marginTop: 3 }}><Tag t={o.tag} label={o.tagLabel} /></div>}
       </div>
       <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -287,7 +287,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
               <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, background: '#fff', border: '1px solid #e8e8e8', borderRadius: 12, boxShadow: '0 8px 28px rgba(0,0,0,0.12)', minWidth: 210, zIndex: 400, overflow: 'hidden' }}>
                 <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid #f0f0f0' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{user?.firstName} {user?.lastName}</div>
-                  <div style={{ fontSize: 10, color: '#bbb', marginTop: 1 }}>{user?.email}</div>
+                  <div style={{ fontSize: 10, color: '#777', marginTop: 1 }}>{user?.email}</div>
                 </div>
                 <div style={{ padding: '5px 0' }}>
                   {[
@@ -296,7 +296,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                     { icon: <IconUser />, label: 'Account settings', action: () => { setPage('account'); setMenuOpen(false); closeRP() } },
                   ].map(item => (
                     <button key={item.label} onClick={item.action} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', cursor: 'pointer', fontSize: 12, color: '#444', fontWeight: 500, transition: 'background 0.1s', border: 'none', background: 'transparent', width: '100%', fontFamily: "'DM Sans',sans-serif", textAlign: 'left' }}
-                      onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#f5f5f5'}
+                      onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#e8e8e8'}
                       onMouseOut={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                     >
                       <span style={{ color: '#999', flexShrink: 0 }}>{item.icon}</span>
@@ -308,7 +308,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                 <div style={{ height: 1, background: '#f0f0f0', margin: '3px 0' }} />
                 <div style={{ padding: '5px 0' }}>
                   <button onClick={onSignOut} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', cursor: 'pointer', fontSize: 12, color: '#E24B4A', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', fontFamily: "'DM Sans',sans-serif", textAlign: 'left' }}
-                    onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#f5f5f5'}
+                    onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#e8e8e8'}
                     onMouseOut={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                   >
                     <span style={{ color: '#E24B4A', flexShrink: 0 }}><IconSignOut /></span>
@@ -325,7 +325,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
       {/* Body */}
       <div style={{ display: 'flex', minHeight: 640 }}>
         {/* Icon sidebar */}
-        <div style={{ width: 56, minWidth: 56, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#fafafa', padding: '12px 0 16px', gap: 4 }}>
+        <div style={{ width: 56, minWidth: 56, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#f5f5f5', padding: '12px 0 16px', gap: 4 }}>
           {sideItems.map(item => (
             <button key={item.id} className="si-btn" onClick={() => { setPage(item.id as Page); closeRP() }} style={{ position: 'relative', width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: 'none', background: page === item.id ? 'rgba(107,110,249,0.1)' : 'transparent', color: page === item.id ? '#6B6EF9' : '#888', transition: 'background 0.12s' }}>
               {item.icon}
@@ -340,7 +340,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 20px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#111' }}>{cfg.title}</div>
-              {cfg.sub && <div style={{ fontSize: 11, color: '#bbb', marginTop: 2 }}>{cfg.sub}</div>}
+              {cfg.sub && <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>{cfg.sub}</div>}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {cfg.showTog && (
@@ -364,10 +364,10 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
               <div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 18 }}>
                   {[{ l: 'Active orders', v: '3', s: '2 recurring · 1 one-time' }, { l: 'Total orders placed', v: '47', s: 'since Jan 2025' }, { l: 'Next order', v: 'May 6', s: 'Taim — Nolita · 12:00 PM', small: true }].map(s => (
-                    <div key={s.l} style={{ background: '#fafafa', borderRadius: 8, padding: '12px 14px' }}>
-                      <div style={{ fontSize: 10, color: '#bbb', marginBottom: 4, fontWeight: 600 }}>{s.l}</div>
+                    <div key={s.l} style={{ background: '#f5f5f5', borderRadius: 8, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 10, color: '#777', marginBottom: 4, fontWeight: 600 }}>{s.l}</div>
                       <div style={{ fontSize: s.small ? 16 : 22, fontWeight: 700, color: '#111', paddingTop: s.small ? 3 : 0 }}>{s.v}</div>
-                      <div style={{ fontSize: 10, color: '#bbb', marginTop: 2 }}>{s.s}</div>
+                      <div style={{ fontSize: 10, color: '#777', marginTop: 2 }}>{s.s}</div>
                     </div>
                   ))}
                 </div>
@@ -378,14 +378,14 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {/* Orders - List */}
             {page === 'orders' && view === 'list' && (
               <div>
-                <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 2px', marginBottom: 8 }}>Upcoming</div>
+                <div style={{ fontSize: 11, color: '#777', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 2px', marginBottom: 8 }}>Upcoming</div>
                 {ORDERS.map((o, i) => <OLR key={i} o={o} onClick={() => openRP(o.id)} />)}
-                <div onClick={() => setShowPast(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 10, cursor: 'pointer', borderRadius: 8, marginTop: 8, background: '#fafafa', border: '1px solid #f0f0f0' }}
+                <div onClick={() => setShowPast(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 10, cursor: 'pointer', borderRadius: 8, marginTop: 8, background: '#f5f5f5', border: '1px solid #f0f0f0' }}
                   onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#f0f0f0'}
                   onMouseOut={e => (e.currentTarget as HTMLElement).style.background = '#fafafa'}
                 >
                   <span style={{ fontSize: 11, fontWeight: 600, color: '#555' }}>Past orders (12)</span>
-                  <span style={{ fontSize: 11, color: '#bbb', transition: 'transform 0.2s', transform: showPast ? 'rotate(180deg)' : 'none' }}>▾</span>
+                  <span style={{ fontSize: 11, color: '#777', transition: 'transform 0.2s', transform: showPast ? 'rotate(180deg)' : 'none' }}>▾</span>
                 </div>
                 {showPast && (
                   <div style={{ overflow: 'hidden' }}>
@@ -399,8 +399,8 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {/* Confirm */}
             {page === 'confirm' && (
               <div style={{ maxWidth: 400 }}>
-                <div style={{ background: '#fafafa', borderRadius: 10, padding: 14, marginBottom: 14, border: '1px solid #ebebeb' }}>
-                  <div style={{ fontSize: 10, color: '#bbb', marginBottom: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Order summary</div>
+                <div style={{ background: '#f5f5f5', borderRadius: 10, padding: 14, marginBottom: 14, border: '1px solid #ebebeb' }}>
+                  <div style={{ fontSize: 10, color: '#777', marginBottom: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Order summary</div>
                   <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
                     {[['Restaurant','Taim — Nolita'],['Items','Team Lunch Box'],['Headcount','30 people'],['Type','Recurring — weekly'],['Service','Delivery'],['Order date','Every Tuesday'],['Order time','12:00 PM'],['Est. per order','$840']].map(([l,v],i) => (
                       <tr key={i}><td style={{ padding: '3px 0', borderTop: i === 7 ? '1px solid #f0f0f0' : 'none', paddingTop: i === 7 ? 7 : 3, fontWeight: i === 7 ? 700 : 400, color: i === 7 ? '#111' : '#bbb' }}>{l}</td><td style={{ textAlign: 'right', fontWeight: i === 7 ? 700 : 600, color: i === 7 ? '#5B6FE8' : '#111', fontSize: i === 7 ? 15 : 11 }}>{v}</td></tr>
@@ -408,9 +408,9 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                   </table>
                 </div>
                 <div style={{ background: '#E1F5EE', borderRadius: 8, padding: '10px 12px', fontSize: 11, color: '#085041', marginBottom: 14, lineHeight: 1.6 }}>A confirmation email will be sent 24 hours before each order. You can skip or cancel anytime.</div>
-                <div style={{ fontSize: 11, color: '#bbb', marginBottom: 14 }}>Payment: <span style={{ color: '#111', fontWeight: 600 }}>Visa ···4821</span> &nbsp;·&nbsp; <span style={{ color: '#6B6EF9', cursor: 'pointer', fontWeight: 600 }}>Change</span></div>
+                <div style={{ fontSize: 11, color: '#777', marginBottom: 14 }}>Payment: <span style={{ color: '#111', fontWeight: 600 }}>Visa ···4821</span> &nbsp;·&nbsp; <span style={{ color: '#6B6EF9', cursor: 'pointer', fontWeight: 600 }}>Change</span></div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                  <button onClick={() => setPage('favorites')} style={{ flex: 1, padding: 9, borderRadius: 7, border: '1px solid #e0e0e0', background: '#fff', color: '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>← Back</button>
+                  <button onClick={() => setPage('favorites')} style={{ flex: 1, padding: 9, borderRadius: 7, border: '1px solid #e0e0e0', background: '#fff', color: '#555', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>← Back</button>
                   <button onClick={() => setPage('success')} style={{ flex: 2, padding: 9, borderRadius: 7, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Place order</button>
                 </div>
               </div>
@@ -421,7 +421,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
               <div style={{ textAlign: 'center', padding: '60px 20px' }}>
                 <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#E1F5EE', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}><IconCheck /></div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: '#111', marginBottom: 10 }}>Order confirmed!</div>
-                <div style={{ fontSize: 13, color: '#888', lineHeight: 1.8, marginBottom: 28 }}>Your recurring order with <strong>Taim — Nolita</strong><br />is set for every Tuesday at 12:00 PM.<br />First order: May 6, 2026.</div>
+                <div style={{ fontSize: 13, color: '#555', lineHeight: 1.8, marginBottom: 28 }}>Your recurring order with <strong>Taim — Nolita</strong><br />is set for every Tuesday at 12:00 PM.<br />First order: May 6, 2026.</div>
                 <button onClick={() => setPage('orders')} style={{ background: '#5B6FE8', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Back to orders</button>
               </div>
             )}
@@ -430,12 +430,12 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {page === 'payfail' && (
               <div style={{ maxWidth: 400 }}>
                 <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '10px 12px', fontSize: 11, color: '#633806', marginBottom: 14, lineHeight: 1.6 }}><strong>Payment failed for Pecking House.</strong> Your order has been paused. Update your card to resume.</div>
-                <div style={{ marginBottom: 12 }}><span style={{ fontSize: 10, color: '#bbb', display: 'block', marginBottom: 3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Card number</span><input type="text" placeholder="1234 5678 9012 3456" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 7, fontSize: 12, color: '#111', background: '#fafafa', fontFamily: "'DM Sans',sans-serif", outline: 'none' }} /></div>
+                <div style={{ marginBottom: 12 }}><span style={{ fontSize: 10, color: '#777', display: 'block', marginBottom: 3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Card number</span><input type="text" placeholder="1234 5678 9012 3456" style={{ width: '100%', padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 7, fontSize: 12, color: '#111', background: '#f5f5f5', fontFamily: "'DM Sans',sans-serif", outline: 'none' }} /></div>
                 <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-                  {['Expiry','CVC'].map(l => <div key={l} style={{ flex: 1 }}><span style={{ fontSize: 10, color: '#bbb', display: 'block', marginBottom: 3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{l}</span><input type="text" placeholder={l === 'Expiry' ? 'MM / YY' : '123'} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 7, fontSize: 12, color: '#111', background: '#fafafa', fontFamily: "'DM Sans',sans-serif", outline: 'none' }} /></div>)}
+                  {['Expiry','CVC'].map(l => <div key={l} style={{ flex: 1 }}><span style={{ fontSize: 10, color: '#777', display: 'block', marginBottom: 3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{l}</span><input type="text" placeholder={l === 'Expiry' ? 'MM / YY' : '123'} style={{ width: '100%', padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 7, fontSize: 12, color: '#111', background: '#f5f5f5', fontFamily: "'DM Sans',sans-serif", outline: 'none' }} /></div>)}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => setPage('orders')} style={{ flex: 1, padding: 9, borderRadius: 7, border: '1px solid #e0e0e0', background: '#fff', color: '#888', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Cancel</button>
+                  <button onClick={() => setPage('orders')} style={{ flex: 1, padding: 9, borderRadius: 7, border: '1px solid #e0e0e0', background: '#fff', color: '#555', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Cancel</button>
                   <button onClick={() => setPage('orders')} style={{ flex: 2, padding: 9, borderRadius: 7, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Update &amp; resume</button>
                 </div>
               </div>
@@ -444,7 +444,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {/* History */}
             {page === 'history' && (
               <div>
-                <div style={{ fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 2px', marginBottom: 8 }}>All past orders</div>
+                <div style={{ fontSize: 11, color: '#777', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 2px', marginBottom: 8 }}>All past orders</div>
                 {[...ORDERS, ...PAST].map((o, i) => <OLR key={i} o={{ ...(o as any), tag: (o as any).tag || '', tagLabel: '' }} onClick={() => openRP(Math.min((o as any).id || 0, 2))} />)}
                 <DiscoverCTA />
               </div>
@@ -458,7 +458,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                     onMouseOver={e => { (e.currentTarget as HTMLElement).style.borderColor = '#c0c0c0'; (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 12px rgba(0,0,0,0.07)' }}
                     onMouseOut={e => { (e.currentTarget as HTMLElement).style.borderColor = '#ebebeb'; (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}
                   >
-                    <button className="fav-x-btn" onClick={() => setFavs(p => p.filter(x => x.id !== f.id))} style={{ position: 'absolute', top: -8, right: -8, width: 22, height: 22, borderRadius: '50%', background: '#fff', border: '1px solid #e0e0e0', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#888', cursor: 'pointer', zIndex: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', display: 'none' }}>✕</button>
+                    <button className="fav-x-btn" onClick={() => setFavs(p => p.filter(x => x.id !== f.id))} style={{ position: 'absolute', top: -8, right: -8, width: 22, height: 22, borderRadius: '50%', background: '#fff', border: '1px solid #e0e0e0', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#555', cursor: 'pointer', zIndex: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', display: 'none' }}>✕</button>
                     <div style={{ width: '100%', height: 86, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, borderRadius: '11px 11px 0 0' }}>{f.emoji}</div>
                     <div style={{ padding: '9px 11px 11px' }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: '#111', marginBottom: 6 }}>{f.name}</div>
@@ -490,7 +490,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                     <div style={{ width: 38, height: 38, borderRadius: 8, background: '#EEEDFE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, flexShrink: 0 }}>{s.emoji}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{s.name}</div>
-                      <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{s.people} people · {s.svc}</div>
+                      <div style={{ fontSize: 11, color: '#555', marginTop: 1 }}>{s.people} people · {s.svc}</div>
                       <div style={{ fontSize: 10, color: s.freqColor, fontWeight: 600, marginTop: 3 }}>{s.freq}</div>
                       <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                         {s.status === 'a' ? (
@@ -519,12 +519,12 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {/* Notifications */}
             {page === 'notifs' && (
               <div>
-                <div style={{ padding: '8px 2px 14px', fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notifications</div>
+                <div style={{ padding: '8px 2px 14px', fontSize: 11, color: '#777', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Notifications</div>
                 <div style={{ border: '1px solid #EFB84A', background: '#FEF9EC', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
                   <IconBell />
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>Payment failed — Pecking House</div>
-                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Your bi-weekly order has been paused. Update your card to resume.</div>
+                    <div style={{ fontSize: 11, color: '#555', marginTop: 2 }}>Your bi-weekly order has been paused. Update your card to resume.</div>
                   </div>
                 </div>
               </div>
@@ -533,13 +533,13 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {/* Payment methods */}
             {page === 'payment' && (
               <div>
-                <div style={{ padding: '8px 2px 14px', fontSize: 11, color: '#bbb', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Payment methods</div>
+                <div style={{ padding: '8px 2px 14px', fontSize: 11, color: '#777', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Payment methods</div>
                 <div style={{ border: '1px solid #ebebeb', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <IconCardLg />
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>No payment method on file</div>
-                      <div style={{ fontSize: 10, color: '#bbb', marginTop: 1 }}>Add a card to place orders</div>
+                      <div style={{ fontSize: 10, color: '#777', marginTop: 1 }}>Add a card to place orders</div>
                     </div>
                   </div>
                 </div>
@@ -576,8 +576,8 @@ function AccountForm({ user }: { user: any }) {
     } catch {}
   }, [])
 
-  const fi: React.CSSProperties = { width: '100%', padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 7, fontSize: 12, color: '#111', background: '#fafafa', fontFamily: "'DM Sans',sans-serif", outline: 'none' }
-  const fl: React.CSSProperties = { fontSize: 10, color: '#bbb', marginBottom: 3, display: 'block', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }
+  const fi: React.CSSProperties = { width: '100%', padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 7, fontSize: 12, color: '#111', background: '#f5f5f5', fontFamily: "'DM Sans',sans-serif", outline: 'none' }
+  const fl: React.CSSProperties = { fontSize: 10, color: '#777', marginBottom: 3, display: 'block', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }
 
   async function save() {
     try {
@@ -617,7 +617,7 @@ function AccountForm({ user }: { user: any }) {
       <div style={{ fontSize: 11, fontWeight: 700, color: '#111', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Danger zone</div>
       <div style={{ border: '1px solid #F09595', borderRadius: 10, padding: 14 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#E24B4A', marginBottom: 6 }}>Delete account</div>
-        <div style={{ fontSize: 11, color: '#888', marginBottom: 10, lineHeight: 1.6 }}>Permanently delete your Disco Cater account and all associated order history. This action cannot be undone.</div>
+        <div style={{ fontSize: 11, color: '#555', marginBottom: 10, lineHeight: 1.6 }}>Permanently delete your Disco Cater account and all associated order history. This action cannot be undone.</div>
         <button style={{ background: 'transparent', border: '1px solid #E24B4A', color: '#E24B4A', borderRadius: 7, padding: '7px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Delete my account</button>
       </div>
     </div>
@@ -651,7 +651,7 @@ function LoginScreen({ onLogin }: { onLogin: (u: any) => void }) {
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ fontSize: 28, marginBottom: 10 }}>🪩</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: '#1A1028', letterSpacing: '-0.03em' }}>Welcome back</div>
-          <div style={{ fontSize: 13, color: '#888', marginTop: 4 }}>Sign in to your Disco Cater account</div>
+          <div style={{ fontSize: 13, color: '#555', marginTop: 4 }}>Sign in to your Disco Cater account</div>
         </div>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 14 }}>
@@ -670,7 +670,7 @@ function LoginScreen({ onLogin }: { onLogin: (u: any) => void }) {
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-        <div style={{ marginTop: 20, textAlign: 'center', fontSize: 12, color: '#888' }}>
+        <div style={{ marginTop: 20, textAlign: 'center', fontSize: 12, color: '#555' }}>
           Don&apos;t have an account? <a href="https://www.familymeal.com/registration" style={{ color: '#6B6EF9', textDecoration: 'none', fontWeight: 600 }}>Create one</a>
         </div>
       </div>
@@ -691,7 +691,7 @@ export default function PortalPage() {
     setLoading(false)
   }, [])
 
-  if (loading) return <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif", color: '#bbb' }}>Loading…</div>
+  if (loading) return <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif", color: '#777' }}>Loading…</div>
 
   if (!user) return <LoginScreen onLogin={u => setUser(u)} />
 
