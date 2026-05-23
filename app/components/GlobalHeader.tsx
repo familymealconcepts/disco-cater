@@ -32,21 +32,25 @@ export default function GlobalHeader() {
   if (isFullmap) return null
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      if (stored) setUser(JSON.parse(stored))
-    } catch {}
+    const syncUser = () => {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY)
+        setUser(stored ? JSON.parse(stored) : null)
+      } catch {}
+    }
+    syncUser()
 
     // Listen for login/logout from any page
     function onStorage(e: StorageEvent) {
-      if (e.key === STORAGE_KEY) {
-        try {
-          setUser(e.newValue ? JSON.parse(e.newValue) : null)
-        } catch {}
-      }
+      if (e.key === STORAGE_KEY) syncUser()
     }
     window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
+    // Also sync when tab becomes visible (e.g. returning from portal)
+    window.addEventListener('focus', syncUser)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('focus', syncUser)
+    }
   }, [])
 
   const initials = user

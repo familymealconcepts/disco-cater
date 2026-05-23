@@ -276,10 +276,10 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {p.charAt(0).toUpperCase() + p.slice(1)}
           </button>
         ))}
-        <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0, marginLeft: 8 }} />
-        <Link href="/fullmap" style={{ fontSize: 11, fontWeight: 600, color: '#555', textDecoration: 'none', whiteSpace: 'nowrap', fontFamily: "'DM Sans',sans-serif" }}>Catering Map</Link>
-        <Link href="/faq" style={{ fontSize: 11, fontWeight: 600, color: '#555', textDecoration: 'none', whiteSpace: 'nowrap', fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
-        <div style={{ marginLeft: 'auto', position: 'relative' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
+        <Link href="/fullmap" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', whiteSpace: 'nowrap', fontFamily: "'DM Sans',sans-serif" }}>Catering Map</Link>
+        <Link href="/faq" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', whiteSpace: 'nowrap', fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
+        <div style={{ position: 'relative' }}>
           <button onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#fff', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif" }}>
             {initials}
           </button>
