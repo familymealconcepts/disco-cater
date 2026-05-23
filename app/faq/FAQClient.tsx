@@ -241,7 +241,7 @@ function AccordionItem({ item }: { item: FAQItem }) {
         }}>
           {item.a}
         </div>
-      </div>
+    </div>
   )
 }
 
@@ -249,6 +249,7 @@ export default function FAQClient() {
   return (
     <>
       <GlobalHeader />
+    <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -313,5 +314,9 @@ export default function FAQClient() {
           {' · '}© {new Date().getFullYear()} FamilyMeal Concepts
         </span>
       </footer>
+    </>
+  )
+
+    </>
   )
 }
