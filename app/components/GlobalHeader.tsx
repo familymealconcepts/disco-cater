@@ -27,9 +27,6 @@ export default function GlobalHeader() {
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState('')
 
-  // Skip on portal — portal has its own header
-  if (pathname === '/portal') return null
-
   useEffect(() => {
     const syncUser = () => {
       try {
@@ -45,6 +42,9 @@ export default function GlobalHeader() {
       window.removeEventListener('storage', syncUser)
     }
   }, [])
+
+  // Portal has its own header
+  if (pathname === '/portal') return null
 
   function signOut() {
     localStorage.removeItem(STORAGE_KEY)
@@ -75,22 +75,20 @@ export default function GlobalHeader() {
   }
 
   const initials = user ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() : ''
-
-  // Page-specific center pills
-  const isPortalPage = pathname === '/portal'
   const isFullmap = pathname === '/fullmap'
 
   return (
     <>
       <style>{`
-        .dc-nav-pill { padding: 4px 12px; border-radius: 20px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; font-family: ${F}; white-space: nowrap; transition: all 0.12s; background: #efefef; color: #555; }
-        .dc-nav-pill:hover { background: #e0e0e0; }
-        .dc-nav-pill.active { background: #1A1028; color: #fff; }
-        .dc-menu-btn { display: flex; align-items: center; gap: 9px; padding: 8px 14px; cursor: pointer; font-size: 12px; color: #444; font-weight: 500; border: none; background: transparent; width: 100%; font-family: ${F}; text-align: left; transition: background 0.1s; }
-        .dc-menu-btn:hover { background: #f5f5f5; }
-        .dc-menu-btn.red { color: #E24B4A; }
-        .dc-link { font-size: 13px; font-weight: 500; color: #555; text-decoration: none; font-family: ${F}; white-space: nowrap; }
+        .dc-pill { padding: 4px 12px; border-radius: 20px; border: none; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'DM Sans',sans-serif; white-space: nowrap; transition: all 0.12s; background: #efefef; color: #555; text-decoration: none; display: inline-flex; align-items: center; }
+        .dc-pill:hover { background: #e0e0e0; }
+        .dc-pill.active { background: #1A1028 !important; color: #fff !important; }
+        .dc-link { font-size: 13px; font-weight: 500; color: #555; text-decoration: none; font-family: 'DM Sans',sans-serif; white-space: nowrap; }
         .dc-link:hover { color: #111; }
+        .dc-menu-link { display: flex; align-items: center; gap: 9px; padding: 8px 14px; font-size: 12px; color: #444; font-weight: 500; text-decoration: none; font-family: 'DM Sans',sans-serif; transition: background 0.1s; }
+        .dc-menu-link:hover { background: #f5f5f5; }
+        .dc-menu-btn { display: flex; align-items: center; gap: 9px; padding: 8px 14px; cursor: pointer; font-size: 12px; font-weight: 500; border: none; background: transparent; width: 100%; font-family: 'DM Sans',sans-serif; text-align: left; transition: background 0.1s; }
+        .dc-menu-btn:hover { background: #f5f5f5; }
       `}</style>
 
       <header style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0, position: 'sticky', top: 0, zIndex: 200 }}>
@@ -103,17 +101,12 @@ export default function GlobalHeader() {
         {/* Divider */}
         <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0 }} />
 
-        {/* Center content — page aware */}
-        {pathname === '/portal' ? null : pathname === '/faq' ? (
-          <>
-            <Link href="/fullmap" className="dc-nav-pill">Catering Map</Link>
-            <Link href="/" className="dc-nav-pill">Home</Link>
-          </>
-        ) : null}
+        {/* Fullmap: no center pills — fullmap has its own filter bar below the header */}
+        {/* Other pages: no center pills */}
 
         {/* Right side */}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
-          <Link href="/fullmap" className="dc-link">Catering Map</Link>
+          {!isFullmap && <Link href="/fullmap" className="dc-link">Catering Map</Link>}
           <Link href="/faq" className="dc-link">FAQ</Link>
 
           {/* Auth */}
@@ -139,7 +132,7 @@ export default function GlobalHeader() {
                         { icon: <IconCard />, label: 'Payment methods', href: '/portal' },
                         { icon: <IconBell />, label: 'Notifications', href: '/portal' },
                       ].map(item => (
-                        <Link key={item.label} href={item.href} className="dc-menu-btn" onClick={() => setMenuOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', fontSize: 12, color: '#444', textDecoration: 'none', fontFamily: F }}>
+                        <Link key={item.label} href={item.href} className="dc-menu-link" onClick={() => setMenuOpen(false)}>
                           <span style={{ color: '#999', flexShrink: 0 }}>{item.icon}</span>
                           {item.label}
                         </Link>
@@ -147,7 +140,7 @@ export default function GlobalHeader() {
                     </div>
                     <div style={{ height: 1, background: '#f0f0f0', margin: '3px 0' }} />
                     <div style={{ padding: '5px 0' }}>
-                      <button onClick={signOut} className="dc-menu-btn red">
+                      <button onClick={signOut} className="dc-menu-btn" style={{ color: '#E24B4A' }}>
                         <span style={{ color: '#E24B4A', flexShrink: 0 }}><IconSignOut /></span>
                         Sign out
                       </button>
@@ -168,33 +161,33 @@ export default function GlobalHeader() {
       {showLogin && (
         <>
           <div onClick={() => setShowLogin(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 998 }} />
-          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 20, width: '100%', maxWidth: 400, padding: 36, zIndex: 999, boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 20, width: '100%', maxWidth: 400, padding: 36, zIndex: 999, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', fontFamily: F }}>
+            <button onClick={() => setShowLogin(false)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#bbb' }}>✕</button>
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div style={{ fontSize: 24, marginBottom: 8 }}>🪩</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#1A1028', letterSpacing: '-0.03em', fontFamily: F }}>Welcome back</div>
-              <div style={{ fontSize: 13, color: '#888', marginTop: 4, fontFamily: F }}>Sign in to your Disco Cater account</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: '#1A1028', letterSpacing: '-0.03em' }}>Welcome back</div>
+              <div style={{ fontSize: 13, color: '#666', marginTop: 4 }}>Sign in to your Disco Cater account</div>
             </div>
             <form onSubmit={handleLogin}>
               <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#1A1028', display: 'block', marginBottom: 5, fontFamily: F }}>Email address</label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#1A1028', display: 'block', marginBottom: 5 }}>Email address</label>
                 <input type="email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="you@company.com" autoFocus style={{ width: '100%', padding: '11px 14px', fontSize: 14, border: '1.5px solid #e8e8e8', borderRadius: 10, outline: 'none', fontFamily: F, color: '#1A1028', boxSizing: 'border-box' as const }} />
               </div>
               <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: '#1A1028', fontFamily: F }}>Password</label>
-                  <a href="https://www.familymeal.com/forgot-password" style={{ fontSize: 12, color: '#6B6EF9', textDecoration: 'none', fontFamily: F }}>Forgot password?</a>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#1A1028' }}>Password</label>
+                  <a href="https://www.familymeal.com/forgot-password" style={{ fontSize: 12, color: '#6B6EF9', textDecoration: 'none' }}>Forgot password?</a>
                 </div>
                 <input type="password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} placeholder="••••••••" style={{ width: '100%', padding: '11px 14px', fontSize: 14, border: '1.5px solid #e8e8e8', borderRadius: 10, outline: 'none', fontFamily: F, color: '#1A1028', boxSizing: 'border-box' as const }} />
               </div>
-              {loginError && <div style={{ fontSize: 12, color: '#F0468A', marginBottom: 14, padding: '9px 12px', background: '#FFF0F3', borderRadius: 8, fontFamily: F }}>{loginError}</div>}
+              {loginError && <div style={{ fontSize: 12, color: '#F0468A', marginBottom: 14, padding: '9px 12px', background: '#FFF0F3', borderRadius: 8 }}>{loginError}</div>}
               <button type="submit" disabled={loginLoading} style={{ width: '100%', padding: 13, fontSize: 14, fontWeight: 700, color: '#fff', background: loginLoading ? '#ccc' : '#1A1028', border: 'none', borderRadius: 12, cursor: loginLoading ? 'not-allowed' : 'pointer', fontFamily: F }}>
                 {loginLoading ? 'Signing in…' : 'Sign in'}
               </button>
             </form>
-            <div style={{ marginTop: 16, textAlign: 'center', fontSize: 12, color: '#888', fontFamily: F }}>
+            <div style={{ marginTop: 16, textAlign: 'center', fontSize: 12, color: '#888' }}>
               Don&apos;t have an account? <a href="https://www.familymeal.com/registration" style={{ color: '#6B6EF9', textDecoration: 'none', fontWeight: 600 }}>Create one</a>
             </div>
-            <button onClick={() => setShowLogin(false)} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#bbb' }}>✕</button>
           </div>
         </>
       )}
