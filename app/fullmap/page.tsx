@@ -373,7 +373,7 @@ function FullMapInner() {
               <div style="display:flex;gap:5px;margin-bottom:12px">
                 ${((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => `<span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${tag}</span>`).join('')}
               </div>
-              <a href="${r.orderUrl || '#'}" target="_blank" rel="noopener" style="display:block;width:100%;padding:10px 0;background:#5B6FE8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">Order Catering →</a>
+              <a href="${r.slug?.current ? '/restaurants/' + r.slug.current : r.orderUrl || '#'}" style="display:block;width:100%;padding:10px 0;background:#5B6FE8;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">Order Catering →</a>
             </div>
           </div>
         `)
@@ -1030,7 +1030,7 @@ function FullMapInner() {
                                 ))}
                               </div>
                               {r.orderUrl ? (
-                                <a href={r.orderUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                                <a href={r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl} onClick={e => e.stopPropagation()}
                                   style={{ display: 'block', textAlign: 'center', padding: '8px 0', background: '#5B6FE8', color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: 12, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}>
                                   Order Catering →
                                 </a>
