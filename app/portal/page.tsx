@@ -266,63 +266,18 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
         .cal-cell-hover:hover { background:#fafafa; }
       `}</style>
 
-      {/* Top nav */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0 }}>
-        <Link href='/' style={{ textDecoration: 'none' }}><span style={{ fontSize: 15, fontWeight: 700, background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', letterSpacing: '-0.3px', marginRight: 4 }}>disco cater</span></Link>
-        <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0 }} />
-        {(['orders','subscriptions','history','favorites'] as const).map(p => (
-          <button key={p} onClick={() => { setPage(p); closeRP() }} style={{ padding: '4px 12px', borderRadius: 20, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap', transition: 'all 0.12s', background: page === p ? '#1A1028' : '#efefef', color: page === p ? '#fff' : '#555' }}>
-            {p.charAt(0).toUpperCase() + p.slice(1)}
-          </button>
-        ))}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
-          <Link href="/fullmap" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', fontFamily: "'DM Sans',sans-serif" }}>Catering Map</Link>
-          <Link href="/faq" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
-          <div style={{ position: 'relative' }}>
-          <button onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#fff', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif" }}>
-            {initials}
-          </button>
-          {menuOpen && (
-            <>
-              <div onClick={() => setMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 399 }} />
-              <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, background: '#fff', border: '1px solid #e8e8e8', borderRadius: 12, boxShadow: '0 8px 28px rgba(0,0,0,0.12)', minWidth: 210, zIndex: 400, overflow: 'hidden' }}>
-                <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid #f0f0f0' }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{user?.firstName} {user?.lastName}</div>
-                  <div style={{ fontSize: 10, color: '#666', marginTop: 1 }}>{user?.email}</div>
-                </div>
-                <div style={{ padding: '5px 0' }}>
-                  {[
-                    { icon: <IconCard />, label: 'Payment methods', action: () => { setPage('payment'); setMenuOpen(false); closeRP() } },
-                    { icon: <IconBell />, label: 'Notifications', badge: '1', action: () => { setPage('notifs'); setMenuOpen(false); closeRP() } },
-                    { icon: <IconUser />, label: 'Account settings', action: () => { setPage('account'); setMenuOpen(false); closeRP() } },
-                  ].map(item => (
-                    <button key={item.label} onClick={item.action} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', cursor: 'pointer', fontSize: 12, color: '#444', fontWeight: 500, transition: 'background 0.1s', border: 'none', background: 'transparent', width: '100%', fontFamily: "'DM Sans',sans-serif", textAlign: 'left' }}
-                      onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#f5f5f5'}
-                      onMouseOut={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-                    >
-                      <span style={{ color: '#999', flexShrink: 0 }}>{item.icon}</span>
-                      {item.label}
-                      {item.badge && <span style={{ marginLeft: 'auto', background: '#EFB84A', color: '#5A3800', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 10 }}>{item.badge}</span>}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ height: 1, background: '#f0f0f0', margin: '3px 0' }} />
-                <div style={{ padding: '5px 0' }}>
-                  <button onClick={onSignOut} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', cursor: 'pointer', fontSize: 12, color: '#E24B4A', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', fontFamily: "'DM Sans',sans-serif", textAlign: 'left' }}
-                    onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#f5f5f5'}
-                    onMouseOut={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-                  >
-                    <span style={{ color: '#E24B4A', flexShrink: 0 }}><IconSignOut /></span>
-                    Sign out
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-        </div>
-      </div>
-
+      <GlobalHeader
+        centerContent={
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['orders','subscriptions','history','favorites'] as const).map(p => (
+              <button key={p} onClick={() => { setPage(p); closeRP() }} style={{ padding: '4px 12px', borderRadius: 20, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap', transition: 'all 0.12s', background: page === p ? '#1A1028' : '#efefef', color: page === p ? '#fff' : '#555' }}>
+                {p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+        }
+        onSignOut={onSignOut}
+      />
       {/* Body */}
       <div style={{ display: 'flex', minHeight: 640 }}>
         {/* Icon sidebar */}
