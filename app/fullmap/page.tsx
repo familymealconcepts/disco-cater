@@ -1,6 +1,6 @@
-import React from 'react'
 // v5 — guided decision tree chat panel
 'use client'
+import React from 'react'
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
