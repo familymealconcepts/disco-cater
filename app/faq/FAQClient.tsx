@@ -208,8 +208,6 @@ const sections: Section[] = [
 function AccordionItem({ item }: { item: FAQItem }) {
   const [open, setOpen] = useState(false)
   return (
-    <>
-    <GlobalHeader />
     <div style={{ borderBottom: '1px solid #f0f0f0' }}>
       <button
         onClick={() => setOpen(o => !o)}
@@ -243,13 +241,14 @@ function AccordionItem({ item }: { item: FAQItem }) {
         }}>
           {item.a}
         </div>
-    </div>
+      </div>
   )
 }
 
 export default function FAQClient() {
   return (
     <>
+      <GlobalHeader />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -314,6 +313,5 @@ export default function FAQClient() {
           {' · '}© {new Date().getFullYear()} FamilyMeal Concepts
         </span>
       </footer>
-    </>
   )
 }
