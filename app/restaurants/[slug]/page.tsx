@@ -26,5 +26,5 @@ export default async function RestaurantPage({ params }: { params: { slug: strin
     ? restaurant.orderUrl.replace(/.*\/disco\//, '').replace(/\/.*/, '')
     : null
 
-  return <RestaurantClient restaurant={restaurant} restaurantRef={ref} />
+  return <RestaurantClient restaurant={restaurant} restaurantRef={ref} slug={params.slug} />
 }

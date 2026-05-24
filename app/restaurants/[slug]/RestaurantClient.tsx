@@ -34,9 +34,11 @@ interface Restaurant {
 export default function RestaurantClient({
   restaurant,
   restaurantRef,
+  slug,
 }: {
   restaurant: Restaurant
   restaurantRef: string | null
+  slug: string
 }) {
   const [packages, setPackages] = useState<Package[]>([])
   const [loading, setLoading] = useState(true)
@@ -103,10 +105,10 @@ export default function RestaurantClient({
 
             {/* CTA */}
             <div style={{ flexShrink: 0 }}>
-              {restaurant.orderUrl ? (
-                <a href={restaurant.orderUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-block', background: BLUE, color: '#fff', padding: '14px 28px', borderRadius: 12, fontSize: 15, fontWeight: 700, textDecoration: 'none', boxShadow: '0 4px 16px rgba(91,111,232,0.3)' }}>
+              {restaurantRef ? (
+                <Link href={`/restaurants/${slug}/order`} style={{ display: 'inline-block', background: BLUE, color: '#fff', padding: '14px 28px', borderRadius: 12, fontSize: 15, fontWeight: 700, textDecoration: 'none', boxShadow: '0 4px 16px rgba(91,111,232,0.3)' }}>
                   Order Catering →
-                </a>
+                </Link>
               ) : (
                 <div style={{ fontSize: 13, color: '#888', padding: '14px 0' }}>Contact restaurant to order</div>
               )}
@@ -145,11 +147,9 @@ export default function RestaurantClient({
                   {pkg.description && <p style={{ fontSize: 13, color: '#666', lineHeight: 1.5, margin: '0 0 12px' }}>{pkg.description}</p>}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
                     <div style={{ fontSize: 18, fontWeight: 800, color: DARK }}>${(pkg.price / 100).toFixed(2)}<span style={{ fontSize: 11, fontWeight: 400, color: '#888' }}>/pp</span></div>
-                    {restaurant.orderUrl && (
-                      <a href={restaurant.orderUrl} target="_blank" rel="noopener noreferrer" style={{ background: BLUE, color: '#fff', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-                        Order
-                      </a>
-                    )}
+                    <Link href={`/restaurants/${slug}/order?package=${pkg.reference}`} style={{ background: BLUE, color: '#fff', padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+                      Order
+                    </Link>
                   </div>
                 </div>
               </div>
