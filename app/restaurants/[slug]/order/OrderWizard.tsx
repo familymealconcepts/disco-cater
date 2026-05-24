@@ -603,7 +603,7 @@ export default function OrderWizard({
                     }}>
                       {done ? '✓' : i + 1}
                     </div>
-                    <span style={{ fontSize: 11, color: active ? DARK : done ? '#666' : '#bbb', fontWeight: active ? 700 : 400, whiteSpace: 'nowrap' }}>
+                    <span className="step-lbl" style={{ fontSize: 11, color: active ? DARK : done ? '#666' : '#bbb', fontWeight: active ? 700 : 400, whiteSpace: 'nowrap' }}>
                       {STEP_LABEL[s]}
                     </span>
                   </div>
@@ -661,6 +661,9 @@ export default function OrderWizard({
         * { box-sizing: border-box; }
         input:focus { border-color: ${BLUE} !important; box-shadow: 0 0 0 3px rgba(91,111,232,0.12); }
         button:focus-visible { outline: 2px solid ${BLUE}; outline-offset: 2px; }
+        @media (max-width: 640px) {
+          .step-lbl { display: none; }
+        }
       `}</style>
     </div>
   )

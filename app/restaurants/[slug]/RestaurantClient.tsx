@@ -73,9 +73,9 @@ export default function RestaurantClient({
             ← Back to Catering Map
           </Link>
 
-          <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div className="restaurant-hero-inner" style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             {/* Restaurant image */}
-            <div style={{ width: 180, height: 180, borderRadius: 16, overflow: 'hidden', flexShrink: 0, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>
+            <div className="restaurant-img" style={{ width: 180, height: 180, borderRadius: 16, overflow: 'hidden', flexShrink: 0, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>
               {imageUrl && !imgError ? (
                 <img src={imageUrl} alt={restaurant.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={() => setImgError(true)} />
               ) : '🍽️'}
@@ -104,7 +104,7 @@ export default function RestaurantClient({
             </div>
 
             {/* CTA */}
-            <div style={{ flexShrink: 0 }}>
+            <div className="restaurant-cta" style={{ flexShrink: 0 }}>
               {restaurantRef ? (
                 <Link href={`/restaurants/${slug}/order`} style={{ display: 'inline-block', background: BLUE, color: '#fff', padding: '14px 28px', borderRadius: 12, fontSize: 15, fontWeight: 700, textDecoration: 'none', boxShadow: '0 4px 16px rgba(91,111,232,0.3)' }}>
                   Order Catering →
@@ -173,6 +173,12 @@ export default function RestaurantClient({
 
       <style>{`
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        @media (max-width: 768px) {
+          .restaurant-hero-inner { flex-direction: column !important; align-items: flex-start !important; }
+          .restaurant-img { width: 100% !important; height: 200px !important; border-radius: 12px !important; }
+          .restaurant-cta { width: 100% !important; }
+          .restaurant-cta a, .restaurant-cta div { display: block !important; width: 100% !important; text-align: center !important; box-sizing: border-box !important; }
+        }
       `}</style>
     </div>
   )

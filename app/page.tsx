@@ -185,12 +185,13 @@ export default function HomePage() {
           .home-nav { padding: 14px 20px !important; }
           .nav-links { gap: 20px !important; }
           .home-logo { width: 240px !important; height: auto !important; }
-          .home-tagline { font-size: 15px !important; margin-bottom: 24px !important; }
+          .home-tagline { font-size: 16px !important; margin-bottom: 24px !important; padding: 0 12px; }
           .home-description { font-size: 13px !important; margin-top: 20px !important; padding: 0 8px; }
           .search-btn { padding: 0 14px !important; }
           .btn-long { display: none !important; }
           .btn-short { display: inline !important; }
           .btn-arrow { display: none !important; }
+          .search-wrap { width: calc(100vw - 48px) !important; }
         }
         @media (min-width: 769px) {
           .btn-short { display: none; }

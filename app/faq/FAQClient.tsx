@@ -231,7 +231,7 @@ function AccordionItem({ item }: { item: FAQItem }) {
           {open ? '−' : '+'}
         </span>
       </button>
-      <div style={{
+      <div className="faq-ans" style={{
           paddingBottom: open ? 20 : 0, paddingRight: 44,
           fontSize: 14, color: '#555', lineHeight: 1.7,
           fontFamily: "'DM Sans', sans-serif",
@@ -256,20 +256,26 @@ export default function FAQClient() {
         body { font-family: 'DM Sans', sans-serif; background: #fff; color: #111; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: translateY(0) } }
         .faq-nav-link:hover { color: #6B6EF9 !important; }
+        @media (max-width: 768px) {
+          .faq-main { padding: 16px 16px 80px !important; }
+          .faq-hero { padding: 32px 16px 16px !important; }
+          .faq-cta { padding: 28px 20px !important; }
+          .faq-ans { padding-right: 16px !important; }
+        }
       `}</style>
 
       {/* ── Header ─────────────────────────────────────────────────── */}
       
 
       {/* ── Hero ───────────────────────────────────────────────────── */}
-      <div style={{ padding: '48px 24px 24px', textAlign: 'center' }}>
+      <div className="faq-hero" style={{ padding: '48px 24px 24px', textAlign: 'center' }}>
         <h1 style={{ fontSize: 22, fontWeight: 600, color: '#888', fontFamily: "'DM Sans', sans-serif", letterSpacing: '0.01em' }}>
           Frequently Asked Questions
         </h1>
       </div>
 
       {/* ── FAQ content ────────────────────────────────────────────── */}
-      <main style={{ maxWidth: 760, margin: '0 auto', padding: '16px 24px 80px' }}>
+      <main className="faq-main" style={{ maxWidth: 760, margin: '0 auto', padding: '16px 24px 80px' }}>
         {sections.map((section) => (
           <section
             key={section.title}
@@ -289,7 +295,7 @@ export default function FAQClient() {
         ))}
 
         {/* Bottom CTA */}
-        <div style={{ marginTop: 64, padding: '36px 32px', borderRadius: 20, background: '#fafafa', border: '1px solid #f0f0f0', textAlign: 'center' }}>
+        <div className="faq-cta" style={{ marginTop: 64, padding: '36px 32px', borderRadius: 20, background: '#fafafa', border: '1px solid #f0f0f0', textAlign: 'center' }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111', fontFamily: "'DM Sans', sans-serif", marginBottom: 8 }}>
             Still have questions?
           </h3>
