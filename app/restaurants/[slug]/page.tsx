@@ -9,13 +9,14 @@ const client = createClient({
   apiVersion: '2024-01-01',
 })
 
-export default async function RestaurantPage({ params }: { params: { slug: string } }) {
+export default async function RestaurantPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params
   const restaurant = await client.fetch(
     `*[_type=="restaurant" && slug.current==$slug][0]{
       name, slug, address, cuisine, cuisines, description,
       image, orderUrl, isDisco, location, tags, lat, lng
     }`,
-    { slug: params.slug }
+    { slug }
   )
 
   if (!restaurant) return notFound()
@@ -26,5 +27,5 @@ export default async function RestaurantPage({ params }: { params: { slug: strin
     ? restaurant.orderUrl.replace(/.*\/disco\//, '').replace(/\/.*/, '')
     : null
 
-  return <RestaurantClient restaurant={restaurant} restaurantRef={ref} slug={params.slug} />
+  return <RestaurantClient restaurant={restaurant} restaurantRef={ref} slug={slug} />
 }

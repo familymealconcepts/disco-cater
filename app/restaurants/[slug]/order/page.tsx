@@ -13,15 +13,17 @@ export default async function OrderPage({
   params,
   searchParams,
 }: {
-  params: { slug: string }
-  searchParams: { package?: string }
+  params: Promise<{ slug: string }>
+  searchParams: Promise<{ package?: string }>
 }) {
+  const { slug } = await params
+  const sp = await searchParams
   const restaurant = await client.fetch(
     `*[_type=="restaurant" && slug.current==$slug][0]{
       name, slug, address, cuisine, cuisines, description,
       image, orderUrl, isDisco, location, tags, lat, lng
     }`,
-    { slug: params.slug }
+    { slug }
   )
 
   if (!restaurant) return notFound()
@@ -46,8 +48,8 @@ export default async function OrderPage({
       restaurant={restaurant}
       restaurantRef={restaurantRef}
       packages={Array.isArray(packages) ? packages : []}
-      initialPackageRef={searchParams.package ?? null}
-      slug={params.slug}
+      initialPackageRef={sp.package ?? null}
+      slug={slug}
     />
   )
 }
