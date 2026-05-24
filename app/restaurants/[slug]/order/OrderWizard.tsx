@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import GlobalHeader from '../../../components/GlobalHeader'
 
 const F = "'DM Sans', sans-serif"
@@ -8,9 +9,10 @@ const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 const BLUE = '#5B6FE8'
 const DARK = '#1A1028'
 
-const FLOW: Step[] = ['package', 'date', 'time', 'details', 'review', 'payment']
-const STEP_LABEL: Record<string, string> = { package: 'Package', date: 'Date', time: 'Time', details: 'Details', review: 'Review', payment: 'Pay' }
 type Step = 'package' | 'date' | 'time' | 'details' | 'review' | 'payment' | 'done'
+const FULL_FLOW: Step[] = ['package', 'date', 'time', 'details', 'review', 'payment']
+const SHORT_FLOW: Step[] = ['details', 'review', 'payment']
+const STEP_LABEL: Record<string, string> = { package: 'Package', date: 'Date', time: 'Time', details: 'Details', review: 'Review', payment: 'Pay' }
 
 interface Pkg {
   reference: string
@@ -25,31 +27,41 @@ interface Addr { line1: string; city: string; state: string; zipCode: string }
 declare global { interface Window { Stripe?: (key: string) => any } }
 
 export default function OrderWizard({
-  restaurant, restaurantRef, packages, initialPackageRef, slug,
+  restaurant, restaurantRef, packages,
+  initialPackageRef, initialOrderRef, initialDate, initialTime, initialOrderType, slug,
 }: {
   restaurant: any
   restaurantRef: string
   packages: Pkg[]
   initialPackageRef: string | null
+  initialOrderRef: string | null
+  initialDate: string | null
+  initialTime: string | null
+  initialOrderType: string | null
   slug: string
 }) {
+  const router = useRouter()
+  const hasPreInit = !!initialOrderRef
+  const FLOW = hasPreInit ? SHORT_FLOW : FULL_FLOW
+
   const initPkg = initialPackageRef ? packages.find(p => p.reference === initialPackageRef) ?? null : null
+  const initStep: Step = hasPreInit ? 'details' : initPkg ? 'date' : 'package'
 
   // Auth
   const [user, setUser] = useState<any>(null)
 
   // Order selections
-  const [step, setStep] = useState<Step>(initPkg ? 'date' : 'package')
+  const [step, setStep] = useState<Step>(initStep)
   const [pkg, setPkg] = useState<Pkg | null>(initPkg)
-  const [date, setDate] = useState('')
-  const [time, setTime] = useState('')
+  const [date, setDate] = useState(initialDate || '')
+  const [time, setTime] = useState(initialTime || '')
   const [headcount, setHeadcount] = useState(10)
   const [addr, setAddr] = useState<Addr>({ line1: '', city: '', state: '', zipCode: '' })
 
   // API responses
   const [dates, setDates] = useState<string[]>([])
   const [times, setTimes] = useState<string[]>([])
-  const [orderRef, setOrderRef] = useState('')
+  const [orderRef, setOrderRef] = useState(initialOrderRef || '')
   const [totals, setTotals] = useState<any>(null)
   const [savedCard, setSavedCard] = useState<any>(null)
   const [stripeKey, setStripeKey] = useState('')
@@ -140,7 +152,6 @@ export default function OrderWizard({
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   async function proceedToReview() {
-    if (!pkg || !date || !time) return
     if (!addr.line1 || !addr.city || !addr.state || !addr.zipCode) { setError('Please fill in all address fields.'); return }
     setLoading(true); setError('')
     try {
@@ -150,21 +161,26 @@ export default function OrderWizard({
         body: JSON.stringify({ deliveryAddress: addr }),
       }).catch(() => {})
 
-      // Init order
-      const initRes = await fetch('/api/order/init', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantRef, mealPackageReference: pkg.reference, localDate: date, localTime: time, persons: headcount, orderType: 'CATERING' }),
-      })
-      const initData = await initRes.json()
-      if (!initRes.ok || initData.error) {
-        setError(initData.error || initData.message || 'Failed to create order draft. Please try again.')
-        setLoading(false); return
-      }
-      const ref = initData.reference || initData.orderReference || initData.orderRef || initData.id || initData.ref || ''
-      if (!ref) { setError('Order created but no reference returned.'); setLoading(false); return }
-      setOrderRef(ref)
+      let ref = orderRef
 
-      // Update order with address to get totals
+      // Only init if we don't already have an orderRef (from the restaurant page modal)
+      if (!ref) {
+        if (!pkg || !date || !time) { setError('Missing package, date, or time.'); setLoading(false); return }
+        const initRes = await fetch('/api/order/init', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ restaurantRef, mealPackageReference: pkg.reference, localDate: date, localTime: time, persons: headcount, orderType: initialOrderType || 'CATERING' }),
+        })
+        const initData = await initRes.json()
+        if (!initRes.ok || initData.error) {
+          setError(initData.error || initData.message || 'Failed to create order draft. Please try again.')
+          setLoading(false); return
+        }
+        ref = initData.reference || initData.orderReference || initData.orderRef || initData.id || initData.ref || ''
+        if (!ref) { setError('Order created but no reference returned.'); setLoading(false); return }
+        setOrderRef(ref)
+      }
+
+      // Update order with address + headcount to get totals
       const updRes = await fetch('/api/order/update', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restaurantRef, orderRef: ref, deliveryAddress: addr, persons: headcount }),
@@ -194,7 +210,6 @@ export default function OrderWizard({
         token = result.token?.id ?? null
       }
 
-      // Confirm payment
       const confRes = await fetch('/api/order/confirm-payment', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
         body: JSON.stringify({ orderReference: orderRef, token, useDefaultPayment: !!savedCard, restaurantReference: restaurantRef }),
@@ -205,7 +220,6 @@ export default function OrderWizard({
         setLoading(false); return
       }
 
-      // Place order
       const placeRes = await fetch('/api/order/place', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
         body: JSON.stringify({ restaurantRef, orderRef }),
@@ -347,7 +361,12 @@ export default function OrderWizard({
     return (
       <>
         <h2 style={{ fontSize: 22, fontWeight: 800, color: DARK, margin: '0 0 6px' }}>Order Details</h2>
-        <p style={{ fontSize: 14, color: '#666', margin: '0 0 28px' }}>How many guests and where should we deliver?</p>
+        <p style={{ fontSize: 14, color: '#666', margin: '0 0 6px' }}>
+          {pkg?.name && <><strong>{pkg.name}</strong> · </>}
+          {date && <>{fmtDate(date)}</>}
+          {time && <> at {fmtTime(time)}</>}
+        </p>
+        <p style={{ fontSize: 14, color: '#888', margin: '0 0 28px' }}>How many guests and where should we deliver?</p>
 
         <div style={{ marginBottom: 28 }}>
           <label style={labelSt}>Number of Guests</label>
@@ -366,7 +385,9 @@ export default function OrderWizard({
         </div>
 
         <div>
-          <label style={labelSt}>Delivery Address</label>
+          <label style={labelSt}>
+            {initialOrderType === 'PICKUP' ? 'Pickup Address (for range confirmation)' : 'Delivery Address'}
+          </label>
           <input value={addr.line1} onChange={e => setAddr(a => ({ ...a, line1: e.target.value }))}
             placeholder="Street address" style={{ ...inputSt, marginBottom: 10 }} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 72px 100px', gap: 10 }}>
@@ -386,12 +407,12 @@ export default function OrderWizard({
         <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', overflow: 'hidden', marginBottom: 16 }}>
           <div style={{ padding: '18px 22px', borderBottom: '1px solid #f8f8f8' }}>
             <div style={{ fontSize: 12, color: '#999', marginBottom: 3 }}>Package</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: DARK }}>{pkg?.name}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: DARK }}>{pkg?.name || '—'}</div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
             {[
-              ['Date', fmtDate(date)],
-              ['Time', fmtTime(time)],
+              ['Date', date ? fmtDate(date) : '—'],
+              ['Time', time ? fmtTime(time) : '—'],
               ['Guests', `${headcount} people`],
               ['Deliver to', `${addr.line1}, ${addr.city}, ${addr.state} ${addr.zipCode}`],
             ].map(([label, val], i) => (
@@ -417,13 +438,12 @@ export default function OrderWizard({
                 <span>Tax</span><span>${(taxCents / 100).toFixed(2)}</span>
               </div>
             )}
-            {totalCents > 0 && (
+            {totalCents > 0 ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, borderTop: '1px solid #eee', fontSize: 18, fontWeight: 800, color: DARK }}>
                 <span>Total</span><span>{totalDisplay}</span>
               </div>
-            )}
-            {!totals && (
-              <div style={{ fontSize: 13, color: '#aaa' }}>Exact total calculated at checkout</div>
+            ) : (
+              <div style={{ fontSize: 13, color: '#aaa' }}>Exact total calculated at payment</div>
             )}
           </div>
         </div>
@@ -436,7 +456,7 @@ export default function OrderWizard({
       return (
         <>
           <h2 style={{ fontSize: 22, fontWeight: 800, color: DARK, margin: '0 0 6px' }}>Log in to Pay</h2>
-          <p style={{ fontSize: 14, color: '#666', margin: '0 0 24px' }}>Sign in to your FamilyMeal account to complete your order.</p>
+          <p style={{ fontSize: 14, color: '#666', margin: '0 0 24px' }}>Sign in to complete your order.</p>
           <form onSubmit={handleLogin} style={{ maxWidth: 380 }}>
             <div style={{ marginBottom: 14 }}>
               <label style={labelSt}>Email</label>
@@ -490,7 +510,7 @@ export default function OrderWizard({
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f8f8fc', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
           <span style={{ fontSize: 16 }}>🔒</span>
-          <span style={{ fontSize: 12, color: '#777' }}>Payments are processed securely by Stripe. Card details never touch our servers.</span>
+          <span style={{ fontSize: 12, color: '#777' }}>Payments processed securely by Stripe. Card details never touch our servers.</span>
         </div>
 
         {totalCents > 0 && (
@@ -515,10 +535,10 @@ export default function OrderWizard({
         <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', padding: '22px', maxWidth: 420, margin: '0 auto 32px', textAlign: 'left' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             {[
-              ['Package', pkg?.name || ''],
-              ['Date', new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })],
+              ['Package', pkg?.name || '—'],
+              ['Date', date ? new Date(date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'],
               ['Guests', `${headcount} people`],
-              ['Delivery', `${addr.city}, ${addr.state}`],
+              ['Delivery', addr.city ? `${addr.city}, ${addr.state}` : '—'],
             ].map(([label, val]) => (
               <div key={label}>
                 <div style={{ fontSize: 12, color: '#aaa', marginBottom: 3 }}>{label}</div>
@@ -544,7 +564,7 @@ export default function OrderWizard({
     )
   }
 
-  // ── Can proceed? ────────────────────────────────────────────────────────────
+  // ── Navigation ──────────────────────────────────────────────────────────────
   function canNext() {
     if (loading) return false
     switch (step) {
@@ -569,6 +589,7 @@ export default function OrderWizard({
     setError('')
     const idx = FLOW.indexOf(step)
     if (idx > 0) setStep(FLOW[idx - 1])
+    else router.push(`/restaurants/${slug}`)
   }
 
   const nextLabel: Partial<Record<Step, string>> = {
@@ -579,14 +600,13 @@ export default function OrderWizard({
     payment: loading ? 'Placing Order…' : (totalCents > 0 ? `Pay ${totalDisplay} →` : 'Place Order →'),
   }
 
-  // ── Progress bar ────────────────────────────────────────────────────────────
   const curIdx = FLOW.indexOf(step)
 
   return (
     <div style={{ minHeight: '100svh', background: '#f8f8fc', fontFamily: F }}>
       <GlobalHeader />
 
-      {/* Progress */}
+      {/* Progress bar */}
       {step !== 'done' && (
         <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '14px 24px' }}>
           <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', alignItems: 'center' }}>
@@ -615,7 +635,7 @@ export default function OrderWizard({
         </div>
       )}
 
-      {/* Restaurant bar */}
+      {/* Restaurant breadcrumb */}
       {step !== 'done' && (
         <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '8px 24px' }}>
           <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -629,7 +649,7 @@ export default function OrderWizard({
         </div>
       )}
 
-      {/* Main */}
+      {/* Main content */}
       <div style={{ maxWidth: 700, margin: '0 auto', padding: '40px 24px 80px' }}>
         {error && (
           <div style={{ background: '#FEF2F2', border: '1.5px solid #FCA5A5', borderRadius: 12, padding: '13px 16px', marginBottom: 24, color: '#991B1B', fontSize: 14 }}>

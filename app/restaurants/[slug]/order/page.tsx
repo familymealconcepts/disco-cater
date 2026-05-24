@@ -14,10 +14,11 @@ export default async function OrderPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>
-  searchParams: Promise<{ package?: string }>
+  searchParams: Promise<{ package?: string; orderRef?: string; date?: string; time?: string; orderType?: string }>
 }) {
   const { slug } = await params
   const sp = await searchParams
+
   const restaurant = await client.fetch(
     `*[_type=="restaurant" && slug.current==$slug][0]{
       name, slug, address, cuisine, cuisines, description,
@@ -49,6 +50,10 @@ export default async function OrderPage({
       restaurantRef={restaurantRef}
       packages={Array.isArray(packages) ? packages : []}
       initialPackageRef={sp.package ?? null}
+      initialOrderRef={sp.orderRef ?? null}
+      initialDate={sp.date ?? null}
+      initialTime={sp.time ?? null}
+      initialOrderType={sp.orderType ?? null}
       slug={slug}
     />
   )
