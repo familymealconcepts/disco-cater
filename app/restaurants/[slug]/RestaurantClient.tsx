@@ -108,6 +108,10 @@ function fmtDateShort(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }
   catch { return d }
 }
+function fmtDateMD(d: string) {
+  try { const dt = new Date(d + 'T12:00:00'); return `${dt.getMonth() + 1}/${dt.getDate()}/${dt.getFullYear()}` }
+  catch { return d }
+}
 function fmtTime(t: string) {
   try { const [h, m] = t.split(':').map(Number); const dt = new Date(); dt.setHours(h, m); return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) }
   catch { return t }
@@ -193,7 +197,7 @@ export default function RestaurantClient({
   const [orderType, setOrderType] = useState<'PICKUP' | 'DELIVERY'>('PICKUP')
   const [hasSelection, setHasSelection] = useState(false)
 
-  // ── Date picker modal ─────────────────────────────────────────────────────
+  // ── Date picker modal (existing — kept for Edit flow) ─────────────────────
   const [pickerOpen, setPickerOpen] = useState(false)
   const [tempDate, setTempDate] = useState('')
   const [tempTime, setTempTime] = useState('')
@@ -203,7 +207,11 @@ export default function RestaurantClient({
   const [calYear, setCalYear] = useState(now.getFullYear())
   const [calMonth, setCalMonth] = useState(now.getMonth())
 
-  // ── Data ─────────────────────────────────────────────────────────────────
+  // ── Menus modal ───────────────────────────────────────────────────────────
+  const [menusOpen, setMenusOpen] = useState(false)
+  const [tempMenuIdx, setTempMenuIdx] = useState(0)
+
+  // ── Data — existing (from active/first menu) ──────────────────────────────
   const activeSection = menuData[activeMenuIdx]
   const firstMenu = menuData[0]?.menu
   const sched = firstMenu?.scheduleOption
@@ -219,7 +227,15 @@ export default function RestaurantClient({
   const availSet = useMemo(() => new Set(availDates), [availDates])
   const modalTimes = useMemo(() => sched && tempDate ? computeTimes(sched, tempDate) : [], [sched, tempDate])
 
-  // ── Auto-open picker on mount ─────────────────────────────────────────────
+  // ── Menus modal computed (from the selected temp menu) ────────────────────
+  const mMenuSched = menuData[tempMenuIdx]?.menu?.scheduleOption
+  const mMenuSettings = menuData[tempMenuIdx]?.menu?.settings
+  const mMenuAvail = mMenuSettings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
+  const mAvailDates = useMemo(() => mMenuSched ? computeDates(mMenuSched) : [], [mMenuSched])
+  const mAvailSet = useMemo(() => new Set(mAvailDates), [mAvailDates])
+  const mModalTimes = useMemo(() => mMenuSched && tempDate ? computeTimes(mMenuSched, tempDate) : [], [mMenuSched, tempDate])
+
+  // ── Auto-open menus modal on mount ────────────────────────────────────────
   useEffect(() => {
     if (!fmSlug || availDates.length === 0) return
     const first = availDates[0]
@@ -228,11 +244,11 @@ export default function RestaurantClient({
     setTempDate(first)
     const defaultType = menuAvail.includes('PICKUP') ? 'PICKUP' : 'DELIVERY'
     setTempType(defaultType as 'PICKUP' | 'DELIVERY')
-    setPickerOpen(true)
+    setMenusOpen(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Picker handlers ───────────────────────────────────────────────────────
+  // ── Existing picker handlers (kept) ───────────────────────────────────────
   function openPicker() {
     setTempDate(selDate); setTempTime(selTime); setTempType(orderType)
     if (selDate) {
@@ -255,6 +271,53 @@ export default function RestaurantClient({
   function nextMonth() {
     if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0) }
     else setCalMonth(m => m + 1)
+  }
+
+  // ── Menus modal handlers ──────────────────────────────────────────────────
+  function getMenuNextAvail(menu: FmMenu): string {
+    if (!menu.scheduleOption) return ''
+    const dates = computeDates(menu.scheduleOption)
+    return dates[0] ? fmtDateShort(dates[0]) : ''
+  }
+
+  function selectMenuInModal(idx: number) {
+    setTempMenuIdx(idx)
+    const sch = menuData[idx]?.menu?.scheduleOption
+    const dates = sch ? computeDates(sch) : []
+    const first = dates[0] || ''
+    setTempDate(first)
+    setTempTime('')
+    if (first) {
+      const d = new Date(first + 'T12:00:00')
+      setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
+    }
+    const types = menuData[idx]?.menu?.settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
+    setTempType(types.includes('PICKUP') ? 'PICKUP' : 'DELIVERY')
+  }
+
+  function openMenus() {
+    setTempMenuIdx(activeMenuIdx)
+    const sch = menuData[activeMenuIdx]?.menu?.scheduleOption
+    const dates = sch ? computeDates(sch) : []
+    const first = selDate || dates[0] || ''
+    setTempDate(first)
+    setTempTime(selTime)
+    setTempType(orderType)
+    if (first) {
+      const d = new Date(first + 'T12:00:00')
+      setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
+    }
+    setMenusOpen(true)
+  }
+
+  function startOrder() {
+    if (!tempDate || !tempTime) return
+    setActiveMenuIdx(tempMenuIdx)
+    setSelDate(tempDate)
+    setSelTime(tempTime)
+    setOrderType(tempType)
+    setHasSelection(true)
+    setMenusOpen(false)
   }
 
   // ── Pricing ───────────────────────────────────────────────────────────────
@@ -288,7 +351,6 @@ export default function RestaurantClient({
     const groups = pkg.extraItemsGroups ?? []
     if (groups.length > 0 || pkg.allowedSpecialInstructions) {
       setAddOnsPkg(pkg)
-      // init selAddOns: each group starts with all zeros
       const init: Record<string, Record<string, number>> = {}
       groups.forEach(g => {
         const m: Record<string, number> = {}
@@ -343,7 +405,7 @@ export default function RestaurantClient({
       const groupMap = { ...(prev[groupRef] ?? {}) }
       const cur = groupMap[addOnRef] ?? 0
       const curTotal = Object.values(groupMap).reduce((s, q) => s + q, 0)
-      if (delta > 0 && curTotal >= max) return prev // would exceed group max
+      if (delta > 0 && curTotal >= max) return prev
       groupMap[addOnRef] = Math.max(0, cur + delta)
       return { ...prev, [groupRef]: groupMap }
     })
@@ -371,12 +433,12 @@ export default function RestaurantClient({
               {selTime && <span style={{ color: '#888' }}> · {fmtTime(selTime)}</span>}
               <span style={{ color: '#888' }}> · {orderType === 'PICKUP' ? 'Pickup' : 'Delivery'}</span>
             </div>
-            <button onClick={openPicker} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>Edit</button>
+            <button onClick={openMenus} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>Edit</button>
           </div>
         </div>
       ) : fmSlug ? (
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f4f4f4' }}>
-          <button onClick={openPicker} style={{ width: '100%', padding: '10px', background: '#f0f0f8', border: `1.5px dashed ${INDIGO}30`, borderRadius: 10, cursor: 'pointer', fontFamily: F, fontSize: 13, fontWeight: 600, color: INDIGO }}>
+          <button onClick={openMenus} style={{ width: '100%', padding: '10px', background: '#f0f0f8', border: `1.5px dashed ${INDIGO}30`, borderRadius: 10, cursor: 'pointer', fontFamily: F, fontSize: 13, fontWeight: 600, color: INDIGO }}>
             📅 Select Date & Time
           </button>
         </div>
@@ -507,7 +569,7 @@ export default function RestaurantClient({
                 {orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}
               </span>
             </div>
-            <button onClick={openPicker} style={{ padding: '6px 14px', background: 'none', border: '1.5px solid #e8e8e8', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#555', fontFamily: F }}>
+            <button onClick={openMenus} style={{ padding: '6px 14px', background: 'none', border: '1.5px solid #e8e8e8', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#555', fontFamily: F }}>
               ✏️ Edit
             </button>
           </div>
@@ -592,8 +654,8 @@ export default function RestaurantClient({
                   </div>
                 )}
 
-                {/* 2-column package grid */}
-                <div className="pkg-grid">
+                {/* Horizontal package list */}
+                <div className="pkg-list">
                   {cat.mealPackages.filter(p => p.available !== false).map(pkg => {
                     const qty = cartQty(pkg.reference)
                     const imgUrl = pkg.image?.reference ? pkgImg(pkg.image.reference, 300) : null
@@ -601,72 +663,83 @@ export default function RestaurantClient({
                     const hasModifiers = (pkg.extraItemsGroups?.length ?? 0) > 0
 
                     return (
-                      <div key={pkg.reference} style={{
-                        background: '#fff', borderRadius: 14, overflow: 'hidden',
-                        border: `1.5px solid ${qty > 0 ? BLUE : '#ebebeb'}`,
-                        display: 'flex', flexDirection: 'column',
-                        boxShadow: qty > 0 ? '0 4px 20px rgba(91,111,232,0.12)' : '0 1px 3px rgba(0,0,0,0.05)',
-                        transition: 'all 0.15s',
+                      <div key={pkg.reference} className="pkg-card" style={{
+                        background: '#fff',
+                        borderRadius: 12,
+                        border: `1px solid ${qty > 0 ? BLUE : '#f0f0f0'}`,
+                        display: 'flex',
+                        flexDirection: 'row',
+                        padding: 16,
+                        marginBottom: 12,
+                        gap: 14,
+                        boxShadow: qty > 0 ? '0 4px 20px rgba(91,111,232,0.12)' : '0 1px 4px rgba(0,0,0,0.04)',
+                        transition: 'box-shadow 0.15s, border-color 0.15s',
                       }}>
-                        {/* Image */}
-                        <div style={{ height: 160, background: 'linear-gradient(135deg,#f4f4fb 0%,#eaeaf6 100%)', overflow: 'hidden', flexShrink: 0, position: 'relative' }}>
+
+                        {/* LEFT: text content */}
+                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: '#111', marginBottom: 4, lineHeight: 1.3 }}>
+                            {pkg.name}
+                          </div>
+
+                          {pkg.description && (
+                            <p style={{
+                              fontSize: 13, color: '#666', lineHeight: 1.5, margin: '0 0 10px',
+                              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                            } as React.CSSProperties}>{pkg.description}</p>
+                          )}
+
+                          {/* Price + serves row */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', marginBottom: 10 }}>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: BLUE }}>{formatPrice(pkg.price)}</span>
+                            {pkg.serves && (
+                              <>
+                                <span style={{ color: '#ddd', fontSize: 14 }}>|</span>
+                                <span style={{ fontSize: 13, color: '#888' }}>Serves {pkg.serves}</span>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Add to Order or qty control */}
+                          {(qty === 0 || hasModifiers) ? (
+                            <button onClick={() => handleAddClick(pkg)}
+                              style={{ width: '100%', height: 36, background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.2)' }}>
+                              {hasModifiers && qty > 0 ? `Add another (+${formatPrice(pkg.price)})` : 'Add to Order'}
+                            </button>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <button onClick={() => updateQty(pkg.reference, -1)} style={{ width: 30, height: 30, borderRadius: 7, border: `1.5px solid ${BLUE}`, background: '#fff', cursor: 'pointer', fontSize: 14, color: BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
+                              <span style={{ fontSize: 14, fontWeight: 800, color: BLUE, minWidth: 20, textAlign: 'center' }}>{qty}</span>
+                              <button onClick={() => addItem(pkg)} style={{ width: 30, height: 30, borderRadius: 7, border: 'none', background: BLUE, cursor: 'pointer', fontSize: 14, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                              {pkg.allowedSpecialInstructions && (
+                                <button onClick={() => handleAddClick(pkg)} style={{ fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, textDecoration: 'underline', marginLeft: 4 }}>Note</button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Special instructions link when qty > 0 and no modifiers */}
+                          {pkg.allowedSpecialInstructions && qty > 0 && !hasModifiers && (
+                            <button onClick={() => handleAddClick(pkg)}
+                              style={{ display: 'block', textAlign: 'left', marginTop: 6, fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, textDecoration: 'underline', padding: 0 }}>
+                              Add a note
+                            </button>
+                          )}
+                        </div>
+
+                        {/* RIGHT: image */}
+                        <div style={{ width: 120, height: 120, borderRadius: 8, overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg,#f4f4fb 0%,#eaeaf6 100%)', position: 'relative', alignSelf: 'flex-start' }}>
                           {imgUrl && (
                             <img src={imgUrl} alt={pkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                               onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                           )}
-                          {/* Inventory warning badge */}
                           {inventory != null && inventory > 0 && (
-                            <div style={{ position: 'absolute', top: 8, left: 8, background: '#EF4444', color: '#fff', borderRadius: 20, fontSize: 10, fontWeight: 700, padding: '3px 8px' }}>
+                            <div style={{ position: 'absolute', top: 6, left: 6, background: '#EF4444', color: '#fff', borderRadius: 20, fontSize: 9, fontWeight: 700, padding: '2px 6px' }}>
                               {inventory} left
                             </div>
                           )}
-                          {/* Quantity badge */}
                           {qty > 0 && (
-                            <div style={{ position: 'absolute', top: 8, right: 8, background: BLUE, color: '#fff', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>{qty}</div>
+                            <div style={{ position: 'absolute', top: 6, right: 6, background: BLUE, color: '#fff', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>{qty}</div>
                           )}
-                        </div>
-
-                        {/* Text */}
-                        <div style={{ padding: '14px 16px 16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: DARK, marginBottom: 2, lineHeight: 1.3 }}>{pkg.name}</div>
-                          {pkg.serves && <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>Serves {pkg.serves}</div>}
-                          {pkg.description && (
-                            <p style={{ fontSize: 12, color: '#666', lineHeight: 1.5, margin: '0 0 10px', flex: 1,
-                              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-                            } as React.CSSProperties}>{pkg.description}</p>
-                          )}
-
-                          {/* Price + action */}
-                          <div style={{ marginTop: 'auto', paddingTop: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: hasModifiers ? 8 : 0 }}>
-                              <div style={{ fontSize: 17, fontWeight: 800, color: BLUE }}>
-                                {formatPrice(pkg.price)}<span style={{ fontSize: 11, fontWeight: 500, color: '#888' }}>/pkg</span>
-                              </div>
-                              {qty > 0 && !hasModifiers ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                  <button onClick={() => updateQty(pkg.reference, -1)} style={{ width: 28, height: 28, borderRadius: 7, border: `1.5px solid ${BLUE}`, background: '#fff', cursor: 'pointer', fontSize: 15, color: BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
-                                  <span style={{ fontSize: 14, fontWeight: 800, color: BLUE, minWidth: 20, textAlign: 'center' }}>{qty}</span>
-                                  <button onClick={() => addItem(pkg)} style={{ width: 28, height: 28, borderRadius: 7, border: 'none', background: BLUE, cursor: 'pointer', fontSize: 15, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
-                                </div>
-                              ) : null}
-                            </div>
-
-                            {/* Add to Order button — shown when no qty yet, or when has modifiers */}
-                            {(qty === 0 || hasModifiers) && (
-                              <button onClick={() => handleAddClick(pkg)}
-                                style={{ width: '100%', padding: '9px', background: BLUE, color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.22)' }}>
-                                {hasModifiers && qty > 0 ? `Add another (+${formatPrice(pkg.price)})` : 'Add to Order'}
-                              </button>
-                            )}
-
-                            {/* Special instructions link */}
-                            {pkg.allowedSpecialInstructions && qty > 0 && !hasModifiers && (
-                              <button onClick={() => handleAddClick(pkg)}
-                                style={{ display: 'block', width: '100%', textAlign: 'center', marginTop: 6, fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, textDecoration: 'underline' }}>
-                                Add a note
-                              </button>
-                            )}
-                          </div>
                         </div>
                       </div>
                     )
@@ -706,7 +779,130 @@ export default function RestaurantClient({
         </div>
       )}
 
-      {/* ── Date/Time Picker Modal ─────────────────────────────────────────── */}
+      {/* ── Menus Modal ────────────────────────────────────────────────────── */}
+      {menusOpen && (
+        <div onClick={() => setMenusOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,0.22)' }}>
+
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px 16px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>Menus</div>
+              <button onClick={() => setMenusOpen(false)} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 34, height: 34, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>×</button>
+            </div>
+
+            <div style={{ padding: '0 24px 24px' }}>
+
+              {/* Menu radio list — only shown when multiple menus exist */}
+              {menuData.length > 1 && (
+                <div style={{ marginBottom: 4 }}>
+                  {menuData.map((s, i) => {
+                    const nextAvail = getMenuNextAvail(s.menu)
+                    const types = s.menu.settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
+                    const typesLabel = types.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & ')
+                    const isSelected = tempMenuIdx === i
+                    return (
+                      <div key={s.menu.reference}>
+                        <div onClick={() => selectMenuInModal(i)}
+                          style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 0', cursor: 'pointer' }}>
+                          {/* Custom radio */}
+                          <div style={{
+                            width: 18, height: 18, borderRadius: '50%',
+                            border: `2px solid ${isSelected ? DARK : '#ccc'}`,
+                            background: isSelected ? DARK : '#fff',
+                            flexShrink: 0, marginTop: 2,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all 0.12s',
+                          }}>
+                            {isSelected && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 15, fontWeight: 600, color: '#111', marginBottom: 3 }}>
+                              {s.menu.name}
+                              {typesLabel && <span style={{ fontSize: 12, color: '#888', fontWeight: 400, marginLeft: 8 }}>({typesLabel})</span>}
+                            </div>
+                            {nextAvail && <div style={{ fontSize: 13, color: '#999' }}>Next available: {nextAvail}</div>}
+                          </div>
+                        </div>
+                        {i < menuData.length - 1 && <div style={{ height: 1, background: '#f0f0f0' }} />}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Pickup / Delivery toggle */}
+              {mMenuAvail.length > 1 && (
+                <div style={{ marginBottom: 20, marginTop: menuData.length > 1 ? 16 : 20 }}>
+                  <div style={{ display: 'flex', background: '#f4f4f8', borderRadius: 12, padding: 4, gap: 4 }}>
+                    {(['PICKUP', 'DELIVERY'] as const).filter(t => mMenuAvail.includes(t)).map(type => (
+                      <button key={type} onClick={() => setTempType(type)} style={{
+                        flex: 1, padding: '10px 8px', border: 'none', borderRadius: 9, cursor: 'pointer',
+                        background: tempType === type ? DARK : 'transparent',
+                        color: tempType === type ? '#fff' : '#999', fontFamily: F, fontSize: 14,
+                        fontWeight: tempType === type ? 700 : 500,
+                        transition: 'all 0.15s',
+                      }}>
+                        {type === 'DELIVERY' ? '🚚 Delivery' : '🏃 Pickup'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Date + Time inputs row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, marginTop: mMenuAvail.length <= 1 ? 20 : 0 }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Date</div>
+                  <div style={{ height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 14, color: tempDate ? DARK : '#bbb', fontFamily: F, background: '#fff' }}>
+                    {tempDate ? fmtDateMD(tempDate) : 'Select below'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Time</div>
+                  <select value={tempTime} onChange={e => setTempTime(e.target.value)}
+                    style={{ height: 40, width: '100%', border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 14, color: tempTime ? DARK : '#bbb', fontFamily: F, background: '#fff', outline: 'none', cursor: 'pointer', appearance: 'auto' }}>
+                    <option value="">Select time</option>
+                    {mModalTimes.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Inline calendar */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <button onClick={prevMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: DARK }}>‹</button>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{MONTH_NAMES[calMonth]} {calYear}</span>
+                  <button onClick={nextMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: DARK }}>›</button>
+                </div>
+                <MonthCalendar year={calYear} month={calMonth} availSet={mAvailSet} todayIso={todayIso} selDate={tempDate} onSelect={handleTempDateSelect} />
+              </div>
+
+              {/* Start Order CTA */}
+              <button onClick={startOrder} disabled={!tempDate || !tempTime}
+                style={{
+                  width: '100%', height: 48, background: tempDate && tempTime ? DARK : '#e8e8e8',
+                  color: tempDate && tempTime ? '#fff' : '#bbb', border: 'none', borderRadius: 24,
+                  fontSize: 15, fontWeight: 700, cursor: tempDate && tempTime ? 'pointer' : 'default',
+                  fontFamily: F, transition: 'all 0.15s',
+                  boxShadow: tempDate && tempTime ? '0 4px 14px rgba(26,16,40,0.2)' : 'none',
+                }}>
+                {tempDate && tempTime ? `Start Order — ${fmtDateShort(tempDate)}, ${fmtTime(tempTime)}` : 'Select a date & time'}
+              </button>
+
+              {hasSelection && (
+                <button onClick={() => setMenusOpen(false)}
+                  style={{ width: '100%', padding: '12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#aaa', marginTop: 10, fontFamily: F }}>
+                  Keep current selection
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Date/Time Picker Modal (kept for backwards compat) ─────────────── */}
       {pickerOpen && (
         <div onClick={closePicker}
           style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -806,7 +1002,6 @@ export default function RestaurantClient({
           <div onClick={e => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 32px 80px rgba(0,0,0,0.22)' }}>
 
-            {/* Modal header with image */}
             {addOnsPkg.image?.reference && (
               <div style={{ height: 140, background: 'linear-gradient(135deg,#f4f4fb,#eaeaf6)', overflow: 'hidden', borderRadius: '20px 20px 0 0', flexShrink: 0 }}>
                 <img src={pkgImg(addOnsPkg.image.reference, 550)} alt={addOnsPkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
@@ -821,9 +1016,7 @@ export default function RestaurantClient({
               <button onClick={() => setAddOnsPkg(null)} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 12 }}>×</button>
             </div>
 
-            {/* Scrollable body */}
             <div style={{ overflowY: 'auto', padding: '16px 22px', flex: 1 }}>
-              {/* Extra items groups — quantity selectors per addOn */}
               {(addOnsPkg.extraItemsGroups ?? []).map(group => {
                 const total = groupTotal(group)
                 const isRequired = group.subExternalName === 'Required' || group.minSelectedItems > 0
@@ -873,7 +1066,6 @@ export default function RestaurantClient({
                 )
               })}
 
-              {/* Special instructions */}
               {addOnsPkg.allowedSpecialInstructions && (
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 6 }}>Special Instructions</div>
@@ -884,7 +1076,6 @@ export default function RestaurantClient({
                 </div>
               )}
 
-              {/* Quantity selector */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>Quantity</span>
                 <button onClick={() => setAddOnsQty(q => Math.max(1, q - 1))} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 16, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
@@ -893,7 +1084,6 @@ export default function RestaurantClient({
               </div>
             </div>
 
-            {/* Modal footer */}
             <div style={{ padding: '14px 22px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
               <button onClick={confirmAddOns} disabled={!canConfirmAddOns()}
                 style={{ width: '100%', padding: '13px', background: canConfirmAddOns() ? BLUE : '#e8e8e8', color: canConfirmAddOns() ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: canConfirmAddOns() ? 'pointer' : 'default', fontFamily: F, boxShadow: canConfirmAddOns() ? '0 4px 14px rgba(91,111,232,0.25)' : 'none', transition: 'all 0.15s' }}>
@@ -907,14 +1097,12 @@ export default function RestaurantClient({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
-        .pkg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-        input:focus, textarea:focus { border-color: ${BLUE} !important; box-shadow: 0 0 0 3px rgba(91,111,232,0.1) !important; }
+        .pkg-list { display: flex; flex-direction: column; }
+        .pkg-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.09) !important; }
+        input:focus, textarea:focus, select:focus { border-color: ${BLUE} !important; box-shadow: 0 0 0 3px rgba(91,111,232,0.1) !important; }
         @media (max-width: 900px) {
           .order-sidebar { display: none !important; }
           .mobile-order-bar { display: block !important; }
-        }
-        @media (max-width: 600px) {
-          .pkg-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>
