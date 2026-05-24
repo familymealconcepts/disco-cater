@@ -922,7 +922,14 @@ function FullMapInner() {
         <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100svh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111', overflow: 'hidden' }}>
 
           {/* 1. Header */}
-          
+          <div style={{ display: 'flex', alignItems: 'center', padding: '9px 14px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff' }}>
+            <Link href="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px', fontFamily: "'DM Sans',sans-serif" }}><span style={{ background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span><span style={{ color: '#999' }}> cater</span></span>
+            </Link>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={() => setChatOpen(o => !o)} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#EFB84A', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, position: 'relative', flexShrink: 0 }}>🤖{!chatOpen && <div style={{ position: 'absolute', top: 1, right: 1, width: 8, height: 8, borderRadius: '50%', background: '#22c55e', border: '1.5px solid #fff' }} />}</button>
+              <FullmapAuthBtn />
+            </div>
           </div>
 
           {/* 2. Location search */}
@@ -1123,6 +1130,7 @@ function FullMapInner() {
                 </div>
             ))}
             <div style={{ height: 'env(safe-area-inset-bottom, 16px)', minHeight: 16 }} />
+          </div>
           </div>
       </>
     )

@@ -65,7 +65,8 @@ function RightPanel({ idx, onClose, onPayment }: { idx: number; onClose: () => v
   const o = ORDERS[idx] || ORDERS[0]
   const isPaused = o.tag === 'pau'
   return (
-    <div style={{ width: 252, minWidth: 252, borderLeft: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', background: '#fff', overflowY: 'auto' }}>
+    <div className="rp" style={{ width: 252, minWidth: 252, borderLeft: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', background: '#fff', overflowY: 'auto' }}>
+      <div className="rp-handle" style={{ display: 'none' }}><div style={{ width: 36, height: 4, borderRadius: 2, background: '#ddd', margin: '10px auto 4px' }} /></div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid #f0f0f0' }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{o.name}</span>
         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', fontSize: 18, lineHeight: 1, padding: 0 }}>✕</button>
@@ -138,7 +139,7 @@ function Calendar({ onOpenRP }: { onOpenRP: (i: number) => void }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{MONTHS[mo]} {yr}</span>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginLeft: 14 }}>
+          <div className="cl" style={{ display: 'flex', gap: 14, alignItems: 'center', marginLeft: 14 }}>
             {[{ c: '#6B6EF9', l: 'Recurring' }, { c: '#1D9E75', l: 'Catering' }, { c: '#BA7517', l: 'Paused' }].map(x => (
               <div key={x.l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: x.c, flexShrink: 0 }} />
@@ -159,7 +160,7 @@ function Calendar({ onOpenRP }: { onOpenRP: (i: number) => void }) {
         {cells.map((cell, i) => {
           const evs = cell.cur ? (CAL_EVS[cell.d] || []) : []
           return (
-            <div key={i} onClick={() => evs.length && onOpenRP(evs[0].i)} style={{ background: cell.today ? '#f0f0ff' : '#fff', minHeight: 72, padding: 6, cursor: evs.length ? 'pointer' : 'default', borderRight: '0.5px solid #f5f5f5', borderBottom: '0.5px solid #f5f5f5', opacity: cell.cur ? 1 : 0.3, transition: 'background 0.1s' }}
+            <div key={i} className="cc" onClick={() => evs.length && onOpenRP(evs[0].i)} style={{ background: cell.today ? '#f0f0ff' : '#fff', minHeight: 72, padding: 6, cursor: evs.length ? 'pointer' : 'default', borderRight: '0.5px solid #f5f5f5', borderBottom: '0.5px solid #f5f5f5', opacity: cell.cur ? 1 : 0.3, transition: 'background 0.1s' }}
               onMouseOver={e => { if (evs.length) (e.currentTarget as HTMLElement).style.background = '#fafafa' }}
               onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = cell.today ? '#f0f0ff' : '#fff' }}
             >
@@ -263,22 +264,42 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
         .fav-x-btn { display:none !important; }
         .fav-card-wrap:hover .fav-x-btn { display:flex !important; }
         .cal-cell-hover:hover { background:#fafafa; }
+        @media (max-width: 768px) {
+          .ph { flex-wrap: wrap !important; padding: 9px 14px 0 !important; gap: 6px 8px !important; }
+          .ph-div { display: none !important; }
+          .ph-pills { order: 10; display: flex !important; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; gap: 6px; padding: 4px 0 8px; }
+          .ph-pills::-webkit-scrollbar { display: none; }
+          .ph-pills button { flex-shrink: 0 !important; }
+          .ph-meta-link { display: none !important; }
+          .ps { display: none !important; }
+          .sc { grid-template-columns: 1fr 1fr !important; }
+          .cl { display: none !important; }
+          .cc { min-height: 50px !important; padding: 3px !important; }
+          .portal-cp { padding: 14px !important; }
+          .rp { position: fixed !important; inset: auto 0 0 0 !important; width: 100% !important; min-width: 0 !important; max-height: 78vh; border-radius: 16px 16px 0 0 !important; border-left: none !important; border-top: 1px solid #f0f0f0 !important; box-shadow: 0 -6px 32px rgba(0,0,0,0.15) !important; z-index: 400 !important; }
+          .rp-handle { display: block !important; }
+          .rp-bd { display: block !important; }
+          .ag2 { grid-template-columns: 1fr !important; }
+          .ph-meta { gap: 10px !important; }
+        }
       `}</style>
 
       {/* Top nav */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0, position: 'sticky', top: 0, zIndex: 200 }}>
+      <div className="ph" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0, position: 'sticky', top: 0, zIndex: 200 }}>
         <Link href="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}><span style={{ background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span><span style={{ color: '#999' }}> cater</span></span>
         </Link>
-        <div style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0 }} />
-        {(['orders','subscriptions','history','favorites'] as const).map(p => (
-          <button key={p} onClick={() => { setPage(p); closeRP() }} style={{ padding: '4px 12px', borderRadius: 20, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap', transition: 'all 0.12s', background: page === p ? '#1A1028' : '#efefef', color: page === p ? '#fff' : '#555' }}>
-            {p.charAt(0).toUpperCase() + p.slice(1)}
-          </button>
-        ))}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
-          <Link href="/fullmap" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', fontFamily: "'DM Sans',sans-serif" }}>Catering Map</Link>
-          <Link href="/faq" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
+        <div className="ph-div" style={{ width: 1, height: 18, background: '#e8e8e8', flexShrink: 0 }} />
+        <div className="ph-pills" style={{ display: 'contents' }}>
+          {(['orders','subscriptions','history','favorites'] as const).map(p => (
+            <button key={p} onClick={() => { setPage(p); closeRP() }} style={{ padding: '4px 12px', borderRadius: 20, border: 'none', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap', transition: 'all 0.12s', background: page === p ? '#1A1028' : '#efefef', color: page === p ? '#fff' : '#555' }}>
+              {p.charAt(0).toUpperCase() + p.slice(1)}
+            </button>
+          ))}
+        </div>
+        <div className="ph-meta" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
+          <Link className="ph-meta-link" href="/fullmap" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', fontFamily: "'DM Sans',sans-serif" }}>Catering Map</Link>
+          <Link className="ph-meta-link" href="/faq" style={{ fontSize: 13, fontWeight: 500, color: '#555', textDecoration: 'none', fontFamily: "'DM Sans',sans-serif" }}>FAQ</Link>
           <div style={{ position: 'relative' }}>
             <button onClick={e => { e.stopPropagation(); setMenuOpen(v => !v) }} style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#fff', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif" }}>
               {initials}
@@ -324,7 +345,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
       {/* Body */}
       <div style={{ display: 'flex', minHeight: 640 }}>
         {/* Icon sidebar */}
-        <div style={{ width: 56, minWidth: 56, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#efefef', padding: '12px 0 16px', gap: 4 }}>
+        <div className="ps" style={{ width: 56, minWidth: 56, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#efefef', padding: '12px 0 16px', gap: 4 }}>
           {sideItems.map(item => (
             <button key={item.id} className="si-btn" onClick={() => { setPage(item.id as Page); closeRP() }} style={{ position: 'relative', width: 40, height: 40, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: 'none', background: page === item.id ? 'rgba(107,110,249,0.1)' : 'transparent', color: page === item.id ? '#6B6EF9' : '#888', transition: 'background 0.12s' }}>
               {item.icon}
@@ -357,11 +378,11 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             </div>
           </div>
 
-          <div style={{ flex: 1, padding: '18px 20px', overflowY: 'auto' }}>
+          <div className="portal-cp" style={{ flex: 1, padding: '18px 20px', overflowY: 'auto' }}>
             {/* Orders - Calendar */}
             {page === 'orders' && view === 'cal' && (
               <div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 18 }}>
+                <div className="sc" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 18 }}>
                   {[{ l: 'Active orders', v: '3', s: '2 recurring · 1 one-time' }, { l: 'Total orders placed', v: '47', s: 'since Jan 2025' }, { l: 'Next order', v: 'May 6', s: 'Taim — Nolita · 12:00 PM', small: true }].map(s => (
                     <div key={s.l} style={{ background: '#efefef', borderRadius: 8, padding: '12px 14px' }}>
                       <div style={{ fontSize: 10, color: '#666', marginBottom: 4, fontWeight: 600 }}>{s.l}</div>
@@ -549,7 +570,12 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
         </div>
 
         {/* Right panel */}
-        {rpIdx !== null && <RightPanel idx={rpIdx} onClose={closeRP} onPayment={() => { closeRP(); setPage('payfail') }} />}
+        {rpIdx !== null && (
+          <>
+            <div className="rp-bd" onClick={closeRP} style={{ display: 'none', position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.28)', zIndex: 399 }} />
+            <RightPanel idx={rpIdx} onClose={closeRP} onPayment={() => { closeRP(); setPage('payfail') }} />
+          </>
+        )}
       </div>
     </div>
   )
@@ -592,7 +618,7 @@ function AccountForm({ user }: { user: any }) {
   return (
     <div style={{ maxWidth: 440 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: '#111', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Personal info</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+      <div className="ag2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         <div><span style={fl}>First name</span><input style={fi} value={firstName} onChange={e => setFirstName(e.target.value)} /></div>
         <div><span style={fl}>Last name</span><input style={fi} value={lastName} onChange={e => setLastName(e.target.value)} /></div>
       </div>
@@ -605,7 +631,7 @@ function AccountForm({ user }: { user: any }) {
       <div style={{ height: 1, background: '#f0f0f0', margin: '20px 0' }} />
       <div style={{ fontSize: 11, fontWeight: 700, color: '#111', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Security</div>
       <div style={{ marginBottom: 12 }}><span style={fl}>Current password</span><input style={fi} type="password" placeholder="••••••••" /></div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+      <div className="ag2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         <div><span style={fl}>New password</span><input style={fi} type="password" placeholder="••••••••" /></div>
         <div><span style={fl}>Confirm password</span><input style={fi} type="password" placeholder="••••••••" /></div>
       </div>
