@@ -217,6 +217,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
   // Legacy picker state (kept for backwards compat — openPicker still callable)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const pendingItemRef = useRef<FmPackage | null>(null)
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const activeSection = menuData[activeMenuIdx]
@@ -366,12 +367,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setMenusOpen(true)
   }
 
-  function closeMenus() { setMenusOpen(false); setCalOpen(false) }
+  function closeMenus() { setMenusOpen(false); setCalOpen(false); pendingItemRef.current = null }
 
   function openCalendar() {
     if (!dateButtonRef.current) return
     const rect = dateButtonRef.current.getBoundingClientRect()
-    setCalPos({ top: rect.bottom + 6, left: rect.left })
+    const CAL_HEIGHT = 290
+    const spaceBelow = window.innerHeight - rect.bottom - 6
+    const top = spaceBelow >= CAL_HEIGHT ? rect.bottom + 6 : rect.top - CAL_HEIGHT - 6
+    setCalPos({ top, left: rect.left })
     setCalOpen(true)
   }
 
@@ -403,6 +407,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       setAddr({ line1: deliveryAddrDetails.addressLine1, city: deliveryAddrDetails.city, state: deliveryAddrDetails.state, zip: deliveryAddrDetails.zipcode })
     }
     setHasSelection(true)
+    const pending = pendingItemRef.current
+    if (pending) {
+      pendingItemRef.current = null
+      handleAddClickInner(pending)
+    }
     closeMenus()
   }
 
@@ -440,7 +449,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setCart(prev => prev.map(i => i.pkg.reference === ref ? { ...i, quantity: i.quantity + delta } : i).filter(i => i.quantity > 0))
 
   // ── Add-ons modal helpers ─────────────────────────────────────────────────
-  function handleAddClick(pkg: FmPackage) {
+  function handleAddClickInner(pkg: FmPackage) {
     const groups = pkg.extraItemsGroups ?? []
     if (groups.length > 0 || pkg.allowedSpecialInstructions) {
       setAddOnsPkg(pkg)
@@ -448,6 +457,14 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       groups.forEach(g => { const m: Record<string, number> = {}; g.addOns.forEach(a => { m[a.reference] = 0 }); init[g.reference] = m })
       setSelAddOns(init); setAddOnsNote(''); setAddOnsQty(1)
     } else { addItem(pkg) }
+  }
+  function handleAddClick(pkg: FmPackage) {
+    if (!hasSelection) {
+      pendingItemRef.current = pkg
+      openMenus()
+      return
+    }
+    handleAddClickInner(pkg)
   }
   function groupTotal(g: FmExtraItemsGroup) { return Object.values(selAddOns[g.reference] ?? {}).reduce((s, q) => s + q, 0) }
   function isGroupValid(g: FmExtraItemsGroup) { const t = groupTotal(g); return t >= g.minSelectedItems && t <= g.maxSelectedItems }
@@ -704,7 +721,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     {cat.description && <p style={{ fontSize: 13, color: '#888', margin: '4px 0 0' }}>{cat.description}</p>}
                   </div>
                 )}
-                <div>
+                <div className="pkg-grid">
                   {cat.mealPackages.filter(p => p.available !== false).map(pkg => {
                     const qty = cartQty(pkg.reference)
                     const imgUrl = pkg.image?.reference ? pkgImg(pkg.image.reference, 300) : null
@@ -714,25 +731,25 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                       <div key={pkg.reference} className="pkg-card" style={{
                         background: '#fff', borderRadius: 12,
                         border: `1px solid ${qty > 0 ? BLUE : '#f0f0f0'}`,
-                        display: 'flex', flexDirection: 'row', padding: 16, marginBottom: 12, gap: 14,
+                        display: 'flex', flexDirection: 'row', padding: 12, gap: 12,
                         boxShadow: qty > 0 ? '0 4px 20px rgba(91,111,232,0.12)' : '0 1px 4px rgba(0,0,0,0.04)',
                         transition: 'box-shadow 0.15s, border-color 0.15s',
                       }}>
                         {/* LEFT: text */}
                         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: '#111', marginBottom: 4, lineHeight: 1.3 }}>{pkg.name}</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 4, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pkg.name}</div>
                           {pkg.description && (
-                            <p style={{ fontSize: 13, color: '#666', lineHeight: 1.5, margin: '0 0 10px', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>
+                            <p style={{ fontSize: 12, color: '#666', lineHeight: 1.5, margin: '0 0 8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>
                               {pkg.description}
                             </p>
                           )}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', marginBottom: 10 }}>
-                            <span style={{ fontSize: 15, fontWeight: 700, color: BLUE }}>{formatPrice(pkg.price)}</span>
-                            {pkg.serves && <><span style={{ color: '#ddd', fontSize: 14 }}>|</span><span style={{ fontSize: 13, color: '#888' }}>Serves {pkg.serves}</span></>}
+                            <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{formatPrice(pkg.price)}</span>
+                            {pkg.serves && <><span style={{ color: '#ddd', fontSize: 14 }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {pkg.serves}</span></>}
                           </div>
                           {(qty === 0 || hasModifiers) ? (
                             <button onClick={() => handleAddClick(pkg)}
-                              style={{ width: '100%', height: 36, background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.2)' }}>
+                              style={{ width: '100%', height: 32, background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.2)' }}>
                               {hasModifiers && qty > 0 ? `Add another (+${formatPrice(pkg.price)})` : 'Add to Order'}
                             </button>
                           ) : (
@@ -751,16 +768,18 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                             </button>
                           )}
                         </div>
-                        {/* RIGHT: image */}
-                        <div style={{ width: 120, height: 120, borderRadius: 8, overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg,#f4f4fb 0%,#eaeaf6 100%)', position: 'relative', alignSelf: 'flex-start' }}>
-                          {imgUrl && <img src={imgUrl} alt={pkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
-                          {inventory != null && inventory > 0 && (
-                            <div style={{ position: 'absolute', top: 6, left: 6, background: '#EF4444', color: '#fff', borderRadius: 20, fontSize: 9, fontWeight: 700, padding: '2px 6px' }}>{inventory} left</div>
-                          )}
-                          {qty > 0 && (
-                            <div style={{ position: 'absolute', top: 6, right: 6, background: BLUE, color: '#fff', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>{qty}</div>
-                          )}
-                        </div>
+                        {/* RIGHT: image — only rendered if image exists */}
+                        {imgUrl && (
+                          <div style={{ width: 100, height: 100, borderRadius: 8, overflow: 'hidden', flexShrink: 0, position: 'relative', alignSelf: 'flex-start' }}>
+                            <img src={imgUrl} alt={pkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                            {inventory != null && inventory > 0 && (
+                              <div style={{ position: 'absolute', top: 6, left: 6, background: '#EF4444', color: '#fff', borderRadius: 20, fontSize: 9, fontWeight: 700, padding: '2px 6px' }}>{inventory} left</div>
+                            )}
+                            {qty > 0 && (
+                              <div style={{ position: 'absolute', top: 6, right: 6, background: BLUE, color: '#fff', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>{qty}</div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -804,7 +823,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         <div onClick={closeMenus}
           style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 500 }}>
+            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: 'min(90vh, 600px)', overflowY: 'auto' }}>
 
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px 16px', borderBottom: '1px solid #f0f0f0' }}>
@@ -906,7 +925,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 Start Order
               </button>
               {hasSelection && (
-                <button onClick={closeMenus} style={{ display: 'block', width: '100%', textAlign: 'center', marginTop: 10, padding: '8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#aaa', fontFamily: F }}>
+                <button onClick={() => {
+                  const pending = pendingItemRef.current
+                  if (pending) { pendingItemRef.current = null; handleAddClickInner(pending) }
+                  closeMenus()
+                }} style={{ display: 'block', width: '100%', textAlign: 'center', marginTop: 10, padding: '8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#aaa', fontFamily: F }}>
                   Keep current selection
                 </button>
               )}
@@ -1028,12 +1051,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
+        .pkg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
         .pkg-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.09) !important; }
         input:focus, textarea:focus, select:focus { border-color: ${BLUE} !important; box-shadow: 0 0 0 3px rgba(91,111,232,0.1) !important; }
         .pac-container { z-index: 999 !important; font-family: 'DM Sans', sans-serif !important; }
         @media (max-width: 900px) {
           .order-sidebar { display: none !important; }
           .mobile-order-bar { display: block !important; }
+        }
+        @media (max-width: 768px) {
+          .pkg-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>
