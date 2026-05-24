@@ -507,7 +507,7 @@ export default function RestaurantClient({
       </div>
 
       {/* Two-panel body */}
-      <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 120px', display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+      <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 120px', display: 'flex', gap: 24 }}>
 
         {/* LEFT: packages */}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -529,50 +529,54 @@ export default function RestaurantClient({
                 {(activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
                   <h2 style={{ fontSize: 17, fontWeight: 800, color: DARK, margin: '0 0 16px', letterSpacing: '-0.01em' }}>{cat.name}</h2>
                 )}
-                <div className="pkg-grid">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {cat.mealPackages.filter(p => p.available !== false).map(pkg => {
                     const qty = cartQty(pkg.reference)
                     const imgUrl = pkg.image?.reference ? pkgImg(pkg.image.reference, 300) : null
-                    const perUnit = pkg.serves && Number(pkg.serves) > 1
                     return (
                       <div key={pkg.reference} style={{
-                        background: '#fff', borderRadius: 16, overflow: 'hidden',
-                        border: `1.5px solid ${qty > 0 ? BLUE : '#f0f0f0'}`,
-                        display: 'flex', flexDirection: 'column',
-                        boxShadow: qty > 0 ? '0 4px 20px rgba(91,111,232,0.12)' : '0 1px 4px rgba(0,0,0,0.04)',
+                        background: '#fff', borderRadius: 14, overflow: 'hidden',
+                        border: `1.5px solid ${qty > 0 ? BLUE : '#ebebeb'}`,
+                        display: 'flex', flexDirection: 'row', minHeight: 128,
+                        boxShadow: qty > 0 ? '0 4px 20px rgba(91,111,232,0.12)' : '0 1px 3px rgba(0,0,0,0.05)',
                         transition: 'all 0.15s',
                       }}>
-                        <div style={{ height: 160, background: 'linear-gradient(135deg,#f4f4fb 0%,#eaeaf6 100%)', overflow: 'hidden', flexShrink: 0, position: 'relative' }}>
-                          {imgUrl && (
-                            <img src={imgUrl} alt={pkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                              onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                          )}
-                          {qty > 0 && (
-                            <div style={{ position: 'absolute', top: 8, right: 8, background: BLUE, color: '#fff', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800 }}>{qty}</div>
-                          )}
-                        </div>
-                        <div style={{ padding: '14px 16px 16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: DARK, marginBottom: 3, lineHeight: 1.3 }}>{pkg.name}</div>
-                          {pkg.serves && <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>Serves {pkg.serves}</div>}
+                        {/* Text content */}
+                        <div style={{ flex: 1, padding: '16px 20px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: DARK, lineHeight: 1.3, marginBottom: 2 }}>{pkg.name}</div>
+                          {pkg.serves && <div style={{ fontSize: 12, color: '#aaa', marginBottom: 6 }}>Serves {pkg.serves}</div>}
                           {pkg.description && (
-                            <p style={{ fontSize: 12, color: '#666', lineHeight: 1.5, margin: '0 0 10px', flex: 1,
-                              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                            <p style={{ fontSize: 13, color: '#666', lineHeight: 1.5, margin: '0 0 auto',
+                              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
                             } as React.CSSProperties}>{pkg.description}</p>
                           )}
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8 }}>
-                            <div style={{ fontSize: 17, fontWeight: 800, color: BLUE }}>
-                              {fmt$(pkg.price)}<span style={{ fontSize: 11, fontWeight: 500, color: '#888' }}>/{perUnit ? 'pkg' : 'pp'}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, gap: 10 }}>
+                            <div>
+                              <span style={{ fontSize: 18, fontWeight: 800, color: BLUE }}>{fmt$(pkg.price)}</span>
+                              <span style={{ fontSize: 11, fontWeight: 500, color: '#aaa' }}>/pkg</span>
                             </div>
                             {qty > 0 ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                                 <button onClick={() => updateQty(pkg.reference, -1)} style={{ width: 30, height: 30, borderRadius: 8, border: `1.5px solid ${BLUE}`, background: '#fff', cursor: 'pointer', fontSize: 16, color: BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
-                                <span style={{ fontSize: 15, fontWeight: 800, color: BLUE, minWidth: 22, textAlign: 'center' }}>{qty}</span>
+                                <span style={{ fontSize: 15, fontWeight: 800, color: BLUE, minWidth: 20, textAlign: 'center' }}>{qty}</span>
                                 <button onClick={() => addItem(pkg)} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: BLUE, cursor: 'pointer', fontSize: 16, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
                               </div>
                             ) : (
-                              <button onClick={() => addItem(pkg)} style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.25)', whiteSpace: 'nowrap' }}>Add to Order</button>
+                              <button onClick={() => addItem(pkg)} style={{ padding: '7px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.22)', whiteSpace: 'nowrap', flexShrink: 0 }}>+ Add</button>
                             )}
                           </div>
+                        </div>
+
+                        {/* Image */}
+                        <div style={{ width: 140, flexShrink: 0, position: 'relative', background: 'linear-gradient(135deg,#f4f4fb 0%,#eaeaf6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {imgUrl
+                            ? <img src={imgUrl} alt={pkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                onError={e => { const el = e.target as HTMLImageElement; el.style.display = 'none' }} />
+                            : <span style={{ fontSize: 36, opacity: 0.4 }}>🍽️</span>
+                          }
+                          {qty > 0 && (
+                            <div style={{ position: 'absolute', top: 8, right: 8, background: BLUE, color: '#fff', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>{qty}</div>
+                          )}
                         </div>
                       </div>
                     )
@@ -721,14 +725,10 @@ export default function RestaurantClient({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
-        .pkg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
         input:focus { border-color: ${BLUE} !important; box-shadow: 0 0 0 3px rgba(91,111,232,0.1) !important; }
         @media (max-width: 900px) {
           .order-sidebar { display: none !important; }
           .mobile-order-bar { display: block !important; }
-        }
-        @media (max-width: 580px) {
-          .pkg-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
     </div>
