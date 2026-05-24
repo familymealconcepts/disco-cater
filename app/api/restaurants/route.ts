@@ -13,6 +13,7 @@ export async function GET() {
       lng,
       isDisco,
       orderUrl,
+      slug,
       description,
       "image": image.asset->url,
     }

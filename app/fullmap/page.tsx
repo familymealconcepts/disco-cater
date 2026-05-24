@@ -77,6 +77,7 @@ type Restaurant = {
   image?: string
   description?: string
   availableDays?: string[]
+  slug?: { current: string }
 }
 
 const OCCASIONS = ['Corporate Lunch', 'Office Party', 'Birthday / Celebration', 'Team Dinner', 'Other']
