@@ -1,67 +1,105 @@
-# CLAUDE.md
+# Disco Cater — Claude Code Context
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Project
+Disco Cater (discocater.com) is a Next.js catering marketplace gradually replacing the FamilyMeal Angular frontend. The goal is to migrate all FamilyMeal functionality (diner, restaurant, and admin portals) into Disco Cater and sunset the old frontend entirely.
 
-## Commands
-
-```bash
-npm run dev      # Start dev server
-npm run build    # Production build
-npm run start    # Run production build
-npm run lint     # ESLint
-```
-
-No test suite is configured.
+## Codebase
+- **Local path**: `/Users/peterventi/Desktop/VS Code/disco-cater`
+- **Repo**: github.com/familymealconcepts/disco-cater
+- **Deploy**: Vercel, auto-deploy from `main` branch
+- **Stack**: Next.js App Router, TypeScript, Sanity CMS, Mapbox, Anthropic API
 
 ## Environment Variables
+Stored in `.env.local` (local) and Vercel (production). Never hardcode keys.
+- `NEXT_PUBLIC_MAPBOX_TOKEN`
+- `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
+- `NEXT_PUBLIC_SANITY_PROJECT_ID=0j4eqnmw`
+- `NEXT_PUBLIC_SANITY_DATASET=production`
+- `SANITY_TOKEN`
+- `ANTHROPIC_API_KEY`
 
-```
-NEXT_PUBLIC_SANITY_PROJECT_ID
-NEXT_PUBLIC_SANITY_DATASET
-SANITY_TOKEN
-NEXT_PUBLIC_MAPBOX_TOKEN
-GOOGLE_PLACES_API_KEY
-NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-ANTHROPIC_API_KEY
-```
+## Brand
+- **Font**: DM Sans
+- **Gradient**: `linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)`
+- **Logo**: `<span gradient>disco</span><span color=#999> cater</span>` — always this pattern, never an image
+- **Dark**: `#1A1028`
+- **Blue** (buttons): `#5B6FE8`
+- **Gold** (AI button): `#EFB84A`
+- **Header bg**: `linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff`
+- **Header border**: `1px solid #f0f0f0`
+- **Header padding**: `9px 18px`
 
-## Architecture
+## Header Rules (CRITICAL)
+Every page has exactly ONE header. They must all look identical — same font sizes, logo, colors, padding.
+- `app/components/GlobalHeader.tsx` — used on homepage, FAQ, compare, restaurant pages
+- Portal (`/portal`) — has its own inline header (same design, adds Orders/Subscriptions/History/Favorites pills)
+- Fullmap (`/fullmap`) — has its own inline header (same design, adds filter pills)
+- GlobalHeader is NOT in `app/layout.tsx` — added per-page for control
+- Auth state: reads `localStorage.getItem('disco_user')`, shows initials avatar + dropdown when logged in, Log in button when logged out
+- Login modal built into GlobalHeader — calls `/api/fm-auth`, stores response in `disco_user`
 
-**Disco Cater** is a catering discovery marketplace. Customers find restaurant partners for corporate/social events via an interactive map with AI-powered recommendations.
+## Key Files
+## FamilyMeal API
+Base URL: `https://api.familymeal.com`
+Auth: `Authorization: Bearer {token}` header on all `/api/*` endpoints
+Public endpoints (no auth): `/public-api/*`
 
-### Data Flow
+### Auth
+- `POST /login` → `{authorization, refreshToken, firstName, lastName, email, phoneNumber, role}`
+- `POST /refreshToken` (header: `RefreshToken: {token}`) → new JWT pair
+- Roles: USER (customer), ADMIN (restaurant), SYSTEM_ADMIN, SUPER_ADMIN
 
-1. `/api/restaurants` fetches restaurant records from **Sanity CMS** via GROQ (name, location, cuisine, lat/lng, images).
-2. `/api/disco-chat` enriches that data with pricing/packages/delivery info from **`scripts/output/restaurant-compact.json`** (matched by normalized name), builds a system prompt, and calls the **Anthropic Claude API** to return personalized recommendations. Includes exponential-backoff retry logic for 429/529 errors.
-3. The frontend (`app/fullmap/page.tsx`) holds all map + chat state in React hooks — no external state management.
+### Customer Order Flow
+1. `GET /public-api/restaurants/{ref}/mealPackages` — browse menu
+2. `GET /public-api/mealPackages/{ref}/availableDates` — pick date
+3. `GET /public-api/mealPackages/{ref}/availablePickUp?localDate={d}` — pick time
+4. `POST /public-api/v2/restaurants/{ref}/orders/init` — create draft
+5. `POST /public-api/delivery/validate` — validate address
+6. `PUT /public-api/v2/restaurants/{ref}/orders/{orderRef}` — finalize totals
+7. `GET /stripe/platform/info` → tokenize card → `POST /api/userOrder/confirmPayment`
+8. `POST /api/v2/restaurants/{ref}/orders/{orderRef}` — place order (auth required)
+9. `GET /api/userOrder/{orderRef}` — confirmation
 
-### Key Pages
+### Account
+- `GET/PUT /api/users` — profile
+- `GET /api/userOrder` — order history (paginated) ⚠️ currently 401, Revyrie investigating
+- `GET /api/users/payment/defaultSource` — saved card
 
-- `app/page.tsx` — Home: Google Places Autocomplete location search.
-- `app/fullmap/page.tsx` — Main experience (~1000 lines): Mapbox GL map, restaurant sidebar list, AI chat panel ("Disco Bot"), cuisine filters, proximity sorting (Haversine, 25-mile radius).
-- `app/faq/page.tsx` — FAQ accordion.
+### Restaurant Reference
+Extracted from Sanity `orderUrl`:
+`https://www.familymeal.com/disco/twohandsfranklin/catering` → ref = `twohandsfranklin`
 
-### Map & Markers
+## Sanity
+- Project: `0j4eqnmw`, dataset: `production`
+- Studio: https://discocater.sanity.studio/
+- ~700 restaurants imported
+- Key fields: `name, slug, address, cuisine, cuisines[], description, image, orderUrl, isDisco, lat, lng, location, tags[]`
 
-Mapbox GL JS renders numbered markers with custom styling. Disco partner restaurants get a gold outline. Clicking a marker opens a popup with image, cuisine tags, and an order button. Mobile hides the map by default with a toggle.
+## Current State of Migration
 
-### Styling
+### ✅ Done
+- Homepage with GlobalHeader and auth
+- Fullmap with Mapbox, sidebar, cuisine filters, AI chat, auth-aware header
+- Diner portal (orders, subscriptions, history, favorites, account)
+- Restaurant profile pages at `/restaurants/[slug]`
+- FAQ page
+- Auth flow (login, logout, persist across pages)
 
-- Tailwind CSS v4 for utility classes; most component styles are **inline style objects**.
-- Brand gradient: `linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)`
-- Font: DM Sans throughout.
+### 🔄 In Progress
+- Restaurant profile pages — just built, needs testing
+- Fix `/api/userOrder` 401 — waiting on Revyrie
 
-### Image Domains
+### 📋 Next Priorities
+1. Complete native ordering flow: package → date → time → address → payment → confirmation
+2. Restaurant portal (restaurant-facing dashboard)
+3. Admin portal
 
-`next.config.ts` whitelists `images.squarespace-cdn.com` for `next/image`. Add new domains there if needed.
-
-### Scripts
-
-`scripts/` contains one-off data import/enrichment utilities (CSV import with geocoding, Claude-powered cuisine tagging, bulk Sanity upserts). Not part of the runtime app.
-
-## Git Workflow
-- After completing any task or set of changes, always stage, commit, and push:
-  git add . && git commit -m "<short descriptive message>" && git push origin main
-- Write commit messages that describe what changed (e.g. "fix map filter bug", "add FAQ page")
-- Never leave changes uncommitted after finishing a task
-- Always confirm the push was successful before considering a task done
+## Rules
+1. Always run `npm run build` before committing — never push broken builds
+2. Never break existing pages
+3. All headers must be visually identical — same font, logo, colors, padding
+4. Logo is ALWAYS text (`disco` gradient + ` cater` grey), never an image
+5. Auth state always from `localStorage.getItem('disco_user')`
+6. Git: `git add . && git commit -m "message" && git push origin main`
+7. Never paste API keys into chat or code — use env vars only
+8. Sanity mutations use `createOrReplace`, not `publish`
