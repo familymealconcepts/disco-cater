@@ -501,6 +501,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     : null
   const tags = restaurant.cuisines?.length ? restaurant.cuisines : restaurant.cuisine ? [restaurant.cuisine] : []
 
+  const [taxTooltip, setTaxTooltip] = useState(false)
+  const [tipOther, setTipOther] = useState(false)
+  const [tipCustomInput, setTipCustomInput] = useState('')
+
   const inp: React.CSSProperties = {
     width: '100%', padding: '9px 11px', border: '1.5px solid #e8e8e8',
     borderRadius: 8, fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box',
@@ -565,56 +569,93 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               ))}
             </div>
             <div style={{ paddingTop: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
-                <span style={{ color: '#666' }}>Subtotal</span><span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(subtotal)}</span>
+              {/* Subtotal */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                <span style={{ color: '#555' }}>Subtotal</span>
+                <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(subtotal)}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
-                <span style={{ color: '#666' }}>Delivery fee</span>
-                {orderType === 'PICKUP' ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Free</span> : <span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated after address</span>}
-              </div>
-              {svcPct > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
-                  <span style={{ color: '#666' }}>{settings?.serviceChargeName || 'Service fee'} ({svcPct}%)</span>
+              {/* Service Charge */}
+              {svcAmt > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                  <span style={{ color: '#555' }}>Service Charge</span>
                   <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(svcAmt)}</span>
                 </div>
               )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 10 }}>
-                <span style={{ color: '#666' }}>Tax</span><span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>
+              {/* Taxes & Fees with tooltip */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: 14 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#555' }}>
+                  Taxes &amp; Fees
+                  <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                    <span
+                      onMouseEnter={() => setTaxTooltip(true)}
+                      onMouseLeave={() => setTaxTooltip(false)}
+                      style={{ width: 14, height: 14, borderRadius: '50%', background: '#ddd', color: '#666', fontSize: 9, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', userSelect: 'none' as const }}>
+                      ℹ
+                    </span>
+                    {taxTooltip && (
+                      <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)', background: '#fff', border: '1px solid #e8e8e8', borderRadius: 8, padding: '10px 13px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', whiteSpace: 'nowrap', zIndex: 20, pointerEvents: 'none' as const, minWidth: 200 }}>
+                        <div style={{ fontSize: 12, color: DARK, marginBottom: 3 }}>Tax: Calculated at checkout</div>
+                        <div style={{ fontSize: 12, color: DARK, marginBottom: 8 }}>Platform fee included at checkout</div>
+                        <div style={{ fontSize: 11, color: '#888', fontStyle: 'italic', lineHeight: 1.4 }}>This allows us to be free for restaurants.</div>
+                      </div>
+                    )}
+                  </span>
+                </span>
+                <span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>
               </div>
-              <div style={{ background: '#f8f8fc', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, color: '#666' }}>Tip</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{formatPrice(tipAmt)}</span>
-                </div>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {[0, 10, 15, 20, 25].map(pct => (
-                    <button key={pct} onClick={() => setTipPct(pct)} style={{
-                      flex: 1, padding: '5px 2px', borderRadius: 7, cursor: 'pointer', fontFamily: F, fontSize: 11,
-                      border: `1.5px solid ${activeTip === pct ? BLUE : '#e8e8e8'}`,
-                      background: activeTip === pct ? '#EEF0FD' : '#fff',
-                      color: activeTip === pct ? BLUE : '#666', fontWeight: activeTip === pct ? 700 : 500,
-                    }}>{pct === 0 ? 'None' : `${pct}%`}</button>
+              {/* Tips */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 7 }}>Tips</div>
+                <div style={{ display: 'flex', gap: 5 }}>
+                  {[10, 15, 20].map(pct => (
+                    <button key={pct} onClick={() => { setTipPct(pct); setTipOther(false); setTipCustomInput('') }} style={{
+                      flex: 1, padding: '6px 4px', borderRadius: 7, cursor: 'pointer', fontFamily: F, fontSize: 12,
+                      border: `1.5px solid ${!tipOther && tipPct === pct ? BLUE : '#e8e8e8'}`,
+                      background: !tipOther && tipPct === pct ? '#EEF0FD' : '#fff',
+                      color: !tipOther && tipPct === pct ? BLUE : '#666',
+                      fontWeight: !tipOther && tipPct === pct ? 700 : 500,
+                    }}>{pct}%</button>
                   ))}
+                  <button onClick={() => { setTipOther(true); setTipPct(null) }} style={{
+                    flex: 1, padding: '6px 4px', borderRadius: 7, cursor: 'pointer', fontFamily: F, fontSize: 12,
+                    border: `1.5px solid ${tipOther ? BLUE : '#e8e8e8'}`,
+                    background: tipOther ? '#EEF0FD' : '#fff',
+                    color: tipOther ? BLUE : '#666',
+                    fontWeight: tipOther ? 700 : 500,
+                  }}>Other</button>
                 </div>
+                {tipOther && (
+                  <div style={{ position: 'relative', marginTop: 8 }}>
+                    <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#888', pointerEvents: 'none' as const }}>$</span>
+                    <input
+                      type="number" min="0" step="0.01"
+                      value={tipCustomInput}
+                      onChange={e => {
+                        const val = e.target.value
+                        setTipCustomInput(val)
+                        const dollars = parseFloat(val) || 0
+                        setTipPct(subtotal > 0 ? (dollars / subtotal) * 100 : 0)
+                      }}
+                      placeholder="0.00"
+                      style={{ width: '100%', padding: '9px 10px 9px 24px', border: `1.5px solid ${BLUE}`, borderRadius: 8, fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' as const }}
+                    />
+                  </div>
+                )}
+                {tipAmt > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 8 }}>
+                    <span style={{ color: '#888' }}>Tip amount</span>
+                    <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(tipAmt)}</span>
+                  </div>
+                )}
               </div>
-              <div style={{ borderTop: '2px solid #f0f0f0', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
-                <span style={{ fontSize: 15, fontWeight: 800, color: DARK }}>Total</span>
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: 18, fontWeight: 800, color: DARK }}>{formatPrice(clientTotal)}</span>
-                  {orderType === 'DELIVERY' && <div style={{ fontSize: 10, color: '#bbb' }}>+ delivery & tax</div>}
-                </div>
-              </div>
+              {/* Below-min warning */}
               {belowMin && (
-                <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: '#92400E' }}>
+                <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '8px 12px', marginBottom: 4, fontSize: 12, color: '#92400E' }}>
                   {formatPrice(minOrder - subtotal)} more to meet the {formatPrice(minOrder)} minimum
                 </div>
               )}
-              {fmRef ? (
-                <button onClick={() => { if (cart.length > 0 && !belowMin) setCheckoutOpen(true) }} disabled={cart.length === 0 || belowMin}
-                  style={{ width: '100%', padding: '13px', border: 'none', borderRadius: 12, background: cart.length > 0 && !belowMin ? BLUE : '#e8e8e8', color: cart.length > 0 && !belowMin ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: cart.length > 0 && !belowMin ? 'pointer' : 'default', boxShadow: cart.length > 0 && !belowMin ? '0 4px 14px rgba(91,111,232,0.25)' : 'none', transition: 'all 0.15s' }}>
-                  {cart.length === 0 ? 'Add items to order' : belowMin ? `${formatPrice(minOrder - subtotal)} more to minimum` : 'Place Order →'}
-                </button>
-              ) : (
+              {/* FM link fallback (no fmRef) */}
+              {!fmRef && (
                 <a href={fmSlug ? `https://www.familymeal.com/disco/${fmSlug}` : '#'} target="_blank" rel="noopener noreferrer"
                   style={{ display: 'block', textAlign: 'center', padding: '13px', background: BLUE, color: '#fff', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: F }}>
                   Order on FamilyMeal →
@@ -776,12 +817,24 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
         {/* RIGHT: sticky cart */}
         <div className="order-sidebar" style={{ width: 340, flexShrink: 0 }}>
-          <div style={{ position: 'sticky', top: hasSelection ? 106 : 68, background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', maxHeight: 'calc(100vh - 90px)', overflowY: 'auto' }}>
-            <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: DARK }}>Order Summary</div>
-              <div style={{ fontSize: 12, color: '#888' }}>{restaurant.name}</div>
+          <div style={{ position: 'sticky', top: hasSelection ? 106 : 68 }}>
+            <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', marginBottom: cart.length > 0 && fmRef ? 10 : 0 }}>
+              <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: DARK }}>Order Summary</div>
+                <div style={{ fontSize: 12, color: '#888' }}>{restaurant.name}</div>
+              </div>
+              {cartPanel}
             </div>
-            {cartPanel}
+            {/* CHECKOUT button — outside the card */}
+            {fmRef && (
+              <button
+                onClick={() => { if (cart.length > 0 && !belowMin) setCheckoutOpen(true) }}
+                disabled={cart.length === 0 || belowMin}
+                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: cart.length > 0 && !belowMin ? DARK : '#e0e0e0', color: cart.length > 0 && !belowMin ? '#fff' : '#bbb', fontSize: 14, fontWeight: 800, fontFamily: F, cursor: cart.length > 0 && !belowMin ? 'pointer' : 'default', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: cart.length > 0 && !belowMin ? '0 4px 16px rgba(26,16,40,0.22)' : 'none', transition: 'all 0.15s' }}>
+                <span>CHECKOUT</span>
+                {cart.length > 0 && <span>{formatPrice(clientTotal)}</span>}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -794,12 +847,25 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       </div>
 
       {mobileCartOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 600, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+        <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 600, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1, flexShrink: 0 }}>
             <div><div style={{ fontSize: 15, fontWeight: 800, color: DARK }}>Order Summary</div><div style={{ fontSize: 12, color: '#888' }}>{restaurant.name}</div></div>
             <button onClick={() => setMobileCartOpen(false)} style={{ background: '#f0f0f0', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
           </div>
-          {cartPanel}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {cartPanel}
+          </div>
+          {fmRef && (
+            <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
+              <button
+                onClick={() => { if (cart.length > 0 && !belowMin) { setMobileCartOpen(false); setCheckoutOpen(true) } }}
+                disabled={cart.length === 0 || belowMin}
+                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: cart.length > 0 && !belowMin ? DARK : '#e0e0e0', color: cart.length > 0 && !belowMin ? '#fff' : '#bbb', fontSize: 14, fontWeight: 800, fontFamily: F, cursor: cart.length > 0 && !belowMin ? 'pointer' : 'default', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: cart.length > 0 && !belowMin ? '0 4px 16px rgba(26,16,40,0.22)' : 'none', transition: 'all 0.15s' }}>
+                <span>CHECKOUT</span>
+                {cart.length > 0 && <span>{formatPrice(clientTotal)}</span>}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
