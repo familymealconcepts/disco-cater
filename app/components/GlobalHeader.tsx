@@ -35,9 +35,10 @@ export default function GlobalHeader({ centerContent, rightLinks = true, onSignO
     return () => { window.removeEventListener('focus', sync); window.removeEventListener('storage', sync) }
   }, [])
 
-  function signOut() {
+  async function signOut() {
     localStorage.removeItem(STORAGE_KEY)
     setUser(null); setMenuOpen(false)
+    await fetch('/api/fm-auth', { method: 'DELETE' }).catch(() => {})
     window.location.href = '/'
   }
 
@@ -49,8 +50,10 @@ export default function GlobalHeader({ centerContent, rightLinks = true, onSignO
       const res = await fetch('/api/fm-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: loginEmail, password: loginPassword }) })
       const data = await res.json()
       if (!res.ok) { setLoginError(data.error || 'Invalid email or password.'); setLoginLoading(false); return }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-      setUser(data); setShowLogin(false); setLoginEmail(''); setLoginPassword('')
+      // Store display data only — JWT is in httpOnly cookie set by the server
+      const displayData = { email: data.email, firstName: data.firstName, lastName: data.lastName, phoneNumber: data.phoneNumber, reference: data.reference, role: data.role }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(displayData))
+      setUser(displayData); setShowLogin(false); setLoginEmail(''); setLoginPassword('')
       window.location.href = '/portal'
     } catch { setLoginError('Something went wrong.') }
     finally { setLoginLoading(false) }

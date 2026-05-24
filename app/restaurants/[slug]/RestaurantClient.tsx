@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import GlobalHeader from '../../components/GlobalHeader'
+import CheckoutDrawer from './CheckoutDrawer'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
@@ -149,10 +150,13 @@ export default function RestaurantClient({
   restaurant: Restaurant; fmSlug: string | null; fmRef: string | null
   menuData: MenuSection[]; slug: string
 }) {
-  // ── Menu ─────────────────────────────────────────────────────────────────
+  // ── UI ────────────────────────────────────────────────────────────────────
   const [activeMenuIdx, setActiveMenuIdx] = useState(0)
   const [headerImgError, setHeaderImgError] = useState(false)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [addOnsPkg, setAddOnsPkg] = useState<FmPackage | null>(null)
+  const [selAddOns, setSelAddOns] = useState<Record<string, string[]>>({})
 
   // ── Cart ──────────────────────────────────────────────────────────────────
   const [cart, setCart] = useState<CartItem[]>([])
@@ -261,6 +265,18 @@ export default function RestaurantClient({
     if (i >= 0) { const n = [...prev]; n[i] = { ...n[i], quantity: n[i].quantity + 1 }; return n }
     return [...prev, { pkg, quantity: 1 }]
   })
+
+  function handleAddClick(pkg: FmPackage) {
+    const groups: any[] = (pkg as any).extraItemsGroups ?? []
+    if (groups.length > 0) { setAddOnsPkg(pkg); setSelAddOns({}) }
+    else addItem(pkg)
+  }
+
+  function confirmAddOns() {
+    if (!addOnsPkg) return
+    addItem(addOnsPkg)
+    setAddOnsPkg(null); setSelAddOns({})
+  }
   const updateQty = (ref: string, delta: number) =>
     setCart(prev => prev.map(i => i.pkg.reference === ref ? { ...i, quantity: i.quantity + delta } : i).filter(i => i.quantity > 0))
 
@@ -396,33 +412,31 @@ export default function RestaurantClient({
                 </div>
               )}
 
-              {/* CTA — TODO: replace with native checkout flow */}
-              <a href={fmSlug ? `https://www.familymeal.com/disco/${fmSlug}` : '#'}
-                target="_blank" rel="noopener noreferrer"
-                onClick={e => { if (!fmSlug || cart.length === 0 || belowMin) e.preventDefault() }}
-                style={{
-                  display: 'block', textAlign: 'center', padding: '13px',
-                  background: cart.length > 0 && !belowMin ? BLUE : '#e8e8e8',
-                  color: cart.length > 0 && !belowMin ? '#fff' : '#bbb',
-                  borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none',
-                  boxShadow: cart.length > 0 && !belowMin ? '0 4px 14px rgba(91,111,232,0.25)' : 'none',
-                  fontFamily: F, transition: 'all 0.15s',
-                  cursor: cart.length > 0 && !belowMin ? 'pointer' : 'default',
-                }}>
-                Place Order →
-              </a>
+              {/* Place Order CTA */}
+              {fmRef ? (
+                <button
+                  onClick={() => { if (cart.length > 0 && !belowMin) setCheckoutOpen(true) }}
+                  disabled={cart.length === 0 || belowMin}
+                  style={{
+                    width: '100%', padding: '13px', border: 'none', borderRadius: 12,
+                    background: cart.length > 0 && !belowMin ? BLUE : '#e8e8e8',
+                    color: cart.length > 0 && !belowMin ? '#fff' : '#bbb',
+                    fontSize: 14, fontWeight: 700, fontFamily: F, cursor: cart.length > 0 && !belowMin ? 'pointer' : 'default',
+                    boxShadow: cart.length > 0 && !belowMin ? '0 4px 14px rgba(91,111,232,0.25)' : 'none',
+                    transition: 'all 0.15s',
+                  }}>
+                  {cart.length === 0 ? 'Add items to order' : belowMin ? `${fmt$(minOrder - subtotal)} more to minimum` : `Place Order →`}
+                </button>
+              ) : (
+                <a href={fmSlug ? `https://www.familymeal.com/disco/${fmSlug}` : '#'} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'block', textAlign: 'center', padding: '13px', background: BLUE, color: '#fff', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: F }}>
+                  Order on FamilyMeal →
+                </a>
+              )}
             </div>
           </>
         )}
 
-        {cart.length === 0 && fmSlug && (
-          <div style={{ paddingBottom: 16 }}>
-            <a href={`https://www.familymeal.com/disco/${fmSlug}`} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'block', textAlign: 'center', padding: '11px', background: '#f4f4f8', color: '#888', borderRadius: 10, fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>
-              View on FamilyMeal →
-            </a>
-          </div>
-        )}
       </div>
     </div>
   )
@@ -562,7 +576,7 @@ export default function RestaurantClient({
                                 <button onClick={() => addItem(pkg)} style={{ width: 30, height: 30, borderRadius: 8, border: 'none', background: BLUE, cursor: 'pointer', fontSize: 16, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
                               </div>
                             ) : (
-                              <button onClick={() => addItem(pkg)} style={{ padding: '7px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.22)', whiteSpace: 'nowrap', flexShrink: 0 }}>+ Add</button>
+                              <button onClick={() => handleAddClick(pkg)} style={{ padding: '7px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.22)', whiteSpace: 'nowrap', flexShrink: 0 }}>+ Add</button>
                             )}
                           </div>
                         </div>
@@ -717,6 +731,88 @@ export default function RestaurantClient({
                   {tempDate && tempTime ? `Confirm — ${fmtDateShort(tempDate)}, ${fmtTime(tempTime)}` : 'Select a date & time'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Checkout Drawer ────────────────────────────────────────────── */}
+      {checkoutOpen && fmRef && (
+        <CheckoutDrawer
+          fmRef={fmRef}
+          fmSlug={fmSlug}
+          restaurantName={restaurant.name}
+          cart={cart}
+          selDate={selDate}
+          selTime={selTime}
+          orderType={orderType}
+          addr={addr}
+          subtotal={subtotal}
+          tipAmt={tipAmt}
+          svcAmt={svcAmt}
+          minOrder={minOrder}
+          onClose={() => setCheckoutOpen(false)}
+        />
+      )}
+
+      {/* ── Add-ons Modal ─────────────────────────────────────────────── */}
+      {addOnsPkg && (
+        <div onClick={() => setAddOnsPkg(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 440, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,0.22)' }}>
+            <div style={{ padding: '20px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>{addOnsPkg.name}</div>
+                <div style={{ fontSize: 13, color: '#888', marginTop: 2 }}>Customize your order</div>
+              </div>
+              <button onClick={() => setAddOnsPkg(null)} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 12 }}>×</button>
+            </div>
+            <div style={{ padding: '16px 24px 24px' }}>
+              {((addOnsPkg as any).extraItemsGroups ?? []).map((group: any) => {
+                const maxSel = group.maxSelection ?? 1
+                const isMulti = maxSel !== 1
+                const groupSel = selAddOns[group.reference] ?? []
+                return (
+                  <div key={group.reference} style={{ marginBottom: 22 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: group.description ? 2 : 10 }}>{group.name}</div>
+                    {group.description && <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>{group.description}</div>}
+                    {group.required && <div style={{ fontSize: 11, color: '#F0468A', fontWeight: 600, marginBottom: 8 }}>Required · select {maxSel === 1 ? 'one' : `up to ${maxSel}`}</div>}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {(group.extraItems ?? []).map((item: any) => {
+                        const checked = groupSel.includes(item.reference)
+                        return (
+                          <button key={item.reference}
+                            onClick={() => {
+                              setSelAddOns(prev => {
+                                const cur = prev[group.reference] ?? []
+                                let next: string[]
+                                if (checked) { next = cur.filter(r => r !== item.reference) }
+                                else if (!isMulti) { next = [item.reference] }
+                                else if (cur.length < maxSel) { next = [...cur, item.reference] }
+                                else { next = cur }
+                                return { ...prev, [group.reference]: next }
+                              })
+                            }}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', borderRadius: 10, border: `1.5px solid ${checked ? BLUE : '#e8e8e8'}`, background: checked ? '#EEF0FD' : '#fff', cursor: 'pointer', fontFamily: F, textAlign: 'left', transition: 'all 0.12s' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div style={{ width: 18, height: 18, borderRadius: isMulti ? 4 : '50%', border: `2px solid ${checked ? BLUE : '#ddd'}`, background: checked ? BLUE : '#fff', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                {checked && <span style={{ color: '#fff', fontSize: 11 }}>✓</span>}
+                              </div>
+                              <span style={{ fontSize: 14, color: DARK, fontWeight: checked ? 600 : 400 }}>{item.name}</span>
+                            </div>
+                            {item.price > 0 && <span style={{ fontSize: 13, color: BLUE, fontWeight: 700, flexShrink: 0, marginLeft: 8 }}>+{fmt$(item.price)}</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+              <button onClick={confirmAddOns}
+                style={{ width: '100%', padding: '13px', background: BLUE, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(91,111,232,0.25)' }}>
+                Add to Order — {fmt$(addOnsPkg.price)}
+              </button>
             </div>
           </div>
         </div>

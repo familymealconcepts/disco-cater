@@ -1,42 +1,66 @@
 import { NextRequest, NextResponse } from 'next/server'
-const FM_API = 'https://api.familymeal.com'
+import { COOKIE_OPTS } from '../../../lib/auth'
+
+const FM = 'https://api.familymeal.com'
+
+function setAuthCookies(resp: NextResponse, token: string, refreshToken: string) {
+  resp.cookies.set('disco_token', token, { ...COOKIE_OPTS, maxAge: 60 * 60 * 24 * 7 })
+  resp.cookies.set('disco_refresh', refreshToken, { ...COOKIE_OPTS, maxAge: 60 * 60 * 24 * 30 })
+}
+
+// Login or Register
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await req.json()
-    if (!email || !password) {
-      return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
+    const body = await req.json()
+    const { action = 'login', email, password, firstName, lastName, phoneNumber } = body
+
+    let fmRes: Response
+    if (action === 'register') {
+      if (!email || !password || !firstName || !lastName) {
+        return NextResponse.json({ error: 'First name, last name, email and password are required.' }, { status: 400 })
+      }
+      fmRes = await fetch(`${FM}/registration`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email, password, firstName, lastName, phoneNumber: phoneNumber || '' }),
+      })
+    } else {
+      if (!email || !password) return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
+      fmRes = await fetch(`${FM}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
     }
-    const res = await fetch(`${FM_API}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    })
-    const data = await res.json()
-    console.log('FM login response keys:', Object.keys(data))
-    console.log('FM authorization preview:', String(data.authorization).slice(0, 30))
-    if (!res.ok) {
-      return NextResponse.json(
-        { error: data.message || 'Invalid email or password.' },
-        { status: 401 }
-      )
-    }
-    // Strip Bearer prefix if already included
+
+    const data = await fmRes.json()
+    if (!fmRes.ok) return NextResponse.json({ error: data.message || 'Authentication failed.' }, { status: 401 })
+
     const rawToken = String(data.authorization || '').replace(/^Bearer\s+/i, '').trim()
-    return NextResponse.json({
+    const refreshToken = String(data.refreshToken || '').trim()
+
+    const userPayload = {
       email: data.email || email,
-      firstName: data.firstName || data.first_name || '',
-      lastName: data.lastName || data.last_name || '',
-      phoneNumber: data.phoneNumber || data.phone_number || '',
-      reference: data.reference || data.id || '',
-      token: rawToken,
-      refreshToken: data.refreshToken,
+      firstName: data.firstName || firstName || '',
+      lastName: data.lastName || lastName || '',
+      phoneNumber: data.phoneNumber || phoneNumber || '',
+      reference: data.reference || '',
       role: data.role,
-    })
+    }
+
+    const resp = NextResponse.json(userPayload)
+    if (rawToken) setAuthCookies(resp, rawToken, refreshToken)
+    return resp
   } catch (err) {
     console.error('fm-auth error:', err)
-    return NextResponse.json(
-      { error: 'Unable to connect to FamilyMeal. Please try again.' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Unable to connect. Please try again.' }, { status: 500 })
   }
+}
+
+// Logout — clears httpOnly cookies
+export async function DELETE() {
+  const resp = NextResponse.json({ ok: true })
+  resp.cookies.delete('disco_token')
+  resp.cookies.delete('disco_refresh')
+  return resp
 }

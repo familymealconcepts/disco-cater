@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getToken } from '../../../../lib/auth'
 
 const FM = 'https://api.familymeal.com'
 
 export async function GET(req: NextRequest) {
   try {
-    const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim()
+    const token = getToken(req)
     if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
     const orderRef = req.nextUrl.searchParams.get('orderRef')
