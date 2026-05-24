@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import GlobalHeader from '../../components/GlobalHeader'
 import CheckoutDrawer from './CheckoutDrawer'
@@ -15,62 +15,46 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface RepeatWeekDay { days: string; fromPickUpTime: string; toPickUpTime: string }
-
 interface FmSchedule {
   prepTime?: number; startDate?: string; endDate?: string
   rollingAvailability?: number; cutOff?: string
   repeatWeekDays?: RepeatWeekDay[]; skippedDays?: string[]
 }
-
 interface FmSettings {
   deliveryType?: string; pickupOrderMinimum?: number; deliveryOrderMinimum?: number
   menuAvailability?: string[]; serviceCharge?: number | null; serviceChargeName?: string | null
   tipOption?: { tipsType: string; tipsPrice: number }
 }
-
 interface FmMenu { reference: string; name: string; scheduleOption?: FmSchedule; settings?: FmSettings }
-
-// Exact field names from FM API: extraItemsGroups[].addOns[]
-// minSelectedItems / maxSelectedItems (NOT minSelect/maxSelect)
-// subExternalName === 'Required' indicates required group
-interface FmAddOn {
-  reference: string; name: string; price: number; visible?: boolean; position?: number
-}
+interface FmAddOn { reference: string; name: string; price: number; visible?: boolean; position?: number }
 interface FmExtraItemsGroup {
   reference: string; name: string
-  externalName?: string        // e.g. "Select 6 Bagels"
-  subExternalName?: string     // e.g. "Required"
-  minSelectedItems: number     // minimum qty to select across all addOns in group
-  maxSelectedItems: number     // maximum qty total
+  externalName?: string; subExternalName?: string
+  minSelectedItems: number; maxSelectedItems: number
   visible?: boolean; enabled?: boolean
   addOns: FmAddOn[]
 }
 interface FmPackage {
   reference: string; name: string; description?: string | null
-  price: number                // dollars (e.g. 14 = $14.00)
-  serves?: string | number | null
+  price: number; serves?: string | number | null
   image?: { reference: string; availableResolutions?: number[] } | null
-  available?: boolean
-  allowedSpecialInstructions?: boolean
+  available?: boolean; allowedSpecialInstructions?: boolean
   extraItemsGroups?: FmExtraItemsGroup[]
   inventoryBalanceCountperTime?: number | null
 }
-
 interface FmCategory { reference: string; name: string; description?: string | null; mealPackages: FmPackage[] }
 interface MenuSection { menu: FmMenu; categories: FmCategory[] }
-
 interface Restaurant {
   name: string; address?: string; cuisine?: string; cuisines?: string[]
   description?: string; image?: any; orderUrl?: string
   isDisco?: boolean; location?: string; tags?: string[]
 }
-
 interface CartItem { pkg: FmPackage; quantity: number; note?: string }
-
-// ── Price format — always $0.00 ────────────────────────────────────────────────
-const formatPrice = (p: number) => `$${p.toFixed(2)}`
+interface AddrDetails { addressLine1: string; city: string; state: string; zipcode: string; latitude: number; longitude: number }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+const formatPrice = (p: number) => `$${p.toFixed(2)}`
 
 function computeDates(sched: FmSchedule): string[] {
   const avail = new Set(sched.repeatWeekDays?.map(d => d.days) ?? [])
@@ -109,7 +93,7 @@ function fmtDateShort(d: string) {
   catch { return d }
 }
 function fmtDateMD(d: string) {
-  try { const dt = new Date(d + 'T12:00:00'); return `${dt.getMonth() + 1}/${dt.getDate()}/${dt.getFullYear()}` }
+  try { const dt = new Date(d + 'T12:00:00'); return `${dt.getMonth()+1}/${dt.getDate()}/${dt.getFullYear()}` }
   catch { return d }
 }
 function fmtTime(t: string) {
@@ -120,27 +104,36 @@ function pkgImg(ref: string, size = 300) {
   return `https://api.familymeal.com/public-api/images/${ref}/download?size=${size}`
 }
 
+function extractAddressComponents(place: any): AddrDetails {
+  const c = place.address_components ?? []
+  const find = (...types: string[]) => c.find((x: any) => types.some(t => x.types.includes(t)))
+  const streetNum = find('street_number')?.long_name ?? ''
+  const route = find('route')?.short_name ?? ''
+  const city = find('locality', 'sublocality')?.long_name ?? ''
+  const state = find('administrative_area_level_1')?.short_name ?? ''
+  const zipcode = find('postal_code')?.long_name ?? ''
+  const lat = place.geometry?.location?.lat() ?? 0
+  const lng = place.geometry?.location?.lng() ?? 0
+  return { addressLine1: [streetNum, route].filter(Boolean).join(' '), city, state, zipcode, latitude: lat, longitude: lng }
+}
+
 // ── Calendar ───────────────────────────────────────────────────────────────────
 
-function MonthCalendar({
-  year, month, availSet, todayIso, selDate, onSelect,
-}: {
+function MonthCalendar({ year, month, availSet, todayIso, selDate, onSelect }: {
   year: number; month: number; availSet: Set<string>; todayIso: string
   selDate: string; onSelect: (d: string) => void
 }) {
   const firstDow = new Date(year, month, 1).getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const cells: (string | null)[] = Array(firstDow).fill(null)
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push(`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
-  }
+  for (let d = 1; d <= daysInMonth; d++)
+    cells.push(`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`)
   while (cells.length % 7 !== 0) cells.push(null)
-
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
-        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(n => (
-          <div key={n} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#aaa', padding: '6px 0' }}>{n}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, marginBottom: 4 }}>
+        {['Su','Mo','Tu','We','Th','Fr','Sa'].map(n => (
+          <div key={n} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#bbb', padding: '4px 0' }}>{n}</div>
         ))}
         {cells.map((iso, i) => {
           if (!iso) return <div key={`e${i}`} />
@@ -152,7 +145,7 @@ function MonthCalendar({
               style={{
                 width: '100%', aspectRatio: '1', border: sel ? 'none' : isToday ? `2px solid ${BLUE}` : 'none',
                 borderRadius: '50%', cursor: avail ? 'pointer' : 'default', fontFamily: F,
-                fontSize: 13, fontWeight: sel || isToday ? 700 : 400,
+                fontSize: 12, fontWeight: sel || isToday ? 700 : 400,
                 background: sel ? BLUE : 'transparent',
                 color: sel ? '#fff' : avail ? DARK : '#ddd',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -168,50 +161,64 @@ function MonthCalendar({
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export default function RestaurantClient({
-  restaurant, fmSlug, fmRef, menuData, slug,
-}: {
+export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, slug }: {
   restaurant: Restaurant; fmSlug: string | null; fmRef: string | null
   menuData: MenuSection[]; slug: string
 }) {
-  // ── UI ────────────────────────────────────────────────────────────────────
+  // ── UI state ──────────────────────────────────────────────────────────────
   const [activeMenuIdx, setActiveMenuIdx] = useState(0)
   const [headerImgError, setHeaderImgError] = useState(false)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
 
-  // Add-ons modal — state: groupRef → { addOnRef → quantity }
+  // Add-ons modal
   const [addOnsPkg, setAddOnsPkg] = useState<FmPackage | null>(null)
   const [selAddOns, setSelAddOns] = useState<Record<string, Record<string, number>>>({})
   const [addOnsNote, setAddOnsNote] = useState('')
   const [addOnsQty, setAddOnsQty] = useState(1)
 
-  // ── Cart ──────────────────────────────────────────────────────────────────
+  // Cart
   const [cart, setCart] = useState<CartItem[]>([])
   const [tipPct, setTipPct] = useState<number | null>(null)
   const [addr, setAddr] = useState({ line1: '', city: '', state: '', zip: '' })
 
-  // ── Order config ──────────────────────────────────────────────────────────
+  // Order config
   const [selDate, setSelDate] = useState('')
   const [selTime, setSelTime] = useState('')
   const [orderType, setOrderType] = useState<'PICKUP' | 'DELIVERY'>('PICKUP')
   const [hasSelection, setHasSelection] = useState(false)
 
-  // ── Date picker modal (existing — kept for Edit flow) ─────────────────────
-  const [pickerOpen, setPickerOpen] = useState(false)
+  // Menus modal
+  const [menusOpen, setMenusOpen] = useState(false)
+  const [tempMenuIdx, setTempMenuIdx] = useState(0)
   const [tempDate, setTempDate] = useState('')
   const [tempTime, setTempTime] = useState('')
   const [tempType, setTempType] = useState<'PICKUP' | 'DELIVERY'>('PICKUP')
+
+  // Calendar popover (fixed-position, outside modal)
+  const dateButtonRef = useRef<HTMLButtonElement>(null)
+  const [calOpen, setCalOpen] = useState(false)
+  const [calPos, setCalPos] = useState<{ top: number; left: number } | null>(null)
   const now = new Date()
   const todayIso = now.toISOString().slice(0, 10)
   const [calYear, setCalYear] = useState(now.getFullYear())
   const [calMonth, setCalMonth] = useState(now.getMonth())
 
-  // ── Menus modal ───────────────────────────────────────────────────────────
-  const [menusOpen, setMenusOpen] = useState(false)
-  const [tempMenuIdx, setTempMenuIdx] = useState(0)
+  // Delivery address
+  const addrInputRef = useRef<HTMLInputElement>(null)
+  const autocompleteRef = useRef<any>(null)
+  const [placesLoaded, setPlacesLoaded] = useState(false)
+  const [deliveryAddrLine, setDeliveryAddrLine] = useState('')
+  const [deliveryAddrDetails, setDeliveryAddrDetails] = useState<AddrDetails | null>(null)
+  const [addrValidating, setAddrValidating] = useState(false)
+  const [addrValidated, setAddrValidated] = useState(false)
+  const [addrError, setAddrError] = useState('')
+  const [addrFee, setAddrFee] = useState<number | null>(null)
 
-  // ── Data — existing (from active/first menu) ──────────────────────────────
+  // Legacy picker state (kept for backwards compat — openPicker still callable)
+  const [pickerOpen, setPickerOpen] = useState(false)
+
+  // ── Data ──────────────────────────────────────────────────────────────────
   const activeSection = menuData[activeMenuIdx]
   const firstMenu = menuData[0]?.menu
   const sched = firstMenu?.scheduleOption
@@ -225,15 +232,54 @@ export default function RestaurantClient({
 
   const availDates = useMemo(() => sched ? computeDates(sched) : [], [sched])
   const availSet = useMemo(() => new Set(availDates), [availDates])
-  const modalTimes = useMemo(() => sched && tempDate ? computeTimes(sched, tempDate) : [], [sched, tempDate])
 
-  // ── Menus modal computed (from the selected temp menu) ────────────────────
+  // Menus modal: computed from selected temp menu
   const mMenuSched = menuData[tempMenuIdx]?.menu?.scheduleOption
   const mMenuSettings = menuData[tempMenuIdx]?.menu?.settings
   const mMenuAvail = mMenuSettings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
   const mAvailDates = useMemo(() => mMenuSched ? computeDates(mMenuSched) : [], [mMenuSched])
   const mAvailSet = useMemo(() => new Set(mAvailDates), [mAvailDates])
   const mModalTimes = useMemo(() => mMenuSched && tempDate ? computeTimes(mMenuSched, tempDate) : [], [mMenuSched, tempDate])
+
+  // ── Google Places loading ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if ((window as any).google?.maps?.places) { setPlacesLoaded(true); return }
+    const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!key) return
+    const script = document.createElement('script')
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`
+    script.async = true
+    script.onload = () => setPlacesLoaded(true)
+    document.head.appendChild(script)
+  }, [])
+
+  // ── Places Autocomplete init ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!placesLoaded || !menusOpen || tempType !== 'DELIVERY') {
+      autocompleteRef.current = null
+      return
+    }
+    if (!addrInputRef.current) return
+    const google = (window as any).google
+    if (!google?.maps?.places) return
+    const ac = new google.maps.places.Autocomplete(addrInputRef.current, {
+      types: ['address'],
+      componentRestrictions: { country: 'us' },
+      fields: ['address_components', 'geometry', 'formatted_address'],
+    })
+    autocompleteRef.current = ac
+    const listener = ac.addListener('place_changed', () => {
+      const place = ac.getPlace()
+      if (!place?.address_components) return
+      const details = extractAddressComponents(place)
+      setDeliveryAddrLine(place.formatted_address ?? '')
+      setDeliveryAddrDetails(details)
+      validateDeliveryAddr(details)
+    })
+    return () => { google.maps.event.removeListener(listener); autocompleteRef.current = null }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placesLoaded, menusOpen, tempType])
 
   // ── Auto-open menus modal on mount ────────────────────────────────────────
   useEffect(() => {
@@ -242,57 +288,63 @@ export default function RestaurantClient({
     const d = new Date(first + 'T12:00:00')
     setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
     setTempDate(first)
+    const mSched = menuData[0]?.menu?.scheduleOption
+    const firstTime = mSched ? (computeTimes(mSched, first)[0] ?? '') : ''
+    setTempTime(firstTime)
     const defaultType = menuAvail.includes('PICKUP') ? 'PICKUP' : 'DELIVERY'
     setTempType(defaultType as 'PICKUP' | 'DELIVERY')
     setMenusOpen(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Existing picker handlers (kept) ───────────────────────────────────────
-  function openPicker() {
-    setTempDate(selDate); setTempTime(selTime); setTempType(orderType)
-    if (selDate) {
-      const d = new Date(selDate + 'T12:00:00')
-      setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
+  // ── Address validation ────────────────────────────────────────────────────
+  async function validateDeliveryAddr(details: AddrDetails) {
+    if (!fmRef) return
+    setAddrValidating(true); setAddrError(''); setAddrValidated(false); setAddrFee(null)
+    try {
+      const res = await fetch('/api/order/validate-address', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...details, restaurantReference: fmRef }),
+      })
+      const data = await res.json()
+      if (res.ok && data.error == null && data.valid !== false) {
+        setAddrValidated(true)
+        setAddrFee(data.deliveryFee ?? data.fee ?? null)
+      } else {
+        setAddrError('Delivery not available at this address')
+      }
+    } catch {
+      setAddrError('Could not validate address')
+    } finally {
+      setAddrValidating(false)
     }
-    setPickerOpen(true)
-  }
-  function confirmPicker() {
-    if (!tempDate || !tempTime) return
-    setSelDate(tempDate); setSelTime(tempTime); setOrderType(tempType)
-    setHasSelection(true); setPickerOpen(false)
-  }
-  function closePicker() { setPickerOpen(false) }
-  function handleTempDateSelect(d: string) { setTempDate(d); setTempTime('') }
-  function prevMonth() {
-    if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11) }
-    else setCalMonth(m => m - 1)
-  }
-  function nextMonth() {
-    if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0) }
-    else setCalMonth(m => m + 1)
   }
 
   // ── Menus modal handlers ──────────────────────────────────────────────────
   function getMenuNextAvail(menu: FmMenu): string {
     if (!menu.scheduleOption) return ''
     const dates = computeDates(menu.scheduleOption)
-    return dates[0] ? fmtDateShort(dates[0]) : ''
+    if (!dates[0]) return ''
+    return `${fmtDateShort(dates[0])} (next available)`
   }
 
   function selectMenuInModal(idx: number) {
     setTempMenuIdx(idx)
     const sch = menuData[idx]?.menu?.scheduleOption
+    const types = menuData[idx]?.menu?.settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
     const dates = sch ? computeDates(sch) : []
-    const first = dates[0] || ''
+    const first = dates[0] ?? ''
     setTempDate(first)
-    setTempTime('')
+    const firstTime = sch && first ? (computeTimes(sch, first)[0] ?? '') : ''
+    setTempTime(firstTime)
     if (first) {
       const d = new Date(first + 'T12:00:00')
       setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
     }
-    const types = menuData[idx]?.menu?.settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
     setTempType(types.includes('PICKUP') ? 'PICKUP' : 'DELIVERY')
+    setAddrValidated(false); setAddrError(''); setAddrFee(null)
+    setCalOpen(false)
   }
 
   function openMenus() {
@@ -303,22 +355,65 @@ export default function RestaurantClient({
     setTempDate(first)
     setTempTime(selTime)
     setTempType(orderType)
+    setDeliveryAddrLine('')
+    setDeliveryAddrDetails(null)
+    setAddrValidated(false); setAddrError(''); setAddrFee(null)
     if (first) {
       const d = new Date(first + 'T12:00:00')
       setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
     }
+    setCalOpen(false)
     setMenusOpen(true)
   }
 
+  function closeMenus() { setMenusOpen(false); setCalOpen(false) }
+
+  function openCalendar() {
+    if (!dateButtonRef.current) return
+    const rect = dateButtonRef.current.getBoundingClientRect()
+    setCalPos({ top: rect.bottom + 6, left: rect.left })
+    setCalOpen(true)
+  }
+
+  function handleDateSelect(d: string) {
+    setTempDate(d)
+    const firstTime = mMenuSched ? (computeTimes(mMenuSched, d)[0] ?? '') : ''
+    setTempTime(firstTime)
+    setCalOpen(false)
+  }
+
+  function prevMonth() {
+    if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11) }
+    else setCalMonth(m => m - 1)
+  }
+  function nextMonth() {
+    if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0) }
+    else setCalMonth(m => m + 1)
+  }
+
+  const canStartOrder = !!tempDate && !!tempTime && (tempType !== 'DELIVERY' || addrValidated)
+
   function startOrder() {
-    if (!tempDate || !tempTime) return
+    if (!canStartOrder) return
     setActiveMenuIdx(tempMenuIdx)
     setSelDate(tempDate)
     setSelTime(tempTime)
     setOrderType(tempType)
+    if (tempType === 'DELIVERY' && deliveryAddrDetails) {
+      setAddr({ line1: deliveryAddrDetails.addressLine1, city: deliveryAddrDetails.city, state: deliveryAddrDetails.state, zip: deliveryAddrDetails.zipcode })
+    }
     setHasSelection(true)
-    setMenusOpen(false)
+    closeMenus()
   }
+
+  // ── Legacy picker (kept) ──────────────────────────────────────────────────
+  function openPicker() { openMenus() }
+  function confirmPicker() {
+    if (!tempDate || !tempTime) return
+    setSelDate(tempDate); setSelTime(tempTime); setOrderType(tempType)
+    setHasSelection(true); setPickerOpen(false)
+  }
+  function closePicker() { setPickerOpen(false) }
 
   // ── Pricing ───────────────────────────────────────────────────────────────
   const subtotal = cart.reduce((s, i) => s + i.pkg.price * i.quantity, 0)
@@ -328,7 +423,6 @@ export default function RestaurantClient({
   const clientTotal = subtotal + tipAmt + svcAmt
   const belowMin = minOrder > 0 && subtotal < minOrder && cart.length > 0
 
-  // ── Announcements ─────────────────────────────────────────────────────────
   const notices: string[] = []
   if (sched?.prepTime) notices.push(`${sched.prepTime}hr advance notice`)
   if (minOrder) notices.push(`${formatPrice(minOrder)} minimum`)
@@ -337,7 +431,6 @@ export default function RestaurantClient({
   // ── Cart helpers ──────────────────────────────────────────────────────────
   const cartQty = (ref: string) => cart.find(i => i.pkg.reference === ref)?.quantity ?? 0
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
-
   const addItem = (pkg: FmPackage, note?: string) => setCart(prev => {
     const i = prev.findIndex(x => x.pkg.reference === pkg.reference)
     if (i >= 0) { const n = [...prev]; n[i] = { ...n[i], quantity: n[i].quantity + 1 }; return n }
@@ -346,68 +439,44 @@ export default function RestaurantClient({
   const updateQty = (ref: string, delta: number) =>
     setCart(prev => prev.map(i => i.pkg.reference === ref ? { ...i, quantity: i.quantity + delta } : i).filter(i => i.quantity > 0))
 
-  // ── Add-ons modal handlers ────────────────────────────────────────────────
+  // ── Add-ons modal helpers ─────────────────────────────────────────────────
   function handleAddClick(pkg: FmPackage) {
     const groups = pkg.extraItemsGroups ?? []
     if (groups.length > 0 || pkg.allowedSpecialInstructions) {
       setAddOnsPkg(pkg)
       const init: Record<string, Record<string, number>> = {}
-      groups.forEach(g => {
-        const m: Record<string, number> = {}
-        g.addOns.forEach(a => { m[a.reference] = 0 })
-        init[g.reference] = m
-      })
-      setSelAddOns(init)
-      setAddOnsNote('')
-      setAddOnsQty(1)
-    } else {
-      addItem(pkg)
-    }
+      groups.forEach(g => { const m: Record<string, number> = {}; g.addOns.forEach(a => { m[a.reference] = 0 }); init[g.reference] = m })
+      setSelAddOns(init); setAddOnsNote(''); setAddOnsQty(1)
+    } else { addItem(pkg) }
   }
-
-  function groupTotal(group: FmExtraItemsGroup): number {
-    const m = selAddOns[group.reference] ?? {}
-    return Object.values(m).reduce((s, q) => s + q, 0)
-  }
-
-  function isGroupValid(group: FmExtraItemsGroup): boolean {
-    const total = groupTotal(group)
-    return total >= group.minSelectedItems && total <= group.maxSelectedItems
-  }
-
-  function canConfirmAddOns(): boolean {
+  function groupTotal(g: FmExtraItemsGroup) { return Object.values(selAddOns[g.reference] ?? {}).reduce((s, q) => s + q, 0) }
+  function isGroupValid(g: FmExtraItemsGroup) { const t = groupTotal(g); return t >= g.minSelectedItems && t <= g.maxSelectedItems }
+  function canConfirmAddOns() {
     if (!addOnsPkg) return false
-    const groups = addOnsPkg.extraItemsGroups ?? []
-    const requiredGroups = groups.filter(g => g.subExternalName === 'Required' || g.minSelectedItems > 0)
-    return requiredGroups.every(g => isGroupValid(g))
+    return (addOnsPkg.extraItemsGroups ?? []).filter(g => g.subExternalName === 'Required' || g.minSelectedItems > 0).every(g => isGroupValid(g))
   }
-
-  function addOnsRunningPrice(): number {
+  function addOnsRunningPrice() {
     if (!addOnsPkg) return 0
     let extra = 0
-    for (const group of addOnsPkg.extraItemsGroups ?? []) {
-      const m = selAddOns[group.reference] ?? {}
-      for (const addOn of group.addOns) {
-        extra += addOn.price * (m[addOn.reference] ?? 0)
-      }
+    for (const g of addOnsPkg.extraItemsGroups ?? []) {
+      const m = selAddOns[g.reference] ?? {}
+      for (const a of g.addOns) extra += a.price * (m[a.reference] ?? 0)
     }
     return (addOnsPkg.price + extra) * addOnsQty
   }
-
   function confirmAddOns() {
     if (!addOnsPkg || !canConfirmAddOns()) return
     for (let i = 0; i < addOnsQty; i++) addItem(addOnsPkg, addOnsNote || undefined)
     setAddOnsPkg(null)
   }
-
   function setAddOnQty(groupRef: string, addOnRef: string, delta: number, max: number) {
     setSelAddOns(prev => {
-      const groupMap = { ...(prev[groupRef] ?? {}) }
-      const cur = groupMap[addOnRef] ?? 0
-      const curTotal = Object.values(groupMap).reduce((s, q) => s + q, 0)
-      if (delta > 0 && curTotal >= max) return prev
-      groupMap[addOnRef] = Math.max(0, cur + delta)
-      return { ...prev, [groupRef]: groupMap }
+      const gm = { ...(prev[groupRef] ?? {}) }
+      const cur = gm[addOnRef] ?? 0
+      const total = Object.values(gm).reduce((s, q) => s + q, 0)
+      if (delta > 0 && total >= max) return prev
+      gm[addOnRef] = Math.max(0, cur + delta)
+      return { ...prev, [groupRef]: gm }
     })
   }
 
@@ -422,7 +491,7 @@ export default function RestaurantClient({
     borderRadius: 8, fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box',
   }
 
-  // ── Cart sidebar panel ────────────────────────────────────────────────────
+  // ── Cart panel ────────────────────────────────────────────────────────────
   const cartPanel = (
     <div>
       {hasSelection ? (
@@ -480,17 +549,13 @@ export default function RestaurantClient({
                 </div>
               ))}
             </div>
-
             <div style={{ paddingTop: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
-                <span style={{ color: '#666' }}>Subtotal</span>
-                <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(subtotal)}</span>
+                <span style={{ color: '#666' }}>Subtotal</span><span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(subtotal)}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
                 <span style={{ color: '#666' }}>Delivery fee</span>
-                {orderType === 'PICKUP'
-                  ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Free</span>
-                  : <span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated after address</span>}
+                {orderType === 'PICKUP' ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Free</span> : <span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated after address</span>}
               </div>
               {svcPct > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
@@ -499,10 +564,8 @@ export default function RestaurantClient({
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 10 }}>
-                <span style={{ color: '#666' }}>Tax</span>
-                <span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>
+                <span style={{ color: '#666' }}>Tax</span><span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>
               </div>
-
               <div style={{ background: '#f8f8fc', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <span style={{ fontSize: 13, color: '#666' }}>Tip</span>
@@ -519,7 +582,6 @@ export default function RestaurantClient({
                   ))}
                 </div>
               </div>
-
               <div style={{ borderTop: '2px solid #f0f0f0', paddingTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
                 <span style={{ fontSize: 15, fontWeight: 800, color: DARK }}>Total</span>
                 <div style={{ textAlign: 'right' }}>
@@ -527,13 +589,11 @@ export default function RestaurantClient({
                   {orderType === 'DELIVERY' && <div style={{ fontSize: 10, color: '#bbb' }}>+ delivery & tax</div>}
                 </div>
               </div>
-
               {belowMin && (
                 <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, color: '#92400E' }}>
                   {formatPrice(minOrder - subtotal)} more to meet the {formatPrice(minOrder)} minimum
                 </div>
               )}
-
               {fmRef ? (
                 <button onClick={() => { if (cart.length > 0 && !belowMin) setCheckoutOpen(true) }} disabled={cart.length === 0 || belowMin}
                   style={{ width: '100%', padding: '13px', border: 'none', borderRadius: 12, background: cart.length > 0 && !belowMin ? BLUE : '#e8e8e8', color: cart.length > 0 && !belowMin ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: cart.length > 0 && !belowMin ? 'pointer' : 'default', boxShadow: cart.length > 0 && !belowMin ? '0 4px 14px rgba(91,111,232,0.25)' : 'none', transition: 'all 0.15s' }}>
@@ -557,7 +617,6 @@ export default function RestaurantClient({
     <div style={{ minHeight: '100svh', background: '#f8f8fc', fontFamily: F }}>
       <GlobalHeader />
 
-      {/* Selection bar — sticky, appears once date is confirmed */}
       {hasSelection && (
         <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 52, zIndex: 150, boxShadow: '0 1px 0 #f0f0f0' }}>
           <div style={{ maxWidth: 1140, margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12, height: 46 }}>
@@ -576,14 +635,12 @@ export default function RestaurantClient({
         </div>
       )}
 
-      {/* Announcement banner */}
       {notices.length > 0 && (
         <div style={{ background: DARK, color: 'rgba(255,255,255,0.78)', fontSize: 12, fontWeight: 500, textAlign: 'center', padding: '8px 16px', letterSpacing: '0.03em' }}>
           {notices.join('  ·  ')}
         </div>
       )}
 
-      {/* Restaurant header */}
       <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
         <div style={{ maxWidth: 1140, margin: '0 auto', padding: '20px 24px 0' }}>
           <Link href="/fullmap" style={{ fontSize: 12, color: '#888', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 16 }}>
@@ -607,8 +664,6 @@ export default function RestaurantClient({
               </div>
             </div>
           </div>
-
-          {/* Menu tabs */}
           <div style={{ display: 'flex', overflowX: 'auto', borderTop: '1px solid #f0f0f0' }}>
             {menuData.length > 0 ? menuData.map((s, i) => (
               <button key={s.menu.reference} onClick={() => setActiveMenuIdx(i)} style={{
@@ -618,9 +673,7 @@ export default function RestaurantClient({
                 borderBottom: `2px solid ${activeMenuIdx === i ? INDIGO : 'transparent'}`,
                 fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.12s',
               }}>{s.menu.name}</button>
-            )) : (
-              <div style={{ padding: '11px 0', fontSize: 13, color: '#aaa' }}>Menu</div>
-            )}
+            )) : <div style={{ padding: '11px 0', fontSize: 13, color: '#aaa' }}>Menu</div>}
           </div>
         </div>
       </div>
@@ -628,7 +681,7 @@ export default function RestaurantClient({
       {/* Two-panel body */}
       <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 120px', display: 'flex', gap: 24 }}>
 
-        {/* LEFT: packages */}
+        {/* LEFT: packages — horizontal cards */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {menuData.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '72px 0' }}>
@@ -645,62 +698,38 @@ export default function RestaurantClient({
           ) : (
             activeSection?.categories.map(cat => (
               <div key={cat.reference} style={{ marginBottom: 40 }}>
-
-                {/* Sticky category header */}
                 {(activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
-                  <div style={{ position: 'sticky', top: hasSelection ? 98 : 52, zIndex: 10, background: '#f8f8fc', padding: '10px 0 10px', marginBottom: 4 }}>
+                  <div style={{ position: 'sticky', top: hasSelection ? 98 : 52, zIndex: 10, background: '#f8f8fc', padding: '10px 0', marginBottom: 4 }}>
                     <h2 style={{ fontSize: 16, fontWeight: 800, color: DARK, margin: 0, letterSpacing: '-0.01em' }}>{cat.name}</h2>
                     {cat.description && <p style={{ fontSize: 13, color: '#888', margin: '4px 0 0' }}>{cat.description}</p>}
                   </div>
                 )}
-
-                {/* Horizontal package list */}
-                <div className="pkg-list">
+                <div>
                   {cat.mealPackages.filter(p => p.available !== false).map(pkg => {
                     const qty = cartQty(pkg.reference)
                     const imgUrl = pkg.image?.reference ? pkgImg(pkg.image.reference, 300) : null
                     const inventory = pkg.inventoryBalanceCountperTime
                     const hasModifiers = (pkg.extraItemsGroups?.length ?? 0) > 0
-
                     return (
                       <div key={pkg.reference} className="pkg-card" style={{
-                        background: '#fff',
-                        borderRadius: 12,
+                        background: '#fff', borderRadius: 12,
                         border: `1px solid ${qty > 0 ? BLUE : '#f0f0f0'}`,
-                        display: 'flex',
-                        flexDirection: 'row',
-                        padding: 16,
-                        marginBottom: 12,
-                        gap: 14,
+                        display: 'flex', flexDirection: 'row', padding: 16, marginBottom: 12, gap: 14,
                         boxShadow: qty > 0 ? '0 4px 20px rgba(91,111,232,0.12)' : '0 1px 4px rgba(0,0,0,0.04)',
                         transition: 'box-shadow 0.15s, border-color 0.15s',
                       }}>
-
-                        {/* LEFT: text content */}
+                        {/* LEFT: text */}
                         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: '#111', marginBottom: 4, lineHeight: 1.3 }}>
-                            {pkg.name}
-                          </div>
-
+                          <div style={{ fontSize: 15, fontWeight: 700, color: '#111', marginBottom: 4, lineHeight: 1.3 }}>{pkg.name}</div>
                           {pkg.description && (
-                            <p style={{
-                              fontSize: 13, color: '#666', lineHeight: 1.5, margin: '0 0 10px',
-                              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-                            } as React.CSSProperties}>{pkg.description}</p>
+                            <p style={{ fontSize: 13, color: '#666', lineHeight: 1.5, margin: '0 0 10px', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>
+                              {pkg.description}
+                            </p>
                           )}
-
-                          {/* Price + serves row */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', marginBottom: 10 }}>
                             <span style={{ fontSize: 15, fontWeight: 700, color: BLUE }}>{formatPrice(pkg.price)}</span>
-                            {pkg.serves && (
-                              <>
-                                <span style={{ color: '#ddd', fontSize: 14 }}>|</span>
-                                <span style={{ fontSize: 13, color: '#888' }}>Serves {pkg.serves}</span>
-                              </>
-                            )}
+                            {pkg.serves && <><span style={{ color: '#ddd', fontSize: 14 }}>|</span><span style={{ fontSize: 13, color: '#888' }}>Serves {pkg.serves}</span></>}
                           </div>
-
-                          {/* Add to Order or qty control */}
                           {(qty === 0 || hasModifiers) ? (
                             <button onClick={() => handleAddClick(pkg)}
                               style={{ width: '100%', height: 36, background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.2)' }}>
@@ -716,26 +745,17 @@ export default function RestaurantClient({
                               )}
                             </div>
                           )}
-
-                          {/* Special instructions link when qty > 0 and no modifiers */}
                           {pkg.allowedSpecialInstructions && qty > 0 && !hasModifiers && (
-                            <button onClick={() => handleAddClick(pkg)}
-                              style={{ display: 'block', textAlign: 'left', marginTop: 6, fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, textDecoration: 'underline', padding: 0 }}>
+                            <button onClick={() => handleAddClick(pkg)} style={{ display: 'block', textAlign: 'left', marginTop: 6, fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, textDecoration: 'underline', padding: 0 }}>
                               Add a note
                             </button>
                           )}
                         </div>
-
                         {/* RIGHT: image */}
                         <div style={{ width: 120, height: 120, borderRadius: 8, overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg,#f4f4fb 0%,#eaeaf6 100%)', position: 'relative', alignSelf: 'flex-start' }}>
-                          {imgUrl && (
-                            <img src={imgUrl} alt={pkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                              onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                          )}
+                          {imgUrl && <img src={imgUrl} alt={pkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />}
                           {inventory != null && inventory > 0 && (
-                            <div style={{ position: 'absolute', top: 6, left: 6, background: '#EF4444', color: '#fff', borderRadius: 20, fontSize: 9, fontWeight: 700, padding: '2px 6px' }}>
-                              {inventory} left
-                            </div>
+                            <div style={{ position: 'absolute', top: 6, left: 6, background: '#EF4444', color: '#fff', borderRadius: 20, fontSize: 9, fontWeight: 700, padding: '2px 6px' }}>{inventory} left</div>
                           )}
                           {qty > 0 && (
                             <div style={{ position: 'absolute', top: 6, right: 6, background: BLUE, color: '#fff', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800 }}>{qty}</div>
@@ -781,119 +801,112 @@ export default function RestaurantClient({
 
       {/* ── Menus Modal ────────────────────────────────────────────────────── */}
       {menusOpen && (
-        <div onClick={() => setMenusOpen(false)}
+        <div onClick={closeMenus}
           style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 500, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,0.22)' }}>
+            style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 500 }}>
 
             {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px 16px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>Menus</div>
-              <button onClick={() => setMenusOpen(false)} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 34, height: 34, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>×</button>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 20px 16px', borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>Menus</div>
+              <button onClick={closeMenus} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>×</button>
             </div>
 
-            <div style={{ padding: '0 24px 24px' }}>
-
-              {/* Menu radio list — only shown when multiple menus exist */}
-              {menuData.length > 1 && (
-                <div style={{ marginBottom: 4 }}>
-                  {menuData.map((s, i) => {
-                    const nextAvail = getMenuNextAvail(s.menu)
-                    const types = s.menu.settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
-                    const typesLabel = types.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & ')
-                    const isSelected = tempMenuIdx === i
-                    return (
-                      <div key={s.menu.reference}>
-                        <div onClick={() => selectMenuInModal(i)}
-                          style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 0', cursor: 'pointer' }}>
-                          {/* Custom radio */}
-                          <div style={{
-                            width: 18, height: 18, borderRadius: '50%',
-                            border: `2px solid ${isSelected ? DARK : '#ccc'}`,
-                            background: isSelected ? DARK : '#fff',
-                            flexShrink: 0, marginTop: 2,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            transition: 'all 0.12s',
-                          }}>
-                            {isSelected && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />}
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 15, fontWeight: 600, color: '#111', marginBottom: 3 }}>
-                              {s.menu.name}
-                              {typesLabel && <span style={{ fontSize: 12, color: '#888', fontWeight: 400, marginLeft: 8 }}>({typesLabel})</span>}
-                            </div>
-                            {nextAvail && <div style={{ fontSize: 13, color: '#999' }}>Next available: {nextAvail}</div>}
-                          </div>
+            {/* Menu list — scrollable, capped height */}
+            <div style={{ overflowY: 'auto', maxHeight: 270, borderBottom: '1px solid #f0f0f0' }}>
+              {menuData.map((s, i) => {
+                const nextAvail = getMenuNextAvail(s.menu)
+                const types = s.menu.settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
+                const typesLabel = types.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & ')
+                const isSel = tempMenuIdx === i
+                return (
+                  <div key={s.menu.reference}>
+                    <div onClick={() => selectMenuInModal(i)}
+                      style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 20px', cursor: 'pointer', background: isSel ? '#fafafa' : '#fff', transition: 'background 0.1s' }}>
+                      {menuData.length > 1 && (
+                        <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${isSel ? DARK : '#ccc'}`, background: isSel ? DARK : '#fff', flexShrink: 0, marginTop: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.12s' }}>
+                          {isSel && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />}
                         </div>
-                        {i < menuData.length - 1 && <div style={{ height: 1, background: '#f0f0f0' }} />}
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#111', marginBottom: 2 }}>
+                          {s.menu.name}
+                          {typesLabel && <span style={{ fontSize: 12, color: '#888', fontWeight: 400, marginLeft: 6 }}>({typesLabel})</span>}
+                        </div>
+                        {nextAvail && <div style={{ fontSize: 12, color: '#999' }}>{nextAvail}</div>}
                       </div>
-                    )
-                  })}
-                </div>
-              )}
-
-              {/* Pickup / Delivery toggle */}
-              {mMenuAvail.length > 1 && (
-                <div style={{ marginBottom: 20, marginTop: menuData.length > 1 ? 16 : 20 }}>
-                  <div style={{ display: 'flex', background: '#f4f4f8', borderRadius: 12, padding: 4, gap: 4 }}>
-                    {(['PICKUP', 'DELIVERY'] as const).filter(t => mMenuAvail.includes(t)).map(type => (
-                      <button key={type} onClick={() => setTempType(type)} style={{
-                        flex: 1, padding: '10px 8px', border: 'none', borderRadius: 9, cursor: 'pointer',
-                        background: tempType === type ? DARK : 'transparent',
-                        color: tempType === type ? '#fff' : '#999', fontFamily: F, fontSize: 14,
-                        fontWeight: tempType === type ? 700 : 500,
-                        transition: 'all 0.15s',
-                      }}>
-                        {type === 'DELIVERY' ? '🚚 Delivery' : '🏃 Pickup'}
-                      </button>
-                    ))}
+                    </div>
+                    {i < menuData.length - 1 && <div style={{ height: 1, background: '#f0f0f0', margin: '0 20px' }} />}
                   </div>
-                </div>
-              )}
+                )
+              })}
+            </div>
 
-              {/* Date + Time inputs row */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, marginTop: mMenuAvail.length <= 1 ? 20 : 0 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Date</div>
-                  <div style={{ height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, display: 'flex', alignItems: 'center', padding: '0 12px', fontSize: 14, color: tempDate ? DARK : '#bbb', fontFamily: F, background: '#fff' }}>
-                    {tempDate ? fmtDateMD(tempDate) : 'Select below'}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Time</div>
-                  <select value={tempTime} onChange={e => setTempTime(e.target.value)}
-                    style={{ height: 40, width: '100%', border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 14, color: tempTime ? DARK : '#bbb', fontFamily: F, background: '#fff', outline: 'none', cursor: 'pointer', appearance: 'auto' }}>
-                    <option value="">Select time</option>
-                    {mModalTimes.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
-                  </select>
-                </div>
+            {/* Pickup / Delivery toggle */}
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ display: 'flex', border: '1.5px solid #e0e0e0', borderRadius: 10, overflow: 'hidden' }}>
+                {(['PICKUP', 'DELIVERY'] as const).map(type => {
+                  const enabled = mMenuAvail.includes(type)
+                  const active = tempType === type
+                  return (
+                    <button key={type} onClick={() => { if (enabled) setTempType(type) }}
+                      style={{ flex: 1, height: 40, background: active ? DARK : '#fff', color: active ? '#fff' : enabled ? '#444' : '#ccc', border: 'none', cursor: enabled ? 'pointer' : 'default', fontFamily: F, fontSize: 14, fontWeight: active ? 700 : 500, transition: 'all 0.12s' }}>
+                      {type === 'PICKUP' ? 'Pickup' : 'Delivery'}
+                    </button>
+                  )
+                })}
               </div>
+            </div>
 
-              {/* Inline calendar */}
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <button onClick={prevMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: DARK }}>‹</button>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{MONTH_NAMES[calMonth]} {calYear}</span>
-                  <button onClick={nextMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: DARK }}>›</button>
+            {/* Delivery address — only when Delivery selected */}
+            {tempType === 'DELIVERY' && (
+              <div style={{ padding: '12px 20px', borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <span style={{ position: 'absolute', left: 10, fontSize: 15, pointerEvents: 'none' }}>🔍</span>
+                  <input
+                    ref={addrInputRef}
+                    type="text"
+                    value={deliveryAddrLine}
+                    onChange={e => { setDeliveryAddrLine(e.target.value); setAddrValidated(false); setAddrError('') }}
+                    placeholder="Enter delivery address..."
+                    style={{ width: '100%', height: 40, paddingLeft: 34, paddingRight: addrValidated ? 32 : addrValidating ? 32 : 10, border: `1.5px solid ${addrValidated ? '#22C55E' : addrError ? '#EF4444' : '#e8e8e8'}`, borderRadius: 8, fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  {addrValidating && <span style={{ position: 'absolute', right: 10, fontSize: 12, color: '#888' }}>…</span>}
+                  {addrValidated && !addrValidating && <span style={{ position: 'absolute', right: 10, color: '#22C55E', fontSize: 16, fontWeight: 700 }}>✓</span>}
                 </div>
-                <MonthCalendar year={calYear} month={calMonth} availSet={mAvailSet} todayIso={todayIso} selDate={tempDate} onSelect={handleTempDateSelect} />
+                {addrError && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 5 }}>{addrError}</div>}
+                {addrValidated && addrFee != null && <div style={{ fontSize: 12, color: '#22C55E', marginTop: 5 }}>Delivery fee: {formatPrice(addrFee)}</div>}
               </div>
+            )}
 
-              {/* Start Order CTA */}
-              <button onClick={startOrder} disabled={!tempDate || !tempTime}
-                style={{
-                  width: '100%', height: 48, background: tempDate && tempTime ? DARK : '#e8e8e8',
-                  color: tempDate && tempTime ? '#fff' : '#bbb', border: 'none', borderRadius: 24,
-                  fontSize: 15, fontWeight: 700, cursor: tempDate && tempTime ? 'pointer' : 'default',
-                  fontFamily: F, transition: 'all 0.15s',
-                  boxShadow: tempDate && tempTime ? '0 4px 14px rgba(26,16,40,0.2)' : 'none',
-                }}>
-                {tempDate && tempTime ? `Start Order — ${fmtDateShort(tempDate)}, ${fmtTime(tempTime)}` : 'Select a date & time'}
+            {/* Date + Time row */}
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Date</div>
+                <button ref={dateButtonRef} onClick={openCalendar}
+                  style={{ width: '100%', height: 40, border: `1.5px solid ${calOpen ? BLUE : '#e8e8e8'}`, borderRadius: 8, background: '#fff', cursor: 'pointer', fontFamily: F, fontSize: 13, textAlign: 'left', padding: '0 10px', color: tempDate ? DARK : '#bbb', display: 'flex', alignItems: 'center', gap: 6, transition: 'border-color 0.12s' }}>
+                  <span style={{ flexShrink: 0 }}>📅</span>
+                  <span>{tempDate ? fmtDateMD(tempDate) : 'Select date'}</span>
+                </button>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Time</div>
+                <select value={tempTime} onChange={e => setTempTime(e.target.value)}
+                  style={{ width: '100%', height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: tempTime ? DARK : '#aaa', fontFamily: F, background: '#fff', cursor: 'pointer', outline: 'none' }}>
+                  <option value="">Select time</option>
+                  {mModalTimes.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Start Order CTA */}
+            <div style={{ padding: '14px 20px 20px' }}>
+              <button onClick={startOrder} disabled={!canStartOrder}
+                style={{ width: '100%', height: 48, background: canStartOrder ? DARK : '#e0e0e0', color: canStartOrder ? '#fff' : '#bbb', border: 'none', borderRadius: 24, fontSize: 15, fontWeight: 700, cursor: canStartOrder ? 'pointer' : 'default', fontFamily: F, transition: 'all 0.15s', boxShadow: canStartOrder ? '0 4px 14px rgba(26,16,40,0.22)' : 'none' }}>
+                Start Order
               </button>
-
               {hasSelection && (
-                <button onClick={() => setMenusOpen(false)}
-                  style={{ width: '100%', padding: '12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#aaa', marginTop: 10, fontFamily: F }}>
+                <button onClick={closeMenus} style={{ display: 'block', width: '100%', textAlign: 'center', marginTop: 10, padding: '8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#aaa', fontFamily: F }}>
                   Keep current selection
                 </button>
               )}
@@ -902,90 +915,23 @@ export default function RestaurantClient({
         </div>
       )}
 
-      {/* ── Date/Time Picker Modal (kept for backwards compat) ─────────────── */}
-      {pickerOpen && (
-        <div onClick={closePicker}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      {/* ── Calendar popover — fixed position, outside modal DOM ──────────── */}
+      {calOpen && calPos && (
+        <>
+          <div onClick={() => setCalOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 800 }} />
           <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 24, width: '100%', maxWidth: 480, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,0.22)' }}>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 24px 0' }}>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>When do you want your order?</div>
-                <div style={{ fontSize: 13, color: '#888', marginTop: 3 }}>{restaurant.name}</div>
-              </div>
-              <button onClick={closePicker} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 34, height: 34, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>×</button>
+            style={{ position: 'fixed', top: calPos.top, left: calPos.left, width: 288, background: '#fff', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', border: '1px solid #e8e8e8', padding: '12px 14px', zIndex: 900 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <button onClick={prevMonth} style={{ width: 28, height: 28, borderRadius: 7, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: DARK, fontFamily: F }}>‹</button>
+              <span style={{ fontSize: 13, fontWeight: 700, color: DARK, fontFamily: F }}>{MONTH_NAMES[calMonth]} {calYear}</span>
+              <button onClick={nextMonth} style={{ width: 28, height: 28, borderRadius: 7, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: DARK, fontFamily: F }}>›</button>
             </div>
-
-            <div style={{ padding: '20px 24px 24px' }}>
-              {menuAvail.length > 1 && (
-                <div style={{ marginBottom: 22 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Fulfillment Method</div>
-                  <div style={{ display: 'flex', background: '#f4f4f8', borderRadius: 12, padding: 4, gap: 4 }}>
-                    {(['PICKUP', 'DELIVERY'] as const).filter(t => menuAvail.includes(t)).map(type => (
-                      <button key={type} onClick={() => setTempType(type)} style={{
-                        flex: 1, padding: '10px 8px', border: 'none', borderRadius: 9, cursor: 'pointer',
-                        background: tempType === type ? '#fff' : 'transparent',
-                        color: tempType === type ? DARK : '#999', fontFamily: F, fontSize: 14,
-                        fontWeight: tempType === type ? 700 : 500,
-                        boxShadow: tempType === type ? '0 1px 6px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s',
-                      }}>
-                        {type === 'DELIVERY' ? '🚚 Delivery' : '🏃 Pickup'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <button onClick={prevMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: DARK }}>‹</button>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{MONTH_NAMES[calMonth]} {calYear}</span>
-                  <button onClick={nextMonth} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: DARK }}>›</button>
-                </div>
-                <MonthCalendar year={calYear} month={calMonth} availSet={availSet} todayIso={todayIso} selDate={tempDate} onSelect={handleTempDateSelect} />
-              </div>
-
-              {tempDate && (
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
-                    {tempType === 'PICKUP' ? 'Pickup' : 'Delivery'} Time — {fmtDateShort(tempDate)}
-                  </div>
-                  {modalTimes.length === 0 ? (
-                    <div style={{ fontSize: 13, color: '#bbb', padding: '12px 0' }}>No times available on this date.</div>
-                  ) : (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {modalTimes.map(t => {
-                        const sel = t === tempTime
-                        return (
-                          <button key={t} onClick={() => setTempTime(t)} style={{
-                            padding: '8px 13px', borderRadius: 9, cursor: 'pointer', fontFamily: F, fontSize: 13,
-                            border: `2px solid ${sel ? BLUE : '#e8e8e8'}`,
-                            background: sel ? BLUE : '#fff',
-                            color: sel ? '#fff' : DARK, fontWeight: sel ? 700 : 500, transition: 'all 0.12s',
-                          }}>{fmtTime(t)}</button>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
-                <button onClick={closePicker} style={{ flex: 1, padding: '13px', background: '#f4f4f8', color: '#555', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                  {hasSelection ? 'Keep Current' : 'Skip for now'}
-                </button>
-                <button onClick={confirmPicker} disabled={!tempDate || !tempTime}
-                  style={{ flex: 2, padding: '13px', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, fontFamily: F, background: tempDate && tempTime ? BLUE : '#e8e8e8', color: tempDate && tempTime ? '#fff' : '#bbb', cursor: tempDate && tempTime ? 'pointer' : 'default', boxShadow: tempDate && tempTime ? '0 4px 14px rgba(91,111,232,0.25)' : 'none', transition: 'all 0.15s' }}>
-                  {tempDate && tempTime ? `Confirm — ${fmtDateShort(tempDate)}, ${fmtTime(tempTime)}` : 'Select a date & time'}
-                </button>
-              </div>
-            </div>
+            <MonthCalendar year={calYear} month={calMonth} availSet={mAvailSet} todayIso={todayIso} selDate={tempDate} onSelect={handleDateSelect} />
           </div>
-        </div>
+        </>
       )}
 
-      {/* ── Checkout Drawer ────────────────────────────────────────────── */}
+      {/* ── Checkout Drawer ────────────────────────────────────────────────── */}
       {checkoutOpen && fmRef && (
         <CheckoutDrawer
           fmRef={fmRef} fmSlug={fmSlug} restaurantName={restaurant.name}
@@ -995,19 +941,17 @@ export default function RestaurantClient({
         />
       )}
 
-      {/* ── Add-ons / Modifiers Modal ─────────────────────────────────── */}
+      {/* ── Add-ons / Modifiers Modal ──────────────────────────────────────── */}
       {addOnsPkg && (
         <div onClick={() => setAddOnsPkg(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div onClick={e => e.stopPropagation()}
             style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 32px 80px rgba(0,0,0,0.22)' }}>
-
             {addOnsPkg.image?.reference && (
               <div style={{ height: 140, background: 'linear-gradient(135deg,#f4f4fb,#eaeaf6)', overflow: 'hidden', borderRadius: '20px 20px 0 0', flexShrink: 0 }}>
                 <img src={pkgImg(addOnsPkg.image.reference, 550)} alt={addOnsPkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
               </div>
             )}
-
             <div style={{ padding: '18px 22px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
               <div>
                 <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>{addOnsPkg.name}</div>
@@ -1015,14 +959,12 @@ export default function RestaurantClient({
               </div>
               <button onClick={() => setAddOnsPkg(null)} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 12 }}>×</button>
             </div>
-
             <div style={{ overflowY: 'auto', padding: '16px 22px', flex: 1 }}>
               {(addOnsPkg.extraItemsGroups ?? []).map(group => {
                 const total = groupTotal(group)
                 const isRequired = group.subExternalName === 'Required' || group.minSelectedItems > 0
                 const isFull = total >= group.maxSelectedItems
                 const isValid = isGroupValid(group)
-
                 return (
                   <div key={group.reference} style={{ marginBottom: 24 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -1030,9 +972,7 @@ export default function RestaurantClient({
                         <span style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{group.externalName || group.name}</span>
                         {isRequired && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: '#C044C8' }}>Required</span>}
                       </div>
-                      <span style={{ fontSize: 12, color: isValid ? '#22C55E' : '#aaa', fontWeight: 600 }}>
-                        {total} of {group.maxSelectedItems} selected
-                      </span>
+                      <span style={{ fontSize: 12, color: isValid ? '#22C55E' : '#aaa', fontWeight: 600 }}>{total} of {group.maxSelectedItems} selected</span>
                     </div>
                     {group.minSelectedItems > 0 && (
                       <div style={{ fontSize: 12, color: '#aaa', marginBottom: 10 }}>
@@ -1049,13 +989,9 @@ export default function RestaurantClient({
                               {addOn.price > 0 && <span style={{ fontSize: 12, color: BLUE, fontWeight: 700, marginLeft: 8 }}>+{formatPrice(addOn.price)}</span>}
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                              {qty > 0 && (
-                                <button onClick={() => setAddOnQty(group.reference, addOn.reference, -1, group.maxSelectedItems)}
-                                  style={{ width: 26, height: 26, borderRadius: 7, border: `1.5px solid ${BLUE}`, background: '#fff', cursor: 'pointer', fontSize: 14, color: BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
-                              )}
+                              {qty > 0 && <button onClick={() => setAddOnQty(group.reference, addOn.reference, -1, group.maxSelectedItems)} style={{ width: 26, height: 26, borderRadius: 7, border: `1.5px solid ${BLUE}`, background: '#fff', cursor: 'pointer', fontSize: 14, color: BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>}
                               {qty > 0 && <span style={{ fontSize: 14, fontWeight: 800, color: BLUE, minWidth: 18, textAlign: 'center' }}>{qty}</span>}
-                              <button onClick={() => { if (!isFull) setAddOnQty(group.reference, addOn.reference, 1, group.maxSelectedItems) }}
-                                disabled={isFull}
+                              <button onClick={() => { if (!isFull) setAddOnQty(group.reference, addOn.reference, 1, group.maxSelectedItems) }} disabled={isFull}
                                 style={{ width: 26, height: 26, borderRadius: 7, border: 'none', background: isFull ? '#f0f0f0' : BLUE, cursor: isFull ? 'default' : 'pointer', fontSize: 14, color: isFull ? '#bbb' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
                             </div>
                           </div>
@@ -1065,17 +1001,13 @@ export default function RestaurantClient({
                   </div>
                 )
               })}
-
               {addOnsPkg.allowedSpecialInstructions && (
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 6 }}>Special Instructions</div>
-                  <textarea value={addOnsNote} onChange={e => setAddOnsNote(e.target.value)}
-                    placeholder="Allergies, dietary restrictions, requests…"
-                    rows={3}
+                  <textarea value={addOnsNote} onChange={e => setAddOnsNote(e.target.value)} placeholder="Allergies, dietary restrictions, requests…" rows={3}
                     style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e8e8e8', borderRadius: 10, fontSize: 13, fontFamily: F, color: DARK, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
                 </div>
               )}
-
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>Quantity</span>
                 <button onClick={() => setAddOnsQty(q => Math.max(1, q - 1))} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 16, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
@@ -1083,7 +1015,6 @@ export default function RestaurantClient({
                 <button onClick={() => setAddOnsQty(q => q + 1)} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 16, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
               </div>
             </div>
-
             <div style={{ padding: '14px 22px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
               <button onClick={confirmAddOns} disabled={!canConfirmAddOns()}
                 style={{ width: '100%', padding: '13px', background: canConfirmAddOns() ? BLUE : '#e8e8e8', color: canConfirmAddOns() ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: canConfirmAddOns() ? 'pointer' : 'default', fontFamily: F, boxShadow: canConfirmAddOns() ? '0 4px 14px rgba(91,111,232,0.25)' : 'none', transition: 'all 0.15s' }}>
@@ -1097,9 +1028,9 @@ export default function RestaurantClient({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
-        .pkg-list { display: flex; flex-direction: column; }
         .pkg-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.09) !important; }
         input:focus, textarea:focus, select:focus { border-color: ${BLUE} !important; box-shadow: 0 0 0 3px rgba(91,111,232,0.1) !important; }
+        .pac-container { z-index: 999 !important; font-family: 'DM Sans', sans-serif !important; }
         @media (max-width: 900px) {
           .order-sidebar { display: none !important; }
           .mobile-order-bar { display: block !important; }
