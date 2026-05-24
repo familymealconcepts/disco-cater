@@ -450,13 +450,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
   // ── Add-ons modal helpers ─────────────────────────────────────────────────
   function handleAddClickInner(pkg: FmPackage) {
+    setAddOnsPkg(pkg)
     const groups = pkg.extraItemsGroups ?? []
-    if (groups.length > 0 || pkg.allowedSpecialInstructions) {
-      setAddOnsPkg(pkg)
-      const init: Record<string, Record<string, number>> = {}
-      groups.forEach(g => { const m: Record<string, number> = {}; g.addOns.forEach(a => { m[a.reference] = 0 }); init[g.reference] = m })
-      setSelAddOns(init); setAddOnsNote(''); setAddOnsQty(1)
-    } else { addItem(pkg) }
+    const init: Record<string, Record<string, number>> = {}
+    groups.forEach(g => { const m: Record<string, number> = {}; g.addOns.forEach(a => { m[a.reference] = 0 }); init[g.reference] = m })
+    setSelAddOns(init); setAddOnsNote(''); setAddOnsQty(1)
   }
   function handleAddClick(pkg: FmPackage) {
     if (!hasSelection) {
@@ -545,7 +543,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       <div style={{ padding: '0 16px' }}>
         {cart.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '24px 0 8px', color: '#bbb', fontSize: 13, lineHeight: 1.7 }}>
-            Browse the menu and click<br /><strong style={{ color: '#aaa' }}>Add to Order</strong> to get started
+            Browse the menu and click<br /><strong style={{ color: '#aaa' }}>any item</strong> to get started
           </div>
         ) : (
           <>
@@ -728,12 +726,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     const inventory = pkg.inventoryBalanceCountperTime
                     const hasModifiers = (pkg.extraItemsGroups?.length ?? 0) > 0
                     return (
-                      <div key={pkg.reference} className="pkg-card" style={{
+                      <div key={pkg.reference} className="pkg-card" onClick={() => handleAddClick(pkg)} style={{
                         background: '#fff', borderRadius: 12,
                         border: `1px solid ${qty > 0 ? BLUE : '#f0f0f0'}`,
                         display: 'flex', flexDirection: 'row', padding: 12, gap: 12,
                         boxShadow: qty > 0 ? '0 4px 20px rgba(91,111,232,0.12)' : '0 1px 4px rgba(0,0,0,0.04)',
                         transition: 'box-shadow 0.15s, border-color 0.15s',
+                        cursor: 'pointer',
                       }}>
                         {/* LEFT: text */}
                         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
@@ -743,29 +742,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                               {pkg.description}
                             </p>
                           )}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto' }}>
                             <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{formatPrice(pkg.price)}</span>
                             {pkg.serves && <><span style={{ color: '#ddd', fontSize: 14 }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {pkg.serves}</span></>}
                           </div>
-                          {(qty === 0 || hasModifiers) ? (
-                            <button onClick={() => handleAddClick(pkg)}
-                              style={{ width: '100%', height: 32, background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.2)' }}>
-                              {hasModifiers && qty > 0 ? `Add another (+${formatPrice(pkg.price)})` : 'Add to Order'}
-                            </button>
-                          ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <button onClick={() => updateQty(pkg.reference, -1)} style={{ width: 30, height: 30, borderRadius: 7, border: `1.5px solid ${BLUE}`, background: '#fff', cursor: 'pointer', fontSize: 14, color: BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
-                              <span style={{ fontSize: 14, fontWeight: 800, color: BLUE, minWidth: 20, textAlign: 'center' }}>{qty}</span>
-                              <button onClick={() => addItem(pkg)} style={{ width: 30, height: 30, borderRadius: 7, border: 'none', background: BLUE, cursor: 'pointer', fontSize: 14, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
-                              {pkg.allowedSpecialInstructions && (
-                                <button onClick={() => handleAddClick(pkg)} style={{ fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, textDecoration: 'underline', marginLeft: 4 }}>Note</button>
-                              )}
+                          {qty > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6 }}>
+                              <div style={{ width: 18, height: 18, borderRadius: '50%', background: BLUE, color: '#fff', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qty}</div>
+                              <span style={{ fontSize: 11, color: BLUE, fontWeight: 600 }}>in order</span>
                             </div>
-                          )}
-                          {pkg.allowedSpecialInstructions && qty > 0 && !hasModifiers && (
-                            <button onClick={() => handleAddClick(pkg)} style={{ display: 'block', textAlign: 'left', marginTop: 6, fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, textDecoration: 'underline', padding: 0 }}>
-                              Add a note
-                            </button>
                           )}
                         </div>
                         {/* RIGHT: image — only rendered if image exists */}
@@ -976,9 +961,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               </div>
             )}
             <div style={{ padding: '18px 22px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
-              <div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>{addOnsPkg.name}</div>
-                <div style={{ fontSize: 13, color: '#888', marginTop: 2 }}>{formatPrice(addOnsPkg.price)} per package</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em', marginBottom: 4 }}>{addOnsPkg.name}</div>
+                {addOnsPkg.description && (
+                  <p style={{ fontSize: 13, color: '#666', lineHeight: 1.55, margin: '0 0 4px' }}>{addOnsPkg.description}</p>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{formatPrice(addOnsPkg.price)}</span>
+                  {addOnsPkg.serves && <><span style={{ color: '#ddd' }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {addOnsPkg.serves}</span></>}
+                </div>
               </div>
               <button onClick={() => setAddOnsPkg(null)} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 12 }}>×</button>
             </div>
