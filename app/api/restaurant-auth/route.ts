@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
     })
 
     const data = await fmRes.json()
+    console.log('FM auth response:', JSON.stringify(data))
     if (!fmRes.ok) {
       return NextResponse.json({ error: data.message || 'Authentication failed.' }, { status: 401 })
     }
