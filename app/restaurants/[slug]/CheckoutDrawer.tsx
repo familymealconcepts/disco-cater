@@ -36,7 +36,7 @@ interface Props {
   onClose: () => void
 }
 
-type DrawerStep = 'review' | 'auth' | 'processing' | 'payment' | 'placing'
+type DrawerStep = 'review' | 'processing' | 'payment' | 'placing'
 
 function fmt$(n: number) { return `$${n % 1 === 0 ? n : n.toFixed(2)}` }
 function fmtDateShort(d: string) {
@@ -52,10 +52,7 @@ export default function CheckoutDrawer({
   addr, subtotal, tipAmt, svcAmt, minOrder, onClose,
 }: Props) {
   const router = useRouter()
-
-  // Auth state from context
-  const { user: authUser } = useAuthContext()
-  const [user, setUser] = useState<any>(null)
+  const { user: authUser, openAuthModal } = useAuthContext()
 
   // Checkout flow
   const [step, setStep] = useState<DrawerStep>('review')
@@ -63,16 +60,7 @@ export default function CheckoutDrawer({
   const [fmTotals, setFmTotals] = useState<any>(null)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
-
-  // Auth form
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
-  const [authEmail, setAuthEmail] = useState('')
-  const [authPw, setAuthPw] = useState('')
-  const [authFirst, setAuthFirst] = useState('')
-  const [authLast, setAuthLast] = useState('')
-  const [authPhone, setAuthPhone] = useState('')
-  const [authLoading, setAuthLoading] = useState(false)
-  const [authError, setAuthError] = useState('')
+  const [waitingForAuth, setWaitingForAuth] = useState(false)
 
   // Stripe
   const [stripeKey, setStripeKey] = useState('')
@@ -82,10 +70,14 @@ export default function CheckoutDrawer({
   const stripeRef = useRef<any>(null)
   const cardElRef = useRef<any>(null)
 
-  // Sync user from AuthContext
+  // Continue checkout after login via AuthModal
   useEffect(() => {
-    if (authUser) setUser(authUser)
-  }, [authUser])
+    if (waitingForAuth && authUser) {
+      setWaitingForAuth(false)
+      processOrder()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser, waitingForAuth])
 
   // Lock body scroll when open
   useEffect(() => {
@@ -151,27 +143,9 @@ export default function CheckoutDrawer({
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  async function handleAuth(e: React.FormEvent) {
-    e.preventDefault()
-    setAuthLoading(true); setAuthError('')
-    try {
-      const body = authMode === 'register'
-        ? { action: 'register', email: authEmail, password: authPw, firstName: authFirst, lastName: authLast, phoneNumber: authPhone }
-        : { action: 'login', email: authEmail, password: authPw }
-      const res = await fetch('/api/fm-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json()
-      if (!res.ok) { setAuthError(data.error || 'Authentication failed.'); setAuthLoading(false); return }
-      const displayData = { email: data.email, firstName: data.firstName, lastName: data.lastName, phoneNumber: data.phoneNumber, reference: data.reference, role: data.role }
-      setUser(displayData)
-      setAuthLoading(false)
-      processOrder(displayData)
-    } catch { setAuthError('Unable to connect. Please try again.'); setAuthLoading(false) }
-  }
-
-  async function processOrder(authedUser?: any) {
+  async function processOrder() {
     setStep('processing'); setError('')
-    const currentUser = authedUser || user
-    if (!currentUser) { setStep('auth'); return }
+    if (!authUser) { setWaitingForAuth(true); openAuthModal(undefined, 'login'); return }
 
     try {
       // 1. Init order
@@ -207,7 +181,7 @@ export default function CheckoutDrawer({
         }).catch(() => {})
       }
 
-      // 4. Update order to get real totals (best-effort — FM PUT may return 500)
+      // 4. Update order to get real totals (best-effort)
       try {
         const updRes = await fetch('/api/order/update', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -229,7 +203,7 @@ export default function CheckoutDrawer({
   }
 
   async function handlePlaceOrder() {
-    if (!user) return
+    if (!authUser) return
     setStep('placing'); setError('')
 
     try {
@@ -253,6 +227,14 @@ export default function CheckoutDrawer({
       })
       const confData = await confRes.json()
       if (!confRes.ok && confData.error) throw new Error(confData.error || confData.message || 'Payment failed.')
+
+      // Save address silently (post-order)
+      if (orderType === 'DELIVERY' && addr.line1) {
+        fetch('/api/fm-user-addresses', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: addr.line1, city: addr.city, state: addr.state, zipCode: addr.zip }),
+        }).catch(() => {})
+      }
 
       // Place order
       const placeRes = await fetch('/api/order/place', {
@@ -336,7 +318,7 @@ export default function CheckoutDrawer({
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid #f0f0f0', paddingTop: 12, fontSize: 17, fontWeight: 800, color: DARK }}>
               <span>Estimated Total</span><span>{fmt$(subtotal + tipAmt + svcAmt)}</span>
             </div>
-            {orderType === 'DELIVERY' && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>+ delivery & tax</div>}
+            {orderType === 'DELIVERY' && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>+ delivery &amp; tax</div>}
           </div>
 
           {!canProceed && (
@@ -349,79 +331,24 @@ export default function CheckoutDrawer({
         </div>
 
         <div style={{ padding: '16px 24px', borderTop: '1px solid #f0f0f0' }}>
-          <button onClick={() => user ? processOrder() : setStep('auth')} disabled={!canProceed}
+          <button
+            onClick={() => {
+              if (authUser) {
+                processOrder()
+              } else {
+                setWaitingForAuth(true)
+                openAuthModal(undefined, 'login')
+              }
+            }}
+            disabled={!canProceed}
             style={{ width: '100%', padding: '14px', background: canProceed ? BLUE : '#e8e8e8', color: canProceed ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: canProceed ? 'pointer' : 'default', fontFamily: F, boxShadow: canProceed ? '0 4px 14px rgba(91,111,232,0.25)' : 'none', transition: 'all 0.15s' }}>
-            {user ? `Continue as ${user.firstName} →` : 'Continue to Login →'}
+            {authUser ? `Continue as ${authUser.firstName} →` : 'Continue to Login →'}
           </button>
-          {!user && (
+          {!authUser && (
             <div style={{ textAlign: 'center', marginTop: 10, fontSize: 12, color: '#aaa' }}>
-              You'll log in or create an account on the next step
+              You&apos;ll log in or create an account on the next step
             </div>
           )}
-        </div>
-      </>
-    )
-  }
-
-  // ── Step: Auth ─────────────────────────────────────────────────────────────
-  function AuthStep() {
-    return (
-      <>
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0' }}>
-          <h2 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '0 0 4px', letterSpacing: '-0.02em' }}>
-            {authMode === 'login' ? 'Log in to continue' : 'Create an account'}
-          </h2>
-          <div style={{ fontSize: 13, color: '#888' }}>Required to place your order</div>
-        </div>
-
-        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-          {/* Mode toggle */}
-          <div style={{ display: 'flex', background: '#f4f4f8', borderRadius: 10, padding: 3, marginBottom: 22, gap: 3 }}>
-            {(['login', 'register'] as const).map(m => (
-              <button key={m} onClick={() => { setAuthMode(m); setAuthError('') }}
-                style={{ flex: 1, padding: '9px', border: 'none', borderRadius: 8, cursor: 'pointer', fontFamily: F, fontSize: 13, fontWeight: authMode === m ? 700 : 500, background: authMode === m ? '#fff' : 'transparent', color: authMode === m ? DARK : '#999', boxShadow: authMode === m ? '0 1px 4px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.12s' }}>
-                {m === 'login' ? 'Log In' : 'Sign Up'}
-              </button>
-            ))}
-          </div>
-
-          <form onSubmit={handleAuth} id="auth-form">
-            {authMode === 'register' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-                <div>
-                  <label style={labelSt}>First name</label>
-                  <input value={authFirst} onChange={e => setAuthFirst(e.target.value)} required placeholder="Jane" style={inputSt} />
-                </div>
-                <div>
-                  <label style={labelSt}>Last name</label>
-                  <input value={authLast} onChange={e => setAuthLast(e.target.value)} required placeholder="Smith" style={inputSt} />
-                </div>
-              </div>
-            )}
-            <div style={{ marginBottom: 12 }}>
-              <label style={labelSt}>Email</label>
-              <input type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required autoComplete="email" placeholder="you@example.com" style={inputSt} />
-            </div>
-            <div style={{ marginBottom: authMode === 'register' ? 12 : 20 }}>
-              <label style={labelSt}>Password</label>
-              <input type="password" value={authPw} onChange={e => setAuthPw(e.target.value)} required autoComplete={authMode === 'register' ? 'new-password' : 'current-password'} placeholder="••••••••" style={inputSt} />
-            </div>
-            {authMode === 'register' && (
-              <div style={{ marginBottom: 20 }}>
-                <label style={labelSt}>Phone (optional)</label>
-                <input type="tel" value={authPhone} onChange={e => setAuthPhone(e.target.value)} placeholder="+1 (555) 000-0000" style={inputSt} />
-              </div>
-            )}
-            {authError && <div style={{ color: '#c0392b', fontSize: 13, marginBottom: 14, padding: '10px 12px', background: '#FEF2F2', borderRadius: 8 }}>{authError}</div>}
-          </form>
-        </div>
-
-        <div style={{ padding: '16px 24px', borderTop: '1px solid #f0f0f0' }}>
-          <button type="submit" form="auth-form" disabled={authLoading}
-            style={{ width: '100%', padding: '14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: authLoading ? 'not-allowed' : 'pointer', fontFamily: F, opacity: authLoading ? 0.7 : 1, boxShadow: '0 4px 14px rgba(91,111,232,0.25)' }}>
-            {authLoading ? (authMode === 'login' ? 'Logging in…' : 'Creating account…') : (authMode === 'login' ? 'Log In & Continue →' : 'Create Account & Continue →')}
-          </button>
-          <button onClick={() => setStep('review')} style={{ width: '100%', marginTop: 10, padding: '10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#888', fontFamily: F }}>← Back to review</button>
         </div>
       </>
     )
@@ -450,7 +377,7 @@ export default function CheckoutDrawer({
       <>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0' }}>
           <h2 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '0 0 4px', letterSpacing: '-0.02em' }}>Payment</h2>
-          {user && <div style={{ fontSize: 13, color: '#888' }}>Placing order as {user.firstName} {user.lastName}</div>}
+          {authUser && <div style={{ fontSize: 13, color: '#888' }}>Placing order as {authUser.firstName} {authUser.lastName}</div>}
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
@@ -547,15 +474,11 @@ export default function CheckoutDrawer({
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 24px' }}>
         <div style={{ width: 56, height: 56, borderRadius: '50%', border: `3px solid ${BLUE}`, borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', marginBottom: 20 }} />
         <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 6 }}>Placing your order…</div>
-        <div style={{ fontSize: 13, color: '#888', textAlign: 'center' }}>Please don't close this window</div>
+        <div style={{ fontSize: 13, color: '#888', textAlign: 'center' }}>Please don&apos;t close this window</div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
   }
-
-  // ── Shared styles ──────────────────────────────────────────────────────────
-  const inputSt: React.CSSProperties = { width: '100%', padding: '11px 13px', border: '1.5px solid #e8e8e8', borderRadius: 9, fontSize: 14, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }
-  const labelSt: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 5 }
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -583,7 +506,7 @@ export default function CheckoutDrawer({
           )}
         </div>
 
-        {/* Error banner (for review/payment steps) */}
+        {/* Error banner (for review step) */}
         {error && step === 'review' && (
           <div style={{ padding: '10px 24px', background: '#FEF2F2', borderBottom: '1px solid #FCA5A5', color: '#991B1B', fontSize: 13 }}>{error}</div>
         )}
@@ -591,7 +514,6 @@ export default function CheckoutDrawer({
         {/* Step content */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {step === 'review' && <ReviewStep />}
-          {step === 'auth' && <AuthStep />}
           {step === 'processing' && <ProcessingStep />}
           {step === 'payment' && <PaymentStep />}
           {step === 'placing' && <PlacingStep />}
