@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { useAuthContext } from '../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
@@ -52,7 +53,8 @@ export default function CheckoutDrawer({
 }: Props) {
   const router = useRouter()
 
-  // Auth state (display only — JWT is in httpOnly cookie)
+  // Auth state from context
+  const { user: authUser } = useAuthContext()
   const [user, setUser] = useState<any>(null)
 
   // Checkout flow
@@ -80,13 +82,10 @@ export default function CheckoutDrawer({
   const stripeRef = useRef<any>(null)
   const cardElRef = useRef<any>(null)
 
-  // Load user from localStorage on mount
+  // Sync user from AuthContext
   useEffect(() => {
-    try {
-      const s = localStorage.getItem('disco_user')
-      if (s) setUser(JSON.parse(s))
-    } catch {}
-  }, [])
+    if (authUser) setUser(authUser)
+  }, [authUser])
 
   // Lock body scroll when open
   useEffect(() => {
@@ -163,7 +162,6 @@ export default function CheckoutDrawer({
       const data = await res.json()
       if (!res.ok) { setAuthError(data.error || 'Authentication failed.'); setAuthLoading(false); return }
       const displayData = { email: data.email, firstName: data.firstName, lastName: data.lastName, phoneNumber: data.phoneNumber, reference: data.reference, role: data.role }
-      localStorage.setItem('disco_user', JSON.stringify(displayData))
       setUser(displayData)
       setAuthLoading(false)
       processOrder(displayData)

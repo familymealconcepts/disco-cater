@@ -1,41 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useAuthContext } from '../context/AuthContext'
 
-const STORAGE_KEY = 'disco_user'
-
-// ── Data ──────────────────────────────────────────────────────────────────────
-const ORDERS = [
-  { id: 0, name: 'Taim — Nolita', emoji: '🥙', people: 40, service: 'Delivery', paid: true, tag: 'rec', tagLabel: 'Weekly recurring', amt: 1240, date: 'May 6, 12:00 PM', status: 'active',
-    items: [{ n: 'Team Lunch Box (x1)', p: '$28/pp' }, { n: 'Hummus & Pita Add-on', p: '$4/pp' }, { n: 'Beverages (x40)', p: '$3/pp' }],
-    type: 'Recurring', orderDate: 'Every Tuesday', orderTime: '12:00 PM' },
-  { id: 1, name: 'Son del Norte — LES', emoji: '🌮', people: 60, service: 'Delivery', paid: true, tag: 'cat', tagLabel: 'Event catering', amt: 2100, date: 'May 14, 11:30 AM', status: 'active',
-    items: [{ n: 'Taco Bar Deluxe (x1)', p: '$30/pp' }, { n: 'Guac & Chips Station', p: '$5/pp' }],
-    type: 'One-time', orderDate: 'May 14, 2026', orderTime: '11:30 AM' },
-  { id: 2, name: 'Pecking House', emoji: '🥢', people: 25, service: 'Pickup', paid: false, tag: 'pau', tagLabel: 'Paused — payment failed', amt: 680, date: 'Paused', status: 'paused',
-    items: [{ n: 'Office Feast (x1)', p: '$26/pp' }, { n: 'Spring Rolls (x25)', p: '$2/pp' }],
-    type: 'Recurring', orderDate: 'Bi-weekly', orderTime: '12:30 PM' },
-  { id: 0, name: 'Taim — Nolita', emoji: '🥙', people: 40, service: 'Delivery', paid: true, tag: 'rec', tagLabel: 'Weekly recurring', amt: 1240, date: 'May 13, 12:00 PM', status: 'active', items: [], type: 'Recurring', orderDate: 'Every Tuesday', orderTime: '12:00 PM' },
-]
-const PAST = [
-  { id: 0, name: 'Taim — Nolita', emoji: '🥙', people: 40, service: 'Delivery', paid: true, amt: 1240, date: 'Apr 29, 2026' },
-  { id: 1, name: 'Son del Norte — LES', emoji: '🌮', people: 55, service: 'Delivery', paid: true, amt: 1925, date: 'Apr 22, 2026' },
-  { id: 0, name: 'Taim — Nolita', emoji: '🥙', people: 40, service: 'Delivery', paid: true, amt: 1240, date: 'Apr 15, 2026' },
-  { id: 2, name: 'Pecking House', emoji: '🥢', people: 25, service: 'Pickup', paid: true, amt: 680, date: 'Apr 8, 2026' },
-]
-const FAVS_INIT = [
-  { id: 'f0', name: 'Taim — Nolita', emoji: '🥙' },
-  { id: 'f1', name: 'Son del Norte — LES', emoji: '🌮' },
-  { id: 'f2', name: 'Pecking House', emoji: '🥢' },
-  { id: 'f3', name: '5ive Spice LES', emoji: '🌶️' },
-  { id: 'f4', name: 'Melt Shop', emoji: '🥪' },
-]
-const CAL_EVS: Record<number, { l: string; t: 'rec' | 'cat' | 'pau'; i: number }[]> = {
-  6: [{ l: 'Taim', t: 'rec', i: 0 }], 12: [{ l: 'Taim', t: 'rec', i: 0 }],
-  13: [{ l: 'Son del Norte', t: 'cat', i: 1 }], 14: [{ l: 'Son del Norte', t: 'cat', i: 1 }],
-  19: [{ l: 'Taim', t: 'rec', i: 0 }], 20: [{ l: 'Pecking House', t: 'pau', i: 2 }],
-  26: [{ l: 'Taim', t: 'rec', i: 0 }], 27: [{ l: 'Team offsite', t: 'cat', i: 1 }],
-}
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
 // ── SVG Icons (exact from original) ──────────────────────────────────────────
@@ -61,56 +28,60 @@ function Tag({ t, label }: { t: string; label: string }) {
 }
 
 // ── Right Panel ───────────────────────────────────────────────────────────────
-function RightPanel({ idx, onClose, onPayment }: { idx: number; onClose: () => void; onPayment: () => void }) {
-  const o = ORDERS[idx] || ORDERS[0]
-  const isPaused = o.tag === 'pau'
+function RightPanel({ order, onClose, onPayment }: { order: any; onClose: () => void; onPayment: () => void }) {
+  const o = order || {}
+  const isPaused = o.tag === 'pau' || o.status === 'PAUSED'
+  const name = o.name || o.restaurantName || o.restaurant?.name || 'Order'
+  const amt = o.amt || o.total || o.totalAmount || 0
+  const date = o.date || o.orderDate || o.deliveryDate || '—'
+  const items = o.items || []
+  const orderType = o.type || o.orderType || '—'
+  const service = o.service || o.orderType || '—'
+  const isPaid = o.paid !== undefined ? o.paid : (o.status !== 'UNPAID')
+  const tag = o.tag || (isPaused ? 'pau' : 'cat')
+  const tagLabel = o.tagLabel || o.status || '—'
   return (
     <div className="rp" style={{ width: 252, minWidth: 252, borderLeft: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', background: '#fff', overflowY: 'auto' }}>
       <div className="rp-handle" style={{ display: 'none' }}><div style={{ width: 36, height: 4, borderRadius: 2, background: '#ddd', margin: '10px auto 4px' }} /></div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid #f0f0f0' }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{o.name}</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{name}</span>
         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', fontSize: 18, lineHeight: 1, padding: 0 }}>✕</button>
       </div>
       <div style={{ margin: '10px 10px 0', border: '1px solid #ebebeb', borderRadius: 10, padding: 11 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#111', marginBottom: 1 }}>{o.name}</div>
-        <div style={{ fontSize: 10, color: '#555' }}>{o.people} people</div>
-        <Tag t={o.tag} label={o.tagLabel} />
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#111', marginBottom: 1 }}>{name}</div>
+        {o.people && <div style={{ fontSize: 10, color: '#555' }}>{o.people} people</div>}
+        {tagLabel && <Tag t={tag} label={tagLabel} />}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTop: '0.5px solid #f0f0f0' }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>${o.amt.toLocaleString()}</span>
-          <span style={{ fontSize: 10, color: isPaused ? '#BA7517' : '#111', fontWeight: 600 }}>{o.date}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#111' }}>${amt.toLocaleString ? amt.toLocaleString() : amt}</span>
+          <span style={{ fontSize: 10, color: isPaused ? '#BA7517' : '#111', fontWeight: 600 }}>{date}</span>
         </div>
       </div>
       <div style={{ margin: '8px 10px 10px', background: '#efefef', borderRadius: 8, padding: 10 }}>
-        {o.items && o.items.length > 0 && (
+        {items.length > 0 && (
           <>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Items</div>
-            {o.items.map((item, i) => (
+            {items.map((item: any, i: number) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '1px 0' }}>
-                <span style={{ color: '#333', fontWeight: 500 }}>{item.n}</span>
-                <span style={{ color: '#555' }}>{item.p}</span>
+                <span style={{ color: '#333', fontWeight: 500 }}>{item.n || item.name || item.mealPackageName}</span>
+                <span style={{ color: '#555' }}>{item.p || item.price}</span>
               </div>
             ))}
             <div style={{ height: '0.5px', background: '#e8e8e8', margin: '5px 0' }} />
           </>
         )}
-        {[['Type', o.type], ['Service', o.service], ['Order date', o.orderDate], ['Order time', o.orderTime], ['Payment', o.paid ? 'Paid' : 'Unpaid']].map(([l, v]) => (
+        {[['Type', orderType], ['Service', service], ['Payment', isPaid ? 'Paid' : 'Unpaid']].map(([l, v]) => (
           <div key={l} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '2px 0' }}>
             <span style={{ color: '#666' }}>{l}</span>
-            <span style={{ color: l === 'Payment' ? (o.paid ? '#1D9E75' : '#E24B4A') : '#111', fontWeight: 600 }}>{v}</span>
+            <span style={{ color: l === 'Payment' ? (isPaid ? '#1D9E75' : '#E24B4A') : '#111', fontWeight: 600 }}>{v}</span>
           </div>
         ))}
         <div style={{ display: 'flex', gap: 5, marginTop: 8 }}>
           {isPaused ? (
             <button onClick={onPayment} style={{ flex: 1, padding: 6, borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: '#5B6FE8', color: '#fff', border: 'none', fontFamily: "'DM Sans',sans-serif" }}>Update card</button>
-          ) : o.type === 'One-time' ? (
-            <>
-              <button style={{ flex: 1, padding: 6, borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: '#5B6FE8', color: '#fff', border: 'none', fontFamily: "'DM Sans',sans-serif" }}>Edit</button>
-              <button style={{ flex: 1, padding: 6, borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: '0.5px solid #F09595', color: '#E24B4A', fontFamily: "'DM Sans',sans-serif" }}>Cancel</button>
-            </>
           ) : (
             <>
               <button style={{ flex: 1, padding: 6, borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: '#5B6FE8', color: '#fff', border: 'none', fontFamily: "'DM Sans',sans-serif" }}>Edit</button>
-              <button style={{ flex: 1, padding: 6, borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: '0.5px solid #e0e0e0', color: '#555', fontFamily: "'DM Sans',sans-serif" }}>Skip next</button>
+              <button style={{ flex: 1, padding: 6, borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: '0.5px solid #F09595', color: '#E24B4A', fontFamily: "'DM Sans',sans-serif" }}>Cancel</button>
             </>
           )}
         </div>
@@ -120,10 +91,10 @@ function RightPanel({ idx, onClose, onPayment }: { idx: number; onClose: () => v
 }
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
-function Calendar({ onOpenRP }: { onOpenRP: (i: number) => void }) {
-  const [yr, setYr] = useState(2026)
-  const [mo, setMo] = useState(4)
+function Calendar({ orders, onOpenRP }: { orders: any[]; onOpenRP: (i: number) => void }) {
   const now = new Date()
+  const [yr, setYr] = useState(now.getFullYear())
+  const [mo, setMo] = useState(now.getMonth())
   const first = new Date(yr, mo, 1).getDay()
   const days = new Date(yr, mo + 1, 0).getDate()
   const prev = new Date(yr, mo, 0).getDate()
@@ -133,6 +104,21 @@ function Calendar({ onOpenRP }: { onOpenRP: (i: number) => void }) {
   const rem = (first + days) % 7
   for (let i = 1; i <= (rem ? 7 - rem : 0); i++) cells.push({ d: i, cur: false, today: false })
   const chM = (dir: number) => { let m = mo + dir, y = yr; if (m > 11) { m = 0; y++ } if (m < 0) { m = 11; y-- } setMo(m); setYr(y) }
+
+  // Build calendar events from real orders
+  const calEvs: Record<number, { l: string; t: string; i: number }[]> = {}
+  orders.forEach((o, idx) => {
+    const dateStr = o.orderDate || o.deliveryDate || o.date || o.createdAt || ''
+    if (!dateStr) return
+    try {
+      const d = new Date(dateStr)
+      if (d.getFullYear() === yr && d.getMonth() === mo) {
+        const day = d.getDate()
+        if (!calEvs[day]) calEvs[day] = []
+        calEvs[day].push({ l: o.restaurantName || o.restaurant?.name || 'Order', t: 'cat', i: idx })
+      }
+    } catch {}
+  })
 
   return (
     <div>
@@ -158,7 +144,7 @@ function Calendar({ onOpenRP }: { onOpenRP: (i: number) => void }) {
           <div key={d} style={{ background: '#efefef', textAlign: 'center', fontSize: 9, color: '#666', padding: '7px 2px', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '1px solid #f0f0f0' }}>{d}</div>
         ))}
         {cells.map((cell, i) => {
-          const evs = cell.cur ? (CAL_EVS[cell.d] || []) : []
+          const evs = cell.cur ? (calEvs[cell.d] || []) : []
           return (
             <div key={i} className="cc" onClick={() => evs.length && onOpenRP(evs[0].i)} style={{ background: cell.today ? '#f0f0ff' : '#fff', minHeight: 72, padding: 6, cursor: evs.length ? 'pointer' : 'default', borderRight: '0.5px solid #f5f5f5', borderBottom: '0.5px solid #f5f5f5', opacity: cell.cur ? 1 : 0.3, transition: 'background 0.1s' }}
               onMouseOver={e => { if (evs.length) (e.currentTarget as HTMLElement).style.background = '#fafafa' }}
@@ -171,7 +157,7 @@ function Calendar({ onOpenRP }: { onOpenRP: (i: number) => void }) {
                   cat: { background: '#E1F5EE', color: '#085041' },
                   pau: { background: '#FAEEDA', color: '#633806' },
                 }
-                return <div key={j} onClick={e => { e.stopPropagation(); onOpenRP(ev.i) }} style={{ fontSize: 9, padding: '2px 5px', borderRadius: 3, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, cursor: 'pointer', ...s[ev.t] }}>{ev.l}</div>
+                return <div key={j} onClick={e => { e.stopPropagation(); onOpenRP(ev.i) }} style={{ fontSize: 9, padding: '2px 5px', borderRadius: 3, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, cursor: 'pointer', ...s[ev.t] || {} }}>{ev.l}</div>
               })}
             </div>
           )
@@ -224,22 +210,36 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
   const [rpIdx, setRpIdx] = useState<number | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [showPast, setShowPast] = useState(false)
-  const [favs, setFavs] = useState(FAVS_INIT)
+  const [favs, setFavs] = useState<any[]>([])
+  // Real API data
+  const [apiOrders, setApiOrders] = useState<any[]>([])
+  const [ordersLoading, setOrdersLoading] = useState(true)
   const initials = `${user?.firstName?.[0] ?? ''}${user?.lastName?.[0] ?? ''}`.toUpperCase() || 'DC'
+
+  useEffect(() => {
+    fetch('/api/fm-order-history?page=0&size=50', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : { content: [] })
+      .then(d => {
+        const list = d.content || d.orders || d.data || (Array.isArray(d) ? d : [])
+        setApiOrders(list)
+      })
+      .catch(() => setApiOrders([]))
+      .finally(() => setOrdersLoading(false))
+  }, [])
 
   const openRP = (i: number) => setRpIdx(i)
   const closeRP = () => setRpIdx(null)
 
   const pageConfig: Record<string, { title: string; sub: string; showTog: boolean; showNew: boolean }> = {
-    orders: { title: 'Orders', sub: '3 upcoming · 2 recurring', showTog: true, showNew: true },
-    subscriptions: { title: 'Subscriptions', sub: '2 active subscriptions', showTog: false, showNew: false },
+    orders: { title: 'Orders', sub: `${apiOrders.length} orders`, showTog: true, showNew: true },
+    subscriptions: { title: 'Subscriptions', sub: 'Active subscriptions', showTog: false, showNew: false },
     history: { title: 'History', sub: 'All past orders', showTog: false, showNew: false },
     favorites: { title: 'Favorites', sub: 'Your saved restaurants', showTog: false, showNew: false },
     account: { title: 'Account settings', sub: 'Manage your profile', showTog: false, showNew: false },
     notifs: { title: 'Notifications', sub: '', showTog: false, showNew: false },
     payment: { title: 'Payment methods', sub: 'Manage saved cards', showTog: false, showNew: false },
-    confirm: { title: 'Orders', sub: '3 upcoming · 2 recurring', showTog: false, showNew: false },
-    success: { title: 'Orders', sub: '3 upcoming · 2 recurring', showTog: false, showNew: false },
+    confirm: { title: 'Orders', sub: '', showTog: false, showNew: false },
+    success: { title: 'Orders', sub: '', showTog: false, showNew: false },
     payfail: { title: 'Payment failed', sub: '', showTog: false, showNew: false },
   }
   const cfg = pageConfig[page] || pageConfig.orders
@@ -383,7 +383,11 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {page === 'orders' && view === 'cal' && (
               <div>
                 <div className="sc" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 18 }}>
-                  {[{ l: 'Active orders', v: '3', s: '2 recurring · 1 one-time' }, { l: 'Total orders placed', v: '47', s: 'since Jan 2025' }, { l: 'Next order', v: 'May 6', s: 'Taim — Nolita · 12:00 PM', small: true }].map(s => (
+                  {[
+                    { l: 'Total orders', v: ordersLoading ? '…' : String(apiOrders.length), s: 'all time' },
+                    { l: 'This month', v: ordersLoading ? '…' : String(apiOrders.filter((o: any) => { try { const d = new Date(o.orderDate || o.createdAt || ''); return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear() } catch { return false } }).length), s: MONTHS[new Date().getMonth()] },
+                    { l: 'Last order', v: ordersLoading || apiOrders.length === 0 ? '—' : (() => { try { return new Date(apiOrders[0]?.orderDate || apiOrders[0]?.createdAt || '').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) } catch { return '—' } })(), s: apiOrders[0]?.restaurantName || apiOrders[0]?.restaurant?.name || '', small: true },
+                  ].map(s => (
                     <div key={s.l} style={{ background: '#efefef', borderRadius: 8, padding: '12px 14px' }}>
                       <div style={{ fontSize: 10, color: '#666', marginBottom: 4, fontWeight: 600 }}>{s.l}</div>
                       <div style={{ fontSize: s.small ? 16 : 22, fontWeight: 700, color: '#111', paddingTop: s.small ? 3 : 0 }}>{s.v}</div>
@@ -391,26 +395,30 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
                     </div>
                   ))}
                 </div>
-                <Calendar onOpenRP={openRP} />
+                <Calendar orders={apiOrders} onOpenRP={openRP} />
               </div>
             )}
 
             {/* Orders - List */}
             {page === 'orders' && view === 'list' && (
               <div>
-                <div style={{ fontSize: 11, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 2px', marginBottom: 8 }}>Upcoming</div>
-                {ORDERS.map((o, i) => <OLR key={i} o={o} onClick={() => openRP(o.id)} />)}
-                <div onClick={() => setShowPast(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 10, cursor: 'pointer', borderRadius: 8, marginTop: 8, background: '#efefef', border: '1px solid #f0f0f0' }}
-                  onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#f0f0f0'}
-                  onMouseOut={e => (e.currentTarget as HTMLElement).style.background = '#fafafa'}
-                >
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#555' }}>Past orders (12)</span>
-                  <span style={{ fontSize: 11, color: '#666', transition: 'transform 0.2s', transform: showPast ? 'rotate(180deg)' : 'none' }}>▾</span>
-                </div>
-                {showPast && (
-                  <div style={{ overflow: 'hidden' }}>
-                    {PAST.map((o, i) => <OLR key={i} o={{ ...o, tag: '', tagLabel: '' }} onClick={() => openRP(o.id)} />)}
-                  </div>
+                <div style={{ fontSize: 11, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 2px', marginBottom: 8 }}>Orders</div>
+                {ordersLoading ? (
+                  <div style={{ color: '#aaa', fontSize: 13, fontFamily: "'DM Sans',sans-serif", padding: '20px 0' }}>Loading orders…</div>
+                ) : apiOrders.length === 0 ? (
+                  <div style={{ color: '#aaa', fontSize: 13, fontFamily: "'DM Sans',sans-serif", padding: '20px 0' }}>No orders found. <Link href="/fullmap" style={{ color: '#6B6EF9', fontWeight: 600, textDecoration: 'none' }}>Browse restaurants →</Link></div>
+                ) : (
+                  apiOrders.map((o, i) => <OLR key={i} o={{
+                    name: o.restaurantName || o.restaurant?.name || 'Order',
+                    emoji: '🍽️',
+                    people: o.headcount || o.numberOfPeople || '—',
+                    service: o.orderType || o.serviceType || '—',
+                    paid: o.status !== 'UNPAID',
+                    tag: '',
+                    tagLabel: o.status || '',
+                    amt: o.total || o.totalAmount || 0,
+                    date: o.orderDate || o.deliveryDate || o.createdAt || '—',
+                  }} onClick={() => openRP(i)} />)
                 )}
                 <DiscoverCTA />
               </div>
@@ -465,7 +473,23 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
             {page === 'history' && (
               <div>
                 <div style={{ fontSize: 11, color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 2px', marginBottom: 8 }}>All past orders</div>
-                {[...ORDERS, ...PAST].map((o, i) => <OLR key={i} o={{ ...(o as any), tag: (o as any).tag || '', tagLabel: '' }} onClick={() => openRP(Math.min((o as any).id || 0, 2))} />)}
+                {ordersLoading ? (
+                  <div style={{ color: '#aaa', fontSize: 13, fontFamily: "'DM Sans',sans-serif", padding: '20px 0' }}>Loading orders…</div>
+                ) : apiOrders.length === 0 ? (
+                  <div style={{ color: '#aaa', fontSize: 13, fontFamily: "'DM Sans',sans-serif", padding: '20px 0' }}>No orders yet.</div>
+                ) : (
+                  apiOrders.map((o, i) => <OLR key={i} o={{
+                    name: o.restaurantName || o.restaurant?.name || 'Order',
+                    emoji: '🍽️',
+                    people: o.headcount || '—',
+                    service: o.orderType || '—',
+                    paid: o.status !== 'UNPAID',
+                    tag: '',
+                    tagLabel: o.status || '',
+                    amt: o.total || o.totalAmount || 0,
+                    date: o.orderDate || o.createdAt || '—',
+                  }} onClick={() => openRP(i)} />)
+                )}
                 <DiscoverCTA />
               </div>
             )}
@@ -573,7 +597,7 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
         {rpIdx !== null && (
           <>
             <div className="rp-bd" onClick={closeRP} style={{ display: 'none', position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.28)', zIndex: 399 }} />
-            <RightPanel idx={rpIdx} onClose={closeRP} onPayment={() => { closeRP(); setPage('payfail') }} />
+            <RightPanel order={apiOrders[rpIdx] || null} onClose={closeRP} onPayment={() => { closeRP(); setPage('payfail') }} />
           </>
         )}
       </div>
@@ -583,34 +607,25 @@ function Portal({ user, onSignOut }: { user: any; onSignOut: () => void }) {
 
 // ── Account Form ──────────────────────────────────────────────────────────────
 function AccountForm({ user }: { user: any }) {
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
+  const { refreshUser } = useAuthContext()
+  const [firstName, setFirstName] = useState(user?.firstName || '')
+  const [lastName, setLastName] = useState(user?.lastName || '')
+  const [email, setEmail] = useState(user?.email || '')
+  const [phone, setPhone] = useState(user?.phoneNumber || '')
   const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      if (!stored) return
-      const u = JSON.parse(stored)
-      setFirstName(u.firstName || '')
-      setLastName(u.lastName || '')
-      setEmail(u.email || '')
-      setPhone(u.phoneNumber || '')
-    } catch {}
-  }, [])
 
   const fi: React.CSSProperties = { width: '100%', padding: '8px 10px', border: '1px solid #e8e8e8', borderRadius: 7, fontSize: 12, color: '#111', background: '#efefef', fontFamily: "'DM Sans',sans-serif", outline: 'none' }
   const fl: React.CSSProperties = { fontSize: 10, color: '#666', marginBottom: 3, display: 'block', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }
 
   async function save() {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      if (!stored) return
-      const u = JSON.parse(stored)
-      await fetch('/api/fm-user', { method: 'PUT', headers: { 'Authorization': `Bearer ${u.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ firstName, lastName, email, phoneNumber: phone }) })
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...u, firstName, lastName, email, phoneNumber: phone }))
+      await fetch('/api/fm-user', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firstName, lastName, email, phoneNumber: phone }),
+        credentials: 'include',
+      })
+      await refreshUser()
       setSaved(true); setTimeout(() => setSaved(false), 2000)
     } catch {}
   }
@@ -624,17 +639,6 @@ function AccountForm({ user }: { user: any }) {
       </div>
       <div style={{ marginBottom: 12 }}><span style={fl}>Email address</span><input style={fi} type="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
       <div style={{ marginBottom: 12 }}><span style={fl}>Phone number</span><input style={fi} type="tel" value={phone} onChange={e => setPhone(e.target.value)} /></div>
-      <div style={{ height: 1, background: '#f0f0f0', margin: '20px 0' }} />
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#111', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Addresses</div>
-      <div style={{ marginBottom: 12 }}><span style={fl}>Home address</span><input style={fi} placeholder="Add address" /></div>
-      <div style={{ marginBottom: 12 }}><span style={fl}>Work address</span><input style={fi} placeholder="Add address" /></div>
-      <div style={{ height: 1, background: '#f0f0f0', margin: '20px 0' }} />
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#111', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14 }}>Security</div>
-      <div style={{ marginBottom: 12 }}><span style={fl}>Current password</span><input style={fi} type="password" placeholder="••••••••" /></div>
-      <div className="ag2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-        <div><span style={fl}>New password</span><input style={fi} type="password" placeholder="••••••••" /></div>
-        <div><span style={fl}>Confirm password</span><input style={fi} type="password" placeholder="••••••••" /></div>
-      </div>
       <button onClick={save} style={{ background: saved ? '#1D9E75' : '#5B6FE8', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", marginBottom: 20, transition: 'background 0.2s' }}>
         {saved ? '✓ Saved' : 'Save changes'}
       </button>
@@ -649,78 +653,21 @@ function AccountForm({ user }: { user: any }) {
   )
 }
 
-// ── Login ─────────────────────────────────────────────────────────────────────
-function LoginScreen({ onLogin }: { onLogin: (u: any) => void }) {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+// ── Root ──────────────────────────────────────────────────────────────────────
+export default function PortalPage() {
+  const { user, isLoading, logout } = useAuthContext()
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!email || !password) { setError('Please enter your email and password.'); return }
-    setLoading(true); setError('')
-    try {
-      const res = await fetch('/api/fm-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Invalid email or password.'); setLoading(false); return }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-      onLogin(data)
-    } catch { setError('Something went wrong.') }
-    finally { setLoading(false) }
+  if (isLoading) return <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif", color: '#666' }}>Loading…</div>
+
+  // Middleware handles redirect; show loading if user is null but still initializing
+  if (!user) return <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif", color: '#666' }}>Redirecting…</div>
+
+  async function signOut() {
+    await logout()
+    window.location.href = '/'
   }
 
   return (
-    <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F8F8FC', fontFamily: "'DM Sans',sans-serif", padding: 24 }}>
-      <div style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 400, padding: 36, boxShadow: '0 8px 40px rgba(107,110,249,0.10)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ fontSize: 28, marginBottom: 10 }}>🪩</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#1A1028', letterSpacing: '-0.03em' }}>Welcome back</div>
-          <div style={{ fontSize: 13, color: '#555', marginTop: 4 }}>Sign in to your Disco Cater account</div>
-        </div>
-        <form onSubmit={submit}>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#1A1028', display: 'block', marginBottom: 5 }}>Email address</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" autoFocus style={{ width: '100%', padding: '11px 14px', fontSize: 14, border: '1.5px solid #e8e8e8', borderRadius: 10, outline: 'none', fontFamily: "'DM Sans',sans-serif", color: '#1A1028', boxSizing: 'border-box' }} />
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#1A1028' }}>Password</label>
-              <a href="#" style={{ fontSize: 12, color: '#6B6EF9', textDecoration: 'none' }}>Forgot password?</a>
-            </div>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" style={{ width: '100%', padding: '11px 14px', fontSize: 14, border: '1.5px solid #e8e8e8', borderRadius: 10, outline: 'none', fontFamily: "'DM Sans',sans-serif", color: '#1A1028', boxSizing: 'border-box' }} />
-          </div>
-          {error && <div style={{ fontSize: 12, color: '#F0468A', marginBottom: 14, padding: '9px 12px', background: '#FFF0F3', borderRadius: 8 }}>{error}</div>}
-          <button type="submit" disabled={loading} style={{ width: '100%', padding: 13, fontSize: 14, fontWeight: 700, color: '#fff', background: loading ? '#ccc' : '#1A1028', border: 'none', borderRadius: 12, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
-        <div style={{ marginTop: 20, textAlign: 'center', fontSize: 12, color: '#555' }}>
-          Don&apos;t have an account? <a href="https://www.familymeal.com/registration" style={{ color: '#6B6EF9', textDecoration: 'none', fontWeight: 600 }}>Create one</a>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Root ──────────────────────────────────────────────────────────────────────
-export default function PortalPage() {
-  const [user, setUser] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    try {
-      const s = localStorage.getItem(STORAGE_KEY)
-      if (s) { const u = JSON.parse(s); if (u?.token) setUser(u) }
-    } catch {}
-    setLoading(false)
-  }, [])
-
-  if (loading) return <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Sans',sans-serif", color: '#666' }}>Loading…</div>
-
-  if (!user) return <LoginScreen onLogin={u => setUser(u)} />
-
-  return (
-    <Portal user={user} onSignOut={() => { localStorage.removeItem(STORAGE_KEY); window.location.href = '/' }} />
+    <Portal user={user} onSignOut={signOut} />
   )
 }

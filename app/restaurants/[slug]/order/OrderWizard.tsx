@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import GlobalHeader from '../../../components/GlobalHeader'
+import { useAuthContext } from '../../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
@@ -48,6 +49,7 @@ export default function OrderWizard({
   const initStep: Step = hasPreInit ? 'details' : initPkg ? 'date' : 'package'
 
   // Auth
+  const { user: authUser } = useAuthContext()
   const [user, setUser] = useState<any>(null)
 
   // Order selections
@@ -81,11 +83,8 @@ export default function OrderWizard({
   const cardElRef = useRef<any>(null)
 
   useEffect(() => {
-    try {
-      const s = localStorage.getItem('disco_user')
-      if (s) setUser(JSON.parse(s))
-    } catch {}
-  }, [])
+    if (authUser) setUser(authUser)
+  }, [authUser])
 
   // Fetch dates when entering date step
   useEffect(() => {
@@ -247,7 +246,6 @@ export default function OrderWizard({
       })
       const data = await res.json()
       if (!res.ok || data.error) { setLoginError(data.error || 'Invalid email or password.'); setLoginLoading(false); return }
-      localStorage.setItem('disco_user', JSON.stringify(data))
       setUser(data); setLoginLoading(false)
     } catch { setLoginError('Unable to connect. Please try again.'); setLoginLoading(false) }
   }
