@@ -1,0 +1,121 @@
+'use client'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+
+const F = "'DM Sans', sans-serif"
+const DARK = '#1A1028'
+const INDIGO = '#6B6EF9'
+const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+
+export default function RestaurantLoginPage() {
+  const router = useRouter()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const res = await fetch('/api/restaurant-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+        credentials: 'include',
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Login failed. Please check your credentials.')
+        return
+      }
+      router.replace('/restaurant/dashboard')
+    } catch {
+      setError('Unable to connect. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+        * { box-sizing: border-box; }
+        body { margin: 0; }
+        .r-input { width: 100%; padding: 11px 14px; border: 1.5px solid #e0e0e0; border-radius: 9px; font-size: 14px; font-family: ${F}; color: ${DARK}; outline: none; background: #fff; transition: border-color 0.15s; }
+        .r-input:focus { border-color: ${INDIGO}; box-shadow: 0 0 0 3px rgba(107,110,249,0.12); }
+        .r-btn { width: 100%; padding: 12px; background: ${INDIGO}; color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 700; font-family: ${F}; cursor: pointer; transition: opacity 0.15s; }
+        .r-btn:hover:not(:disabled) { opacity: 0.9; }
+        .r-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      `}</style>
+      <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F7F8FC', fontFamily: F, padding: '24px 16px' }}>
+        <div style={{ width: '100%', maxWidth: 420 }}>
+          {/* Logo */}
+          <div style={{ textAlign: 'center', marginBottom: 32 }}>
+            <span style={{ fontSize: 22, fontWeight: 800, background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>disco</span>
+            <span style={{ fontSize: 22, fontWeight: 800, color: '#999' }}> cater</span>
+            <div style={{ fontSize: 12, color: '#aaa', marginTop: 4, fontWeight: 500, letterSpacing: '0.04em' }}>Restaurant Portal</div>
+          </div>
+
+          <div style={{ background: '#fff', borderRadius: 16, padding: '32px 28px', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}>
+            <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 6, marginTop: 0 }}>
+              Log in to Restaurant Portal
+            </h1>
+            <p style={{ fontSize: 13, color: '#888', marginBottom: 24, marginTop: 0 }}>
+              Use your FamilyMeal restaurant account credentials.
+            </p>
+
+            {error && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626', fontWeight: 500 }}>
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+                  Email address
+                </label>
+                <input
+                  className="r-input"
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@restaurant.com"
+                  required
+                  autoComplete="email"
+                />
+              </div>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+                  Password
+                </label>
+                <input
+                  className="r-input"
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  autoComplete="current-password"
+                />
+              </div>
+              <button type="submit" className="r-btn" disabled={loading}>
+                {loading ? 'Signing in…' : 'Sign in'}
+              </button>
+            </form>
+          </div>
+
+          <div style={{ textAlign: 'center', marginTop: 20 }}>
+            <Link href="/" style={{ fontSize: 13, color: '#888', textDecoration: 'none' }}>
+              ← Back to Disco Cater
+            </Link>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
