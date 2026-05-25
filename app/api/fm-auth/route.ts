@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { COOKIE_OPTS } from '../../../lib/auth'
 
-const FM = 'https://api.familymeal.com'
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 function setAuthCookies(resp: NextResponse, token: string, refreshToken: string) {
   resp.cookies.set('disco_token', token, { ...COOKIE_OPTS, maxAge: 60 * 60 * 24 * 7 })

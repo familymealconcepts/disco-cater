@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
 export async function GET(req: NextRequest) {
   const packageRef = req.nextUrl.searchParams.get('packageRef')
   const date = req.nextUrl.searchParams.get('date')
   if (!packageRef || !date) return NextResponse.json({ error: 'Missing packageRef or date' }, { status: 400 })
   try {
     const res = await fetch(
-      `https://api.familymeal.com/public-api/mealPackages/${packageRef}/availablePickUp?localDate=${date}`,
+      `${FM}/public-api/mealPackages/${packageRef}/availablePickUp?localDate=${date}`,
       { headers: { Accept: 'application/json' }, next: { revalidate: 60 } }
     )
     const data = await res.json()

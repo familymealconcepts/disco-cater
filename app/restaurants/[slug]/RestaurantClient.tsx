@@ -100,8 +100,9 @@ function fmtTime(t: string) {
   try { const [h, m] = t.split(':').map(Number); const dt = new Date(); dt.setHours(h, m); return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) }
   catch { return t }
 }
+const FM_PUBLIC = process.env.NEXT_PUBLIC_FM_API_BASE_URL || 'https://api.familymeal.com'
 function pkgImg(ref: string, size = 300) {
-  return `https://api.familymeal.com/public-api/images/${ref}/download?size=${size}`
+  return `${FM_PUBLIC}/public-api/images/${ref}/download?size=${size}`
 }
 
 function extractAddressComponents(place: any): AddrDetails {

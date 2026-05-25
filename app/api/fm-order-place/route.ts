@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
 export async function POST(req: NextRequest) {
   try {
     const token = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim()
@@ -9,7 +11,7 @@ export async function POST(req: NextRequest) {
     if (!restaurantRef || !orderRef) return NextResponse.json({ error: 'Missing restaurantRef or orderRef' }, { status: 400 })
 
     const res = await fetch(
-      `https://api.familymeal.com/api/v2/restaurants/${restaurantRef}/orders/${orderRef}`,
+      `${FM}/api/v2/restaurants/${restaurantRef}/orders/${orderRef}`,
       {
         method: 'POST',
         headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
 export async function GET(req: NextRequest) {
   const slug = req.nextUrl.searchParams.get('slug')
   if (!slug) return NextResponse.json({ error: 'Missing slug' }, { status: 400 })
   try {
-    const res = await fetch('https://api.familymeal.com/public-api/restaurants', {
+    const res = await fetch(`${FM}/public-api/restaurants`, {
       headers: { Accept: 'application/json' },
       next: { revalidate: 86400 },
     })

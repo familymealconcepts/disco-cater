@@ -220,10 +220,15 @@ function PaymentTab({ onToast }: { onToast: (msg: string, type?: 'success' | 'er
       .catch(() => {})
       .finally(() => setLoadingCard(false))
 
-    fetch('/api/order/stripe-info', { credentials: 'include' })
-      .then(r => r.json())
-      .then(d => setStripeKey(d.publishableKey || d.publicKey || ''))
-      .catch(() => {})
+    const envKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    if (envKey) {
+      setStripeKey(envKey)
+    } else {
+      fetch('/api/order/stripe-info', { credentials: 'include' })
+        .then(r => r.json())
+        .then(d => setStripeKey(d.publishableKey || d.publicKey || ''))
+        .catch(() => {})
+    }
   }, [])
 
   useEffect(() => {

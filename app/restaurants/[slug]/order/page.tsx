@@ -37,8 +37,9 @@ export default async function OrderPage({
 
   let packages: any[] = []
   try {
+    const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
     const res = await fetch(
-      `https://api.familymeal.com/public-api/restaurants/${restaurantRef}/mealPackages`,
+      `${FM}/public-api/restaurants/${restaurantRef}/mealPackages`,
       { headers: { Accept: 'application/json' }, next: { revalidate: 3600 } }
     )
     if (res.ok) packages = await res.json()

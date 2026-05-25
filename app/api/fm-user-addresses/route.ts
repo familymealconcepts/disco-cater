@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getToken } from '../../../lib/auth'
 
-const FM_API = 'https://api.familymeal.com'
+const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export async function PUT(req: NextRequest) {
   try {

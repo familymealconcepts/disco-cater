@@ -95,10 +95,15 @@ export default function CheckoutDrawer({
   // Load Stripe + saved card when entering payment step
   useEffect(() => {
     if (step !== 'payment') return
-    fetch('/api/order/stripe-info')
-      .then(r => r.json())
-      .then(d => setStripeKey(d.publishableKey || d.publicKey || d.stripePublishableKey || d.key || ''))
-      .catch(() => {})
+    const envKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+    if (envKey) {
+      setStripeKey(envKey)
+    } else {
+      fetch('/api/order/stripe-info')
+        .then(r => r.json())
+        .then(d => setStripeKey(d.publishableKey || d.publicKey || d.stripePublishableKey || d.key || ''))
+        .catch(() => {})
+    }
     fetch('/api/order/saved-card')
       .then(r => r.json())
       .then(d => { if (d && !d.error && (d.brand || d.last4 || d.cardBrand || d.lastFour)) setSavedCard(d) })

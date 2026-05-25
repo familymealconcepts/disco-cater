@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { COOKIE_OPTS } from '../../../lib/auth'
 
-const FM = 'https://api.familymeal.com'
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export async function POST(req: NextRequest) {
   const refreshToken = req.cookies.get('disco_refresh')?.value

@@ -9,7 +9,7 @@ const sanity = createClient({
   apiVersion: '2024-01-01',
 })
 
-const FM = 'https://api.familymeal.com'
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 async function resolveFmRef(slug: string): Promise<string | null> {
   try {

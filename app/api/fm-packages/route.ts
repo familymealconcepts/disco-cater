@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
 export async function GET(req: NextRequest) {
   const restaurantRef = req.nextUrl.searchParams.get('restaurantRef')
   const menuRef = req.nextUrl.searchParams.get('menuRef')
@@ -8,7 +10,7 @@ export async function GET(req: NextRequest) {
   }
   try {
     const res = await fetch(
-      `https://api.familymeal.com/public-api/restaurants/${restaurantRef}/mealPackages?menuReference=${menuRef}`,
+      `${FM}/public-api/restaurants/${restaurantRef}/mealPackages?menuReference=${menuRef}`,
       { headers: { Accept: 'application/json' }, next: { revalidate: 300 } }
     )
     const data = await res.json()
