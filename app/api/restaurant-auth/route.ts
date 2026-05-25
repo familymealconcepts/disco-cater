@@ -17,13 +17,20 @@ export async function POST(req: NextRequest) {
     })
 
     const data = await fmRes.json()
-    console.log('FM auth response:', JSON.stringify(data))
     if (!fmRes.ok) {
       return NextResponse.json({ error: data.message || 'Authentication failed.' }, { status: 401 })
     }
 
-    const role = data.role || ''
-    if (role !== 'ADMIN') {
+    const RESTAURANT_ROLES = [
+      'ADMIN',
+      'RESTAURANT_ADMIN',
+      'RESTAURANT_USER',
+      'SYSTEM_ADMIN',
+      'SUPER_ADMIN',
+    ]
+
+    const role: string = data.role || ''
+    if (!RESTAURANT_ROLES.includes(role)) {
       return NextResponse.json(
         { error: 'This account does not have restaurant access.' },
         { status: 403 }
@@ -33,12 +40,16 @@ export async function POST(req: NextRequest) {
     const rawToken = String(data.authorization || '').replace(/^Bearer\s+/i, '').trim()
     const refreshToken = String(data.refreshToken || '').trim()
 
+    const redirectTo =
+      role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN' ? '/admin' : '/restaurant/dashboard'
+
     const userPayload = {
       email: data.email || email,
       firstName: data.firstName || '',
       lastName: data.lastName || '',
-      role: data.role,
+      role,
       reference: data.reference || '',
+      redirectTo,
     }
 
     const resp = NextResponse.json(userPayload)
