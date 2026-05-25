@@ -2,8 +2,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import GlobalHeader from '../../components/GlobalHeader'
-import { useAuthContext } from '../../context/AuthContext'
+import GlobalHeader from '../../../components/GlobalHeader'
+import { useAuthContext } from '../../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'

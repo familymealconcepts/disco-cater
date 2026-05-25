@@ -1,0 +1,24 @@
+{
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "restaurant.discocater.com"
+        }
+      ],
+      "destination": "/restaurant/$1"
+    },
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.discocater.com"
+        }
+      ],
+      "destination": "/admin/$1"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useAuthContext } from '../../context/AuthContext'
+import { useAuthContext } from '../../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'

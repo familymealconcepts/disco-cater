@@ -1,7 +1,7 @@
 'use client'
 import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import GlobalHeader from '../../components/GlobalHeader'
+import GlobalHeader from '../../../components/GlobalHeader'
 import CheckoutDrawer from './CheckoutDrawer'
 
 const F = "'DM Sans', sans-serif"

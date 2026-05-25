@@ -2,8 +2,8 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import GlobalHeader from '../../../components/GlobalHeader'
-import { useAuthContext } from '../../../context/AuthContext'
+import GlobalHeader from '../../../../components/GlobalHeader'
+import { useAuthContext } from '../../../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'

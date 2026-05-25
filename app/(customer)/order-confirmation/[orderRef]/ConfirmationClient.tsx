@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import GlobalHeader from '../../components/GlobalHeader'
+import GlobalHeader from '../../../components/GlobalHeader'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuthContext } from '../../context/AuthContext'
+import { useAuthContext } from '../../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'

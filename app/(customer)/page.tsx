@@ -1,10 +1,10 @@
 'use client'
-import GlobalHeader from './components/GlobalHeader'
+import GlobalHeader from '../components/GlobalHeader'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import NavAuthButton from './components/NavAuthButton'
+import NavAuthButton from '../components/NavAuthButton'
 
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
 
