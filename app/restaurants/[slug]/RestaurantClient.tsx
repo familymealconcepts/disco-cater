@@ -221,9 +221,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const activeSection = menuData[activeMenuIdx]
-  const firstMenu = menuData[0]?.menu
-  const sched = firstMenu?.scheduleOption
-  const settings = firstMenu?.settings
+  const activeMenu = menuData[activeMenuIdx]?.menu
+  const sched = activeMenu?.scheduleOption
+  const settings = activeMenu?.settings
   const menuAvail = settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
   const defaultTip = settings?.tipOption?.tipsPrice ?? 15
   const activeTip = tipPct ?? defaultTip
@@ -577,7 +577,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               {/* Service Charge */}
               {svcAmt > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-                  <span style={{ color: '#555' }}>Service Charge</span>
+                  <span style={{ color: '#555' }}>{settings?.serviceChargeName || 'Service Charge'}</span>
                   <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(svcAmt)}</span>
                 </div>
               )}
@@ -610,10 +610,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   {[10, 15, 20].map(pct => (
                     <button key={pct} onClick={() => { setTipPct(pct); setTipOther(false); setTipCustomInput('') }} style={{
                       flex: 1, padding: '6px 4px', borderRadius: 7, cursor: 'pointer', fontFamily: F, fontSize: 12,
-                      border: `1.5px solid ${!tipOther && tipPct === pct ? BLUE : '#e8e8e8'}`,
-                      background: !tipOther && tipPct === pct ? '#EEF0FD' : '#fff',
-                      color: !tipOther && tipPct === pct ? BLUE : '#666',
-                      fontWeight: !tipOther && tipPct === pct ? 700 : 500,
+                      border: `1.5px solid ${!tipOther && activeTip === pct ? BLUE : '#e8e8e8'}`,
+                      background: !tipOther && activeTip === pct ? '#EEF0FD' : '#fff',
+                      color: !tipOther && activeTip === pct ? BLUE : '#666',
+                      fontWeight: !tipOther && activeTip === pct ? 700 : 500,
                     }}>{pct}%</button>
                   ))}
                   <button onClick={() => { setTipOther(true); setTipPct(null) }} style={{

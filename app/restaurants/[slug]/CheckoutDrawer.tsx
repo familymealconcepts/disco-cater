@@ -38,7 +38,7 @@ interface Props {
 
 type DrawerStep = 'review' | 'processing' | 'payment' | 'placing'
 
-function fmt$(n: number) { return `$${n % 1 === 0 ? n : n.toFixed(2)}` }
+function fmt$(n: number) { return `$${n.toFixed(2)}` }
 function fmtDateShort(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) } catch { return d }
 }
@@ -127,9 +127,6 @@ export default function CheckoutDrawer({
   }, [step, stripeKey, savedCard, useNewCard])
 
   // ── Computed ───────────────────────────────────────────────────────────────
-  const displayTotal = fmTotals
-    ? (fmTotals.total ?? fmTotals.totalAmount ?? fmTotals.totalCost ?? subtotal + tipAmt + svcAmt)
-    : subtotal + tipAmt + svcAmt
   const displayDeliveryFee = fmTotals?.deliveryFee ?? fmTotals?.delivery ?? null
   const displayTax = fmTotals?.tax ?? fmTotals?.taxAmount ?? null
   const displayTips = fmTotals?.tips ?? tipAmt

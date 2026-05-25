@@ -1,13 +1,13 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import GlobalHeader from '../../components/GlobalHeader'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
 const DARK = '#1A1028'
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 
-function fmt$(n: number) { return `$${n % 1 === 0 ? n : n.toFixed(2)}` }
+function fmt$(n: number) { return `$${n.toFixed(2)}` }
 function fmtDate(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) } catch { return d }
 }
@@ -41,14 +41,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
 
   return (
     <div style={{ minHeight: '100svh', background: '#f8f8fc', fontFamily: F }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', position: 'sticky', top: 0, zIndex: 200 }}>
-        <Link href="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>
-            <span style={{ background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span>
-            <span style={{ color: '#999' }}> cater</span>
-          </span>
-        </Link>
-      </header>
+      <GlobalHeader />
 
       <div style={{ maxWidth: 640, margin: '0 auto', padding: '48px 24px 80px' }}>
         {loading ? (
