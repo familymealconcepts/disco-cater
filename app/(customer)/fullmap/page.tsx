@@ -8,6 +8,7 @@ import Image from 'next/image'
 import Script from 'next/script'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
+import FavoriteHeart from '../account/components/FavoriteHeart'
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
@@ -1097,8 +1098,22 @@ function FullMapInner() {
                       handleSidebarClick(r)
                     }
                   }}
-                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 80, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', borderBottom: '1px solid #f5f5f5', transition: 'all 0.12s' }}
+                  style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 80, borderLeft: `3px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', borderBottom: '1px solid #f5f5f5', transition: 'all 0.12s', position: 'relative' }}
                 >
+                  <FavoriteHeart
+                    authGate
+                    size={16}
+                    background="rgba(255,255,255,0.92)"
+                    style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
+                    restaurant={{
+                      key: r.slug?.current || r._id,
+                      slug: r.slug?.current,
+                      name: r.name,
+                      image: r.image,
+                      cuisine: r.cuisine,
+                      location: r.location,
+                    }}
+                  />
                   {r.image ? <img src={r.image} alt={r.name} style={{ width: 80, height: 80, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 80, height: 80, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✦</div>}
                   <div style={{ flex: 1, padding: '12px 14px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
@@ -1237,7 +1252,21 @@ function FullMapInner() {
               )}
               {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No restaurants match.</div>}
               {filtered.map((r, i) => (
-                <div key={r._id} onClick={() => handleSidebarClick(r)} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.07)' : hoveredId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'background 0.18s, border-color 0.18s' }}>
+                <div key={r._id} onClick={() => handleSidebarClick(r)} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.07)' : hoveredId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'background 0.18s, border-color 0.18s', position: 'relative' }}>
+                  <FavoriteHeart
+                    authGate
+                    size={16}
+                    background="rgba(255,255,255,0.92)"
+                    style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
+                    restaurant={{
+                      key: r.slug?.current || r._id,
+                      slug: r.slug?.current,
+                      name: r.name,
+                      image: r.image,
+                      cuisine: r.cuisine,
+                      location: r.location,
+                    }}
+                  />
                   {r.image ? <img src={r.image} alt={r.name} style={{ width: 74, height: 74, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 74, height: 74, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>✦</div>}
                   <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import SubscriptionSetupModal from './SubscriptionSetupModal'
+import FavoriteHeart from './FavoriteHeart'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -220,10 +221,24 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
               <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Order #{detail.orderNumber}</div>
             )}
           </div>
-          <button onClick={onClose} aria-label="Close panel"
-            style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', fontSize: 16, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            ×
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {detail?.restaurant?.businessNameWithoutSpaces && (
+              <FavoriteHeart
+                size={18}
+                restaurant={{
+                  key: detail.restaurant.businessNameWithoutSpaces,
+                  slug: detail.restaurant.businessNameWithoutSpaces,
+                  name: detail.restaurant.businessName,
+                  city: detail.restaurant.address?.city,
+                  state: detail.restaurant.address?.state,
+                }}
+              />
+            )}
+            <button onClick={onClose} aria-label="Close panel"
+              style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', fontSize: 16, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              ×
+            </button>
+          </div>
         </div>
 
         {/* Body */}
