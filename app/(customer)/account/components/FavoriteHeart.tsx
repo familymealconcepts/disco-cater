@@ -1,5 +1,6 @@
 'use client'
 import { useFavorites, type FavoriteRestaurant } from '../../../../hooks/useFavorites'
+import { useAuthContext } from '../../../context/AuthContext'
 
 interface Props {
   restaurant: FavoriteRestaurant
@@ -7,8 +8,8 @@ interface Props {
   size?: number
   // Wrapper bg (e.g. translucent white over a photo). Defaults transparent.
   background?: string
-  // Hide when no user is signed in. Determined from the disco_user
-  // localStorage flag that GlobalHeader and the account context maintain.
+  // Hide when no user is signed in. Reads from AuthContext (cookie-based),
+  // with a localStorage fallback for code paths that don't go through it.
   authGate?: boolean
   // Optional className for layout (positioning) overrides
   className?: string
@@ -22,13 +23,16 @@ export default function FavoriteHeart({
   className, style, stopPropagation = true,
 }: Props) {
   const { isFavorited, toggleFavorite } = useFavorites()
+  const { user } = useAuthContext()
 
-  // Auth gate: heart is hidden when no signed-in user is detected.
-  // Existing app uses `disco_user` localStorage key as the auth flag —
-  // matches GlobalHeader / AuthContext.
-  if (authGate && typeof window !== 'undefined') {
+  // Auth gate: hide for guests. Prefer the AuthContext user (cookie auth,
+  // the live source) and only fall back to legacy localStorage if the
+  // context hasn't resolved yet — otherwise cookie-only logged-in users
+  // would lose the heart entirely.
+  if (authGate && !user) {
+    if (typeof window === 'undefined') return null
     try {
-      if (!window.localStorage.getItem('disco_user')) return null
+      if (!window.localStorage.getItem('disco_user') && !window.localStorage.getItem('disco_favorites_scope')) return null
     } catch { return null }
   }
 

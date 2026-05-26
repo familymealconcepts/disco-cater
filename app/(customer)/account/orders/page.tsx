@@ -82,7 +82,10 @@ function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{MONTHS[mo]} {yr}</span>
           <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginLeft: 14 }}>
-            {[{ c: INDIGO, l: 'Recurring' }, { c: '#1D9E75', l: 'Catering' }, { c: '#BA7517', l: 'Paused' }].map(x => (
+            {/* Legend must match evStyle() above — those are the only three
+                colors any cell can render. Recurring/catering split needs
+                an order-type flag on the API response before we can show it. */}
+            {[{ c: INDIGO, l: 'Upcoming' }, { c: '#1D9E75', l: 'Completed' }, { c: '#BA7517', l: 'Paused' }].map(x => (
               <div key={x.l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 2, background: x.c, flexShrink: 0 }} />
                 <span style={{ fontSize: 10, color: '#555' }}>{x.l}</span>

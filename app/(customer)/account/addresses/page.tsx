@@ -1,6 +1,5 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useAuthContext } from '../../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -24,8 +23,14 @@ function Toast({ msg, type = 'success' }: { msg: string; type?: 'success' | 'err
   )
 }
 
+interface FmAddress {
+  addressLine1?: string
+  city?: string
+  state?: string
+  zipcode?: string
+}
+
 export default function AddressesPage() {
-  const { user } = useAuthContext()
   const [line1, setLine1] = useState('')
   const [city, setCity] = useState('')
   const [state, setState] = useState('')
@@ -33,9 +38,29 @@ export default function AddressesPage() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
+  // AuthContext's `user.address` typing is a stale single-string remnant —
+  // FM actually returns a structured { addressLine1, city, state, zipcode }
+  // off /api/fm-user. Pull it directly so all four fields pre-fill.
   useEffect(() => {
-    if (user?.address) setLine1(user.address)
-  }, [user])
+    let cancelled = false
+    fetch('/api/fm-user', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (cancelled || !d) return
+        const addr: FmAddress | null = d?.address || null
+        if (addr) {
+          if (addr.addressLine1) setLine1(addr.addressLine1)
+          if (addr.city) setCity(addr.city)
+          if (addr.state) setState(addr.state)
+          if (addr.zipcode) setZip(addr.zipcode)
+        } else if (typeof d?.address === 'string') {
+          // Some FM payloads still flatten address into a single string.
+          setLine1(d.address)
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     setToast({ msg, type })

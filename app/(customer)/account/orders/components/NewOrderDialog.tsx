@@ -97,14 +97,27 @@ export default function NewOrderDialog({ date, onClose, onOrderPlaced }: Props) 
 
       {/* Body */}
       {picked ? (
-        // Embedded restaurant ordering page — same RestaurantClient, just
-        // loaded in an iframe so we don't have to re-implement its
-        // server-side data fetching here.
-        <iframe
-          src={embedSrc}
-          title={`Order from ${picked.name}`}
-          style={{ flex: 1, width: '100%', border: 'none', background: '#f8f8fc' }}
-        />
+        embedSrc ? (
+          // Embedded restaurant ordering page — same RestaurantClient, just
+          // loaded in an iframe so we don't have to re-implement its
+          // server-side data fetching here.
+          <iframe
+            src={embedSrc}
+            title={`Order from ${picked.name}`}
+            style={{ flex: 1, width: '100%', border: 'none', background: '#f8f8fc' }}
+          />
+        ) : (
+          // Defensive: a favorite without a slug can't render the iframe.
+          // Bounce the user back to the picker with a hint instead of
+          // showing a silently broken empty iframe.
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 28, textAlign: 'center', color: '#555', fontSize: 13 }}>
+            <div style={{ maxWidth: 320 }}>
+              <div style={{ fontSize: 30, marginBottom: 10 }}>🪩</div>
+              <div style={{ fontWeight: 700, color: DARK, marginBottom: 6 }}>Can&apos;t open this favorite</div>
+              <div>This saved restaurant is missing a link. Try Browse the Catering Map to find it again.</div>
+            </div>
+          </div>
+        )
       ) : (
         <FavoritesPicker
           date={date}
