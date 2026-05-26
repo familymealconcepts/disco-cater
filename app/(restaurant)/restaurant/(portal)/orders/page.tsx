@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import GenerateReportButton from '../_components/GenerateReportButton'
-import PrintOrderDocument, { type PrintableOrder } from '../_components/PrintOrderDocument'
+import { printOrder, type PrintableOrder } from '../_components/PrintOrderDocument'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -316,9 +316,17 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   const customerFull = order ? `${order.firstName || ''} ${order.lastName || ''}`.trim() : ''
 
   function printDrawer() {
-    // Print the drawer body via window.print() — a print stylesheet
-    // (injected below) hides everything except .order-print-area.
-    window.print()
+    if (!order) return
+    // Opens a fresh window with a standalone FM-style HTML document and
+    // calls print() on that window. The in-page approach (window.print()
+    // on the main doc with an @media print visibility cascade) printed
+    // blank pages on Safari + some Chrome configs because the drawer is
+    // position:fixed, which breaks the nested print-doc layout. The
+    // new-window path side-steps the parent stylesheet entirely.
+    const ok = printOrder(order as PrintableOrder)
+    if (!ok) {
+      alert('Pop-up blocked. Please allow pop-ups for this site so we can open the print preview.')
+    }
   }
 
   return (
@@ -478,30 +486,6 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
           </>
         )}
       </div>
-
-      {/* Print-only document. Renders the FM-PDF-style layout that
-          replaces the drawer entirely when the user prints. */}
-      {order && <PrintOrderDocument order={order as PrintableOrder} />}
-
-      {/* Print stylesheet: visibility:hidden on everything (so the print
-          doc, which lives deep inside the drawer, can still inherit the
-          page) then visibility:visible on .print-doc and its descendants.
-          Positioning .print-doc absolute at the document origin overlays
-          it onto the page so the printer sees only the FM-style layout. */}
-      <style>{`
-        @media print {
-          body { background: #fff !important; }
-          body * { visibility: hidden !important; box-shadow: none !important; }
-          .print-doc, .print-doc * { visibility: visible !important; }
-          .print-doc {
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            margin: 0 !important;
-          }
-        }
-      `}</style>
 
       {modal === 'refund' && order && <RefundModal order={order} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
       {modal === 'void' && order && <RefundModal order={order} isVoid onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
