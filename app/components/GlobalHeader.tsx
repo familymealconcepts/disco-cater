@@ -74,9 +74,9 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
                       {/* The sidebar at /account/* handles Orders, Subscriptions,
                           History, Favorites, Addresses, Payment, Notifications, and
                           Security navigation — duplicating them here was confusing.
-                          The dropdown is now just a quick jump to Profile + Sign out. */}
+                          The dropdown is now just a quick jump into the portal. */}
                       <div style={{ padding: '5px 0' }}>
-                        <Link href="/account/profile" className="dc-menu-link" onClick={() => setMenuOpen(false)}>
+                        <Link href="/account/orders" className="dc-menu-link" onClick={() => setMenuOpen(false)}>
                           <span style={{ color: '#999', flexShrink: 0 }}><IconUser /></span>
                           My Account
                         </Link>
