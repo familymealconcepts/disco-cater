@@ -30,7 +30,7 @@ export async function PUT(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const res = await fetch(`${FM}/api/restaurant/profile`, {
+    const res = await fetch(`${FM}/api/restaurants`, {
       method: 'PUT',
       headers: { ...authHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
