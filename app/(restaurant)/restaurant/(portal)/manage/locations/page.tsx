@@ -9,6 +9,7 @@ import {
   arrayMove, SortableContext, useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import EditLocationDialog, { type EditLocationFullData } from './EditLocationDialog'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -100,7 +101,8 @@ export default function LocationsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [switching, setSwitching] = useState<string | null>(null)
-  const [editing, setEditing] = useState<Location | null>(null)
+  const [editing, setEditing] = useState<EditLocationFullData | null>(null)
+  const [editLoading, setEditLoading] = useState(false)
   const [toast, setToast] = useState('')
 
   // Drag-and-drop: require 6px pointer movement before drag activates so
@@ -208,24 +210,21 @@ export default function LocationsPage() {
     }
   }
 
-  async function saveEdit() {
-    if (!editing) return
-    const res = await fetch(`/api/restaurant/locations/${editing.reference}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        reference: editing.reference,
-        businessName: editing.businessName,
-        address: editing.address,
-      }),
-    })
-    if (res.ok) {
-      showToast(`${editing.businessName} updated.`)
-      setEditing(null)
-      load()
-    } else {
-      const d = await res.json().catch(() => null)
-      alert(d?.error || 'Update failed')
+  async function openEdit(loc: Location) {
+    setEditLoading(true)
+    try {
+      // Fetch the full location object so the dialog has categories,
+      // fulfillment options, images, lat/lng — fields not in the list response.
+      const res = await fetch(`/api/restaurant/locations/${loc.reference}`)
+      if (res.ok) {
+        const full = await res.json()
+        setEditing(full as EditLocationFullData)
+      } else {
+        // Fall back to the list row so the dialog still opens
+        setEditing(loc as EditLocationFullData)
+      }
+    } finally {
+      setEditLoading(false)
     }
   }
 
@@ -285,7 +284,7 @@ export default function LocationsPage() {
                     onToggleStatus={() => toggleStatus(loc)}
                     onSwitch={() => switchToLocation(loc)}
                     onCopy={() => copyLocation(loc)}
-                    onEdit={() => setEditing(loc)}
+                    onEdit={() => openEdit(loc)}
                   />
                 ))}
               </tbody>
@@ -327,48 +326,22 @@ export default function LocationsPage() {
         </div>
       )}
 
-      {editing && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', maxWidth: 480, width: '90%', fontFamily: F }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: DARK }}>Edit Location</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div>
-                <label style={lbl}>Business name</label>
-                <input style={input} value={editing.businessName}
-                  onChange={e => setEditing({ ...editing, businessName: e.target.value })} />
-              </div>
-              <div>
-                <label style={lbl}>Address line 1</label>
-                <input style={input} value={editing.address?.addressLine1 || ''}
-                  onChange={e => setEditing({ ...editing, address: { ...editing.address, addressLine1: e.target.value } })} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
-                <div>
-                  <label style={lbl}>City</label>
-                  <input style={input} value={editing.address?.city || ''}
-                    onChange={e => setEditing({ ...editing, address: { ...editing.address, city: e.target.value } })} />
-                </div>
-                <div>
-                  <label style={lbl}>State</label>
-                  <input style={input} value={editing.address?.state || ''}
-                    onChange={e => setEditing({ ...editing, address: { ...editing.address, state: e.target.value } })} />
-                </div>
-                <div>
-                  <label style={lbl}>Zip</label>
-                  <input style={input} value={editing.address?.zipcode || ''}
-                    onChange={e => setEditing({ ...editing, address: { ...editing.address, zipcode: e.target.value } })} />
-                </div>
-              </div>
-              <p style={{ fontSize: 11, color: '#999', margin: '4px 0 0' }}>
-                For full editing (images, hours, fees), switch to this restaurant and use Account → Profile.
-              </p>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 22 }}>
-              <button onClick={() => setEditing(null)} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F, color: DARK }}>Cancel</button>
-              <button onClick={saveEdit} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: BLUE, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>Save</button>
-            </div>
-          </div>
+      {editLoading && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.2)', zIndex: 290, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 14 }}>
+          Loading location…
         </div>
+      )}
+
+      {editing && (
+        <EditLocationDialog
+          location={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(msg) => {
+            showToast(msg)
+            setEditing(null)
+            load()
+          }}
+        />
       )}
     </div>
   )
@@ -382,8 +355,6 @@ const pageBtn: React.CSSProperties = {
   background: '#fff', border: '1px solid #ddd', borderRadius: 6,
   padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK,
 }
-const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 5 }
-
 interface SortableLocationRowProps {
   loc: Location
   switching: boolean
