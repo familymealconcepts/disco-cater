@@ -17,7 +17,14 @@ interface RestaurantUser {
   reference: string
 }
 
-const NAV = [
+interface NavItem {
+  title: string
+  path: string
+  badge?: boolean
+  children?: { title: string; path: string }[]
+}
+
+const ADMIN_NAV: NavItem[] = [
   { title: 'Reporting', path: '/restaurant/dashboard' },
   { title: 'Orders', path: '/restaurant/orders', badge: true },
   {
@@ -40,6 +47,19 @@ const NAV = [
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
 ]
 
+const SYSTEM_ADMIN_NAV: NavItem[] = [
+  { title: 'Reporting', path: '/restaurant/dashboard' },
+  { title: 'Locations', path: '/restaurant/manage/locations' },
+  { title: 'Authorized Users', path: '/restaurant/manage/authorized-users' },
+  { title: 'Orders', path: '/restaurant/orders', badge: true },
+  { title: 'Links', path: '/restaurant/manage/multi-unit-links' },
+  { title: 'Customers', path: '/restaurant/restaurant-customers' },
+]
+
+const SYSTEM_ADMIN_IMPERSONATING_NAV: NavItem[] = [
+  ...ADMIN_NAV,
+]
+
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -47,20 +67,30 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const [restaurantName, setRestaurantName] = useState('')
   const [orderBadge, setOrderBadge] = useState(0)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null)
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem('restaurant_user')
       if (raw) setUser(JSON.parse(raw))
+      const sel = localStorage.getItem('selectedRestaurant')
+      if (sel) setSelectedRestaurant(sel)
     } catch {}
   }, [])
+
+  const isSystemAdmin = user?.role === 'SYSTEM_ADMIN' || user?.role === 'SUPER_ADMIN'
+  const isImpersonating = isSystemAdmin && !!selectedRestaurant
+
+  const NAV: NavItem[] = isSystemAdmin
+    ? (isImpersonating ? SYSTEM_ADMIN_IMPERSONATING_NAV : SYSTEM_ADMIN_NAV)
+    : ADMIN_NAV
 
   useEffect(() => {
     fetch('/api/restaurant/profile')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.businessName) setRestaurantName(d.businessName) })
       .catch(() => {})
-  }, [])
+  }, [selectedRestaurant])
 
   const refreshBadge = useCallback(async () => {
     try {
@@ -82,15 +112,25 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   async function handleLogout() {
     await fetch('/api/restaurant-auth', { method: 'DELETE' })
+    await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE' })
     localStorage.removeItem('restaurant_user')
+    localStorage.removeItem('selectedRestaurant')
     router.push('/restaurant/login')
+  }
+
+  async function exitImpersonation() {
+    await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE' })
+    localStorage.removeItem('selectedRestaurant')
+    setSelectedRestaurant(null)
+    setRestaurantName('')
+    router.push('/restaurant/manage/locations')
   }
 
   function isActive(path: string) {
     return pathname === path || (pathname.startsWith(path + '/') && path !== '/restaurant')
   }
 
-  function isGroupActive(item: typeof NAV[0]) {
+  function isGroupActive(item: NavItem) {
     if (isActive(item.path)) return true
     if (item.children) return item.children.some(c => isActive(c.path))
     return false
@@ -155,6 +195,26 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </div>
             )}
           </div>
+
+          {/* SYSTEM_ADMIN location switcher */}
+          {isSystemAdmin && (
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(107,110,249,0.06)' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+                {isImpersonating ? 'Viewing as Restaurant' : 'System Admin'}
+              </div>
+              {isImpersonating ? (
+                <button onClick={exitImpersonation}
+                  style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, color: 'rgba(255,255,255,0.75)', fontSize: 11, fontFamily: F, padding: '6px 8px', cursor: 'pointer', textAlign: 'left' }}>
+                  ← View as System Admin
+                </button>
+              ) : (
+                <Link href="/restaurant/manage/locations"
+                  style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.6)', textDecoration: 'none', padding: '2px 0' }}>
+                  Pick a location →
+                </Link>
+              )}
+            </div>
+          )}
 
           {/* Nav */}
           <nav style={{ flex: 1, padding: '12px 0' }}>

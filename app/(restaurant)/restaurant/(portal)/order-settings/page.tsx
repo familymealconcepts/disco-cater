@@ -25,10 +25,22 @@ interface FeesAndTips {
 
 interface ClosedDay {
   reference: string
-  name: string
+  eventName: string
   available: boolean
-  dateString?: string
-  custom?: boolean
+  eventDates?: string[]
+}
+
+const SYSTEM_HOLIDAYS = [
+  'Christmas Day', 'Christmas Eve', 'July 4th', 'Labor Day',
+  'Memorial Day', "New Year's Day", "New Year's Eve",
+  'Thanksgiving Day', "Valentine's Day", 'Martin Luther King Jr. Day',
+  "President's Day", 'Independence Day', 'Easter',
+]
+const isSystemHoliday = (d: ClosedDay) => SYSTEM_HOLIDAYS.includes(d.eventName)
+const formatEventDates = (dates?: string[]) => {
+  if (!dates?.length) return ''
+  if (dates.length === 1) return dates[0]
+  return `${dates[0]} – ${dates[dates.length - 1]}`
 }
 
 interface Coupon {
@@ -201,7 +213,13 @@ export default function OrderSettingsPage() {
 
   async function addClosedDay() {
     if (!newClosedDate) return
-    const res = await fetch('/api/restaurant/closed-days', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dateString: newClosedDate, available: false, custom: true }) })
+    const [y, m, d] = newClosedDate.split('-')
+    const eventDate = `${d}.${m}.${y}`
+    const res = await fetch('/api/restaurant/closed-days', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ available: true, eventName: eventDate, eventDates: [eventDate] }),
+    })
     if (res.ok) { setNewClosedDate(''); loadAll() }
   }
 
@@ -225,8 +243,8 @@ export default function OrderSettingsPage() {
 
   if (loading) return <div style={{ padding: 40, color: '#aaa', fontFamily: F }}>Loading…</div>
 
-  const systemDays = closedDays.filter(d => !d.custom)
-  const customDays = closedDays.filter(d => d.custom)
+  const systemDays = closedDays.filter(isSystemHoliday)
+  const customDays = closedDays.filter(d => !isSystemHoliday(d))
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, maxWidth: 720 }}>
@@ -373,7 +391,7 @@ export default function OrderSettingsPage() {
       <Section title="Scheduling Override (Closed Days)">
         <div style={{ marginBottom: 16 }}>
           {systemDays.map(day => (
-            <Row key={day.reference} label={day.name}>
+            <Row key={day.reference} label={day.eventName}>
               <Toggle checked={day.available} onChange={() => toggleClosedDay(day)} />
             </Row>
           ))}
@@ -383,7 +401,7 @@ export default function OrderSettingsPage() {
             <div style={{ fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 10 }}>Custom Dates</div>
             {customDays.map(day => (
               <div key={day.reference} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 13, color: '#555' }}>{day.dateString || day.name}</span>
+                <span style={{ fontSize: 13, color: '#555' }}>{day.eventName || formatEventDates(day.eventDates)}</span>
                 <button onClick={() => deleteClosedDay(day.reference)}
                   style={{ background: 'none', border: 'none', color: '#E76F51', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>×</button>
               </div>

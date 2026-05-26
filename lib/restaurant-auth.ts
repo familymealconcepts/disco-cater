@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 
 export const RESTAURANT_TOKEN_COOKIE = 'fm_restaurant_token'
 export const RESTAURANT_REFRESH_COOKIE = 'fm_restaurant_refresh'
+export const SELECTED_RESTAURANT_COOKIE = 'fm_selected_restaurant'
 
 export const RESTAURANT_COOKIE_OPTS = {
   httpOnly: true,
@@ -26,17 +27,37 @@ export async function getRestaurantAuthHeader(): Promise<Record<string, string>>
   return { Authorization: token }
 }
 
-// Decode restaurant reference UUID from JWT payload field 'restaurant'
+function decodeJwt(token: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+  } catch {
+    return null
+  }
+}
+
+// Decode role from JWT payload field 'role'
+export async function getRestaurantRole(): Promise<string | null> {
+  const store = await cookies()
+  const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
+  if (!token) return null
+  const payload = decodeJwt(token)
+  return (payload?.role as string) || null
+}
+
+// Decode restaurant reference UUID. For SYSTEM_ADMIN/SUPER_ADMIN, prefers the
+// selected-restaurant cookie set when the user picks a location. For ADMIN,
+// reads the 'restaurant' field from the JWT.
 export async function getRestaurantRef(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
   if (!token) return null
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
-    return payload.restaurant || null
-  } catch {
-    return null
+  const payload = decodeJwt(token)
+  const role = (payload?.role as string) || ''
+  if (role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN') {
+    const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value
+    if (selected) return selected
   }
+  return (payload?.restaurant as string) || null
 }
 
 // For Middleware (Edge runtime — next/headers not available)
