@@ -11,6 +11,12 @@ export interface DiscoUser {
 }
 
 const STORAGE_KEY = 'disco_user'
+const AUTH_CHANGE_EVENT = 'disco-user-changed'
+
+function broadcastAuthChange() {
+  if (typeof window === 'undefined') return
+  try { window.dispatchEvent(new CustomEvent(AUTH_CHANGE_EVENT)) } catch {}
+}
 
 export function useAuth() {
   const [user, setUser] = useState<DiscoUser | null>(null)
@@ -27,11 +33,13 @@ export function useAuth() {
   const login = useCallback((userData: DiscoUser) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(userData))
     setUser(userData)
+    broadcastAuthChange()
   }, [])
 
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY)
     setUser(null)
+    broadcastAuthChange()
   }, [])
 
   const initials = user

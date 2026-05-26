@@ -1,7 +1,14 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 
-const STORAGE_KEY = 'disco_favorites'
+// Per-user storage key prefix. The trailing segment is the FM user
+// reference (UUID) when signed in, falling back to email, or "guest"
+// for unauthenticated browsers. Pre-Aug-2025 this was a single shared
+// "disco_favorites" key — readLegacyLocal() migrates that into the
+// guest bucket once, so existing favorites aren't lost on upgrade.
+const STORAGE_KEY_PREFIX = 'disco_favorites_'
+const LEGACY_STORAGE_KEY = 'disco_favorites'
+const AUTH_STORAGE_KEY = 'disco_user'
 
 export interface FavoriteRestaurant {
   // Primary key — always present. Prefer FM reference (UUID), fall back
@@ -28,19 +35,84 @@ interface FavoritesState {
   refresh: () => Promise<void>
 }
 
-function readLocal(): FavoriteRestaurant[] {
+interface StoredUser {
+  reference?: string
+  email?: string
+}
+
+// Cached scope from the cookie-auth path. Populated by resolveScopeFromCookie()
+// on first hook mount, then re-read by all subsequent mounts so we don't
+// re-hit /api/fm-user on every page change.
+const CACHED_AUTH_SCOPE_KEY = 'disco_favorites_scope'
+
+function readUserScope(): string {
+  if (typeof window === 'undefined') return 'guest'
+  try {
+    // Legacy localStorage-based auth (fullmap header, restaurant/admin).
+    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
+    if (raw) {
+      const u = JSON.parse(raw) as StoredUser
+      const k = u?.reference || u?.email
+      if (k) return k
+    }
+    // Cookie-based auth (AuthContext) — resolved server-side, cached here.
+    const cached = window.localStorage.getItem(CACHED_AUTH_SCOPE_KEY)
+    if (cached) return cached
+  } catch {}
+  return 'guest'
+}
+
+async function resolveScopeFromCookie(): Promise<string | null> {
+  if (typeof window === 'undefined') return null
+  try {
+    const res = await fetch('/api/fm-user', { credentials: 'include' })
+    if (!res.ok) {
+      // Clear stale cache so a logged-out user isn't pinned to the
+      // previous user's bucket.
+      try { window.localStorage.removeItem(CACHED_AUTH_SCOPE_KEY) } catch {}
+      return null
+    }
+    const data = await res.json()
+    const k: string | undefined = data?.reference || data?.email
+    if (!k) return null
+    try { window.localStorage.setItem(CACHED_AUTH_SCOPE_KEY, k) } catch {}
+    return k
+  } catch { return null }
+}
+
+function storageKey(scope: string): string {
+  return `${STORAGE_KEY_PREFIX}${scope}`
+}
+
+function readLocal(scope: string): FavoriteRestaurant[] {
   if (typeof window === 'undefined') return []
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
+    const raw = window.localStorage.getItem(storageKey(scope))
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    }
+    // One-time migration of the legacy un-scoped list into the guest
+    // bucket. We don't migrate it into a signed-in user's bucket
+    // because we can't know which historical user it belonged to.
+    if (scope === 'guest') {
+      const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY)
+      if (legacy) {
+        const parsed = JSON.parse(legacy)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          window.localStorage.setItem(storageKey('guest'), legacy)
+          window.localStorage.removeItem(LEGACY_STORAGE_KEY)
+          return parsed
+        }
+      }
+    }
+    return []
   } catch { return [] }
 }
 
-function writeLocal(favs: FavoriteRestaurant[]) {
+function writeLocal(scope: string, favs: FavoriteRestaurant[]) {
   if (typeof window === 'undefined') return
-  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(favs)) } catch {}
+  try { window.localStorage.setItem(storageKey(scope), JSON.stringify(favs)) } catch {}
 }
 
 // Broadcast changes across hook instances on the same page (e.g. heart on
@@ -56,6 +128,41 @@ export function useFavorites(): FavoritesState {
   const [favorites, setFavorites] = useState<FavoriteRestaurant[]>([])
   const [loading, setLoading] = useState(true)
   const [source, setSource] = useState<'api' | 'local'>('local')
+  const [userScope, setUserScope] = useState<string>('guest')
+
+  // Resolve scope on mount + whenever the auth payload changes. The hook
+  // re-reads from the new scope's bucket on any change, so logging in
+  // doesn't blend a guest's favorites with the user's, and logging out
+  // leaves the user's list intact under their own key for when they
+  // come back.
+  useEffect(() => {
+    setUserScope(readUserScope())
+    // Async-confirm against the cookie auth so AuthContext users (no
+    // localStorage shadow) still get scoped favorites.
+    let cancelled = false
+    resolveScopeFromCookie().then(s => {
+      if (cancelled) return
+      if (s) setUserScope(s)
+      else setUserScope(readUserScope())
+    })
+    function onStorage(e: StorageEvent) {
+      if (e.key === AUTH_STORAGE_KEY || e.key === CACHED_AUTH_SCOPE_KEY) {
+        setUserScope(readUserScope())
+      }
+    }
+    function onAuthChange() {
+      // Re-resolve from the cookie so a fresh login picks up the right
+      // user before any storage write lands.
+      resolveScopeFromCookie().then(s => setUserScope(s || readUserScope()))
+    }
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('disco-user-changed', onAuthChange as EventListener)
+    return () => {
+      cancelled = true
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('disco-user-changed', onAuthChange as EventListener)
+    }
+  }, [])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -73,10 +180,10 @@ export function useFavorites(): FavoritesState {
     } catch {
       // network — fall through
     }
-    setFavorites(readLocal())
+    setFavorites(readLocal(userScope))
     setSource('local')
     setLoading(false)
-  }, [])
+  }, [userScope])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -104,11 +211,13 @@ export function useFavorites(): FavoritesState {
 
     // Optimistic update everywhere
     setFavorites(next)
-    if (source === 'local') writeLocal(next)
+    if (source === 'local') writeLocal(userScope, next)
     broadcast(next)
 
     // Fire-and-forget API call when source is 'api'. If it fails, refresh
-    // from the server to reconcile.
+    // from the server to reconcile. (FM's eventual favorites endpoint
+    // is scoped by the authenticated user via JWT, so no client-side
+    // scope key is needed in API mode.)
     if (source === 'api') {
       const ok = wasFavorited
         ? await fetch(`/api/fm-favorites/${encodeURIComponent(r.key)}`, { method: 'DELETE', credentials: 'include' })
@@ -123,7 +232,7 @@ export function useFavorites(): FavoritesState {
         refresh()
       }
     }
-  }, [favorites, source, refresh])
+  }, [favorites, source, userScope, refresh])
 
   return { favorites, loading, source, isFavorited, toggleFavorite, refresh }
 }

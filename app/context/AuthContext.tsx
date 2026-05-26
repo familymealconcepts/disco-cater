@@ -104,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       phoneNumber: data.phoneNumber || '',
       role: data.role || '',
     })
+    try { window.dispatchEvent(new CustomEvent('disco-user-changed')) } catch {}
   }, [])
 
   const register = useCallback(async (regData: { email: string; password: string; firstName: string; lastName: string; phoneNumber?: string }) => {
@@ -123,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       phoneNumber: data.phoneNumber || regData.phoneNumber || '',
       role: data.role || '',
     })
+    try { window.dispatchEvent(new CustomEvent('disco-user-changed')) } catch {}
   }, [])
 
   const logout = useCallback(async () => {
@@ -130,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await fetch('/api/fm-auth', { method: 'DELETE', credentials: 'include' })
     } catch {}
     setUser(null)
+    try { window.dispatchEvent(new CustomEvent('disco-user-changed')) } catch {}
   }, [])
 
   const refreshUser = useCallback(async () => {
