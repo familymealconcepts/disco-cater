@@ -31,7 +31,7 @@ export default function RestaurantLoginPage() {
         setError(data.error || 'Login failed. Please check your credentials.')
         return
       }
-      router.replace(data.redirectTo || '/restaurant/dashboard')
+      router.push('/restaurant/dashboard')
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {
