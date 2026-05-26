@@ -323,16 +323,18 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
 
         {/* Action bar */}
         {detail && !loading && !error && (
-          <div style={{ padding: '14px 18px', borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8 }}>
+          <div style={{ padding: '14px 18px', borderTop: '1px solid #f0f0f0', display: 'flex', flexDirection: mode === 'history' ? 'column' : 'row', gap: 8 }}>
             {mode === 'history' ? (
               <>
+                {/* Subscription upsell is the primary action for past
+                    orders; single-shot reorder drops to secondary. */}
                 <button onClick={() => setSetupOpen(true)}
-                  style={{ flex: 2, padding: '10px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-                  Repeat this order
+                  style={{ width: '100%', padding: '12px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                  🔄 Make this a recurring order
                 </button>
                 <button onClick={handleReorder}
-                  style={{ flex: 1, padding: '10px 14px', background: '#fff', color: DARK, border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                  Reorder
+                  style={{ width: '100%', padding: '10px 14px', background: '#fff', color: DARK, border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  Reorder once
                 </button>
               </>
             ) : (
