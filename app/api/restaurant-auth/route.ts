@@ -40,16 +40,12 @@ export async function POST(req: NextRequest) {
     const rawToken = String(data.authorization || '').replace(/^Bearer\s+/i, '').trim()
     const refreshToken = String(data.refreshToken || '').trim()
 
-    const redirectTo =
-      role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN' ? '/admin' : '/restaurant/dashboard'
-
     const userPayload = {
       email: data.email || email,
       firstName: data.firstName || '',
       lastName: data.lastName || '',
       role,
       reference: data.reference || '',
-      redirectTo,
     }
 
     const resp = NextResponse.json(userPayload)
