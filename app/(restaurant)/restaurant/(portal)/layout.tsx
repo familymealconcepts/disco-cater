@@ -47,13 +47,16 @@ const ADMIN_NAV: NavItem[] = [
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
 ]
 
+// Mirrors FM SIDEBAR_PATHS_LIST.SYSTEM_ADMIN exactly
+// (paths.constant.ts lines 15-80): Reporting, Locations, Authorized
+// Users, Orders, Links, Reports, Customers.
 const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Reporting', path: '/restaurant/dashboard' },
-  { title: 'Reports', path: '/restaurant/manage/admin-manager-reports' },
   { title: 'Locations', path: '/restaurant/manage/locations' },
   { title: 'Authorized Users', path: '/restaurant/manage/authorized-users' },
   { title: 'Orders', path: '/restaurant/orders', badge: true },
   { title: 'Links', path: '/restaurant/manage/multi-unit-links' },
+  { title: 'Reports', path: '/restaurant/manage/admin-manager-reports' },
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
 ]
 
@@ -275,7 +278,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   <div key={item.title}>
                     <div
                       className="portal-nav-group"
-                      onClick={() => setExpanded(isOpen && !groupActive ? null : item.title)}
+                      onClick={() => {
+                        setExpanded(item.title)
+                        // FM behavior: clicking a parent navigates to its
+                        // configured path (which equals the first child).
+                        if (!groupActive) router.push(item.path)
+                      }}
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         padding: '10px 16px', color: groupActive ? '#fff' : 'rgba(255,255,255,0.65)',

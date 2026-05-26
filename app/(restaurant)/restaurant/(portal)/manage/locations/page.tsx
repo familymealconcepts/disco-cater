@@ -294,7 +294,14 @@ export default function LocationsPage() {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-        <div style={{ fontSize: 12, color: '#666' }}>{total} location{total === 1 ? '' : 's'}</div>
+        <div style={{ fontSize: 12, color: '#666' }}>
+          Showing {locations.length} of {total} location{total === 1 ? '' : 's'}
+          {!loading && total === locations.length && total > 0 && (
+            <span style={{ marginLeft: 8, color: '#aaa' }}>
+              · this is everything the FM endpoint returns for this account
+            </span>
+          )}
+        </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#666' }}>
           <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} style={pageBtn}>‹</button>
           <span>Page {page + 1} of {totalPages}</span>

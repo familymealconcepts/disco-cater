@@ -8,7 +8,25 @@ const BLUE = '#6B6EF9'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+interface ExtraItem {
+  name?: string
+  count?: number
+  quantity?: number
+  price?: number
+}
+
+interface OrderMealPackage {
+  name?: string
+  quantity?: number
+  price?: number
+  extraItems?: ExtraItem[]
+  specialInstructions?: string
+  comment?: string
+  classicModifier?: { name?: string }
+}
+
 interface Order {
+  // list-shape (used by table rows)
   orderReference: string
   orderNumber: number
   firstName: string
@@ -29,6 +47,39 @@ interface Order {
   nashDeliveryPublicTrackingUrl?: string
   maxAllowedRefundAmount?: number
   note?: string
+
+  // detail-shape additions (returned by GET /api/orders/{ref})
+  email?: string
+  phoneNumber?: string
+  total?: number
+  subtotal?: number
+  serviceCharge?: number
+  fee?: number
+  fees?: number
+  ownDeliveryFee?: number
+  doordashDeliveryFee?: number
+  thirdPartyDeliveryFee?: number
+  tipsInPrice?: number
+  thirdPartyDeliveryTipsInPrice?: number
+  stateSalesTaxInPrice?: number
+  localSalesTaxInPrice?: number
+  otherSalesTaxInPrice?: number
+  discount?: number
+  refund?: number
+  orderDropOffTime?: string
+  resultTrackingLink?: string
+  restaurant?: {
+    businessName?: string
+    timezone?: string
+    deliveryOrderTimeWindows?: string
+    feeCategories?: { displayFeeCategoriesName?: string }[]
+    address?: { addressLine1?: string; phoneNumber?: string; city?: string; state?: string; zipcode?: string }
+  }
+  deliveryAddress?: {
+    addressLine1?: string; city?: string; state?: string; zipcode?: string; deliveryInstructions?: string
+  }
+  orderMealPackages?: OrderMealPackage[]
+  orderClassics?: OrderMealPackage[]
 }
 
 interface SalesStatItem {
@@ -73,6 +124,26 @@ function fmtDate(d: string) {
   if (!d) return ''
   const [y, mo, day] = d.split('-')
   return `${mo}/${day}/${y}`
+}
+
+function fmtDateTime(iso?: string) {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+  } catch { return iso }
+}
+
+// Mirrors FM mappingOrderDetails() — combines delivery / tips / tax fields
+function deriveTotals(o: Order) {
+  const subtotal = o.subtotal ?? 0
+  const tax = (o.stateSalesTaxInPrice ?? 0) + (o.localSalesTaxInPrice ?? 0) + (o.otherSalesTaxInPrice ?? 0)
+  const tips = (o.tipsInPrice ?? 0) + (o.thirdPartyDeliveryTipsInPrice ?? 0)
+  const delivery = (o.ownDeliveryFee ?? 0) + (o.doordashDeliveryFee ?? 0) + (o.thirdPartyDeliveryFee ?? 0)
+  // Prefer o.total when present; fall back to transactionsTotal so the
+  // drawer still shows something usable if the API omits one field.
+  const total = (typeof o.total === 'number' ? o.total : o.transactionsTotal) || 0
+  return { subtotal, tax, tips, delivery, total }
 }
 
 function statusColor(status: string, orderDate: string, orderTime: string) {
@@ -238,47 +309,45 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
     }
   }
 
+  // FM totals derivation (shared/order-details mappingOrderDetails lines 78-93)
+  const totals = order ? deriveTotals(order) : null
+  const customerFull = order ? `${order.firstName || ''} ${order.lastName || ''}`.trim() : ''
+
+  function printDrawer() {
+    // Print the drawer body via window.print() — a print stylesheet
+    // (injected below) hides everything except .order-print-area.
+    window.print()
+  }
+
   return (
-    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 420, background: '#fff', zIndex: 200, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', fontFamily: F }}>
+    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, background: '#fff', zIndex: 200, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', fontFamily: F }} className="order-drawer-root">
       {/* Header */}
-      <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} className="order-drawer-chrome">
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: DARK }}>Order Details</h2>
         <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888', lineHeight: 1 }}>×</button>
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+      <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }} className="order-print-area">
         {loading && <div style={{ color: '#888', fontSize: 13 }}>Loading…</div>}
-        {order && (
+        {order && totals && (
           <>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: DARK, marginBottom: 4 }}>
-                #{order.orderNumber} — {order.firstName} {order.lastName}
-              </div>
-              <div style={{ fontSize: 13, color: '#888' }}>
-                {fmtDate(order.orderDate)} at {fmtTime(order.orderTime)} · {DELIVERY_LABEL[order.deliveryType] || order.orderType}
-              </div>
-            </div>
-
-            <div style={{ background: '#F7F8FC', borderRadius: 10, padding: '14px 16px', marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 13, color: '#666' }}>Status</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{STATUS_LABEL[order.orderStatus] || order.orderStatus}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, color: '#666' }}>Total</span>
-                <span style={{ fontSize: 16, fontWeight: 700, color: DARK }}>{fmt(order.transactionsTotal)}</span>
+            {/* FM-style print header */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: DARK, lineHeight: 1.5 }}>
+                FamilyMeal Order #{order.orderNumber} ({fmt(totals.total)}) {fmtDate(order.orderDate)}
+                {order.orderTime && <>, {fmtTime(order.orderTime)}</>}
+                {customerFull && <> for {customerFull}</>}
               </div>
             </div>
 
-            {order.note && (
-              <div style={{ background: '#FFF9E6', border: '1px solid #FFE9A0', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7A6020' }}>
-                <strong>Note:</strong> {order.note}
-              </div>
-            )}
+            <div style={{ background: '#F7F8FC', borderRadius: 8, padding: '8px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="order-drawer-chrome">
+              <span style={{ fontSize: 12, color: '#666' }}>Status</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{STATUS_LABEL[order.orderStatus] || order.orderStatus}</span>
+            </div>
 
-            {/* Status Change */}
+            {/* Status change */}
             {!TERMINAL.has(order.orderStatus) && order.orderStatusesToChange?.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
+              <div style={{ marginBottom: 16 }} className="order-drawer-chrome">
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Change Status</label>
                 <select
                   value=""
@@ -293,8 +362,84 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               </div>
             )}
 
-            {/* Action Buttons */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {/* ORDER DETAILS table — store info */}
+            <SectionHeader>Order Details</SectionHeader>
+            <DetailRow label="Date" value={fmtDate(order.orderDate)} />
+            <DetailRow label="Time" value={fmtTime(order.orderTime)} />
+            {order.restaurant?.businessName && <DetailRow label="Store" value={order.restaurant.businessName} />}
+            {order.restaurant?.address?.addressLine1 && <DetailRow label="Store address" value={[order.restaurant.address.addressLine1, order.restaurant.address.city, order.restaurant.address.state, order.restaurant.address.zipcode].filter(Boolean).join(', ')} />}
+            {order.restaurant?.address?.phoneNumber && <DetailRow label="Store phone" value={order.restaurant.address.phoneNumber} />}
+
+            {/* DELIVERY / PICKUP TIME — customer info */}
+            <SectionHeader>{order.orderType === 'DELIVERY' ? 'Delivery Pick-up Time' : 'Pickup Time'}</SectionHeader>
+            {order.orderDropOffTime ? (
+              <DetailRow label="Drop-off" value={fmtDateTime(order.orderDropOffTime)} />
+            ) : (
+              <>
+                <DetailRow label="Date" value={fmtDate(order.orderDate)} />
+                <DetailRow label="Time" value={fmtTime(order.orderTime)} />
+              </>
+            )}
+            <DetailRow label="Customer" value={customerFull || '—'} />
+            {order.email && <DetailRow label="Email" value={order.email} />}
+            {order.phoneNumber && <DetailRow label="Phone" value={order.phoneNumber} />}
+            {order.orderType === 'DELIVERY' && order.deliveryAddress?.addressLine1 && (
+              <DetailRow label="Address" value={[order.deliveryAddress.addressLine1, order.deliveryAddress.city, order.deliveryAddress.state, order.deliveryAddress.zipcode].filter(Boolean).join(', ')} />
+            )}
+            {order.deliveryAddress?.deliveryInstructions && (
+              <DetailRow label="Instructions" value={order.deliveryAddress.deliveryInstructions} />
+            )}
+
+            {/* Line items */}
+            {((order.orderMealPackages?.length || 0) + (order.orderClassics?.length || 0)) > 0 && (
+              <>
+                <SectionHeader>Items</SectionHeader>
+                <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#F7F8FC' }}>
+                      <th style={{ ...lineColHead, width: 40 }}>Qty</th>
+                      <th style={lineColHead}>Item</th>
+                      <th style={{ ...lineColHead, textAlign: 'right', width: 70 }}>Price</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...(order.orderMealPackages || []), ...(order.orderClassics || [])].map((it, i) => (
+                      <LineItemRow key={i} item={it} />
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+
+            {/* Totals breakdown — mirrors FM template lines 395-540 */}
+            <div style={{ borderTop: '1px solid #eee', paddingTop: 12, marginTop: 8 }}>
+              <TotalRow label="Subtotal" value={totals.subtotal} />
+              {(order.serviceCharge ?? 0) > 0 && (
+                <TotalRow
+                  label={order.restaurant?.feeCategories?.[0]?.displayFeeCategoriesName || 'Service Charge'}
+                  value={order.serviceCharge ?? 0}
+                />
+              )}
+              <TotalRow label="Taxes" value={totals.tax} />
+              {(order.fee ?? order.fees ?? 0) > 0 && <TotalRow label="Fees" value={order.fee ?? order.fees ?? 0} />}
+              {totals.tips > 0 && <TotalRow label="Tips" value={totals.tips} />}
+              {totals.delivery > 0 && <TotalRow label="Delivery Fee" value={totals.delivery} />}
+              {(order.discount ?? 0) > 0 && <TotalRow label="Promo" value={-(order.discount ?? 0)} />}
+              {(order.refund ?? 0) > 0 && <TotalRow label="Refund" value={-(order.refund ?? 0)} />}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTop: '1px solid #eee' }}>
+                <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Total</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{fmt(totals.total)}</span>
+              </div>
+            </div>
+
+            {order.note && (
+              <div style={{ background: '#FFF9E6', border: '1px solid #FFE9A0', borderRadius: 8, padding: '10px 14px', marginTop: 16, fontSize: 13, color: '#7A6020' }}>
+                <strong>Note:</strong> {order.note}
+              </div>
+            )}
+
+            {/* Action Buttons — hidden when printing */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 18 }} className="order-drawer-chrome">
               {order.orderStatus === 'DUE' && (
                 <button onClick={() => handleStatusChange('COMPLETED')}
                   style={{ padding: '8px 14px', background: '#22C55E', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
@@ -302,16 +447,16 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                 </button>
               )}
               {order.orderStatus === 'COMPLETED' && (
-                <>
-                  <button onClick={() => setModal('refund')}
-                    style={{ padding: '8px 14px', background: '#E76F51', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                    Refund
-                  </button>
-                  <button onClick={() => setModal('reopen')}
-                    style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                    Reopen
-                  </button>
-                </>
+                <button onClick={() => setModal('reopen')}
+                  style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  Reopen
+                </button>
+              )}
+              {(order.maxAllowedRefundAmount ?? 0) > 0 && order.orderStatus !== 'REOPEN' && (
+                <button onClick={() => setModal('refund')}
+                  style={{ padding: '8px 14px', background: '#E76F51', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  Refund
+                </button>
               )}
               {!TERMINAL.has(order.orderStatus) && (
                 <button onClick={() => setModal('void')}
@@ -321,9 +466,9 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               )}
               <button onClick={() => setModal('note')}
                 style={{ padding: '8px 14px', background: '#F59E0B', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                Note
+                Add notes
               </button>
-              <button onClick={() => window.open(`https://api.familymeal.com/public-api/order/${orderRef}/pdf`, '_blank')}
+              <button onClick={printDrawer}
                 style={{ padding: '8px 14px', background: '#fff', color: DARK, border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
                 Print
               </button>
@@ -331,6 +476,19 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
           </>
         )}
       </div>
+
+      {/* Print stylesheet — hide everything except the drawer body */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          .order-drawer-root, .order-drawer-root * { visibility: visible !important; }
+          .order-drawer-root {
+            position: static !important; top: auto !important; right: auto !important;
+            bottom: auto !important; width: 100% !important; box-shadow: none !important;
+          }
+          .order-drawer-chrome { display: none !important; }
+        }
+      `}</style>
 
       {modal === 'refund' && order && <RefundModal order={order} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
       {modal === 'void' && order && <RefundModal order={order} isVoid onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
@@ -349,13 +507,29 @@ function OrderCountsTab() {
   const [fromDate, setFromDate] = useState(today)
   const [toDate, setToDate] = useState(plus6)
   const [data, setData] = useState<{ mealPackages: SalesStatItem[]; addOns: SalesStatItem[] } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const load = useCallback(async () => {
     if (!fromDate || !toDate) return
+    setLoading(true); setError('')
     const params = new URLSearchParams({ fromDate, toDate })
     COUNTS_STATUSES.forEach(s => params.append('orderStatuses', s))
-    const res = await fetch(`/api/restaurant/orders/sale-stats?${params}`)
-    if (res.ok) setData(await res.json())
+    try {
+      const res = await fetch(`/api/restaurant/orders/sale-stats?${params}`)
+      if (res.ok) {
+        const d = await res.json()
+        setData({ mealPackages: d?.mealPackages || [], addOns: d?.addOns || [] })
+      } else {
+        const d = await res.json().catch(() => null)
+        setError(d?.error || `Failed to load (HTTP ${res.status})`)
+        setData({ mealPackages: [], addOns: [] })
+      }
+    } catch {
+      setError('Unable to reach server')
+      setData({ mealPackages: [], addOns: [] })
+    }
+    setLoading(false)
   }, [fromDate, toDate])
 
   useEffect(() => { load() }, [load])
@@ -371,63 +545,62 @@ function OrderCountsTab() {
         <span style={{ color: '#aaa' }}>–</span>
         <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
           style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
+        {loading && <span style={{ fontSize: 12, color: '#aaa', marginLeft: 8 }}>Loading…</span>}
       </div>
 
-      {data && (
-        <>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: DARK, margin: '0 0 12px' }}>Items</h3>
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', marginBottom: 24, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr style={{ background: '#F7F8FC' }}>
-                <th style={colHead}>Items</th>
-                <th style={{ ...colHead, textAlign: 'right' }}>Count</th>
-                <th style={{ ...colHead, textAlign: 'right' }}>Price</th>
-                <th style={{ ...colHead, textAlign: 'right' }}>Total ($)</th>
-              </tr></thead>
-              <tbody>
-                {data.mealPackages?.map((item, i) => (
-                  <tr key={i}>
-                    <td style={cell}>{item.mealPackageName || item.addOnName || '—'}</td>
-                    <td style={{ ...cell, textAlign: 'right' }}>{item.count}</td>
-                    <td style={{ ...cell, textAlign: 'right' }}>{fmt(item.price)}</td>
-                    <td style={{ ...cell, textAlign: 'right' }}>{fmt(item.total)}</td>
-                  </tr>
-                ))}
-                {!data.mealPackages?.length && (
-                  <tr><td colSpan={4} style={{ ...cell, color: '#aaa', textAlign: 'center' }}>No data</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+      {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: DARK, margin: '0 0 12px' }}>Modifiers</h3>
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr style={{ background: '#F7F8FC' }}>
-                <th style={colHead}>Modifier</th>
-                <th style={colHead}>Items</th>
-                <th style={{ ...colHead, textAlign: 'right' }}>Count</th>
-                <th style={{ ...colHead, textAlign: 'right' }}>Price</th>
-                <th style={{ ...colHead, textAlign: 'right' }}>Total ($)</th>
-              </tr></thead>
-              <tbody>
-                {data.addOns?.map((item, i) => (
-                  <tr key={i}>
-                    <td style={cell}>{item.addOnName || '—'}</td>
-                    <td style={cell}>{item.mealPackageName || '—'}</td>
-                    <td style={{ ...cell, textAlign: 'right' }}>{item.count}</td>
-                    <td style={{ ...cell, textAlign: 'right' }}>{fmt(item.price)}</td>
-                    <td style={{ ...cell, textAlign: 'right' }}>{fmt(item.total)}</td>
-                  </tr>
-                ))}
-                {!data.addOns?.length && (
-                  <tr><td colSpan={5} style={{ ...cell, color: '#aaa', textAlign: 'center' }}>No data</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: DARK, margin: '0 0 12px' }}>Items</h3>
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', marginBottom: 24, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr style={{ background: '#F7F8FC' }}>
+            <th style={colHead}>Items</th>
+            <th style={{ ...colHead, textAlign: 'right' }}>Count</th>
+            <th style={{ ...colHead, textAlign: 'right' }}>Price</th>
+            <th style={{ ...colHead, textAlign: 'right' }}>Total ($)</th>
+          </tr></thead>
+          <tbody>
+            {data?.mealPackages?.map((item, i) => (
+              <tr key={i}>
+                <td style={cell}>{item.mealPackageName || item.addOnName || '—'}</td>
+                <td style={{ ...cell, textAlign: 'right' }}>{item.count}</td>
+                <td style={{ ...cell, textAlign: 'right' }}>{fmt(item.price)}</td>
+                <td style={{ ...cell, textAlign: 'right' }}>{fmt(item.total)}</td>
+              </tr>
+            ))}
+            {!loading && !data?.mealPackages?.length && (
+              <tr><td colSpan={4} style={{ ...cell, color: '#aaa', textAlign: 'center' }}>No completed or due orders in this date range.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: DARK, margin: '0 0 12px' }}>Modifiers</h3>
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr style={{ background: '#F7F8FC' }}>
+            <th style={colHead}>Modifier</th>
+            <th style={colHead}>Items</th>
+            <th style={{ ...colHead, textAlign: 'right' }}>Count</th>
+            <th style={{ ...colHead, textAlign: 'right' }}>Price</th>
+            <th style={{ ...colHead, textAlign: 'right' }}>Total ($)</th>
+          </tr></thead>
+          <tbody>
+            {data?.addOns?.map((item, i) => (
+              <tr key={i}>
+                <td style={cell}>{item.addOnName || '—'}</td>
+                <td style={cell}>{item.mealPackageName || '—'}</td>
+                <td style={{ ...cell, textAlign: 'right' }}>{item.count}</td>
+                <td style={{ ...cell, textAlign: 'right' }}>{fmt(item.price)}</td>
+                <td style={{ ...cell, textAlign: 'right' }}>{fmt(item.total)}</td>
+              </tr>
+            ))}
+            {!loading && !data?.addOns?.length && (
+              <tr><td colSpan={5} style={{ ...cell, color: '#aaa', textAlign: 'center' }}>No modifiers in this date range.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -732,3 +905,66 @@ export default function OrdersPage() {
     </Suspense>
   )
 }
+
+// ─── Order Drawer helpers ─────────────────────────────────────────────────────
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 8px' }}>
+      {children}
+    </h3>
+  )
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  if (!value) return null
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px dotted #eee', fontSize: 13 }}>
+      <span style={{ color: '#888' }}>{label}</span>
+      <span style={{ color: DARK, textAlign: 'right', maxWidth: '70%' }}>{value}</span>
+    </div>
+  )
+}
+
+function TotalRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+      <span style={{ color: '#666' }}>{label}</span>
+      <span style={{ color: DARK }}>{fmt(value)}</span>
+    </div>
+  )
+}
+
+function LineItemRow({ item }: { item: OrderMealPackage }) {
+  const qty = item.quantity ?? 1
+  const name = item.name || '—'
+  const price = item.price ?? 0
+  return (
+    <>
+      <tr>
+        <td style={lineCell}>{qty}</td>
+        <td style={lineCell}>{name}</td>
+        <td style={{ ...lineCell, textAlign: 'right' }}>{fmt(price)}</td>
+      </tr>
+      {item.extraItems?.map((ex, i) => (
+        <tr key={i}>
+          <td style={lineCellSub}></td>
+          <td style={{ ...lineCellSub, paddingLeft: 24 }}>+ ({ex.count ?? ex.quantity ?? 1}) {ex.name}</td>
+          <td style={{ ...lineCellSub, textAlign: 'right' }}>{ex.price ? fmt(ex.price) : ''}</td>
+        </tr>
+      ))}
+      {(item.specialInstructions || item.comment) && (
+        <tr>
+          <td style={lineCellSub}></td>
+          <td style={{ ...lineCellSub, paddingLeft: 24, fontStyle: 'italic', color: '#888' }} colSpan={2}>
+            Special Instructions: {item.specialInstructions || item.comment}
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
+
+const lineColHead: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', padding: '8px 10px', textAlign: 'left' }
+const lineCell: React.CSSProperties = { padding: '8px 10px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0' }
+const lineCellSub: React.CSSProperties = { padding: '4px 10px', fontSize: 12, color: '#555' }

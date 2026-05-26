@@ -23,18 +23,30 @@ export default function MultiUnitLinksPage() {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [editing, setEditing] = useState<Partial<MultiLink> | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
+    setError('')
     const params = new URLSearchParams({ page: String(page), size: String(pageSize) })
     const res = await fetch(`/api/restaurant/multi-unit-links?${params}`)
     if (res.ok) {
       const data = await res.json()
-      setLinks(data.content || [])
-      setTotal(data.totalElements || 0)
+      // FM's /links/listing has been observed to return either a paginated
+      // {content, totalElements} envelope or a plain array — handle both.
+      if (Array.isArray(data)) {
+        setLinks(data)
+        setTotal(data.length)
+      } else {
+        setLinks(data.content || data.data || [])
+        setTotal(data.totalElements ?? data.total ?? (data.content?.length || 0))
+      }
     } else {
+      const d = await res.json().catch(() => null)
+      setError(d?.error || `Failed to load links (HTTP ${res.status})`)
       setLinks([])
+      setTotal(0)
     }
     setLoading(false)
   }, [page, pageSize])
@@ -74,6 +86,8 @@ export default function MultiUnitLinksPage() {
           + Add Link
         </button>
       </div>
+
+      {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
