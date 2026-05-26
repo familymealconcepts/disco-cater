@@ -77,11 +77,11 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
                       </div>
                       <div style={{ padding: '5px 0' }}>
                         {[
-                          { icon: <IconUser />, label: 'My Account', href: '/account' },
-                          { icon: <IconOrders />, label: 'My Orders', href: '/portal' },
-                          { icon: <IconHistory />, label: 'Order History', href: '/account?tab=history' },
-                          { icon: <IconCard />, label: 'Payment methods', href: '/account?tab=payment' },
-                          { icon: <IconBell />, label: 'Notifications', href: '/portal' },
+                          { icon: <IconUser />, label: 'My Account', href: '/account/profile' },
+                          { icon: <IconOrders />, label: 'My Orders', href: '/account/orders' },
+                          { icon: <IconHistory />, label: 'Order History', href: '/account/orders/history' },
+                          { icon: <IconCard />, label: 'Payment methods', href: '/account/payment' },
+                          { icon: <IconBell />, label: 'Notifications', href: '/account/notifications' },
                         ].map(item => (
                           <Link key={item.label} href={item.href} className="dc-menu-link" onClick={() => setMenuOpen(false)}>
                             <span style={{ color: '#999', flexShrink: 0 }}>{item.icon}</span>
