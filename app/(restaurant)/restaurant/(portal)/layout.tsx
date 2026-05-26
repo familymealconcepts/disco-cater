@@ -49,6 +49,7 @@ const ADMIN_NAV: NavItem[] = [
 
 const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Reporting', path: '/restaurant/dashboard' },
+  { title: 'Reports', path: '/restaurant/manage/admin-manager-reports' },
   { title: 'Locations', path: '/restaurant/manage/locations' },
   { title: 'Authorized Users', path: '/restaurant/manage/authorized-users' },
   { title: 'Orders', path: '/restaurant/orders', badge: true },
@@ -60,6 +61,7 @@ const SYSTEM_ADMIN_ONLY_PATHS = [
   '/restaurant/manage/locations',
   '/restaurant/manage/authorized-users',
   '/restaurant/manage/multi-unit-links',
+  '/restaurant/manage/admin-manager-reports',
 ]
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
