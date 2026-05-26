@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import MenuSettingsDialog from './MenuSettingsDialog'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -57,6 +58,7 @@ export default function MenusPage() {
   const [menus, setMenus] = useState<Menu[]>([])
   const [loading, setLoading] = useState(true)
   const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null)
+  const [settingsRef, setSettingsRef] = useState<string | null>(null)
 
   const filter = TABS[activeTab].filter
 
@@ -173,6 +175,7 @@ export default function MenusPage() {
                   </td>
                   <td style={{ ...tdStyle, textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                      <ActionBtn title="Settings" onClick={() => setSettingsRef(m.reference)}>⚙</ActionBtn>
                       <ActionBtn title="Clone" onClick={() => handleClone(m.reference)}>⧉</ActionBtn>
                       {filter !== 'ARCHIVED' && (
                         <ActionBtn title={m.visible ? 'Hide' : 'Show'} onClick={() => handleVisible(m.reference, m.visible)}>
@@ -197,6 +200,14 @@ export default function MenusPage() {
           message={confirm.message}
           onConfirm={confirm.onConfirm}
           onCancel={() => setConfirm(null)}
+        />
+      )}
+
+      {settingsRef && (
+        <MenuSettingsDialog
+          menuRef={settingsRef}
+          onClose={() => setSettingsRef(null)}
+          onSaved={() => { setSettingsRef(null); loadMenus() }}
         />
       )}
     </div>
