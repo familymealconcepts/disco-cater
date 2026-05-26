@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import SubscriptionSetupModal from './SubscriptionSetupModal'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -126,6 +127,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
   const [detail, setDetail] = useState<FmOrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [setupOpen, setSetupOpen] = useState(false)
 
   useEffect(() => {
     setLoading(true); setError(''); setDetail(null)
@@ -308,10 +310,16 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
         {detail && !loading && !error && (
           <div style={{ padding: '14px 18px', borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8 }}>
             {mode === 'history' ? (
-              <button onClick={handleReorder}
-                style={{ flex: 1, padding: '10px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-                Reorder
-              </button>
+              <>
+                <button onClick={() => setSetupOpen(true)}
+                  style={{ flex: 2, padding: '10px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                  Repeat this order
+                </button>
+                <button onClick={handleReorder}
+                  style={{ flex: 1, padding: '10px 14px', background: '#fff', color: DARK, border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  Reorder
+                </button>
+              </>
             ) : (
               <>
                 <button onClick={handleEdit}
@@ -334,6 +342,16 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
           </div>
         )}
       </aside>
+
+      {/* Subscription setup wizard (pre-seeded with this order's restaurant) */}
+      {setupOpen && (
+        <SubscriptionSetupModal
+          restaurantName={detail?.restaurant?.businessName}
+          restaurantSlug={detail?.restaurant?.businessNameWithoutSpaces}
+          sourceOrderRef={orderRef}
+          onClose={() => setSetupOpen(false)}
+        />
+      )}
     </>
   )
   // Suppress unused-var warning if PURPLE styles change
