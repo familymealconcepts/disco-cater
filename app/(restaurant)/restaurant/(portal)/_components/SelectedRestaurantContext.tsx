@@ -3,13 +3,21 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 
 const STORAGE_REF = 'selectedRestaurant'
 const STORAGE_NAME = 'selectedRestaurantName'
+const STORAGE_VIEW = 'disco_view_mode'
 const CHANGE_EVENT = 'disco:selected-restaurant-changed'
+
+export type ViewMode = 'SYSTEM_ADMIN' | 'RESTAURANT_USER'
 
 interface ContextValue {
   /** FM restaurant reference UUID, null when no location is picked. */
   ref: string | null
   /** Display name. Prefers the cached name, fills in from /api/restaurant/profile. */
   name: string
+  /** Which sidebar nav the SYSTEM_ADMIN is currently viewing. Defaults to
+   *  SYSTEM_ADMIN; flipped to RESTAURANT_USER when a location is clicked. */
+  viewMode: ViewMode
+  /** Set the view mode and persist. */
+  setViewMode: (mode: ViewMode) => void
   /** Select a location (PUT FM current + cookie + localStorage + broadcast). */
   setRestaurant: (ref: string, name?: string) => Promise<void>
   /** Clear selection (DELETE FM current + cookies + localStorage + broadcast). */
@@ -20,7 +28,7 @@ interface ContextValue {
 
 const Ctx = createContext<ContextValue | null>(null)
 
-interface BroadcastDetail { ref: string | null; name: string }
+interface BroadcastDetail { ref: string | null; name: string; viewMode?: ViewMode }
 
 /**
  * Owns the single source of truth for the currently-impersonated
@@ -35,14 +43,17 @@ interface BroadcastDetail { ref: string | null; name: string }
 export function SelectedRestaurantProvider({ children }: { children: React.ReactNode }) {
   const [ref, setRef] = useState<string | null>(null)
   const [name, setName] = useState<string>('')
+  const [viewMode, setViewModeState] = useState<ViewMode>('SYSTEM_ADMIN')
 
   // Initial hydrate from localStorage.
   useEffect(() => {
     try {
       const r = localStorage.getItem(STORAGE_REF)
       const n = localStorage.getItem(STORAGE_NAME)
+      const v = localStorage.getItem(STORAGE_VIEW)
       if (r) setRef(r)
       if (n) setName(n)
+      if (v === 'RESTAURANT_USER' || v === 'SYSTEM_ADMIN') setViewModeState(v)
     } catch {}
   }, [])
 
@@ -54,10 +65,14 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
       if (!detail) return
       setRef(detail.ref)
       setName(detail.name)
+      if (detail.viewMode) setViewModeState(detail.viewMode)
     }
     function onStorage(e: StorageEvent) {
       if (e.key === STORAGE_REF) setRef(e.newValue || null)
       if (e.key === STORAGE_NAME) setName(e.newValue || '')
+      if (e.key === STORAGE_VIEW && (e.newValue === 'RESTAURANT_USER' || e.newValue === 'SYSTEM_ADMIN')) {
+        setViewModeState(e.newValue)
+      }
     }
     window.addEventListener(CHANGE_EVENT, onCustom as EventListener)
     window.addEventListener('storage', onStorage)
@@ -66,6 +81,14 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
       window.removeEventListener('storage', onStorage)
     }
   }, [])
+
+  const setViewMode = useCallback((mode: ViewMode) => {
+    setViewModeState(mode)
+    try { localStorage.setItem(STORAGE_VIEW, mode) } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { ref, name, viewMode: mode } }))
+    } catch {}
+  }, [ref, name])
 
   // After a successful selection, pull the canonical business name from
   // /api/restaurant/profile so the sidebar header and dropdown agree
@@ -108,17 +131,19 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
     await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE', credentials: 'include' })
     setRef(null)
     setName('')
+    setViewModeState('SYSTEM_ADMIN')
     try {
       localStorage.removeItem(STORAGE_REF)
       localStorage.removeItem(STORAGE_NAME)
+      localStorage.setItem(STORAGE_VIEW, 'SYSTEM_ADMIN')
     } catch {}
     try {
-      window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { ref: null, name: '' } }))
+      window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { ref: null, name: '', viewMode: 'SYSTEM_ADMIN' } }))
     } catch {}
   }, [])
 
   return (
-    <Ctx.Provider value={{ ref, name, setRestaurant, clearRestaurant, refreshName }}>
+    <Ctx.Provider value={{ ref, name, viewMode, setViewMode, setRestaurant, clearRestaurant, refreshName }}>
       {children}
     </Ctx.Provider>
   )

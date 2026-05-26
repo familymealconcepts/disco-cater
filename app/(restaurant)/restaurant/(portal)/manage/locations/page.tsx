@@ -10,6 +10,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import EditLocationDialog, { type EditLocationFullData } from './EditLocationDialog'
+import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -92,6 +93,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
 
 export default function LocationsPage() {
   const router = useRouter()
+  const { setRestaurant, setViewMode } = useSelectedRestaurant()
   const [locations, setLocations] = useState<Location[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
@@ -197,14 +199,14 @@ export default function LocationsPage() {
   async function switchToLocation(loc: Location) {
     setSwitching(loc.reference)
     try {
-      const res = await fetch(`/api/restaurant/selected-restaurant?restaurantReference=${loc.reference}`, { method: 'PUT' })
-      if (res.ok) {
-        try {
-          localStorage.setItem('selectedRestaurant', loc.reference)
-          localStorage.setItem('selectedRestaurantName', loc.businessName)
-        } catch {}
-        router.push('/restaurant/dashboard')
-      }
+      // setRestaurant handles the FM PUT + localStorage + broadcast +
+      // refreshName so the sidebar header updates in one shot.
+      await setRestaurant(loc.reference, loc.businessName)
+      // Clicking a location is the "manage this location operationally"
+      // intent — flip into the narrow Restaurant User nav (Orders,
+      // Manage Menus, Availability) and land on Orders.
+      setViewMode('RESTAURANT_USER')
+      router.push('/restaurant/orders')
     } finally {
       setSwitching(null)
     }

@@ -51,12 +51,8 @@ const ADMIN_NAV: NavItem[] = [
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
 ]
 
-// SYSTEM_ADMIN with a picked location sees the combined multi-location
-// management items PLUS the per-restaurant menu/settings/tax items.
-// Top group mirrors FM SIDEBAR_PATHS_LIST.SYSTEM_ADMIN
-// (paths.constant.ts:15-80). The Menu Management and Settings groups
-// are pulled in so the diner can operate the picked location without
-// switching to an "impersonation" view.
+// Full SYSTEM_ADMIN nav — the multi-location management surface.
+// Mirrors FM SIDEBAR_PATHS_LIST.SYSTEM_ADMIN (paths.constant.ts:15-80).
 const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Reporting', path: '/restaurant/dashboard' },
   { title: 'Locations', path: '/restaurant/manage/locations' },
@@ -65,24 +61,23 @@ const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Links', path: '/restaurant/manage/multi-unit-links' },
   { title: 'Reports', path: '/restaurant/manage/admin-manager-reports' },
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
+  { title: 'Banking', path: '/restaurant/account/banking' },
+  { title: 'Tax Rate', path: '/restaurant/tax-rate' },
+]
+
+// Narrow nav shown when a SYSTEM_ADMIN clicks into a single location
+// ("View as Restaurant User"). The staff-facing operational surface.
+const RESTAURANT_USER_NAV: NavItem[] = [
+  { title: 'Orders', path: '/restaurant/orders', badge: true },
   {
-    title: 'Manage Menus', path: '/restaurant/manage-v2/menus', section: 'Menu Management',
+    title: 'Manage Menus', path: '/restaurant/manage-v2/menus',
     children: [
       { title: 'Menus', path: '/restaurant/manage-v2/menus' },
       { title: 'Group Library', path: '/restaurant/manage/groups' },
       { title: 'Modifier Library', path: '/restaurant/manage/modifiers' },
     ],
   },
-  { title: 'Settings', path: '/restaurant/order-settings', section: 'Settings' },
-  { title: 'Banking', path: '/restaurant/account/banking' },
-  { title: 'Tax Rate', path: '/restaurant/tax-rate' },
-]
-
-const SYSTEM_ADMIN_ONLY_PATHS = [
-  '/restaurant/manage/locations',
-  '/restaurant/manage/authorized-users',
-  '/restaurant/manage/multi-unit-links',
-  '/restaurant/manage/admin-manager-reports',
+  { title: 'Availability', path: '/restaurant/order-settings' },
 ]
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -101,7 +96,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   // Selection state lives in context now — single source of truth shared
   // with the dashboard top-right dropdown.
-  const { ref: selectedRestaurant, name: selectedRestaurantName, clearRestaurant } = useSelectedRestaurant()
+  const { ref: selectedRestaurant, name: selectedRestaurantName, viewMode, setViewMode, clearRestaurant } = useSelectedRestaurant()
 
   useEffect(() => {
     try {
@@ -112,20 +107,19 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
 
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN' || user?.role === 'SUPER_ADMIN'
   const hasSelection = isSystemAdmin && !!selectedRestaurant
-  const isOnSystemAdminPage = SYSTEM_ADMIN_ONLY_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
+  const inRestaurantUserView = isSystemAdmin && viewMode === 'RESTAURANT_USER' && hasSelection
 
-  // SYSTEM_ADMIN with a location → combined nav (multi-loc + per-loc).
-  // SYSTEM_ADMIN without a location → nothing but the picker prompt
-  //   (the welcome / first-pick state should not have stale items).
-  // ADMIN / RESTAURANT_USER → standard per-restaurant nav.
-  // Unused for now but keep ADMIN_NAV path open for SAs on a SA-only
-  // route (the toggle below still navigates between contexts).
-  void isOnSystemAdminPage
+  // ADMIN / RESTAURANT_USER role → standard per-restaurant nav.
+  // SYSTEM_ADMIN in RESTAURANT_USER view → narrow operational nav.
+  // SYSTEM_ADMIN in SYSTEM_ADMIN view → full multi-location nav.
+  // SYSTEM_ADMIN with no selection → empty (only the picker prompt).
   const NAV: NavItem[] = !isSystemAdmin
     ? ADMIN_NAV
-    : hasSelection
-      ? SYSTEM_ADMIN_NAV
-      : []
+    : inRestaurantUserView
+      ? RESTAURANT_USER_NAV
+      : hasSelection
+        ? SYSTEM_ADMIN_NAV
+        : []
 
   // For the header "current restaurant" line. Falls back to the cached
   // name if context hasn't refreshed yet.
@@ -156,14 +150,16 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     router.push('/restaurant/login')
   }
 
-  // FM's bidirectional View-as toggle:
-  // - on SYSTEM_ADMIN page with selection → "View as Restaurant User" (go to dashboard)
-  // - on impersonation page → "View as System Admin" (go back to Locations)
-  async function viewAsToggle() {
-    if (isOnSystemAdminPage) {
-      router.push('/restaurant/dashboard')
-    } else {
+  // FM's bidirectional View-as toggle. The view mode is the single
+  // source of truth — flipping it swaps the sidebar nav, and we navigate
+  // to the canonical landing page for the destination view.
+  function viewAsToggle() {
+    if (inRestaurantUserView) {
+      setViewMode('SYSTEM_ADMIN')
       router.push('/restaurant/manage/locations')
+    } else {
+      setViewMode('RESTAURANT_USER')
+      router.push('/restaurant/orders')
     }
   }
 
@@ -241,7 +237,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
               }}
             >
               <span style={{ marginRight: 6 }}>←</span>
-              View as {isOnSystemAdminPage ? 'Restaurant User' : 'System Admin'}
+              View as {inRestaurantUserView ? 'System Admin' : 'Restaurant User'}
             </button>
           )}
 
