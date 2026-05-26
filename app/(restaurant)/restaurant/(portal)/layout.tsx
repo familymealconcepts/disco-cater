@@ -56,8 +56,10 @@ const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
 ]
 
-const SYSTEM_ADMIN_IMPERSONATING_NAV: NavItem[] = [
-  ...ADMIN_NAV,
+const SYSTEM_ADMIN_ONLY_PATHS = [
+  '/restaurant/manage/locations',
+  '/restaurant/manage/authorized-users',
+  '/restaurant/manage/multi-unit-links',
 ]
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -68,6 +70,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const [orderBadge, setOrderBadge] = useState(0)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null)
+  const [selectedRestaurantName, setSelectedRestaurantName] = useState<string>('')
 
   useEffect(() => {
     try {
@@ -75,15 +78,20 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       if (raw) setUser(JSON.parse(raw))
       const sel = localStorage.getItem('selectedRestaurant')
       if (sel) setSelectedRestaurant(sel)
+      const selName = localStorage.getItem('selectedRestaurantName')
+      if (selName) setSelectedRestaurantName(selName)
     } catch {}
   }, [])
 
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN' || user?.role === 'SUPER_ADMIN'
-  const isImpersonating = isSystemAdmin && !!selectedRestaurant
+  const hasSelection = isSystemAdmin && !!selectedRestaurant
+  const isOnSystemAdminPage = SYSTEM_ADMIN_ONLY_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
 
-  const NAV: NavItem[] = isSystemAdmin
-    ? (isImpersonating ? SYSTEM_ADMIN_IMPERSONATING_NAV : SYSTEM_ADMIN_NAV)
-    : ADMIN_NAV
+  // When SYSTEM_ADMIN: if on a SYSTEM_ADMIN-only page show SYSTEM_ADMIN_NAV,
+  // otherwise show the ADMIN nav (impersonation view).
+  const NAV: NavItem[] = !isSystemAdmin
+    ? ADMIN_NAV
+    : (isOnSystemAdminPage || !hasSelection ? SYSTEM_ADMIN_NAV : ADMIN_NAV)
 
   useEffect(() => {
     fetch('/api/restaurant/profile')
@@ -115,13 +123,27 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE' })
     localStorage.removeItem('restaurant_user')
     localStorage.removeItem('selectedRestaurant')
+    localStorage.removeItem('selectedRestaurantName')
     router.push('/restaurant/login')
   }
 
-  async function exitImpersonation() {
+  // FM's bidirectional View-as toggle:
+  // - on SYSTEM_ADMIN page with selection → "View as Restaurant User" (go to dashboard)
+  // - on impersonation page → "View as System Admin" (go back to Locations)
+  async function viewAsToggle() {
+    if (isOnSystemAdminPage) {
+      router.push('/restaurant/dashboard')
+    } else {
+      router.push('/restaurant/manage/locations')
+    }
+  }
+
+  async function clearSelection() {
     await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE' })
     localStorage.removeItem('selectedRestaurant')
+    localStorage.removeItem('selectedRestaurantName')
     setSelectedRestaurant(null)
+    setSelectedRestaurantName('')
     setRestaurantName('')
     router.push('/restaurant/manage/locations')
   }
@@ -183,8 +205,24 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           height: '100vh', overflow: 'hidden auto', display: 'flex', flexDirection: 'column',
           flexShrink: 0, zIndex: 100,
         }}>
+          {/* SYSTEM_ADMIN "View as" link at the very top */}
+          {hasSelection && (
+            <button
+              onClick={viewAsToggle}
+              style={{
+                background: 'transparent', border: 'none',
+                color: 'rgba(255,255,255,0.7)', fontSize: 12, fontFamily: F,
+                padding: '14px 16px 6px', cursor: 'pointer', textAlign: 'left',
+                width: '100%',
+              }}
+            >
+              <span style={{ marginRight: 6 }}>←</span>
+              View as {isOnSystemAdminPage ? 'Restaurant User' : 'System Admin'}
+            </button>
+          )}
+
           {/* Logo */}
-          <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ padding: hasSelection ? '6px 16px 16px' : '20px 16px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
             <div style={{ marginBottom: 2 }}>
               <span style={{ fontSize: 18, fontWeight: 800, background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>disco</span>
               <span style={{ fontSize: 18, fontWeight: 800, color: '#999' }}> cater</span>
@@ -196,20 +234,28 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             )}
           </div>
 
-          {/* SYSTEM_ADMIN location switcher */}
+          {/* SYSTEM_ADMIN role label + selected restaurant */}
           {isSystemAdmin && (
-            <div style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(107,110,249,0.06)' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-                {isImpersonating ? 'Viewing as Restaurant' : 'System Admin'}
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(107,110,249,0.06)' }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                System Admin
               </div>
-              {isImpersonating ? (
-                <button onClick={exitImpersonation}
-                  style={{ width: '100%', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, color: 'rgba(255,255,255,0.75)', fontSize: 11, fontFamily: F, padding: '6px 8px', cursor: 'pointer', textAlign: 'left' }}>
-                  ← View as System Admin
-                </button>
+              {hasSelection ? (
+                <div style={{ fontSize: 12, color: '#fff', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {selectedRestaurantName || restaurantName || selectedRestaurant}
+                  <button
+                    onClick={clearSelection}
+                    title="Clear selection"
+                    style={{
+                      marginLeft: 6, background: 'transparent', border: 'none',
+                      color: 'rgba(255,255,255,0.4)', fontSize: 11, cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  >×</button>
+                </div>
               ) : (
                 <Link href="/restaurant/manage/locations"
-                  style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.6)', textDecoration: 'none', padding: '2px 0' }}>
+                  style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.55)', textDecoration: 'none', marginTop: 4 }}>
                   Pick a location →
                 </Link>
               )}
