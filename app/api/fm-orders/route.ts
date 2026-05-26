@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
     let res = await fetch(`${FM_API}/api/userOrder?page=0&size=50`, {
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': token,
         'Accept': 'application/json',
       },
     })

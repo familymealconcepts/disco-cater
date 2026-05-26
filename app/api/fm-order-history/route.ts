@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
     const res = await fetch(`${FM_API}/api/userOrder?page=${page}&size=${size}`, {
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': token,
         'Accept': 'application/json',
       },
     })

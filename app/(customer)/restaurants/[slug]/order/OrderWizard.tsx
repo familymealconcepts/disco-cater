@@ -121,12 +121,12 @@ export default function OrderWizard({
     if (envKey) {
       setStripeKey(envKey)
     } else {
-      fetch('/api/order/stripe-info', { headers: { Authorization: `Bearer ${user.token}` } })
+      fetch('/api/order/stripe-info', { headers: { Authorization: user.token } })
         .then(r => r.json())
         .then(d => setStripeKey(d.publishableKey || d.publicKey || d.stripePublishableKey || d.key || ''))
         .catch(() => {})
     }
-    fetch('/api/order/saved-card', { headers: { Authorization: `Bearer ${user.token}` } })
+    fetch('/api/order/saved-card', { headers: { Authorization: user.token } })
       .then(r => r.json())
       .then(d => { if (d && !d.error && (d.brand || d.last4 || d.cardBrand || d.lastFour)) setSavedCard(d) })
       .catch(() => {})
@@ -215,7 +215,7 @@ export default function OrderWizard({
       }
 
       const confRes = await fetch('/api/order/confirm-payment', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: user.token },
         body: JSON.stringify({ orderReference: orderRef, token, useDefaultPayment: !!savedCard, restaurantReference: restaurantRef }),
       })
       const confData = await confRes.json()
@@ -225,7 +225,7 @@ export default function OrderWizard({
       }
 
       const placeRes = await fetch('/api/order/place', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: user.token },
         body: JSON.stringify({ restaurantRef, orderRef }),
       })
       const placeData = await placeRes.json()

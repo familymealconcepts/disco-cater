@@ -14,7 +14,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ ref:
 
     const res = await fetch(`${FM_API}/api/userOrder/${ref}`, {
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': token,
         'Accept': 'application/json',
       },
     })

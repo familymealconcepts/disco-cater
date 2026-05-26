@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     if (!orderRef) return NextResponse.json({ error: 'orderRef required' }, { status: 400 })
 
     const res = await fetch(`${FM}/api/userOrder/${orderRef}`, {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      headers: { Accept: 'application/json', Authorization: token },
     })
     const data = await res.json()
     return NextResponse.json(data, { status: res.status })

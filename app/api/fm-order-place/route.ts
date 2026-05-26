@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       `${FM}/api/v2/restaurants/${restaurantRef}/orders/${orderRef}`,
       {
         method: 'POST',
-        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+        headers: { Accept: 'application/json', Authorization: token },
       }
     )
     const data = await res.json()

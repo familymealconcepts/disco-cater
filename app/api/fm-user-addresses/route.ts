@@ -15,7 +15,7 @@ export async function PUT(req: NextRequest) {
     const res = await fetch(`${FM_API}/api/users/addresses`, {
       method: 'PUT',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': token,
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },

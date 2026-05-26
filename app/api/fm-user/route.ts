@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
     const res = await fetch(`${FM_API}/api/users`, {
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': token,
         'Accept': 'application/json',
       },
     })
@@ -42,7 +42,7 @@ export async function PUT(req: NextRequest) {
     const res = await fetch(`${FM_API}/api/users`, {
       method: 'PUT',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': token,
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },

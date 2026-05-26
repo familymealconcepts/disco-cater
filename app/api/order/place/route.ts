@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
+        Authorization: token,
       },
       body: JSON.stringify(placeBody),
     })
