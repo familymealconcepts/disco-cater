@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import GenerateReportButton from '../_components/GenerateReportButton'
+import PrintOrderDocument, { type PrintableOrder } from '../_components/PrintOrderDocument'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -478,16 +479,27 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
         )}
       </div>
 
-      {/* Print stylesheet — hide everything except the drawer body */}
+      {/* Print-only document. Renders the FM-PDF-style layout that
+          replaces the drawer entirely when the user prints. */}
+      {order && <PrintOrderDocument order={order as PrintableOrder} />}
+
+      {/* Print stylesheet: visibility:hidden on everything (so the print
+          doc, which lives deep inside the drawer, can still inherit the
+          page) then visibility:visible on .print-doc and its descendants.
+          Positioning .print-doc absolute at the document origin overlays
+          it onto the page so the printer sees only the FM-style layout. */}
       <style>{`
         @media print {
-          body * { visibility: hidden !important; }
-          .order-drawer-root, .order-drawer-root * { visibility: visible !important; }
-          .order-drawer-root {
-            position: static !important; top: auto !important; right: auto !important;
-            bottom: auto !important; width: 100% !important; box-shadow: none !important;
+          body { background: #fff !important; }
+          body * { visibility: hidden !important; box-shadow: none !important; }
+          .print-doc, .print-doc * { visibility: visible !important; }
+          .print-doc {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            margin: 0 !important;
           }
-          .order-drawer-chrome { display: none !important; }
         }
       `}</style>
 
