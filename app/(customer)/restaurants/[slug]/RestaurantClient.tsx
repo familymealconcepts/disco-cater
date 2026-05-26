@@ -895,7 +895,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             activeSection?.categories.map(cat => (
               <div key={cat.reference} style={{ marginBottom: 40 }}>
                 {!embedded && (activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
-                  <div style={{ position: 'sticky', top: hasSelection ? 98 : 52, zIndex: 10, background: '#f8f8fc', padding: '10px 0', marginBottom: 4 }}>
+                  <div style={{ position: 'sticky', top: hasSelection ? 98 : 52, zIndex: 30, background: '#f8f8fc', padding: '12px 0 14px', marginBottom: 8, boxShadow: '0 8px 8px -10px rgba(0,0,0,0.12)' }}>
                     <h2 style={{ fontSize: 16, fontWeight: 800, color: DARK, margin: 0, letterSpacing: '-0.01em' }}>{cat.name}</h2>
                     {cat.description && <p style={{ fontSize: 13, color: '#888', margin: '4px 0 0' }}>{cat.description}</p>}
                   </div>
