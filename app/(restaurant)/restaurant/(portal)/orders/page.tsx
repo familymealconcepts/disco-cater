@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
+import GenerateReportButton from '../_components/GenerateReportButton'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -532,20 +533,23 @@ function OrderCountsTab() {
     setLoading(false)
   }, [fromDate, toDate])
 
-  useEffect(() => { load() }, [load])
+  // Fire once on mount with the today→+6 default; afterwards only the
+  // Generate Report button (or tab re-mount) triggers a fetch.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [])
 
   const colHead = { fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase' as const, padding: '10px 14px', textAlign: 'left' as const }
   const cell = { padding: '10px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0' }
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20 }}>
-        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-          style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
+        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} disabled={loading}
+          style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', opacity: loading ? 0.6 : 1 }} />
         <span style={{ color: '#aaa' }}>–</span>
-        <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-          style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
-        {loading && <span style={{ fontSize: 12, color: '#aaa', marginLeft: 8 }}>Loading…</span>}
+        <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} disabled={loading}
+          style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', opacity: loading ? 0.6 : 1 }} />
+        <GenerateReportButton onClick={load} loading={loading} />
       </div>
 
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
@@ -618,8 +622,14 @@ function OrdersContent() {
   const [page, setPage] = useState(0)
   const [size] = useState(25)
   const [search, setSearch] = useState('')
+  // Input vs applied: the date inputs are unbound from the fetch effect
+  // so typing/selecting doesn't trigger partial fetches. Clicking
+  // "Apply Filters" commits the inputs into applied state, which the
+  // fetch effect watches.
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
+  const [appliedFrom, setAppliedFrom] = useState('')
+  const [appliedTo, setAppliedTo] = useState('')
   const [loading, setLoading] = useState(false)
   const [sortField, setSortField] = useState('order_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -635,8 +645,21 @@ function OrdersContent() {
     router.replace(`${pathname}?${p}`)
     setPage(0)
     setSearch('')
-    setFromDate('')
-    setToDate('')
+    setFromDate(''); setToDate('')
+    setAppliedFrom(''); setAppliedTo('')
+  }
+
+  function applyDateFilters() {
+    setPage(0)
+    setAppliedFrom(fromDate)
+    setAppliedTo(toDate)
+    // useEffect re-fires loadOrders with the new applied values
+  }
+
+  function clearFilters() {
+    setSearch('')
+    setFromDate(''); setToDate('')
+    setAppliedFrom(''); setAppliedTo('')
   }
 
   const loadOrders = useCallback(async (resetPage?: boolean) => {
@@ -651,8 +674,8 @@ function OrdersContent() {
     if (sortField === 'order_date') p.append('sort', `order_time,${sortDir}`)
     if (sortField === 'first_name') p.append('sort', `last_name,${sortDir}`)
     if (search) p.set('search', search)
-    if (fromDate) p.set('fromDate', fromDate)
-    if (toDate) p.set('toDate', toDate)
+    if (appliedFrom) p.set('fromDate', appliedFrom)
+    if (appliedTo) p.set('toDate', appliedTo)
     const res = await fetch(`/api/restaurant/orders?${p}`)
     if (res.ok) {
       const d = await res.json()
@@ -660,7 +683,7 @@ function OrdersContent() {
       setTotal(d.totalElements || 0)
     }
     setLoading(false)
-  }, [tab, page, size, statuses, sortField, sortDir, search, fromDate, toDate])
+  }, [tab, page, size, statuses, sortField, sortDir, search, appliedFrom, appliedTo])
 
   // Load whenever any dependency in loadOrders changes (tab, page, sort, search, dates)
   useEffect(() => {
@@ -687,8 +710,8 @@ function OrdersContent() {
       msg: 'Mark all active orders as complete? This will complete all DUE/PAID orders.',
       action: async () => {
         const params = new URLSearchParams()
-        if (fromDate) params.set('fromDate', fromDate)
-        if (toDate) params.set('toDate', toDate)
+        if (appliedFrom) params.set('fromDate', appliedFrom)
+        if (appliedTo) params.set('toDate', appliedTo)
         await fetch(`/api/restaurant/orders/set-completed?${params}`, { method: 'PUT' })
         loadOrders()
       },
@@ -739,20 +762,17 @@ function OrdersContent() {
               onKeyDown={e => e.key === 'Enter' && loadOrders(true)}
               style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: F, outline: 'none', minWidth: 200 }}
             />
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-              style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, outline: 'none' }} />
-            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-              style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, outline: 'none' }} />
-            {(search || fromDate || toDate) && (
-              <button onClick={() => { setSearch(''); setFromDate(''); setToDate('') }}
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} disabled={loading}
+              style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, outline: 'none', opacity: loading ? 0.6 : 1 }} />
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} disabled={loading}
+              style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, outline: 'none', opacity: loading ? 0.6 : 1 }} />
+            <GenerateReportButton onClick={applyDateFilters} loading={loading} label="Apply Filters" loadingLabel="Loading…" />
+            {(search || fromDate || toDate || appliedFrom || appliedTo) && !loading && (
+              <button onClick={clearFilters}
                 style={{ padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 12, cursor: 'pointer', fontFamily: F }}>
                 Clear
               </button>
             )}
-            <button onClick={() => loadOrders(true)}
-              style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-              Search
-            </button>
             {tab === 'active' && (
               <button onClick={handleMarkAllComplete}
                 style={{ padding: '8px 14px', background: '#22C55E', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, marginLeft: 'auto' }}>

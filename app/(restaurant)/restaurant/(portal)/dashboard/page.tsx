@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import GenerateReportButton from '../_components/GenerateReportButton'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -95,13 +96,18 @@ interface LocationOption {
 
 export default function DashboardPage() {
   const today = new Date().toISOString().split('T')[0]
-  const [fromDate, setFromDate] = useState(today)
+  const firstOfMonth = (() => {
+    const d = new Date()
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0]
+  })()
+  const [fromDate, setFromDate] = useState(firstOfMonth)
   const [toDate, setToDate] = useState(today)
   const [dateType, setDateType] = useState<'orderDate' | 'createdDate'>('orderDate')
   const [saleStats, setSaleStats] = useState<SaleStats>({})
   const [dashStats, setDashStats] = useState<DashStats>({})
   const [restaurant, setRestaurant] = useState<Restaurant>({})
   const [loading, setLoading] = useState(true)
+  const [saleLoading, setSaleLoading] = useState(false)
 
   // SYSTEM_ADMIN multi-restaurant filter
   const [isSystemAdmin, setIsSystemAdmin] = useState(false)
@@ -151,12 +157,21 @@ export default function DashboardPage() {
 
   const loadSaleStats = useCallback(async () => {
     if (!fromDate || !toDate) return
+    setSaleLoading(true)
     const params = new URLSearchParams({ fromDate, toDate, dateType })
-    const res = await fetch(`/api/restaurant/dashboard/sale-stats?${params}`)
-    if (res.ok) setSaleStats(await res.json())
-  }, [fromDate, toDate, dateType, selectedRef])
+    try {
+      const res = await fetch(`/api/restaurant/dashboard/sale-stats?${params}`)
+      if (res.ok) setSaleStats(await res.json())
+    } finally {
+      setSaleLoading(false)
+    }
+  }, [fromDate, toDate, dateType])
 
-  useEffect(() => { loadSaleStats() }, [loadSaleStats])
+  // Fetch on mount and whenever the SYSTEM_ADMIN restaurant context
+  // changes — but NOT on every date / dateType input change. Those
+  // wait for an explicit Generate Report click.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadSaleStats() }, [selectedRef])
 
   async function changeRestaurant(ref: string) {
     setSwitching(true)
@@ -203,7 +218,7 @@ export default function DashboardPage() {
     : 'Service Charge'
 
   function clearDates() {
-    setFromDate(today)
+    setFromDate(firstOfMonth)
     setToDate(today)
   }
 
@@ -276,7 +291,8 @@ export default function DashboardPage() {
             <input
               type="date" value={fromDate}
               onChange={e => setFromDate(e.target.value)}
-              style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }}
+              disabled={saleLoading}
+              style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', opacity: saleLoading ? 0.6 : 1 }}
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -284,18 +300,20 @@ export default function DashboardPage() {
             <input
               type="date" value={toDate}
               onChange={e => setToDate(e.target.value)}
-              style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }}
+              disabled={saleLoading}
+              style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', opacity: saleLoading ? 0.6 : 1 }}
             />
           </div>
-          {(fromDate !== today || toDate !== today) && (
+          <GenerateReportButton onClick={loadSaleStats} loading={saleLoading} />
+          {(fromDate !== firstOfMonth || toDate !== today) && !saleLoading && (
             <button onClick={clearDates} style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 7, padding: '7px 12px', fontSize: 12, cursor: 'pointer', fontFamily: F }}>
               Clear
             </button>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginLeft: 8 }}>
             {(['orderDate', 'createdDate'] as const).map(v => (
-              <label key={v} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', color: '#555' }}>
-                <input type="radio" name="dateType" value={v} checked={dateType === v} onChange={() => setDateType(v)} />
+              <label key={v} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: saleLoading ? 'not-allowed' : 'pointer', color: '#555', opacity: saleLoading ? 0.6 : 1 }}>
+                <input type="radio" name="dateType" value={v} checked={dateType === v} onChange={() => setDateType(v)} disabled={saleLoading} />
                 {v === 'orderDate' ? 'Order Date' : 'Created Date'}
               </label>
             ))}
