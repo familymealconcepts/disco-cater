@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantToken } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // GET /api/restaurant/orders?status=&page=&size=&search=
 export async function GET(req: NextRequest) {
-  const token = await getRestaurantToken()
-  if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  let authHeaders: Record<string, string>
+  try { authHeaders = await getRestaurantAuthHeader() } catch {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
 
   const { searchParams } = req.nextUrl
   const status = searchParams.get('status') || ''
@@ -20,7 +22,7 @@ export async function GET(req: NextRequest) {
     if (search) params.set('search', search)
 
     const res = await fetch(`${FM}/api/orders?${params}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      headers: authHeaders,
     })
 
     if (res.status === 401) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

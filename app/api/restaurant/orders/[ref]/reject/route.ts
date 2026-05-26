@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantToken } from '../../../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
-  const token = await getRestaurantToken()
-  if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  let authHeaders: Record<string, string>
+  try { authHeaders = await getRestaurantAuthHeader() } catch {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
 
   try {
     const body = await req.json()
     const res = await fetch(`${FM}/api/restaurant/orders/${ref}/reject`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
     if (res.status === 401) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

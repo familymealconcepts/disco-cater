@@ -27,24 +27,25 @@ const icons = {
   chevronRight: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
   logout: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
   menu: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>,
+  taxRate: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>,
+  customers: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
 }
 
 const NAV_PRIMARY = [
-  { href: '/restaurant/dashboard', label: 'Dashboard', icon: icons.dashboard },
+  { href: '/restaurant/dashboard', label: 'Reporting', icon: icons.dashboard },
   { href: '/restaurant/orders', label: 'Orders', icon: icons.orders },
-  { href: '/restaurant/availability', label: 'Availability', icon: icons.availability },
 ]
 const NAV_MENU = [
   { href: '/restaurant/menus', label: 'Menus', icon: icons.menus },
-  { href: '/restaurant/packages', label: 'Packages', icon: icons.packages },
-  { href: '/restaurant/addons', label: 'Add-Ons', icon: icons.addons },
+  { href: '/restaurant/groups', label: 'Group Library', icon: icons.addons },
+  { href: '/restaurant/modifiers', label: 'Modifier Library', icon: icons.packages },
 ]
 const NAV_SETTINGS = [
-  { href: '/restaurant/settings/profile', label: 'Restaurant Profile', icon: icons.profile },
-  { href: '/restaurant/settings/delivery', label: 'Delivery Settings', icon: icons.delivery },
-  { href: '/restaurant/payouts', label: 'Payouts & Banking', icon: icons.payouts },
-  { href: '/restaurant/notifications', label: 'Notifications', icon: icons.notifications },
-  { href: '/restaurant/promos', label: 'Promo Codes', icon: icons.promos },
+  { href: '/restaurant/settings/delivery', label: 'Settings', icon: icons.delivery },
+  { href: '/restaurant/settings/profile', label: 'Profile', icon: icons.profile },
+  { href: '/restaurant/payouts', label: 'Banking', icon: icons.payouts },
+  { href: '/restaurant/tax-rate', label: 'Tax Rate', icon: icons.taxRate },
+  { href: '/restaurant/customers', label: 'Customers', icon: icons.customers },
 ]
 
 function NavItem({ href, label, icon, collapsed, active }: { href: string; label: string; icon: React.ReactNode; collapsed: boolean; active: boolean }) {
@@ -142,14 +143,32 @@ export default function RestaurantPortalClient({ children }: { children: React.R
           {NAV_PRIMARY.map(item => (
             <NavItem key={item.href} {...item} collapsed={col} active={pathname === item.href || pathname.startsWith(item.href + '/')} />
           ))}
-          <SectionLabel label="Menu Management" collapsed={col} />
+          <SectionLabel label="Manage Menus" collapsed={col} />
           {NAV_MENU.map(item => (
             <NavItem key={item.href} {...item} collapsed={col} active={pathname === item.href || pathname.startsWith(item.href + '/')} />
           ))}
-          <SectionLabel label="Settings" collapsed={col} />
+          <SectionLabel label="Account & Settings" collapsed={col} />
           {NAV_SETTINGS.map(item => (
             <NavItem key={item.href} {...item} collapsed={col} active={pathname === item.href || pathname.startsWith(item.href + '/')} />
           ))}
+          <a
+            href="https://www.doordash.com/merchant"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'flex', alignItems: 'center', gap: col ? 0 : 10,
+              padding: col ? '9px 0' : '9px 10px',
+              justifyContent: col ? 'center' : 'flex-start',
+              borderRadius: 8, textDecoration: 'none', fontSize: 13, fontWeight: 500,
+              color: 'rgba(255,255,255,0.7)', marginBottom: 2,
+            }}
+            title={col ? 'DoorDash' : undefined}
+          >
+            <span style={{ flexShrink: 0, display: 'flex', opacity: 0.8 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </span>
+            {!col && <span>DoorDash</span>}
+          </a>
         </nav>
 
         {/* Bottom */}

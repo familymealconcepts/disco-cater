@@ -17,6 +17,14 @@ export async function getRestaurantToken(): Promise<string | null> {
   return store.get(RESTAURANT_TOKEN_COOKIE)?.value ?? null
 }
 
+// Auth header helper — throws if token is missing
+export async function getRestaurantAuthHeader(): Promise<Record<string, string>> {
+  const store = await cookies()
+  const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
+  if (!token) throw new Error('Not authenticated')
+  return { Authorization: `Bearer ${token}`, Accept: 'application/json' }
+}
+
 // For Middleware (Edge runtime — next/headers not available)
 export function getRestaurantTokenFromRequest(req: NextRequest): string | null {
   return req.cookies.get(RESTAURANT_TOKEN_COOKIE)?.value ?? null
