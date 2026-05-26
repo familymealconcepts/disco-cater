@@ -19,8 +19,7 @@ export async function GET(req: NextRequest) {
     if (status) params.set('status', status)
     if (search) params.set('search', search)
 
-    // FM restaurant admin order endpoint — adjust path if backend differs
-    const res = await fetch(`${FM}/api/restaurant/orders?${params}`, {
+    const res = await fetch(`${FM}/api/orders?${params}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     })
 

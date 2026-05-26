@@ -8,8 +8,7 @@ export async function GET(req: NextRequest) {
   if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
   try {
-    // ADMIN user profile — includes restaurant details
-    const res = await fetch(`${FM}/api/users`, {
+    const res = await fetch(`${FM}/api/restaurants`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     })
     if (res.status === 401) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
