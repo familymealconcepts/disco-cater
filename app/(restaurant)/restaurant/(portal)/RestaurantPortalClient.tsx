@@ -106,9 +106,8 @@ export default function RestaurantPortalClient({ children }: { children: React.R
     router.push('/restaurant/login')
   }
 
-  const restaurantName = profile?.businessName || profile?.name || profile?.firstName
-    ? `${profile?.firstName || ''} ${profile?.lastName || ''}`.trim()
-    : 'Restaurant'
+  const restaurantName = profile?.businessName || profile?.name ||
+    (profile?.firstName ? `${profile.firstName} ${profile.lastName || ''}`.trim() : 'Restaurant')
 
   function Sidebar({ isMobile = false }: { isMobile?: boolean }) {
     const w = isMobile ? 280 : SIDEBAR_W

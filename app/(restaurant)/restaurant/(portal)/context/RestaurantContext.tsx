@@ -36,13 +36,20 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
         setProfile(data)
       }
     } catch {
-      // Profile fetch failed — portal still usable
+      // Profile fetch failed — portal still usable, localStorage name remains
     } finally {
       setIsLoading(false)
     }
   }, [])
 
-  useEffect(() => { refreshProfile() }, [refreshProfile])
+  useEffect(() => {
+    // Bootstrap from auth response stored at login for instant name display
+    try {
+      const saved = localStorage.getItem('restaurant_user')
+      if (saved) setProfile(JSON.parse(saved))
+    } catch { /* ignore */ }
+    refreshProfile()
+  }, [refreshProfile])
 
   return (
     <RestaurantContext.Provider value={{ profile, isLoading, refreshProfile }}>

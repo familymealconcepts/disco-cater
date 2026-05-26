@@ -4,7 +4,7 @@ import { getRestaurantToken } from '../../../../lib/restaurant-auth'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export async function GET(req: NextRequest) {
-  const token = getRestaurantToken(req)
+  const token = await getRestaurantToken()
   if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
   try {

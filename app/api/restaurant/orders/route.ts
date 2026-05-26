@@ -5,7 +5,7 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // GET /api/restaurant/orders?status=&page=&size=&search=
 export async function GET(req: NextRequest) {
-  const token = getRestaurantToken(req)
+  const token = await getRestaurantToken()
   if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
   const { searchParams } = req.nextUrl

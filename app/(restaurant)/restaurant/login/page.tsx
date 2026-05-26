@@ -31,6 +31,7 @@ export default function RestaurantLoginPage() {
         setError(data.error || 'Login failed. Please check your credentials.')
         return
       }
+      localStorage.setItem('restaurant_user', JSON.stringify(data))
       router.push('/restaurant/dashboard')
     } catch {
       setError('Unable to connect. Please try again.')
