@@ -1,7 +1,8 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import OrderDetailPanel from '../components/OrderDetailPanel'
+import NewOrderDialog from './components/NewOrderDialog'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -36,7 +37,7 @@ function fmtMoney(n?: number) { return `$${(n || 0).toFixed(2)}` }
 
 // ── Calendar ─────────────────────────────────────────────────────────────────
 
-function Calendar({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder: (ref: string) => void }) {
+function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[]; onOpenOrder: (ref: string) => void; onEmptyDateClick: (iso: string) => void }) {
   const now = new Date()
   const [yr, setYr] = useState(now.getFullYear())
   const [mo, setMo] = useState(now.getMonth())
@@ -100,11 +101,19 @@ function Calendar({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder: (r
         ))}
         {cells.map((cell, i) => {
           const evs = cell.cur ? (calEvs[cell.d] || []) : []
+          const cellIso = cell.cur
+            ? `${yr}-${String(mo + 1).padStart(2, '0')}-${String(cell.d).padStart(2, '0')}`
+            : ''
+          const clickable = cell.cur  // empty current-month cells start a new order
           return (
             <div key={i}
-              onClick={() => evs.length && onOpenOrder(evs[0].ref)}
-              style={{ background: cell.today ? '#f0f0ff' : '#fff', minHeight: 72, padding: 6, cursor: evs.length ? 'pointer' : 'default', borderRight: '0.5px solid #f5f5f5', borderBottom: '0.5px solid #f5f5f5', opacity: cell.cur ? 1 : 0.3, transition: 'background 0.1s' }}
-              onMouseOver={e => { if (evs.length) (e.currentTarget as HTMLElement).style.background = '#fafafa' }}
+              onClick={() => {
+                if (!cell.cur) return
+                if (evs.length) onOpenOrder(evs[0].ref)
+                else onEmptyDateClick(cellIso)
+              }}
+              style={{ background: cell.today ? '#f0f0ff' : '#fff', minHeight: 72, padding: 6, cursor: clickable ? 'pointer' : 'default', borderRight: '0.5px solid #f5f5f5', borderBottom: '0.5px solid #f5f5f5', opacity: cell.cur ? 1 : 0.3, transition: 'background 0.1s' }}
+              onMouseOver={e => { if (clickable) (e.currentTarget as HTMLElement).style.background = '#fafafa' }}
               onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = cell.today ? '#f0f0ff' : '#fff' }}
             >
               <div style={{ fontSize: 10, fontWeight: cell.today ? 700 : 600, color: cell.today ? INDIGO : '#888', marginBottom: 3 }}>{cell.d}</div>
@@ -161,8 +170,12 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'cal' | 'list'>('cal')
   const [selectedRef, setSelectedRef] = useState<string | null>(null)
+  // YYYY-MM-DD of an empty calendar cell the user clicked. Drives the
+  // NewOrderDialog (favorites picker + embedded restaurant page).
+  const [newOrderDate, setNewOrderDate] = useState<string | null>(null)
 
-  useEffect(() => {
+  const fetchOrders = useCallback(() => {
+    setLoading(true)
     fetch('/api/fm-order-history?page=0&size=50', { credentials: 'include' })
       .then(r => r.ok ? r.json() : { content: [] })
       .then(d => {
@@ -172,6 +185,8 @@ export default function OrdersPage() {
       .catch(() => setOrders([]))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => { fetchOrders() }, [fetchOrders])
 
   function openOrder(ref: string) { setSelectedRef(ref) }
   function closeDetail() { setSelectedRef(null) }
@@ -227,7 +242,7 @@ export default function OrdersPage() {
 
       {/* Calendar or List */}
       {view === 'cal' ? (
-        <Calendar orders={orders} onOpenOrder={openOrder} />
+        <Calendar orders={orders} onOpenOrder={openOrder} onEmptyDateClick={setNewOrderDate} />
       ) : loading ? (
         <div style={{ color: '#aaa', fontSize: 13, padding: '20px 0' }}>Loading orders…</div>
       ) : orders.length === 0 ? (
@@ -250,6 +265,18 @@ export default function OrdersPage() {
       {/* Detail panel — right slide-in */}
       {selectedRef && (
         <OrderDetailPanel orderRef={selectedRef} mode="upcoming" onClose={closeDetail} />
+      )}
+
+      {/* New order from a clicked empty calendar cell */}
+      {newOrderDate && (
+        <NewOrderDialog
+          date={newOrderDate}
+          onClose={() => setNewOrderDate(null)}
+          onOrderPlaced={() => {
+            setNewOrderDate(null)
+            fetchOrders()
+          }}
+        />
       )}
     </div>
   )

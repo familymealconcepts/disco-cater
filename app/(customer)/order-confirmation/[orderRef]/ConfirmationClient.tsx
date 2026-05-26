@@ -21,6 +21,21 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // When loaded inside an iframe (e.g. the /account/orders "New order
+  // from calendar" dialog), notify the parent so it can close the
+  // drawer and refresh the calendar. Same-origin embed only.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.top && window.top !== window) {
+      try {
+        window.parent.postMessage(
+          { type: 'disco:order-placed', orderRef },
+          window.location.origin
+        )
+      } catch {}
+    }
+  }, [orderRef])
+
   useEffect(() => {
     fetch(`/api/order/status?orderRef=${orderRef}`)
       .then(r => r.json())
@@ -94,6 +109,22 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                   <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}</div>
                 </div>
               )}
+              {(() => {
+                // Headcount lives either in a dedicated orderHeadcount
+                // field (forward-compat with FM) or in the order note as
+                // "Headcount: N" — read both.
+                const direct = (order?.orderHeadcount ?? order?.headcount) as number | undefined
+                const noteText: string = order?.note || order?.comment || ''
+                const m = noteText.match(/Headcount:\s*(\d+)/i)
+                const n = direct ?? (m ? parseInt(m[1], 10) : null)
+                if (!n || n <= 0) return null
+                return (
+                  <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
+                    <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Headcount</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>👥 {n} {n === 1 ? 'person' : 'people'}</div>
+                  </div>
+                )
+              })()}
               {addr && (
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
                   <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Deliver to</div>
