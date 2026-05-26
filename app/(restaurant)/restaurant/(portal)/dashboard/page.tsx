@@ -88,6 +88,11 @@ function Card({ title, value, isCurrency = true, gray = false, tooltip }: {
   )
 }
 
+interface LocationOption {
+  reference: string
+  businessName: string
+}
+
 export default function DashboardPage() {
   const today = new Date().toISOString().split('T')[0]
   const [fromDate, setFromDate] = useState(today)
@@ -98,6 +103,41 @@ export default function DashboardPage() {
   const [restaurant, setRestaurant] = useState<Restaurant>({})
   const [loading, setLoading] = useState(true)
 
+  // SYSTEM_ADMIN multi-restaurant filter
+  const [isSystemAdmin, setIsSystemAdmin] = useState(false)
+  const [locations, setLocations] = useState<LocationOption[]>([])
+  const [selectedRef, setSelectedRef] = useState<string>('')  // '' = All restaurants
+  const [switching, setSwitching] = useState(false)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('restaurant_user')
+      if (raw) {
+        const u = JSON.parse(raw)
+        if (u.role === 'SYSTEM_ADMIN' || u.role === 'SUPER_ADMIN') {
+          setIsSystemAdmin(true)
+          const sel = localStorage.getItem('selectedRestaurant') || ''
+          setSelectedRef(sel)
+        }
+      }
+    } catch {}
+  }, [])
+
+  // Load location list once we know user is SYSTEM_ADMIN
+  useEffect(() => {
+    if (!isSystemAdmin) return
+    fetch('/api/restaurant/locations?size=1000')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.content) {
+          setLocations(d.content.map((l: { reference: string; businessName: string }) => ({
+            reference: l.reference, businessName: l.businessName,
+          })))
+        }
+      })
+      .catch(() => {})
+  }, [isSystemAdmin])
+
   useEffect(() => {
     Promise.all([
       fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : {}),
@@ -107,16 +147,39 @@ export default function DashboardPage() {
       setDashStats(stats || {})
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [])
+  }, [selectedRef])
 
   const loadSaleStats = useCallback(async () => {
     if (!fromDate || !toDate) return
     const params = new URLSearchParams({ fromDate, toDate, dateType })
     const res = await fetch(`/api/restaurant/dashboard/sale-stats?${params}`)
     if (res.ok) setSaleStats(await res.json())
-  }, [fromDate, toDate, dateType])
+  }, [fromDate, toDate, dateType, selectedRef])
 
   useEffect(() => { loadSaleStats() }, [loadSaleStats])
+
+  async function changeRestaurant(ref: string) {
+    setSwitching(true)
+    try {
+      if (ref) {
+        const loc = locations.find(l => l.reference === ref)
+        await fetch(`/api/restaurant/selected-restaurant?restaurantReference=${ref}`, { method: 'PUT' })
+        try {
+          localStorage.setItem('selectedRestaurant', ref)
+          if (loc) localStorage.setItem('selectedRestaurantName', loc.businessName)
+        } catch {}
+      } else {
+        await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE' })
+        try {
+          localStorage.removeItem('selectedRestaurant')
+          localStorage.removeItem('selectedRestaurantName')
+        } catch {}
+      }
+      setSelectedRef(ref)
+    } finally {
+      setSwitching(false)
+    }
+  }
 
   const tax = (saleStats.stateSalesTaxInPriceSum || 0) +
     (saleStats.localSalesTaxInPriceSum || 0) +
@@ -147,15 +210,36 @@ export default function DashboardPage() {
   return (
     <div style={{ padding: '28px 32px', fontFamily: F }}>
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, gap: 16, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>
           Reporting
-          {restaurant.businessName && (
+          {!isSystemAdmin && restaurant.businessName && (
             <span style={{ fontWeight: 400, color: '#888', fontSize: 16, marginLeft: 8 }}>
               ({restaurant.businessName})
             </span>
           )}
         </h1>
+        {isSystemAdmin && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#666' }}>Restaurant</label>
+            <select
+              value={selectedRef}
+              disabled={switching}
+              onChange={e => changeRestaurant(e.target.value)}
+              style={{
+                border: '1.5px solid #e0e0e0', borderRadius: 8,
+                padding: '7px 28px 7px 10px', fontSize: 13, fontFamily: F,
+                color: DARK, background: '#fff', outline: 'none',
+                minWidth: 220, cursor: switching ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <option value="">All restaurants</option>
+              {locations.map(l => (
+                <option key={l.reference} value={l.reference}>{l.businessName}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {/* Count Stats */}
