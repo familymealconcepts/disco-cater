@@ -17,7 +17,21 @@ interface FmPackage {
   serves?: string | number | null
   image?: { reference: string } | null
 }
-interface CartItem { pkg: FmPackage; quantity: number }
+interface CartAddOn {
+  reference: string
+  name: string
+  price: number
+  count: number
+  extraItemsGroupReference: string
+}
+interface CartItem {
+  lineId: string
+  pkg: FmPackage
+  quantity: number
+  note?: string
+  addOns: CartAddOn[]
+  unitPrice: number
+}
 interface FmDeliveryAddr { addressLine1: string; city: string; state: string; zipcode: string }
 
 interface Props {
@@ -33,6 +47,10 @@ interface Props {
   tipAmt: number
   svcAmt: number
   minOrder: number
+  // Optional headcount captured upstream. If null, the review step shows
+  // an inline prompt so we can still ask — Skip is allowed.
+  headcount: number | null
+  onHeadcount: (n: number | null) => void
   onClose: () => void
 }
 
@@ -49,7 +67,7 @@ function fmtTime(t: string) {
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function CheckoutDrawer({
   fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType,
-  addr, subtotal, tipAmt, svcAmt, minOrder, onClose,
+  addr, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount, onClose,
 }: Props) {
   const router = useRouter()
   const { user: authUser, openAuthModal } = useAuthContext()
@@ -61,6 +79,11 @@ export default function CheckoutDrawer({
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [waitingForAuth, setWaitingForAuth] = useState(false)
+  // Inline headcount prompt — shown only when the user reaches checkout
+  // without having entered a number upstream, and they haven't already
+  // skipped it during this session.
+  const [headcountInput, setHeadcountInput] = useState<string>('')
+  const [headcountSkipped, setHeadcountSkipped] = useState(false)
 
   // Stripe
   const [stripeKey, setStripeKey] = useState('')
@@ -150,14 +173,45 @@ export default function CheckoutDrawer({
     if (!authUser) { setWaitingForAuth(true); openAuthModal(undefined, 'login'); return }
 
     try {
-      // 1. Init order
+      // 1. Init order — payload mirrors FM's IMealPackageSimpleResponse
+      // shape (see _system/_models/meal-packages/meal-package.model.ts).
+      // Server uses `count` for quantity and `extraItems[]` for the
+      // selected modifiers. Each extra item is tagged with
+      // `extraItemsGroupReference` + type 'ADD_ON' so FM can compute
+      // pricing server-side from the same data the user saw.
+      //
+      // Headcount: FM has no dedicated field, so we stash it in the
+      // order-level `note` (and also send a top-level orderHeadcount
+      // key in case FM ever adds support). Captured for AI training.
+      const headcountNote = headcount != null ? `Headcount: ${headcount}` : ''
+      const noteParts = [headcountNote].filter(Boolean)
+      const note = noteParts.join(' · ')
+
       const initBody = {
         restaurantRef: fmRef,
-        mealPackages: cart.map(i => ({ reference: i.pkg.reference, quantity: i.quantity })),
+        mealPackages: cart.map(i => ({
+          reference: i.pkg.reference,
+          // Send both — quantity for any legacy v1 shim, count is the
+          // canonical FM field used by add-to-cart.component.
+          quantity: i.quantity,
+          count: i.quantity,
+          itemType: 'MEAL_PACKAGES',
+          ...(i.note ? { comment: i.note } : {}),
+          extraItems: i.addOns.map(a => ({
+            reference: a.reference,
+            name: a.name,
+            price: a.price,
+            count: a.count,
+            type: 'ADD_ON',
+            extraItemsGroupReference: a.extraItemsGroupReference,
+          })),
+        })),
         orderType,
         orderDate: selDate,
         orderTime: selTime,
         ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
+        ...(headcount != null ? { orderHeadcount: headcount } : {}),
+        ...(note ? { note, comment: note } : {}),
       }
       const initRes = await fetch('/api/order/init', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -280,15 +334,70 @@ export default function CheckoutDrawer({
             )}
           </div>
 
+          {/* Headcount prompt — inline, not a blocker */}
+          {headcount == null && !headcountSkipped && (
+            <div style={{ background: '#F5F4FF', border: '1px solid #E5E3FB', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 8 }}>
+                How many people are you feeding?
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="number" inputMode="numeric" min={1}
+                  value={headcountInput}
+                  onChange={e => setHeadcountInput(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      const n = parseInt(headcountInput, 10)
+                      if (!isNaN(n) && n > 0) onHeadcount(n)
+                    }
+                  }}
+                  placeholder="e.g. 40"
+                  style={{ flex: 1, height: 38, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: DARK, fontFamily: F, background: '#fff', outline: 'none' }}
+                />
+                <button onClick={() => {
+                    const n = parseInt(headcountInput, 10)
+                    if (!isNaN(n) && n > 0) onHeadcount(n)
+                  }}
+                  disabled={!headcountInput}
+                  style={{ height: 38, padding: '0 14px', background: headcountInput ? INDIGO : '#e0e0e0', color: headcountInput ? '#fff' : '#aaa', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: headcountInput ? 'pointer' : 'default', fontFamily: F }}>
+                  Save
+                </button>
+                <button onClick={() => setHeadcountSkipped(true)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#888', fontWeight: 600, fontFamily: F, padding: '6px 4px' }}>
+                  Skip
+                </button>
+              </div>
+            </div>
+          )}
+
+          {headcount != null && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f4f4f4' }}>
+              <div style={{ fontSize: 13, color: '#555' }}>
+                👥 {headcount} {headcount === 1 ? 'person' : 'people'}
+              </div>
+              <button onClick={() => { setHeadcountInput(String(headcount)); onHeadcount(null) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>
+                Edit
+              </button>
+            </div>
+          )}
+
           {/* Items */}
           <div style={{ padding: '12px 0', borderBottom: '1px solid #f4f4f4' }}>
             {cart.map(item => (
-              <div key={item.pkg.reference} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' }}>
+              <div key={item.lineId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px 0' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{item.quantity > 1 && <span style={{ color: '#888' }}>{item.quantity}× </span>}{item.pkg.name}</div>
                   {item.pkg.serves && <div style={{ fontSize: 11, color: '#aaa' }}>Serves {item.pkg.serves}</div>}
+                  {item.addOns.length > 0 && (
+                    <div style={{ marginTop: 2 }}>
+                      {item.addOns.map(a => (
+                        <div key={a.reference} style={{ fontSize: 11, color: '#888' }}>+ ({a.count}) {a.name}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: DARK, flexShrink: 0, marginLeft: 12 }}>{fmt$(item.pkg.price * item.quantity)}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: DARK, flexShrink: 0, marginLeft: 12 }}>{fmt$(item.unitPrice * item.quantity)}</div>
               </div>
             ))}
           </div>

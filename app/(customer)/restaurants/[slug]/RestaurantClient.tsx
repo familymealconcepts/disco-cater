@@ -1,5 +1,6 @@
 'use client'
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
 import CheckoutDrawer from './CheckoutDrawer'
@@ -49,7 +50,32 @@ interface Restaurant {
   description?: string; image?: any; orderUrl?: string
   isDisco?: boolean; location?: string; tags?: string[]
 }
-interface CartItem { pkg: FmPackage; quantity: number; note?: string }
+// Mirrors FM's IMealPackageSimpleResponse extraItems[] shape so the
+// checkout payload can pass straight through. `count` is the selection
+// quantity within the meal-package configuration (FM scales it by the
+// meal-package count server-side, exactly like add-to-cart.component
+// refreshTotalPrice does).
+interface CartAddOn {
+  reference: string
+  name: string
+  price: number
+  count: number
+  extraItemsGroupReference: string
+}
+interface CartItem {
+  // Stable per-line ID so two configurations of the same package
+  // (e.g. Half Tray vs Full Tray of the same item) stay distinct.
+  lineId: string
+  pkg: FmPackage
+  quantity: number
+  note?: string
+  addOns: CartAddOn[]
+  // pkg.price + Σ(addOn.price × addOn.count). This is what the cart,
+  // subtotal, and checkout must use — never pkg.price alone, because
+  // many FM packages have a $0 base whose real price lives in a
+  // mandatory modifier group.
+  unitPrice: number
+}
 interface AddrDetails { addressLine1: string; city: string; state: string; zipcode: string; latitude: number; longitude: number }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -188,9 +214,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const [selTime, setSelTime] = useState('')
   const [orderType, setOrderType] = useState<'PICKUP' | 'DELIVERY'>('PICKUP')
   const [hasSelection, setHasSelection] = useState(false)
+  // Optional. Captured for AI training + sent to FM in the order comment
+  // since FM has no dedicated headcount field on the order model.
+  const [headcount, setHeadcount] = useState<number | null>(null)
 
   // Menus modal
   const [menusOpen, setMenusOpen] = useState(false)
+  const [tempHeadcount, setTempHeadcount] = useState<string>('')
   const [tempMenuIdx, setTempMenuIdx] = useState(0)
   const [tempDate, setTempDate] = useState('')
   const [tempTime, setTempTime] = useState('')
@@ -242,6 +272,31 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const mAvailDates = useMemo(() => mMenuSched ? computeDates(mMenuSched) : [], [mMenuSched])
   const mAvailSet = useMemo(() => new Set(mAvailDates), [mAvailDates])
   const mModalTimes = useMemo(() => mMenuSched && tempDate ? computeTimes(mMenuSched, tempDate) : [], [mMenuSched, tempDate])
+
+  // ── Query-param prefill (?orderDate, ?embed) ───────────────────────────────
+  // Used by /account/orders' "New order from calendar" flow which loads this
+  // page in an iframe with the picked date prefilled and the global header
+  // hidden so it tucks cleanly under the drawer chrome.
+  const searchParams = useSearchParams()
+  const embedded = searchParams?.get('embed') === '1'
+  const presetOrderDate = searchParams?.get('orderDate') || ''
+  const prefilledRef = useRef(false)
+  useEffect(() => {
+    if (prefilledRef.current || !presetOrderDate) return
+    prefilledRef.current = true
+    // Open the menus modal with the date pre-selected — user still picks
+    // a time + (delivery/pickup) before clicking Start Order.
+    setTempMenuIdx(activeMenuIdx)
+    setTempDate(presetOrderDate)
+    setTempType(orderType)
+    setTempTime('')
+    try {
+      const d = new Date(presetOrderDate + 'T12:00:00')
+      setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
+    } catch {}
+    setMenusOpen(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetOrderDate])
 
   // ── Google Places loading ─────────────────────────────────────────────────
   useEffect(() => {
@@ -357,6 +412,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setTempDate(first)
     setTempTime(selTime)
     setTempType(orderType)
+    setTempHeadcount(headcount != null ? String(headcount) : '')
     setDeliveryAddrLine('')
     setDeliveryAddrDetails(null)
     setAddrValidated(false); setAddrError(''); setAddrFee(null)
@@ -404,6 +460,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setSelDate(tempDate)
     setSelTime(tempTime)
     setOrderType(tempType)
+    {
+      const n = parseInt(tempHeadcount, 10)
+      setHeadcount(!isNaN(n) && n > 0 ? n : null)
+    }
     if (tempType === 'DELIVERY' && deliveryAddrDetails) {
       setAddr({ line1: deliveryAddrDetails.addressLine1, city: deliveryAddrDetails.city, state: deliveryAddrDetails.state, zip: deliveryAddrDetails.zipcode })
     }
@@ -426,7 +486,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   function closePicker() { setPickerOpen(false) }
 
   // ── Pricing ───────────────────────────────────────────────────────────────
-  const subtotal = cart.reduce((s, i) => s + i.pkg.price * i.quantity, 0)
+  // Use unitPrice (base + modifiers) per line, NOT i.pkg.price — many FM
+  // packages have $0 base and the real price lives in the modifiers.
+  const subtotal = cart.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
   const tipAmt = Math.round(subtotal * activeTip) / 100
   const svcPct = settings?.serviceCharge ?? 0
   const svcAmt = svcPct ? Math.round(subtotal * svcPct) / 100 : 0
@@ -439,15 +501,44 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   if (menuAvail.length) notices.push(menuAvail.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & '))
 
   // ── Cart helpers ──────────────────────────────────────────────────────────
-  const cartQty = (ref: string) => cart.find(i => i.pkg.reference === ref)?.quantity ?? 0
+  // cartQty sums across all configurations of the same package, since the
+  // menu badge just wants "is this package in the cart".
+  const cartQty = (ref: string) => cart
+    .filter(i => i.pkg.reference === ref)
+    .reduce((s, i) => s + i.quantity, 0)
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
-  const addItem = (pkg: FmPackage, note?: string) => setCart(prev => {
-    const i = prev.findIndex(x => x.pkg.reference === pkg.reference)
-    if (i >= 0) { const n = [...prev]; n[i] = { ...n[i], quantity: n[i].quantity + 1 }; return n }
-    return [...prev, { pkg, quantity: 1, note }]
-  })
-  const updateQty = (ref: string, delta: number) =>
-    setCart(prev => prev.map(i => i.pkg.reference === ref ? { ...i, quantity: i.quantity + delta } : i).filter(i => i.quantity > 0))
+
+  function genLineId(): string {
+    return Math.random().toString(36).slice(2) + Date.now().toString(36)
+  }
+
+  // Config signature so the same package with the same modifier + note
+  // selection merges into one line, but Half Tray vs Full Tray of the
+  // same package stay separate.
+  function configSig(addOns: CartAddOn[], note?: string): string {
+    const sig = [...addOns].sort((a, b) => a.reference.localeCompare(b.reference))
+      .map(a => `${a.reference}:${a.count}`).join('|')
+    return `${sig}::${note || ''}`
+  }
+
+  function addItemWithConfig(pkg: FmPackage, addQty: number, addOns: CartAddOn[], note: string | undefined, unitPrice: number) {
+    setCart(prev => {
+      const sig = configSig(addOns, note)
+      const i = prev.findIndex(x => x.pkg.reference === pkg.reference && configSig(x.addOns, x.note) === sig)
+      if (i >= 0) {
+        const n = [...prev]
+        n[i] = { ...n[i], quantity: n[i].quantity + addQty }
+        return n
+      }
+      return [...prev, { lineId: genLineId(), pkg, quantity: addQty, note, addOns, unitPrice }]
+    })
+  }
+
+  function incrementLine(lineId: string, delta: number) {
+    setCart(prev => prev
+      .map(i => i.lineId === lineId ? { ...i, quantity: i.quantity + delta } : i)
+      .filter(i => i.quantity > 0))
+  }
 
   // ── Add-ons modal helpers ─────────────────────────────────────────────────
   function handleAddClickInner(pkg: FmPackage) {
@@ -482,7 +573,26 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   }
   function confirmAddOns() {
     if (!addOnsPkg || !canConfirmAddOns()) return
-    for (let i = 0; i < addOnsQty; i++) addItem(addOnsPkg, addOnsNote || undefined)
+    // Capture the selected modifiers + computed unit price so the cart
+    // line, subtotal, and FM checkout payload all use the right price
+    // for this configuration.
+    const picked: CartAddOn[] = []
+    let extra = 0
+    for (const g of addOnsPkg.extraItemsGroups ?? []) {
+      const m = selAddOns[g.reference] ?? {}
+      for (const a of g.addOns) {
+        const c = m[a.reference] ?? 0
+        if (c > 0) {
+          picked.push({
+            reference: a.reference, name: a.name, price: a.price,
+            count: c, extraItemsGroupReference: g.reference,
+          })
+          extra += a.price * c
+        }
+      }
+    }
+    const unitPrice = addOnsPkg.price + extra
+    addItemWithConfig(addOnsPkg, addOnsQty, picked, addOnsNote || undefined, unitPrice)
     setAddOnsPkg(null)
   }
   function setAddOnQty(groupRef: string, addOnRef: string, delta: number, max: number) {
@@ -524,6 +634,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             </div>
             <button onClick={openMenus} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>Edit</button>
           </div>
+          {headcount != null && (
+            <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+              👥 {headcount} {headcount === 1 ? 'person' : 'people'}
+            </div>
+          )}
         </div>
       ) : fmSlug ? (
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f4f4f4' }}>
@@ -554,18 +669,27 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           <>
             <div style={{ paddingTop: 8 }}>
               {cart.map(item => (
-                <div key={item.pkg.reference} style={{ padding: '10px 0', borderBottom: '1px solid #f4f4f4', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div key={item.lineId} style={{ padding: '10px 0', borderBottom: '1px solid #f4f4f4', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: DARK, lineHeight: 1.3, marginBottom: 1 }}>{item.pkg.name}</div>
                     {item.pkg.serves && <div style={{ fontSize: 11, color: '#bbb' }}>Serves {item.pkg.serves}</div>}
+                    {item.addOns.length > 0 && (
+                      <div style={{ marginTop: 3 }}>
+                        {item.addOns.map(a => (
+                          <div key={a.reference} style={{ fontSize: 11, color: '#888' }}>
+                            + ({a.count}) {a.name}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {item.note && <div style={{ fontSize: 11, color: '#aaa', fontStyle: 'italic', marginTop: 2 }}>{item.note}</div>}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                    <button onClick={() => updateQty(item.pkg.reference, -1)} style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 14, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginTop: 1 }}>
+                    <button onClick={() => incrementLine(item.lineId, -1)} style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 14, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
                     <span style={{ fontSize: 13, fontWeight: 700, color: DARK, minWidth: 18, textAlign: 'center' }}>{item.quantity}</span>
-                    <button onClick={() => addItem(item.pkg)} style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 14, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                    <button onClick={() => incrementLine(item.lineId, +1)} style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 14, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: DARK, minWidth: 52, textAlign: 'right' }}>{formatPrice(item.pkg.price * item.quantity)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: DARK, minWidth: 52, textAlign: 'right', marginTop: 1 }}>{formatPrice(item.unitPrice * item.quantity)}</div>
                 </div>
               ))}
             </div>
@@ -672,7 +796,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100svh', background: '#f8f8fc', fontFamily: F }}>
-      <GlobalHeader />
+      {!embedded && <GlobalHeader />}
 
       {hasSelection && (
         <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 52, zIndex: 150, boxShadow: '0 1px 0 #f0f0f0' }}>
@@ -951,7 +1075,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             )}
 
             {/* Date + Time row */}
-            <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f0', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ padding: '14px 20px 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Date</div>
                 <button ref={dateButtonRef} onClick={openCalendar}
@@ -968,6 +1092,20 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   {mModalTimes.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
                 </select>
               </div>
+            </div>
+
+            {/* Headcount — optional */}
+            <div style={{ padding: '6px 20px 14px', borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
+                How many people? <span style={{ color: '#bbb', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· optional</span>
+              </div>
+              <input
+                type="number" inputMode="numeric" min={1}
+                value={tempHeadcount}
+                onChange={e => setTempHeadcount(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="e.g. 40"
+                style={{ width: '100%', height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: DARK, fontFamily: F, background: '#fff', outline: 'none' }}
+              />
             </div>
 
             {/* Start Order CTA */}
@@ -1012,6 +1150,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           fmRef={fmRef} fmSlug={fmSlug} restaurantName={restaurant.name}
           cart={cart} selDate={selDate} selTime={selTime} orderType={orderType}
           addr={addr} subtotal={subtotal} tipAmt={tipAmt} svcAmt={svcAmt} minOrder={minOrder}
+          headcount={headcount} onHeadcount={setHeadcount}
           onClose={() => setCheckoutOpen(false)}
         />
       )}
