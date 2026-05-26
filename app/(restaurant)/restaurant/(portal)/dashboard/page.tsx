@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import GenerateReportButton from '../_components/GenerateReportButton'
+import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -109,11 +110,14 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [saleLoading, setSaleLoading] = useState(false)
 
-  // SYSTEM_ADMIN multi-restaurant filter
+  // SYSTEM_ADMIN multi-restaurant filter — selection state comes from
+  // the shared SelectedRestaurantContext so the sidebar header and this
+  // dropdown can't drift out of sync.
+  const { ref: ctxRef, setRestaurant: pickRestaurant, clearRestaurant } = useSelectedRestaurant()
   const [isSystemAdmin, setIsSystemAdmin] = useState(false)
   const [locations, setLocations] = useState<LocationOption[]>([])
-  const [selectedRef, setSelectedRef] = useState<string>('')  // '' = All restaurants
   const [switching, setSwitching] = useState(false)
+  const selectedRef = ctxRef || ''   // '' = All restaurants in dropdown
 
   useEffect(() => {
     try {
@@ -122,8 +126,6 @@ export default function DashboardPage() {
         const u = JSON.parse(raw)
         if (u.role === 'SYSTEM_ADMIN' || u.role === 'SUPER_ADMIN') {
           setIsSystemAdmin(true)
-          const sel = localStorage.getItem('selectedRestaurant') || ''
-          setSelectedRef(sel)
         }
       }
     } catch {}
@@ -178,19 +180,11 @@ export default function DashboardPage() {
     try {
       if (ref) {
         const loc = locations.find(l => l.reference === ref)
-        await fetch(`/api/restaurant/selected-restaurant?restaurantReference=${ref}`, { method: 'PUT' })
-        try {
-          localStorage.setItem('selectedRestaurant', ref)
-          if (loc) localStorage.setItem('selectedRestaurantName', loc.businessName)
-        } catch {}
+        await pickRestaurant(ref, loc?.businessName)
       } else {
-        await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE' })
-        try {
-          localStorage.removeItem('selectedRestaurant')
-          localStorage.removeItem('selectedRestaurantName')
-        } catch {}
+        await clearRestaurant()
       }
-      setSelectedRef(ref)
+      // Sidebar + any other consumer updates automatically via context.
     } finally {
       setSwitching(false)
     }

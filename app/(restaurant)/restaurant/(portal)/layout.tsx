@@ -1,7 +1,8 @@
 'use client'
 import { usePathname, useRouter } from 'next/navigation'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import Link from 'next/link'
+import { SelectedRestaurantProvider, useSelectedRestaurant } from './_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -22,6 +23,9 @@ interface NavItem {
   path: string
   badge?: boolean
   children?: { title: string; path: string }[]
+  /** Optional section header rendered above this item — used to group
+      "Menu Management" and "Settings" under the SYSTEM_ADMIN nav. */
+  section?: string
 }
 
 const ADMIN_NAV: NavItem[] = [
@@ -47,9 +51,12 @@ const ADMIN_NAV: NavItem[] = [
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
 ]
 
-// Mirrors FM SIDEBAR_PATHS_LIST.SYSTEM_ADMIN exactly
-// (paths.constant.ts lines 15-80): Reporting, Locations, Authorized
-// Users, Orders, Links, Reports, Customers.
+// SYSTEM_ADMIN with a picked location sees the combined multi-location
+// management items PLUS the per-restaurant menu/settings/tax items.
+// Top group mirrors FM SIDEBAR_PATHS_LIST.SYSTEM_ADMIN
+// (paths.constant.ts:15-80). The Menu Management and Settings groups
+// are pulled in so the diner can operate the picked location without
+// switching to an "impersonation" view.
 const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Reporting', path: '/restaurant/dashboard' },
   { title: 'Locations', path: '/restaurant/manage/locations' },
@@ -58,6 +65,17 @@ const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Links', path: '/restaurant/manage/multi-unit-links' },
   { title: 'Reports', path: '/restaurant/manage/admin-manager-reports' },
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
+  {
+    title: 'Manage Menus', path: '/restaurant/manage-v2/menus', section: 'Menu Management',
+    children: [
+      { title: 'Menus', path: '/restaurant/manage-v2/menus' },
+      { title: 'Group Library', path: '/restaurant/manage/groups' },
+      { title: 'Modifier Library', path: '/restaurant/manage/modifiers' },
+    ],
+  },
+  { title: 'Settings', path: '/restaurant/order-settings', section: 'Settings' },
+  { title: 'Banking', path: '/restaurant/account/banking' },
+  { title: 'Tax Rate', path: '/restaurant/tax-rate' },
 ]
 
 const SYSTEM_ADMIN_ONLY_PATHS = [
@@ -68,23 +86,27 @@ const SYSTEM_ADMIN_ONLY_PATHS = [
 ]
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <SelectedRestaurantProvider>
+      <PortalLayoutInner>{children}</PortalLayoutInner>
+    </SelectedRestaurantProvider>
+  )
+}
+
+function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const [user, setUser] = useState<RestaurantUser | null>(null)
-  const [restaurantName, setRestaurantName] = useState('')
   const [orderBadge, setOrderBadge] = useState(0)
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null)
-  const [selectedRestaurantName, setSelectedRestaurantName] = useState<string>('')
+  // Selection state lives in context now — single source of truth shared
+  // with the dashboard top-right dropdown.
+  const { ref: selectedRestaurant, name: selectedRestaurantName, clearRestaurant } = useSelectedRestaurant()
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem('restaurant_user')
       if (raw) setUser(JSON.parse(raw))
-      const sel = localStorage.getItem('selectedRestaurant')
-      if (sel) setSelectedRestaurant(sel)
-      const selName = localStorage.getItem('selectedRestaurantName')
-      if (selName) setSelectedRestaurantName(selName)
     } catch {}
   }, [])
 
@@ -92,18 +114,22 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const hasSelection = isSystemAdmin && !!selectedRestaurant
   const isOnSystemAdminPage = SYSTEM_ADMIN_ONLY_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
 
-  // When SYSTEM_ADMIN: if on a SYSTEM_ADMIN-only page show SYSTEM_ADMIN_NAV,
-  // otherwise show the ADMIN nav (impersonation view).
+  // SYSTEM_ADMIN with a location → combined nav (multi-loc + per-loc).
+  // SYSTEM_ADMIN without a location → nothing but the picker prompt
+  //   (the welcome / first-pick state should not have stale items).
+  // ADMIN / RESTAURANT_USER → standard per-restaurant nav.
+  // Unused for now but keep ADMIN_NAV path open for SAs on a SA-only
+  // route (the toggle below still navigates between contexts).
+  void isOnSystemAdminPage
   const NAV: NavItem[] = !isSystemAdmin
     ? ADMIN_NAV
-    : (isOnSystemAdminPage || !hasSelection ? SYSTEM_ADMIN_NAV : ADMIN_NAV)
+    : hasSelection
+      ? SYSTEM_ADMIN_NAV
+      : []
 
-  useEffect(() => {
-    fetch('/api/restaurant/profile')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.businessName) setRestaurantName(d.businessName) })
-      .catch(() => {})
-  }, [selectedRestaurant])
+  // For the header "current restaurant" line. Falls back to the cached
+  // name if context hasn't refreshed yet.
+  const restaurantName = selectedRestaurantName
 
   const refreshBadge = useCallback(async () => {
     try {
@@ -125,10 +151,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   async function handleLogout() {
     await fetch('/api/restaurant-auth', { method: 'DELETE' })
-    await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE' })
+    await clearRestaurant()
     localStorage.removeItem('restaurant_user')
-    localStorage.removeItem('selectedRestaurant')
-    localStorage.removeItem('selectedRestaurantName')
     router.push('/restaurant/login')
   }
 
@@ -144,13 +168,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }
 
   async function clearSelection() {
-    await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE' })
-    localStorage.removeItem('selectedRestaurant')
-    localStorage.removeItem('selectedRestaurantName')
-    setSelectedRestaurant(null)
-    setSelectedRestaurantName('')
-    setRestaurantName('')
-    router.push('/restaurant/manage/locations')
+    await clearRestaurant()
+    router.push('/restaurant/select-location')
   }
 
   function isActive(path: string) {
@@ -259,7 +278,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   >×</button>
                 </div>
               ) : (
-                <Link href="/restaurant/manage/locations"
+                // Sends SAs to the focused selection picker (auto-bounces
+                // if they only have one location), not the management
+                // page which is a different intent.
+                <Link href="/restaurant/select-location"
                   style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.55)', textDecoration: 'none', marginTop: 4 }}>
                   Pick a location →
                 </Link>
@@ -273,9 +295,18 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               const groupActive = isGroupActive(item)
               const isOpen = expanded === item.title || groupActive
 
+              const sectionLabel = item.section
+                ? (
+                    <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '0 16px', margin: '14px 0 4px' }}>
+                      {item.section}
+                    </div>
+                  )
+                : null
+
               if (item.children) {
                 return (
-                  <div key={item.title}>
+                  <Fragment key={item.title}>
+                    {sectionLabel}
                     <div
                       className="portal-nav-group"
                       onClick={() => {
@@ -301,11 +332,16 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                         {item.children.map(child => sidebarItem(child.title, child.path, false, true))}
                       </div>
                     )}
-                  </div>
+                  </Fragment>
                 )
               }
 
-              return sidebarItem(item.title, item.path, item.badge)
+              return (
+                <Fragment key={item.path}>
+                  {sectionLabel}
+                  {sidebarItem(item.title, item.path, item.badge)}
+                </Fragment>
+              )
             })}
           </nav>
 

@@ -628,6 +628,22 @@ function OrdersContent() {
   const router = useRouter()
   const pathname = usePathname()
 
+  // Guard: multi-location SAs who never picked a restaurant get an empty
+  // /api/orders response from FM because no current restaurant is set.
+  // Read role + selection from localStorage (the only places the layout
+  // already syncs them) and show a friendly prompt instead of the
+  // "No orders found" empty state which looks broken.
+  const [needsLocation, setNeedsLocation] = useState(false)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('restaurant_user')
+      const role = raw ? (JSON.parse(raw).role || '') : ''
+      const sel = localStorage.getItem('selectedRestaurant')
+      const isMulti = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'
+      setNeedsLocation(isMulti && !sel)
+    } catch {}
+  }, [])
+
   const tab = (searchParams.get('tab') || 'active') as 'active' | 'history' | 'counts'
   const [orders, setOrders] = useState<Order[]>([])
   const [total, setTotal] = useState(0)
@@ -676,6 +692,10 @@ function OrdersContent() {
 
   const loadOrders = useCallback(async (resetPage?: boolean) => {
     if (tab === 'counts') return
+    // Skip the fetch entirely when the SA hasn't picked a location yet
+    // — FM would return empty anyway, and the page-level guard shows a
+    // proper prompt.
+    if (needsLocation) { setOrders([]); setTotal(0); setLoading(false); return }
     setLoading(true)
     const p = new URLSearchParams()
     const currentPage = resetPage ? 0 : page
@@ -695,7 +715,7 @@ function OrdersContent() {
       setTotal(d.totalElements || 0)
     }
     setLoading(false)
-  }, [tab, page, size, statuses, sortField, sortDir, search, appliedFrom, appliedTo])
+  }, [tab, page, size, statuses, sortField, sortDir, search, appliedFrom, appliedTo, needsLocation])
 
   // Load whenever any dependency in loadOrders changes (tab, page, sort, search, dates)
   useEffect(() => {
@@ -763,7 +783,19 @@ function OrdersContent() {
         ))}
       </div>
 
-      {tab === 'counts' ? (
+      {needsLocation ? (
+        <div style={{ background: '#fff', border: '1px solid #ebebeb', borderRadius: 12, padding: '48px 24px', textAlign: 'center' }}>
+          <div style={{ fontSize: 36, marginBottom: 14 }}>📍</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 6 }}>Select a location to view orders</div>
+          <div style={{ fontSize: 13, color: '#888', marginBottom: 22 }}>
+            Your account manages multiple restaurants — pick one to load its orders.
+          </div>
+          <button onClick={() => router.push('/restaurant/select-location?next=' + encodeURIComponent(pathname + '?tab=' + tab))}
+            style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+            Pick a location →
+          </button>
+        </div>
+      ) : tab === 'counts' ? (
         <OrderCountsTab />
       ) : (
         <>

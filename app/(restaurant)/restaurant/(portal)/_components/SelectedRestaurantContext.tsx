@@ -1,0 +1,131 @@
+'use client'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+
+const STORAGE_REF = 'selectedRestaurant'
+const STORAGE_NAME = 'selectedRestaurantName'
+const CHANGE_EVENT = 'disco:selected-restaurant-changed'
+
+interface ContextValue {
+  /** FM restaurant reference UUID, null when no location is picked. */
+  ref: string | null
+  /** Display name. Prefers the cached name, fills in from /api/restaurant/profile. */
+  name: string
+  /** Select a location (PUT FM current + cookie + localStorage + broadcast). */
+  setRestaurant: (ref: string, name?: string) => Promise<void>
+  /** Clear selection (DELETE FM current + cookies + localStorage + broadcast). */
+  clearRestaurant: () => Promise<void>
+  /** Force re-pull of /api/restaurant/profile to refresh the canonical name. */
+  refreshName: () => Promise<void>
+}
+
+const Ctx = createContext<ContextValue | null>(null)
+
+interface BroadcastDetail { ref: string | null; name: string }
+
+/**
+ * Owns the single source of truth for the currently-impersonated
+ * restaurant in the restaurant portal. Both the sidebar header and the
+ * dashboard Restaurant dropdown read + write through this context so
+ * they can't drift out of sync.
+ *
+ * Persistence: cookies on the server (set via /api/restaurant/selected-
+ * restaurant) and localStorage for the client. Cross-tab + cross-
+ * component sync via a custom 'disco:selected-restaurant-changed' event.
+ */
+export function SelectedRestaurantProvider({ children }: { children: React.ReactNode }) {
+  const [ref, setRef] = useState<string | null>(null)
+  const [name, setName] = useState<string>('')
+
+  // Initial hydrate from localStorage.
+  useEffect(() => {
+    try {
+      const r = localStorage.getItem(STORAGE_REF)
+      const n = localStorage.getItem(STORAGE_NAME)
+      if (r) setRef(r)
+      if (n) setName(n)
+    } catch {}
+  }, [])
+
+  // Same-tab broadcast (so changes in one consumer reach others) +
+  // cross-tab via the native storage event.
+  useEffect(() => {
+    function onCustom(e: Event) {
+      const detail = (e as CustomEvent).detail as BroadcastDetail | undefined
+      if (!detail) return
+      setRef(detail.ref)
+      setName(detail.name)
+    }
+    function onStorage(e: StorageEvent) {
+      if (e.key === STORAGE_REF) setRef(e.newValue || null)
+      if (e.key === STORAGE_NAME) setName(e.newValue || '')
+    }
+    window.addEventListener(CHANGE_EVENT, onCustom as EventListener)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener(CHANGE_EVENT, onCustom as EventListener)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
+  // After a successful selection, pull the canonical business name from
+  // /api/restaurant/profile so the sidebar header and dropdown agree
+  // even if we only had the reference handy (e.g. on first hydrate).
+  const refreshName = useCallback(async () => {
+    try {
+      const res = await fetch('/api/restaurant/profile', { credentials: 'include' })
+      if (!res.ok) return
+      const d = await res.json()
+      const bn = d?.businessName
+      if (typeof bn === 'string' && bn) {
+        setName(bn)
+        try { localStorage.setItem(STORAGE_NAME, bn) } catch {}
+        try {
+          window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { ref, name: bn } }))
+        } catch {}
+      }
+    } catch {}
+  }, [ref])
+
+  const setRestaurant = useCallback(async (newRef: string, newName?: string) => {
+    await fetch(`/api/restaurant/selected-restaurant?restaurantReference=${encodeURIComponent(newRef)}`, {
+      method: 'PUT', credentials: 'include',
+    })
+    setRef(newRef)
+    try { localStorage.setItem(STORAGE_REF, newRef) } catch {}
+    if (newName) {
+      setName(newName)
+      try { localStorage.setItem(STORAGE_NAME, newName) } catch {}
+    }
+    try {
+      window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { ref: newRef, name: newName || name } }))
+    } catch {}
+    // Always confirm name from the server post-switch so the cached
+    // value can't lie about which restaurant we're on.
+    refreshName()
+  }, [name, refreshName])
+
+  const clearRestaurant = useCallback(async () => {
+    await fetch('/api/restaurant/selected-restaurant', { method: 'DELETE', credentials: 'include' })
+    setRef(null)
+    setName('')
+    try {
+      localStorage.removeItem(STORAGE_REF)
+      localStorage.removeItem(STORAGE_NAME)
+    } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { ref: null, name: '' } }))
+    } catch {}
+  }, [])
+
+  return (
+    <Ctx.Provider value={{ ref, name, setRestaurant, clearRestaurant, refreshName }}>
+      {children}
+    </Ctx.Provider>
+  )
+}
+
+export function useSelectedRestaurant(): ContextValue {
+  const v = useContext(Ctx)
+  if (!v) throw new Error('useSelectedRestaurant must be used inside SelectedRestaurantProvider')
+  return v
+}

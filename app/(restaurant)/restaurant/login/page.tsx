@@ -32,6 +32,42 @@ export default function RestaurantLoginPage() {
         return
       }
       localStorage.setItem('restaurant_user', JSON.stringify(data))
+
+      // Multi-location SYSTEM_ADMIN / SUPER_ADMIN accounts have no
+      // restaurant baked into their JWT — FM needs us to PUT
+      // /api/system-admin/restaurants/current before /api/orders et al
+      // return data. Force them to pick (auto-pick when there's only
+      // one). ADMIN / RESTAURANT_USER accounts skip this — the JWT
+      // carries the restaurant ref already.
+      const role: string = data.role || ''
+      const isMulti = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'
+      if (isMulti) {
+        try {
+          const locRes = await fetch('/api/restaurant/locations?size=1000', { credentials: 'include' })
+          if (locRes.ok) {
+            const locData = await locRes.json()
+            const list: { reference: string; businessName: string }[] = locData.content || []
+            if (list.length === 1) {
+              const only = list[0]
+              await fetch(`/api/restaurant/selected-restaurant?restaurantReference=${only.reference}`, {
+                method: 'PUT', credentials: 'include',
+              })
+              try {
+                localStorage.setItem('selectedRestaurant', only.reference)
+                localStorage.setItem('selectedRestaurantName', only.businessName)
+              } catch {}
+              router.push('/restaurant/dashboard')
+              return
+            }
+            // Multiple (or zero — handled inside the picker) — force selection
+            router.push('/restaurant/select-location')
+            return
+          }
+        } catch {
+          // If the locations fetch failed, fall through to dashboard;
+          // the orders page guard will catch the missing selection.
+        }
+      }
       router.push('/restaurant/dashboard')
     } catch {
       setError('Unable to connect. Please try again.')
