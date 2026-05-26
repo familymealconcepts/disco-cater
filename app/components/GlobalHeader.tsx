@@ -7,12 +7,8 @@ import AuthModal from './AuthModal'
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 
-const IconCard = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-const IconBell = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
 const IconUser = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
 const IconSignOut = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-const IconOrders = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-const IconHistory = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
 
 export default function GlobalHeader({ centerContent, rightLinks = true }: { centerContent?: React.ReactNode; rightLinks?: boolean }) {
   const { user, isLoading, logout, openAuthModal, authModalOpen, authModalDefaultTab, closeAuthModal } = useAuthContext()
@@ -75,19 +71,15 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
                         <div style={{ fontSize: 12, fontWeight: 700, color: '#111', fontFamily: F }}>{user.firstName} {user.lastName}</div>
                         <div style={{ fontSize: 10, color: '#999', marginTop: 1, fontFamily: F }}>{user.email}</div>
                       </div>
+                      {/* The sidebar at /account/* handles Orders, Subscriptions,
+                          History, Favorites, Addresses, Payment, Notifications, and
+                          Security navigation — duplicating them here was confusing.
+                          The dropdown is now just a quick jump to Profile + Sign out. */}
                       <div style={{ padding: '5px 0' }}>
-                        {[
-                          { icon: <IconUser />, label: 'My Account', href: '/account/profile' },
-                          { icon: <IconOrders />, label: 'My Orders', href: '/account/orders' },
-                          { icon: <IconHistory />, label: 'Order History', href: '/account/orders/history' },
-                          { icon: <IconCard />, label: 'Payment methods', href: '/account/payment' },
-                          { icon: <IconBell />, label: 'Notifications', href: '/account/notifications' },
-                        ].map(item => (
-                          <Link key={item.label} href={item.href} className="dc-menu-link" onClick={() => setMenuOpen(false)}>
-                            <span style={{ color: '#999', flexShrink: 0 }}>{item.icon}</span>
-                            {item.label}
-                          </Link>
-                        ))}
+                        <Link href="/account/profile" className="dc-menu-link" onClick={() => setMenuOpen(false)}>
+                          <span style={{ color: '#999', flexShrink: 0 }}><IconUser /></span>
+                          My Account
+                        </Link>
                       </div>
                       <div style={{ height: 1, background: '#f0f0f0', margin: '3px 0' }} />
                       <div style={{ padding: '5px 0' }}>
