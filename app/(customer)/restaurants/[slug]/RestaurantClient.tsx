@@ -625,21 +625,31 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const cartPanel = (
     <div>
       {hasSelection ? (
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f4f4f4', background: '#fafafa' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: 12, color: '#555' }}>
-              <span style={{ fontWeight: 700 }}>{fmtDateShort(selDate)}</span>
-              {selTime && <span style={{ color: '#888' }}> · {fmtTime(selTime)}</span>}
-              <span style={{ color: '#888' }}> · {orderType === 'PICKUP' ? 'Pickup' : 'Delivery'}</span>
+        // In embed mode the NewOrderDialog header already shows the date
+        // and the menus modal "Edit" button is reachable via the menu
+        // tabs / openMenus button on screen, so this redundant row goes
+        // away. Headcount stays visible inline below.
+        !embedded ? (
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #f4f4f4', background: '#fafafa' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 12, color: '#555' }}>
+                <span style={{ fontWeight: 700 }}>{fmtDateShort(selDate)}</span>
+                {selTime && <span style={{ color: '#888' }}> · {fmtTime(selTime)}</span>}
+                <span style={{ color: '#888' }}> · {orderType === 'PICKUP' ? 'Pickup' : 'Delivery'}</span>
+              </div>
+              <button onClick={openMenus} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>Edit</button>
             </div>
-            <button onClick={openMenus} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>Edit</button>
+            {headcount != null && (
+              <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
+                👥 {headcount} {headcount === 1 ? 'person' : 'people'}
+              </div>
+            )}
           </div>
-          {headcount != null && (
-            <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
-              👥 {headcount} {headcount === 1 ? 'person' : 'people'}
-            </div>
-          )}
-        </div>
+        ) : headcount != null ? (
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid #f4f4f4', background: '#fafafa', fontSize: 12, color: '#555' }}>
+            👥 {headcount} {headcount === 1 ? 'person' : 'people'}
+          </div>
+        ) : null
       ) : fmSlug ? (
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f4f4f4' }}>
           <button onClick={openMenus} style={{ width: '100%', padding: '10px', background: '#f0f0f8', border: `1.5px dashed ${INDIGO}30`, borderRadius: 10, cursor: 'pointer', fontFamily: F, fontSize: 13, fontWeight: 600, color: INDIGO }}>
@@ -798,7 +808,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     <div style={{ minHeight: '100svh', background: '#f8f8fc', fontFamily: F }}>
       {!embedded && <GlobalHeader />}
 
-      {hasSelection && (
+      {/* Date/time/pickup sticky bar — hidden in embed mode because the
+          enclosing NewOrderDialog already shows the date in its top bar
+          and the Order Summary right rail shows full context. */}
+      {!embedded && hasSelection && (
         <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 52, zIndex: 150, boxShadow: '0 1px 0 #f0f0f0' }}>
           <div style={{ maxWidth: 1140, margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12, height: 46 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
@@ -860,10 +873,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       </div>
 
       {/* Two-panel body */}
-      <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 120px', display: 'flex', gap: 24 }}>
+      <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 120px', display: 'flex', gap: 24, alignItems: 'flex-start' }}>
 
-        {/* LEFT: packages — horizontal cards */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* LEFT: packages — horizontal cards. overflow:hidden prevents
+            any nested card or grid cell from bleeding past the column
+            into the Order Summary panel on narrow widths. */}
+        <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
           {menuData.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '72px 0' }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>🍽️</div>
@@ -879,7 +894,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           ) : (
             activeSection?.categories.map(cat => (
               <div key={cat.reference} style={{ marginBottom: 40 }}>
-                {(activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
+                {!embedded && (activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
                   <div style={{ position: 'sticky', top: hasSelection ? 98 : 52, zIndex: 10, background: '#f8f8fc', padding: '10px 0', marginBottom: 4 }}>
                     <h2 style={{ fontSize: 16, fontWeight: 800, color: DARK, margin: 0, letterSpacing: '-0.01em' }}>{cat.name}</h2>
                     {cat.description && <p style={{ fontSize: 13, color: '#888', margin: '4px 0 0' }}>{cat.description}</p>}
@@ -940,8 +955,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           )}
         </div>
 
-        {/* RIGHT: sticky cart */}
-        <div className="order-sidebar" style={{ width: 340, flexShrink: 0 }}>
+        {/* RIGHT: sticky cart — explicit flex basis so it can't expand
+            and push the left column out from under it. */}
+        <div className="order-sidebar" style={{ flex: '0 0 340px', width: 340 }}>
           <div style={{ position: 'sticky', top: hasSelection ? 106 : 68 }}>
             <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', marginBottom: cart.length > 0 && fmRef ? 10 : 0 }}>
               <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
@@ -1248,7 +1264,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
-        .pkg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+        .pkg-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
         .pkg-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.09) !important; }
         input:focus, textarea:focus, select:focus { border-color: ${BLUE} !important; box-shadow: 0 0 0 3px rgba(91,111,232,0.1) !important; }
         .pac-container { z-index: 999 !important; font-family: 'DM Sans', sans-serif !important; }
