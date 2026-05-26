@@ -21,7 +21,8 @@ export function middleware(req: NextRequest) {
       return NextResponse.redirect(url)
     }
     const role = decodeTokenRole(restaurantToken)
-    if (role !== 'ADMIN') {
+    const RESTAURANT_PORTAL_ROLES = ['ADMIN', 'SYSTEM_ADMIN', 'SUPER_ADMIN']
+    if (!role || !RESTAURANT_PORTAL_ROLES.includes(role)) {
       const url = req.nextUrl.clone()
       url.pathname = '/restaurant/login'
       return NextResponse.redirect(url)
