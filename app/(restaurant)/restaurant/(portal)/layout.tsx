@@ -16,6 +16,8 @@ interface RestaurantUser {
   lastName: string
   role: string
   reference: string
+  businessName?: string
+  groupName?: string
 }
 
 interface NavItem {
@@ -23,13 +25,23 @@ interface NavItem {
   path: string
   badge?: boolean
   children?: { title: string; path: string }[]
-  /** Optional section header rendered above this item — used to group
-      "Menu Management" and "Settings" under the SYSTEM_ADMIN nav. */
-  section?: string
 }
 
-const ADMIN_NAV: NavItem[] = [
+// MODE A — full SYSTEM_ADMIN nav (no location-scoped items).
+// Mirrors FM SIDEBAR_PATHS_LIST.SYSTEM_ADMIN (paths.constant.ts:15-80).
+const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Reporting', path: '/restaurant/dashboard' },
+  { title: 'Locations', path: '/restaurant/manage/locations' },
+  { title: 'Authorized Users', path: '/restaurant/manage/authorized-users' },
+  { title: 'Orders', path: '/restaurant/orders', badge: true },
+  { title: 'Links', path: '/restaurant/manage/multi-unit-links' },
+  { title: 'Reports', path: '/restaurant/manage/admin-manager-reports' },
+  { title: 'Customers', path: '/restaurant/restaurant-customers' },
+]
+
+// MODE B — Restaurant User nav, shown to ADMIN role and to
+// SYSTEM_ADMINs viewing a single location ("View as Restaurant User").
+const RESTAURANT_USER_NAV: NavItem[] = [
   { title: 'Orders', path: '/restaurant/orders', badge: true },
   {
     title: 'Manage Menus', path: '/restaurant/manage-v2/menus',
@@ -51,35 +63,6 @@ const ADMIN_NAV: NavItem[] = [
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
 ]
 
-// Full SYSTEM_ADMIN nav — the multi-location management surface.
-// Mirrors FM SIDEBAR_PATHS_LIST.SYSTEM_ADMIN (paths.constant.ts:15-80).
-const SYSTEM_ADMIN_NAV: NavItem[] = [
-  { title: 'Reporting', path: '/restaurant/dashboard' },
-  { title: 'Locations', path: '/restaurant/manage/locations' },
-  { title: 'Authorized Users', path: '/restaurant/manage/authorized-users' },
-  { title: 'Orders', path: '/restaurant/orders', badge: true },
-  { title: 'Links', path: '/restaurant/manage/multi-unit-links' },
-  { title: 'Reports', path: '/restaurant/manage/admin-manager-reports' },
-  { title: 'Customers', path: '/restaurant/restaurant-customers' },
-  { title: 'Banking', path: '/restaurant/account/banking' },
-  { title: 'Tax Rate', path: '/restaurant/tax-rate' },
-]
-
-// Narrow nav shown when a SYSTEM_ADMIN clicks into a single location
-// ("View as Restaurant User"). The staff-facing operational surface.
-const RESTAURANT_USER_NAV: NavItem[] = [
-  { title: 'Orders', path: '/restaurant/orders', badge: true },
-  {
-    title: 'Manage Menus', path: '/restaurant/manage-v2/menus',
-    children: [
-      { title: 'Menus', path: '/restaurant/manage-v2/menus' },
-      { title: 'Group Library', path: '/restaurant/manage/groups' },
-      { title: 'Modifier Library', path: '/restaurant/manage/modifiers' },
-    ],
-  },
-  { title: 'Availability', path: '/restaurant/order-settings' },
-]
-
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
   return (
     <SelectedRestaurantProvider>
@@ -94,8 +77,6 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<RestaurantUser | null>(null)
   const [orderBadge, setOrderBadge] = useState(0)
   const [expanded, setExpanded] = useState<string | null>(null)
-  // Selection state lives in context now — single source of truth shared
-  // with the dashboard top-right dropdown.
   const { ref: selectedRestaurant, name: selectedRestaurantName, viewMode, setViewMode, clearRestaurant } = useSelectedRestaurant()
 
   useEffect(() => {
@@ -106,24 +87,21 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   }, [])
 
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN' || user?.role === 'SUPER_ADMIN'
-  const hasSelection = isSystemAdmin && !!selectedRestaurant
-  const inRestaurantUserView = isSystemAdmin && viewMode === 'RESTAURANT_USER' && hasSelection
+  // ADMIN role is always in Mode B by definition. SYSTEM_ADMIN is in
+  // Mode B only when they explicitly pick a location AND viewMode is
+  // RESTAURANT_USER (e.g. they clicked a row on Locations).
+  const inRestaurantUserView = isSystemAdmin
+    ? (viewMode === 'RESTAURANT_USER' && !!selectedRestaurant)
+    : true
 
-  // ADMIN / RESTAURANT_USER role → standard per-restaurant nav.
-  // SYSTEM_ADMIN in RESTAURANT_USER view → narrow operational nav.
-  // SYSTEM_ADMIN in SYSTEM_ADMIN view → full multi-location nav.
-  // SYSTEM_ADMIN with no selection → empty (only the picker prompt).
-  const NAV: NavItem[] = !isSystemAdmin
-    ? ADMIN_NAV
-    : inRestaurantUserView
-      ? RESTAURANT_USER_NAV
-      : hasSelection
-        ? SYSTEM_ADMIN_NAV
-        : []
+  // Mode A header shows the account/group name; Mode B shows the
+  // specific location. Per spec, the name appears exactly once — under
+  // the logo. No secondary callouts anywhere.
+  const headerName = inRestaurantUserView
+    ? (selectedRestaurantName || '')
+    : (user?.groupName || user?.businessName || `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim())
 
-  // For the header "current restaurant" line. Falls back to the cached
-  // name if context hasn't refreshed yet.
-  const restaurantName = selectedRestaurantName
+  const NAV: NavItem[] = inRestaurantUserView ? RESTAURANT_USER_NAV : SYSTEM_ADMIN_NAV
 
   const refreshBadge = useCallback(async () => {
     try {
@@ -150,22 +128,14 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     router.push('/restaurant/login')
   }
 
-  // FM's bidirectional View-as toggle. The view mode is the single
-  // source of truth — flipping it swaps the sidebar nav, and we navigate
-  // to the canonical landing page for the destination view.
-  function viewAsToggle() {
-    if (inRestaurantUserView) {
-      setViewMode('SYSTEM_ADMIN')
-      router.push('/restaurant/manage/locations')
-    } else {
-      setViewMode('RESTAURANT_USER')
-      router.push('/restaurant/orders')
-    }
-  }
-
-  async function clearSelection() {
+  // "← View as System Admin" — clears the picked restaurant (cookie +
+  // localStorage), flips viewMode back to SYSTEM_ADMIN, and lands on
+  // the Locations page. Per spec, the cookie is fully cleared so all
+  // downstream proxy calls return to the All-locations scope.
+  async function backToSystemAdmin() {
     await clearRestaurant()
-    router.push('/restaurant/select-location')
+    setViewMode('SYSTEM_ADMIN')
+    router.push('/restaurant/manage/locations')
   }
 
   function isActive(path: string) {
@@ -216,6 +186,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
         .portal-nav-group:hover { background: rgba(107,110,249,0.12) !important; }
         .portal-nav-child:hover { background: rgba(107,110,249,0.15) !important; }
+        .portal-back-link:hover { background: rgba(107,110,249,0.18) !important; }
       `}</style>
 
       <div style={{ display: 'flex', minHeight: '100svh', fontFamily: F }}>
@@ -225,64 +196,36 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
           height: '100vh', overflow: 'hidden auto', display: 'flex', flexDirection: 'column',
           flexShrink: 0, zIndex: 100,
         }}>
-          {/* SYSTEM_ADMIN "View as" link at the very top */}
-          {hasSelection && (
-            <button
-              onClick={viewAsToggle}
-              style={{
-                background: 'transparent', border: 'none',
-                color: 'rgba(255,255,255,0.7)', fontSize: 12, fontFamily: F,
-                padding: '14px 16px 6px', cursor: 'pointer', textAlign: 'left',
-                width: '100%',
-              }}
-            >
-              <span style={{ marginRight: 6 }}>←</span>
-              View as {inRestaurantUserView ? 'System Admin' : 'Restaurant User'}
-            </button>
-          )}
-
-          {/* Logo */}
-          <div style={{ padding: hasSelection ? '6px 16px 16px' : '20px 16px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-            <div style={{ marginBottom: 2 }}>
+          {/* Logo + single context name */}
+          <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+            <div style={{ marginBottom: 4 }}>
               <span style={{ fontSize: 18, fontWeight: 800, background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>disco</span>
               <span style={{ fontSize: 18, fontWeight: 800, color: '#999' }}> cater</span>
             </div>
-            {restaurantName && (
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: 500, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {restaurantName}
+            {headerName && (
+              <div title={headerName}
+                style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 600, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {headerName}
               </div>
             )}
           </div>
 
-          {/* SYSTEM_ADMIN role label + selected restaurant */}
-          {isSystemAdmin && (
-            <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(107,110,249,0.06)' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                System Admin
-              </div>
-              {hasSelection ? (
-                <div style={{ fontSize: 12, color: '#fff', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {selectedRestaurantName || restaurantName || selectedRestaurant}
-                  <button
-                    onClick={clearSelection}
-                    title="Clear selection"
-                    style={{
-                      marginLeft: 6, background: 'transparent', border: 'none',
-                      color: 'rgba(255,255,255,0.4)', fontSize: 11, cursor: 'pointer',
-                      padding: 0,
-                    }}
-                  >×</button>
-                </div>
-              ) : (
-                // Sends SAs to the focused selection picker (auto-bounces
-                // if they only have one location), not the management
-                // page which is a different intent.
-                <Link href="/restaurant/select-location"
-                  style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.55)', textDecoration: 'none', marginTop: 4 }}>
-                  Pick a location →
-                </Link>
-              )}
-            </div>
+          {/* View-as-SystemAdmin back link — only when an SA is in Mode B */}
+          {isSystemAdmin && inRestaurantUserView && (
+            <button
+              onClick={backToSystemAdmin}
+              className="portal-back-link"
+              style={{
+                background: 'rgba(107,110,249,0.08)', border: 'none',
+                borderBottom: '1px solid rgba(255,255,255,0.07)',
+                color: '#fff', fontSize: 12, fontFamily: F, fontWeight: 600,
+                padding: '12px 16px', cursor: 'pointer', textAlign: 'left',
+                width: '100%', transition: 'background 0.15s',
+              }}
+            >
+              <span style={{ marginRight: 8 }}>←</span>
+              View as System Admin
+            </button>
           )}
 
           {/* Nav */}
@@ -291,24 +234,13 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
               const groupActive = isGroupActive(item)
               const isOpen = expanded === item.title || groupActive
 
-              const sectionLabel = item.section
-                ? (
-                    <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '0 16px', margin: '14px 0 4px' }}>
-                      {item.section}
-                    </div>
-                  )
-                : null
-
               if (item.children) {
                 return (
                   <Fragment key={item.title}>
-                    {sectionLabel}
                     <div
                       className="portal-nav-group"
                       onClick={() => {
                         setExpanded(item.title)
-                        // FM behavior: clicking a parent navigates to its
-                        // configured path (which equals the first child).
                         if (!groupActive) router.push(item.path)
                       }}
                       style={{
@@ -332,12 +264,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
                 )
               }
 
-              return (
-                <Fragment key={item.path}>
-                  {sectionLabel}
-                  {sidebarItem(item.title, item.path, item.badge)}
-                </Fragment>
-              )
+              return <Fragment key={item.path}>{sidebarItem(item.title, item.path, item.badge)}</Fragment>
             })}
           </nav>
 

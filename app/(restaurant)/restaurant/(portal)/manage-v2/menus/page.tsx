@@ -175,7 +175,19 @@ export default function MenusPage() {
                   </td>
                   <td style={{ ...tdStyle, textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                      <ActionBtn title="Settings" onClick={() => setSettingsRef(m.reference)}>⚙</ActionBtn>
+                      <button
+                        onClick={() => setSettingsRef(m.reference)}
+                        style={{
+                          background: BLUE, color: '#fff', border: 'none',
+                          borderRadius: 20, padding: '7px 14px',
+                          fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                          fontFamily: F, display: 'inline-flex', alignItems: 'center', gap: 6,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <span aria-hidden style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
+                        Menu Settings
+                      </button>
                       <ActionBtn title="Clone" onClick={() => handleClone(m.reference)}>⧉</ActionBtn>
                       {filter !== 'ARCHIVED' && (
                         <ActionBtn title={m.visible ? 'Hide' : 'Show'} onClick={() => handleVisible(m.reference, m.visible)}>
