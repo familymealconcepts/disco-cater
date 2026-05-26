@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
+import OrderDetailPanel from '../components/OrderDetailPanel'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -12,7 +13,7 @@ interface ApiOrder {
   reference?: string
   id?: string
   restaurantName?: string
-  restaurant?: { name?: string }
+  restaurant?: { name?: string; businessName?: string }
   orderDate?: string
   deliveryDate?: string
   date?: string
@@ -20,15 +21,11 @@ interface ApiOrder {
   total?: number
   totalAmount?: number
   status?: string
+  orderStatus?: string
   orderType?: string
   serviceType?: string
   headcount?: number
   numberOfPeople?: number
-}
-
-interface OrderDetail extends ApiOrder {
-  deliveryAddress?: { addressLine1?: string } | string
-  items?: { name?: string; mealPackageName?: string; price?: number; total?: number }[]
 }
 
 function fmtDateLong(d?: string) {
@@ -164,8 +161,6 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'cal' | 'list'>('cal')
   const [selectedRef, setSelectedRef] = useState<string | null>(null)
-  const [detail, setDetail] = useState<OrderDetail | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
 
   useEffect(() => {
     fetch('/api/fm-order-history?page=0&size=50', { credentials: 'include' })
@@ -178,18 +173,8 @@ export default function OrdersPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  async function openOrder(ref: string) {
-    setSelectedRef(ref)
-    setDetail(null)
-    setDetailLoading(true)
-    try {
-      const res = await fetch(`/api/fm-order-detail/${ref}`, { credentials: 'include' })
-      if (res.ok) setDetail(await res.json())
-    } catch {}
-    setDetailLoading(false)
-  }
-
-  function closeDetail() { setSelectedRef(null); setDetail(null) }
+  function openOrder(ref: string) { setSelectedRef(ref) }
+  function closeDetail() { setSelectedRef(null) }
 
   const stats = useMemo(() => {
     const now = new Date()
@@ -262,46 +247,9 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Detail modal */}
+      {/* Detail panel — right slide-in */}
       {selectedRef && (
-        <>
-          <div onClick={closeDetail} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 700 }} />
-          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480, maxHeight: '80vh', overflowY: 'auto', zIndex: 701, boxShadow: '0 16px 48px rgba(0,0,0,0.18)', fontFamily: F }}>
-            <button onClick={closeDetail} style={{ position: 'absolute', top: 14, right: 14, background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', fontSize: 16, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
-            {detailLoading || !detail ? (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: '#888' }}>Loading…</div>
-            ) : (
-              <>
-                <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 16 }}>Order details</div>
-                <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
-                  <tbody>
-                    {[
-                      ['Restaurant', detail.restaurantName || detail.restaurant?.name || '—'],
-                      ['Date', fmtDateLong(detail.orderDate || detail.createdAt)],
-                      ['Status', detail.status || '—'],
-                      ['Total', fmtMoney(detail.total || detail.totalAmount)],
-                      ['Delivery address', typeof detail.deliveryAddress === 'string' ? detail.deliveryAddress : detail.deliveryAddress?.addressLine1 || '—'],
-                    ].map(([l, v]) => (
-                      <tr key={l}><td style={{ padding: '6px 0', color: '#888', verticalAlign: 'top', width: '40%' }}>{l}</td><td style={{ padding: '6px 0', color: DARK, fontWeight: 600 }}>{v as string}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-                {detail.items && detail.items.length > 0 && (
-                  <>
-                    <div style={{ height: 1, background: '#f0f0f0', margin: '12px 0' }} />
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Items</div>
-                    {detail.items.map((item, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0' }}>
-                        <span style={{ color: '#444' }}>{item.name || item.mealPackageName}</span>
-                        <span style={{ color: DARK, fontWeight: 600 }}>{fmtMoney(item.price || item.total)}</span>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </>
+        <OrderDetailPanel orderRef={selectedRef} mode="upcoming" onClose={closeDetail} />
       )}
     </div>
   )

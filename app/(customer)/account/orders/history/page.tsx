@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import OrderDetailPanel from '../../components/OrderDetailPanel'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -20,11 +21,6 @@ interface OrderItem {
   status?: string
 }
 
-interface OrderDetail extends OrderItem {
-  deliveryAddress?: { addressLine1?: string } | string
-  items?: { name?: string; mealPackageName?: string; price?: number; total?: number }[]
-}
-
 function fmtDate(d?: string) {
   if (!d) return ''
   try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return d }
@@ -36,8 +32,7 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
   const [total, setTotal] = useState(0)
-  const [selected, setSelected] = useState<OrderDetail | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
+  const [selectedRef, setSelectedRef] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -52,15 +47,8 @@ export default function HistoryPage() {
       .finally(() => setLoading(false))
   }, [page])
 
-  async function openDetail(ref: string) {
-    setDetailLoading(true)
-    setSelected({})
-    try {
-      const res = await fetch(`/api/fm-order-detail/${ref}`, { credentials: 'include' })
-      if (res.ok) setSelected(await res.json())
-    } catch {}
-    setDetailLoading(false)
-  }
+  function openDetail(ref: string) { setSelectedRef(ref) }
+  function closeDetail() { setSelectedRef(null) }
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
@@ -119,46 +107,9 @@ export default function HistoryPage() {
         </>
       )}
 
-      {/* Order detail modal */}
-      {selected !== null && (
-        <>
-          <div onClick={() => setSelected(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 700 }} />
-          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 16, padding: 28, width: '100%', maxWidth: 480, maxHeight: '80vh', overflowY: 'auto', zIndex: 701, boxShadow: '0 16px 48px rgba(0,0,0,0.18)', fontFamily: F }}>
-            <button onClick={() => setSelected(null)} style={{ position: 'absolute', top: 14, right: 14, background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', fontSize: 16, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
-            {detailLoading ? (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: '#888' }}>Loading…</div>
-            ) : (
-              <>
-                <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 16 }}>Order details</div>
-                <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
-                  <tbody>
-                    {[
-                      ['Restaurant', selected.restaurantName || selected.restaurant?.name || '—'],
-                      ['Date', fmtDate(selected.orderDate || selected.createdAt)],
-                      ['Status', selected.status || '—'],
-                      ['Total', fmtMoney(selected.total || selected.totalAmount)],
-                      ['Delivery address', typeof selected.deliveryAddress === 'string' ? selected.deliveryAddress : selected.deliveryAddress?.addressLine1 || '—'],
-                    ].map(([l, v]) => (
-                      <tr key={l}><td style={{ padding: '6px 0', color: '#888', verticalAlign: 'top', width: '40%' }}>{l}</td><td style={{ padding: '6px 0', color: DARK, fontWeight: 600 }}>{v as string}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-                {selected?.items && selected.items.length > 0 && (
-                  <>
-                    <div style={{ height: 1, background: '#f0f0f0', margin: '12px 0' }} />
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Items</div>
-                    {selected.items.map((item, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '4px 0' }}>
-                        <span style={{ color: '#444' }}>{item.name || item.mealPackageName}</span>
-                        <span style={{ color: DARK, fontWeight: 600 }}>{fmtMoney(item.price || item.total)}</span>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </>
+      {/* Detail panel — right slide-in (Reorder mode for history) */}
+      {selectedRef && (
+        <OrderDetailPanel orderRef={selectedRef} mode="history" onClose={closeDetail} />
       )}
     </div>
   )
