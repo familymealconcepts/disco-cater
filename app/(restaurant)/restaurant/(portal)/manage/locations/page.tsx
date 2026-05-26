@@ -1,12 +1,20 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove, SortableContext, useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 const PAGE_BG = '#F7F8FC'
-const FM_FRONTEND = 'https://www.familymeal.com/disco/'
+const DISCO_FRONTEND = 'https://www.discocater.com/restaurants/'
 
 interface Location {
   reference: string
@@ -94,6 +102,23 @@ export default function LocationsPage() {
   const [switching, setSwitching] = useState<string | null>(null)
   const [editing, setEditing] = useState<Location | null>(null)
   const [toast, setToast] = useState('')
+
+  // Drag-and-drop: require 6px pointer movement before drag activates so
+  // single clicks on the row still register as switch/edit/copy.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = locations.findIndex(l => l.reference === active.id)
+    const newIndex = locations.findIndex(l => l.reference === over.id)
+    if (oldIndex < 0 || newIndex < 0) return
+    const reordered = arrayMove(locations, oldIndex, newIndex)
+    setLocations(reordered)
+    // FM's drop handler computes the absolute index across pages
+    const absoluteIndex = newIndex + (page * pageSize)
+    await fetch(`/api/restaurant/locations/${active.id}/position?position=${absoluteIndex}`, { method: 'PUT' })
+  }
 
   // Restore page size from localStorage like FM does
   useEffect(() => {
@@ -247,71 +272,25 @@ export default function LocationsPage() {
             <th style={colHead}>CHECKOUT:</th>
             <th style={colHead}></th>
           </tr></thead>
-          <tbody>
-            {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !locations.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No locations.</td></tr>}
-            {!loading && locations.map(loc => {
-              const slug = loc.businessNameWithoutSpaces || ''
-              const checkoutHref = slug ? `${FM_FRONTEND}${slug}/catering` : ''
-              return (
-                <tr key={loc.reference} style={{ background: loc.archived ? '#fafafa' : '#fff', opacity: loc.archived ? 0.6 : 1 }}>
-                  <td style={{ ...cell, textAlign: 'center', cursor: 'grab' }}>
-                    <IconDrag />
-                  </td>
-                  <td style={cell}>
-                    <Toggle
-                      checked={!loc.blocked}
-                      onChange={() => toggleStatus(loc)}
-                      disabled={loc.archived}
-                    />
-                  </td>
-                  <td
-                    style={{ ...clickableCell, fontWeight: 500 }}
-                    onClick={() => switchToLocation(loc)}
-                    title="Switch to this restaurant"
-                  >
-                    {loc.businessName}
-                    {switching === loc.reference && <span style={{ marginLeft: 6, color: '#aaa', fontSize: 11 }}>switching…</span>}
-                  </td>
-                  <td
-                    style={{ ...clickableCell, color: '#555' }}
-                    onClick={() => switchToLocation(loc)}
-                  >
-                    {loc.address?.addressLine1 || ''}
-                  </td>
-                  <td
-                    style={{ ...clickableCell, color: '#666' }}
-                    onClick={() => switchToLocation(loc)}
-                  >
-                    {fmtRegDate(loc.createdDate)}
-                  </td>
-                  <td style={cell}>
-                    {checkoutHref ? (
-                      <a
-                        href={checkoutHref}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={checkoutHref}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          width: 28, height: 28, borderRadius: 6, background: BLUE, color: '#fff',
-                          textDecoration: 'none',
-                        }}
-                      >
-                        <IconOpenInNew />
-                      </a>
-                    ) : <span style={{ color: '#bbb' }}>—</span>}
-                  </td>
-                  <td style={{ ...cell, textAlign: 'right' }}>
-                    <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
-                      <button onClick={() => copyLocation(loc)} title="Copy" style={iconBtn}><IconCopy /></button>
-                      <button onClick={() => setEditing(loc)} title="Edit" style={iconBtn}><IconEdit /></button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={locations.map(l => l.reference)} strategy={verticalListSortingStrategy}>
+              <tbody>
+                {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+                {!loading && !locations.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No locations.</td></tr>}
+                {!loading && locations.map(loc => (
+                  <SortableLocationRow
+                    key={loc.reference}
+                    loc={loc}
+                    switching={switching === loc.reference}
+                    onToggleStatus={() => toggleStatus(loc)}
+                    onSwitch={() => switchToLocation(loc)}
+                    onCopy={() => copyLocation(loc)}
+                    onEdit={() => setEditing(loc)}
+                  />
+                ))}
+              </tbody>
+            </SortableContext>
+          </DndContext>
         </table>
       </div>
 
@@ -404,3 +383,70 @@ const pageBtn: React.CSSProperties = {
   padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK,
 }
 const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 5 }
+
+interface SortableLocationRowProps {
+  loc: Location
+  switching: boolean
+  onToggleStatus: () => void
+  onSwitch: () => void
+  onCopy: () => void
+  onEdit: () => void
+}
+
+function SortableLocationRow({ loc, switching, onToggleStatus, onSwitch, onCopy, onEdit }: SortableLocationRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: loc.reference })
+  const slug = loc.businessNameWithoutSpaces || ''
+  const checkoutHref = slug ? `${DISCO_FRONTEND}${slug}` : ''
+  const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
+  const clickableCell: React.CSSProperties = { ...cell, cursor: 'pointer' }
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    background: isDragging ? '#f5f6ff' : (loc.archived ? '#fafafa' : '#fff'),
+    opacity: loc.archived ? 0.6 : 1,
+    boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.08)' : undefined,
+  }
+  return (
+    <tr ref={setNodeRef} style={style}>
+      <td style={{ ...cell, textAlign: 'center', cursor: 'grab', touchAction: 'none' }} {...attributes} {...listeners} title="Drag to reorder">
+        <IconDrag />
+      </td>
+      <td style={cell}>
+        <Toggle checked={!loc.blocked} onChange={onToggleStatus} disabled={loc.archived} />
+      </td>
+      <td style={{ ...clickableCell, fontWeight: 500 }} onClick={onSwitch} title="Switch to this restaurant">
+        {loc.businessName}
+        {switching && <span style={{ marginLeft: 6, color: '#aaa', fontSize: 11 }}>switching…</span>}
+      </td>
+      <td style={{ ...clickableCell, color: '#555' }} onClick={onSwitch}>
+        {loc.address?.addressLine1 || ''}
+      </td>
+      <td style={{ ...clickableCell, color: '#666' }} onClick={onSwitch}>
+        {fmtRegDate(loc.createdDate)}
+      </td>
+      <td style={cell}>
+        {checkoutHref ? (
+          <a
+            href={checkoutHref}
+            target="_blank"
+            rel="noreferrer"
+            title={checkoutHref}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 28, height: 28, borderRadius: 6, background: BLUE, color: '#fff',
+              textDecoration: 'none',
+            }}
+          >
+            <IconOpenInNew />
+          </a>
+        ) : <span style={{ color: '#bbb' }}>—</span>}
+      </td>
+      <td style={{ ...cell, textAlign: 'right' }}>
+        <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
+          <button onClick={onCopy} title="Copy" style={iconBtn}><IconCopy /></button>
+          <button onClick={onEdit} title="Edit" style={iconBtn}><IconEdit /></button>
+        </div>
+      </td>
+    </tr>
+  )
+}
