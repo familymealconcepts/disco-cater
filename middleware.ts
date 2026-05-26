@@ -30,16 +30,16 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  // Admin portal — uses disco_token with elevated roles
+  // Admin portal — SUPER_ADMIN only via separate fm_admin_token cookie
   if (pathname.startsWith('/admin/') && pathname !== '/admin/login') {
-    const adminToken = req.cookies.get('disco_token')?.value
+    const adminToken = req.cookies.get('fm_admin_token')?.value
     if (!adminToken) {
       const url = req.nextUrl.clone()
       url.pathname = '/admin/login'
       return NextResponse.redirect(url)
     }
     const role = decodeTokenRole(adminToken)
-    if (role !== 'SYSTEM_ADMIN' && role !== 'SUPER_ADMIN') {
+    if (role !== 'SUPER_ADMIN') {
       const url = req.nextUrl.clone()
       url.pathname = '/admin/login'
       return NextResponse.redirect(url)
