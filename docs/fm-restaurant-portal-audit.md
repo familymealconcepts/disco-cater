@@ -1206,6 +1206,307 @@ Otherwise the DoorDash link is hidden.
 
 ---
 
+---
+
+## GAP FILLS — 2026-05-25
+
+### GAP 1 — Group Library (Modifier Groups)
+
+**Angular path:** `admin/manage-menus/groups/` — `GroupsTableComponent`, `UpdateComponent`  
+**Service:** `GroupsService` at `_system/_services/groups/groups.service.ts`
+
+**Real API endpoints (NOTE: NOT `/api/groups` — actual URL is `/api/extraItemsGroups`):**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/extraItemsGroups` | Paginated list (`page`, `size`, `sort`) |
+| POST | `/api/extraItemsGroups` | Create group |
+| PUT | `/api/extraItemsGroups/{reference}` | Update group |
+| PUT | `/api/extraItemsGroups/{reference}/position?position={n}` | Reorder |
+| DELETE | `/api/extraItemsGroups/{reference}` | Delete |
+| POST | `/api/extraItemsGroups/{reference}/clone` | Clone |
+| GET | `/api/restaurants/{restaurantRef}/extraItemsGroups` | List for ADMIN (paginated) |
+| GET | `/api/restaurants/{restaurantRef}/extraItemsGroups/existing` | Existing groups for "add to package" dialog |
+
+**Create/Update Request Body:**
+```typescript
+{
+  name: string,                  // required
+  minSelectedItems: number,      // required; must be < maxSelectedItems
+  maxSelectedItems: number,      // required; max value 50
+  externalName: string,          // required; customer-facing name (e.g. "Choose a sauce")
+  subExternalName: string,       // required; customer-facing subtitle
+  addOnsReferences: string[],    // array of addOn reference UUIDs to include in this group
+  archived?: boolean,            // only on PUT
+  visible?: boolean              // only on PUT
+}
+```
+
+**Response Shape (Group object):**
+```typescript
+{
+  reference: string,
+  name: string,
+  externalName: string,
+  subExternalName: string,
+  minSelectedItems: number,
+  maxSelectedItems: number,
+  archived: boolean,
+  visible: boolean,
+  addOns: AddOn[]              // populated array of add-on objects
+}
+```
+
+**Table Columns:** drag handle | name | externalName | items (addOns.length) | minSelectedItems | maxSelectedItems | actions (edit, clone, archive, visibility toggle, delete)
+
+**Validation:**
+- `minSelectedItems` must be less than `maxSelectedItems` (client-side check)
+- `maxSelectedItems` max value is 50 (server returns error if exceeded)
+
+---
+
+### GAP 1 — Modifier Library (Add-Ons)
+
+**Angular path:** `admin/manage-menus/add-ons/` — `AddonsTableComponent`, `AddOnsUpdateComponent`  
+**Service:** `AddonsService` at `_system/_services/add-ons/addons.service.ts`
+
+**Real API endpoints (actual URL: `/api/addOns`):**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/addOns` | Paginated list (`page`, `size`) |
+| GET | `/api/addOns/list` | Flat list (used when loading add-ons for a group) |
+| POST | `/api/addOns` | Create add-on |
+| PUT | `/api/addOns/{reference}` | Update add-on |
+| PUT | `/api/addOns/{reference}/position?position={n}` | Reorder |
+| DELETE | `/api/addOns/{reference}` | Delete |
+| POST | `/api/addOns/{reference}/clone` | Clone |
+
+**Create/Update Request Body:**
+```typescript
+{
+  name: string,      // required
+  price: number,     // required; pattern /^[0-9]*[.]?[0-9]*$/; displayed as toFixed(2)
+  archived?: boolean,
+  visible?: boolean
+}
+```
+
+**Response Shape (AddOn object):**
+```typescript
+{
+  reference: string,
+  name: string,
+  price: number,
+  achived: boolean,    // NOTE: typo in FM source — field is spelled "achived" not "archived"
+  visible: boolean
+}
+```
+
+**Table Columns:** drag handle | name | price | actions (edit, clone, archive, visibility toggle, delete)
+
+**Pagination:** 25, 50, 100, 250 per page (reads `currentPaginationSize` from localStorage)
+
+**Archive behavior:** Sets `archived=true` AND `visible=false` together when archiving.
+
+---
+
+### GAP 2 — Meal Package Create/Edit (v2)
+
+**Angular path:** `admin/manage-menus-v2/menus-v2/meal-packages-v2/`  
+**Service:** `MealPackageService` at `_system/_services/meal-packages/meal-package.service.ts`
+
+**Real API endpoints:**
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/mealPackages/{reference}` | Get single meal package |
+| GET | `/api/restaurants/{restaurantRef}/mealPackages?categoryReference={ref}` | Get by category |
+| POST | `/api/mealPackages` | Create |
+| PUT | `/api/mealPackages/{reference}` | Update |
+| DELETE | `/api/mealPackages/{reference}` | Delete |
+| POST | `/api/mealPackages/{reference}/clone` | Clone |
+| PUT | `/api/mealPackages/{reference}/visible?isVisible={bool}` | Toggle visibility |
+| PUT | `/api/mealPackages/{reference}/position?position={n}` | Reorder |
+| PUT | `/api/mealPackages/{mealRef}/category?categoryReference={catRef}` | Move to category |
+
+**Image endpoints:**
+- Upload: `POST /public-api/images` (multipart `file`) — note: restaurant portal uses `public-api` not `api/images`
+- Download: `GET /public-api/images/{reference}/download?size={pixels}` — sizes used: 70, 150, 400
+
+**Meal Package Form (mealPackageForm):**
+```typescript
+{
+  name: string,                  // required, maxLength 100, must start with letter/number
+  description: string,           // maxLength 2000
+  price: number,                 // required, pattern /^[0-9.,]+$/
+  displayPrice: string,          // optional display override, pattern /^[0-9\w\W]+$/
+  serves: string,                // required (e.g. "Serves 4-6")
+  minQuantity: number,           // optional minimum order quantity
+  allowedSpecialInstructions: boolean,  // default false (note: inverted in load — FM stores as "not allowed")
+  imageUrl: string,              // current image URL for display
+  file: File,                    // selected file object
+  base: string                   // base64 string for cropped preview
+}
+```
+
+**Advanced Settings Form (advancedSettingsForm):**
+```typescript
+{
+  from: Date,                    // required — availability start date
+  to: Date,                      // required — availability end date
+  prepTime: number,              // default 0 — hours (0..12)
+  prepDays: number,              // default 1 — days (0,1,2,3,4,5,6,7,10,14,21,28)
+  cutOffDate: Date,              // optional
+  cutOffTimeFrom: string,        // hour component of cut-off time
+  cutOffMinutesFrom: string,     // minute component
+  cutOffMeridiem: string,        // 'AM'|'PM', default 'PM'
+  inventoryPerDay: number,       // required, min 1
+  maxOrder: number,              // required, min 1
+  isSameDay: 'enabled'|'disabled', // default 'enabled'
+  sameDaysTimeFrom: string,      // same-day window start hour, default '09'
+  sameDaysMinutesFrom: string,   // default '00'
+  sameDaysMeridiemFrom: string,  // default 'AM'
+  sameDaysTimeTo: string,        // same-day window end hour, default '09'
+  sameDaysMinutesTo: string,     // default '00'
+  sameDaysMeridiemTo: string,    // default 'PM'
+  inheritScheduleOptionFromRestaurant: boolean,  // default true
+  daySelect: any                 // per-day availability checkboxes
+}
+```
+
+**Cut-off variants:** `NO` (No Cut-off), `DAILY`, `BY_DATE`
+
+**Groups attachment:** Groups are managed via a separate section. Each group has an `enabled` boolean. On save, payload includes `extraItemsGroups: [{ reference, enabled }]`.
+
+**Unsaved meal cache:** FM stores in-progress meal data in `MealPackageService.notSavedMeal` (in-memory, lost on refresh). The v2 component respects this so navigating away and back preserves form state.
+
+---
+
+### GAP 3 — Order Details Full Response Shape
+
+**Component:** `shared/order-details/order-details.component.ts`  
+**Endpoint:** `GET /api/orders/{reference}` → `response.body`
+
+**Full Order Response Object:**
+```typescript
+{
+  // Identity
+  reference: string,                // internal ID (used for refund/void actions)
+  orderReference: string,           // public reference
+  orderNumber: number,
+  customerNumber: string,
+
+  // Customer info
+  firstName: string,
+  lastName: string,
+  email: string,
+  phoneNumber: string,
+
+  // Timing
+  createdDate: string,              // ISO datetime (timezone-aware via moment-timezone)
+  orderDate: string,                // YYYY-MM-DD
+  orderTime: string,                // HH:mm:ss
+  restaurant: { timezone: string, businessName: string, ... },
+
+  // Type / Status
+  orderType: string,                // 'DELIVERY' | 'PICKUP'
+  deliveryType: string,             // 'OWN_DELIVERY' | 'NASH_DELIVERY' | 'DOOR_DASH_DELIVERY' | 'DLIVRD_DELIVERY'
+  orderStatus: string,
+  orderSeenByAdmin: boolean,
+  orderStatusesToChange: string[],
+
+  // Delivery address (present when orderType === 'DELIVERY')
+  deliveryAddress: {
+    deliveryInstructions: string,
+    addressLine1: string,
+    city: string,
+    state: string,
+    zipcode: string,
+    // ...
+  },
+
+  // Financial
+  subtotal: number,
+  total: number,
+  transactionsTotal: number,
+  serviceCharge: number,
+  ownDeliveryFee: number,
+  doordashDeliveryFee: number,
+  thirdPartyDeliveryFee: number,
+  tipsInPrice: number,
+  thirdPartyDeliveryTipsInPrice: number,
+  stateSalesTaxInPrice: number,
+  localSalesTaxInPrice: number,
+  otherSalesTaxInPrice: number,
+  fee: number,
+  discount: any,
+  maxAllowedRefundAmount: number,
+  refund: any,
+  payments: any[],
+
+  // Line items
+  orderMealPackages: OrderMealPackage[],   // main meal packages ordered
+  orderClassics: any[],                     // legacy classics
+  orderSubscription: any,                   // if subscription order
+
+  // Nash/DoorDash delivery
+  nashDelivery: { pickupEta: string, dropoffEta: string, ... },
+  doordashDeliveryId: string,
+  resultTrackingLink: string,
+
+  // Note
+  note: string
+}
+```
+
+**OrderMealPackage shape (line item):**
+```typescript
+{
+  name: string,
+  quantity: number,
+  price: number,
+  extraItems: ExtraItem[],          // modifiers selected
+  specialInstructions: string
+}
+```
+
+**Drawer display layout (FAKE_ORDER_DETAILS mapping):**
+- Customer: number, firstName, lastName, email, phoneNumber
+- Received on: formatted createdDate (timezone-aware)
+- Subtotal, total, serviceCharge, delivery fee, taxes, tips
+- Line items: orderMealPackages (name, qty, price, modifiers)
+- Delivery address (if DELIVERY type)
+- Payment info: payments array
+- Note field
+- Action buttons: Complete (DUE only), Refund (COMPLETED), Void (non-terminal), Reopen (COMPLETED), Note, Print PDF
+
+**Refund API:** `PUT /api/orders/{reference}/refund` — body: `{ amount: number }`  
+**Note:** FM uses `order.reference` (not `order.orderReference`) for refund and status update calls.
+
+---
+
+### GAP 4 — PUT /api/feesAndTips Full Schema
+
+**Service:** `NotificationService` at `_system/_services/notification/notification.service.ts`  
+**Endpoint:** `PUT /api/feesAndTips`
+
+**Complete request body — confirmed from `order-settings.component.ts` `patchDeliveryFee()` method:**
+```typescript
+{
+  deliveryOrderTimeWindows: 'exact' | '30_min' | '1_hour',
+  enableMenuSearch: boolean,
+  businessNameWithoutSpaces: string,   // lowercase, pattern /^[A-Za-z0-9-_]+$/
+  announcement: string                 // max 500 chars
+}
+```
+
+**These 4 fields are the complete payload.** Delivery fees, tip settings, and service charge configuration are NOT in this endpoint — they are managed via SUPER_ADMIN panel only and are read-only for restaurant ADMIN.
+
+**GET /api/feesAndTips response** includes the same 4 fields plus server-computed fields like `remainingDiscountAvailable`, but only these 4 are sent on PUT.
+
+---
+
 ## Gaps / Unclear Areas
 
 1. **Group Library & Modifier Library** (`/restaurant/manage/groups`, `/restaurant/manage/modifiers`): These are in the v1 `ManageMenusModule` which was not fully read. The API endpoints for add-ons/extra item groups need separate audit of that module.
