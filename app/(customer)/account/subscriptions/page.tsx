@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import SubscriptionSetupModal from '../components/SubscriptionSetupModal'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -117,7 +118,66 @@ function imageUrl(s: UserSubscription): string | null {
   return ref ? `${FM_IMG_BASE}/${ref}/download?size=150` : null
 }
 
+// ── Order history (Section 2 — recurring-order upsell) ──────────────────────
+
+// Loose shape mirroring /api/fm-order-history rows — fields vary across FM
+// deployments, so we read with fallbacks.
+interface HistoryOrder {
+  reference?: string
+  id?: string
+  restaurantName?: string
+  restaurant?: { name?: string; businessName?: string }
+  orderDate?: string
+  createdAt?: string
+  date?: string
+  total?: number
+  totalAmount?: number
+  status?: string
+  orderHeadcount?: number
+  headcount?: number
+  // FM order list sometimes embeds the line-items summary; fall back to a
+  // short "N items" label when nothing's available.
+  mealPackages?: { name?: string; quantity?: number; count?: number }[]
+  orderMealPackages?: { name?: string; quantity?: number; count?: number }[]
+  note?: string
+}
+
+function historyRef(o: HistoryOrder): string { return (o.reference || o.id || '') }
+function historyRestName(o: HistoryOrder): string {
+  return o.restaurantName || o.restaurant?.businessName || o.restaurant?.name || 'Order'
+}
+function historyDate(o: HistoryOrder): string {
+  const raw = o.orderDate || o.createdAt || o.date
+  if (!raw) return ''
+  try { return new Date(raw).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
+  catch { return raw }
+}
+function historyTotal(o: HistoryOrder): number {
+  return typeof o.total === 'number' ? o.total : (o.totalAmount ?? 0)
+}
+function historyItemsSummary(o: HistoryOrder): string {
+  const list = o.mealPackages || o.orderMealPackages || []
+  if (list.length === 0) return ''
+  // Show up to two names with a "+N more" tail.
+  const names = list.map(p => p.name).filter(Boolean) as string[]
+  if (names.length === 0) return `${list.length} item${list.length === 1 ? '' : 's'}`
+  if (names.length <= 2) return names.join(' · ')
+  return `${names.slice(0, 2).join(' · ')} +${names.length - 2} more`
+}
+function historyHeadcount(o: HistoryOrder): number | null {
+  if (typeof o.orderHeadcount === 'number') return o.orderHeadcount
+  if (typeof o.headcount === 'number') return o.headcount
+  // Fall back to parsing "Headcount: N" we stamp into the note on checkout.
+  const m = (o.note || '').match(/headcount[:\s]+(\d+)/i)
+  return m ? parseInt(m[1], 10) : null
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
+
+interface RepeatSeed {
+  restaurantName: string
+  sourceOrderRef: string
+}
 
 export default function SubscriptionsPage() {
   const router = useRouter()
@@ -125,6 +185,11 @@ export default function SubscriptionsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+
+  // Section 2: recent order history for the recurring-order upsell.
+  const [history, setHistory] = useState<HistoryOrder[]>([])
+  const [historyLoading, setHistoryLoading] = useState(true)
+  const [repeatSeed, setRepeatSeed] = useState<RepeatSeed | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -141,7 +206,21 @@ export default function SubscriptionsPage() {
     setLoading(false)
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true)
+    try {
+      const res = await fetch('/api/fm-order-history?page=0&size=10', { credentials: 'include' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      const list: HistoryOrder[] = d.content || d.orders || d.data || (Array.isArray(d) ? d : [])
+      setHistory(list.slice(0, 10))
+    } catch {
+      setHistory([])
+    }
+    setHistoryLoading(false)
+  }, [])
+
+  useEffect(() => { load(); loadHistory() }, [load, loadHistory])
 
   async function changeStatus(sub: UserSubscription, next: 'ACTIVE' | 'PAUSED' | 'CANCELED') {
     const ref = subRef(sub)
@@ -179,33 +258,113 @@ export default function SubscriptionsPage() {
 
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
-      {loading ? (
-        <div style={{ color: '#aaa', fontSize: 13 }}>Loading subscriptions…</div>
-      ) : subs.length === 0 ? (
-        <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '40px 24px', textAlign: 'center', background: '#fff' }}>
-          <div style={{ fontSize: 36, marginBottom: 14 }}>🔄</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 6 }}>No active subscriptions</div>
-          <div style={{ fontSize: 13, color: '#aaa', marginBottom: 18 }}>Find a restaurant first — recurring orders are set up at checkout.</div>
-          <button onClick={() => router.push('/fullmap')}
-            style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-            Browse restaurants
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {subs.map(sub => (
-            <SubscriptionCard
-              key={subRef(sub)}
-              sub={sub}
-              busy={busy === subRef(sub)}
-              onPause={() => changeStatus(sub, 'PAUSED')}
-              onResume={() => changeStatus(sub, 'ACTIVE')}
-              onCancel={() => changeStatus(sub, 'CANCELED')}
-              onArchive={() => archive(sub)}
-            />
-          ))}
-        </div>
+      {/* SECTION 1 — Your Recurring Orders */}
+      <section style={{ marginBottom: 36 }}>
+        <SectionHeader title="Your Recurring Orders" subtitle="Pause, resume, or cancel anytime." />
+
+        {loading ? (
+          <div style={{ color: '#aaa', fontSize: 13 }}>Loading subscriptions…</div>
+        ) : subs.length === 0 ? (
+          <div style={{ border: '1px dashed #d8d8e4', borderRadius: 12, padding: '28px 24px', textAlign: 'center', background: 'rgba(107,110,249,0.03)' }}>
+            <div style={{ fontSize: 30, marginBottom: 10 }}>🔄</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 4 }}>No recurring orders yet</div>
+            <div style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>
+              Turn a past order into a recurring delivery — see Order History below ↓
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {subs.map(sub => (
+              <SubscriptionCard
+                key={subRef(sub)}
+                sub={sub}
+                busy={busy === subRef(sub)}
+                onPause={() => changeStatus(sub, 'PAUSED')}
+                onResume={() => changeStatus(sub, 'ACTIVE')}
+                onCancel={() => changeStatus(sub, 'CANCELED')}
+                onArchive={() => archive(sub)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* SECTION 2 — Order History (recurring-order upsell) */}
+      <section>
+        <SectionHeader
+          title="Order History — Make it recurring"
+          subtitle="Turn a past order into a recurring delivery. Set it once, skip or cancel anytime."
+        />
+
+        {historyLoading ? (
+          <div style={{ color: '#aaa', fontSize: 13 }}>Loading recent orders…</div>
+        ) : history.length === 0 ? (
+          <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '28px 24px', textAlign: 'center', background: '#fff' }}>
+            <div style={{ fontSize: 13, color: '#888' }}>No past orders to repeat yet — once you order, you can make any of them recurring from here.</div>
+          </div>
+        ) : (
+          <div style={{ border: '1px solid #ebebeb', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+            {history.map((o, i) => {
+              const ref = historyRef(o)
+              const restName = historyRestName(o)
+              const items = historyItemsSummary(o)
+              const head = historyHeadcount(o)
+              return (
+                <div key={ref || i}
+                  style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', gap: 14,
+                    borderBottom: i < history.length - 1 ? '1px solid #f0f0f0' : 'none' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {restName}
+                    </div>
+                    {items && (
+                      <div style={{ fontSize: 12, color: '#555', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {items}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 3, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      <span>{historyDate(o)}</span>
+                      <span>·</span>
+                      <span>{fmtMoney(historyTotal(o))}</span>
+                      {head != null && <><span>·</span><span>Headcount {head}</span></>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => ref && setRepeatSeed({ restaurantName: restName, sourceOrderRef: ref })}
+                    disabled={!ref}
+                    style={{
+                      background: INDIGO, color: '#fff', border: 'none', borderRadius: 8,
+                      padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: ref ? 'pointer' : 'not-allowed',
+                      fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0,
+                      opacity: ref ? 1 : 0.5,
+                    }}
+                  >
+                    🔄 Repeat this order
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Subscription setup wizard — pre-seeded from the picked history row. */}
+      {repeatSeed && (
+        <SubscriptionSetupModal
+          restaurantName={repeatSeed.restaurantName}
+          sourceOrderRef={repeatSeed.sourceOrderRef}
+          onClose={() => setRepeatSeed(null)}
+        />
       )}
+    </div>
+  )
+}
+
+function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <h2 style={{ fontSize: 14, fontWeight: 700, color: DARK, margin: 0, letterSpacing: '-0.005em' }}>{title}</h2>
+      <p style={{ fontSize: 12, color: '#777', margin: '4px 0 0', lineHeight: 1.5 }}>{subtitle}</p>
     </div>
   )
 }
