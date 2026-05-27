@@ -33,11 +33,6 @@ export default function RestaurantLoginPage() {
       }
       localStorage.setItem('restaurant_user', JSON.stringify(data))
 
-      // Diagnostic: confirm exactly what role FM is returning. Strip
-      // once SUPER_ADMIN / SYSTEM_ADMIN routing is verified end-to-end.
-      // eslint-disable-next-line no-console
-      console.log('[login] FM returned role:', data.role, 'reference:', data.reference, 'email:', data.email)
-
       // Post-login routing by role:
       //   SUPER_ADMIN  → /restaurant/dashboard (Reporting; sees all
       //                  locations via the top-right dropdown, no

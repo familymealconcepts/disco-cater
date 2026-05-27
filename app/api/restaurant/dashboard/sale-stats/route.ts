@@ -50,36 +50,13 @@ export async function GET(req: NextRequest) {
   const url = isMultiRole
     ? `${FM}/api/system-admin/dashboard/sale/stats?${params}`
     : `${FM}/api/dashboard/sale/stats?${params}`
-  // Diagnostic: surface the proxy's routing decision in Vercel function
-  // logs while we triage SA / SUPER_ADMIN reporting.
-  // eslint-disable-next-line no-console
-  console.log('[proxy:sale-stats]', {
-    role,
-    queryRef: queryRef || null,
-    cookieRef: cookieRef || null,
-    scopedRef: scopedRef || null,
-    isMultiRole,
-    url,
-  })
   try {
     const res = await fetch(url, { headers: authHeaders })
     if (!res.ok) {
-      const raw = await res.text().catch(() => '')
-      // eslint-disable-next-line no-console
-      console.warn('[proxy:sale-stats] FM error', res.status, raw.slice(0, 400))
       return NextResponse.json({ error: 'Failed', fmStatus: res.status }, { status: res.status })
     }
-    const data = await res.json()
-    // eslint-disable-next-line no-console
-    console.log('[proxy:sale-stats] FM ok', {
-      totalOrdersCount: data?.totalOrdersCount,
-      totalOrdersSum: data?.totalOrdersSum,
-      subtotalOrdersSum: data?.subtotalOrdersSum,
-    })
-    return NextResponse.json(data)
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.error('[proxy:sale-stats] fetch failed', e)
+    return NextResponse.json(await res.json())
+  } catch {
     return NextResponse.json({ error: 'Unable to fetch sale stats' }, { status: 500 })
   }
 }

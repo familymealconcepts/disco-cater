@@ -170,27 +170,9 @@ export default function DashboardPage() {
     setSaleLoading(true)
     const params = new URLSearchParams({ fromDate, toDate, dateType })
     if (selectedRef) params.set('restaurantReference', selectedRef)
-    // eslint-disable-next-line no-console
-    console.log('[reporting] GET sale-stats', {
-      selectedRef, fromDate, toDate, dateType, query: params.toString(),
-    })
     try {
       const res = await fetch(`/api/restaurant/dashboard/sale-stats?${params}`)
-      if (res.ok) {
-        const d = await res.json()
-        // eslint-disable-next-line no-console
-        console.log('[reporting] sale-stats response', {
-          status: res.status,
-          totalOrdersCount: d?.totalOrdersCount,
-          totalOrdersSum: d?.totalOrdersSum,
-          subtotalOrdersSum: d?.subtotalOrdersSum,
-          keys: Object.keys(d || {}),
-        })
-        setSaleStats(d)
-      } else {
-        // eslint-disable-next-line no-console
-        console.warn('[reporting] sale-stats failed', res.status, await res.text().catch(() => ''))
-      }
+      if (res.ok) setSaleStats(await res.json())
     } finally {
       setSaleLoading(false)
     }
