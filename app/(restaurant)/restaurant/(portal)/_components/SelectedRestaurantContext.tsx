@@ -28,7 +28,16 @@ interface ContextValue {
 
 const Ctx = createContext<ContextValue | null>(null)
 
-interface BroadcastDetail { ref: string | null; name: string; viewMode?: ViewMode }
+// Broadcast detail — every field is optional so producers only carry
+// what they're actually changing. The listener applies fields by
+// presence so a "viewMode changed" broadcast can't accidentally roll
+// back a freshly-set restaurant ref (race that bit us when location-
+// row click ran setRestaurant + setViewMode back-to-back).
+interface BroadcastDetail {
+  ref?: string | null
+  name?: string
+  viewMode?: ViewMode
+}
 
 /**
  * Owns the single source of truth for the currently-impersonated
@@ -63,8 +72,11 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
     function onCustom(e: Event) {
       const detail = (e as CustomEvent).detail as BroadcastDetail | undefined
       if (!detail) return
-      setRef(detail.ref)
-      setName(detail.name)
+      // Only apply fields the broadcaster explicitly set. Older
+      // detail shape had ref/name as required, which let a stale
+      // closure reset a freshly-picked restaurant.
+      if ('ref' in detail) setRef(detail.ref ?? null)
+      if (typeof detail.name === 'string') setName(detail.name)
       if (detail.viewMode) setViewModeState(detail.viewMode)
     }
     function onStorage(e: StorageEvent) {
@@ -86,9 +98,12 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
     setViewModeState(mode)
     try { localStorage.setItem(STORAGE_VIEW, mode) } catch {}
     try {
-      window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { ref, name, viewMode: mode } }))
+      // Only broadcast the field we're changing. Including ref/name
+      // here would carry their stale closure values and clobber a
+      // freshly-set restaurant on the listener side.
+      window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { viewMode: mode } }))
     } catch {}
-  }, [ref, name])
+  }, [])
 
   // After a successful selection, pull the canonical business name from
   // /api/restaurant/profile so the sidebar header and dropdown agree
@@ -103,7 +118,7 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
         setName(bn)
         try { localStorage.setItem(STORAGE_NAME, bn) } catch {}
         try {
-          window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { ref, name: bn } }))
+          window.dispatchEvent(new CustomEvent<BroadcastDetail>(CHANGE_EVENT, { detail: { name: bn } }))
         } catch {}
       }
     } catch {}
