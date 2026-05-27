@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import AddRestaurantDialog from './AddRestaurantDialog'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -145,6 +146,7 @@ export default function RestaurantsOrderingPage() {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const [addOpen, setAddOpen] = useState(false)
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
@@ -160,6 +162,10 @@ export default function RestaurantsOrderingPage() {
             onChange={e => setSearchInput(e.target.value)}
             style={{ ...inputSt, width: 240 }}
           />
+          <button onClick={() => setAddOpen(true)}
+            style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
+            + Add Restaurant
+          </button>
         </div>
       </div>
 
@@ -243,6 +249,13 @@ export default function RestaurantsOrderingPage() {
       <style>{`
         select:focus { outline: 2px solid ${GOLD}; outline-offset: 1px; }
       `}</style>
+
+      {addOpen && (
+        <AddRestaurantDialog
+          onClose={() => setAddOpen(false)}
+          onCreated={() => { setAddOpen(false); showToast('Restaurant created'); setPage(0); load() }}
+        />
+      )}
     </div>
   )
 }
