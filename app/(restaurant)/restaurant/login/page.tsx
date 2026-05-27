@@ -33,15 +33,24 @@ export default function RestaurantLoginPage() {
       }
       localStorage.setItem('restaurant_user', JSON.stringify(data))
 
-      // Multi-location SYSTEM_ADMIN / SUPER_ADMIN accounts have no
-      // restaurant baked into their JWT — FM needs us to PUT
-      // /api/system-admin/restaurants/current before /api/orders et al
-      // return data. Force them to pick (auto-pick when there's only
-      // one). ADMIN / RESTAURANT_USER accounts skip this — the JWT
-      // carries the restaurant ref already.
+      // Post-login routing by role:
+      //   SUPER_ADMIN  → /restaurant/dashboard (Reporting; sees all
+      //                  locations via the top-right dropdown, no
+      //                  picker required)
+      //   SYSTEM_ADMIN → /restaurant/manage/locations (so they can
+      //                  click into a location to operate it). With
+      //                  exactly one location we auto-pick + land on
+      //                  the dashboard.
+      //   ADMIN / RESTAURANT_USER → /restaurant/orders (their daily
+      //                  surface; JWT already carries the restaurant)
       const role: string = data.role || ''
-      const isMulti = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'
-      if (isMulti) {
+
+      if (role === 'SUPER_ADMIN') {
+        router.push('/restaurant/dashboard')
+        return
+      }
+
+      if (role === 'SYSTEM_ADMIN') {
         try {
           const locRes = await fetch('/api/restaurant/locations?size=1000', { credentials: 'include' })
           if (locRes.ok) {
@@ -59,16 +68,17 @@ export default function RestaurantLoginPage() {
               router.push('/restaurant/dashboard')
               return
             }
-            // Multiple (or zero — handled inside the picker) — force selection
-            router.push('/restaurant/select-location')
-            return
           }
         } catch {
-          // If the locations fetch failed, fall through to dashboard;
-          // the orders page guard will catch the missing selection.
+          // If the locations fetch failed, fall through to the
+          // Locations management page — the user can pick from there.
         }
+        router.push('/restaurant/manage/locations')
+        return
       }
-      router.push('/restaurant/dashboard')
+
+      // ADMIN / RESTAURANT_USER / RESTAURANT_ADMIN
+      router.push('/restaurant/orders')
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {

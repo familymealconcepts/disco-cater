@@ -12,8 +12,7 @@ export async function GET(req: NextRequest) {
   }
   const role = await getRestaurantRole()
   const store = await cookies()
-  const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value
-  const isSystemAdminAggregate = (role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN') && !selected
+  const cookieRef = store.get(SELECTED_RESTAURANT_COOKIE)?.value
 
   const { searchParams } = req.nextUrl
   const params = new URLSearchParams()
@@ -21,19 +20,26 @@ export async function GET(req: NextRequest) {
   if (searchParams.get('toDate')) params.set('toDate', searchParams.get('toDate')!)
   if (searchParams.get('dateType')) params.set('dateType', searchParams.get('dateType')!)
 
-  // ADMIN: FM's filterSaleStats() in admin-manager/.../dashboard.component
-  // does not pass restaurantReference, but FM's
-  // dashboard-restaurant.component does include it when scoped to one
-  // location. Without an explicit restaurantReference param the per-
-  // restaurant ADMIN call was returning empty stats on the deployed FM,
-  // so we forward the JWT-derived ref here. SA with a selection keeps
-  // its existing behavior (the FM session has the picked restaurant).
-  if (role === 'ADMIN' || role === 'RESTAURANT_USER' || role === 'RESTAURANT_ADMIN') {
-    const ref = await getRestaurantRef()
-    if (ref) params.set('restaurantReference', ref)
+  // Resolve which restaurant to scope stats to, in priority order:
+  //   1. ?restaurantReference= on the query (Reporting dropdown — used
+  //      by SUPER_ADMIN who never sets a selected-restaurant cookie,
+  //      and SYSTEM_ADMIN who picked from the dropdown).
+  //   2. The fm_selected_restaurant cookie (SA who clicked into a
+  //      location from /restaurant/manage/locations).
+  //   3. The JWT-derived ref (ADMIN role — single-restaurant staff).
+  const queryRef = searchParams.get('restaurantReference') || ''
+  let scopedRef = queryRef || cookieRef || ''
+  if (!scopedRef && (role === 'ADMIN' || role === 'RESTAURANT_USER' || role === 'RESTAURANT_ADMIN')) {
+    scopedRef = (await getRestaurantRef()) || ''
   }
+  if (scopedRef) params.set('restaurantReference', scopedRef)
 
-  const url = isSystemAdminAggregate
+  // SA / SUPER_ADMIN with no restaurant resolved → aggregate "all
+  // restaurants" endpoint. Otherwise hit the per-restaurant endpoint
+  // (the explicit restaurantReference param scopes it correctly).
+  const isMultiRole = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'
+  const isAggregate = isMultiRole && !scopedRef
+  const url = isAggregate
     ? `${FM}/api/system-admin/dashboard/sale/stats?${params}`
     : `${FM}/api/dashboard/sale/stats?${params}`
   try {

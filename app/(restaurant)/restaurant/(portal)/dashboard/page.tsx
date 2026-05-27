@@ -161,13 +161,18 @@ export default function DashboardPage() {
     if (!fromDate || !toDate) return
     setSaleLoading(true)
     const params = new URLSearchParams({ fromDate, toDate, dateType })
+    // SUPER_ADMIN / SYSTEM_ADMIN: the dropdown is the source of truth
+    // for "which restaurant am I reporting on?" — pass it explicitly so
+    // the proxy doesn't have to rely on FM's session state, which has
+    // been flaky for SUPER_ADMIN (no cookie is set for that role).
+    if (selectedRef) params.set('restaurantReference', selectedRef)
     try {
       const res = await fetch(`/api/restaurant/dashboard/sale-stats?${params}`)
       if (res.ok) setSaleStats(await res.json())
     } finally {
       setSaleLoading(false)
     }
-  }, [fromDate, toDate, dateType])
+  }, [fromDate, toDate, dateType, selectedRef])
 
   // Fetch on mount and whenever the SYSTEM_ADMIN restaurant context
   // changes — but NOT on every date / dateType input change. Those
