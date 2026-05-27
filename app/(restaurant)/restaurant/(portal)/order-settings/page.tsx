@@ -98,6 +98,18 @@ const inputStyle: React.CSSProperties = {
   fontSize: 13, fontFamily: F, outline: 'none', color: DARK, background: '#fff',
 }
 
+// Slug rules: lowercase, alphanumeric + hyphens only, 3–60 chars.
+// Same shape FM accepts on businessNameWithoutSpaces but with our spec's
+// length bounds added so the UI can surface the error early.
+function slugValidationError(s: string): string | null {
+  if (!s) return null
+  if (s.length < 3) return 'Slug must be at least 3 characters'
+  if (s.length > 60) return 'Slug must be at most 60 characters'
+  if (!/^[a-z0-9-]+$/.test(s)) return 'Slug can only contain lowercase letters, numbers, and hyphens'
+  if (s.startsWith('-') || s.endsWith('-')) return 'Slug cannot start or end with a hyphen'
+  return null
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function OrderSettingsPage() {
@@ -118,6 +130,7 @@ export default function OrderSettingsPage() {
   const [announcementDirty, setAnnouncementDirty] = useState(false)
   const [urlSlug, setUrlSlug] = useState('')
   const [urlSlugDirty, setUrlSlugDirty] = useState(false)
+  const [urlSlugError, setUrlSlugError] = useState<string | null>(null)
 
   // Coupon form
   const [couponForm, setCouponForm] = useState<Partial<Coupon>>({})
@@ -266,23 +279,77 @@ export default function OrderSettingsPage() {
         )}
       </Section>
 
-      {/* Page URL */}
-      <Section title="Disco Cater Page URL">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 13, color: '#888' }}>discocater.com/</span>
+      {/* Public Page URL — primary Disco Cater URL with secondary FM ref */}
+      <Section title="Public Page URL">
+        <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px', lineHeight: 1.55 }}>
+          The link customers use to find your menu on Disco Cater. Slug must be lowercase, letters/numbers/hyphens only, 3–60 characters, and unique across all restaurants.
+        </p>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>https://www.discocater.com/</span>
           <input
             value={urlSlug}
-            onChange={e => { setUrlSlug(e.target.value.toLowerCase()); setUrlSlugDirty(true) }}
-            pattern="^[A-Za-z0-9-_]+$"
-            style={{ ...inputStyle, minWidth: 180 }}
+            onChange={e => {
+              const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+              setUrlSlug(v)
+              setUrlSlugDirty(v !== (feesAndTips?.businessNameWithoutSpaces || ''))
+              setUrlSlugError(slugValidationError(v))
+            }}
+            placeholder="my-restaurant"
+            minLength={3}
+            maxLength={60}
+            style={{ ...inputStyle, minWidth: 180, borderColor: urlSlugError ? '#E76F51' : '#e0e0e0' }}
           />
+
+          {/* External link — opens the live page */}
+          {urlSlug && !urlSlugDirty && (
+            <a
+              href={`https://www.discocater.com/${urlSlug}`}
+              target="_blank" rel="noreferrer"
+              title="Open public page in new tab"
+              style={{ color: BLUE, fontSize: 16, lineHeight: 1, padding: '8px 10px', textDecoration: 'none', border: '1px solid #e8e8e8', borderRadius: 8 }}
+            >↗</a>
+          )}
+
+          {/* Copy to clipboard */}
+          {urlSlug && !urlSlugDirty && (
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(`https://www.discocater.com/${urlSlug}`)
+                showToast('URL copied')
+              }}
+              title="Copy URL"
+              style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: 8, padding: '8px 10px', cursor: 'pointer', fontSize: 13, color: '#555', fontFamily: F }}
+            >⧉</button>
+          )}
+
           {urlSlugDirty && (
-            <button onClick={() => { saveFeesAndTips({ businessNameWithoutSpaces: urlSlug }); setUrlSlugDirty(false) }}
-              style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+            <button
+              onClick={() => {
+                if (urlSlugError) return
+                saveFeesAndTips({ businessNameWithoutSpaces: urlSlug })
+                setUrlSlugDirty(false)
+              }}
+              disabled={!!urlSlugError}
+              style={{ padding: '8px 14px', background: urlSlugError ? '#ccc' : BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: urlSlugError ? 'not-allowed' : 'pointer', fontFamily: F }}
+            >
               Save
             </button>
           )}
         </div>
+
+        {urlSlugError && (
+          <p style={{ fontSize: 12, color: '#E76F51', margin: '6px 0 0' }}>{urlSlugError}</p>
+        )}
+
+        {/* Secondary FM URL reference — kept so restaurants can find their
+            legacy FM ordering link while the migration is in flight. */}
+        {urlSlug && (
+          <p style={{ fontSize: 11, color: '#aaa', margin: '10px 0 0' }}>
+            FamilyMeal page: <a href={`https://www.familymeal.com/${urlSlug}`} target="_blank" rel="noreferrer"
+              style={{ color: '#888', textDecoration: 'underline' }}>familymeal.com/{urlSlug}</a>
+          </p>
+        )}
       </Section>
 
       {/* Notifications */}
@@ -389,11 +456,16 @@ export default function OrderSettingsPage() {
 
       {/* Scheduling Override */}
       <Section title="Scheduling Override (Closed Days)">
-        <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px', lineHeight: 1.55 }}>
+          Toggle holidays you're closed on. Add custom dates below for one-off closures.
+        </p>
+        {/* Two-column holiday grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 24, rowGap: 4, marginBottom: 16 }}>
           {systemDays.map(day => (
-            <Row key={day.reference} label={day.eventName}>
+            <div key={day.reference} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0' }}>
+              <span style={{ fontSize: 13, color: '#555' }}>{day.eventName}</span>
               <Toggle checked={day.available} onChange={() => toggleClosedDay(day)} />
-            </Row>
+            </div>
           ))}
         </div>
         {customDays.length > 0 && (
