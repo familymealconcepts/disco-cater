@@ -32,6 +32,27 @@ export default function MarketplaceRestaurantsPage() {
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [loading, setLoading] = useState(true)
+  const [toggling, setToggling] = useState<string | null>(null)
+
+  // Mirrors restaurant-table.component.ts blocked(): POST
+  // /api/admin/restaurants/manage/block/{ref}?block={bool}. FM uses
+  // this single endpoint for both Ordering and Marketplace lists; the
+  // checkbox column was missing on our marketplace page (D.2 from the
+  // audit). Optimistic toggle; revert if FM fails.
+  async function toggleBlocked(r: Restaurant) {
+    const next = !r.blocked
+    setToggling(r.reference)
+    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, blocked: next } : x))
+    try {
+      const res = await fetch(`/api/admin/restaurants/${r.reference}/block?block=${next}`, { method: 'POST' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    } catch {
+      setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, blocked: !next } : x))
+      alert('Could not update block status. Please try again.')
+    } finally {
+      setToggling(null)
+    }
+  }
 
   useEffect(() => {
     const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(0) }, 300)
@@ -68,6 +89,7 @@ export default function MarketplaceRestaurantsPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
+              <th style={{ ...colHead, width: 80 }}>Visible</th>
               <th style={colHead}>Restaurant</th>
               <th style={colHead}>Admin</th>
               <th style={colHead}>Email</th>
@@ -76,12 +98,23 @@ export default function MarketplaceRestaurantsPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={5} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={5} style={{ ...cell, textAlign: 'center', color: '#999' }}>No marketplace restaurants.</td></tr>}
+            {loading && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999' }}>No marketplace restaurants.</td></tr>}
             {!loading && rows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               return (
                 <tr key={r.reference}>
+                  <td style={cell}>
+                    <label title={r.blocked ? 'Hidden from marketplace' : 'Visible on marketplace'}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: toggling === r.reference ? 'wait' : 'pointer', fontSize: 12, color: r.blocked ? '#E76F51' : '#1D9E75', fontWeight: 600 }}>
+                      <input type="checkbox"
+                        checked={!r.blocked}
+                        disabled={toggling === r.reference}
+                        onChange={() => toggleBlocked(r)}
+                        style={{ accentColor: BLUE, cursor: toggling === r.reference ? 'wait' : 'pointer' }} />
+                      {r.blocked ? 'Hidden' : 'Visible'}
+                    </label>
+                  </td>
                   <td style={{ ...cell, fontWeight: 600 }}>{r.businessName}</td>
                   <td style={{ ...cell, color: '#555' }}>{adminName || '—'}</td>
                   <td style={{ ...cell, color: '#555' }}>{r.admin?.email || '—'}</td>
