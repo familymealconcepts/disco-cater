@@ -34,24 +34,31 @@ export async function GET(req: NextRequest) {
   }
   if (scopedRef) params.set('restaurantReference', scopedRef)
 
-  // SA / SUPER_ADMIN with no restaurant resolved → aggregate "all
-  // restaurants" endpoint. Otherwise hit the per-restaurant endpoint
-  // (the explicit restaurantReference param scopes it correctly).
+  // Endpoint is chosen by ROLE, not by whether a ref is present. FM
+  // splits the two paths:
+  //   ADMIN / RESTAURANT_USER → /api/dashboard/sale/stats
+  //     (single-restaurant staff; JWT carries the restaurant, but the
+  //     deployed FM also wants the param explicitly — confirmed earlier)
+  //   SYSTEM_ADMIN / SUPER_ADMIN → /api/system-admin/dashboard/sale/stats
+  //     (always — restaurantReference param scopes to one location, or
+  //     is omitted to return the all-restaurants aggregate)
+  //
+  // Previously we routed SA-with-selection to the ADMIN endpoint with
+  // the param attached, which FM rejected with 400 — the ADMIN endpoint
+  // doesn't accept restaurantReference for SA tokens.
   const isMultiRole = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'
-  const isAggregate = isMultiRole && !scopedRef
-  const url = isAggregate
+  const url = isMultiRole
     ? `${FM}/api/system-admin/dashboard/sale/stats?${params}`
     : `${FM}/api/dashboard/sale/stats?${params}`
   // Diagnostic: surface the proxy's routing decision in Vercel function
-  // logs while we triage SUPER_ADMIN reporting. role + which ref source
-  // won + the actual FM URL.
+  // logs while we triage SA / SUPER_ADMIN reporting.
   // eslint-disable-next-line no-console
   console.log('[proxy:sale-stats]', {
     role,
     queryRef: queryRef || null,
     cookieRef: cookieRef || null,
     scopedRef: scopedRef || null,
-    isAggregate,
+    isMultiRole,
     url,
   })
   try {

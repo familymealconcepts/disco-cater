@@ -159,11 +159,17 @@ export default function DashboardPage() {
 
   const loadSaleStats = useCallback(async () => {
     if (!fromDate || !toDate) return
+    // SA / SUPER_ADMIN must pick a restaurant first — the proxy's
+    // aggregate path was returning 400 on the deployed FM, so we no
+    // longer fire the no-ref call. ADMIN role always has a restaurant
+    // (their JWT carries it) so the fetch always proceeds for them.
+    if (isSystemAdmin && !selectedRef) {
+      setSaleStats({})
+      return
+    }
     setSaleLoading(true)
     const params = new URLSearchParams({ fromDate, toDate, dateType })
     if (selectedRef) params.set('restaurantReference', selectedRef)
-    // Diagnostic: confirm the params we're actually sending. Keep until
-    // SUPER_ADMIN reporting is verified working in production, then strip.
     // eslint-disable-next-line no-console
     console.log('[reporting] GET sale-stats', {
       selectedRef, fromDate, toDate, dateType, query: params.toString(),
@@ -188,7 +194,7 @@ export default function DashboardPage() {
     } finally {
       setSaleLoading(false)
     }
-  }, [fromDate, toDate, dateType, selectedRef])
+  }, [fromDate, toDate, dateType, selectedRef, isSystemAdmin])
 
   // Fetch on mount and whenever the SYSTEM_ADMIN restaurant context
   // changes — but NOT on every date / dateType input change. Those
@@ -319,7 +325,7 @@ export default function DashboardPage() {
               style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', opacity: saleLoading ? 0.6 : 1 }}
             />
           </div>
-          <GenerateReportButton onClick={loadSaleStats} loading={saleLoading} />
+          <GenerateReportButton onClick={loadSaleStats} loading={saleLoading} disabled={isSystemAdmin && !selectedRef} />
           {(fromDate !== firstOfMonth || toDate !== today) && !saleLoading && (
             <button onClick={clearDates} style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 7, padding: '7px 12px', fontSize: 12, cursor: 'pointer', fontFamily: F }}>
               Clear
@@ -336,7 +342,19 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Metric Cards */}
+      {/* Restaurant gate: SA / SUPER_ADMIN must pick a restaurant from
+          the top-right dropdown before the metrics make sense. The
+          per-restaurant FM endpoint 400s on a no-ref call. */}
+      {isSystemAdmin && !selectedRef && (
+        <div style={{ background: '#fff', border: '1px dashed #d8d8e4', borderRadius: 12, padding: '32px 24px', textAlign: 'center', color: '#555', fontSize: 13, lineHeight: 1.55 }}>
+          <div style={{ fontSize: 26, marginBottom: 8 }}>📊</div>
+          <div style={{ fontWeight: 700, color: DARK, marginBottom: 4 }}>Select a restaurant to generate a report</div>
+          <div style={{ fontSize: 12, color: '#777' }}>Use the Restaurant dropdown above — once a location is picked, Generate Report will populate the metrics.</div>
+        </div>
+      )}
+
+      {/* Metric Cards — hidden while gated */}
+      {(!isSystemAdmin || selectedRef) && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
         <Card title="Net Sales" value={saleStats.subtotalOrdersSum} />
         <Card title="Tax Amount" value={tax} tooltip={taxTooltip} />
@@ -353,6 +371,7 @@ export default function DashboardPage() {
         <Card title="Stripe Fees" value={saleStats.stripeFeeSum} gray />
         <Card title="Total Amount" value={saleStats.totalOrdersSum} />
       </div>
+      )}
     </div>
   )
 }
