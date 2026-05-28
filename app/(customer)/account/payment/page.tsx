@@ -50,7 +50,14 @@ export default function PaymentPage() {
   }, [])
 
   useEffect(() => {
-    if (!showNew || !stripeKey || !cardRef.current) return
+    // The card form is visible whenever there's no saved card OR the
+    // user clicked "Update". The Stripe Element must mount in BOTH
+    // cases — previously it only mounted on `showNew`, so a first-time
+    // diner (no card) saw an empty placeholder box because the form
+    // rendered (!card) but the Element never initialized. Wait for the
+    // card load to finish so cardRef is in the DOM, then mount.
+    const formVisible = !loadingCard && (!card || showNew)
+    if (!formVisible || !stripeKey || !cardRef.current) return
     const mount = () => {
       if (!window.Stripe || !cardRef.current || cardElRef.current) return
       stripeRef.current = window.Stripe(stripeKey)
@@ -65,9 +72,13 @@ export default function PaymentPage() {
       const s = document.createElement('script')
       s.id = 'stripe-js'; s.src = 'https://js.stripe.com/v3/'; s.onload = mount
       document.head.appendChild(s)
+    } else {
+      // Script tag exists but Stripe may still be loading — poll briefly.
+      const t = setInterval(() => { if (window.Stripe) { clearInterval(t); mount() } }, 50)
+      setTimeout(() => clearInterval(t), 3000)
     }
     return () => { if (cardElRef.current) { cardElRef.current.destroy(); cardElRef.current = null } }
-  }, [showNew, stripeKey])
+  }, [showNew, stripeKey, card, loadingCard])
 
   async function saveCard(e: React.FormEvent) {
     e.preventDefault()
