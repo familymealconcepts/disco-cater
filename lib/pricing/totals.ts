@@ -48,6 +48,31 @@ export function computeTip(opts: { base: number; pct?: number; flat?: number }):
   return roundCurrency((opts.base * opts.pct) / 100)
 }
 
+// ── Platform fee + tax ───────────────────────────────────────────────
+// IMPORTANT: FM computes BOTH the platform fee and tax SERVER-SIDE and
+// returns them on the order PUT (checkoutPricesV2 → fee,
+// stateSalesTaxInPrice, localSalesTaxInPrice, otherSalesTaxInPrice —
+// checkout-sidebar-preview.component.ts:723-726). There is no public
+// tax-rate endpoint and no client-side rate in FM. So the CheckoutDrawer
+// displays FM's server-returned values (see extractFmMoney there); these
+// helpers document the expected formulas and back the inline test cases —
+// they are NOT the source of the charged amount.
+
+/** Platform fee in dollars. FM's `fee` is a flat percentage of subtotal
+ *  (3% unless FM says otherwise). */
+export function computePlatformFee(subtotal: number, pct = 3): number {
+  if (!subtotal || subtotal <= 0) return 0
+  return roundCurrency((subtotal * pct) / 100)
+}
+
+/** Sales tax in dollars. `ratePct` is the combined state+local+other
+ *  percentage. A tax-exempt order is always $0 (FM zeroes tax server-side
+ *  when taxExempt=true). */
+export function computeTax(subtotal: number, ratePct: number, exempt = false): number {
+  if (exempt || !ratePct || ratePct <= 0 || !subtotal || subtotal <= 0) return 0
+  return roundCurrency((subtotal * ratePct) / 100)
+}
+
 /** Grand total estimate. NB: tax and delivery fee are server-computed
  *  on the FM PUT response; pass them in as 0 when previewing the cart
  *  before delivery info has been entered, or pass the FM-returned
@@ -121,3 +146,18 @@ export function computeGrandTotal(parts: GrandTotalParts): number {
 //   pct: 18 }) = 34.38. Tip is NOT computed on base-only or on
 //   subtotal+serviceCharge — confirmed it's subtotal-only via FM's
 //   server-returned tipsInPrice (checkout-sidebar-preview.component.ts).
+//
+// ─── Platform fee + tax (Item 1.D) ───────────────────────────────────
+// Fee Case 1 — $100 subtotal × 3% fee → $3.00
+//   computePlatformFee(100, 3) = 100 * 3 / 100 = 3.00 ✓
+// Tax Case 1 — $100 subtotal × 8.875% (NYC combined) → $8.88
+//   computeTax(100, 8.875) = round(8.875) = 8.88 ✓
+// Tax Case 2 — tax-exempt order → $0 regardless of rate; fee unaffected
+//   computeTax(100, 8.875, true) = 0.00 ✓
+//   computePlatformFee(100, 3)   = 3.00 ✓  (fee still applies when exempt)
+// Tax Case 3 — no rate configured (0 / undefined) → $0, proceed
+//   computeTax(100, 0) = 0.00 ✓
+//
+// NOTE: these document the formulas. The CheckoutDrawer shows FM's
+// server-returned fee + (state+local+other) tax — FM computes both
+// server-side, so those are the authoritative charged amounts.
