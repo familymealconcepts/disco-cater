@@ -9,6 +9,10 @@
 // Docs that already have fmReference are skipped. FM names/slugs that map to
 // more than one restaurant are treated as ambiguous (logged, not written).
 //
+// Source list: the FM ordering list (/api/admin/restaurants). The marketplace
+// list endpoint is POST/PUT only (no GET), so marketplace-only restaurants are
+// not covered here — backfill those by hand if needed.
+//
 // Run from the disco-cater folder:
 //   SANITY_TOKEN=xxx FM_AUTH=xxx \
 //     npx ts-node --skip-project scripts/backfill-sanity-fm-reference.ts --dry-run --limit=10
@@ -100,15 +104,17 @@ async function main(): Promise<void> {
 
   console.log(`Mode: ${DRY_RUN ? 'DRY RUN (no writes)' : 'LIVE (will write)'}${LIMIT !== Infinity ? ` · limit ${LIMIT}` : ''}`)
 
-  // 1. Pull both FM lists and dedupe by reference.
-  const [ordering, marketplace] = await Promise.all([
-    fetchAllFm('/api/admin/restaurants'),
-    fetchAllFm('/api/admin/restaurants/marketplace'),
-  ])
+  // 1. Pull the FM ordering list. (FM's /api/admin/restaurants/marketplace is
+  // POST/PUT only — there's no GET-list method behind it, so requesting it
+  // 400s. The ordering list covers all ordering restaurants; marketplace-only
+  // records can be backfilled by hand later.)
+  const ordering = await fetchAllFm('/api/admin/restaurants')
+  console.log(`FM ordering list returned ${ordering.length} restaurants`)
+
   const fmById = new Map<string, FmRestaurant>()
-  for (const r of [...ordering, ...marketplace]) if (r.reference) fmById.set(r.reference, r)
+  for (const r of ordering) if (r.reference) fmById.set(r.reference, r)
   const fmAll = [...fmById.values()]
-  console.log(`FM restaurants: ${fmAll.length} unique (${ordering.length} ordering + ${marketplace.length} marketplace)`)
+  console.log(`FM restaurants: ${fmAll.length} unique`)
 
   const byName = indexBy(fmAll, r => norm(r.businessName))
   const bySlug = indexBy(fmAll, r => norm(r.businessNameWithoutSpaces))
