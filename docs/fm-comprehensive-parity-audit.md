@@ -1,6 +1,8 @@
 # FM Comprehensive Parity Audit — All Three Login Types (field-level)
 
-> Read-only master audit, 2026-05-27 (redone with field-level depth). Single index across diner, restaurant-portal, and admin-portal surfaces. Where a prior audit doc covers ground it is referenced by name + a one-paragraph delta of anything new found this pass. The four user-flagged priorities (per-menu Settings § 2.A, lead-gen § 3.A, third-party withholding § 2.A + § 4.1, fee logic § 4.1) get the deepest treatment.
+> Read-only master audit, 2026-05-28 (redone with field-level depth; reconciled against BOTH the FM Angular source AND the actual Disco files, not just FM). Single index across diner, restaurant-portal, and admin-portal surfaces. Where a prior audit doc covers ground it is referenced by name + a one-paragraph delta of anything new found this pass. The four user-flagged priorities (per-menu Settings § 2.A, lead-gen § 3.A, third-party withholding § 2.A + § 4.1, fee logic § 4.1) get the deepest treatment.
+>
+> **Honesty note:** the first draft over-counted gaps by reconciling only the FM side and marking unread Disco pages "partial/[NEEDS REVIEW]". This pass read the Disco files and **corrected several false gaps** — Account/Profile (all 5 forms present), Reports (full scheduled-reports infra present), Group/Modifier Library, Tax Rate, Banking, Customers, and diner Profile/Addresses all actually **match FM**. The diner `/account/notifications` "potential bug" was wrong (it's a no-op stub). Real remaining divergences are concentrated in § 2.A (per-menu Settings) and § 3.A (lead-gen).
 >
 > FM Angular source root: `/Users/peterventi/Desktop/familymeal-backend/src/app/`. Every divergence cites `file:line`.
 
@@ -64,13 +66,27 @@
   - Profile: firstName/lastName (1-50, required), phoneNumber (mask, pattern `account.component.ts:97`), email (read-only). `PUT /api/users` (`account.service.ts:100-103`).
   - Password: oldPassword + newPassword (8-50). `POST /api/changePassword` (`account.service.ts:80-84`).
   - Address: **single address per user** (not multi). `GET/PUT /api/users/addresses` (`account.service.ts:110-119`). Google Places autocomplete; lat/lng required.
-- **Disco — split into THREE pages**: `/account/profile`, `/account/security`, `/account/addresses`.
-- **Status**: **diverges (structural, functional)**. Disco split FM's one page into three. Not wrong financially, but the address page should confirm single-vs-multi (FM is single). Disco `addresses/page.tsx` reads structured address from `/api/fm-user`. `[NEEDS REVIEW]` — confirm Disco's address PUT hits `/api/users/addresses` not a different shape.
-- **Gap**: Disco profile/security field-validation parity not confirmed this pass (functional).
+- **Disco — split into THREE pages** (verified this pass):
+
+| FM field/section | FM src | Disco field | Disco src | Status |
+|---|---|---|---|---|
+| firstName | acct:86 | firstName | profile/page.tsx:86 | matches |
+| lastName | acct:90 | lastName | profile/page.tsx:90 | matches |
+| email (read-only) | acct:95 | email (type email) | profile/page.tsx:95 | matches |
+| phoneNumber | acct:99 | phone | profile/page.tsx:99 | matches |
+| — (FM has no field) | — | deliveryInstructions (textarea) | profile/page.tsx:103 | **ahead** |
+| `PUT /api/users` | acct.service:100 | `PUT /api/fm-user` | profile/page.tsx:58 | matches |
+| address single {addressLine1,city,state,zipcode} | acct.model:45 | addressLine1/city/state/zip (single) | addresses/page.tsx:100-113 | matches (single) |
+| `PUT /api/users/addresses` | acct.service:116 | `PUT /api/fm-user-addresses` | addresses/page.tsx:74 | matches |
+| password change oldPassword+newPassword | acct:209-238 | **STUB** "coming soon" | security/page.tsx:7-12 | **MISSING** |
+
+- **Status**: profile **matches** (+ahead: deliveryInstructions); addresses **matches** (single-address model, same shape, same endpoint); **security page is a STUB** — FM has `POST /api/changePassword`, Disco renders only a "coming soon" placeholder. Splitting one FM page into three is cosmetic-structural, not a divergence.
+- **Real gap**: `/account/security` change-password not implemented (functional). Disco's restaurant portal already has `POST /api/restaurant/change-password` (§ 2.E) to mirror.
 
 ## 1.12 — `/account/notifications`
-- **FM**: **NO diner-side notification preferences UI exists** (NotificationService endpoints `/api/notifications`, `/api/orderSettings` exist but no diner component wired). **Disco**: HAS `/account/notifications`.
-- **Status**: **ahead / `[NEEDS REVIEW]`**. Disco has a page FM lacks. Confirm what it writes to — if it PUTs `/api/notifications` it may collide with the RESTAURANT notification settings (that endpoint is restaurant-scoped). **Potential bug**: a diner-side page writing restaurant notification settings would be wrong. Flag for review.
+- **FM**: **NO diner-side notification preferences UI exists** (NotificationService endpoints `/api/notifications`, `/api/orderSettings` exist but no diner component wired).
+- **Disco**: **STUB** — `notifications/page.tsx:7-12` renders only "Notification settings coming soon." No toggles, **no API call**.
+- **Status**: matches (both have no functional diner notification UI). **Corrects prior pass**: there is NO bug — the page makes no request, so the "writes restaurant-scoped `/api/notifications`" concern is moot. (For reference, Disco's restaurant-scoped proxy lives at `app/api/restaurant/notifications/route.ts` → FM `/api/notifications`; the diner stub does not touch it.) Not a parity gap; building it would exceed FM.
 
 ## 1.13 — `/account/payment`
 - **FM**: `payment-card` single-card. **Disco**: fixed this week (cardToken field, 404→null, Element mount). `fm-stripe-card-storage-audit.md`.
@@ -97,10 +113,12 @@
 ### Section 1 gaps summary
 | Gap | Severity |
 |---|---|
+| `/account/security` change-password is a stub (FM has `POST /api/changePassword`) | functional |
 | City `/locations/{url}` landing pages missing | functional |
-| `/account/notifications` may write restaurant-scoped settings | `[NEEDS REVIEW]` functional |
-| Profile/security/address split vs FM's single page | functional (cosmetic structural) |
 | Fullmap not FM-sourced | functional (deferred) |
+| Client-side scheduling vs FM `availableTime` (§ 4.6) | functional |
+
+(Removed from prior draft: profile/address are now confirmed **matching**; `/account/notifications` is a no-op stub, not a bug.)
 
 ---
 
@@ -115,16 +133,16 @@ Foundation: `fm-restaurant-portal-audit.md`. Per-page status table, then the dee
 | 2.3 | `/restaurant/manage/locations` | SA | matches | row-click drilldown |
 | 2.4 | `/restaurant/manage/authorized-users` | SA | matches | `fm-authorized-users-audit.md` |
 | 2.5 | `/restaurant/orders` | SA+ADMIN | matches | SA aggregated (`840c609`); drawer refund/void/complete/print/notes |
-| 2.6 | `/restaurant/manage-v2/menus` (list) | SA+ADMIN | **partial — see § 2.B** | drag-reorder gap |
+| 2.6 | `/restaurant/manage-v2/menus` (list) | SA+ADMIN | matches − drag (§ 2.B) | tabs+clone+visible+archive+delete present; only drag-reorder missing |
 | 2.7 | `/restaurant/manage-v2/[menuRef]/settings` | SA+ADMIN | **DIVERGES — § 2.A** | the big one |
-| 2.8 | `/restaurant/manage/groups` (Group Library) | SA+ADMIN | **partial — § 2.C** | min/max selection, clone, archive |
-| 2.9 | `/restaurant/manage/modifiers` (Modifier Library) | SA+ADMIN | **partial — § 2.C** | |
+| 2.8 | `/restaurant/manage/groups` (Group Library) | SA+ADMIN | matches − drag (§ 2.C) | all 6 fields + clone/archive present |
+| 2.9 | `/restaurant/manage/modifiers` (Modifier Library) | SA+ADMIN | matches − drag (§ 2.C) | name/price + clone/archive present |
 | 2.10 | `/restaurant/order-settings` (Settings) | SA+ADMIN | matches | built `7c2b423`; full field list § 2.D |
-| 2.11 | `/restaurant/account/profile` | ADMIN | partial — § 2.E | FM has 5 sub-forms |
-| 2.12 | `/restaurant/account/banking` (Stripe Connect) | ADMIN | partial — § 2.F | |
-| 2.13 | `/restaurant/tax-rate` | SA | partial — § 2.G | |
-| 2.14 | `/restaurant/restaurant-customers` | SA+ADMIN | partial — § 2.H | |
-| 2.15 | `/restaurant/manage/admin-manager-reports` (Reports) | SA | **partial — § 2.I** | FM has real scheduled-reports infra |
+| 2.11 | `/restaurant/account/profile` | ADMIN | **matches (§ 2.E)** | all 5 forms + dual image upload present |
+| 2.12 | `/restaurant/account/banking` (Stripe Connect) | ADMIN | matches (§ 2.F) | connect/disconnect/status present |
+| 2.13 | `/restaurant/tax-rate` | SA | matches (§ 2.G) | state/local/other + %/$ + Other types |
+| 2.14 | `/restaurant/restaurant-customers` | SA+ADMIN | matches − export fmt (§ 2.H) | CSV vs FM Excel |
+| 2.15 | `/restaurant/manage/admin-manager-reports` (Reports) | SA | **matches (§ 2.I)** | full scheduled-reports infra IS built |
 | 2.16 | `/restaurant/manage/multi-unit-links` (Links) | SA | matches | `11039eb`; powers city pages (§ 1.17) |
 
 ## 2.A — Per-menu Settings dialog (TOP PRIORITY — full field-by-field)
@@ -190,15 +208,43 @@ Disco edits **8 of 12 sections**. The **3 most fee-relevant sections are missing
 `[NEEDS REVIEW]`: (a) is `menuType` distinct from the v2 `menuCategory` (`type`)? (b) prep-time fractional hours (`%24` on decimals, ts:238-239); (c) confirm `NASH_DELIVERY` backend enum; (d) the "0-15%" label vs default-20 behavior.
 
 ## 2.B — Manage Menus list (`/restaurant/manage-v2/menus`)
-- **FM**: `menus-table.component.ts:29-187`. Columns: drag, menuName, menuType, startDate, endDate, image, settings, actions. **Drag-reorder** via `PUT /api/menu/{ref}/position?position={pos}` (index adjusted for pagination, `:178-184`). Kebab: clone (`POST /api/menu/{ref}/clone`), visible toggle (`PUT .../visible`), archive (`PUT .../archive`), delete. Tabs active/inactive/archived `[NEEDS REVIEW]` (filter by menuType param).
-- **Disco**: `manage-v2/menus/page.tsx` — tabs + clone + visible + archive + delete + the "⚙ Menu Settings" pill.
-- **Status**: partial. **Gap: drag-reorder not implemented** (no `position` PUT). Functional.
+- **FM**: `menus-table.component.ts:29-187`. Columns: drag, menuName, menuType, startDate, endDate, image, settings, actions. **Drag-reorder** via `PUT /api/menu/{ref}/position?position={pos}` (index adjusted for pagination, `:178-184`). Kebab: clone, visible toggle, archive, delete. Tabs active/inactive/archived.
+- **Disco** (verified): `manage-v2/menus/page.tsx`. Tabs Active/Inactive/Archived (`:121-135`, filter ACTIVE/NON_VISIBLE/ARCHIVED). Columns name/type(TYPE_LABELS `:29`)/startDate/endDate/image/actions (`:146-151`). Kebab: Menu Settings (`:178`), Clone (`:191`→`POST .../clone`), Hide/Show (`:193`→`PUT .../visible?isVisible=`), Archive/Unarchive (`:197`→`PUT .../archive?isArchived=`), Delete (`:200`).
+- **Status**: **matches except drag-reorder** — no `position` PUT (`:68-101` has no reorder handler). Functional. Only real gap on this page.
 
 ## 2.C — Group Library + Modifier Library
-- **FM Group Library**: `admin/manage-menus/groups/`. Endpoints `POST/PUT/DELETE /api/extraItemsGroups`, `PUT .../{ref}/position`, `POST .../{ref}/clone`, `GET /api/restaurants/{ref}/extraItemsGroups`. Columns: drag, name, externalName, items(count), minSelectedItems, maxSelectedItems, actions. Form: `name`*, `externalName`*, `subExternalName`*, `minSelectedItems`*, `maxSelectedItems`*, `addOnsReferences[]`. Rules: max 50 items/group, min<max, archive sets visible=false.
-- **FM Modifier Library**: `admin/manage-menus/add-ons/`. Endpoints `POST/PUT/DELETE /api/addOns`, position, clone, `GET /api/addOns`. Columns: drag, name, price, actions. Form: `name`*, `price`* (regex `^[0-9]*[.]?[0-9]*$`).
-- **Disco**: `manage/groups/page.tsx`, `manage/modifiers/page.tsx` — exist.
-- **Status**: partial — `[NEEDS REVIEW]`, not field-reconciled this pass. Need to verify min/max selection fields, externalName/subExternalName, drag-reorder, clone, 50-item cap.
+
+### Group Library
+- **FM**: `admin/manage-menus/groups/`. `POST/PUT/DELETE /api/extraItemsGroups`, `PUT .../{ref}/position`, `POST .../{ref}/clone`, `GET /api/restaurants/{ref}/extraItemsGroups`. Rules: max 50 items/group, min<max, archive sets visible=false.
+- **Disco**: `manage/groups/page.tsx` → proxy `/api/restaurant/groups` → FM `/api/extraItemsGroups`.
+
+| FM field/column | Disco field | Disco src | Status |
+|---|---|---|---|
+| name* | name | groups/page.tsx:29 | matches |
+| externalName* | externalName | groups/page.tsx:30 | matches |
+| subExternalName* | subExternalName | groups/page.tsx:31 | matches |
+| minSelectedItems* | minSelectedItems | groups/page.tsx:32 | matches |
+| maxSelectedItems* | maxSelectedItems | groups/page.tsx:33 | matches |
+| addOnsReferences[] | addOnsReferences[] | groups/page.tsx:35 | matches |
+| clone | clone (`POST .../{ref}/clone`) | groups/page.tsx:187 | matches |
+| archive/visible toggle | archive/unarchive | groups/page.tsx:255 | matches |
+| drag-reorder (`PUT .../position`) | — | — | **missing** (functional) |
+| 50-item cap, min<max validation | `[NEEDS REVIEW]` | — | confirm client validation |
+
+### Modifier Library
+- **FM**: `admin/manage-menus/add-ons/`. `POST/PUT/DELETE /api/addOns`, position, clone. Fields `name`*, `price`* (regex `^[0-9]*[.]?[0-9]*$`).
+- **Disco**: `manage/modifiers/page.tsx` → `/api/restaurant/add-ons` → FM `/api/addOns`.
+
+| FM field/column | Disco field | Disco src | Status |
+|---|---|---|---|
+| name* | name | modifiers/page.tsx:16 | matches |
+| price* | price (2dp display) | modifiers/page.tsx:19,183 | matches |
+| clone | clone (`POST .../{ref}/clone`) | modifiers/page.tsx:128 | matches |
+| archive/visible | archive/unarchive | modifiers/page.tsx:188 | matches |
+| pagination | prev/next | modifiers/page.tsx:200-214 | matches |
+| drag-reorder (`PUT .../position`) | — | — | **missing** (functional) |
+
+- **Status**: both **match FM** except drag-reorder (shared gap with § 2.B). Corrects prior pass's "partial/[NEEDS REVIEW]" — the fields, clone, and archive ARE all present.
 
 ## 2.D — Restaurant Order Settings (`/restaurant/order-settings`)
 - **FM**: `admin/order-settings/order-settings.component.ts:105-134`. Built in Disco `7c2b423` and reconciled in earlier work. Field list (FM): `businessNameWithoutSpaces` (slug), `announcement` (≤500), `phone`, `email`*, `emailNotificationType` (ALL/ORDERS_ONLY/OFF), `phoneNotificationType`, `autoPrint` (inverted on save), `enableMenuSearch` (inverted), `orderReminderEmailsEnabled` (inverted), `deliveryOrderTimeWindows` ('exact'/range); online ordering toggle `PATCH /api/restaurants/onlineOrdering`; closed days `/api/closedDays`; coupon `/api/coupon`. Endpoints `/api/notifications`, `/api/feesAndTips`.
@@ -206,29 +252,72 @@ Disco edits **8 of 12 sections**. The **3 most fee-relevant sections are missing
 - **Status**: matches (per `7c2b423`). Delta: FM inverts `autoPrint`/`enableMenuSearch`/`orderReminderEmailsEnabled` booleans on save (`order-settings.component.ts:457-458,290,610`) — `[NEEDS REVIEW]` confirm Disco inverts identically or it'll toggle backwards.
 
 ## 2.E — Restaurant Account/Profile
-- **FM**: `admin/account/profile/profile.component.ts:80-132`. FIVE forms: Profile (firstName*/lastName/email[disabled]/phone*), Business (businessLegalName/city/state/zipcode, `/api/businessInfo`), Address (businessName*/phone*/addressLine1*/lat/lng/timezone via Google), DoorDash (pickupInstructions ≤1000), Password (`POST /api/changePassword`), Images (restaurant 1:1 + marketplace 4:3, cropper, `/public-api/images`).
-- **Disco**: `account/profile/page.tsx`.
-- **Status**: partial — `[NEEDS REVIEW]`. Likely missing Business form, DoorDash pickup instructions, dual image upload, password change. Functional.
+- **FM**: `admin/account/profile/profile.component.ts:80-132`. FIVE forms + images.
+- **Disco** (verified): `account/profile/page.tsx` — **all five forms + both images present**.
+
+| FM form/field | FM src | Disco field | Disco src | Status |
+|---|---|---|---|---|
+| Profile firstName/lastName/email[ro]/phone | profile.c:80 | firstName/lastName/email/phoneNumber | profile/page.tsx:402-411 | matches |
+| Password old+new | profile.c:- | password/newPassword → `POST /api/restaurant/change-password` | profile/page.tsx:418-421,271 | matches |
+| Business legalName/city/state/zip (`/api/businessInfo`) | profile.c:- | businessLegalName/city/state/zipcode → `/api/restaurant/business-info` | profile/page.tsx:428-437,295 | matches |
+| Address businessName/phone/line1/city/state/zip | profile.c:- | same | profile/page.tsx:444-459 | matches |
+| DoorDash pickupInstructions ≤1000 | profile.c:- | pickupInstructions (textarea, 1000 + counter) | profile/page.tsx:468,479 | matches |
+| Restaurant image 1:1 | profile.c:- | upload → `/api/restaurant/images/upload` | profile/page.tsx:510-530,366 | matches |
+| Marketplace image 4:3 | profile.c:- | upload → `/api/restaurant/images/marketplace` | profile/page.tsx:534-565,367 | matches |
+| `PUT /api/restaurants` | profile.c:- | `PUT /api/restaurant/profile` | profile/page.tsx:245 | matches |
+
+- **Status**: **matches**. Corrects prior pass — Disco has the Business form, DoorDash instructions, dual image upload, and password change. `[NEEDS REVIEW]` only on Google-autocomplete lat/lng/timezone resolution parity (functional, minor).
 
 ## 2.F — Banking / Stripe Connect
-- **FM**: `admin/account/banking/banking.component.ts:18,44-106`. `HEAD /api/stripe/{ref}` (status), `POST /api/stripe/clients/{ref}/connect` (→ stripeConnectUrl), `GET /api/stripe/disconnect/{ref}`. Modal confirm → open Stripe URL.
-- **Disco**: `account/banking/page.tsx` — connect flow present.
-- **Status**: partial — not deeply reconciled.
+- **FM**: `admin/account/banking/banking.component.ts:18,44-106`. `HEAD /api/stripe/{ref}` (status), `POST /api/stripe/clients/{ref}/connect` (→ stripeConnectUrl), `GET /api/stripe/disconnect/{ref}`.
+- **Disco** (verified): `account/banking/page.tsx`. Status via `GET /api/restaurant/stripe-status` (`:44`); connect `POST /api/restaurant/stripe/connect` (`:63`); disconnect `DELETE /api/restaurant/stripe/disconnect` (`:87`, confirm dialog `:165`); status dot + "Stripe (connected/disconnected)" label (`:109-118`).
+- **Status**: **matches** (connect/disconnect/status all present). `[NEEDS REVIEW]` confirm the disconnect proxy maps to FM's `GET /api/stripe/disconnect/{ref}`.
 
 ## 2.G — Tax Rate
-- **FM**: `admin/tax-rate/tax-rate.component.ts:16,36-58`. `GET/PUT /api/restaurants/taxRate`. 3 rows: State/Local/Other Sales Tax; each `fixedAmount` ($) + `percent` (%); Other has `types[]` (PICKUP/DELIVERY). Body keyed by tax key. Platform-level (no per-restaurant override).
-- **Disco**: `restaurant/tax-rate/page.tsx`.
-- **Status**: partial — `[NEEDS REVIEW]` confirm the 3-row state/local/other shape + Other's PICKUP/DELIVERY types.
+- **FM**: `admin/tax-rate/tax-rate.component.ts:16,36-58`. `GET/PUT /api/restaurants/taxRate`. 3 rows State/Local/Other; each `fixedAmount`($) + `percent`(%); Other has `types[]` (PICKUP/DELIVERY). Body keyed by tax key. Platform-level.
+- **Disco** (verified): `restaurant/tax-rate/page.tsx` → `GET/PUT /api/restaurant/tax-rate`.
+
+| FM | Disco | Disco src | Status |
+|---|---|---|---|
+| stateSalesTax / localSalesTax / otherSalesTax rows | same 3 rows | tax-rate/page.tsx:118-121 | matches |
+| percent (3dp) | percent (step 0.001, fmt3) | tax-rate/page.tsx:205,153 | matches |
+| fixedAmount ($, 2dp) | fixedAmount (step 0.01, fmt2) | tax-rate/page.tsx:217,154 | matches |
+| Other `types[]` PICKUP/DELIVERY | types JSON (textarea, Other only) | tax-rate/page.tsx:224-229 | matches − UX (raw JSON vs checkboxes) |
+| totals row | totals row | tax-rate/page.tsx:173-178 | matches |
+
+- **Status**: **matches**. Only nit: Other's `types` is a raw-JSON textarea in Disco vs FM's PICKUP/DELIVERY checkboxes — cosmetic/functional UX, same payload.
 
 ## 2.H — Restaurant Customers
-- **FM**: `admin/restaurant-customers/`. `GET /api/customer/users` (paginated, search), detail `GET /api/customer/users/{ref}/orders`. List columns: username, email, phoneNumber, numberOfOrders, totalspend. Excel export. Detail: order history (orderDate, orderCreatedDate, orderType, totalSpend).
-- **Disco**: `restaurant-customers/page.tsx` + `[customerRef]/page.tsx`.
-- **Status**: partial — `[NEEDS REVIEW]` confirm columns + Excel export + detail order history.
+- **FM**: `admin/restaurant-customers/`. `GET /api/customer/users` (paginated, search), detail `GET /api/customer/users/{ref}/orders`. List columns username/email/phoneNumber/numberOfOrders/totalspend. **Excel** export.
+- **Disco** (verified): `restaurant-customers/page.tsx` + `[customerRef]/page.tsx` → `/api/restaurant/customers`.
+
+| FM | Disco | Disco src | Status |
+|---|---|---|---|
+| list: username/email/phone/numberOfOrders/totalspend | same columns | customers/page.tsx:132-137 | matches |
+| search (debounced) | search (400ms) | customers/page.tsx:104,70 | matches |
+| page sizes | 25/50/100/250 | customers/page.tsx:114-125 | matches |
+| export Excel | export **CSV** (client-side) | customers/page.tsx:89-99 | **diverges — CSV vs Excel** (cosmetic) |
+| detail order history (orderDate/createdDate/orderType/totalSpend) | Order#/Date/Time/Type/Total/**Status** | [customerRef]/page.tsx:128-155 | matches + status col (ahead) |
+
+- **Status**: **matches** except export format (CSV vs FM Excel — cosmetic) and a bonus status column on detail.
 
 ## 2.I — Reports (`/restaurant/manage/admin-manager-reports`)
-- **FM**: `admin-manager/reports/` — REAL infra, not stub. Scheduled reports CRUD (`GET/POST/PUT/DELETE /api/reports/scheduled`), `GET /api/reports/columns`, `POST /api/reports/download`, `POST /api/reports/email`, `GET /api/reports/runs` (logs). Sub-components: scheduled-reports, create/update option, runs-log.
-- **Disco**: `admin-manager-reports/page.tsx`.
-- **Status**: partial — `[NEEDS REVIEW]`. FM has scheduled-report creation + email delivery + run logs; confirm Disco coverage. Functional. (Overlaps Project Orca 3.4 reporting.)
+- **FM**: `admin-manager/reports/` — scheduled-reports infra: CRUD `GET/POST/PUT/DELETE /api/reports/scheduled`, `GET /api/reports/columns`, `POST /api/reports/download`, `POST /api/reports/email`, `GET /api/reports/runs`.
+- **Disco** (verified): `manage/admin-manager-reports/page.tsx` — **the full infra IS built**. Two tabs Scheduled Reports + Reports Log (`:88-90`).
+
+| FM capability | Disco field/action | Disco src | Status |
+|---|---|---|---|
+| scheduled list (`GET .../scheduled`) | `/api/restaurant/reports/scheduled` | page.tsx:156 | matches |
+| create/update (`POST/PUT`) | full editor modal | page.tsx:382-389 | matches |
+| delete | delete + confirm | page.tsx:177 | matches |
+| name / frequency WEEKLY-MONTHLY / time / timezone | same | page.tsx:410-425 | matches |
+| fileType | CSV / PDF radio | page.tsx:433-440 | matches |
+| recipients[] | email-array + chips | page.tsx:444-467 | matches |
+| filter: locations / dateType / orderStatuses / deliveryTypes | all rendered | page.tsx:470-521 | matches |
+| columns picker (`GET .../columns`) | grouped checkboxes | page.tsx:524-541,336 | matches |
+| run logs (`GET .../runs`) | Reports Log tab | page.tsx:258,277-291 | matches |
+
+- **Status**: **matches** — full scheduled-reports CRUD + filters + columns picker + run logs. **Major correction to prior pass** (which claimed this was missing infra). `[NEEDS REVIEW]`: `ownerReferences` (type `admin-manager-reports.tsx:40`) not visibly rendered; confirm `POST .../download` + `.../email` actions are wired (only `scheduled`/`runs`/`columns` proxies confirmed).
 
 ---
 
@@ -287,10 +376,10 @@ Foundation: `fm-admin-portal-audit.md` + `fm-super-admin-audit.md` (gap analysis
 **Biggest fee gaps**: all per-menu delivery + tips/surcharge editing (§ 2.A); lead-gen shape (§ 3.A).
 
 ## 4.2 Notification system
-FM restaurant Order Settings: email mode (ALL/ORDERS_ONLY/OFF) + recipients, text notifications + recipients, customer/restaurant reminder toggles, print kitchen tickets, enable menu search, delivery time windows, announcement (≤500). Built in Disco (`7c2b423`). **No admin email-template editor in FM** (SA audit E.6). **No diner-side notification UI in FM** — but Disco HAS `/account/notifications` (§ 1.12) — confirm it doesn't write restaurant-scoped settings. SMS/text via the restaurant phone recipients array. In-app notifications: none in FM.
+FM restaurant Order Settings: email mode (ALL/ORDERS_ONLY/OFF) + recipients, text notifications + recipients, customer/restaurant reminder toggles, print kitchen tickets, enable menu search, delivery time windows, announcement (≤500). Built in Disco (`7c2b423`). **No admin email-template editor in FM** (SA audit E.6). **No diner-side notification UI in FM** and **Disco's `/account/notifications` is a no-op stub** (§ 1.12) — so there is no scope-collision bug; the diner stub makes no request. SMS/text via the restaurant phone recipients array. In-app notifications: none in FM.
 
 ## 4.3 Reporting / analytics
-Restaurant dashboard ~20 cards + SA dashboard built. SA aggregates by default (`fm-multi-location-runtime-audit.md`). FM has **scheduled-reports infra** (§ 2.I — create/email/download/runs) NOT yet built in Disco. Custom report builder + scheduling = Project Orca 3.4 (partly exists in FM's reports module). Export: per-page CSV (admin Customers) + Excel (restaurant Customers).
+Restaurant dashboard ~20 cards + SA dashboard built. SA aggregates by default (`fm-multi-location-runtime-audit.md`). **The restaurant scheduled-reports infra IS built in Disco** (§ 2.I — scheduled CRUD + filters + columns picker + run logs); the only `[NEEDS REVIEW]` is whether the ad-hoc `download`/`email` actions are wired. So Project Orca 3.4 reporting is largely done on the restaurant side. Export: per-page CSV (admin Customers) + CSV (restaurant Customers; FM uses Excel — cosmetic).
 
 ## 4.4 Order lifecycle states
 FM statuses: DUE, UNPAID, PAID, COMPLETED, REOPEN, CANCELED, VOID (+ `orderStatusesToChange[]` drives allowed transitions). Restaurant Orders page maps these with the status dropdown + terminal-state handling — built. Admin-side order detail drawer with the same transitions: **missing** (§ 3). Nash delivery sub-states (`nashDeliveryStatus`, pickup/dropoff ETA) shown on restaurant orders.
@@ -308,11 +397,11 @@ FM diner slots via **server endpoint** `GET /public-api/menuReference/{ref}/avai
 
 # Section 5 — Summary & recommended build order
 
-## Counts
-- Diner routes: 17. ~9 matches/ahead, ~5 partial, 1 missing (city pages), 1 review (notifications).
-- Restaurant routes: 16. ~6 matches, ~9 partial, **1 diverges (per-menu Settings)**.
+## Counts (after Disco-side verification)
+- Diner routes: 17. ~13 matches/ahead, 1 stub-missing (`/account/security`), 1 missing (city pages), 1 deferred (fullmap), 1 functional (scheduling).
+- Restaurant routes: 16. **~13 matches** (Account/Profile, Banking, Tax Rate, Customers, Reports, Groups, Modifiers, Menus-list, Order-Settings, Links, Locations, Authorized-Users, Orders), **1 diverges (per-menu Settings § 2.A)**, dashboard partial (aggregate gate), + the shared drag-reorder gap on 3 pages.
 - Admin routes: 14. ~9 matches, 3 stubs (match FM), 1 missing (Tax Config), 1 diverges (lead-gen).
-- Cross-cutting gaps: per-menu fee editing, lead-gen shape, client-side scheduling, REGIONAL_ADMIN, scheduled reports, diner notifications review.
+- **Net**: far fewer real gaps than the first draft implied. The headline divergence is the per-menu Settings dialog (§ 2.A); almost everything else is matching or a small functional nit.
 
 ## Ranked FINANCIAL gaps
 1. Per-menu **Delivery Fulfillment** not editable (own $/% primary+secondary + NASH `thirdPartyDeliverySubsidingPercent`) — § 2.A.
@@ -326,11 +415,14 @@ FM diner slots via **server endpoint** `GET /public-api/menuReference/{ref}/avai
 2. Menu Scheduling Override (skippedDays) not editable — § 2.A.
 3. Admin order detail drawer + refund missing — § 3 / SA audit D.1.
 4. Tax Configuration page missing (admin) — § 3.
-5. City `/locations/{url}` landing pages missing — § 1.17.
-6. Manage Menus drag-reorder missing — § 2.B.
-7. REGIONAL_ADMIN unhandled — § 4.5.
-8. Reports scheduled-report infra — § 2.I.
-9. `/account/notifications` scope review — § 1.12.
+5. `/account/security` change-password stub — § 1.9.
+6. City `/locations/{url}` landing pages missing — § 1.17.
+7. Drag-reorder missing on Menus list + Group Library + Modifier Library — § 2.B/2.C.
+8. REGIONAL_ADMIN unhandled — § 4.5.
+
+## Cosmetic-only
+- Restaurant Customers export CSV vs FM Excel (§ 2.H).
+- Tax Rate "Other" types as JSON textarea vs checkboxes (§ 2.G).
 
 ## Build order (sessions)
 
@@ -363,12 +455,12 @@ Verification: place a delivery order against a menu with own-delivery %; the car
 Deliverables: admin order detail drawer (mirror restaurant drawer) with refund (`PUT /api/admin/userOrders/{ref}/refund {amount}`); `/admin/tax-rate` page (`GET/PUT /api/restaurants/taxRate`, 3 tax rows, Other PICKUP/DELIVERY types) + sidebar item.
 Verification: refund an admin order; edit a tax rate and reload.
 
-### Session F — Reporting Track 2 + REGIONAL_ADMIN + city pages. Est ~3h. Deps: none.
-Deliverables: ship the SA aggregate-reporting gate removal (after live-verifying the aggregate endpoint); handle `REGIONAL_ADMIN` in sidebar/middleware (same nav as SA per `paths.constant.ts:81-124`); build `/locations/[url]` city pages (`GET /public-api/restaurants/links/{url}`, grouped-by-state).
-Verification: a REGIONAL_ADMIN sees the SA nav; `/locations/new-york` renders grouped restaurants.
+### Session F — SA aggregate gate + REGIONAL_ADMIN + city pages + diner security. Est ~3h. Deps: none.
+Deliverables: ship the SA aggregate-reporting gate removal (after live-verifying the aggregate endpoint); handle `REGIONAL_ADMIN` in sidebar/middleware (same nav as SA per `paths.constant.ts:81-124`); build `/locations/[url]` city pages (`GET /public-api/restaurants/links/{url}`, grouped-by-state); implement `/account/security` change-password (mirror the restaurant `POST /api/restaurant/change-password` already built).
+Verification: a REGIONAL_ADMIN sees the SA nav; `/locations/new-york` renders grouped restaurants; a diner can change their password.
 
-### Session G (later) — partial-page reconciliation. Est ~2-3h. Lower priority.
-Group/Modifier Library field reconciliation (min/max selection, externalName, drag, clone, 50-cap); restaurant Account profile 5-form parity; restaurant Customers columns + Excel; Reports scheduled-report infra; Manage Menus drag-reorder; diner notifications scope review; diner profile/security/address parity; order-settings boolean-inversion check.
+### Session G (low priority) — drag-reorder + small nits. Est ~2h.
+Add CDK-style drag-reorder + `position` PUT to Menus list (`/api/menu/{ref}/position`), Group Library (`/api/extraItemsGroups/{ref}/position`), Modifier Library (`/api/addOns/{ref}/position`). Confirm `download`/`email` report actions (§ 2.I). Confirm order-settings boolean-inversion (§ 2.D). Optionally switch Customers export to Excel and Tax "Other" types to checkboxes. Confirm Group 50-item cap + min<max client validation.
 
 ## Open questions for the user
 1. **Menu category** — confirm FM's per-menu `type` uses GENERAL_CATERING/… (Disco shows FAMILY_MEAL/…). Are `menuType` and `menuCategory` two distinct fields, or did Disco use a stale enum?
@@ -377,5 +469,6 @@ Group/Modifier Library field reconciliation (min/max selection, externalName, dr
 4. **City pages** — FM uses `/locations/{url}` (grouped-by-state via multi-unit links), not `/new-york`. Build that pattern, or Disco-specific city routes?
 5. **Scheduling** — OK to add the `availableTime` server call (extra request per date selection) in Session C?
 6. **REGIONAL_ADMIN** — wire now (exists in FM) or wait for Orca 3.1?
-7. **`/account/notifications`** — Disco has a diner page FM lacks; confirm it isn't writing restaurant-scoped `/api/notifications`. Keep, fix, or remove?
+7. **`/account/security`** — FM has change-password; Disco's page is a stub. Build it (Session F)? (Endpoint shape already proven on the restaurant side.)
 8. **Reorder / Make-recurring** — Disco is AHEAD of FM (FM has neither). Keep as Disco features (Orca), correct?
+9. **Drag-reorder** — FM has it on Menus/Groups/Modifiers; Disco lacks it on all three. Priority, or leave for Session G?
