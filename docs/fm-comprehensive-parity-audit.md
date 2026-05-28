@@ -127,7 +127,7 @@
 | `/account/security` change-password is a stub (FM has `POST /api/changePassword`) | functional |
 | City `/locations/{url}` landing pages missing | functional |
 | Fullmap not FM-sourced | functional (deferred) |
-| Client-side scheduling vs FM `availableTime` (§ 4.6) | functional |
+| ~~Client-side scheduling~~ → DONE: three-tier scheduler in `lib/scheduling/cutoffs.ts` (§ 4.6) | resolved |
 
 (Removed from prior draft: profile/address are now confirmed **matching**; `/account/notifications` is a no-op stub, not a bug.)
 
@@ -423,8 +423,8 @@ FM statuses: DUE, UNPAID, PAID, COMPLETED, REOPEN, CANCELED, VOID (+ `orderStatu
 - FM auto-filters SA endpoints by JWT (proven). Cross-location grant rejection server-side `[NEEDS REVIEW]` (curl-verified per prior note).
 - **`REGIONAL_ADMIN` role exists in FM** (`paths.constant.ts:81-124`) — **unhandled in Disco** (would fall to reduced nav). Functional gap.
 
-## 4.6 Scheduling & availability
-FM diner slots via **server endpoint** `GET /public-api/menuReference/{ref}/availableTime?date=` returning `{availableTime, available}[]`. **Disco computes CLIENT-SIDE** (`computeTimes`/`computeDates` in `RestaurantClient.tsx` from `scheduleOption`). Divergence — functional (diners may see slots FM would exclude). Menu-level `skippedDays` overrides not editable in Disco (§ 2.A). Restaurant closed-days built in Order Settings. Holiday calendar: the 12-13 system holidays in closed-days (built).
+## 4.6 Scheduling & availability ✅ DONE (client-side three-tier)
+Implemented client-side in `lib/scheduling/cutoffs.ts` (Lead Time + Daily Cutoff + Hard Cutoff) — see the Item 14 entry in the implementation log for the full rationale and field mapping. FM's availability endpoints are opaque (server-side math) and FM's single-`cutOffType` model can't express the stacked tiers, so client-side was the correct path per the session rule. `computeDates`/`computeTimes` in `RestaurantClient.tsx` now delegate to the module; the calendar greys non-bookable dates and the hard cutoff produces an "ordering closed" state. Menu-level `skippedDays` are now editable (§ 2.A) and honored by the scheduler. Restaurant closed-days built in Order Settings.
 
 ---
 
@@ -444,8 +444,8 @@ FM diner slots via **server endpoint** `GET /public-api/menuReference/{ref}/avai
 5. **deliveryType enum** wrong (`THIRD_PARTY` vs `NASH_DELIVERY`) — § 2.A.
 
 ## Ranked FUNCTIONAL gaps
-1. Client-side scheduling vs FM `availableTime` — § 4.6 (wrong slots).
-2. Menu Scheduling Override (skippedDays) not editable — § 2.A.
+1. ~~Client-side scheduling~~ — DONE: three-tier scheduler (§ 4.6).
+2. ~~Menu Scheduling Override (skippedDays) not editable~~ — DONE (§ 2.A).
 3. Admin order detail drawer + refund missing — § 3 / SA audit D.1.
 4. Tax Configuration page missing (admin) — § 3.
 5. `/account/security` change-password stub — § 1.9.
@@ -525,17 +525,16 @@ Add CDK-style drag-reorder + `position` PUT to Menus list (`/api/menu/{ref}/posi
 | 11 | Third-party withholding | **DONE** | `23b0571` — `thirdPartyDeliverySubsidingPercent` editable, default 20. |
 | 12 | Lead-gen validation | **DONE** | `a2c523f` — number 0-100, defaults 15/3, %, helper text. |
 | 13 | `/account/payment` proxy 404 | **DONE (already fixed)** | No change — `fm-payment-source/route.ts:28-30` already normalizes 404/204→200 null; POST uses `cardToken`; page mounts the Element regardless. Verified this session. |
-| 14 | Scheduling source of truth | **DEFERRED** | See spec below. |
+| 14 | Scheduling source of truth | **DONE (built client-side)** | Scheduling + Lead Time rename + Hard Cutoff session — see below. |
 
-## Item 14 — deferral spec (scheduling source of truth)
-**Why deferred:** lowest-priority per the brief; it rewrites the live diner ordering path (high regression risk) and needs browser verification not possible this session.
+## Item 14 / § 4.6 — DONE (three-tier client-side scheduling)
+**Decision:** built **client-side**, not via FM's server endpoints. Rationale (verified this session):
+- FM's availability endpoints (`/public-api/mealPackages/{ref}/availableDates|availablePickUp` and the `menuPackages/.../availableTime` variant, `meal-package.service.ts:272-292`) are **opaque** — the date math is server-side, not in the FM Angular source, so it can't be mirrored or verified.
+- FM's per-menu model has only **one** cutoff: `scheduleOption.cutOffType` = `NO | DAILY | BY_DATE`, with `cutOff` a time and `cutOffDate` a **date** (no time). It **cannot express** the spec's stacked Lead Time + Daily Cutoff + Hard Cutoff, nor a hard-cutoff time.
+- Per the session rule ("where FM doesn't expose what we need server-side, build client-side to match the spec"), the logic now lives in **`lib/scheduling/cutoffs.ts`** with self-tests (7 scenarios, 10 assertions passing).
 
-**Exact FM endpoints (verified):**
-- Available dates: `GET /public-api/mealPackages/{ref}/availableDates?fromDate=&toDate=` (`meal-package.service.ts:273`); menu variant `GET /public-api/menuPackages/{ref}/availableDates?...` (`:278`).
-- Available times: `GET /public-api/mealPackages/{ref}/availablePickUp?localDate=` (`:284`); menu variant `GET /public-api/menuPackages/{ref}/availableTime?date=` (`:289`).
+**Field mapping:** Lead Time → `prepTime` (days*24+hours); Daily Cutoff → `cutOff` ("HH:mm"); Hard Cutoff → `cutOffDate` stored as `"YYYY-MM-DDTHH:mm"` (Disco) or date-only (legacy FM). Daily + Hard are independent in Disco; `cutOffType` is set for FM's own single-field consumers (BY_DATE if hard else DAILY) while Disco reads both fields directly.
 
-**Work needed:**
-1. Determine whether Disco's ordering page keys off a meal-package ref or a menu/menuPackage ref, and pick the matching endpoint pair.
-2. Add proxies `app/api/fm-available-dates` and `app/api/fm-available-times` forwarding the above (public-api, no auth).
-3. In `RestaurantClient.tsx`, replace `computeDates`/`computeTimes` with fetches (on package select → dates; on date select → times), with loading/empty states; keep the client compute as an offline fallback only.
-4. Verify in-browser that a menu with a `skippedDays` blackout hides those slots and that slots match FM for a test date.
+**Behavior:** the calendar greys non-bookable dates; the time select lists only bookable slots; once the hard cutoff passes (or nothing is bookable) the menu shows "Ordering for this menu has closed" with the picker greyed (visible, not hidden — the restaurant admin hides the menu manually). The 9:01am→day-after-tomorrow daily-cutoff push is covered by test case 4.
+
+**Commits:** `f8e7028` (module+tests), `444d7b7` (Menu Settings three cutoffs + Lead Time rename), `3f49d44` (ordering page wiring + closed state), `9e1530a` (package label rename).
