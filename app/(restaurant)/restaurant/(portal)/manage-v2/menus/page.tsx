@@ -1,6 +1,13 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove, SortableContext, useSortable, verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import MenuSettingsDialog from './MenuSettingsDialog'
 
 const F = "'DM Sans', sans-serif"
@@ -26,10 +33,12 @@ const TABS: { label: string; filter: FilterType }[] = [
   { label: 'Archived Menus', filter: 'ARCHIVED' },
 ]
 
+// FM FAKE_MENU_CATEGORIES (fake-data.constant.ts:675-717).
 const TYPE_LABELS: Record<string, string> = {
-  FAMILY_MEAL: 'Family Meal', KITS: 'Kits', BEVERAGES: 'Beverages',
-  PANTRY: 'Pantry', CHEFS_TABLE: "Chef's Table", POPUP: 'Pop Up',
-  COLLABS: 'Collabs', DRINKS: 'Drinks', SERIES: 'Series',
+  GENERAL_CATERING: 'General Catering', OFFICE_CATERING: 'Office Catering',
+  HOLIDAY_CATERING: 'Holiday Catering', MEAL_PREP: 'Meal Prep',
+  PRIVATE_CHEF: 'Private Chef', NATIONWIDE_SHIPPING: 'Nationwide Shipping',
+  MERCH: 'Merch', POP_UP: 'Pop Up',
 }
 
 function formatDate(d: string) {
@@ -61,6 +70,22 @@ export default function MenusPage() {
   const [settingsRef, setSettingsRef] = useState<string | null>(null)
 
   const filter = TABS[activeTab].filter
+
+  // Drag-to-reorder. 6px activation distance so a click still opens the menu.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+
+  async function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = menus.findIndex(m => m.reference === active.id)
+    const newIndex = menus.findIndex(m => m.reference === over.id)
+    if (oldIndex < 0 || newIndex < 0) return
+    const reordered = arrayMove(menus, oldIndex, newIndex)
+    setMenus(reordered)
+    // Single page (size=100), so the list index is the absolute position.
+    // Mirrors FM menu.service.ts:66 — PUT /api/menu/{ref}/position?position=.
+    await fetch(`/api/restaurant/menus/${active.id}/position?position=${newIndex}`, { method: 'PUT' })
+  }
 
   const loadMenus = useCallback(async () => {
     setLoading(true)
@@ -140,9 +165,11 @@ export default function MenusPage() {
         ) : menus.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#aaa', fontSize: 13 }}>No menus found.</div>
         ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#fafafa' }}>
+                <th style={{ ...thStyle, width: 34 }} aria-label="Reorder" />
                 <th style={thStyle}>Name</th>
                 <th style={thStyle}>Type</th>
                 <th style={thStyle}>Start Date</th>
@@ -152,58 +179,25 @@ export default function MenusPage() {
               </tr>
             </thead>
             <tbody>
-              {menus.map((m, i) => (
-                <tr
-                  key={m.reference}
-                  style={{ borderTop: i > 0 ? '1px solid #f5f5f5' : undefined, cursor: 'pointer' }}
-                  onClick={() => router.push(`/restaurant/manage-v2/${m.reference}`)}
-                >
-                  <td style={{ ...tdStyle, fontWeight: 600 }}>{m.name}</td>
-                  <td style={tdStyle}>{TYPE_LABELS[m.menuType] || m.menuType || '—'}</td>
-                  <td style={tdStyle}>{formatDate(m.startDate)}</td>
-                  <td style={tdStyle}>{formatDate(m.endDate)}</td>
-                  <td style={tdStyle}>
-                    {m.image?.reference ? (
-                      <img
-                        src={`https://api.familymeal.com/public-api/images/${m.image.reference}/download?size=70`}
-                        alt=""
-                        style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid #eee' }}
-                      />
-                    ) : (
-                      <div style={{ width: 40, height: 40, background: '#f0f0f4', borderRadius: 6, border: '1px solid #eee' }} />
-                    )}
-                  </td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }} onClick={e => e.stopPropagation()}>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                      <button
-                        onClick={() => setSettingsRef(m.reference)}
-                        style={{
-                          background: BLUE, color: '#fff', border: 'none',
-                          borderRadius: 20, padding: '7px 14px',
-                          fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                          fontFamily: F, display: 'inline-flex', alignItems: 'center', gap: 6,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        <span aria-hidden style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
-                        Menu Settings
-                      </button>
-                      <ActionBtn title="Clone" onClick={() => handleClone(m.reference)}>⧉</ActionBtn>
-                      {filter !== 'ARCHIVED' && (
-                        <ActionBtn title={m.visible ? 'Hide' : 'Show'} onClick={() => handleVisible(m.reference, m.visible)}>
-                          {m.visible ? '👁' : '🚫'}
-                        </ActionBtn>
-                      )}
-                      <ActionBtn title={m.archived ? 'Unarchive' : 'Archive'} onClick={() => handleArchive(m.reference, m.archived)}>
-                        {m.archived ? '↩' : '🗄'}
-                      </ActionBtn>
-                      <ActionBtn title="Delete" red onClick={() => handleDelete(m.reference, m.name)}>✕</ActionBtn>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              <SortableContext items={menus.map(m => m.reference)} strategy={verticalListSortingStrategy}>
+                {menus.map(m => (
+                  <SortableMenuRow
+                    key={m.reference}
+                    m={m}
+                    filter={filter}
+                    tdStyle={tdStyle}
+                    onOpen={() => router.push(`/restaurant/manage-v2/${m.reference}`)}
+                    onSettings={() => setSettingsRef(m.reference)}
+                    onClone={() => handleClone(m.reference)}
+                    onVisible={() => handleVisible(m.reference, m.visible)}
+                    onArchive={() => handleArchive(m.reference, m.archived)}
+                    onDelete={() => handleDelete(m.reference, m.name)}
+                  />
+                ))}
+              </SortableContext>
             </tbody>
           </table>
+          </DndContext>
         )}
       </div>
 
@@ -223,6 +217,76 @@ export default function MenusPage() {
         />
       )}
     </div>
+  )
+}
+
+function SortableMenuRow({ m, filter, tdStyle, onOpen, onSettings, onClone, onVisible, onArchive, onDelete }: {
+  m: Menu
+  filter: FilterType
+  tdStyle: React.CSSProperties
+  onOpen: () => void
+  onSettings: () => void
+  onClone: () => void
+  onVisible: () => void
+  onArchive: () => void
+  onDelete: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: m.reference })
+  const rowStyle: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    borderTop: '1px solid #f5f5f5',
+    background: isDragging ? '#f5f6ff' : undefined,
+    boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.08)' : undefined,
+  }
+  const clickCell: React.CSSProperties = { ...tdStyle, cursor: 'pointer' }
+  return (
+    <tr ref={setNodeRef} style={rowStyle}>
+      <td style={{ ...tdStyle, textAlign: 'center', cursor: 'grab', touchAction: 'none', color: '#bbb' }}
+        {...attributes} {...listeners} onClick={e => e.stopPropagation()} title="Drag to reorder">⋮⋮</td>
+      <td style={{ ...clickCell, fontWeight: 600 }} onClick={onOpen}>{m.name}</td>
+      <td style={clickCell} onClick={onOpen}>{TYPE_LABELS[m.menuType] || m.menuType || '—'}</td>
+      <td style={clickCell} onClick={onOpen}>{formatDate(m.startDate)}</td>
+      <td style={clickCell} onClick={onOpen}>{formatDate(m.endDate)}</td>
+      <td style={clickCell} onClick={onOpen}>
+        {m.image?.reference ? (
+          <img
+            src={`https://api.familymeal.com/public-api/images/${m.image.reference}/download?size=70`}
+            alt=""
+            style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid #eee' }}
+          />
+        ) : (
+          <div style={{ width: 40, height: 40, background: '#f0f0f4', borderRadius: 6, border: '1px solid #eee' }} />
+        )}
+      </td>
+      <td style={{ ...tdStyle, textAlign: 'right' }}>
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+          <button
+            onClick={onSettings}
+            style={{
+              background: BLUE, color: '#fff', border: 'none',
+              borderRadius: 20, padding: '7px 14px',
+              fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              fontFamily: F, display: 'inline-flex', alignItems: 'center', gap: 6,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span aria-hidden style={{ fontSize: 14, lineHeight: 1 }}>⚙</span>
+            Menu Settings
+          </button>
+          <ActionBtn title="Clone" onClick={onClone}>⧉</ActionBtn>
+          {filter !== 'ARCHIVED' && (
+            <ActionBtn title={m.visible ? 'Hide' : 'Show'} onClick={onVisible}>
+              {m.visible ? '👁' : '🚫'}
+            </ActionBtn>
+          )}
+          <ActionBtn title={m.archived ? 'Unarchive' : 'Archive'} onClick={onArchive}>
+            {m.archived ? '↩' : '🗄'}
+          </ActionBtn>
+          <ActionBtn title="Delete" red onClick={onDelete}>✕</ActionBtn>
+        </div>
+      </td>
+    </tr>
   )
 }
 
