@@ -63,9 +63,9 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
   const [categories, setCategories] = useState<string[]>([])
   const [fulfillmentOptions, setFulfillmentOptions] = useState<string[]>([])
 
-  // FM defaults these to 15% and 3% (add-restaurant.component.ts:231-232).
+  // Defaults 15% / 5% (user-confirmed current FM defaults).
   const [leadGenOne, setLeadGenOne] = useState('15')
-  const [leadGenTwo, setLeadGenTwo] = useState('3')
+  const [leadGenTwo, setLeadGenTwo] = useState('5')
 
   const [menuFile, setMenuFile] = useState<File | null>(null)
 
@@ -120,9 +120,9 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
         },
         categories,
         fulfillmentOptions,
-        // FM stores these as numbers (0-100), defaulting to 15 / 3.
+        // Stored as numbers (0-100), defaulting to 15 / 5.
         leadGenOne: pctOrDefault(leadGenOne, 15),
-        leadGenTwo: pctOrDefault(leadGenTwo, 3),
+        leadGenTwo: pctOrDefault(leadGenTwo, 5),
       }
       const fd = new FormData()
       fd.append('restaurant', new Blob([JSON.stringify(restaurant)], { type: 'application/json' }))
@@ -193,7 +193,7 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
 
           <SectionTitle>Lead generation</SectionTitle>
           <p style={{ fontSize: 12, color: '#777', margin: '0 0 8px' }}>
-            Percentage fees withheld from the restaurant&apos;s payout. FamilyMeal defaults: 15% and 3%.
+            Percentage fees withheld from the restaurant&apos;s payout. Defaults: 15% and 5%.
           </p>
           <Grid cols={2}>
             <Field label="Lead gen 1 (%)">
@@ -202,7 +202,7 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
             </Field>
             <Field label="Lead gen 2 (%)">
               <input style={input} type="number" min={0} max={100} step="0.1" value={leadGenTwo}
-                onChange={e => setLeadGenTwo(e.target.value)} placeholder="3" />
+                onChange={e => setLeadGenTwo(e.target.value)} placeholder="5" />
             </Field>
           </Grid>
 
