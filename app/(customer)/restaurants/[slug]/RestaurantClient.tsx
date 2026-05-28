@@ -906,7 +906,14 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             activeSection?.categories.map(cat => (
               <div key={cat.reference} style={{ marginBottom: 40 }}>
                 {!embedded && (activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
-                  <div style={{ position: 'sticky', top: hasSelection ? 98 : 52, zIndex: 30, background: '#f8f8fc', padding: '12px 0 14px', marginBottom: 8, boxShadow: '0 8px 8px -10px rgba(0,0,0,0.12)' }}>
+                  // Plain block, not sticky. The parent column at line ~892
+                  // has overflow:hidden, which breaks position:sticky —
+                  // browsers apply the `top` offset without the scroll-stick
+                  // behavior, shifting the header upward over the first
+                  // menu card (the "Entrees over Chicken Parm" bug).
+                  // Dropping sticky has no functional regression because
+                  // it was never sticking anyway.
+                  <div style={{ padding: '4px 0 14px', marginBottom: 4 }}>
                     <h2 style={{ fontSize: 16, fontWeight: 800, color: DARK, margin: 0, letterSpacing: '-0.01em' }}>{cat.name}</h2>
                     {cat.description && <p style={{ fontSize: 13, color: '#888', margin: '4px 0 0' }}>{cat.description}</p>}
                   </div>
