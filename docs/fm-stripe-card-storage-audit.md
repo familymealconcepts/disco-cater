@@ -113,6 +113,25 @@ Confirm `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` in Vercel matches FM's platform Str
 
 ---
 
+## Section F — Deferred cleanups (this session)
+
+| ID | Status | Notes |
+|---|---|---|
+| **E.1** drop `quantity` from checkout POST | ✅ done (commit `dc6254b`) | `buildCheckoutPayload` mapLine no longer emits `quantity`; FM reads `count` only. Pudding × 2 still yields `count: 2`. |
+| **E.2** default menu = primary | ✅ done (commit `476ecd0`), `[NEEDS REVIEW]` | `fetchMenuData` sorts menus by `position` ascending so the admin-defined primary leads. FM itself does `menus[0]` with no client sort, so this is a defensible mirror of the admin's position ordering. Can't confirm the fix resolves the "[Copy] Summer Menu" symptom without the live `/public-api/menu` response for that restaurant. |
+| **E.3** picker load time | ⏱ documented (below) | Can't measure from code. |
+| **E.4** Sanity `fmReference` field | ⚠ not actionable here | The Sanity restaurant schema is NOT in the disco-cater repo — `sanity/` only contains `lib/client.ts`. The schema lives in the separate hosted Studio (`discocater.sanity.studio` per CLAUDE.md). Adding `fmReference` must be done in that Studio project, not here. Field spec for whoever does it: `defineField({ name: 'fmReference', title: 'FamilyMeal Reference', type: 'string', description: 'FM restaurant reference UUID for matching FM data as enrichment source.' })` — optional, no validation. |
+
+### E.3 — Authorized Users picker load time
+
+The location picker on the Authorized Users dialog calls `GET /api/restaurant/system-admin-restaurants` → FM `GET /api/system-admin/restaurants/list`. This is the **JWT-scoped** endpoint that returns only the SYSTEM_ADMIN's assigned locations (typically 1–30), NOT the SUPER_ADMIN's full 700-restaurant list.
+
+By construction this is fast — a small payload, no pagination. The ~5s load Peter saw earlier was the SUPER_ADMIN `manage-admins` picker hitting `/api/admin/restaurants?size=1000` (all platform restaurants). That's a different page with a different endpoint.
+
+**Cannot benchmark from code** — needs a live timing in DevTools Network tab. Expected < 1s for typical accounts. If it's slow, the bottleneck is FM's `/api/system-admin/restaurants/list` backend, not our proxy (which just forwards). Flagged for live verification.
+
+---
+
 ## Open questions for Peter
 
 1. **Remove-card** — FM has no delete endpoint. Confirm we should leave "Update/replace" as the only mutation (current behavior), or whether FM backend has an undocumented delete we should wire.

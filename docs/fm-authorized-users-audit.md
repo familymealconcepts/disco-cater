@@ -253,6 +253,12 @@ So an ADMIN-role user cannot see or reach Authorized Users from the sidebar. ✅
 
 The picker endpoint returns ≤30 entries typically (SYSTEM_ADMIN's assigned locations only). No pagination needed. If load time exceeds ~500ms, that's an FM backend issue — not in scope to fix here.
 
+### E.3 verification (Session 3)
+
+The Authorized Users picker calls `GET /api/restaurant/system-admin-restaurants` → FM `GET /api/system-admin/restaurants/list` — the JWT-scoped endpoint returning only the inviter's assigned locations. This is NOT the SUPER_ADMIN `/api/admin/restaurants?size=1000` (all 700) path that took ~5s; that's a different page (`manage-admins`).
+
+Expected < 1s for typical accounts (small payload, no pagination). **Cannot benchmark from code** — needs a live DevTools timing. If slow, the bottleneck is FM's backend on that endpoint, not our forwarding proxy. Flagged for live verification.
+
 ---
 
 ## Section F — Verification checklist for Peter
