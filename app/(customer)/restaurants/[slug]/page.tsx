@@ -11,6 +11,21 @@ const sanity = createClient({
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
+interface FmRestaurantLookup {
+  reference: string
+  businessName: string
+  businessNameWithoutSpaces?: string
+  address?: {
+    addressLine1?: string
+    addressLine2?: string
+    city?: string
+    state?: string
+    zipcode?: string
+    phoneNumber?: string
+  }
+  image?: { reference?: string }
+}
+
 async function resolveFmRef(slug: string): Promise<string | null> {
   try {
     const res = await fetch(`${FM}/public-api/restaurants`, {
@@ -23,6 +38,36 @@ async function resolveFmRef(slug: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+// FM direct slug lookup — mirrors getRestaurantByName() in
+// _system/_services/restaurant/restaurant.service.ts:436-440 + the
+// two-step flow used by checkout-pantry.component.ts:480-507.
+// Returns the full restaurant body (with reference + address + image)
+// or null if FM doesn't recognize the slug.
+async function fetchFmRestaurantBySlug(slug: string): Promise<FmRestaurantLookup | null> {
+  try {
+    const res = await fetch(`${FM}/public-api/restaurants/business/${encodeURIComponent(slug)}`, {
+      headers: { Accept: 'application/json' },
+      next: { revalidate: 3600 },
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    if (!data || !data.reference) return null
+    return data as FmRestaurantLookup
+  } catch {
+    return null
+  }
+}
+
+function joinFmAddress(a?: FmRestaurantLookup['address']): string {
+  if (!a) return ''
+  const line = [a.addressLine1, a.addressLine2].filter(Boolean).join(', ')
+  const cityStateZip = [
+    [a.city, a.state].filter(Boolean).join(', '),
+    a.zipcode,
+  ].filter(Boolean).join(' ')
+  return [line, cityStateZip].filter(Boolean).join(' · ').replace(/ · ([A-Z]{2})/g, ', $1')
 }
 
 async function fetchMenuData(restaurantRef: string) {
@@ -58,7 +103,9 @@ export default async function RestaurantPage({
 }) {
   const { slug } = await params
 
-  const restaurant = await sanity.fetch(
+  // Try Sanity first (existing path — preserves cuisine tags,
+  // descriptions, hero image overrides for restaurants curated there).
+  const sanityRestaurant = await sanity.fetch(
     `*[_type=="restaurant" && slug.current==$slug][0]{
       name, slug, address, cuisine, cuisines, description,
       image, orderUrl, isDisco, location, tags, lat, lng
@@ -66,20 +113,55 @@ export default async function RestaurantPage({
     { slug }
   )
 
-  if (!restaurant) return notFound()
+  if (sanityRestaurant) {
+    const fmSlug = sanityRestaurant.orderUrl
+      ? sanityRestaurant.orderUrl.replace(/.*\/disco\//, '').replace(/\/.*/, '').trim()
+      : null
+    const fmRef = fmSlug ? await resolveFmRef(fmSlug) : null
+    const menuData = fmRef ? await fetchMenuData(fmRef) : []
+    return (
+      <RestaurantClient
+        restaurant={sanityRestaurant}
+        fmSlug={fmSlug}
+        fmRef={fmRef}
+        menuData={menuData}
+        slug={slug}
+      />
+    )
+  }
 
-  const fmSlug = restaurant.orderUrl
-    ? restaurant.orderUrl.replace(/.*\/disco\//, '').replace(/\/.*/, '').trim()
-    : null
+  // FM fallback — A.5 from docs/fm-marketplace-and-access-audit.md.
+  // FM's customer slug lookup at /public-api/restaurants/business/{slug}
+  // returns any restaurant by businessNameWithoutSpaces, marketplace
+  // type or ordering type, regardless of whether Sanity has curated it.
+  // This makes Test Kitchen (type: ORDERING, no Sanity doc) directly
+  // orderable at /restaurants/test-kitchen.
+  const fmRestaurant = await fetchFmRestaurantBySlug(slug)
+  if (!fmRestaurant) return notFound()
 
-  const fmRef = fmSlug ? await resolveFmRef(fmSlug) : null
-  const menuData = fmRef ? await fetchMenuData(fmRef) : []
+  const FM_IMG = process.env.NEXT_PUBLIC_FM_API_BASE_URL || 'https://api.familymeal.com'
+  const minimalRestaurant = {
+    name: fmRestaurant.businessName,
+    address: joinFmAddress(fmRestaurant.address),
+    cuisine: undefined,
+    cuisines: [] as string[],
+    description: undefined,
+    image: fmRestaurant.image?.reference
+      ? { asset: { url: `${FM_IMG}/public-api/images/${fmRestaurant.image.reference}/download?size=600` } }
+      : undefined,
+    orderUrl: `https://www.familymeal.com/${fmRestaurant.businessNameWithoutSpaces || slug}`,
+    isDisco: false,
+    location: undefined,
+    tags: [] as string[],
+  }
+
+  const menuData = await fetchMenuData(fmRestaurant.reference)
 
   return (
     <RestaurantClient
-      restaurant={restaurant}
-      fmSlug={fmSlug}
-      fmRef={fmRef}
+      restaurant={minimalRestaurant}
+      fmSlug={fmRestaurant.businessNameWithoutSpaces || slug}
+      fmRef={fmRestaurant.reference}
       menuData={menuData}
       slug={slug}
     />
