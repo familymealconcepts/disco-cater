@@ -36,7 +36,6 @@ interface SanityMarketplace {
   tags?: string[]
   orderUrl?: string
   isDisco?: boolean
-  featured?: boolean
   image?: { asset?: { _ref?: string } }
 }
 
@@ -85,7 +84,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [tags, setTags] = useState<string[]>([])
   const [orderUrl, setOrderUrl] = useState('')
   const [isDisco, setIsDisco] = useState(false)
-  const [featured, setFeatured] = useState(false)
   const [heroFile, setHeroFile] = useState<File | null>(null)
 
   useEffect(() => {
@@ -121,7 +119,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         setTags(mp.tags || [])
         setOrderUrl(mp.orderUrl || '')
         setIsDisco(!!mp.isDisco)
-        setFeatured(!!mp.featured)
       }
     }).catch(() => { if (!cancel) setErr('Failed to load restaurant') })
       .finally(() => { if (!cancel) setLoading(false) })
@@ -204,7 +201,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
           tags,
           orderUrl: orderUrl || undefined,
           isDisco,
-          featured,
         }
         if (imageField) mpBody.image = imageField
         const mpRes = await fetch('/api/admin/restaurant-marketplace', {
@@ -350,9 +346,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                     <div style={{ display: 'flex', gap: 20 }}>
                       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: DARK, cursor: 'pointer' }}>
                         <input type="checkbox" checked={isDisco} onChange={e => setIsDisco(e.target.checked)} style={{ accentColor: INDIGO }} /> isDisco (Premium)
-                      </label>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: DARK, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={featured} onChange={e => setFeatured(e.target.checked)} style={{ accentColor: INDIGO }} /> Featured
                       </label>
                     </div>
                   </div>
