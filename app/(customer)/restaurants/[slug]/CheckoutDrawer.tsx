@@ -781,7 +781,10 @@ export default function CheckoutDrawer({
 
         {/* Step content */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {step === 'review' && <ReviewStep />}
+          {/* Logged-in + ready users auto-advance past review (Item 2) — show
+              the spinner, not the review UI, so the intermediate drawer never
+              paints. Logged-out / not-ready users still get the review. */}
+          {step === 'review' && (authUser && canProceed ? <ProcessingStep /> : <ReviewStep />)}
           {step === 'processing' && <ProcessingStep />}
           {step === 'payment' && <PaymentStep />}
           {step === 'placing' && <PlacingStep />}
