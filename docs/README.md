@@ -88,3 +88,19 @@ FM Angular source lives at `/Users/peterventi/Desktop/familymeal-backend/src/app
 - `lib/pricing/checkout.ts` — `buildCheckoutPayload` (FM POST shape).
 
 All pricing UI routes through these — no inline arithmetic in components.
+
+---
+
+## Session log — 2026-05-27 autonomous multi-track
+
+| Track | Status | Notes |
+|---|---|---|
+| 1 — SA aggregated Orders | ✅ shipped (`840c609`) | Additive proxy routing to `/api/system-admin/orders` + Restaurant column + banner. ADMIN/SA-selected untouched. Needs live verify of aggregated response shape. |
+| 2 — SA aggregated Reporting | 📋 documented, not shipped | FM aggregates by default but the dashboard's working "pick a restaurant" gate would be a regression risk to remove blind on a previously-fragile page. Exact change spec'd in `fm-multi-location-runtime-audit.md`; needs live verify of the aggregate sale-stats endpoint. |
+| 3 — Default menu (E.2) | ✅ verified correct | FM uses raw `menus[0]`; `position` isn't on the public response, so the `476ecd0` sort degrades to FM's exact behavior. No change. |
+| 4 — Sticky category header | ✅ verified, no change | FM section headers are NOT sticky (only the tab bar is). Disco's current normal-flow headers already match FM. |
+| 5 — Marketplace Revyrie ticket | ✅ shipped (`259c804`) | `revyrie-tickets/marketplace-visibility-toggle.md` |
+| 6 — Impersonation Revyrie ticket | ✅ shipped (`259c804`) | `revyrie-tickets/super-admin-impersonation.md` |
+| 7 — Docs index | ✅ shipped (`259c804`) | this file |
+
+All 6 prerequisite/code docs read; recurring gotchas confirmed unchanged. Code tracks held to the additive-only / no-blind-regression bar given the no-test autonomous context. Two items (Track 1 shape, Track 2 go/no-go) flagged for Peter's live verification.
