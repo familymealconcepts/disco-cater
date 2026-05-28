@@ -236,7 +236,7 @@ export default function CheckoutDrawer({
     if (!ref) {
       const initBody = buildCheckoutPayload({
         restaurantRef: fmRef,
-        cart: cart.map(i => ({ reference: i.pkg.reference, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
+        cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
         orderType: orderType as 'DELIVERY' | 'PICKUP',
         orderDate: selDate, orderTime: selTime,
         deliveryAddress: orderType === 'DELIVERY' ? fmAddr : undefined,
