@@ -1,7 +1,10 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthContext } from '../../../context/AuthContext'
+import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
+import { cartLineTotal, cartSubtotal } from '../../../../lib/pricing/cart'
+import { formatCurrency } from '../../../../lib/pricing/lineItem'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
@@ -70,6 +73,8 @@ export default function CheckoutDrawer({
   addr, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount, onClose,
 }: Props) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const debugPricing = searchParams?.get('debug') === 'pricing'
   const { user: authUser, openAuthModal } = useAuthContext()
 
   // Checkout flow
@@ -173,46 +178,26 @@ export default function CheckoutDrawer({
     if (!authUser) { setWaitingForAuth(true); openAuthModal(undefined, 'login'); return }
 
     try {
-      // 1. Init order — payload mirrors FM's IMealPackageSimpleResponse
-      // shape (see _system/_models/meal-packages/meal-package.model.ts).
-      // Server uses `count` for quantity and `extraItems[]` for the
-      // selected modifiers. Each extra item is tagged with
-      // `extraItemsGroupReference` + type 'ADD_ON' so FM can compute
-      // pricing server-side from the same data the user saw.
-      //
-      // Headcount: FM has no dedicated field, so we stash it in the
-      // order-level `note` (and also send a top-level orderHeadcount
-      // key in case FM ever adds support). Captured for AI training.
-      const headcountNote = headcount != null ? `Headcount: ${headcount}` : ''
-      const noteParts = [headcountNote].filter(Boolean)
-      const note = noteParts.join(' · ')
-
-      const initBody = {
+      // 1. Init order — payload built via lib/pricing/checkout.ts to
+      // centralize the FM POST shape. See doc § 1.3 for citations:
+      // mealPackages[].count + extraItems[]{ count, type: 'ADD_ON',
+      // extraItemsGroupReference }. Field shape unchanged from the
+      // previous inline version.
+      const initBody = buildCheckoutPayload({
         restaurantRef: fmRef,
-        mealPackages: cart.map(i => ({
+        cart: cart.map(i => ({
           reference: i.pkg.reference,
-          // Send both — quantity for any legacy v1 shim, count is the
-          // canonical FM field used by add-to-cart.component.
-          quantity: i.quantity,
+          price: i.pkg.price,
           count: i.quantity,
-          itemType: 'MEAL_PACKAGES',
-          ...(i.note ? { comment: i.note } : {}),
-          extraItems: i.addOns.map(a => ({
-            reference: a.reference,
-            name: a.name,
-            price: a.price,
-            count: a.count,
-            type: 'ADD_ON',
-            extraItemsGroupReference: a.extraItemsGroupReference,
-          })),
+          addOns: i.addOns,
+          note: i.note,
         })),
-        orderType,
+        orderType: orderType as 'DELIVERY' | 'PICKUP',
         orderDate: selDate,
         orderTime: selTime,
-        ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
-        ...(headcount != null ? { orderHeadcount: headcount } : {}),
-        ...(note ? { note, comment: note } : {}),
-      }
+        deliveryAddress: orderType === 'DELIVERY' ? fmAddr : undefined,
+        headcount,
+      })
       const initRes = await fetch('/api/order/init', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(initBody),
@@ -631,6 +616,22 @@ export default function CheckoutDrawer({
         </div>
       </div>
 
+      {/* Debug overlay (?debug=pricing) — surface cart math + the POST
+          payload before it's sent so reconciliation is visible. Hidden
+          unless the URL has ?debug=pricing. Never shown to real diners. */}
+      {debugPricing && <PricingDebugOverlay
+        cart={cart}
+        subtotal={subtotal}
+        svcAmt={svcAmt}
+        tipAmt={tipAmt}
+        fmRef={fmRef}
+        orderType={orderType as 'DELIVERY' | 'PICKUP'}
+        selDate={selDate}
+        selTime={selTime}
+        addr={addr}
+        headcount={headcount}
+      />}
+
       {/* Toast */}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: DARK, color: '#fff', padding: '12px 20px', borderRadius: 12, fontSize: 14, fontWeight: 600, zIndex: 900, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', whiteSpace: 'nowrap' }}>
@@ -644,5 +645,96 @@ export default function CheckoutDrawer({
         @media (max-width: 520px) { .checkout-drawer { max-width: 100% !important; } }
       `}</style>
     </>
+  )
+}
+
+// ── Pricing debug overlay (hidden unless ?debug=pricing) ─────────────────────
+// Mounts a fixed panel on the bottom-left of the viewport that lists
+// every cart line with its lib/pricing/cart.cartLineTotal, the running
+// subtotal, the service/tip estimates, and a JSON preview of the FM
+// POST payload that buildCheckoutPayload() would emit. Lets Peter
+// reconcile against FM's PUT response without opening DevTools.
+
+interface PricingDebugProps {
+  cart: CartItem[]
+  subtotal: number
+  svcAmt: number
+  tipAmt: number
+  fmRef: string
+  orderType: 'DELIVERY' | 'PICKUP'
+  selDate: string
+  selTime: string
+  addr: Props['addr']
+  headcount: number | null
+}
+
+function PricingDebugOverlay({ cart, subtotal, svcAmt, tipAmt, fmRef, orderType, selDate, selTime, addr, headcount }: PricingDebugProps) {
+  const lineRows = cart.map((i, idx) => {
+    const line = { price: i.pkg.price, count: i.quantity, addOns: i.addOns }
+    const total = cartLineTotal(line)
+    const sub = cartSubtotal([line])  // sanity check — should equal total for one line
+    return { idx, name: i.pkg.name, qty: i.quantity, base: i.pkg.price, addOns: i.addOns, total, sub }
+  })
+
+  const computedSubtotal = cartSubtotal(cart.map(i => ({ price: i.pkg.price, count: i.quantity, addOns: i.addOns })))
+  const subtotalMatches = Math.abs(computedSubtotal - subtotal) < 0.005
+
+  const payload = buildCheckoutPayload({
+    restaurantRef: fmRef,
+    cart: cart.map(i => ({ reference: i.pkg.reference, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
+    orderType,
+    orderDate: selDate,
+    orderTime: selTime,
+    deliveryAddress: orderType === 'DELIVERY' && addr ? {
+      addressLine1: addr.line1, city: addr.city, state: addr.state, zipcode: addr.zip,
+    } : undefined,
+    headcount,
+  })
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 16, left: 16, width: 420, maxHeight: '70vh',
+      background: '#0d1117', color: '#c9d1d9', padding: '14px 16px',
+      borderRadius: 10, border: '1px solid #30363d', zIndex: 950,
+      boxShadow: '0 6px 24px rgba(0,0,0,0.3)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontSize: 11, lineHeight: 1.45, overflowY: 'auto',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <strong style={{ color: '#7ee787' }}>pricing.debug</strong>
+        <span style={{ color: subtotalMatches ? '#7ee787' : '#f85149' }}>
+          {subtotalMatches ? '✓ subtotal matches' : '✗ subtotal MISMATCH'}
+        </span>
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ color: '#8b949e', textTransform: 'uppercase', fontSize: 9, letterSpacing: '0.08em', marginBottom: 4 }}>Lines</div>
+        {lineRows.map(r => (
+          <div key={r.idx} style={{ marginBottom: 6, paddingBottom: 6, borderBottom: '1px solid #21262d' }}>
+            <div style={{ color: '#c9d1d9' }}>{r.name} × {r.qty}</div>
+            <div style={{ color: '#8b949e', paddingLeft: 8 }}>base {formatCurrency(r.base)} × {r.qty} + Σ addons</div>
+            {r.addOns.map((a, j) => (
+              <div key={j} style={{ color: '#8b949e', paddingLeft: 16 }}>+ ({a.count}) {a.name} @ {formatCurrency(a.price)} = {formatCurrency(a.price * a.count)}/meal × {r.qty} meals</div>
+            ))}
+            <div style={{ color: '#7ee787', paddingLeft: 8 }}>line → {formatCurrency(r.total)}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ color: '#8b949e', textTransform: 'uppercase', fontSize: 9, letterSpacing: '0.08em', marginBottom: 4 }}>Totals (client estimate — FM PUT response is canonical)</div>
+        <div>subtotal:       <span style={{ color: '#7ee787' }}>{formatCurrency(subtotal)}</span></div>
+        <div>(helper sum):   <span style={{ color: subtotalMatches ? '#7ee787' : '#f85149' }}>{formatCurrency(computedSubtotal)}</span></div>
+        <div>service charge: <span style={{ color: '#7ee787' }}>{formatCurrency(svcAmt)}</span></div>
+        <div>tip:            <span style={{ color: '#7ee787' }}>{formatCurrency(tipAmt)}</span></div>
+        <div>tax / delivery: <span style={{ color: '#8b949e' }}>server-computed</span></div>
+      </div>
+
+      <div>
+        <div style={{ color: '#8b949e', textTransform: 'uppercase', fontSize: 9, letterSpacing: '0.08em', marginBottom: 4 }}>POST /api/order/init payload</div>
+        <pre style={{ margin: 0, color: '#c9d1d9', fontSize: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+{JSON.stringify(payload, null, 2)}
+        </pre>
+      </div>
+    </div>
   )
 }

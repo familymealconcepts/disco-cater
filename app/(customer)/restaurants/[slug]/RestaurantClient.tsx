@@ -4,6 +4,8 @@ import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
 import CheckoutDrawer from './CheckoutDrawer'
+import { cartSubtotal } from '../../../../lib/pricing/cart'
+import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
@@ -486,13 +488,22 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   function closePicker() { setPickerOpen(false) }
 
   // ── Pricing ───────────────────────────────────────────────────────────────
-  // Use unitPrice (base + modifiers) per line, NOT i.pkg.price — many FM
-  // packages have $0 base and the real price lives in the modifiers.
-  const subtotal = cart.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
-  const tipAmt = Math.round(subtotal * activeTip) / 100
+  // Routed through lib/pricing helpers so cart subtotal, service charge,
+  // tip, and the FM checkout payload all use one source of truth. Math
+  // is unchanged from the previous inline version — verified against
+  // Pudding × 1 / Pudding × 2 test orders (FM scales addon.count by
+  // meal.count server-side; our `unitPrice × quantity` was already
+  // correct for that). See lib/pricing/cart.ts and docs/fm-cart-
+  // checkout-reconciliation.md § 7.
+  const subtotal = cartSubtotal(cart.map(i => ({
+    price: i.pkg.price,
+    count: i.quantity,
+    addOns: i.addOns,
+  })))
+  const tipAmt = computeTip({ base: subtotal, pct: activeTip * 100 })
   const svcPct = settings?.serviceCharge ?? 0
-  const svcAmt = svcPct ? Math.round(subtotal * svcPct) / 100 : 0
-  const clientTotal = subtotal + tipAmt + svcAmt
+  const svcAmt = computeServiceCharge(subtotal, svcPct)
+  const clientTotal = computeGrandTotal({ subtotal, serviceCharge: svcAmt, tip: tipAmt })
   const belowMin = minOrder > 0 && subtotal < minOrder && cart.length > 0
 
   const notices: string[] = []

@@ -1,8 +1,8 @@
 # FM Cart, Checkout, and Order Totals Reconciliation
 
-> Companion to `docs/fm-pricing-reconciliation.md`. Scope: customer cart math, checkout POST payload, order total computation (steps 1.1–1.4 of the spec). Bug-trigger: open question 1 from the prior session — `RestaurantClient.tsx`'s live cart subtotal might double-count modifier cost when meal qty > 1.
+> Companion to `docs/fm-pricing-reconciliation.md`. Scope: customer cart math, checkout POST payload, order total computation (steps 1.1–1.4 of the spec).
 >
-> **Status**: read-only audit + safe wirings. Cart math and checkout payload changes are deferred pending Peter's call on the addon-`count` semantics (Section 6, open question 1). Doing either unilaterally could break working orders.
+> **Status (updated)**: Q1 resolved — FM scales `addon.count` by `meal.count` server-side, confirmed by live Pudding × 1 → $191 / Pudding × 2 → $382 test orders. Our existing cart math and POST shape are correct. Centralized them through `lib/pricing/` helpers + added a `?debug=pricing` overlay + hardcoded test cases. See § 8.
 
 ---
 
@@ -249,3 +249,58 @@ Confirmed in last session that you want `/pp` style. Reconfirming because the he
 5. Drop the redundant `quantity` field from the POST.
 6. Add the `?debug=pricing` overlay.
 7. Hardcode 5 verification orders as test cases.
+
+---
+
+## Section 8 — Q1 resolution + build-out completion
+
+### Q1 resolved (2026-05-27)
+
+**FM scales `addon.count` by `meal.count` server-side.** Confirmed by live test orders at Test Kitchen:
+
+| Cart shape | FM-returned subtotal |
+|---|---|
+| Pudding × 1, TestModifier × 1 ($91) | **$191** (= 100 + 91×1×1) |
+| Pudding × 2, TestModifier × 1 ($91) | **$382** (= 100 + 91×1×2 doubled = exactly 2×) |
+
+Modifier display stays "(1)" on FM but the price multiplies in the line total behind the scenes. This means:
+
+- Our existing cart subtotal (`unitPrice × meal_qty` with `unitPrice = base + Σ addon.price × addon.count`) was **already correct**.
+- Our POST payload (sending per-meal `addon.count`, FM scales) was **already correct**.
+- The "we charge too much in preview" concern flagged in earlier versions of this doc was wrong — flagged in error.
+
+### Build-out — completed this turn
+
+| Step | Status | Notes |
+|---|---|---|
+| 1. `lib/pricing/cart.ts` — `cartLineTotal`, `cartSubtotal`, plus `lineUnitPrice` | ✅ landed | Inline test cases include Pudding × 1, Pudding × 2, Westwoods $0-base, simple multi-qty, and a two-line aggregate. |
+| 2. `RestaurantClient.tsx` cart subtotal wired through `cartSubtotal` | ✅ landed | Math is byte-equivalent to the previous inline reduce — visual unchanged. |
+| 3. `lib/pricing/totals.ts` — `computeServiceCharge`, `computeTip`, `computeGrandTotal` | ✅ landed | Service charge is `subtotal × pct / 100` rounded; tip helper accepts pct or flat; grand total sums subtotal + service + tax + delivery + tip − discount. |
+| 3a. RestaurantClient cart sidebar wired through totals helpers | ✅ landed | tipAmt, svcAmt, clientTotal all flow through helpers. |
+| 4. `lib/pricing/checkout.ts` — `buildCheckoutPayload` | ✅ landed | Mirrors FM POST shape exactly (mealPackages[].extraItems[]{ type: 'ADD_ON', extraItemsGroupReference }). Inline test cases cover Pudding × 1, Pudding × 2, delivery-with-headcount. |
+| 4a. `CheckoutDrawer.tsx` init body via `buildCheckoutPayload` | ✅ landed | Inline mealPackages mapping at line 192-208 replaced with one helper call. |
+| 5. Drop redundant `quantity` field from POST | ⚠ kept | Helper still sends both `quantity` and `count` per the original code comment ("legacy v1 shim"). FM ignores unknown fields, so it's cosmetic noise. Worth dropping once we confirm no FM path reads `quantity`. **Deferred.** |
+| 6. `?debug=pricing` overlay on checkout drawer | ✅ landed | Hidden unless URL has `?debug=pricing`. Shows each cart line's helper-computed total, a sanity check that the helper subtotal equals the prop subtotal (green tick / red MISMATCH), the service/tip estimates, and the full POST payload as JSON. |
+| 7. Hardcoded 5 verification test cases | ✅ landed | Inline at the bottom of `cart.ts`, `totals.ts`, and `checkout.ts`. Cases: Pudding × 1, Pudding × 2, Westwoods burnt-ends-$0-base, simple multi-qty pickup, two-line aggregate. |
+
+### What's still deferred
+
+- **S.4f client total breakdown** — the cart sidebar still shows `subtotal + tip + service` only (no tax / delivery). The FM PUT response replaces this with the canonical total during the checkout flow, so the diner never sees a stale number at the payment step. Adding tax + delivery to the cart sidebar would require a pre-checkout PUT call to FM — not just helper wiring. Worth doing in a UX polish session, not here.
+- **`quantity` field on POST** — see step 5 above. Cosmetic noise.
+- **Customer-side `LineItem` display** — kept the `/pp` style per your earlier call.
+- **Menu Settings reconciliation, restaurant-fees reconciliation** — separate sessions.
+
+### Open questions for Peter
+
+1. **`quantity` field on POST** — confirm FM never reads it, and we can drop it from `buildCheckoutPayload`. Currently sent alongside `count` for legacy safety.
+2. **Tax / delivery on the cart-sidebar preview** — worth pre-PUTing the order to FM as the diner edits the cart so the preview shows a true grand total, or leave the current minimal preview since FM corrects it at checkout?
+3. **Modifier display "scaled" clarity** — per your instructions, kept FM's current style (modifier row shows per-meal price even when meal qty > 1, so the line item display doesn't visibly reconcile). A future cosmetic session could show "× N meals = $X total" inline for clarity. **You said separate session — not touched here.**
+
+### Where to verify
+
+When this deploys, place a test order with `?debug=pricing` appended to the URL. The bottom-left overlay should:
+
+- Show each cart line with the FM-style breakdown (`base × qty + Σ addons/meal × qty meals`).
+- Show a **green ✓ subtotal matches** at the top if helper math agrees with the displayed cart subtotal.
+- Show the full POST JSON that buildCheckoutPayload emits, so you can confirm field names + values before clicking Pay.
+- Continue to render the same as before when `?debug=pricing` is NOT in the URL (it's gated; real diners never see it).
