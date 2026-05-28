@@ -384,7 +384,33 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
     const method = form.reference ? 'PUT' : 'POST'
 
     const generatedName = form.name?.trim() || `${form.frequency}_SALES_SUMMARY_${formatNameStamp()}`
-    const payload: ReportPayload = { ...form, name: generatedName }
+
+    // FM sets ownerReferences to the logged-in user's reference
+    // (scheduled-report-option-create-update.component.ts:273 —
+    //  ownerReferences: [customer?.reference], customer = localStorage
+    //  'currentUser'). Disco stores the same login payload as
+    //  'restaurant_user'. Sending an empty array makes FM reject the
+    //  create with a 4xx ("Save failed").
+    let ownerReferences = form.ownerReferences
+    if (!ownerReferences?.length) {
+      try {
+        const u = JSON.parse(localStorage.getItem('restaurant_user') || '{}')
+        if (u?.reference) ownerReferences = [u.reference]
+      } catch { /* ignore */ }
+    }
+
+    // FM defaults locationReferenceIds to ALL of the user's restaurants
+    // when none are explicitly checked (component.ts:268).
+    const locationReferenceIds = form.filter.locationReferenceIds.length
+      ? form.filter.locationReferenceIds
+      : locations.map(l => l.reference)
+
+    const payload: ReportPayload = {
+      ...form,
+      name: generatedName,
+      ownerReferences,
+      filter: { ...form.filter, locationReferenceIds },
+    }
 
     const res = await fetch(url, {
       method,
