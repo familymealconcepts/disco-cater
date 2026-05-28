@@ -97,6 +97,14 @@ export function formatCurrency(n: number | undefined | null): string {
   return USD.format(n ?? 0)
 }
 
+/** Per-value 2-decimal rounding. FM uses Angular's CurrencyPipe at
+ *  display time which rounds each rendered value independently (not
+ *  per-line accumulation). For any client-side math that has to
+ *  produce a stable cents value before display, use this. */
+export function roundCurrency(n: number | undefined | null): number {
+  return Math.round(((n ?? 0) + Number.EPSILON) * 100) / 100
+}
+
 // ─── Inline test cases (mental, not executable) ─────────────────────────────
 // Pulled from FM order #27350018 at Westwoods BBQ (the bug-trigger order)
 // and two synthetic cases.

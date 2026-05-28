@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import SubscriptionSetupModal from './SubscriptionSetupModal'
 import FavoriteHeart from './FavoriteHeart'
+import { lineQty, modifierQty, lineModifiers, formatCurrency } from '../../../../lib/pricing/lineItem'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -397,24 +398,35 @@ function DetailRow({ label, value, valueNode }: { label: string; value?: string;
 }
 
 function LineItem({ name, count, price, addOns, comment }: { name: string; count?: number; price?: number; addOns?: OrderAddOn[]; comment?: string }) {
+  // Routed through lib/pricing/lineItem.ts helpers for field-name
+  // safety against the FM `count`/`orderAddOns` ↔ `quantity`/`extraItems`
+  // historical mismatch. The visual is intentionally diner-friendly
+  // ("/pp" per-person unit pricing) rather than FM's `× qty` totals —
+  // confirmed with Peter, do not change without an explicit ask.
+  const line = { name, count, price, orderAddOns: addOns }
+  const qty = lineQty(line)
+  const modifiers = lineModifiers(line)
   return (
     <div style={{ padding: '8px 0', borderBottom: '1px dotted #eee' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
         <span style={{ fontSize: 12, color: DARK, fontWeight: 500 }}>
-          {name}{count && count > 1 ? ` (x${count})` : ''}
+          {name}{qty > 1 ? ` (x${qty})` : ''}
         </span>
         <span style={{ fontSize: 12, color: DARK, fontWeight: 600, whiteSpace: 'nowrap' }}>
-          {price !== undefined ? `${fmtMoney(price)}/pp` : ''}
+          {price !== undefined ? `${formatCurrency(price)}/pp` : ''}
         </span>
       </div>
-      {addOns && addOns.length > 0 && (
+      {modifiers.length > 0 && (
         <div style={{ paddingLeft: 12, marginTop: 4 }}>
-          {addOns.map((a, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#666', padding: '2px 0' }}>
-              <span>+ {a.name}{a.count && a.count > 1 ? ` (x${a.count})` : ''}</span>
-              {a.price !== undefined && <span>{fmtMoney(a.price)}/pp</span>}
-            </div>
-          ))}
+          {modifiers.map((a, i) => {
+            const mqty = modifierQty(a)
+            return (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#666', padding: '2px 0' }}>
+                <span>+ {a.name}{mqty > 1 ? ` (x${mqty})` : ''}</span>
+                {a.price !== undefined && <span>{formatCurrency(a.price)}/pp</span>}
+              </div>
+            )
+          })}
         </div>
       )}
       {comment && (
