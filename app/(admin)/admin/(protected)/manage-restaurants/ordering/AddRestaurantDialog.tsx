@@ -10,6 +10,14 @@ const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
 const INDIGO = '#6B6EF9'
 
+// Parse a lead-gen percent, clamped to FM's 0-100 range; falls back to the
+// FM default (15 / 3) when blank or invalid.
+function pctOrDefault(raw: string, fallback: number): number {
+  const n = parseFloat(raw)
+  if (!isFinite(n)) return fallback
+  return Math.min(100, Math.max(0, n))
+}
+
 // FAKE_RESTAURANT_CATEGORIES from FM source. Stored lowercase in the UI,
 // uppercased before send (FM's component does `.toUpperCase()` on submit).
 const CATEGORY_OPTIONS: { value: string; label: string }[] = [
@@ -55,8 +63,9 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
   const [categories, setCategories] = useState<string[]>([])
   const [fulfillmentOptions, setFulfillmentOptions] = useState<string[]>([])
 
-  const [leadGenOne, setLeadGenOne] = useState('')
-  const [leadGenTwo, setLeadGenTwo] = useState('')
+  // FM defaults these to 15% and 3% (add-restaurant.component.ts:231-232).
+  const [leadGenOne, setLeadGenOne] = useState('15')
+  const [leadGenTwo, setLeadGenTwo] = useState('3')
 
   const [menuFile, setMenuFile] = useState<File | null>(null)
 
@@ -111,8 +120,9 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
         },
         categories,
         fulfillmentOptions,
-        leadGenOne: leadGenOne.trim() || undefined,
-        leadGenTwo: leadGenTwo.trim() || undefined,
+        // FM stores these as numbers (0-100), defaulting to 15 / 3.
+        leadGenOne: pctOrDefault(leadGenOne, 15),
+        leadGenTwo: pctOrDefault(leadGenTwo, 3),
       }
       const fd = new FormData()
       fd.append('restaurant', new Blob([JSON.stringify(restaurant)], { type: 'application/json' }))
@@ -182,9 +192,18 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
           </div>
 
           <SectionTitle>Lead generation</SectionTitle>
+          <p style={{ fontSize: 12, color: '#777', margin: '0 0 8px' }}>
+            Percentage fees withheld from the restaurant&apos;s payout. FamilyMeal defaults: 15% and 3%.
+          </p>
           <Grid cols={2}>
-            <Field label="Lead gen 1"><input style={input} value={leadGenOne} onChange={e => setLeadGenOne(e.target.value)} placeholder="Optional" /></Field>
-            <Field label="Lead gen 2"><input style={input} value={leadGenTwo} onChange={e => setLeadGenTwo(e.target.value)} placeholder="Optional" /></Field>
+            <Field label="Lead gen 1 (%)">
+              <input style={input} type="number" min={0} max={100} step="0.1" value={leadGenOne}
+                onChange={e => setLeadGenOne(e.target.value)} placeholder="15" />
+            </Field>
+            <Field label="Lead gen 2 (%)">
+              <input style={input} type="number" min={0} max={100} step="0.1" value={leadGenTwo}
+                onChange={e => setLeadGenTwo(e.target.value)} placeholder="3" />
+            </Field>
           </Grid>
 
           <SectionTitle>Initial menu (optional)</SectionTitle>
