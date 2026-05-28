@@ -246,10 +246,15 @@ export default function CheckoutDrawer({
       const initRes = await fetch('/api/order/init', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(initBody) })
       const initData = await initRes.json()
       if (!initRes.ok) throw new Error(initData.error || initData.message || 'Failed to create order draft.')
-      ref = initData.reference || initData.orderReference || initData.orderRef || initData.id || ''
+      // FM init returns { success, data: { orderReference, checkoutPublicResponseDto } }
+      // (meal-package.service.ts:339-345). The reference lives at
+      // data.orderReference — the old top-level reads missed it ("no reference
+      // returned"). Seed totals from the init response too.
+      ref = initData.data?.orderReference || initData.orderReference || initData.reference || initData.orderRef || initData.id || ''
       if (!ref) throw new Error('Order created but no reference returned.')
       orderRefRef.current = ref
       setOrderRef(ref)
+      if (initData.data?.checkoutPublicResponseDto || initData.data) setFmTotals(initData)
       if (orderType === 'DELIVERY') {
         fetch('/api/order/validate-address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantReference: fmRef, deliveryAddress: fmAddr }) }).catch(() => {})
       }
@@ -359,7 +364,7 @@ export default function CheckoutDrawer({
       const placeData = await placeRes.json()
       if (!placeRes.ok && placeData.error) throw new Error(placeData.error || placeData.message || 'Failed to place order.')
 
-      const finalRef = placeData.reference || placeData.orderReference || orderRef
+      const finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
       router.push(`/order-confirmation/${finalRef}`)
     } catch (err: any) {
       setError(err.message || 'Something went wrong. Please try again.')
