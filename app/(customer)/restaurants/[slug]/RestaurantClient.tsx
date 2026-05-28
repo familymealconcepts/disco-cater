@@ -190,6 +190,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // Cart
   const [cart, setCart] = useState<CartItem[]>([])
   const [tipPct, setTipPct] = useState<number | null>(null)
+  // "Other" tip mode: a blank custom input means $0 (NOT the menu default).
+  const [tipOther, setTipOther] = useState(false)
+  const [tipCustomInput, setTipCustomInput] = useState('')
   const [addr, setAddr] = useState({ line1: '', city: '', state: '', zip: '' })
 
   // Order config
@@ -240,7 +243,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const settings = activeMenu?.settings
   const menuAvail = settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
   const defaultTip = settings?.tipOption?.tipsPrice ?? 15
-  const activeTip = tipPct ?? defaultTip
+  // In "Other" mode a blank input means $0 (tipPct null → 0), never the menu
+  // default. Otherwise fall back to the menu's default tip.
+  const activeTip = tipOther ? (tipPct ?? 0) : (tipPct ?? defaultTip)
   const minOrder = orderType === 'DELIVERY'
     ? (settings?.deliveryOrderMinimum ?? settings?.pickupOrderMinimum ?? 0)
     : (settings?.pickupOrderMinimum ?? 0)
@@ -611,8 +616,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const tags = restaurant.cuisines?.length ? restaurant.cuisines : restaurant.cuisine ? [restaurant.cuisine] : []
 
   const [taxTooltip, setTaxTooltip] = useState(false)
-  const [tipOther, setTipOther] = useState(false)
-  const [tipCustomInput, setTipCustomInput] = useState('')
 
   const inp: React.CSSProperties = {
     width: '100%', padding: '9px 11px', border: '1.5px solid #e8e8e8',
@@ -685,7 +688,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                       <div style={{ marginTop: 3 }}>
                         {item.addOns.map(a => (
                           <div key={a.reference} style={{ fontSize: 11, color: '#888' }}>
-                            + ({a.count}) {a.name}
+                            + ({a.count}) {a.name}{a.price > 0 ? ` (+${formatPrice(a.price)} each)` : ''}
                           </div>
                         ))}
                       </div>
