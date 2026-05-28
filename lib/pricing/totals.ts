@@ -99,3 +99,25 @@ export function computeGrandTotal(parts: GrandTotalParts): number {
 // Case 5 — Coupon-discounted order ($25 off)
 //   subtotal = 200, discount = 25
 //   computeGrandTotal({ subtotal: 200, discount: 25 }) → 175.00
+//
+// ─── Tip unit-convention regression cases (Part A / Part D) ──────────
+// `pct` is PERCENTAGE POINTS (15 = 15%), NOT a decimal. The caller must
+// pass the percentage directly — RestaurantClient previously passed
+// activeTip * 100, producing a 100× tip ($1 × 15% showed $15). These
+// pin the convention so it can't regress.
+//
+// Tip Case A — $1 subtotal × 15%  → $0.15
+//   computeTip({ base: 1, pct: 15 })   = 1 * 15 / 100   = 0.15 ✓
+// Tip Case B — $100 subtotal × 15% → $15.00
+//   computeTip({ base: 100, pct: 15 }) = 100 * 15 / 100 = 15.00 ✓
+// Tip Case C — $100 subtotal × 20% → $20.00
+//   computeTip({ base: 100, pct: 20 }) = 100 * 20 / 100 = 20.00 ✓
+// Tip Case D — $100 subtotal × 22% custom → $22.00
+//   computeTip({ base: 100, pct: 22 }) = 100 * 22 / 100 = 22.00 ✓
+// Tip Case E — tip applies to subtotal INCLUDING modifiers. FM tips on
+//   `subtotal` (which already rolls in modifier cost via the cart math —
+//   cartSubtotal = Σ (base + Σ addon.price×count) × meal.count). So a
+//   cart of $191 (Pudding+modifiers) at 18% → computeTip({ base: 191,
+//   pct: 18 }) = 34.38. Tip is NOT computed on base-only or on
+//   subtotal+serviceCharge — confirmed it's subtotal-only via FM's
+//   server-returned tipsInPrice (checkout-sidebar-preview.component.ts).

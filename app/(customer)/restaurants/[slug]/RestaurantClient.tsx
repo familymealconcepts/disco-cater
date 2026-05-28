@@ -500,7 +500,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     count: i.quantity,
     addOns: i.addOns,
   })))
-  const tipAmt = computeTip({ base: subtotal, pct: activeTip * 100 })
+  // activeTip is already in PERCENTAGE POINTS (presets 10/15/20, custom
+  // (dollars/subtotal)*100, default tipsPrice ?? 15). computeTip divides
+  // by 100 internally, so pass activeTip directly — the prior `* 100`
+  // double-scaled it (15 → 1500 → $15 tip on a $1 subtotal, the 100× bug).
+  const tipAmt = computeTip({ base: subtotal, pct: activeTip })
   const svcPct = settings?.serviceCharge ?? 0
   const svcAmt = computeServiceCharge(subtotal, svcPct)
   const clientTotal = computeGrandTotal({ subtotal, serviceCharge: svcAmt, tip: tipAmt })
