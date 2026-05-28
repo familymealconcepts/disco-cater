@@ -6,6 +6,7 @@ import GlobalHeader from '../../../components/GlobalHeader'
 import CheckoutDrawer from './CheckoutDrawer'
 import { cartSubtotal } from '../../../../lib/pricing/cart'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
+import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
@@ -20,8 +21,9 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 interface RepeatWeekDay { days: string; fromPickUpTime: string; toPickUpTime: string }
 interface FmSchedule {
   prepTime?: number; startDate?: string; endDate?: string
-  rollingAvailability?: number; cutOff?: string
-  repeatWeekDays?: RepeatWeekDay[]; skippedDays?: string[]
+  rollingAvailability?: number; cutOff?: string; cutOffDate?: string; cutOffType?: string
+  repeatWeekDays?: RepeatWeekDay[]
+  skippedDays?: (string | { fromDate?: string; toDate?: string })[]
 }
 interface FmSettings {
   deliveryType?: string; pickupOrderMinimum?: number; deliveryOrderMinimum?: number
@@ -84,36 +86,15 @@ interface AddrDetails { addressLine1: string; city: string; state: string; zipco
 
 const formatPrice = (p: number) => `$${p.toFixed(2)}`
 
+// Scheduling now lives in lib/scheduling/cutoffs.ts (Lead Time + Daily Cutoff +
+// Hard Cutoff, with self-tests). These return only ENABLED entries so the
+// calendar greys everything else and the time <select> lists only bookable
+// slots; orderingClosed() drives the "ordering closed" message.
 function computeDates(sched: FmSchedule): string[] {
-  const avail = new Set(sched.repeatWeekDays?.map(d => d.days) ?? [])
-  if (!avail.size) return []
-  const now = new Date()
-  const earliest = new Date(now.getTime() + (sched.prepTime ?? 24) * 3_600_000)
-  const end = sched.endDate
-    ? new Date(sched.endDate + 'T23:59:59')
-    : new Date(now.getTime() + (sched.rollingAvailability ?? 90) * 86_400_000)
-  const skipped = new Set(sched.skippedDays ?? [])
-  const dates: string[] = []
-  const cur = new Date(earliest); cur.setHours(0, 0, 0, 0)
-  while (cur <= end && dates.length < 90) {
-    const iso = cur.toISOString().slice(0, 10)
-    if (avail.has(DAY_NAMES[cur.getDay()]) && !skipped.has(iso)) dates.push(iso)
-    cur.setDate(cur.getDate() + 1)
-  }
-  return dates
+  return buildAvailableDates(sched).filter(d => !d.disabled).map(d => d.date)
 }
-
 function computeTimes(sched: FmSchedule, dateStr: string): string[] {
-  if (!dateStr) return []
-  const dayName = DAY_NAMES[new Date(dateStr + 'T12:00:00').getDay()]
-  const cfg = sched.repeatWeekDays?.find(d => d.days === dayName)
-  if (!cfg) return []
-  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0) }
-  const times: string[] = []
-  for (let m = toMin(cfg.fromPickUpTime); m < toMin(cfg.toPickUpTime); m += 30) {
-    times.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`)
-  }
-  return times
+  return buildAvailableTimes(sched, dateStr).filter(t => !t.disabled).map(t => t.time)
 }
 
 function fmtDateShort(d: string) {
@@ -274,6 +255,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const mAvailDates = useMemo(() => mMenuSched ? computeDates(mMenuSched) : [], [mMenuSched])
   const mAvailSet = useMemo(() => new Set(mAvailDates), [mAvailDates])
   const mModalTimes = useMemo(() => mMenuSched && tempDate ? computeTimes(mMenuSched, tempDate) : [], [mMenuSched, tempDate])
+  // Hard cutoff passed (or no bookable dates) → ordering closed for this menu.
+  const mMenuClosed = useMemo(() => !!mMenuSched && (orderingClosed(mMenuSched) || mAvailDates.length === 0), [mMenuSched, mAvailDates])
 
   // ── Query-param prefill (?orderDate, ?embed) ───────────────────────────────
   // Used by /account/orders' "New order from calendar" flow which loads this
@@ -511,7 +494,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const belowMin = minOrder > 0 && subtotal < minOrder && cart.length > 0
 
   const notices: string[] = []
-  if (sched?.prepTime) notices.push(`${sched.prepTime}hr advance notice`)
+  if (sched?.prepTime) notices.push(`${sched.prepTime}hr lead time`)
   if (minOrder) notices.push(`${formatPrice(minOrder)} minimum`)
   if (menuAvail.length) notices.push(menuAvail.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & '))
 
@@ -1112,8 +1095,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               </div>
             )}
 
+            {/* Hard cutoff passed (or nothing bookable) → ordering closed */}
+            {mMenuClosed && (
+              <div style={{ margin: '14px 20px 0', padding: '10px 14px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>
+                Ordering for this menu has closed.
+              </div>
+            )}
+
             {/* Date + Time row */}
-            <div style={{ padding: '14px 20px 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ padding: '14px 20px 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, opacity: mMenuClosed ? 0.5 : 1, pointerEvents: mMenuClosed ? 'none' : 'auto' }}>
               <div>
                 <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Date</div>
                 <button ref={dateButtonRef} onClick={openCalendar}
