@@ -16,7 +16,7 @@ interface AuthContextType {
   user: AuthUser | null
   isAuthenticated: boolean
   isLoading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<AuthUser>
   register: (data: { email: string; password: string; firstName: string; lastName: string; phoneNumber?: string }) => Promise<void>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
@@ -96,15 +96,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'Login failed')
-    setUser({
+    const u: AuthUser = {
       reference: data.reference || '',
       email: data.email || email,
       firstName: data.firstName || '',
       lastName: data.lastName || '',
       phoneNumber: data.phoneNumber || '',
       role: data.role || '',
-    })
+    }
+    setUser(u)
     try { window.dispatchEvent(new CustomEvent('disco-user-changed')) } catch {}
+    return u
   }, [])
 
   const register = useCallback(async (regData: { email: string; password: string; firstName: string; lastName: string; phoneNumber?: string }) => {

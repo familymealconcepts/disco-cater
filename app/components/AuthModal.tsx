@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuthContext } from '../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
@@ -38,6 +39,7 @@ const labelStyle: React.CSSProperties = {
 
 export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Props) {
   const { login, register, pendingAction, closeAuthModal } = useAuthContext()
+  const router = useRouter()
   const [tab, setTab] = useState<'login' | 'signup'>(defaultTab)
 
   // Login form state
@@ -86,12 +88,19 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
     if (!loginEmail || !loginPassword) { setLoginError('Please enter your email and password.'); return }
     setLoginLoading(true); setLoginError('')
     try {
-      await login(loginEmail, loginPassword)
-      if (pendingAction) {
-        pendingAction()
-      }
+      const u = await login(loginEmail, loginPassword)
       closeAuthModal()
       handleClose()
+      if (pendingAction) {
+        // Finishing an interrupted action (e.g. add-to-cart / checkout) —
+        // stay where they are and run it.
+        pendingAction()
+      } else if (!u.role || u.role === 'USER') {
+        // Mirror FM: a diner login with no pending action lands on the
+        // account area (sign-in.component.ts:113-114 → USER → /account,
+        // which redirects to /account/orders in Disco).
+        router.push('/account/orders')
+      }
     } catch (err: any) {
       setLoginError(err.message || 'Invalid email or password.')
     } finally {
