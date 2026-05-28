@@ -76,10 +76,13 @@ export default function PaymentPage() {
     try {
       const result = await stripeRef.current.createToken(cardElRef.current)
       if (result.error) throw new Error(result.error.message)
+      // FM's POST /api/users/payment/defaultSource expects `cardToken`
+      // (update-payment-card.component.ts:200). Sending `token` was the
+      // root cause of the silent save no-op.
       const res = await fetch('/api/fm-payment-source', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: result.token.id }),
+        body: JSON.stringify({ cardToken: result.token.id }),
         credentials: 'include',
       })
       if (!res.ok) throw new Error('Failed to save card')

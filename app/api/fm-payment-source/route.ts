@@ -43,6 +43,14 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json()
 
+    // FM expects `{ cardToken }` (account.service.ts:126-128). Normalize
+    // defensively: accept either `cardToken` or a legacy `token` field
+    // and always forward FM's expected `cardToken`. Carry any other
+    // fields through untouched.
+    const cardToken = body?.cardToken ?? body?.token
+    const fmBody = { ...body, cardToken }
+    delete (fmBody as Record<string, unknown>).token
+
     const res = await fetch(`${FM_API}/api/users/payment/defaultSource`, {
       method: 'POST',
       headers: {
@@ -50,7 +58,7 @@ export async function POST(req: NextRequest) {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(fmBody),
     })
 
     if (res.status === 401) {
