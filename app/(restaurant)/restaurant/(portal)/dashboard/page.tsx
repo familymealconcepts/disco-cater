@@ -109,6 +109,9 @@ export default function DashboardPage() {
   const [restaurant, setRestaurant] = useState<Restaurant>({})
   const [loading, setLoading] = useState(true)
   const [saleLoading, setSaleLoading] = useState(false)
+  // Tracks the date range/type that produced the currently-shown numbers,
+  // so the Update button greys out until From/To/dateType actually change.
+  const [lastFetched, setLastFetched] = useState({ fromDate: '', toDate: '', dateType: '' })
 
   // SYSTEM_ADMIN multi-restaurant filter — selection state comes from
   // the shared SelectedRestaurantContext so the sidebar header and this
@@ -159,24 +162,27 @@ export default function DashboardPage() {
 
   const loadSaleStats = useCallback(async () => {
     if (!fromDate || !toDate) return
-    // SA / SUPER_ADMIN must pick a restaurant first — the proxy's
-    // aggregate path was returning 400 on the deployed FM, so we no
-    // longer fire the no-ref call. ADMIN role always has a restaurant
-    // (their JWT carries it) so the fetch always proceeds for them.
-    if (isSystemAdmin && !selectedRef) {
-      setSaleStats({})
-      return
-    }
+    // SYSTEM_ADMIN / SUPER_ADMIN: omitting restaurantReference returns the
+    // all-restaurants aggregate (FM getSaleStatsByRestaurant,
+    // dashboard.service.ts:55 → /api/system-admin/dashboard/sale/stats);
+    // a selected ref scopes to one location. The proxy now formats dates
+    // as FM's DD.MM.YYYY, which was the real cause of the earlier empty/400.
     setSaleLoading(true)
+    setLastFetched({ fromDate, toDate, dateType })
     const params = new URLSearchParams({ fromDate, toDate, dateType })
     if (selectedRef) params.set('restaurantReference', selectedRef)
     try {
       const res = await fetch(`/api/restaurant/dashboard/sale-stats?${params}`)
-      if (res.ok) setSaleStats(await res.json())
+      setSaleStats(res.ok ? await res.json() : {})
     } finally {
       setSaleLoading(false)
     }
-  }, [fromDate, toDate, dateType, selectedRef, isSystemAdmin])
+  }, [fromDate, toDate, dateType, selectedRef])
+
+  const datesChanged =
+    fromDate !== lastFetched.fromDate ||
+    toDate !== lastFetched.toDate ||
+    dateType !== lastFetched.dateType
 
   // Fetch on mount and whenever the SYSTEM_ADMIN restaurant context
   // changes — but NOT on every date / dateType input change. Those
@@ -307,7 +313,7 @@ export default function DashboardPage() {
               style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', opacity: saleLoading ? 0.6 : 1 }}
             />
           </div>
-          <GenerateReportButton onClick={loadSaleStats} loading={saleLoading} disabled={isSystemAdmin && !selectedRef} />
+          <GenerateReportButton onClick={loadSaleStats} loading={saleLoading} disabled={!datesChanged} label="Update" loadingLabel="Updating…" />
           {(fromDate !== firstOfMonth || toDate !== today) && !saleLoading && (
             <button onClick={clearDates} style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 7, padding: '7px 12px', fontSize: 12, cursor: 'pointer', fontFamily: F }}>
               Clear
@@ -324,19 +330,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Restaurant gate: SA / SUPER_ADMIN must pick a restaurant from
-          the top-right dropdown before the metrics make sense. The
-          per-restaurant FM endpoint 400s on a no-ref call. */}
-      {isSystemAdmin && !selectedRef && (
-        <div style={{ background: '#fff', border: '1px dashed #d8d8e4', borderRadius: 12, padding: '32px 24px', textAlign: 'center', color: '#555', fontSize: 13, lineHeight: 1.55 }}>
-          <div style={{ fontSize: 26, marginBottom: 8 }}>📊</div>
-          <div style={{ fontWeight: 700, color: DARK, marginBottom: 4 }}>Select a restaurant to generate a report</div>
-          <div style={{ fontSize: 12, color: '#777' }}>Use the Restaurant dropdown above — once a location is picked, Generate Report will populate the metrics.</div>
-        </div>
-      )}
-
-      {/* Metric Cards — hidden while gated */}
-      {(!isSystemAdmin || selectedRef) && (
+      {/* Metric Cards. For SA/SUPER_ADMIN with no restaurant selected this
+          shows the all-restaurants aggregate; a dropdown selection scopes
+          to one location. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
         <Card title="Net Sales" value={saleStats.subtotalOrdersSum} />
         <Card title="Tax Amount" value={tax} tooltip={taxTooltip} />
@@ -353,7 +349,6 @@ export default function DashboardPage() {
         <Card title="Stripe Fees" value={saleStats.stripeFeeSum} gray />
         <Card title="Total Amount" value={saleStats.totalOrdersSum} />
       </div>
-      )}
     </div>
   )
 }

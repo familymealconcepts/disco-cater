@@ -5,6 +5,16 @@ import { SELECTED_RESTAURANT_COOKIE } from '../../../../../lib/restaurant-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
+// FM's dashboard expects dates as DD.MM.YYYY (DateFormatService.formatDate,
+// _system/_services/dateformatting/dateformatting.service.ts:11-17). The
+// <input type="date"> on the page yields ISO YYYY-MM-DD, which FM silently
+// treats as no-match — the financial cards come back empty. Convert here.
+function toFmDate(iso: string | null): string | null {
+  if (!iso) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso
+}
+
 export async function GET(req: NextRequest) {
   let authHeaders: Record<string, string>
   try { authHeaders = await getRestaurantAuthHeader() } catch {
@@ -16,8 +26,10 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl
   const params = new URLSearchParams()
-  if (searchParams.get('fromDate')) params.set('fromDate', searchParams.get('fromDate')!)
-  if (searchParams.get('toDate')) params.set('toDate', searchParams.get('toDate')!)
+  const fromDate = toFmDate(searchParams.get('fromDate'))
+  const toDate = toFmDate(searchParams.get('toDate'))
+  if (fromDate) params.set('fromDate', fromDate)
+  if (toDate) params.set('toDate', toDate)
   if (searchParams.get('dateType')) params.set('dateType', searchParams.get('dateType')!)
 
   // Resolve which restaurant to scope stats to, in priority order:
