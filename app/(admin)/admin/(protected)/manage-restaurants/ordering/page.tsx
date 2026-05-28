@@ -17,8 +17,7 @@ interface Restaurant {
   url?: string
   blocked?: boolean
   nashAllowed?: boolean
-  shipdayDeliveryEnabled?: boolean
-  shipdayPickupEnabled?: boolean
+  shipdayEnabled?: boolean
   moneyFlow?: string // 'FAMILY_MEAL' (held) | 'DIRECT' (released)
   onlineOrderingAllowed?: boolean
   restaurantStatus?: string
@@ -126,18 +125,14 @@ export default function RestaurantsOrderingPage() {
     if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, nashAllowed: !next } : x))
   }
 
-  async function toggleShipdayDelivery(r: Restaurant) {
-    const next = !r.shipdayDeliveryEnabled
-    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayDeliveryEnabled: next } : x))
-    const res = await fetch(`/api/admin/restaurants/${r.reference}/shipday-delivery?shipdayDeliveryEnabled=${next}`, { method: 'PATCH' })
-    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayDeliveryEnabled: !next } : x))
-  }
-
-  async function toggleShipdayPickup(r: Restaurant) {
-    const next = !r.shipdayPickupEnabled
-    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayPickupEnabled: next } : x))
-    const res = await fetch(`/api/admin/restaurants/${r.reference}/shipday-pickup?shipdayPickupEnabled=${next}`, { method: 'PATCH' })
-    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayPickupEnabled: !next } : x))
+  // FM has a single Shipday toggle (restaurant.service.ts:317 —
+  // PATCH /api/admin/restaurants/{ref}/shipdayEnabled). There are no split
+  // delivery/pickup endpoints; the earlier split returned 404.
+  async function toggleShipday(r: Restaurant) {
+    const next = !r.shipdayEnabled
+    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayEnabled: next } : x))
+    const res = await fetch(`/api/admin/restaurants/${r.reference}/shipday?shipdayEnabled=${next}`, { method: 'PATCH' })
+    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayEnabled: !next } : x))
   }
 
   // "Hold Payments on FamilyMeal": ON = moneyFlow FAMILY_MEAL (held),
@@ -199,7 +194,10 @@ export default function RestaurantsOrderingPage() {
 
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'auto' }}>
+      {/* Scroll the rows inside this container (max-height) so the sticky
+          header has a scrolling ancestor to pin against. No overflow:hidden
+          ancestor here, so sticky works without z-index hacks. */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'auto', maxHeight: 'calc(100vh - 240px)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
           <thead>
             <tr>
@@ -212,14 +210,13 @@ export default function RestaurantsOrderingPage() {
               <th style={colHead}>Status</th>
               <th style={colHead}>Third-Party Allowed</th>
               <th style={colHead}>Hold Payments on FamilyMeal</th>
-              <th style={colHead}>Shipday Delivery</th>
-              <th style={colHead}>Shipday Pickup</th>
+              <th style={colHead}>Shipday</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
+            {loading && <tr><td colSpan={11} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={11} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
             {!loading && rows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
@@ -244,8 +241,7 @@ export default function RestaurantsOrderingPage() {
                   </td>
                   <td style={cell}><Toggle checked={!!r.nashAllowed} onChange={() => toggleNash(r)} /></td>
                   <td style={cell}><Toggle checked={r.moneyFlow !== 'DIRECT'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" /></td>
-                  <td style={cell}><Toggle checked={!!r.shipdayDeliveryEnabled} onChange={() => toggleShipdayDelivery(r)} /></td>
-                  <td style={cell}><Toggle checked={!!r.shipdayPickupEnabled} onChange={() => toggleShipdayPickup(r)} /></td>
+                  <td style={cell}><Toggle checked={!!r.shipdayEnabled} onChange={() => toggleShipday(r)} /></td>
                   <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                       <button title="Refresh from FM" onClick={() => load()} style={iconBtn}>⟳</button>
@@ -327,7 +323,7 @@ function Kebab({ onResetPassword }: { onResetPassword: () => void }) {
   )
 }
 
-const colHead: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', padding: '12px 14px', textAlign: 'left', background: '#F7F8FC', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' }
+const colHead: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', padding: '12px 14px', textAlign: 'left', background: '#F7F8FC', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 2 }
 const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
 const inputSt: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff' }
 const selectSt: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff' }
