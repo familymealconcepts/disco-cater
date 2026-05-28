@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import AddRestaurantDialog from './AddRestaurantDialog'
+import EditRestaurantDialog from '../EditRestaurantDialog'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -16,8 +17,9 @@ interface Restaurant {
   url?: string
   blocked?: boolean
   nashAllowed?: boolean
-  shipdayEnabled?: boolean
-  holdPayments?: boolean
+  shipdayDeliveryEnabled?: boolean
+  shipdayPickupEnabled?: boolean
+  moneyFlow?: string // 'FAMILY_MEAL' (held) | 'DIRECT' (released)
   onlineOrderingAllowed?: boolean
   restaurantStatus?: string
   createdDate?: string
@@ -124,11 +126,36 @@ export default function RestaurantsOrderingPage() {
     if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, nashAllowed: !next } : x))
   }
 
-  async function toggleShipday(r: Restaurant) {
-    const next = !r.shipdayEnabled
-    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayEnabled: next } : x))
-    const res = await fetch(`/api/admin/restaurants/${r.reference}/shipday?shipdayEnabled=${next}`, { method: 'PATCH' })
-    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayEnabled: !next } : x))
+  async function toggleShipdayDelivery(r: Restaurant) {
+    const next = !r.shipdayDeliveryEnabled
+    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayDeliveryEnabled: next } : x))
+    const res = await fetch(`/api/admin/restaurants/${r.reference}/shipday-delivery?shipdayDeliveryEnabled=${next}`, { method: 'PATCH' })
+    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayDeliveryEnabled: !next } : x))
+  }
+
+  async function toggleShipdayPickup(r: Restaurant) {
+    const next = !r.shipdayPickupEnabled
+    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayPickupEnabled: next } : x))
+    const res = await fetch(`/api/admin/restaurants/${r.reference}/shipday-pickup?shipdayPickupEnabled=${next}`, { method: 'PATCH' })
+    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayPickupEnabled: !next } : x))
+  }
+
+  // "Hold Payments on FamilyMeal": ON = moneyFlow FAMILY_MEAL (held),
+  // OFF = DIRECT (released). FM restaurant-table.component.ts:387-400.
+  async function toggleMoneyFlow(r: Restaurant) {
+    const held = r.moneyFlow !== 'DIRECT'
+    const next = held ? 'DIRECT' : 'FAMILY_MEAL'
+    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, moneyFlow: next } : x))
+    const res = await fetch(`/api/admin/restaurants/${r.reference}/money-flow?moneyFlow=${next}`, { method: 'PUT' })
+    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, moneyFlow: held ? 'FAMILY_MEAL' : 'DIRECT' } : x))
+    else showToast(`${r.businessName}: payments ${next === 'FAMILY_MEAL' ? 'held' : 'released'}`)
+  }
+
+  async function deleteRestaurant(r: Restaurant) {
+    if (!confirm(`Delete "${r.businessName}"? This cannot be undone.`)) return
+    const res = await fetch(`/api/admin/restaurants/${r.reference}`, { method: 'DELETE' })
+    if (res.ok) { showToast(`${r.businessName} deleted`); load() }
+    else showToast('Delete failed')
   }
 
   async function changeStatus(r: Restaurant, status: string) {
@@ -147,6 +174,7 @@ export default function RestaurantsOrderingPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const [addOpen, setAddOpen] = useState(false)
+  const [editRef, setEditRef] = useState<string | null>(null)
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
@@ -172,31 +200,35 @@ export default function RestaurantsOrderingPage() {
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1100 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
           <thead>
             <tr>
-              <th style={colHead}>Blocked</th>
+              <th style={colHead}>Marketplace</th>
               <th style={colHead}>Restaurant</th>
               <th style={colHead}>Admin</th>
               <th style={colHead}>Email</th>
-              <th style={colHead}>Created</th>
-              <th style={colHead}>URL</th>
+              <th style={colHead}>Registration Date</th>
+              <th style={colHead}>Checkout Page</th>
               <th style={colHead}>Status</th>
-              <th style={colHead}>Nash</th>
-              <th style={colHead}>Shipday</th>
+              <th style={colHead}>Third-Party Allowed</th>
+              <th style={colHead}>Hold Payments on FamilyMeal</th>
+              <th style={colHead}>Shipday Delivery</th>
+              <th style={colHead}>Shipday Pickup</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={10} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={10} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
+            {loading && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
             {!loading && rows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
               return (
                 <tr key={r.reference}>
+                  {/* Marketplace: ON = visible (NOT blocked), mirroring FM's
+                      [checked]="!element.blocked". */}
                   <td style={cell}>
-                    <Toggle checked={!!r.blocked} onChange={() => toggleBlock(r)} color="#E76F51" />
+                    <Toggle checked={!r.blocked} onChange={() => toggleBlock(r)} color="#1D9E75" />
                   </td>
                   <td style={{ ...cell, fontWeight: 600 }}>{r.businessName}</td>
                   <td style={{ ...cell, color: '#555' }}>{adminName || '—'}</td>
@@ -211,9 +243,16 @@ export default function RestaurantsOrderingPage() {
                     </select>
                   </td>
                   <td style={cell}><Toggle checked={!!r.nashAllowed} onChange={() => toggleNash(r)} /></td>
-                  <td style={cell}><Toggle checked={!!r.shipdayEnabled} onChange={() => toggleShipday(r)} /></td>
-                  <td style={{ ...cell, textAlign: 'right' }}>
-                    <button onClick={() => resetPassword(r)} style={linkBtn}>Reset PW</button>
+                  <td style={cell}><Toggle checked={r.moneyFlow !== 'DIRECT'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" /></td>
+                  <td style={cell}><Toggle checked={!!r.shipdayDeliveryEnabled} onChange={() => toggleShipdayDelivery(r)} /></td>
+                  <td style={cell}><Toggle checked={!!r.shipdayPickupEnabled} onChange={() => toggleShipdayPickup(r)} /></td>
+                  <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                      <button title="Refresh from FM" onClick={() => load()} style={iconBtn}>⟳</button>
+                      <button title="Edit" onClick={() => setEditRef(r.reference)} style={iconBtn}>✎</button>
+                      <button title="Delete" onClick={() => deleteRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗑</button>
+                      <Kebab onResetPassword={() => resetPassword(r)} />
+                    </div>
                   </td>
                 </tr>
               )
@@ -256,7 +295,35 @@ export default function RestaurantsOrderingPage() {
           onCreated={() => { setAddOpen(false); showToast('Restaurant created'); setPage(0); load() }}
         />
       )}
+
+      {editRef && (
+        <EditRestaurantDialog
+          restaurantRef={editRef}
+          onClose={() => setEditRef(null)}
+          onSaved={(msg) => { setEditRef(null); showToast(msg); load() }}
+        />
+      )}
     </div>
+  )
+}
+
+function Kebab({ onResetPassword }: { onResetPassword: () => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span style={{ position: 'relative', display: 'inline-block' }}>
+      <button title="More" onClick={() => setOpen(o => !o)} style={iconBtn}>⋯</button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
+          <div style={{ position: 'absolute', right: 0, top: '100%', background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', zIndex: 51, minWidth: 160 }}>
+            <button onClick={() => { setOpen(false); onResetPassword() }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '10px 14px', fontSize: 13, color: DARK, cursor: 'pointer', fontFamily: F }}>
+              Reset password
+            </button>
+          </div>
+        </>
+      )}
+    </span>
   )
 }
 
@@ -265,5 +332,5 @@ const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: D
 const inputSt: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff' }
 const selectSt: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff' }
 const smallSelect: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 6, padding: '4px 8px', fontSize: 12, fontFamily: F, color: DARK, background: '#fff' }
-const linkBtn: React.CSSProperties = { background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 12, fontFamily: F, padding: '4px 8px' }
+const iconBtn: React.CSSProperties = { background: '#f5f5f8', border: '1px solid #e8e8ee', borderRadius: 6, padding: '4px 8px', fontSize: 13, cursor: 'pointer', color: '#555', fontFamily: F, lineHeight: 1 }
 const pageBtn: React.CSSProperties = { background: '#fff', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK }
