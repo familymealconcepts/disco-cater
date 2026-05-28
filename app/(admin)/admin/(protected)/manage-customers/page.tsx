@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 const F = "'DM Sans', sans-serif"
@@ -36,6 +36,37 @@ function custType(email?: string): 'Corporate' | 'Social' {
 function fmtCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
 }
+
+// US states + DC, alphabetical by full name; value = 2-letter code (FM stores
+// restaurant address.state as a 2-letter code — add-restaurant maxLength 2).
+const US_STATES: { name: string; code: string }[] = [
+  { name: 'Alabama', code: 'AL' }, { name: 'Alaska', code: 'AK' }, { name: 'Arizona', code: 'AZ' },
+  { name: 'Arkansas', code: 'AR' }, { name: 'California', code: 'CA' }, { name: 'Colorado', code: 'CO' },
+  { name: 'Connecticut', code: 'CT' }, { name: 'Delaware', code: 'DE' }, { name: 'District of Columbia', code: 'DC' },
+  { name: 'Florida', code: 'FL' }, { name: 'Georgia', code: 'GA' }, { name: 'Hawaii', code: 'HI' },
+  { name: 'Idaho', code: 'ID' }, { name: 'Illinois', code: 'IL' }, { name: 'Indiana', code: 'IN' },
+  { name: 'Iowa', code: 'IA' }, { name: 'Kansas', code: 'KS' }, { name: 'Kentucky', code: 'KY' },
+  { name: 'Louisiana', code: 'LA' }, { name: 'Maine', code: 'ME' }, { name: 'Maryland', code: 'MD' },
+  { name: 'Massachusetts', code: 'MA' }, { name: 'Michigan', code: 'MI' }, { name: 'Minnesota', code: 'MN' },
+  { name: 'Mississippi', code: 'MS' }, { name: 'Missouri', code: 'MO' }, { name: 'Montana', code: 'MT' },
+  { name: 'Nebraska', code: 'NE' }, { name: 'Nevada', code: 'NV' }, { name: 'New Hampshire', code: 'NH' },
+  { name: 'New Jersey', code: 'NJ' }, { name: 'New Mexico', code: 'NM' }, { name: 'New York', code: 'NY' },
+  { name: 'North Carolina', code: 'NC' }, { name: 'North Dakota', code: 'ND' }, { name: 'Ohio', code: 'OH' },
+  { name: 'Oklahoma', code: 'OK' }, { name: 'Oregon', code: 'OR' }, { name: 'Pennsylvania', code: 'PA' },
+  { name: 'Rhode Island', code: 'RI' }, { name: 'South Carolina', code: 'SC' }, { name: 'South Dakota', code: 'SD' },
+  { name: 'Tennessee', code: 'TN' }, { name: 'Texas', code: 'TX' }, { name: 'Utah', code: 'UT' },
+  { name: 'Vermont', code: 'VT' }, { name: 'Virginia', code: 'VA' }, { name: 'Washington', code: 'WA' },
+  { name: 'West Virginia', code: 'WV' }, { name: 'Wisconsin', code: 'WI' }, { name: 'Wyoming', code: 'WY' },
+]
+
+// Orders list join key. FM's /api/admin/userOrders items expose firstName +
+// lastName (no email / customer ref — confirmed in admin-orders-table.html), so
+// we join orders→customers by normalized name (customers list `username`).
+function normalizeName(s?: string): string {
+  return (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+interface CustomerLoc { states: Set<string>; zips: Set<string> }
 
 type SortKey = 'username' | 'email' | 'phone' | 'source' | 'type' | 'numberOfOrders' | 'totalspend'
 // Sort value per column: numbers for orders/spend/phone (phone by leading
@@ -77,6 +108,16 @@ function CustomersInner() {
   // click cycles asc → desc → off.
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null)
 
+  // Location filters (derived from restaurant addresses via orders).
+  const [selectedStates, setSelectedStates] = useState<string[]>(
+    (sp.get('states') || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
+  )
+  const [zip, setZip] = useState(sp.get('zip') || '')
+  const [customerLoc, setCustomerLoc] = useState<Map<string, CustomerLoc>>(new Map())
+  const [locLoading, setLocLoading] = useState(false)
+  const [locReady, setLocReady] = useState(false)
+  const locStartedRef = useRef(false)
+
   const [rows, setRows] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
@@ -97,9 +138,11 @@ function CustomersInner() {
     if (maxOrders) params.set('maxOrders', maxOrders)
     if (fromDate) params.set('fromDate', fromDate)
     if (toDate) params.set('toDate', toDate)
+    if (selectedStates.length) params.set('states', selectedStates.join(','))
+    if (zip) params.set('zip', zip)
     const qs = params.toString()
     router.replace(qs ? `?${qs}` : '?', { scroll: false })
-  }, [search, type, minOrders, maxOrders, fromDate, toDate, router])
+  }, [search, type, minOrders, maxOrders, fromDate, toDate, selectedStates, zip, router])
 
   // Fetch the FULL matching set (all pages, capped) so client filters + export
   // operate over everything, not one server page. Server filters: search + date.
@@ -134,8 +177,70 @@ function CustomersInner() {
   }, [search, fromDate, toDate])
 
   useEffect(() => { load() }, [load])
+
+  // Location aggregation (lazy, cached for the session). FM returns no customer
+  // address, so we derive location from each order's restaurant address:
+  //   restaurant ref → { state, zip }  (GET /api/admin/restaurants)
+  //   order → customer name + restaurantReference  (GET /api/admin/userOrders)
+  //   customerLoc[name] = { states, zips }
+  // Join is by NAME (orders have no email/customer ref on the list).
+  const ensureLocData = useCallback(async () => {
+    if (locStartedRef.current) return
+    locStartedRef.current = true
+    setLocLoading(true)
+    try {
+      const restJson = await fetch('/api/admin/restaurants?size=1000').then(r => (r.ok ? r.json() : null))
+      const restMap = new Map<string, { state: string; zip: string }>()
+      for (const rr of (restJson?.content || [])) {
+        const a = rr.address || {}
+        if (!a.state && !a.zipcode) { console.warn('[customers] restaurant missing address, skipped:', rr.reference); continue }
+        restMap.set(rr.reference, { state: (a.state || '').toUpperCase(), zip: a.zipcode || '' })
+      }
+      const ordUrl = (p: number) => {
+        const q = new URLSearchParams()
+        if (p > 0) q.set('page', String(p))
+        q.set('size', String(FETCH_SIZE))
+        return `/api/admin/orders?${q}`
+      }
+      const first = await fetch(ordUrl(0)).then(r => (r.ok ? r.json() : null))
+      let orders: { firstName?: string; lastName?: string; restaurantReference?: string }[] = first?.content || []
+      const totalPages = Math.min(first?.totalPages ?? 1, MAX_PAGES)
+      if (totalPages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, i) => fetch(ordUrl(i + 1)).then(r => (r.ok ? r.json() : null))),
+        )
+        for (const pg of rest) if (pg?.content) orders = orders.concat(pg.content)
+      }
+      const loc = new Map<string, CustomerLoc>()
+      for (const o of orders) {
+        const r = o.restaurantReference ? restMap.get(o.restaurantReference) : undefined
+        if (!r) continue
+        const key = normalizeName(`${o.firstName || ''} ${o.lastName || ''}`)
+        if (!key) continue
+        let e = loc.get(key)
+        if (!e) { e = { states: new Set(), zips: new Set() }; loc.set(key, e) }
+        if (r.state) e.states.add(r.state)
+        if (r.zip) e.zips.add(r.zip)
+      }
+      setCustomerLoc(loc)
+      setLocReady(true)
+    } finally {
+      setLocLoading(false)
+    }
+  }, [])
+
+  // Run aggregation on mount only if the URL deep-links a location filter;
+  // otherwise it's deferred until the user opens the State/Zip filter.
+  useEffect(() => {
+    if (selectedStates.length || /^\d{5}$/.test(zip)) ensureLocData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Reset to first page whenever the result set changes.
-  useEffect(() => { setPage(0) }, [search, fromDate, toDate, type, minOrders, maxOrders, pageSize])
+  useEffect(() => { setPage(0) }, [search, fromDate, toDate, type, minOrders, maxOrders, selectedStates, zip, pageSize])
+
+  const zipValid = /^\d{5}$/.test(zip)
+  const locActive = selectedStates.length > 0 || zipValid
 
   const filtered = useMemo(() => rows.filter(r => {
     if (type === 'corporate' && isSocial(r.email)) return false
@@ -143,8 +248,16 @@ function CustomersInner() {
     const n = r.numberOfOrders ?? 0
     if (minOrders !== '' && n < Number(minOrders)) return false
     if (maxOrders !== '' && n > Number(maxOrders)) return false
+    // Location filter only applies once the aggregation is ready, so the list
+    // isn't blanked while it loads.
+    if (locActive && locReady) {
+      const loc = customerLoc.get(normalizeName(r.username))
+      if (!loc) return false
+      if (selectedStates.length && !selectedStates.some(s => loc.states.has(s))) return false
+      if (zipValid && !loc.zips.has(zip)) return false
+    }
     return true
-  }), [rows, type, minOrders, maxOrders])
+  }), [rows, type, minOrders, maxOrders, locActive, locReady, customerLoc, selectedStates, zip, zipValid])
 
   // Sort the filtered set. null sort → FM's natural order (filtered preserves it).
   const sorted = useMemo(() => {
@@ -166,7 +279,7 @@ function CustomersInner() {
     })
   }
 
-  const filtersActive = !!search || !!fromDate || !!toDate || type !== 'all' || minOrders !== '' || maxOrders !== ''
+  const filtersActive = !!search || !!fromDate || !!toDate || type !== 'all' || minOrders !== '' || maxOrders !== '' || locActive
   const datesChanged = fromInput !== fromDate || toInput !== toDate
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize)
@@ -175,17 +288,23 @@ function CustomersInner() {
     setSearchInput(''); setSearch('')
     setFromInput(''); setToInput(''); setFromDate(''); setToDate('')
     setType('all'); setMinOrders(''); setMaxOrders('')
+    setSelectedStates([]); setZip('')
     setSort(null)
   }
 
   // Export reflects the CURRENT filtered set (all of it, not just the page).
   function exportCsv() {
-    const headers = ['Name', 'Email', 'Phone', '# Orders', 'Total Spend', 'Source', 'Type']
-    const body = sorted.map(r => [
-      r.username, r.email, r.phoneNumber || '',
-      String(r.numberOfOrders ?? 0), String(r.totalspend ?? 0),
-      r.sourceoforder || '', custType(r.email),
-    ])
+    const headers = ['Name', 'Email', 'Phone', '# Orders', 'Total Spend', 'Source', 'Type', 'States', 'Zips']
+    const body = sorted.map(r => {
+      const loc = customerLoc.get(normalizeName(r.username))
+      return [
+        r.username, r.email, r.phoneNumber || '',
+        String(r.numberOfOrders ?? 0), String(r.totalspend ?? 0),
+        r.sourceoforder || '', custType(r.email),
+        loc ? [...loc.states].sort().join(', ') : '',
+        loc ? [...loc.zips].sort().join(', ') : '',
+      ]
+    })
     const csv = [headers, ...body]
       .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       .join('\n')
@@ -218,6 +337,15 @@ function CustomersInner() {
         <span style={chipLabel}>Orders</span>
         <input type="number" min={0} placeholder="min" value={minOrders} onChange={e => setMinOrders(e.target.value)} style={{ ...inputSt, width: 70 }} />
         <input type="number" min={0} placeholder="max" value={maxOrders} onChange={e => setMaxOrders(e.target.value)} style={{ ...inputSt, width: 70 }} />
+        <StateMultiSelect value={selectedStates} onChange={setSelectedStates} onOpen={ensureLocData} />
+        <input
+          type="text" inputMode="numeric" placeholder="Zip"
+          value={zip}
+          onFocus={ensureLocData}
+          onChange={e => setZip(e.target.value.replace(/\D/g, '').slice(0, 5))}
+          style={{ ...inputSt, width: 90 }}
+          aria-label="Zip code"
+        />
         <span style={chipLabel}>Last order</span>
         <input type="date" value={fromInput} onChange={e => setFromInput(e.target.value)} style={inputSt} aria-label="From date" />
         <span style={{ color: '#aaa' }}>–</span>
@@ -233,6 +361,11 @@ function CustomersInner() {
         )}
       </div>
 
+      {locLoading && (
+        <div style={{ fontSize: 12, color: '#6B6EF9', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+          Loading location data…
+        </div>
+      )}
       {filtersActive && (
         <div style={{ fontSize: 12, color: '#666', marginBottom: 10 }}>
           Showing {filtered.length} of {rows.length} customers
@@ -310,6 +443,42 @@ function SortTh({ label, k, sort, onSort, align }: {
       style={{ ...colHead, textAlign: align || 'left', cursor: 'pointer', userSelect: 'none', color: active ? DARK : '#888' }}>
       {label}{arrow}
     </th>
+  )
+}
+
+function StateMultiSelect({ value, onChange, onOpen }: { value: string[]; onChange: (v: string[]) => void; onOpen: () => void }) {
+  const [open, setOpen] = useState(false)
+  const label = value.length === 0
+    ? 'All States'
+    : value.length <= 2 ? value.join(', ') : `${value.slice(0, 2).join(', ')} +${value.length - 2} more`
+  return (
+    <span style={{ position: 'relative', display: 'inline-block' }}>
+      <button onClick={() => { const n = !open; setOpen(n); if (n) onOpen() }} style={{ ...selectSt, cursor: 'pointer', minWidth: 120, textAlign: 'left' }}>
+        {label} ▾
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+          <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 41, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', maxHeight: 300, overflow: 'auto', minWidth: 210, padding: 6 }}>
+            <button onClick={() => onChange([])}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: F, fontWeight: 600, color: value.length === 0 ? BLUE : '#555' }}>
+              All States
+            </button>
+            {US_STATES.map(s => {
+              const on = value.includes(s.code)
+              return (
+                <label key={s.code} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 13, color: DARK }}>
+                  <input type="checkbox" checked={on}
+                    onChange={() => onChange(on ? value.filter(x => x !== s.code) : [...value, s.code])}
+                    style={{ accentColor: BLUE }} />
+                  {s.name} <span style={{ color: '#aaa' }}>({s.code})</span>
+                </label>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </span>
   )
 }
 
