@@ -117,9 +117,11 @@ const STATUS_LABEL: Record<string, string> = {
   RESERVED: 'Reserved', VOID: 'Voided', PAID: 'Paid', UNPAID: 'Unpaid',
 }
 
+// FM's fm-types pipe maps both NASH_DELIVERY and DLIVRD_DELIVERY to
+// "Third-Party Delivery" — it never surfaces the provider name (Nash/Dlivrd).
 const DELIVERY_LABEL: Record<string, string> = {
-  OWN_DELIVERY: 'Self-Delivery', NASH_DELIVERY: 'Third-Party (Nash)',
-  DOOR_DASH_DELIVERY: 'DoorDash Delivery', DLIVRD_DELIVERY: 'Dlivrd Delivery',
+  OWN_DELIVERY: 'Self-Delivery', NASH_DELIVERY: 'Third-Party Delivery',
+  DOOR_DASH_DELIVERY: 'DoorDash Delivery', DLIVRD_DELIVERY: 'Third-Party Delivery',
 }
 
 function fmt(n: number) {
