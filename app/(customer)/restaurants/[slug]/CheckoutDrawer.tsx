@@ -114,6 +114,7 @@ export default function CheckoutDrawer({
   const [taxExemptId, setTaxExemptId] = useState('')
   const [taxExemptState, setTaxExemptState] = useState('')
   const [taxExemptApplied, setTaxExemptApplied] = useState(false)
+  const [taxExemptOpen, setTaxExemptOpen] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [waitingForAuth, setWaitingForAuth] = useState(false)
@@ -612,14 +613,20 @@ export default function CheckoutDrawer({
               taxExempt=true and FM zeroes tax server-side. ID is any 6-12 digits
               with no external check (FM uses a 9-digit SSN/ITIN validator —
               relaxed per product decision; see proxy TODO). */}
-          <div style={{ background: '#fafafa', borderRadius: 12, padding: '12px 16px', marginBottom: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 8 }}>Tax Exempt Account</div>
-            {taxExemptApplied ? (
-              <button onClick={() => setTaxExemptApplied(false)}
+          {/* Collapsed by default: a link that expands to the fields, mirroring
+              FM's "My order is tax exempt" → expand pattern
+              (checkout-customer-info.component.html:146-170). */}
+          {taxExemptApplied ? (
+            <div style={{ background: '#fafafa', borderRadius: 12, padding: '12px 16px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#1D9E75' }}>Tax exempt applied</span>
+              <button onClick={() => { setTaxExemptApplied(false) }}
                 style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }}>
                 Remove tax exempt account
               </button>
-            ) : (
+            </div>
+          ) : taxExemptOpen ? (
+            <div style={{ background: '#fafafa', borderRadius: 12, padding: '12px 16px', marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 8 }}>Tax Exempt Account</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <input value={taxExemptId} onChange={e => setTaxExemptId(e.target.value.replace(/[^0-9]/g, ''))}
                   inputMode="numeric" placeholder="ID (6–12 digits)"
@@ -634,8 +641,13 @@ export default function CheckoutDrawer({
                   Apply
                 </button>
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <button onClick={() => setTaxExemptOpen(true)}
+              style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: '0 0 16px', display: 'block' }}>
+              My order is tax exempt
+            </button>
+          )}
 
           {/* Saved card or new card */}
           {savedCard && !useNewCard ? (
@@ -682,7 +694,7 @@ export default function CheckoutDrawer({
           )}
           <button onClick={handlePlaceOrder}
             style={{ width: '100%', padding: '14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(91,111,232,0.25)', transition: 'all 0.15s' }}>
-            Pay {fmt$(payTotal)} →
+            Place Order · {fmt$(payTotal)}
           </button>
           <button onClick={() => setStep('review')} style={{ width: '100%', marginTop: 10, padding: '10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#888', fontFamily: F }}>← Edit order</button>
         </div>
