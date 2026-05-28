@@ -115,6 +115,10 @@ export default function CheckoutDrawer({
   const [taxExemptState, setTaxExemptState] = useState('')
   const [taxExemptApplied, setTaxExemptApplied] = useState(false)
   const [taxExemptOpen, setTaxExemptOpen] = useState(false)
+  // Promo code (Item 5). FM checkout DTO field `couponCode`; response `discount`.
+  const [couponInput, setCouponInput] = useState('')
+  const [couponApplied, setCouponApplied] = useState('')
+  const [couponError, setCouponError] = useState('')
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [waitingForAuth, setWaitingForAuth] = useState(false)
@@ -267,6 +271,7 @@ export default function CheckoutDrawer({
         restaurantRef: fmRef, orderRef: ref, tips: tipAmt, tipsType: 'DOLLAR',
         ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
         ...(taxExemptApplied ? { taxExempt: true, taxExemptId, taxExemptState } : { taxExempt: false }),
+        ...(couponApplied ? { couponCode: couponApplied } : {}),
       }),
     })
     const updData = await updRes.json()
@@ -298,13 +303,22 @@ export default function CheckoutDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, authUser, canProceed])
 
-  // Re-price on the payment step when tax-exempt is toggled (FM zeroes tax
-  // server-side; the update PUT carries the flag).
+  // Re-price on the payment step when tax-exempt or the promo code changes (FM
+  // applies both server-side; the update PUT carries them).
   useEffect(() => {
     if (step !== 'payment' || !orderRef) return
     runPricing(true).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taxExemptApplied])
+  }, [taxExemptApplied, couponApplied])
+
+  // After a re-price, validate the promo: a code with no resulting discount is
+  // reported as invalid/ineligible.
+  useEffect(() => {
+    if (!couponApplied) { setCouponError(''); return }
+    if (!fm) return
+    setCouponError(fm.discount > 0 ? '' : 'Code not applied — invalid or not eligible.')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fm, couponApplied])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -603,10 +617,30 @@ export default function CheckoutDrawer({
             {taxExemptApplied && (
               <div style={{ fontSize: 11, color: '#22C55E', textAlign: 'right', marginBottom: 5 }}>Tax exempt applied</div>
             )}
+            {fm && fm.discount > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#1D9E75', marginBottom: 5 }}>
+                <span>Discount{couponApplied ? ` (${couponApplied})` : ''}</span><span>−{fmt$(fm.discount)}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1.5px solid #ebebeb', paddingTop: 10, marginTop: 6, fontSize: 17, fontWeight: 800, color: DARK }}>
               <span>Total</span><span>{fmt$(payTotal)}</span>
             </div>
             {!fmTotals && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>Estimate — final total confirmed at payment</div>}
+          </div>
+
+          {/* Promo code (Item 5). Apply re-prices via the update PUT with
+              couponCode; FM returns the discount (or none → invalid). */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input value={couponInput} onChange={e => setCouponInput(e.target.value)} placeholder="Promo code"
+                style={{ flex: 1, height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
+              <button onClick={() => setCouponApplied(couponInput.trim())} disabled={!couponInput.trim()}
+                style={{ height: 40, padding: '0 18px', background: couponInput.trim() ? BLUE : '#e8e8e8', color: couponInput.trim() ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: couponInput.trim() ? 'pointer' : 'default', fontFamily: F }}>
+                Apply
+              </button>
+            </div>
+            {couponError && <div style={{ color: '#E24B4A', fontSize: 12, marginTop: 6 }}>{couponError}</div>}
+            {couponApplied && fm && fm.discount > 0 && <div style={{ color: '#1D9E75', fontSize: 12, marginTop: 6 }}>Promo “{couponApplied}” applied</div>}
           </div>
 
           {/* Tax Exempt Account (Item 4). On Apply the order re-prices with
