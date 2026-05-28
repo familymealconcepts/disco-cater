@@ -9,6 +9,7 @@ import Script from 'next/script'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import FavoriteHeart from '../account/components/FavoriteHeart'
+import { useAuthContext } from '../../context/AuthContext'
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
@@ -1305,7 +1306,6 @@ function FullMapInner() {
   )
 }
 
-const STORAGE_KEY = 'disco_user'
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 const F = "'DM Sans',sans-serif"
 
@@ -1318,23 +1318,16 @@ const IconBell = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="non
 const IconSignOut = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
 
 function FullmapAuthBtn() {
-  const [user, setUser] = React.useState<{firstName?:string;lastName?:string;email?:string}|null>(null)
+  // Use the shared cookie-based auth (same source as GlobalHeader). The old
+  // localStorage 'disco_user' read never reflected a cookie-based modal login,
+  // so the map header stayed on "Log in" after signing in elsewhere.
+  const { user, logout, openAuthModal } = useAuthContext()
   const [menuOpen, setMenuOpen] = React.useState(false)
-
-  React.useEffect(() => {
-    const sync = () => {
-      try { const s = localStorage.getItem(STORAGE_KEY); setUser(s ? JSON.parse(s) : null) } catch {}
-    }
-    sync()
-    window.addEventListener('focus', sync)
-    window.addEventListener('storage', sync)
-    return () => { window.removeEventListener('focus', sync); window.removeEventListener('storage', sync) }
-  }, [])
 
   const initials = user ? `${user.firstName?.[0]??''}${user.lastName?.[0]??''}`.toUpperCase() : ''
 
   if (!user) return (
-    <a href="/portal" style={{ fontSize: 13, color: '#fff', textDecoration: 'none', fontWeight: 700, background: '#1A1028', padding: '7px 18px', borderRadius: 999, fontFamily: F, flexShrink: 0 }}>Log in</a>
+    <button onClick={() => openAuthModal(undefined, 'login')} style={{ fontSize: 13, color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, background: '#1A1028', padding: '7px 18px', borderRadius: 999, fontFamily: F, flexShrink: 0 }}>Log in</button>
   )
 
   return (
@@ -1352,12 +1345,12 @@ function FullmapAuthBtn() {
             </div>
             <div style={{ padding: '5px 0' }}>
               {[
-                { icon: <IconOrders />, label: 'My Orders', href: '/portal' },
-                { icon: <IconSubs />, label: 'Subscriptions', href: '/portal' },
-                { icon: <IconFavs />, label: 'Favorites', href: '/portal' },
-                { icon: <IconUser />, label: 'Account', href: '/portal' },
-                { icon: <IconCard />, label: 'Payment methods', href: '/portal' },
-                { icon: <IconBell />, label: 'Notifications', href: '/portal' },
+                { icon: <IconOrders />, label: 'My Orders', href: '/account/orders' },
+                { icon: <IconSubs />, label: 'Subscriptions', href: '/account/subscriptions' },
+                { icon: <IconFavs />, label: 'Favorites', href: '/account/favorites' },
+                { icon: <IconUser />, label: 'Account', href: '/account/profile' },
+                { icon: <IconCard />, label: 'Payment methods', href: '/account/payment' },
+                { icon: <IconBell />, label: 'Notifications', href: '/account/notifications' },
               ].map(item => (
                 <a key={item.label} href={item.href} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', fontSize: 12, color: '#444', fontWeight: 500, textDecoration: 'none', fontFamily: F, transition: 'background 0.1s' }}
                   onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#f5f5f5'}
@@ -1370,7 +1363,7 @@ function FullmapAuthBtn() {
             </div>
             <div style={{ height: 1, background: '#f0f0f0', margin: '3px 0' }} />
             <div style={{ padding: '5px 0' }}>
-              <button onClick={() => { localStorage.removeItem(STORAGE_KEY); setUser(null); setMenuOpen(false); window.location.href = '/' }} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', cursor: 'pointer', fontSize: 12, color: '#E24B4A', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', fontFamily: F, textAlign: 'left' }}
+              <button onClick={async () => { setMenuOpen(false); await logout(); window.location.href = '/' }} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 14px', cursor: 'pointer', fontSize: 12, color: '#E24B4A', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', fontFamily: F, textAlign: 'left' }}
                 onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#f5f5f5'}
                 onMouseOut={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
               >
