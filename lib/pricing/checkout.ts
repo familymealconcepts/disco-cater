@@ -46,7 +46,9 @@ export interface CheckoutPayloadOptions {
 
 interface CheckoutMealPackage {
   reference: string
-  quantity: number
+  // FM reads `count` only (fm-cart-checkout-reconciliation.md § 1.3).
+  // The redundant `quantity` field was legacy-shim noise — dropped per
+  // E.1.
   count: number
   itemType: 'MEAL_PACKAGES'
   comment?: string
@@ -89,7 +91,6 @@ function mapLine(line: CheckoutCartLine): CheckoutMealPackage {
   const qty = line.count ?? line.quantity ?? 1
   return {
     reference: line.reference,
-    quantity: qty,
     count: qty,
     itemType: 'MEAL_PACKAGES',
     ...(line.note ? { comment: line.note } : {}),
