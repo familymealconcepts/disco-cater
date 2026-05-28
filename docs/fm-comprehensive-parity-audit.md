@@ -1,5 +1,16 @@
 # FM Comprehensive Parity Audit — All Three Login Types (field-level)
 
+> ⚠️ **AUDIT RELIABILITY — READ FIRST.** This audit has been found to contain
+> errors. Section 3.A claimed FM has **no Edit Restaurant dialog** — it does
+> (`admin/restaurant/update/add-restaurant` handles add AND edit). Lead-gen
+> defaults were also listed as 15/3; the correct value is 15/5. Additionally,
+> the local FM Angular source copy used for this audit appears **older than
+> production FM** (e.g. it shows a single `shipdayEnabled` toggle where prod
+> reportedly has Shipday Delivery + Pickup). **Future sessions: verify every
+> "matches FM" / "doesn't exist in FM" claim against BOTH FM Angular source
+> AND a live FM screenshot before building. Treat this doc as a starting
+> point, not a source of truth.**
+
 > Read-only master audit, 2026-05-28 (redone with field-level depth; reconciled against BOTH the FM Angular source AND the actual Disco files, not just FM). Single index across diner, restaurant-portal, and admin-portal surfaces. Where a prior audit doc covers ground it is referenced by name + a one-paragraph delta of anything new found this pass. The four user-flagged priorities (per-menu Settings § 2.A, lead-gen § 3.A, third-party withholding § 2.A + § 4.1, fee logic § 4.1) get the deepest treatment.
 >
 > **Honesty note:** the first draft over-counted gaps by reconciling only the FM side and marking unread Disco pages "partial/[NEEDS REVIEW]". This pass read the Disco files and **corrected several false gaps** — Account/Profile (all 5 forms present), Reports (full scheduled-reports infra present), Group/Modifier Library, Tax Rate, Banking, Customers, and diner Profile/Addresses all actually **match FM**. The diner `/account/notifications` "potential bug" was wrong (it's a no-op stub). Real remaining divergences are concentrated in § 2.A (per-menu Settings) and § 3.A (lead-gen).
@@ -340,11 +351,33 @@ Foundation: `fm-admin-portal-audit.md` + `fm-super-admin-audit.md` (gap analysis
 | Tax Configuration | **missing** | FM `GET/PUT /api/restaurants/taxRate` (SA audit E.1) |
 | **Lead Gen config** | **DIVERGES — § 3.A** | user-flagged |
 
-## 3.A — Lead Gen fees (PRIORITY)
-- **FM**: configured ONLY on the Add Restaurant form. `lead_gen_1` (default **15**, min0 max100), `lead_gen_2` (default **3**, 0-100) — `add-restaurant.component.ts:231-232`, `add-restaurant.component.html:145-167`. **Percentage** fields. Stored as `leadGenOne`/`leadGenTwo` (`restaurant.model.ts:13-14`), payload `:117-118`. **Withheld from restaurant payout**: net = grossSumPickUp − (stripeFeeSum + refundsSum + leadgenonediscofee + leadgentwodiscofee) (`print-summary-template.component.ts:382-388`). No platform config; no edit-after-creation; **no per-source attribution** `[NEEDS REVIEW]`.
-- **Disco**: `AddRestaurantDialog.tsx:58-59,114-115,186-187` — `leadGenOne`/`leadGenTwo` as **free-text optional, no default, no 0-100 validation**.
-- **Divergence**: free-text vs FM number+defaults-15/3+0-100. **financial-adjacent** (drives payout withholding). No edit-after-creation in either.
-- **User's "missing from SUPER_ADMIN portal" flag resolves to**: FM never had a dedicated lead-gen page; it lives on restaurant creation. Disco's create form has it but in a weaker shape. A Disco edit-after-creation UI would EXCEED FM (open question § 5).
+## 3.A — Lead Gen fees + Edit Restaurant ✅ CORRECTED (Session: Edit-Restaurant + Dlivrd, commits 86ed21c/8ee7cf3/e1fe672)
+
+> ⚠️ This section previously contained TWO errors, now fixed:
+> 1. It implied FM has **no Edit Restaurant dialog / no edit-after-creation**. **Wrong** — FM's `admin/restaurant/update/add-restaurant` component handles BOTH add and edit (opened from the restaurant-table Edit pencil), and lead-gen IS editable post-creation there (`add-restaurant.component.ts:313-314` patches `lead_gen_1`/`lead_gen_2` from the existing restaurant). See `fm-super-admin-audit.md` D.5.
+> 2. It listed the lead-gen defaults as **15 / 3**. The current FM/product default is **15 / 5**.
+
+- **FM**: lead gen is set on the add/edit restaurant form. `lead_gen_1` (default **15**), `lead_gen_2` (default **5**), both `type="number" min="0" max="100"` with a `%` icon (`add-restaurant.component.html:145-167`). Stored `leadGenOne`/`leadGenTwo`; **withheld from restaurant payout** (`print-summary-template.component.ts:382-388`). Editable on the Edit dialog; update is `PUT /api/admin/restaurants/{ref}` (FormData, `restaurant.service.ts:143-152`).
+- **Disco** (now): Add Restaurant form uses number 0-100 inputs defaulting to **15 / 5** (`a2c523f` then `e1fe672`). The **Edit Restaurant dialog is now built** (`EditRestaurantDialog.tsx`, commit 86ed21c) — opened from the Edit pencil on both the Ordering and Marketplace tables — with the FM fields plus a Sanity-backed Marketplace section.
+- **Status**: **matches** (lead-gen shape + edit-after-creation). The earlier "diverges / EXCEEDS FM" framing was based on the incorrect premise that FM had no edit dialog.
+
+### Ordering table column parity (Part A of this session, commit 8ee7cf3)
+Disco's table now mirrors FM `restaurant-table.component`: Marketplace (inverted blocked toggle), Restaurant, Admin, Email, Registration Date (`createdDate`), Checkout Page (`businessNameWithoutSpaces`/url), Status, Third-Party Allowed (`nashAllowed`, `PATCH .../nashAllowed`), Hold Payments on FamilyMeal (`moneyFlow` FAMILY_MEAL/DIRECT, `PUT .../money-flow`), Shipday Delivery + Shipday Pickup, Actions (Refresh/Edit/Delete/kebab).
+- ⚠️ **Shipday split is UNVERIFIED**: my FM source copy has a SINGLE `shipdayEnabled` toggle (`restaurant.service.ts:317`), not two. Production FM reportedly split it; the field names `shipdayDeliveryEnabled`/`shipdayPickupEnabled` + endpoints are modeled guesses and may need correcting (see the two proxy files' comments). Confirm against the live FM, then adjust the proxies if needed.
+
+### Third-party provider (Dlivrd vs Nash) — verified (Part C)
+FM's third-party provider migrated Nash → Dlivrd, but the source state is mixed:
+- **Per-menu deliveryType enum is STILL `NASH_DELIVERY`** (`delivery-type.constant.ts:3`, `FAKE_DELIVERY_TYPES:810`) — so Disco's per-menu enum value (set in 23b0571) was **already correct**; no change needed there.
+- **Order routing / reports use `DLIVRD_DELIVERY`** (`fm-types.pipe.ts`, `scheduled-report…:50`, `admin-orders-table`).
+- **FM never shows "Nash" OR "Dlivrd" to users** — every label is "Third-Party" / "Third-Party Delivery" (the `fm-types` pipe maps both enums to "Third-Party Delivery"; the ordering column header is literally "Third-Party allowed:").
+- **Decision (user-confirmed):** use **"Third-Party"** labels in Disco (not "Dlivrd"). Disco's orders `DELIVERY_LABEL` now maps both enums to "Third-Party Delivery" (commit 2403f92). Keep `NASH_DELIVERY` as the per-menu enum string until FM's per-menu constant itself changes.
+
+### Sanity Marketplace section — schema requirement (Part B.3)
+The Edit dialog's Marketplace section writes to Sanity by `fmReference`. **The Sanity `restaurant` schema (in the hosted Studio repo, not this repo) must include:**
+- `fmReference` — **string**, indexed/queryable. Ties the Sanity doc to the FM restaurant `reference`. Required for GET-by-fmReference and create.
+- `featured` — **boolean**, homepage feature flag.
+- (existing fields used: `cuisine`, `description`, `image`, `location`, `lat`, `lng`, `tags[]`, `orderUrl`, `isDisco`, `name`.)
+If `fmReference`/`featured` are missing from the schema, add them in Sanity Studio before relying on this section. Writes use the server-side `SANITY_TOKEN` (confirmed present in env) via `/api/admin/restaurant-marketplace`.
 
 ---
 
