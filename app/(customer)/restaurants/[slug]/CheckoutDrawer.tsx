@@ -208,6 +208,7 @@ export default function CheckoutDrawer({
     : null
   const taxIdValid = /^\d{6,12}$/.test(taxExemptId)
   const canApplyExempt = taxIdValid && !!taxExemptState
+  const canProceed = cart.length > 0 && !!selDate && !!selTime && (orderType === 'PICKUP' || (!!addr.line1 && !!addr.city && !!addr.state && !!addr.zip))
   const fmAddr: FmDeliveryAddr = {
     addressLine1: addr.line1,
     city: addr.city,
@@ -267,7 +268,8 @@ export default function CheckoutDrawer({
     return ref
   }
 
-  // Debounced preview while on the review step.
+  // Debounced preview while on the review step (only relevant if a logged-out
+  // user is still on the review fallback).
   const canPreview = cart.length > 0 && !!selDate && !!selTime && (orderType === 'PICKUP' || !!addr.line1)
   useEffect(() => {
     if (step !== 'review' || !canPreview) return
@@ -275,6 +277,28 @@ export default function CheckoutDrawer({
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, canPreview, cartKey, orderType, selDate, selTime, addr.line1, tipAmt, taxExemptApplied])
+
+  // Skip the intermediate "Review Your Order" step: CHECKOUT goes straight to
+  // the final checkout page. Auto-advance once, when the user is logged in and
+  // the order is ready. Logged-out users stay on the review fallback (which has
+  // the login CTA) so a cancelled login can't strand them on a spinner.
+  const autoAdvancedRef = useRef(false)
+  useEffect(() => {
+    if (autoAdvancedRef.current) return
+    if (step === 'review' && authUser && canProceed) {
+      autoAdvancedRef.current = true
+      processOrder()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, authUser, canProceed])
+
+  // Re-price on the payment step when tax-exempt is toggled (FM zeroes tax
+  // server-side; the update PUT carries the flag).
+  useEffect(() => {
+    if (step !== 'payment' || !orderRef) return
+    runPricing(true).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taxExemptApplied])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -345,7 +369,6 @@ export default function CheckoutDrawer({
 
   // ── Step: Review ───────────────────────────────────────────────────────────
   function ReviewStep() {
-    const canProceed = cart.length > 0 && !!selDate && !!selTime && (orderType === 'PICKUP' || (!!addr.line1 && !!addr.city && !!addr.state && !!addr.zip))
     return (
       <>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0' }}>
@@ -442,14 +465,14 @@ export default function CheckoutDrawer({
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 6 }}>
               <span>Subtotal</span><span style={{ fontWeight: 600, color: DARK }}>{fmt$(subtotal)}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 6 }}>
-              <span>Delivery fee</span>
-              {orderType === 'PICKUP'
-                ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Free</span>
-                : displayDeliveryFee !== null
+            {orderType === 'DELIVERY' && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 6 }}>
+                <span>Delivery fee</span>
+                {displayDeliveryFee !== null
                   ? <span style={{ fontWeight: 600, color: DARK }}>{displayDeliveryFee === 0 ? 'Free' : fmt$(displayDeliveryFee)}</span>
                   : <span style={{ color: '#aaa', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
-            </div>
+              </div>
+            )}
             {displaySvc > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 6 }}>
                 <span>Service fee</span><span style={{ fontWeight: 600, color: DARK }}>{fmt$(displaySvc)}</span>
@@ -479,36 +502,6 @@ export default function CheckoutDrawer({
               <span>{fmt$(subtotal + tipAmt + (displaySvc || 0) + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0))}</span>
             </div>
             {orderType === 'DELIVERY' && displayDeliveryFee === null && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>+ delivery &amp; tax</div>}
-          </div>
-
-          {/* Tax Exempt Account (Item 4). FM accepts an exempt account on
-              checkout (taxExempt + taxExemptId). Per user policy the ID is any
-              6-12 digits with NO external verification (FM itself uses a 9-digit
-              SSN/ITIN validator — intentionally relaxed here). On Apply the
-              order is re-priced with taxExempt=true and the server zeroes tax. */}
-          <div style={{ borderTop: '1px solid #f0f0f0', padding: '14px 0' }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 8 }}>Tax Exempt Account</div>
-            {taxExemptApplied ? (
-              <button onClick={() => { setTaxExemptApplied(false) }}
-                style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }}>
-                Remove tax exempt account
-              </button>
-            ) : (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input value={taxExemptId} onChange={e => setTaxExemptId(e.target.value.replace(/[^0-9]/g, ''))}
-                  inputMode="numeric" placeholder="ID (6–12 digits)"
-                  style={{ flex: '1 1 120px', minWidth: 0, height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
-                <select value={taxExemptState} onChange={e => setTaxExemptState(e.target.value)}
-                  style={{ height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 8px', fontSize: 13, fontFamily: F, color: taxExemptState ? DARK : '#aaa', background: '#fff' }}>
-                  <option value="">State</option>
-                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <button onClick={() => { if (canApplyExempt) setTaxExemptApplied(true) }} disabled={!canApplyExempt}
-                  style={{ height: 38, padding: '0 16px', background: canApplyExempt ? BLUE : '#e8e8e8', color: canApplyExempt ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: canApplyExempt ? 'pointer' : 'default', fontFamily: F }}>
-                  Apply
-                </button>
-              </div>
-            )}
           </div>
 
           {!canProceed && (
@@ -576,7 +569,7 @@ export default function CheckoutDrawer({
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
               <span>Subtotal</span><span>{fmt$(fmSubtotal)}</span>
             </div>
-            {displayDeliveryFee !== null && (
+            {orderType === 'DELIVERY' && displayDeliveryFee !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
                 <span>Delivery fee</span>
                 {displayDeliveryFee === 0
@@ -608,6 +601,35 @@ export default function CheckoutDrawer({
               <span>Total</span><span>{fmt$(payTotal)}</span>
             </div>
             {!fmTotals && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>Estimate — final total confirmed at payment</div>}
+          </div>
+
+          {/* Tax Exempt Account (Item 4). On Apply the order re-prices with
+              taxExempt=true and FM zeroes tax server-side. ID is any 6-12 digits
+              with no external check (FM uses a 9-digit SSN/ITIN validator —
+              relaxed per product decision; see proxy TODO). */}
+          <div style={{ background: '#fafafa', borderRadius: 12, padding: '12px 16px', marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 8 }}>Tax Exempt Account</div>
+            {taxExemptApplied ? (
+              <button onClick={() => setTaxExemptApplied(false)}
+                style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }}>
+                Remove tax exempt account
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input value={taxExemptId} onChange={e => setTaxExemptId(e.target.value.replace(/[^0-9]/g, ''))}
+                  inputMode="numeric" placeholder="ID (6–12 digits)"
+                  style={{ flex: '1 1 120px', minWidth: 0, height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
+                <select value={taxExemptState} onChange={e => setTaxExemptState(e.target.value)}
+                  style={{ height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 8px', fontSize: 13, fontFamily: F, color: taxExemptState ? DARK : '#aaa', background: '#fff' }}>
+                  <option value="">State</option>
+                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <button onClick={() => { if (canApplyExempt) setTaxExemptApplied(true) }} disabled={!canApplyExempt}
+                  style={{ height: 38, padding: '0 16px', background: canApplyExempt ? BLUE : '#e8e8e8', color: canApplyExempt ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: canApplyExempt ? 'pointer' : 'default', fontFamily: F }}>
+                  Apply
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Saved card or new card */}
