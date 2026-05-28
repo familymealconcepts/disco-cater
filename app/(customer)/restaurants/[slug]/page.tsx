@@ -80,8 +80,24 @@ async function fetchMenuData(restaurantRef: string) {
     const menus = await menuRes.json()
     if (!Array.isArray(menus) || !menus.length) return []
 
+    // E.2 — default-menu selection. FM picks menus[0] in API order with
+    // no client sort (checkout-pantry.component.ts:579). FM's menu model
+    // carries a numeric `position` that the admin reorders; the primary
+    // menu is position 0. We sort by position ascending so the admin-
+    // defined primary leads regardless of the order the public endpoint
+    // happens to return. Stable no-op when `position` is absent (all
+    // undefined → original order preserved). [NEEDS REVIEW] — if FM's
+    // public endpoint already sorts by position this is a harmless
+    // double-sort; if it returns insertion order this corrects the
+    // "[Copy] Summer Menu shows first" symptom.
+    const ordered = [...menus].sort((a, b) => {
+      const pa = typeof a?.position === 'number' ? a.position : Number.MAX_SAFE_INTEGER
+      const pb = typeof b?.position === 'number' ? b.position : Number.MAX_SAFE_INTEGER
+      return pa - pb
+    })
+
     const result = []
-    for (const menu of menus) {
+    for (const menu of ordered) {
       const pkgRes = await fetch(
         `${FM}/public-api/restaurants/${restaurantRef}/mealPackages?menuReference=${menu.reference}`,
         { headers: { Accept: 'application/json' }, next: { revalidate: 300 } }
