@@ -37,6 +37,21 @@ function fmtCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
 }
 
+type SortKey = 'username' | 'email' | 'phone' | 'source' | 'type' | 'numberOfOrders' | 'totalspend'
+// Sort value per column: numbers for orders/spend/phone (phone by leading
+// digits ≈ area code), strings otherwise.
+function sortValue(r: Customer, key: SortKey): string | number {
+  switch (key) {
+    case 'username': return (r.username || '').toLowerCase()
+    case 'email': return (r.email || '').toLowerCase()
+    case 'phone': return Number((r.phoneNumber || '').replace(/\D/g, '')) || 0
+    case 'source': return (r.sourceoforder || '').toLowerCase()
+    case 'type': return custType(r.email)
+    case 'numberOfOrders': return r.numberOfOrders ?? 0
+    case 'totalspend': return r.totalspend ?? 0
+  }
+}
+
 const MAX_PAGES = 50
 const FETCH_SIZE = 200
 
@@ -45,14 +60,22 @@ function CustomersInner() {
   const sp = useSearchParams()
 
   // Server-side filters (re-fetch FM): name search + last-order date range.
+  // The date range only fetches when "Update" is clicked, so the inputs edit a
+  // draft (fromInput/toInput) and "applied" (fromDate/toDate) drives load().
   const [searchInput, setSearchInput] = useState(sp.get('search') || '')
   const [search, setSearch] = useState(sp.get('search') || '')
+  const [fromInput, setFromInput] = useState(sp.get('fromDate') || '')
+  const [toInput, setToInput] = useState(sp.get('toDate') || '')
   const [fromDate, setFromDate] = useState(sp.get('fromDate') || '')
   const [toDate, setToDate] = useState(sp.get('toDate') || '')
   // Client-side filters.
   const [type, setType] = useState<'all' | 'corporate' | 'social'>((sp.get('type') as 'corporate' | 'social') || 'all')
   const [minOrders, setMinOrders] = useState(sp.get('minOrders') || '')
   const [maxOrders, setMaxOrders] = useState(sp.get('maxOrders') || '')
+
+  // Click-to-sort: null = FM's natural return order. One column at a time;
+  // click cycles asc → desc → off.
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null)
 
   const [rows, setRows] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
@@ -123,19 +146,42 @@ function CustomersInner() {
     return true
   }), [rows, type, minOrders, maxOrders])
 
+  // Sort the filtered set. null sort → FM's natural order (filtered preserves it).
+  const sorted = useMemo(() => {
+    if (!sort) return filtered
+    const mul = sort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      const va = sortValue(a, sort.key)
+      const vb = sortValue(b, sort.key)
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mul
+      return String(va).localeCompare(String(vb)) * mul
+    })
+  }, [filtered, sort])
+
+  function toggleSort(key: SortKey) {
+    setSort(prev => {
+      if (!prev || prev.key !== key) return { key, dir: 'asc' }
+      if (prev.dir === 'asc') return { key, dir: 'desc' }
+      return null // third click clears
+    })
+  }
+
   const filtersActive = !!search || !!fromDate || !!toDate || type !== 'all' || minOrders !== '' || maxOrders !== ''
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const pageRows = filtered.slice(page * pageSize, (page + 1) * pageSize)
+  const datesChanged = fromInput !== fromDate || toInput !== toDate
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
+  const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize)
 
   function clearAll() {
-    setSearchInput(''); setSearch(''); setFromDate(''); setToDate('')
+    setSearchInput(''); setSearch('')
+    setFromInput(''); setToInput(''); setFromDate(''); setToDate('')
     setType('all'); setMinOrders(''); setMaxOrders('')
+    setSort(null)
   }
 
   // Export reflects the CURRENT filtered set (all of it, not just the page).
   function exportCsv() {
     const headers = ['Name', 'Email', 'Phone', '# Orders', 'Total Spend', 'Source', 'Type']
-    const body = filtered.map(r => [
+    const body = sorted.map(r => [
       r.username, r.email, r.phoneNumber || '',
       String(r.numberOfOrders ?? 0), String(r.totalspend ?? 0),
       r.sourceoforder || '', custType(r.email),
@@ -173,9 +219,15 @@ function CustomersInner() {
         <input type="number" min={0} placeholder="min" value={minOrders} onChange={e => setMinOrders(e.target.value)} style={{ ...inputSt, width: 70 }} />
         <input type="number" min={0} placeholder="max" value={maxOrders} onChange={e => setMaxOrders(e.target.value)} style={{ ...inputSt, width: 70 }} />
         <span style={chipLabel}>Last order</span>
-        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={inputSt} aria-label="From date" />
+        <input type="date" value={fromInput} onChange={e => setFromInput(e.target.value)} style={inputSt} aria-label="From date" />
         <span style={{ color: '#aaa' }}>–</span>
-        <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={inputSt} aria-label="To date" />
+        <input type="date" value={toInput} onChange={e => setToInput(e.target.value)} style={inputSt} aria-label="To date" />
+        <button
+          onClick={() => { setFromDate(fromInput); setToDate(toInput) }}
+          disabled={!datesChanged || loading}
+          style={{ ...updateBtn, ...((!datesChanged || loading) ? updateBtnOff : null) }}>
+          Update
+        </button>
         {filtersActive && (
           <button onClick={clearAll} style={clearBtn}>Clear All</button>
         )}
@@ -192,22 +244,24 @@ function CustomersInner() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={colHead}>Name</th>
-              <th style={colHead}>Email</th>
-              <th style={colHead}>Phone</th>
-              <th style={colHead}>Type</th>
-              <th style={{ ...colHead, textAlign: 'right' }}># Orders</th>
-              <th style={{ ...colHead, textAlign: 'right' }}>Total Spend</th>
+              <SortTh label="Name" k="username" sort={sort} onSort={toggleSort} />
+              <SortTh label="Email" k="email" sort={sort} onSort={toggleSort} />
+              <SortTh label="Phone" k="phone" sort={sort} onSort={toggleSort} />
+              <SortTh label="Source" k="source" sort={sort} onSort={toggleSort} />
+              <SortTh label="Type" k="type" sort={sort} onSort={toggleSort} />
+              <SortTh label="# Orders" k="numberOfOrders" sort={sort} onSort={toggleSort} align="right" />
+              <SortTh label="Total Spend" k="totalspend" sort={sort} onSort={toggleSort} align="right" />
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !pageRows.length && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999' }}>No customers.</td></tr>}
+            {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !pageRows.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No customers.</td></tr>}
             {!loading && pageRows.map(r => (
               <tr key={r.customerReference}>
                 <td style={{ ...cell, fontWeight: 500 }}>{r.username}</td>
                 <td style={{ ...cell, color: '#555' }}>{r.email}</td>
                 <td style={{ ...cell, color: '#666' }}>{r.phoneNumber || '—'}</td>
+                <td style={{ ...cell, color: '#666' }}>{r.sourceoforder || '—'}</td>
                 <td style={{ ...cell, color: '#666' }}>{custType(r.email)}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>{r.numberOfOrders ?? 0}</td>
                 <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>{fmtCurrency(r.totalspend)}</td>
@@ -243,6 +297,22 @@ export default function AdminCustomersPage() {
   )
 }
 
+function SortTh({ label, k, sort, onSort, align }: {
+  label: string; k: SortKey
+  sort: { key: SortKey; dir: 'asc' | 'desc' } | null
+  onSort: (k: SortKey) => void
+  align?: 'right'
+}) {
+  const active = sort?.key === k
+  const arrow = active ? (sort!.dir === 'asc' ? ' ↑' : ' ↓') : ''
+  return (
+    <th onClick={() => onSort(k)} title="Click to sort"
+      style={{ ...colHead, textAlign: align || 'left', cursor: 'pointer', userSelect: 'none', color: active ? DARK : '#888' }}>
+      {label}{arrow}
+    </th>
+  )
+}
+
 const colHead: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', padding: '12px 14px', textAlign: 'left', background: '#F7F8FC', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' }
 const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0' }
 const inputSt: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff' }
@@ -251,4 +321,6 @@ const chipLabel: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '
 const smallSelect: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 6, padding: '4px 8px', fontSize: 12, fontFamily: F, color: DARK, background: '#fff' }
 const pageBtn: React.CSSProperties = { background: '#fff', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK }
 const clearBtn: React.CSSProperties = { background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F, color: '#555' }
+const updateBtn: React.CSSProperties = { background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F }
+const updateBtnOff: React.CSSProperties = { background: '#e8e8e8', color: '#bbb', cursor: 'not-allowed' }
 const primaryBtn: React.CSSProperties = { padding: '9px 18px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }
