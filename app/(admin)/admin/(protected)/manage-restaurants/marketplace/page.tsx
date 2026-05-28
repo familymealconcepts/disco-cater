@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import EditRestaurantDialog from '../EditRestaurantDialog'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -33,6 +34,7 @@ export default function MarketplaceRestaurantsPage() {
   const [searchInput, setSearchInput] = useState('')
   const [loading, setLoading] = useState(true)
   const [toggling, setToggling] = useState<string | null>(null)
+  const [editRef, setEditRef] = useState<string | null>(null)
 
   // Mirrors restaurant-table.component.ts blocked(): POST
   // /api/admin/restaurants/manage/block/{ref}?block={bool}. FM uses
@@ -94,12 +96,13 @@ export default function MarketplaceRestaurantsPage() {
               <th style={colHead}>Admin</th>
               <th style={colHead}>Email</th>
               <th style={colHead}>Created</th>
-              <th style={colHead}>URL</th>
+              <th style={colHead}>Checkout Page</th>
+              <th style={{ ...colHead, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999' }}>No marketplace restaurants.</td></tr>}
+            {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No marketplace restaurants.</td></tr>}
             {!loading && rows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               return (
@@ -120,6 +123,10 @@ export default function MarketplaceRestaurantsPage() {
                   <td style={{ ...cell, color: '#555' }}>{r.admin?.email || '—'}</td>
                   <td style={{ ...cell, color: '#666' }}>{fmtDate(r.createdDate)}</td>
                   <td style={cell}>{r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: BLUE, textDecoration: 'none' }}>open ↗</a> : '—'}</td>
+                  <td style={{ ...cell, textAlign: 'right' }}>
+                    <button title="Edit" onClick={() => setEditRef(r.reference)}
+                      style={{ background: '#f5f5f8', border: '1px solid #e8e8ee', borderRadius: 6, padding: '4px 10px', fontSize: 13, cursor: 'pointer', color: '#555', fontFamily: F }}>✎</button>
+                  </td>
                 </tr>
               )
             })}
@@ -141,6 +148,14 @@ export default function MarketplaceRestaurantsPage() {
           </select>
         </div>
       </div>
+
+      {editRef && (
+        <EditRestaurantDialog
+          restaurantRef={editRef}
+          onClose={() => setEditRef(null)}
+          onSaved={() => { setEditRef(null); load() }}
+        />
+      )}
     </div>
   )
 }
