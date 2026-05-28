@@ -14,9 +14,22 @@ interface SysAdmin {
   phoneNumber?: string
   locations?: number
   restaurants?: { reference: string }[]
+  // FM's user-list response embeds the assigned-locations list under
+  // managedRestaurants[] — confirmed by UpdateAdminComponent.ts:106-107.
+  managedRestaurants?: { reference: string; businessName?: string }[]
 }
 
-type FormState = Pick<SysAdmin, 'firstName' | 'lastName' | 'email' | 'phoneNumber'> & { reference?: string }
+type FormState = Pick<SysAdmin, 'firstName' | 'lastName' | 'email' | 'phoneNumber'> & {
+  reference?: string
+  /** Mirrors FM's UpdateAdminComponent restaurantReferences form
+   *  control — array of restaurant UUID strings; required ≥1 on FM. */
+  restaurantReferences: string[]
+}
+
+interface LocationOption {
+  reference: string
+  businessName: string
+}
 
 export default function ManageSystemAdminsPage() {
   const [rows, setRows] = useState<SysAdmin[]>([])
@@ -29,6 +42,21 @@ export default function ManageSystemAdminsPage() {
   const [editing, setEditing] = useState<FormState | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // Restaurants list for the location picker — loaded once on mount.
+  // Uses the same endpoint as the dashboard restaurant dropdown.
+  const [locations, setLocations] = useState<LocationOption[]>([])
+  const [locationFilter, setLocationFilter] = useState('')
+
+  useEffect(() => {
+    fetch('/api/admin/restaurants-list?size=1000')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const list = d?.content || (Array.isArray(d) ? d : [])
+        setLocations(list.map((r: LocationOption) => ({ reference: r.reference, businessName: r.businessName })))
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(0) }, 300)
@@ -58,6 +86,12 @@ export default function ManageSystemAdminsPage() {
   async function save() {
     if (!editing) return
     if (!editing.firstName || !editing.email) { setError('First name and email required'); return }
+    // FM's UpdateAdminComponent requires ≥1 location on the system
+    // admin (Validators.required on restaurantReferences). Mirror it.
+    if (!editing.restaurantReferences || editing.restaurantReferences.length === 0) {
+      setError('Assign at least one location')
+      return
+    }
     setSaving(true)
     setError('')
     const isNew = !editing.reference
@@ -71,12 +105,28 @@ export default function ManageSystemAdminsPage() {
           lastName: editing.lastName || '',
           email: editing.email,
           phoneNumber: editing.phoneNumber || '',
+          // Payload shape mirrors FM UpdateAdminComponent.ts:54-59 →
+          // restaurantReferences: string[]. Required field on FM.
+          restaurantReferences: editing.restaurantReferences,
         }),
       }
     )
     setSaving(false)
     if (res.ok) { setEditing(null); load() }
     else { const d = await res.json().catch(() => ({})); setError(d?.error || 'Save failed') }
+  }
+
+  function toggleLocation(ref: string) {
+    setEditing(prev => {
+      if (!prev) return prev
+      const has = prev.restaurantReferences.includes(ref)
+      return {
+        ...prev,
+        restaurantReferences: has
+          ? prev.restaurantReferences.filter(r => r !== ref)
+          : [...prev.restaurantReferences, ref],
+      }
+    })
   }
 
   async function deleteAdmin(u: SysAdmin) {
@@ -93,7 +143,7 @@ export default function ManageSystemAdminsPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>System Admins</h1>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <input type="text" placeholder="Search…" value={searchInput} onChange={e => setSearchInput(e.target.value)} style={{ ...inputSt, width: 240 }} />
-          <button onClick={() => setEditing({ firstName: '', lastName: '', email: '', phoneNumber: '' })} style={primaryBtn}>+ Add System Admin</button>
+          <button onClick={() => setEditing({ firstName: '', lastName: '', email: '', phoneNumber: '', restaurantReferences: [] })} style={primaryBtn}>+ Add System Admin</button>
         </div>
       </div>
 
@@ -118,7 +168,17 @@ export default function ManageSystemAdminsPage() {
                 <td style={{ ...cell, color: '#666' }}>{u.phoneNumber || '—'}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>{u.locations ?? u.restaurants?.length ?? 0}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>
-                  <button onClick={() => setEditing({ reference: u.reference, firstName: u.firstName, lastName: u.lastName, email: u.email, phoneNumber: u.phoneNumber })} style={linkBtn}>Edit</button>
+                  <button onClick={() => setEditing({
+                    reference: u.reference,
+                    firstName: u.firstName,
+                    lastName: u.lastName,
+                    email: u.email,
+                    phoneNumber: u.phoneNumber,
+                    // FM embeds assignments under managedRestaurants[]
+                    // on the user-list response; fall back to the older
+                    // `restaurants` field for safety.
+                    restaurantReferences: (u.managedRestaurants || u.restaurants || []).map(r => r.reference),
+                  })} style={linkBtn}>Edit</button>
                   <button onClick={() => deleteAdmin(u)} style={{ ...linkBtn, color: '#E76F51' }}>Delete</button>
                 </td>
               </tr>
@@ -144,11 +204,11 @@ export default function ManageSystemAdminsPage() {
 
       {editing && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', maxWidth: 460, width: '100%', fontFamily: F }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', maxWidth: 560, width: '100%', maxHeight: '92vh', display: 'flex', flexDirection: 'column', fontFamily: F }}>
             <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: DARK }}>
               {editing.reference ? 'Edit System Admin' : 'New System Admin'}
             </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14, paddingRight: 2 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
                   <label style={lbl}>First name*</label>
@@ -166,6 +226,38 @@ export default function ManageSystemAdminsPage() {
               <div>
                 <label style={lbl}>Phone</label>
                 <input style={inputSt} value={editing.phoneNumber || ''} onChange={e => setEditing({ ...editing, phoneNumber: e.target.value })} placeholder="000-000-0000" />
+              </div>
+
+              {/* Location assignment — mirrors FM UpdateAdminComponent's
+                  mat-select multiple. Sends restaurantReferences[] in the
+                  PUT body. Required ≥1 on FM (Validators.required). */}
+              <div>
+                <label style={lbl}>
+                  Assigned Locations <span style={{ color: '#999' }}>({editing.restaurantReferences.length})</span>*
+                </label>
+                <input
+                  type="text" placeholder="Filter locations…"
+                  value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
+                  style={{ ...inputSt, marginBottom: 8 }}
+                />
+                <div style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, maxHeight: 220, overflowY: 'auto', padding: 4, background: '#fff' }}>
+                  {locations.length === 0 && (
+                    <div style={{ padding: 14, fontSize: 12, color: '#999' }}>No locations loaded.</div>
+                  )}
+                  {locations
+                    .filter(loc => !locationFilter || loc.businessName?.toLowerCase().includes(locationFilter.toLowerCase()))
+                    .map(loc => {
+                      const checked = editing.restaurantReferences.includes(loc.reference)
+                      return (
+                        <label key={loc.reference}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13, color: DARK, background: checked ? '#EEF0FD' : 'transparent' }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleLocation(loc.reference)}
+                            style={{ accentColor: '#6B6EF9' }} />
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.businessName}</span>
+                        </label>
+                      )
+                    })}
+                </div>
               </div>
             </div>
             {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 10, borderRadius: 8, marginTop: 12, fontSize: 13 }}>{error}</div>}
