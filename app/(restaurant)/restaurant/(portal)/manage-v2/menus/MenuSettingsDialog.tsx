@@ -150,11 +150,18 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
 
   // timing
   const [rollingAvailability, setRollingAvailability] = useState(30)
+  // Lead Time (FM scheduleOption.prepTime = prepDays*24 + prepHours)
   const [prepDays, setPrepDays] = useState(1)
   const [prepHours, setPrepHours] = useState(0)
-  const [cutOffType, setCutOffType] = useState<'DAILY' | 'BY_DATE' | ''>('DAILY')
-  const [cutOff, setCutOff] = useState('17:00')
-  const [cutOffDate, setCutOffDate] = useState('')
+  // Daily Cutoff (FM scheduleOption.cutOff). Hard Cutoff (FM
+  // scheduleOption.cutOffDate; we store "YYYY-MM-DDTHH:mm" to carry the time FM
+  // itself omits). The two are independent in Disco even though FM's single
+  // cutOffType can't hold both — see lib/scheduling/cutoffs.ts.
+  const [dailyCutoffEnabled, setDailyCutoffEnabled] = useState(false)
+  const [dailyCutoff, setDailyCutoff] = useState('09:00')
+  const [hardCutoffEnabled, setHardCutoffEnabled] = useState(false)
+  const [hardCutoffDate, setHardCutoffDate] = useState('')
+  const [hardCutoffTime, setHardCutoffTime] = useState('17:00')
 
   // minimums
   const [pickupMin, setPickupMin] = useState(0)
@@ -221,9 +228,19 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         const totalHours = Math.max(0, Math.floor(sched.prepTime ?? 24))
         setPrepDays(Math.floor(totalHours / 24))
         setPrepHours(totalHours % 24)
-        setCutOffType((sched.cutOffType as 'DAILY' | 'BY_DATE') || 'DAILY')
-        setCutOff(sched.cutOff || '17:00')
-        setCutOffDate(sched.cutOffDate || '')
+        // Daily cutoff: present whenever scheduleOption.cutOff is set.
+        setDailyCutoffEnabled(!!sched.cutOff)
+        setDailyCutoff(sched.cutOff || '09:00')
+        // Hard cutoff: scheduleOption.cutOffDate, which may be date-only
+        // (legacy/FM) or "YYYY-MM-DDTHH:mm" (Disco).
+        if (sched.cutOffDate) {
+          setHardCutoffEnabled(true)
+          const [d, t] = sched.cutOffDate.split('T')
+          setHardCutoffDate(d || '')
+          setHardCutoffTime((t || '17:00').slice(0, 5))
+        } else {
+          setHardCutoffEnabled(false)
+        }
 
         // Hydrate days + windows from repeatWeekDays.
         const dayMap: Record<DayKey, boolean> = {
@@ -305,9 +322,11 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         repeatWeekDays,
         prepTime: totalPrepHours,
         maxOrder: maxOrder === '' ? null : Number(maxOrder),
-        cutOffType: cutOffType || undefined,
-        cutOff: cutOffType === 'DAILY' ? cutOff : (menu.scheduleOption?.cutOff || undefined),
-        cutOffDate: cutOffType === 'BY_DATE' ? cutOffDate : (menu.scheduleOption?.cutOffDate || undefined),
+        // Daily + Hard cutoffs are independent. cutOffType reflects precedence
+        // for FM's single-field consumers (Disco reads both fields directly).
+        cutOff: dailyCutoffEnabled ? dailyCutoff : undefined,
+        cutOffDate: hardCutoffEnabled && hardCutoffDate ? `${hardCutoffDate}T${hardCutoffTime}` : undefined,
+        cutOffType: hardCutoffEnabled && hardCutoffDate ? 'BY_DATE' : (dailyCutoffEnabled ? 'DAILY' : undefined),
         // FM only attaches skippedDays when there are any (component.ts:1022).
         skippedDays: skippedDays.length ? skippedDays : undefined,
       }
@@ -515,17 +534,21 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
                 )}
               </div>
 
-              {/* Lead time / cutoff */}
+              {/* Lead Time & Cutoffs */}
               <div style={sectionStyle}>
-                <div style={sectionTitle}>Advance order &amp; cutoff</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div style={sectionTitle}>Lead Time &amp; Cutoffs</div>
+
+                {/* Lead Time */}
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#666', marginBottom: 8 }}>Lead Time</div>
+                <div style={{ fontSize: 12, color: '#777', marginBottom: 10 }}>Minimum notice required before pickup/delivery.</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 18 }}>
                   <div>
-                    <label style={labelStyle}>Advance days</label>
+                    <label style={labelStyle}>Days</label>
                     <input type="number" min={0} style={inputStyle} value={prepDays}
                       onChange={e => setPrepDays(Math.max(0, parseInt(e.target.value || '0', 10)))} />
                   </div>
                   <div>
-                    <label style={labelStyle}>Advance hours</label>
+                    <label style={labelStyle}>Hours</label>
                     <input type="number" min={0} max={23} style={inputStyle} value={prepHours}
                       onChange={e => setPrepHours(Math.max(0, Math.min(23, parseInt(e.target.value || '0', 10))))} />
                   </div>
@@ -539,28 +562,39 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                  <div>
-                    <label style={labelStyle}>Cutoff type</label>
-                    <select style={inputStyle} value={cutOffType} onChange={e => setCutOffType(e.target.value as 'DAILY' | 'BY_DATE' | '')}>
-                      <option value="DAILY">Daily cutoff time</option>
-                      <option value="BY_DATE">By specific date</option>
-                    </select>
-                  </div>
-                  <div>
-                    {cutOffType === 'BY_DATE' ? (
-                      <>
-                        <label style={labelStyle}>Cutoff date</label>
-                        <input type="date" style={inputStyle} value={cutOffDate} onChange={e => setCutOffDate(e.target.value)} />
-                      </>
-                    ) : (
-                      <>
-                        <label style={labelStyle}>Cutoff time</label>
-                        <input type="time" style={inputStyle} value={cutOff} onChange={e => setCutOff(e.target.value)} />
-                      </>
-                    )}
-                  </div>
+                {/* Daily Cutoff */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#666' }}>Daily Cutoff</div>
+                  <Toggle label="" checked={dailyCutoffEnabled} onChange={setDailyCutoffEnabled} />
                 </div>
+                <div style={{ fontSize: 12, color: '#777', marginBottom: dailyCutoffEnabled ? 10 : 18 }}>Ordering for the same day stops at this time.</div>
+                {dailyCutoffEnabled && (
+                  <div style={{ maxWidth: 220, marginBottom: 18 }}>
+                    <label style={labelStyle}>Cutoff time</label>
+                    <input type="time" style={inputStyle} value={dailyCutoff} onChange={e => setDailyCutoff(e.target.value)} />
+                  </div>
+                )}
+
+                {/* Hard Cutoff */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#666' }}>Hard Cutoff</div>
+                  <Toggle label="" checked={hardCutoffEnabled} onChange={setHardCutoffEnabled} />
+                </div>
+                <div style={{ fontSize: 12, color: '#777', marginBottom: hardCutoffEnabled ? 10 : 0 }}>
+                  Strict cutoff for this menu (typically holiday or pop-up ordering). The menu stays visible but is greyed out after this time.
+                </div>
+                {hardCutoffEnabled && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                    <div>
+                      <label style={labelStyle}>Cutoff date</label>
+                      <input type="date" style={inputStyle} value={hardCutoffDate} onChange={e => setHardCutoffDate(e.target.value)} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Cutoff time</label>
+                      <input type="time" style={inputStyle} value={hardCutoffTime} onChange={e => setHardCutoffTime(e.target.value)} />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Order limits */}
