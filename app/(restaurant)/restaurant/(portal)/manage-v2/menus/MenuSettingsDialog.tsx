@@ -26,16 +26,16 @@ interface MenuSettings {
   pickupOrderMinimum?: number
   deliveryOrderMinimum?: number
   menuAvailability?: string[]
-  deliveryType?: 'OWN_DELIVERY' | 'THIRD_PARTY'
-  ownDeliveryRadius?: number
-  ownDeliveryFee?: number
-  ownDeliveryFeePercent?: number
-  secondaryOwnDeliveryRadius?: number
-  secondaryOwnDeliveryFee?: number
-  secondaryOwnDeliveryFeePercent?: number
-  thirdPartyDeliverySubsidingPercent?: number
-  serviceCharge?: number
-  serviceChargeName?: string
+  deliveryType?: 'OWN_DELIVERY' | 'NASH_DELIVERY'
+  ownDeliveryRadius?: number | null
+  ownDeliveryFee?: number | null
+  ownDeliveryFeePercent?: number | null
+  secondaryOwnDeliveryRadius?: number | null
+  secondaryOwnDeliveryFee?: number | null
+  secondaryOwnDeliveryFeePercent?: number | null
+  thirdPartyDeliverySubsidingPercent?: number | null
+  serviceCharge?: number | null
+  serviceChargeName?: string | null
   tipOption?: { tipsPrice: number; tipsType: 'PERCENTAGE' | 'CUSTOM' }
 }
 interface FullMenu {
@@ -57,17 +57,17 @@ const DAY_LABELS: Record<DayKey, string> = {
   FRIDAY: 'Fri', SATURDAY: 'Sat', SUNDAY: 'Sun',
 }
 
+// FM FAKE_MENU_CATEGORIES (fake-data.constant.ts:675-717). The per-menu
+// `type` field uses these values.
 const MENU_TYPES = [
-  { v: 'FAMILY_MEAL', label: 'Family Meal' },
-  { v: 'CATERING', label: 'Catering' },
-  { v: 'KITS', label: 'Kits' },
-  { v: 'BEVERAGES', label: 'Beverages' },
-  { v: 'PANTRY', label: 'Pantry' },
-  { v: 'CHEFS_TABLE', label: "Chef's Table" },
-  { v: 'POPUP', label: 'Pop Up' },
-  { v: 'COLLABS', label: 'Collabs' },
-  { v: 'DRINKS', label: 'Drinks' },
-  { v: 'SERIES', label: 'Series' },
+  { v: 'GENERAL_CATERING', label: 'General Catering' },
+  { v: 'OFFICE_CATERING', label: 'Office Catering' },
+  { v: 'HOLIDAY_CATERING', label: 'Holiday Catering' },
+  { v: 'MEAL_PREP', label: 'Meal Prep' },
+  { v: 'PRIVATE_CHEF', label: 'Private Chef' },
+  { v: 'NATIONWIDE_SHIPPING', label: 'Nationwide Shipping' },
+  { v: 'MERCH', label: 'Merch' },
+  { v: 'POP_UP', label: 'Pop Up' },
 ]
 
 interface Props {
@@ -102,10 +102,31 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
 
   // form state
   const [name, setName] = useState('')
-  const [type, setType] = useState('FAMILY_MEAL')
+  const [type, setType] = useState('GENERAL_CATERING')
   const [url, setUrl] = useState('')
   const [visible, setVisible] = useState(true)
   const [archived, setArchived] = useState(false)
+
+  // tips & surcharges (FM tipOption + serviceCharge)
+  const [tipMode, setTipMode] = useState<10 | 15 | 20 | 'CUSTOM'>(10)
+  const [customTip, setCustomTip] = useState('')           // dollars, CUSTOM only
+  const [serviceCharge, setServiceCharge] = useState('')    // percentage points
+  const [serviceChargeName, setServiceChargeName] = useState('')
+
+  // delivery fulfillment (FM settings.deliveryType + own-delivery tiers)
+  const [deliveryType, setDeliveryType] = useState<'OWN_DELIVERY' | 'NASH_DELIVERY'>('OWN_DELIVERY')
+  const [ownRadius, setOwnRadius] = useState('')            // miles
+  const [ownFeeMode, setOwnFeeMode] = useState<'currency' | 'percentage'>('currency')
+  const [ownFee, setOwnFee] = useState('')                 // dollars (2dp)
+  const [ownFeePercent, setOwnFeePercent] = useState('')    // percent (3dp)
+  const [secRadius, setSecRadius] = useState('')
+  const [secFeeMode, setSecFeeMode] = useState<'currency' | 'percentage'>('currency')
+  const [secFee, setSecFee] = useState('')
+  const [secFeePercent, setSecFeePercent] = useState('')
+  const [thirdPartySubsidy, setThirdPartySubsidy] = useState('')  // percent (FM default 20)
+
+  // scheduling override (FM scheduleOption.skippedDays)
+  const [skippedDays, setSkippedDays] = useState<SkippedDay[]>([])
 
   // service type
   const [pickup, setPickup] = useState(true)
@@ -150,7 +171,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         if (cancel) return
         setMenu(m)
         setName(m.name || '')
-        setType(m.type || m.menuType || 'FAMILY_MEAL')
+        setType(m.type || m.menuType || 'GENERAL_CATERING')
         setUrl(m.url || '')
         setVisible(m.visible !== false)
         setArchived(!!m.archived)
@@ -161,6 +182,39 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         const avail = settings.menuAvailability || []
         setPickup(avail.includes('PICKUP'))
         setDelivery(avail.includes('DELIVERY'))
+
+        // Tips & surcharges
+        const tip = settings.tipOption
+        if (tip) {
+          if (tip.tipsType === 'CUSTOM') {
+            setTipMode('CUSTOM')
+            setCustomTip(tip.tipsPrice != null ? String(tip.tipsPrice) : '')
+          } else if (tip.tipsPrice === 15) setTipMode(15)
+          else if (tip.tipsPrice === 20) setTipMode(20)
+          else setTipMode(10)
+        }
+        setServiceCharge(settings.serviceCharge != null ? String(settings.serviceCharge) : '')
+        setServiceChargeName(settings.serviceChargeName || '')
+
+        // Delivery fulfillment. FM picks the fee mode from which field has a
+        // value (menu-settings-v2.component.ts:338-355): a $ amount → currency,
+        // a percent → percentage, default currency.
+        setDeliveryType(settings.deliveryType === 'NASH_DELIVERY' ? 'NASH_DELIVERY' : 'OWN_DELIVERY')
+        setOwnRadius(settings.ownDeliveryRadius != null ? String(settings.ownDeliveryRadius) : '')
+        if (settings.ownDeliveryFeePercent != null && settings.ownDeliveryFee == null) {
+          setOwnFeeMode('percentage'); setOwnFeePercent(String(settings.ownDeliveryFeePercent)); setOwnFee('')
+        } else {
+          setOwnFeeMode('currency'); setOwnFee(settings.ownDeliveryFee != null ? String(settings.ownDeliveryFee) : ''); setOwnFeePercent('')
+        }
+        setSecRadius(settings.secondaryOwnDeliveryRadius != null ? String(settings.secondaryOwnDeliveryRadius) : '')
+        if (settings.secondaryOwnDeliveryFeePercent != null && settings.secondaryOwnDeliveryFee == null) {
+          setSecFeeMode('percentage'); setSecFeePercent(String(settings.secondaryOwnDeliveryFeePercent)); setSecFee('')
+        } else {
+          setSecFeeMode('currency'); setSecFee(settings.secondaryOwnDeliveryFee != null ? String(settings.secondaryOwnDeliveryFee) : ''); setSecFeePercent('')
+        }
+        setThirdPartySubsidy(settings.thirdPartyDeliverySubsidingPercent != null ? String(settings.thirdPartyDeliverySubsidingPercent) : '')
+
+        setSkippedDays(sched.skippedDays || [])
 
         setScheduleType(sched.scheduleType || 'SAME_DAY')
         setRollingAvailability(sched.rollingAvailability ?? 30)
@@ -254,13 +308,31 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         cutOffType: cutOffType || undefined,
         cutOff: cutOffType === 'DAILY' ? cutOff : (menu.scheduleOption?.cutOff || undefined),
         cutOffDate: cutOffType === 'BY_DATE' ? cutOffDate : (menu.scheduleOption?.cutOffDate || undefined),
+        // FM only attaches skippedDays when there are any (component.ts:1022).
+        skippedDays: skippedDays.length ? skippedDays : undefined,
       }
 
+      // FM stores ONE of fee / feePercent per tier and nulls the other based
+      // on the $/% toggle (menu-settings-v2.component.ts:497-531, 999-1005).
       const settings: MenuSettings = {
         ...(menu.settings || emptySettings()),
         pickupOrderMinimum: Number(pickupMin) || 0,
         deliveryOrderMinimum: Number(deliveryMin) || 0,
         menuAvailability,
+        deliveryType,
+        ownDeliveryRadius: numOrNull(ownRadius),
+        ownDeliveryFee: ownFeeMode === 'currency' ? numOrNull(ownFee) : null,
+        ownDeliveryFeePercent: ownFeeMode === 'percentage' ? numOrNull(ownFeePercent) : null,
+        secondaryOwnDeliveryRadius: numOrNull(secRadius),
+        secondaryOwnDeliveryFee: secFeeMode === 'currency' ? numOrNull(secFee) : null,
+        secondaryOwnDeliveryFeePercent: secFeeMode === 'percentage' ? numOrNull(secFeePercent) : null,
+        thirdPartyDeliverySubsidingPercent: numOrNull(thirdPartySubsidy),
+        serviceCharge: numOrNull(serviceCharge),
+        serviceChargeName: serviceChargeName.trim() || null,
+        tipOption: {
+          tipsPrice: tipMode === 'CUSTOM' ? (Number(customTip) || 0) : tipMode,
+          tipsType: tipMode === 'CUSTOM' ? 'CUSTOM' : 'PERCENTAGE',
+        },
       }
 
       const body = {
@@ -513,6 +585,104 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
                   </div>
                 </div>
               </div>
+
+              {/* Tips & Surcharges */}
+              <div style={sectionStyle}>
+                <div style={sectionTitle}>Tips &amp; surcharges</div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={labelStyle}>Default tip</label>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {([10, 15, 20] as const).map(p => (
+                      <ModeBtn key={p} active={tipMode === p} onClick={() => setTipMode(p)}>{p}%</ModeBtn>
+                    ))}
+                    <ModeBtn active={tipMode === 'CUSTOM'} onClick={() => setTipMode('CUSTOM')}>Custom</ModeBtn>
+                  </div>
+                  {tipMode === 'CUSTOM' && (
+                    <div style={{ marginTop: 12, maxWidth: 220 }}>
+                      <label style={labelStyle}>Custom default tip ($)</label>
+                      <input type="number" min={0} step="0.01" style={inputStyle} value={customTip}
+                        onChange={e => setCustomTip(e.target.value)} placeholder="0.00" />
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div>
+                    <label style={labelStyle}>Service charge (%)</label>
+                    <input type="number" min={0} step="0.01" style={inputStyle} value={serviceCharge}
+                      onChange={e => setServiceCharge(e.target.value)} placeholder="0" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Service charge name</label>
+                    <input style={inputStyle} value={serviceChargeName}
+                      onChange={e => setServiceChargeName(e.target.value)} placeholder="e.g. Service fee" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Delivery fulfillment */}
+              <div style={sectionStyle}>
+                <div style={sectionTitle}>Delivery fulfillment</div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={labelStyle}>Delivery method</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <ModeBtn active={deliveryType === 'OWN_DELIVERY'} onClick={() => setDeliveryType('OWN_DELIVERY')}>Self-Delivery</ModeBtn>
+                    <ModeBtn active={deliveryType === 'NASH_DELIVERY'} onClick={() => setDeliveryType('NASH_DELIVERY')}>Third-Party</ModeBtn>
+                  </div>
+                </div>
+
+                {deliveryType === 'OWN_DELIVERY' ? (
+                  <>
+                    {/* Primary tier */}
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#666', margin: '4px 0 10px' }}>Primary radius</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16, alignItems: 'end' }}>
+                      <div>
+                        <label style={labelStyle}>Radius (miles)</label>
+                        <input type="number" min={0} step="0.1" style={inputStyle} value={ownRadius}
+                          onChange={e => setOwnRadius(e.target.value)} placeholder="e.g. 5" />
+                      </div>
+                      <FeeInput
+                        mode={ownFeeMode} onMode={setOwnFeeMode}
+                        amount={ownFee} onAmount={setOwnFee}
+                        percent={ownFeePercent} onPercent={setOwnFeePercent}
+                        inputStyle={inputStyle} labelStyle={labelStyle}
+                      />
+                    </div>
+                    {/* Secondary tier */}
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#666', margin: '4px 0 10px' }}>Secondary radius (optional)</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'end' }}>
+                      <div>
+                        <label style={labelStyle}>Radius (miles)</label>
+                        <input type="number" min={0} step="0.1" style={inputStyle} value={secRadius}
+                          onChange={e => setSecRadius(e.target.value)} placeholder="e.g. 10" />
+                      </div>
+                      <FeeInput
+                        mode={secFeeMode} onMode={setSecFeeMode}
+                        amount={secFee} onAmount={setSecFee}
+                        percent={secFeePercent} onPercent={setSecFeePercent}
+                        inputStyle={inputStyle} labelStyle={labelStyle}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ maxWidth: 260 }}>
+                    <label style={labelStyle}>Third-party subsidy (%)</label>
+                    <input type="number" min={0} max={100} step="0.1" style={inputStyle} value={thirdPartySubsidy}
+                      onChange={e => setThirdPartySubsidy(e.target.value)} placeholder="20" />
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 6 }}>
+                      Percentage of the third-party delivery fee the restaurant covers (FM default 20%).
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Scheduling override */}
+              <div style={sectionStyle}>
+                <div style={sectionTitle}>Menu scheduling override</div>
+                <div style={{ fontSize: 12, color: '#777', marginBottom: 12 }}>
+                  Block out specific dates (holidays, closures). Each can be closed all day or limited to a custom window.
+                </div>
+                <SkippedDaysEditor value={skippedDays} onChange={setSkippedDays} inputStyle={inputStyle} labelStyle={labelStyle} />
+              </div>
             </>
           )}
         </div>
@@ -577,5 +747,123 @@ function ModeBtn({ active, onClick, children }: { active: boolean; onClick: () =
         background: active ? INDIGO : '#fff',
         color: active ? '#fff' : '#555', cursor: 'pointer', fontFamily: F,
       }}>{children}</button>
+  )
+}
+
+function numOrNull(v: string): number | null {
+  if (v == null || `${v}`.trim() === '') return null
+  const n = Number(v)
+  return isFinite(n) ? n : null
+}
+
+// Delivery-fee input with a $/% segmented toggle. Mirrors FM's
+// FAKE_OWN_DELIVERY_FEE_TYPES (currency=$, percentage=%): exactly one mode is
+// active, and the inactive field is nulled on save.
+function FeeInput({ mode, onMode, amount, onAmount, percent, onPercent, inputStyle, labelStyle }: {
+  mode: 'currency' | 'percentage'
+  onMode: (m: 'currency' | 'percentage') => void
+  amount: string; onAmount: (v: string) => void
+  percent: string; onPercent: (v: string) => void
+  inputStyle: React.CSSProperties; labelStyle: React.CSSProperties
+}) {
+  const segBase: React.CSSProperties = { padding: '0 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', border: 'none', fontFamily: F }
+  return (
+    <div>
+      <label style={labelStyle}>Delivery fee</label>
+      <div style={{ display: 'flex' }}>
+        <div style={{ display: 'flex', border: '1.5px solid #e0e0e0', borderRight: 'none', borderRadius: '8px 0 0 8px', overflow: 'hidden' }}>
+          <button type="button" onClick={() => onMode('currency')}
+            style={{ ...segBase, background: mode === 'currency' ? INDIGO : '#fff', color: mode === 'currency' ? '#fff' : '#777' }}>$</button>
+          <button type="button" onClick={() => onMode('percentage')}
+            style={{ ...segBase, background: mode === 'percentage' ? INDIGO : '#fff', color: mode === 'percentage' ? '#fff' : '#777' }}>%</button>
+        </div>
+        {mode === 'currency' ? (
+          <input type="number" min={0} step="0.01" value={amount} onChange={e => onAmount(e.target.value)}
+            placeholder="0.00" style={{ ...inputStyle, borderRadius: '0 8px 8px 0' }} />
+        ) : (
+          <input type="number" min={0} step="0.001" value={percent} onChange={e => onPercent(e.target.value)}
+            placeholder="0" style={{ ...inputStyle, borderRadius: '0 8px 8px 0' }} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Skipped-days editor. Each entry mirrors FM's skipped-day shape
+// ({ name, fromDate, toDate, intervals: [{ fromTime, toTime }] }):
+// intervals is empty for a full-day closure, or one entry for a custom window
+// (skipped-days-modal.component.ts:89-108).
+function SkippedDaysEditor({ value, onChange, inputStyle, labelStyle }: {
+  value: SkippedDay[]; onChange: (v: SkippedDay[]) => void
+  inputStyle: React.CSSProperties; labelStyle: React.CSSProperties
+}) {
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [custom, setCustom] = useState(false)
+  const [fromTime, setFromTime] = useState('09:00')
+  const [toTime, setToTime] = useState('17:00')
+
+  function reset() { setName(''); setFrom(''); setTo(''); setCustom(false); setFromTime('09:00'); setToTime('17:00'); setAdding(false) }
+  function add() {
+    if (!name.trim() || !from || !to) return
+    const entry: SkippedDay = {
+      name: name.trim(), fromDate: from, toDate: to,
+      intervals: custom ? [{ fromTime, toTime }] : [],
+    }
+    onChange([...value, entry])
+    reset()
+  }
+
+  return (
+    <div>
+      {value.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          {value.map((d, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', border: '1px solid #eee', borderRadius: 8, marginBottom: 6, background: '#fafafe' }}>
+              <div style={{ fontSize: 13, color: DARK }}>
+                <span style={{ fontWeight: 600 }}>{d.name}</span>
+                <span style={{ color: '#888' }}> · {d.fromDate}{d.toDate !== d.fromDate ? ` → ${d.toDate}` : ''} · {d.intervals.length ? `${d.intervals[0].fromTime}–${d.intervals[0].toTime}` : 'Closed all day'}</span>
+              </div>
+              <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E24B4A', fontSize: 18, lineHeight: 1 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {adding ? (
+        <div style={{ border: '1px dashed #d8d8e4', borderRadius: 10, padding: 14 }}>
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelStyle}>Name</label>
+            <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Thanksgiving" />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div><label style={labelStyle}>From date</label><input type="date" style={inputStyle} value={from} onChange={e => setFrom(e.target.value)} /></div>
+            <div><label style={labelStyle}>To date</label><input type="date" style={inputStyle} value={to} onChange={e => setTo(e.target.value)} /></div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: custom ? 12 : 0 }}>
+            <ModeBtn active={!custom} onClick={() => setCustom(false)}>Closed all day</ModeBtn>
+            <ModeBtn active={custom} onClick={() => setCustom(true)}>Custom hours</ModeBtn>
+          </div>
+          {custom && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div><label style={labelStyle}>From</label><input type="time" style={inputStyle} value={fromTime} onChange={e => setFromTime(e.target.value)} /></div>
+              <div><label style={labelStyle}>To</label><input type="time" style={inputStyle} value={toTime} onChange={e => setToTime(e.target.value)} /></div>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <button type="button" onClick={add} disabled={!name.trim() || !from || !to}
+              style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: (!name.trim() || !from || !to) ? 0.5 : 1 }}>Add</button>
+            <button type="button" onClick={reset}
+              style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, color: '#555' }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setAdding(true)}
+          style={{ background: 'transparent', border: '1.5px solid ' + INDIGO, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, color: INDIGO }}>+ Add override</button>
+      )}
+    </div>
   )
 }
