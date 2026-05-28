@@ -991,7 +991,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       {/* Mobile bottom bar */}
       <div className="mobile-order-bar" style={{ display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: '#fff', borderTop: '1px solid #f0f0f0', boxShadow: '0 -4px 16px rgba(0,0,0,0.06)', zIndex: 100 }}>
         <button onClick={() => setMobileCartOpen(true)} style={{ width: '100%', padding: '14px', background: cartCount > 0 ? BLUE : '#e8e8e8', color: cartCount > 0 ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: cartCount > 0 ? '0 4px 14px rgba(91,111,232,0.25)' : 'none' }}>
-          {cartCount > 0 ? `${cartCount} item${cartCount !== 1 ? 's' : ''} · ${formatPrice(subtotal)} — View Order` : 'Browse Menu → Start Order'}
+          {cartCount > 0 ? `${cartCount} item${cartCount !== 1 ? 's' : ''} · ${formatPrice(subtotal)} — Continue to Checkout` : 'Browse Menu → Start Order'}
         </button>
       </div>
 
@@ -1128,7 +1128,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             {/* Headcount — optional */}
             <div style={{ padding: '6px 20px 14px', borderBottom: '1px solid #f0f0f0' }}>
               <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
-                How many people? <span style={{ color: '#bbb', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· optional</span>
+                Headcount <span style={{ color: '#bbb', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· optional</span>
               </div>
               <input
                 type="number" inputMode="numeric" min={1}
