@@ -3,6 +3,9 @@ import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import GenerateReportButton from '../_components/GenerateReportButton'
 import { printOrder, type PrintableOrder } from '../_components/PrintOrderDocument'
+import {
+  lineQty, lineRowTotal, lineModifiers, modifierQty, modifierRowTotal, formatCurrency,
+} from '../../../../../lib/pricing/lineItem'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -19,8 +22,14 @@ interface ExtraItem {
 
 interface OrderMealPackage {
   name?: string
+  /** FM emits `count` on /api/orders/{ref}; `quantity` was a Disco-Cater
+   *  legacy alias that doesn't actually exist on the response, which is
+   *  why the drawer used to render every line as qty 1. */
+  count?: number
   quantity?: number
   price?: number
+  /** FM emits `orderAddOns`; `extraItems` was a similar legacy alias. */
+  orderAddOns?: ExtraItem[]
   extraItems?: ExtraItem[]
   specialInstructions?: string
   comment?: string
@@ -984,21 +993,29 @@ function TotalRow({ label, value }: { label: string; value: number }) {
 }
 
 function LineItemRow({ item }: { item: OrderMealPackage }) {
-  const qty = item.quantity ?? 1
+  // Mirrors FM's shared/order-details template field-for-field. The
+  // previous version read `quantity` / `extraItems` — neither field is
+  // emitted by FM (FM uses `count` and `orderAddOns`), so qty always
+  // fell to 1 and modifiers never rendered. Bug repro: Westwoods BBQ
+  // #27350018 displayed "1 Burnt Ends $0.00" with no modifier rows,
+  // while subtotal was $540. See lib/pricing/lineItem.ts for the
+  // shared helpers and FM source citations.
+  const qty = lineQty(item)
   const name = item.name || '—'
-  const price = item.price ?? 0
+  const lineTotal = lineRowTotal(item)
+  const modifiers = lineModifiers(item)
   return (
     <>
       <tr>
         <td style={lineCell}>{qty}</td>
         <td style={lineCell}>{name}</td>
-        <td style={{ ...lineCell, textAlign: 'right' }}>{fmt(price)}</td>
+        <td style={{ ...lineCell, textAlign: 'right' }}>{formatCurrency(lineTotal)}</td>
       </tr>
-      {item.extraItems?.map((ex, i) => (
+      {modifiers.map((ex, i) => (
         <tr key={i}>
           <td style={lineCellSub}></td>
-          <td style={{ ...lineCellSub, paddingLeft: 24 }}>+ ({ex.count ?? ex.quantity ?? 1}) {ex.name}</td>
-          <td style={{ ...lineCellSub, textAlign: 'right' }}>{ex.price ? fmt(ex.price) : ''}</td>
+          <td style={{ ...lineCellSub, paddingLeft: 24 }}>+ ({modifierQty(ex)}) {ex.name}</td>
+          <td style={{ ...lineCellSub, textAlign: 'right' }}>{formatCurrency(modifierRowTotal(ex))}</td>
         </tr>
       ))}
       {(item.specialInstructions || item.comment) && (
