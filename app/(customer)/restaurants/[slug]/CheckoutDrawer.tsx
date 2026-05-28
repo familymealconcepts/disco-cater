@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthContext } from '../../../context/AuthContext'
 import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
@@ -59,6 +59,34 @@ interface Props {
 
 type DrawerStep = 'review' | 'processing' | 'payment' | 'placing'
 
+const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
+
+// FM computes fee + tax server-side and returns them on the order PUT
+// (checkoutPricesV2 → fee, stateSalesTaxInPrice, localSalesTaxInPrice,
+// otherSalesTaxInPrice — checkout-sidebar-preview.component.ts:723-726). The
+// public-api v2 PUT envelope varies, so read both flat and
+// data.checkoutPublicResponseDto shapes; tax = state+local+other.
+function extractFmMoney(raw: any): null | {
+  subtotal: number | null; fee: number; tax: number; serviceCharge: number
+  deliveryFee: number | null; tips: number | null; discount: number; total: number | null
+} {
+  if (!raw) return null
+  const d = raw?.data?.checkoutPublicResponseDto ?? raw?.data ?? raw
+  const num = (v: any) => (typeof v === 'number' ? v : 0)
+  const components = num(d.stateSalesTaxInPrice) + num(d.localSalesTaxInPrice) + num(d.otherSalesTaxInPrice)
+  const tax = components > 0 ? components : num(d.tax ?? d.taxAmount)
+  return {
+    subtotal: d.subtotal ?? d.subTotal ?? null,
+    fee: num(d.fee ?? d.serviceFee ?? d.platformFee),
+    tax,
+    serviceCharge: num(d.serviceCharge),
+    deliveryFee: d.deliveryFee ?? d.delivery ?? null,
+    tips: d.tipsInPrice ?? d.tips ?? null,
+    discount: num(d.discount),
+    total: d.total ?? d.totalAmount ?? d.totalCost ?? null,
+  }
+}
+
 function fmt$(n: number) { return `$${n.toFixed(2)}` }
 function fmtDateShort(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) } catch { return d }
@@ -81,6 +109,11 @@ export default function CheckoutDrawer({
   const [step, setStep] = useState<DrawerStep>('review')
   const [orderRef, setOrderRef] = useState('')
   const [fmTotals, setFmTotals] = useState<any>(null)
+  // Tax Exempt Account (Item 4). FM fields: taxExempt (bool) + taxExemptId;
+  // we also send taxExemptState. Tax is zeroed SERVER-SIDE when taxExempt=true.
+  const [taxExemptId, setTaxExemptId] = useState('')
+  const [taxExemptState, setTaxExemptState] = useState('')
+  const [taxExemptApplied, setTaxExemptApplied] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [waitingForAuth, setWaitingForAuth] = useState(false)
@@ -160,16 +193,88 @@ export default function CheckoutDrawer({
   }, [step, stripeKey, savedCard, useNewCard])
 
   // ── Computed ───────────────────────────────────────────────────────────────
-  const displayDeliveryFee = fmTotals?.deliveryFee ?? fmTotals?.delivery ?? null
-  const displayTax = fmTotals?.tax ?? fmTotals?.taxAmount ?? null
-  const displayTips = fmTotals?.tips ?? tipAmt
-  const displaySvc = fmTotals?.fee ?? svcAmt
+  const fm = useMemo(() => extractFmMoney(fmTotals), [fmTotals])
+  const displayDeliveryFee = fm?.deliveryFee ?? null
+  // Tax exempt → always $0 (FM also zeroes it server-side, but show 0 locally
+  // so the line reads "$0.00" the instant Apply is clicked).
+  const displayTax = taxExemptApplied ? 0 : (fm?.tax ?? null)
+  const displayTips = fm?.tips ?? tipAmt
+  const displaySvc = fm?.serviceCharge ?? svcAmt        // per-menu service charge
+  const displayFee = fm?.fee ?? null                    // platform (~3%) fee
+  // Combined "Taxes & Fees" line (platform fee + sales tax), mirroring FM's
+  // checkout-sidebar getTaxesAndFees() = fee + state + local + other.
+  const taxesAndFees = (displayFee !== null || displayTax !== null)
+    ? (displayFee ?? 0) + (displayTax ?? 0)
+    : null
+  const taxIdValid = /^\d{6,12}$/.test(taxExemptId)
+  const canApplyExempt = taxIdValid && !!taxExemptState
   const fmAddr: FmDeliveryAddr = {
     addressLine1: addr.line1,
     city: addr.city,
     state: addr.state,
     zipcode: addr.zip,
   }
+
+  // ── Pricing preview (Item 1) ─────────────────────────────────────────────────
+  // FM has no client-side tax/fee math and no public tax-rate endpoint — it
+  // inits a draft order and PUTs to get server-computed fee + tax (the same
+  // checkoutPricesV2 preview FM's own checkout uses). We mirror that here so the
+  // Order Summary shows real numbers before payment. Best-effort: on failure the
+  // summary falls back to "Calculated at checkout" (never a guessed amount).
+  const previewSeq = useRef(0)
+  const orderRefRef = useRef('')
+  useEffect(() => { orderRefRef.current = orderRef }, [orderRef])
+
+  const cartKey = useMemo(
+    () => cart.map(i => `${i.pkg.reference}:${i.quantity}:${i.addOns.map(a => `${a.reference}x${a.count}`).join(',')}`).join('|'),
+    [cart],
+  )
+
+  async function runPricing(advance: boolean): Promise<string | null> {
+    const seq = ++previewSeq.current
+    let ref = orderRefRef.current
+    if (!ref) {
+      const initBody = buildCheckoutPayload({
+        restaurantRef: fmRef,
+        cart: cart.map(i => ({ reference: i.pkg.reference, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
+        orderType: orderType as 'DELIVERY' | 'PICKUP',
+        orderDate: selDate, orderTime: selTime,
+        deliveryAddress: orderType === 'DELIVERY' ? fmAddr : undefined,
+        headcount,
+      })
+      const initRes = await fetch('/api/order/init', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(initBody) })
+      const initData = await initRes.json()
+      if (!initRes.ok) throw new Error(initData.error || initData.message || 'Failed to create order draft.')
+      ref = initData.reference || initData.orderReference || initData.orderRef || initData.id || ''
+      if (!ref) throw new Error('Order created but no reference returned.')
+      orderRefRef.current = ref
+      setOrderRef(ref)
+      if (orderType === 'DELIVERY') {
+        fetch('/api/order/validate-address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantReference: fmRef, deliveryAddress: fmAddr }) }).catch(() => {})
+      }
+      fetch('/api/fm-slot-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantRef: fmRef, orderRef: ref, localDate: selDate, localTime: selTime, orderType }) }).catch(() => {})
+    }
+    const updRes = await fetch('/api/order/update', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        restaurantRef: fmRef, orderRef: ref, tips: tipAmt, tipsType: 'DOLLAR',
+        ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
+        ...(taxExemptApplied ? { taxExempt: true, taxExemptId, taxExemptState } : { taxExempt: false }),
+      }),
+    })
+    const updData = await updRes.json()
+    if (updRes.ok && !updData.error && (advance || seq === previewSeq.current)) setFmTotals(updData)
+    return ref
+  }
+
+  // Debounced preview while on the review step.
+  const canPreview = cart.length > 0 && !!selDate && !!selTime && (orderType === 'PICKUP' || !!addr.line1)
+  useEffect(() => {
+    if (step !== 'review' || !canPreview) return
+    const t = setTimeout(() => { runPricing(false).catch(() => {}) }, 450)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, canPreview, cartKey, orderType, selDate, selTime, addr.line1, tipAmt, taxExemptApplied])
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -178,64 +283,9 @@ export default function CheckoutDrawer({
     if (!authUser) { setWaitingForAuth(true); openAuthModal(undefined, 'login'); return }
 
     try {
-      // 1. Init order — payload built via lib/pricing/checkout.ts to
-      // centralize the FM POST shape. See doc § 1.3 for citations:
-      // mealPackages[].count + extraItems[]{ count, type: 'ADD_ON',
-      // extraItemsGroupReference }. Field shape unchanged from the
-      // previous inline version.
-      const initBody = buildCheckoutPayload({
-        restaurantRef: fmRef,
-        cart: cart.map(i => ({
-          reference: i.pkg.reference,
-          price: i.pkg.price,
-          count: i.quantity,
-          addOns: i.addOns,
-          note: i.note,
-        })),
-        orderType: orderType as 'DELIVERY' | 'PICKUP',
-        orderDate: selDate,
-        orderTime: selTime,
-        deliveryAddress: orderType === 'DELIVERY' ? fmAddr : undefined,
-        headcount,
-      })
-      const initRes = await fetch('/api/order/init', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(initBody),
-      })
-      const initData = await initRes.json()
-      if (!initRes.ok) throw new Error(initData.error || initData.message || 'Failed to create order draft.')
-      const ref = initData.reference || initData.orderReference || initData.orderRef || initData.id || ''
-      if (!ref) throw new Error('Order created but no reference returned.')
-      setOrderRef(ref)
-
-      // 2. Slot selected (non-blocking)
-      fetch('/api/fm-slot-selected', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantRef: fmRef, orderRef: ref, localDate: selDate, localTime: selTime, orderType }),
-      }).catch(() => {})
-
-      // 3. Validate delivery address (non-blocking)
-      if (orderType === 'DELIVERY') {
-        fetch('/api/order/validate-address', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ restaurantReference: fmRef, deliveryAddress: fmAddr }),
-        }).catch(() => {})
-      }
-
-      // 4. Update order to get real totals (best-effort)
-      try {
-        const updRes = await fetch('/api/order/update', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            restaurantRef: fmRef, orderRef: ref,
-            tips: tipAmt, tipsType: 'DOLLAR',
-            ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
-          }),
-        })
-        const updData = await updRes.json()
-        if (updRes.ok && !updData.error) setFmTotals(updData)
-      } catch {}
-
+      // Reuses the draft from the review-step preview if one exists (no
+      // duplicate init), then PUTs for canonical totals incl. tax-exempt.
+      await runPricing(true)
       setStep('payment')
     } catch (err: any) {
       setError(err.message || 'Something went wrong. Please try again.')
@@ -377,7 +427,7 @@ export default function CheckoutDrawer({
                   {item.addOns.length > 0 && (
                     <div style={{ marginTop: 2 }}>
                       {item.addOns.map(a => (
-                        <div key={a.reference} style={{ fontSize: 11, color: '#888' }}>+ ({a.count}) {a.name}</div>
+                        <div key={a.reference} style={{ fontSize: 11, color: '#888' }}>+ ({a.count}) {a.name}{a.price > 0 ? ` (+${fmt$(a.price)} each)` : ''}</div>
                       ))}
                     </div>
                   )}
@@ -396,11 +446,13 @@ export default function CheckoutDrawer({
               <span>Delivery fee</span>
               {orderType === 'PICKUP'
                 ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Free</span>
-                : <span style={{ color: '#aaa', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
+                : displayDeliveryFee !== null
+                  ? <span style={{ fontWeight: 600, color: DARK }}>{displayDeliveryFee === 0 ? 'Free' : fmt$(displayDeliveryFee)}</span>
+                  : <span style={{ color: '#aaa', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
             </div>
-            {svcAmt > 0 && (
+            {displaySvc > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                <span>Service fee</span><span style={{ fontWeight: 600, color: DARK }}>{fmt$(svcAmt)}</span>
+                <span>Service fee</span><span style={{ fontWeight: 600, color: DARK }}>{fmt$(displaySvc)}</span>
               </div>
             )}
             {tipAmt > 0 && (
@@ -408,13 +460,55 @@ export default function CheckoutDrawer({
                 <span>Tip</span><span style={{ fontWeight: 600, color: DARK }}>{fmt$(tipAmt)}</span>
               </div>
             )}
+            {/* Taxes & Fees — real numbers from FM's server pricing once the
+                preview returns; "Calculated at checkout" until then. */}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 14 }}>
-              <span>Tax</span><span style={{ color: '#aaa', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>
+              <span
+                title={taxesAndFees !== null
+                  ? `Tax: ${fmt$(displayTax ?? 0)}\nFee: ${fmt$(displayFee ?? 0)}${taxExemptApplied ? '\n(tax exempt)' : ''}\nThis allows us to be free for restaurants`
+                  : undefined}
+                style={{ borderBottom: taxesAndFees !== null ? '1px dotted #bbb' : 'none', cursor: taxesAndFees !== null ? 'help' : 'default' }}>
+                Taxes &amp; Fees{taxesAndFees !== null ? ' ⓘ' : ''}
+              </span>
+              {taxesAndFees !== null
+                ? <span style={{ fontWeight: 600, color: DARK }}>{fmt$(taxesAndFees)}</span>
+                : <span style={{ color: '#aaa', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid #f0f0f0', paddingTop: 12, fontSize: 17, fontWeight: 800, color: DARK }}>
-              <span>Estimated Total</span><span>{fmt$(subtotal + tipAmt + svcAmt)}</span>
+              <span>{taxesAndFees !== null ? 'Total' : 'Estimated Total'}</span>
+              <span>{fmt$(subtotal + tipAmt + (displaySvc || 0) + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0))}</span>
             </div>
-            {orderType === 'DELIVERY' && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>+ delivery &amp; tax</div>}
+            {orderType === 'DELIVERY' && displayDeliveryFee === null && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>+ delivery &amp; tax</div>}
+          </div>
+
+          {/* Tax Exempt Account (Item 4). FM accepts an exempt account on
+              checkout (taxExempt + taxExemptId). Per user policy the ID is any
+              6-12 digits with NO external verification (FM itself uses a 9-digit
+              SSN/ITIN validator — intentionally relaxed here). On Apply the
+              order is re-priced with taxExempt=true and the server zeroes tax. */}
+          <div style={{ borderTop: '1px solid #f0f0f0', padding: '14px 0' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 8 }}>Tax Exempt Account</div>
+            {taxExemptApplied ? (
+              <button onClick={() => { setTaxExemptApplied(false) }}
+                style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }}>
+                Remove tax exempt account
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input value={taxExemptId} onChange={e => setTaxExemptId(e.target.value.replace(/[^0-9]/g, ''))}
+                  inputMode="numeric" placeholder="ID (6–12 digits)"
+                  style={{ flex: '1 1 120px', minWidth: 0, height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
+                <select value={taxExemptState} onChange={e => setTaxExemptState(e.target.value)}
+                  style={{ height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 8px', fontSize: 13, fontFamily: F, color: taxExemptState ? DARK : '#aaa', background: '#fff' }}>
+                  <option value="">State</option>
+                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <button onClick={() => { if (canApplyExempt) setTaxExemptApplied(true) }} disabled={!canApplyExempt}
+                  style={{ height: 38, padding: '0 16px', background: canApplyExempt ? BLUE : '#e8e8e8', color: canApplyExempt ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: canApplyExempt ? 'pointer' : 'default', fontFamily: F }}>
+                  Apply
+                </button>
+              </div>
+            )}
           </div>
 
           {!canProceed && (
@@ -500,10 +594,15 @@ export default function CheckoutDrawer({
                 <span>Tip</span><span>{fmt$(displayTips)}</span>
               </div>
             )}
-            {displayTax !== null && displayTax > 0 && (
+            {taxesAndFees !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
-                <span>Tax</span><span>{fmt$(displayTax)}</span>
+                <span title={`Tax: ${fmt$(displayTax ?? 0)}\nFee: ${fmt$(displayFee ?? 0)}${taxExemptApplied ? '\n(tax exempt)' : ''}\nThis allows us to be free for restaurants`}
+                  style={{ borderBottom: '1px dotted #bbb', cursor: 'help' }}>Taxes &amp; Fees ⓘ</span>
+                <span>{fmt$(taxesAndFees)}</span>
               </div>
+            )}
+            {taxExemptApplied && (
+              <div style={{ fontSize: 11, color: '#22C55E', textAlign: 'right', marginBottom: 5 }}>Tax exempt applied</div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1.5px solid #ebebeb', paddingTop: 10, marginTop: 6, fontSize: 17, fontWeight: 800, color: DARK }}>
               <span>Total</span><span>{fmt$(payTotal)}</span>
