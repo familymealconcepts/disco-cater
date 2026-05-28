@@ -43,20 +43,34 @@ export default function ManageSystemAdminsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  // Restaurants list for the location picker — loaded once on mount.
-  // Uses the same endpoint as the dashboard restaurant dropdown.
+  // Restaurants list for the location picker — fetched when the
+  // dialog opens. Uses the paginated /api/admin/restaurants endpoint
+  // (the same proxy the ordering list uses) so the call shape matches
+  // an already-working path. Visible in Network tab on dialog open.
   const [locations, setLocations] = useState<LocationOption[]>([])
+  const [locationsLoading, setLocationsLoading] = useState(false)
   const [locationFilter, setLocationFilter] = useState('')
 
   useEffect(() => {
-    fetch('/api/admin/restaurants-list?size=1000')
+    if (!editing) return
+    if (locations.length > 0) return       // cache across re-opens
+    let cancelled = false
+    setLocationsLoading(true)
+    fetch('/api/admin/restaurants?size=1000')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
+        if (cancelled) return
         const list = d?.content || (Array.isArray(d) ? d : [])
-        setLocations(list.map((r: LocationOption) => ({ reference: r.reference, businessName: r.businessName })))
+        setLocations(
+          list
+            .map((r: LocationOption) => ({ reference: r.reference, businessName: r.businessName }))
+            .filter((r: LocationOption) => r.reference && r.businessName),
+        )
       })
       .catch(() => {})
-  }, [])
+      .finally(() => { if (!cancelled) setLocationsLoading(false) })
+    return () => { cancelled = true }
+  }, [editing, locations.length])
 
   useEffect(() => {
     const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(0) }, 300)
@@ -241,8 +255,11 @@ export default function ManageSystemAdminsPage() {
                   style={{ ...inputSt, marginBottom: 8 }}
                 />
                 <div style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, maxHeight: 220, overflowY: 'auto', padding: 4, background: '#fff' }}>
-                  {locations.length === 0 && (
-                    <div style={{ padding: 14, fontSize: 12, color: '#999' }}>No locations loaded.</div>
+                  {locationsLoading && (
+                    <div style={{ padding: 14, fontSize: 12, color: '#888' }}>Loading restaurants…</div>
+                  )}
+                  {!locationsLoading && locations.length === 0 && (
+                    <div style={{ padding: 14, fontSize: 12, color: '#999' }}>No locations available.</div>
                   )}
                   {locations
                     .filter(loc => !locationFilter || loc.businessName?.toLowerCase().includes(locationFilter.toLowerCase()))
