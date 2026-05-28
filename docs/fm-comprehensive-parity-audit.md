@@ -472,3 +472,37 @@ Add CDK-style drag-reorder + `position` PUT to Menus list (`/api/menu/{ref}/posi
 7. **`/account/security`** — FM has change-password; Disco's page is a stub. Build it (Session F)? (Endpoint shape already proven on the restaurant side.)
 8. **Reorder / Make-recurring** — Disco is AHEAD of FM (FM has neither). Keep as Disco features (Orca), correct?
 9. **Drag-reorder** — FM has it on Menus/Groups/Modifiers; Disco lacks it on all three. Priority, or leave for Session G?
+
+---
+
+# Implementation log — 2026-05-28 (14-item fix session)
+
+| # | Item | Status | Commit / note |
+|---|---|---|---|
+| 1 | Reporting financial cards not loading | **DONE** | `a878049` — root cause was date format: proxy forwarded `YYYY-MM-DD`, FM wants `DD.MM.YYYY` (`dateformatting.service.ts:11-17`). Proxy now converts. Aggregate "All restaurants" re-enabled (FM `getSaleStatsByRestaurant` supports no-ref). **Needs live verify** that the aggregate path returns data on the deployed FM. |
+| 2 | Reporting button label + disabled state | **DONE** | `a878049` — relabeled "Update"; disabled until From/To/dateType change. (FM has no named refresh button — it auto-fires on date change; kept Disco's explicit-button UX per the item's request.) |
+| 3 | Scheduled report "Save failed" | **DONE** | `787a4be` — FM requires `ownerReferences: [user.reference]` (`scheduled-report-option-create-update.component.ts:273`) + defaults `locationReferenceIds` to all locations (`:268`). Disco sent empty `ownerReferences`. Fixed from localStorage `restaurant_user.reference`. |
+| 4 | Manage Menus drag-to-reorder | **DONE** | `dd452bc` — dnd-kit reorder + new proxy `PUT /api/menu/{ref}/position?position=` (`menu.service.ts:66`). Also fixed stale Type-column labels. |
+| 5 | Diner login redirect | **DONE** | `a57b56c` — no code produced `/account/payment` (account index already redirects to `/account/orders`). Added FM-faithful USER→`/account/orders` redirect on modal login when no pending checkout action (`sign-in.component.ts:113-114`). |
+| 6 | Self-delivery radius + pricing tiers | **DONE** | `23b0571` — primary + secondary radius, $/% fee toggle (stores fee XOR feePercent). |
+| 7 | Tips & surcharges | **DONE** | `23b0571` — 10/15/20/Custom presets → `tipOption`; serviceCharge + name. |
+| 8 | Menu scheduling override | **DONE** | `23b0571` — skippedDays editor (closed-all-day vs custom window). |
+| 9 | Menu category enum | **DONE** | `23b0571` — GENERAL_CATERING/…/POP_UP (`FAKE_MENU_CATEGORIES`). |
+| 10 | deliveryType enum | **DONE** | `23b0571` — `THIRD_PARTY` → `NASH_DELIVERY`. |
+| 11 | Third-party withholding | **DONE** | `23b0571` — `thirdPartyDeliverySubsidingPercent` editable, default 20. |
+| 12 | Lead-gen validation | **DONE** | `a2c523f` — number 0-100, defaults 15/3, %, helper text. |
+| 13 | `/account/payment` proxy 404 | **DONE (already fixed)** | No change — `fm-payment-source/route.ts:28-30` already normalizes 404/204→200 null; POST uses `cardToken`; page mounts the Element regardless. Verified this session. |
+| 14 | Scheduling source of truth | **DEFERRED** | See spec below. |
+
+## Item 14 — deferral spec (scheduling source of truth)
+**Why deferred:** lowest-priority per the brief; it rewrites the live diner ordering path (high regression risk) and needs browser verification not possible this session.
+
+**Exact FM endpoints (verified):**
+- Available dates: `GET /public-api/mealPackages/{ref}/availableDates?fromDate=&toDate=` (`meal-package.service.ts:273`); menu variant `GET /public-api/menuPackages/{ref}/availableDates?...` (`:278`).
+- Available times: `GET /public-api/mealPackages/{ref}/availablePickUp?localDate=` (`:284`); menu variant `GET /public-api/menuPackages/{ref}/availableTime?date=` (`:289`).
+
+**Work needed:**
+1. Determine whether Disco's ordering page keys off a meal-package ref or a menu/menuPackage ref, and pick the matching endpoint pair.
+2. Add proxies `app/api/fm-available-dates` and `app/api/fm-available-times` forwarding the above (public-api, no auth).
+3. In `RestaurantClient.tsx`, replace `computeDates`/`computeTimes` with fetches (on package select → dates; on date select → times), with loading/empty states; keep the client compute as an offline fallback only.
+4. Verify in-browser that a menu with a `skippedDays` blackout hides those slots and that slots match FM for a test date.
