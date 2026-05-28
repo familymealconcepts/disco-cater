@@ -6,9 +6,10 @@ const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
 const INDIGO = '#6B6EF9'
 
-// Sanity marketplace enums (mirror the Sanity restaurant schema / brief).
-const CUISINES = ['American', 'Italian', 'Mexican', 'Japanese', 'Chinese', 'Indian', 'Mediterranean', 'Thai', 'Korean', 'French', 'Middle Eastern', 'Caribbean', 'BBQ', 'Vegan', 'Other']
-const TAG_OPTIONS = ["Editor's pick", 'Trending', 'New', 'Popular', 'Vegan-friendly', 'Gluten-free options', 'Halal']
+// Cuisine options — must match the Sanity restaurant schema `cuisines` array
+// field exactly (sanity/schema/restaurant.ts). Max 3 selections.
+const CUISINES = ['BBQ', 'Bagels', 'Bakery', 'Bar & Grill', 'Breakfast', 'Burgers', 'Cafe', 'Caribbean', 'Chicken', 'Deli', 'Chinese', 'French', 'Greek', 'Indian', 'Italian', 'Japanese', 'Korean', 'Latin', 'Mediterranean', 'Mexican', 'Middle Eastern', 'Pizza', 'Sandwiches', 'Seafood', 'Soul Food', 'Thai', 'Vegan', 'Vietnamese']
+const MAX_CUISINES = 3
 
 interface FmAddress { addressLine1?: string; addressLine2?: string; city?: string; state?: string; zipcode?: string; phoneNumber?: string; latitude?: number; longitude?: number }
 interface FmRestaurant {
@@ -28,12 +29,11 @@ interface FmRestaurant {
 
 interface SanityMarketplace {
   _id?: string
-  cuisine?: string
+  cuisines?: string[]
   description?: string
   location?: string
   lat?: number
   lng?: number
-  tags?: string[]
   orderUrl?: string
   isDisco?: boolean
   image?: { asset?: { _ref?: string } }
@@ -76,12 +76,11 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   // Marketplace (Sanity)
   const [mpOpen, setMpOpen] = useState(false)
   const [mpExists, setMpExists] = useState<boolean | null>(null)
-  const [cuisine, setCuisine] = useState('')
+  const [cuisines, setCuisines] = useState<string[]>([])
   const [description, setDescription] = useState('')
   const [location, setLocation] = useState('')
   const [lat, setLat] = useState('')
   const [lng, setLng] = useState('')
-  const [tags, setTags] = useState<string[]>([])
   const [orderUrl, setOrderUrl] = useState('')
   const [isDisco, setIsDisco] = useState(false)
   const [heroFile, setHeroFile] = useState<File | null>(null)
@@ -111,12 +110,11 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       }
       setMpExists(!!mp)
       if (mp) {
-        setCuisine(mp.cuisine || '')
+        setCuisines(mp.cuisines || [])
         setDescription(mp.description || '')
         setLocation(mp.location || '')
         setLat(mp.lat != null ? String(mp.lat) : '')
         setLng(mp.lng != null ? String(mp.lng) : '')
-        setTags(mp.tags || [])
         setOrderUrl(mp.orderUrl || '')
         setIsDisco(!!mp.isDisco)
       }
@@ -131,8 +129,10 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
     return () => { document.body.style.overflow = prev }
   }, [])
 
-  function toggleTag(t: string) {
-    setTags(s => s.includes(t) ? s.filter(x => x !== t) : [...s, t])
+  // Multi-select cuisines, capped at MAX_CUISINES (mirrors the Sanity
+  // validation Rule.max(3) on the cuisines array).
+  function toggleCuisine(c: string) {
+    setCuisines(s => s.includes(c) ? s.filter(x => x !== c) : (s.length >= MAX_CUISINES ? s : [...s, c]))
   }
 
   async function submit() {
@@ -193,12 +193,11 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         const mpBody: Record<string, unknown> = {
           fmReference: restaurantRef,
           name: restaurantName.trim(),
-          cuisine: cuisine || undefined,
+          cuisines,
           description: description || undefined,
           location: location || undefined,
           lat: lat === '' ? undefined : Number(lat),
           lng: lng === '' ? undefined : Number(lng),
-          tags,
           orderUrl: orderUrl || undefined,
           isDisco,
         }
@@ -309,16 +308,21 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                         No Sanity record for this restaurant yet. Saving will create one (fmReference={restaurantRef}).
                       </div>
                     )}
-                    <div style={grid2}>
-                      <div>
-                        <label style={label}>Cuisine</label>
-                        <select style={input} value={cuisine} onChange={e => setCuisine(e.target.value)}>
-                          <option value="">—</option>
-                          {CUISINES.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={label}>Cuisines (max {MAX_CUISINES}) — {cuisines.length}/{MAX_CUISINES}</label>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {CUISINES.map(c => {
+                          const on = cuisines.includes(c)
+                          const atMax = !on && cuisines.length >= MAX_CUISINES
+                          return (
+                            <label key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1.5px solid ' + (on ? INDIGO : '#e0e0e0'), background: on ? 'rgba(107,110,249,0.08)' : '#fff', cursor: atMax ? 'not-allowed' : 'pointer', fontSize: 12, color: on ? INDIGO : (atMax ? '#bbb' : '#555') }}>
+                              <input type="checkbox" checked={on} disabled={atMax} onChange={() => toggleCuisine(c)} style={{ accentColor: INDIGO }} />{c}
+                            </label>
+                          )
+                        })}
                       </div>
-                      <div><label style={label}>Location / display text</label><input style={input} value={location} onChange={e => setLocation(e.target.value)} placeholder="Brooklyn, NY" /></div>
                     </div>
+                    <div style={{ marginBottom: 12 }}><label style={label}>Location / display text</label><input style={input} value={location} onChange={e => setLocation(e.target.value)} placeholder="Brooklyn, NY" /></div>
                     <div style={{ marginBottom: 12 }}>
                       <label style={label}>Description</label>
                       <textarea style={{ ...input, minHeight: 70, resize: 'vertical' }} maxLength={500} value={description} onChange={e => setDescription(e.target.value)} />
@@ -332,16 +336,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                     <div style={{ marginBottom: 12 }}>
                       <label style={label}>Hero image</label>
                       <input type="file" accept="image/*" onChange={e => setHeroFile(e.target.files?.[0] || null)} style={{ fontSize: 12 }} />
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={label}>Tags</label>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {TAG_OPTIONS.map(t => (
-                          <label key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1.5px solid ' + (tags.includes(t) ? INDIGO : '#e0e0e0'), background: tags.includes(t) ? 'rgba(107,110,249,0.08)' : '#fff', cursor: 'pointer', fontSize: 12, color: tags.includes(t) ? INDIGO : '#555' }}>
-                            <input type="checkbox" checked={tags.includes(t)} onChange={() => toggleTag(t)} style={{ accentColor: INDIGO }} />{t}
-                          </label>
-                        ))}
-                      </div>
                     </div>
                     <div style={{ display: 'flex', gap: 20 }}>
                       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: DARK, cursor: 'pointer' }}>

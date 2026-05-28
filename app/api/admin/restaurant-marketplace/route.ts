@@ -15,7 +15,7 @@ const sanity = createClient({
 // Editable Marketplace fields. `fmReference` ties the Sanity doc to the FM
 // restaurant and must exist on the Sanity `restaurant` schema (in the hosted
 // Studio repo) — see audit doc Part B.3.
-const FIELDS = ['cuisine', 'description', 'location', 'lat', 'lng', 'tags', 'orderUrl', 'isDisco', 'image', 'name'] as const
+const FIELDS = ['cuisines', 'description', 'location', 'lat', 'lng', 'orderUrl', 'isDisco', 'image', 'name'] as const
 
 export async function GET(req: NextRequest) {
   try { await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
