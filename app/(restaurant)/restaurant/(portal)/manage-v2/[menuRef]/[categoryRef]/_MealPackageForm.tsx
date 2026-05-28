@@ -520,7 +520,7 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
             <div>
-              <label style={labelStyle}>Prep Time (hours)</label>
+              <label style={labelStyle}>Lead Time (hours)</label>
               <select value={prepTime} onChange={e => setPrepTime(Number(e.target.value))} style={inputStyle}>
                 {PREP_TIMES.map(t => <option key={t} value={t}>{t === 0 ? '0' : t < 1 ? `${t * 60} min` : `${t} hr`}</option>)}
               </select>
