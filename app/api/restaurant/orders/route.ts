@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRole, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
+import { cookies } from 'next/headers'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -19,8 +20,25 @@ export async function GET(req: NextRequest) {
   if (sp.get('fromDate')) params.set('fromDate', sp.get('fromDate')!)
   if (sp.get('toDate')) params.set('toDate', sp.get('toDate')!)
 
+  // Track 1 — SYSTEM_ADMIN multi-location orders. Per FM
+  // admin-manager-orders (getOrdersBySystem → GET /api/system-admin/orders,
+  // order.service.ts:163-182), a SA with no restaurant scoped sees orders
+  // AGGREGATED across all assigned locations, NO restaurantReference param
+  // (FM auto-filters by JWT). A SA who picked a location (fm_selected_
+  // restaurant cookie) gets FM's session-scoped /api/orders for that one.
+  // ADMIN always uses /api/orders (JWT carries its single restaurant).
+  // Additive: only the previously-empty SA-no-selection case changes
+  // endpoint; ADMIN and SA-selected paths are untouched.
+  const role = await getRestaurantRole()
+  const store = await cookies()
+  const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value
+  const aggregate = (role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN') && !selected
+  const url = aggregate
+    ? `${FM}/api/system-admin/orders?${params}`
+    : `${FM}/api/orders?${params}`
+
   try {
-    const res = await fetch(`${FM}/api/orders?${params}`, { headers: authHeaders })
+    const res = await fetch(url, { headers: authHeaders })
     if (res.status === 401) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     if (!res.ok) {
       const err = await res.text()

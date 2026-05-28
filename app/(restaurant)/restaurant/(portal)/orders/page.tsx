@@ -42,6 +42,9 @@ interface Order {
   orderNumber: number
   firstName: string
   lastName: string
+  // Present on the aggregated /api/system-admin/orders response so the
+  // SA can see which location each order belongs to (Track 1).
+  restaurantName?: string
   orderDate: string
   orderTime: string
   orderCreatedDate: string
@@ -626,14 +629,18 @@ function OrdersContent() {
   // Read role + selection from localStorage (the only places the layout
   // already syncs them) and show a friendly prompt instead of the
   // "No orders found" empty state which looks broken.
-  const [needsLocation, setNeedsLocation] = useState(false)
+  // Track 1: SA with no location picked now shows orders AGGREGATED
+  // across all their locations (the proxy routes to /api/system-admin/
+  // orders), not a "pick a location" prompt. `aggregating` drives the
+  // Restaurant column + the info banner.
+  const [aggregating, setAggregating] = useState(false)
   useEffect(() => {
     try {
       const raw = localStorage.getItem('restaurant_user')
       const role = raw ? (JSON.parse(raw).role || '') : ''
       const sel = localStorage.getItem('selectedRestaurant')
       const isMulti = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'
-      setNeedsLocation(isMulti && !sel)
+      setAggregating(isMulti && !sel)
     } catch {}
   }, [])
 
@@ -685,10 +692,6 @@ function OrdersContent() {
 
   const loadOrders = useCallback(async (resetPage?: boolean) => {
     if (tab === 'counts') return
-    // Skip the fetch entirely when the SA hasn't picked a location yet
-    // — FM would return empty anyway, and the page-level guard shows a
-    // proper prompt.
-    if (needsLocation) { setOrders([]); setTotal(0); setLoading(false); return }
     setLoading(true)
     const p = new URLSearchParams()
     const currentPage = resetPage ? 0 : page
@@ -708,7 +711,7 @@ function OrdersContent() {
       setTotal(d.totalElements || 0)
     }
     setLoading(false)
-  }, [tab, page, size, statuses, sortField, sortDir, search, appliedFrom, appliedTo, needsLocation])
+  }, [tab, page, size, statuses, sortField, sortDir, search, appliedFrom, appliedTo])
 
   // Load whenever any dependency in loadOrders changes (tab, page, sort, search, dates)
   useEffect(() => {
@@ -776,22 +779,21 @@ function OrdersContent() {
         ))}
       </div>
 
-      {needsLocation ? (
-        <div style={{ background: '#fff', border: '1px solid #ebebeb', borderRadius: 12, padding: '48px 24px', textAlign: 'center' }}>
-          <div style={{ fontSize: 36, marginBottom: 14 }}>📍</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 6 }}>Select a location to view orders</div>
-          <div style={{ fontSize: 13, color: '#888', marginBottom: 22 }}>
-            Your account manages multiple restaurants — pick one to load its orders.
-          </div>
-          <button onClick={() => router.push('/restaurant/select-location?next=' + encodeURIComponent(pathname + '?tab=' + tab))}
-            style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-            Pick a location →
-          </button>
-        </div>
-      ) : tab === 'counts' ? (
+      {tab === 'counts' ? (
         <OrderCountsTab />
       ) : (
         <>
+          {/* Track 1 — aggregated-locations banner for SYSTEM_ADMIN with
+              no location picked. The Restaurant column below shows which
+              location each order belongs to; picking a location (from the
+              dashboard dropdown) scopes down to one. */}
+          {aggregating && (
+            <div style={{ background: 'rgba(107,110,249,0.06)', border: '1px solid rgba(107,110,249,0.18)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12.5, color: '#555', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span aria-hidden>📍</span>
+              <span>Showing orders across <strong style={{ color: DARK }}>all your locations</strong>. Pick a location from the Reporting dropdown to scope to one.</span>
+            </div>
+          )}
+
           {/* Filter Bar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
             <input
@@ -824,6 +826,9 @@ function OrdersContent() {
               <thead>
                 <tr>
                   {colHead('first_name', 'Order')}
+                  {aggregating && (
+                    <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Restaurant</th>
+                  )}
                   {colHead('order_date', 'Order Time')}
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Service</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Delivery Status</th>
@@ -833,10 +838,10 @@ function OrdersContent() {
               </thead>
               <tbody>
                 {loading && (
-                  <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
+                  <tr><td colSpan={aggregating ? 7 : 6} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
                 )}
                 {!loading && orders.length === 0 && (
-                  <tr><td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
+                  <tr><td colSpan={aggregating ? 7 : 6} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
                 )}
                 {orders.map(order => {
                   const timeColor = statusColor(order.orderStatus, order.orderDate, order.orderTime)
@@ -859,6 +864,11 @@ function OrdersContent() {
                         </div>
                         <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>#{order.orderNumber}</div>
                       </td>
+                      {aggregating && (
+                        <td style={{ padding: '12px 14px', fontSize: 13, color: '#555' }}>
+                          {order.restaurantName || '—'}
+                        </td>
+                      )}
                       <td style={{ padding: '12px 14px' }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: timeColor || DARK }}>{fmtTime(order.orderTime)}</div>
                         <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{fmtDate(order.orderDate)}</div>
