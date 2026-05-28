@@ -13,7 +13,11 @@ export async function GET(req: NextRequest) {
   const page = sp.get('page')
   if (page && page !== '0') params.set('page', page)
   params.set('size', sp.get('size') || '25')
-  if (sp.get('search')) params.set('search', sp.get('search')!)
+  // FM filters the ordering list by `searchName` (restaurant.service.ts:378-393,
+  // getDefaultFilters().searchName), NOT `search` — forwarding `search` was a
+  // no-op, so the search box did nothing.
+  const searchTerm = sp.get('search') || sp.get('searchName')
+  if (searchTerm) params.set('searchName', searchTerm)
   if (sp.get('restaurantStatus')) params.set('restaurantStatus', sp.get('restaurantStatus')!)
   sp.getAll('sort').forEach(s => params.append('sort', s))
   try {
