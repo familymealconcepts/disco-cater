@@ -226,7 +226,18 @@ What this means:
 | C.5 | Edit dialog reuses same picker shape |
 | C.6 | Role display in list now maps the enum to FM's friendly strings |
 
-Sidebar gating is already correct from prior sessions for ADMIN vs SYSTEM_ADMIN. REGIONAL_ADMIN is unhandled in Disco Cater's sidebar code today (would fall through to empty nav); flagged for follow-up.
+### Sidebar gating — verified, no change needed
+
+`app/(restaurant)/restaurant/(portal)/layout.tsx`:
+- `isSystemAdmin = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'` (line 89)
+- ADMIN role → `inRestaurantUserView = true` → `NAV = RESTAURANT_USER_NAV` (line 104)
+- `RESTAURANT_USER_NAV` (lines 44-63) has NO "Authorized Users" entry — only `SYSTEM_ADMIN_NAV` (line 35) exposes it.
+
+So an ADMIN-role user cannot see or reach Authorized Users from the sidebar. ✅ The security-relevant gating is correct.
+
+**Known gap (out of scope this session)**: `REGIONAL_ADMIN` role is unhandled in Disco Cater's layout — `isSystemAdmin` only checks SYSTEM_ADMIN/SUPER_ADMIN, so a REGIONAL_ADMIN user would fall to `RESTAURANT_USER_NAV` and lose access to Authorized Users / Locations even though FM grants it. No REGIONAL_ADMIN users exist to test against yet; flagged for the Project Orca 3.1 session.
+
+**Note on RESTAURANT_USER_NAV item list**: it includes Tax Rate + Customers and omits Reporting, which diverges from FM's raw ADMIN nav (Reporting / Orders / Manage Menus / Settings / Account). This was Peter's explicit spec from the SUPER_ADMIN-sidebar session ("Mode B = Orders / Manage Menus / Settings / Account / Tax Rate / Customers, no Reporting"), not a bug — left as-is per that instruction.
 
 ---
 
