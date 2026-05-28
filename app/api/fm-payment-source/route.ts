@@ -21,12 +21,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
+    // FM returns 404 (and sometimes 204) when the diner has no card on
+    // file. That's not an error — it's the empty state. Return 200 with
+    // a null body so the page renders the "add your first card" form
+    // instead of logging a console 404 and treating it as a failure.
+    if (res.status === 404 || res.status === 204) {
+      return NextResponse.json(null)
+    }
+
     if (!res.ok) {
       return NextResponse.json({ error: 'Failed to fetch payment source' }, { status: res.status })
     }
 
-    const data = await res.json()
-    return NextResponse.json(data)
+    // Some FM deployments 200 with an empty body for "no card" — guard
+    // the JSON parse so that also resolves to null cleanly.
+    const text = await res.text()
+    return NextResponse.json(text ? JSON.parse(text) : null)
 
   } catch (err) {
     console.error('fm-payment-source GET error:', err)
