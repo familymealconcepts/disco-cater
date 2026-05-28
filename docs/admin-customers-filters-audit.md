@@ -35,7 +35,7 @@ carries `phoneNumber` and `customerReference`.
 
 | # | Filter | Status | How |
 |---|---|---|---|
-| B.1 | Location (city/state) | ❌ **BLOCKED** | No address on the customer row. Skipped. Would need a Revyrie enhancement to add address to `/api/customer/users`, or per-customer order/address lookups. |
+| B.1 | Location (state / zip) | ✅ **proxy via restaurant addresses** | See "Location via restaurant proxy" below — customer has no address, but their orders' restaurants do. |
 | B.2 | Number of orders (range) | ✅ **client-side** | min/max on `numberOfOrders`. |
 | B.3 | Corporate vs Social | ✅ **client-side** | email-domain heuristic (personal-provider list). No FM call. |
 | B.4 | Last order date (range) | ✅ **server-side** | FM `fromDate`/`toDate` on `/api/customer/users`. Filters the set; the per-row date itself isn't returned, so the CSV "Last Order Date" column stays blank. |
@@ -54,3 +54,40 @@ hotmail.com, outlook.com, aol.com, icloud.com, me.com, msn.com, live.com,
 mac.com, ymail.com, rocketmail.com, googlemail.com, protonmail.com, proton.me,
 comcast.net, verizon.net, att.net, sbcglobal.net, cox.net, charter.net,
 earthlink.net, optonline.net). "Corporate" = anything else. "All" = no filter.
+
+## Location via restaurant proxy (State + Zip filters)
+FM returns **no customer address**. But every order carries a restaurant
+reference, and every restaurant carries an address, so customer location is
+derived:
+1. `GET /api/admin/restaurants?size=1000` → `restaurantRef → { state, zipcode }`
+   (`address.state` is a 2-letter code, `address.zipcode` a string — confirmed
+   via the add/edit-restaurant form and the locations list).
+2. `GET /api/admin/userOrders` (paged, capped 50×200) → each order exposes
+   `firstName`, `lastName`, `restaurantReference` (confirmed in
+   `admin-orders-table.component.html` bindings).
+3. Aggregate `customer → { states, zips }`.
+
+### ⚠️ Join is by NAME, not email
+FM's admin **orders list does NOT include customer email or a customer
+reference** — only `firstName` + `lastName` (email appears only on the order
+*detail*, which we can't fetch 10k times). So orders are joined to customers by
+**normalized full name** (`firstName lastName` ↔ customers' `username`),
+case-insensitive. Limitation: two customers with the same name share a location
+set. Acceptable for an approximate SUPER_ADMIN location proxy; documented.
+
+### Filters
+- **State** — multi-select (50 states + DC, full names, 2-letter values), OR
+  logic: a customer matches if any of their states is selected. "All States"
+  clears.
+- **Zip** — exact `^\d{5}$`; only applies when 5 digits entered.
+- Both AND with the other filters; reflected in CSV (States, Zips columns) and
+  URL (`?states=NY,CT&zip=10001`).
+
+### Performance / timing
+Aggregation is **lazy + cached for the session**: it runs on mount only if the
+URL deep-links a location filter, otherwise on first open of the State dropdown
+or focus of the Zip input. While it runs, "Loading location data…" shows and the
+location filter is held off (the list isn't blanked). Restaurants = 1 call;
+orders = up to 50 parallel-ish calls (cap 10k orders). Customers with no orders,
+or orders whose restaurant has no address (warned + skipped), get no location
+and are excluded when a location filter is active.
