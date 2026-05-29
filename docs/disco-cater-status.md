@@ -14,15 +14,36 @@
 | Create draft (init) | `POST /public-api/v2/restaurants/{ref}/orders/init` | ✅ working — returns ref + pricing |
 | Re-price (update) | `PUT  /public-api/v2/restaurants/{ref}/orders/{orderRef}` | ✅ working |
 | Validate address | `POST /public-api/delivery/validate` | ✅ working (delivery) |
-| Stripe card fields | `GET /stripe/platform/info` → tokenize | ✅ loads |
-| **Place order** | `POST /api/v2/restaurants/{ref}/orders/{orderRef}` | ⛔ **CURRENT BLOCKER — untested** |
-| Confirmation | `GET /api/userOrder/{orderRef}` | ⏳ not reached yet |
+| Stripe card fields | `GET /stripe/platform/info` → tokenize | ✅ loads & mounts (`e60d827`) |
+| Place order | `POST /api/v2/restaurants/{ref}/orders/{orderRef}` | ✅ sends full FM order object (`efc4e73`) |
+| **Charge card (confirm PaymentIntent)** | `POST /api/userOrder/confirmPayment` | ⛔ **CURRENT BLOCKER — Stripe "Incomplete"** |
+| Confirmation | `GET /api/userOrder/{orderRef}` | ⏳ shows, but order-ID format wrong (see gaps) |
 
-## ⛔ Current blocker — Place Order (untested)
-Need to enter a **real Stripe test card** and click **Place Order** end-to-end.
-This step (`confirmPayment` → `POST .../orders/{orderRef}` place) has not been
-exercised yet. Watch for: Stripe tokenization, the auth'd place call (raw JWT,
-no "Bearer"), and the confirmation fetch.
+## ⛔ Current blocker — Stripe "Incomplete" (card not charged)
+Place Order shows success but Stripe marks the payment **Incomplete** — the card
+is never charged. Root cause: Disco sent a raw card **token** to `confirmPayment`
+**before** placing the order, and never created a PaymentMethod or confirmed the
+PaymentIntent. FM's real flow (`checkout-customer-info.component.ts:762-816`,
+`checkout-sidebar-preview.component.ts:1205-1252`): createToken → **createPaymentMethod**
+→ place (FM mints the PaymentIntent here) → **confirmPayment(paymentIntentId,
+paymentMethodId)** → require `paymentIntentStatus === 'succeeded'`. The charge
+happens in that confirm step. **Fix applied this session — pending live
+verification with a real test card.**
+
+## 📋 Deferred UX gaps (do NOT fix yet — tracked for later)
+1. **Editable contact fields at checkout.** FM pre-fills firstName/lastName/email/
+   phone from the logged-in user but keeps them **editable** (customers order for
+   others) — `checkout-customer-info.component.ts:195-204, 313-318`. Disco
+   hardcodes `customer` from `authUser` with no editable UI.
+2. **Order-ID display format.** FM shows a short `orderNumber`
+   (`order-confirmed.component.html:14-15`); Disco shows the raw UUID `orderRef`
+   (`ConfirmationClient.tsx:71,84`). Show `orderNumber` instead.
+3. **Stripe description "DIRECT" vs "DISCO".** The "DIRECT" suffix is the
+   restaurant's `moneyFlow` (payout routing; `restaurant.service.ts:323`), written
+   server-side — unrelated to the charge/Incomplete status. Whether FM stamps
+   `sourceoforder` (DISCO) into the Stripe description is built in FM's Java
+   backend (not in the Angular repo), so it's unverifiable from here. Revisit if
+   attribution reporting needs it.
 
 ## ✅ Recently resolved
 - **`PUT /api/order/update` 500 (UNKNOWN_SERVER_ERROR) — RESOLVED (commit `6ecaad7`).**
@@ -34,5 +55,7 @@ no "Bearer"), and the confirmation fetch.
   only). Payload shape was never the cause — init/PUT bodies were identical and
   init accepted them. See [checkout-init-500-diagnostic.md](checkout-init-500-diagnostic.md)
   and [fm-cart-checkout-reconciliation.md](fm-cart-checkout-reconciliation.md).
+- **Place Order empty body → full FM order object (`efc4e73`)** and **Stripe
+  Element teardown during Place Order (`e60d827`)**.
 - Earlier fixes in this flow: `tipsType` enum CUSTOM|PERCENTAGE only (`613664e`);
   init reference read from `data.orderReference` (`6ed5b6b`).

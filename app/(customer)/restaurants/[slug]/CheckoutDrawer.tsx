@@ -400,46 +400,36 @@ export default function CheckoutDrawer({
     setError('')
 
     try {
-      // Stripe tokenize FIRST — before any setStep. Changing step re-runs the
-      // mount effect and can tear down the card Element mid-createToken; doing
-      // this while still on 'payment' keeps the Element mounted.
-      let stripeToken: string | null = null
+      // FM's payment flow (checkout-customer-info.component.ts:762-816 +
+      // checkout-sidebar-preview.component.ts:1205-1252): tokenize → create a
+      // PaymentMethod → place the order (FM mints the Stripe PaymentIntent here)
+      // → confirm that PaymentIntent server-side with paymentIntentId +
+      // paymentMethodId → require paymentIntentStatus 'succeeded'. The card is
+      // charged in the confirm step; placing the order alone does NOT charge it.
       const usingSavedCard = savedCard && !useNewCard
+      let paymentMethodId: string | null = null
       if (!usingSavedCard) {
         if (!stripeRef.current || !numberElRef.current) {
           setError('Payment form not ready. Please wait and try again.')
           setStep('payment'); return
         }
-        // The cardNumber element is the token source; Stripe pulls expiry/CVC
-        // from the same elements instance.
-        const result = await stripeRef.current.createToken(numberElRef.current)
-        if (result.error) { setError(result.error.message || 'Card error.'); setStep('payment'); return }
-        stripeToken = result.token?.id ?? null
+        // Tokenize the card (must run before any setStep — changing step re-runs
+        // the mount effect and would tear down the Element mid-tokenization),
+        // then turn the token into a PaymentMethod, exactly as FM does.
+        const tok = await stripeRef.current.createToken(numberElRef.current)
+        if (tok.error) { setError(tok.error.message || 'Card error.'); setStep('payment'); return }
+        const pm = await stripeRef.current.createPaymentMethod({ type: 'card', card: { token: tok.token.id } })
+        if (pm.error) { setError(pm.error.message || 'Card error.'); setStep('payment'); return }
+        paymentMethodId = pm.paymentMethod?.id ?? null
       }
 
-      // Tokenized (or using a saved card) — now show the placing state.
+      // Card ready (or using a saved card) — now show the placing state.
       setStep('placing')
 
-      // Confirm payment
-      const confRes = await fetch('/api/order/confirm-payment', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderReference: orderRef, token: stripeToken, useDefaultPayment: usingSavedCard, restaurantReference: fmRef }),
-      })
-      const confData = await confRes.json()
-      if (!confRes.ok && confData.error) throw new Error(confData.error || confData.message || 'Payment failed.')
-
-      // Save address silently (post-order)
-      if (orderType === 'DELIVERY' && addr.line1) {
-        fetch('/api/fm-user-addresses', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ address: addr.line1, city: addr.city, state: addr.state, zipCode: addr.zip }),
-        }).catch(() => {})
-      }
-
-      // Place order — FM expects the full order object, not just the ref
-      // (checkout-sidebar-preview.component.ts:1169-1176 + 1300-1309): the priced
-      // DTO under checkoutDetails (+ paymentMethod, sourceoforder), the customer,
-      // and deliveryAddress for DELIVERY only (FM deletes it for PICKUP, :1178).
+      // Place the order — FM expects the full order object (checkout-sidebar-
+      // preview.component.ts:1169-1176 + 1300-1309): the priced DTO under
+      // checkoutDetails (+ paymentMethod, sourceoforder), the customer, and
+      // deliveryAddress for DELIVERY only (FM deletes it for PICKUP, :1178).
       const checkoutDetails: Record<string, unknown> = {
         ...buildCheckoutDto(),
         paymentMethod: 'PAYMENT',
@@ -460,8 +450,45 @@ export default function CheckoutDrawer({
       })
       const placeData = await placeRes.json()
       if (!placeRes.ok && placeData.error) throw new Error(placeData.error || placeData.message || 'Failed to place order.')
-
       const finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
+
+      // Confirm the PaymentIntent FM created during placement — THIS charges the
+      // card (checkout-sidebar-preview.component.ts:1205-1252). FM's contract
+      // (order.service.ts:55-70): { orderReference, restaurantReference,
+      // paymentIntentId, confirmWithDefaultSource, paymentMethodId } — the
+      // paymentMethodId is dropped server-side when confirmWithDefaultSource.
+      const paymentDetails = placeData.data?.paymentDetails ?? placeData.paymentDetails
+      const paymentIntentId = paymentDetails?.stripePaymentIntentDto?.paymentIntentId
+      if (paymentIntentId) {
+        const confRes = await fetch('/api/order/confirm-payment', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderReference: finalRef,
+            restaurantReference: fmRef,
+            paymentIntentId,
+            confirmWithDefaultSource: usingSavedCard,
+            ...(usingSavedCard ? {} : { paymentMethodId }),
+          }),
+        })
+        const confData = await confRes.json()
+        const payStatus = (confData.data?.stripePaymentIntentDto ?? confData.stripePaymentIntentDto)?.paymentIntentStatus
+        // FM requires the PaymentIntent to be 'succeeded' (checkout-sidebar-
+        // preview.component.ts:1215). Anything else → card not charged: surface
+        // the failure and stay on payment (do NOT redirect to confirmation).
+        if (!confRes.ok || (payStatus && payStatus.toLowerCase() !== 'succeeded')) {
+          setError(confData.error || confData.message || 'Payment could not be completed — your card was not charged. Please try again.')
+          setStep('payment'); return
+        }
+      }
+
+      // Save address silently (post-order)
+      if (orderType === 'DELIVERY' && addr.line1) {
+        fetch('/api/fm-user-addresses', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ address: addr.line1, city: addr.city, state: addr.state, zipCode: addr.zip }),
+        }).catch(() => {})
+      }
+
       router.push(`/order-confirmation/${finalRef}`)
     } catch (err: any) {
       setError(err.message || 'Something went wrong. Please try again.')
