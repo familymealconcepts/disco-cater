@@ -17,6 +17,10 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
 
+    // Temporary diagnostic for the PUT 500 — this is the exact body FM receives
+    // (restaurantRef/orderRef are stripped into the URL above). Check Vercel logs.
+    console.log('[update] payload →' + JSON.stringify(updateBody, null, 2))
+
     const res = await fetch(`${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
