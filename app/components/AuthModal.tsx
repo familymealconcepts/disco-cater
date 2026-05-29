@@ -8,6 +8,10 @@ const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 const DARK = '#1A1028'
 const INDIGO = '#6B6EF9'
 
+// Social login is hidden for now (kept in code for later). Flip to true to
+// re-enable the Google / Facebook OAuth buttons on the login + signup tabs.
+const SHOW_OAUTH = false
+
 interface Props {
   isOpen: boolean
   onClose: () => void
@@ -255,6 +259,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               {loginLoading ? 'Signing in…' : 'Log In'}
             </button>
 
+            {SHOW_OAUTH && (
+            <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0' }}>
               <div style={{ flex: 1, height: 1, background: '#eee' }} />
               <span style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>Or continue with</span>
@@ -271,6 +277,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
                 Facebook
               </button>
             </div>
+            </>
+            )}
           </form>
         )}
 
@@ -368,6 +376,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               {regLoading ? 'Creating account…' : 'Create Account'}
             </button>
 
+            {SHOW_OAUTH && (
+            <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0' }}>
               <div style={{ flex: 1, height: 1, background: '#eee' }} />
               <span style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>Or continue with</span>
@@ -384,6 +394,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
                 Facebook
               </button>
             </div>
+            </>
+            )}
           </form>
         )}
       </div>
