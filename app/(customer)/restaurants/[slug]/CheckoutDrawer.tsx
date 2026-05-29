@@ -279,7 +279,10 @@ export default function CheckoutDrawer({
     const dto = {
       ...base,
       tips: tipAmt,
-      tipsType: 'DOLLAR',
+      // FM's TipsType enum is CUSTOM | PERCENTAGE only ("DOLLAR" 500'd the init/
+      // PUT). The drawer computes a dollar tip, which is FM's CUSTOM (a fixed $
+      // amount, like the per-menu tipOption customTipSize); no tip → PERCENTAGE 0.
+      tipsType: tipAmt > 0 ? 'CUSTOM' : 'PERCENTAGE',
       taxExempt: taxExemptApplied,
       ...(taxExemptApplied ? { taxExemptId, taxExemptState } : {}),
       ...(couponApplied ? { couponCode: couponApplied } : {}),
