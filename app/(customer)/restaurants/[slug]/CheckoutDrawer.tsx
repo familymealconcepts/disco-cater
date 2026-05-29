@@ -88,6 +88,9 @@ function extractFmMoney(raw: any): null | {
 }
 
 function fmt$(n: number) { return `$${n.toFixed(2)}` }
+
+const fieldLabel: React.CSSProperties = { fontSize: 11, color: '#888', fontWeight: 600, display: 'block', marginBottom: 4 }
+const fieldBox: React.CSSProperties = { border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '12px 12px', background: '#fff' }
 function fmtDateShort(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) } catch { return d }
 }
@@ -132,9 +135,16 @@ export default function CheckoutDrawer({
   const [stripeKey, setStripeKey] = useState('')
   const [savedCard, setSavedCard] = useState<any>(null)
   const [useNewCard, setUseNewCard] = useState(false)
-  const cardRef = useRef<HTMLDivElement>(null)
+  // Individual Stripe Elements (number / expiry / CVC) — clearer per-field
+  // structure than the unified Card Element, and they don't render the Stripe
+  // Link chip/prefill that the 'card' element does.
+  const numberRef = useRef<HTMLDivElement>(null)
+  const expiryRef = useRef<HTMLDivElement>(null)
+  const cvcRef = useRef<HTMLDivElement>(null)
   const stripeRef = useRef<any>(null)
-  const cardElRef = useRef<any>(null)
+  const numberElRef = useRef<any>(null) // primary element for createToken
+  const expiryElRef = useRef<any>(null)
+  const cvcElRef = useRef<any>(null)
 
   // Continue checkout after login via AuthModal
   useEffect(() => {
@@ -176,20 +186,23 @@ export default function CheckoutDrawer({
       .catch(() => {})
   }, [step])
 
-  // Mount Stripe card element
+  // Mount the three Stripe Elements once Stripe.js is ready. Kept entirely
+  // separate from the pricing preview — preview loading/errors never touch
+  // these refs, so the fields stay mounted (no "could not retrieve data").
   useEffect(() => {
-    if (step !== 'payment' || !stripeKey || (savedCard && !useNewCard) || !cardRef.current) return
+    if (step !== 'payment' || !stripeKey || (savedCard && !useNewCard)) return
     const mount = () => {
-      if (!window.Stripe || !cardRef.current || cardElRef.current) return
+      if (!window.Stripe || numberElRef.current) return
+      if (!numberRef.current || !expiryRef.current || !cvcRef.current) return
       stripeRef.current = window.Stripe(stripeKey)
       const elements = stripeRef.current.elements()
-      // disableLink hides the Stripe Link logo + the prefilled Link card, so
-      // the field is plain card number / expiry / CVC.
-      cardElRef.current = elements.create('card', {
-        disableLink: true,
-        style: { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } },
-      })
-      cardElRef.current.mount(cardRef.current)
+      const style = { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } }
+      numberElRef.current = elements.create('cardNumber', { style, showIcon: true })
+      expiryElRef.current = elements.create('cardExpiry', { style })
+      cvcElRef.current = elements.create('cardCvc', { style })
+      numberElRef.current.mount(numberRef.current)
+      expiryElRef.current.mount(expiryRef.current)
+      cvcElRef.current.mount(cvcRef.current)
     }
     let poll: ReturnType<typeof setInterval> | undefined
     if (window.Stripe) { mount() }
@@ -198,16 +211,15 @@ export default function CheckoutDrawer({
       s.id = 'stripe-js'; s.src = 'https://js.stripe.com/v3/'; s.onload = mount
       document.head.appendChild(s)
     } else {
-      // Script tag present but Stripe still loading (e.g. re-entering the
-      // payment step) — onload won't fire again, so poll briefly. Without this
-      // the Element never mounts and createToken throws "could not retrieve
-      // data from the specified Element".
+      // Script present but Stripe still loading — onload won't fire again.
       poll = setInterval(() => { if (window.Stripe) { clearInterval(poll); mount() } }, 50)
       setTimeout(() => poll && clearInterval(poll), 3000)
     }
     return () => {
       if (poll) clearInterval(poll)
-      if (cardElRef.current) { cardElRef.current.destroy(); cardElRef.current = null }
+      for (const r of [numberElRef, expiryElRef, cvcElRef]) {
+        if (r.current) { r.current.destroy(); r.current = null }
+      }
     }
   }, [step, stripeKey, savedCard, useNewCard])
 
@@ -349,7 +361,10 @@ export default function CheckoutDrawer({
 
   async function processOrder() {
     setStep('processing'); setError('')
-    if (!authUser) { setWaitingForAuth(true); openAuthModal(undefined, 'login'); return }
+    // Pass a (no-op) pendingAction so AuthModal does NOT redirect a diner to
+    // /account/orders after login — the waitingForAuth effect resumes checkout
+    // here instead, keeping them in the cart/checkout flow (Item 5).
+    if (!authUser) { setWaitingForAuth(true); openAuthModal(() => {}, 'login'); return }
 
     try {
       // Reuses the draft from the review-step preview if one exists (no
@@ -371,11 +386,13 @@ export default function CheckoutDrawer({
       let stripeToken: string | null = null
       const usingSavedCard = savedCard && !useNewCard
       if (!usingSavedCard) {
-        if (!stripeRef.current || !cardElRef.current) {
+        if (!stripeRef.current || !numberElRef.current) {
           setError('Payment form not ready. Please wait and try again.')
           setStep('payment'); return
         }
-        const result = await stripeRef.current.createToken(cardElRef.current)
+        // The cardNumber element is the token source; Stripe pulls expiry/CVC
+        // from the same elements instance.
+        const result = await stripeRef.current.createToken(numberElRef.current)
         if (result.error) { setError(result.error.message || 'Card error.'); setStep('payment'); return }
         stripeToken = result.token?.id ?? null
       }
@@ -565,7 +582,8 @@ export default function CheckoutDrawer({
                 processOrder()
               } else {
                 setWaitingForAuth(true)
-                openAuthModal(undefined, 'login')
+                // no-op pendingAction → no post-login redirect; resume checkout
+                openAuthModal(() => {}, 'login')
               }
             }}
             disabled={!canProceed}
@@ -729,12 +747,25 @@ export default function CheckoutDrawer({
             </div>
           ) : (
             <div style={{ background: '#fff', border: '1.5px solid #e8e8e8', borderRadius: 12, padding: '14px 18px', marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Card details</div>
-              {stripeKey
-                ? <div ref={cardRef} style={{ padding: '8px 2px', minHeight: 20 }} />
-                : <div style={{ fontSize: 13, color: '#aaa', padding: '8px 0' }}>Loading secure payment form…</div>}
+              <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Payment Method</div>
+              {stripeKey ? (
+                <>
+                  <label style={fieldLabel}>Card number</label>
+                  <div ref={numberRef} style={fieldBox} />
+                  <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={fieldLabel}>Expiry</label>
+                      <div ref={expiryRef} style={fieldBox} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={fieldLabel}>CVC</label>
+                      <div ref={cvcRef} style={fieldBox} />
+                    </div>
+                  </div>
+                </>
+              ) : <div style={{ fontSize: 13, color: '#aaa', padding: '8px 0' }}>Loading secure payment form…</div>}
               {savedCard && (
-                <button onClick={() => setUseNewCard(false)} style={{ fontSize: 13, color: '#888', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, padding: '8px 0 0', display: 'block' }}>
+                <button onClick={() => setUseNewCard(false)} style={{ fontSize: 13, color: '#888', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, padding: '10px 0 0', display: 'block' }}>
                   ← Use saved card
                 </button>
               )}
