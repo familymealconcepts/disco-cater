@@ -183,7 +183,10 @@ export default function CheckoutDrawer({
       if (!window.Stripe || !cardRef.current || cardElRef.current) return
       stripeRef.current = window.Stripe(stripeKey)
       const elements = stripeRef.current.elements()
+      // disableLink hides the Stripe Link logo + the prefilled Link card, so
+      // the field is plain card number / expiry / CVC.
       cardElRef.current = elements.create('card', {
+        disableLink: true,
         style: { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } },
       })
       cardElRef.current.mount(cardRef.current)
