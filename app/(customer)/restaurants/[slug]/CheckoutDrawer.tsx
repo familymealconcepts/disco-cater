@@ -795,10 +795,17 @@ export default function CheckoutDrawer({
           {/* Logged-in + ready users auto-advance past review (Item 2) — show
               the spinner, not the review UI, so the intermediate drawer never
               paints. Logged-out / not-ready users still get the review. */}
-          {step === 'review' && (authUser && canProceed ? <ProcessingStep /> : <ReviewStep />)}
-          {step === 'processing' && <ProcessingStep />}
-          {step === 'payment' && <PaymentStep />}
-          {step === 'placing' && <PlacingStep />}
+          {/* Call the step renderers as functions, NOT <PaymentStep />. As JSX
+              elements they'd be a fresh component type each parent re-render, so
+              React would unmount/remount the subtree (and the pricing preview
+              re-renders often) — destroying the card <div> and detaching the
+              mounted Stripe Element ("could not retrieve data"). Inlining keeps
+              the node stable. (None of these use hooks, so calling them
+              conditionally is safe.) */}
+          {step === 'review' && (authUser && canProceed ? ProcessingStep() : ReviewStep())}
+          {step === 'processing' && ProcessingStep()}
+          {step === 'payment' && PaymentStep()}
+          {step === 'placing' && PlacingStep()}
         </div>
       </div>
 
