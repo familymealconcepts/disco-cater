@@ -14,9 +14,6 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(orderBody),
     })
     const data = await res.json()
-    // Temporary diagnostic for the init→update 500 — logs FM's actual status +
-    // body so we can confirm success and the real data.orderReference. Vercel logs.
-    console.log('[init] response →' + JSON.stringify({ status: res.status, data }, null, 2))
     return NextResponse.json(data, { status: res.status })
   } catch {
     return NextResponse.json({ error: 'Failed to init order' }, { status: 500 })
