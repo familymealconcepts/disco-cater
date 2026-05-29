@@ -189,8 +189,12 @@ export default function CheckoutDrawer({
   // Mount the three Stripe Elements once Stripe.js is ready. Kept entirely
   // separate from the pricing preview — preview loading/errors never touch
   // these refs, so the fields stay mounted (no "could not retrieve data").
+  // Gated on paymentActive (payment OR placing), not step alone: the
+  // payment→placing transition during Place Order must NOT re-run this effect's
+  // cleanup, or it would destroy the Element while createToken is reading it.
+  const paymentActive = step === 'payment' || step === 'placing'
   useEffect(() => {
-    if (step !== 'payment' || !stripeKey || (savedCard && !useNewCard)) return
+    if (!paymentActive || !stripeKey || (savedCard && !useNewCard)) return
     const mount = () => {
       if (!window.Stripe || numberElRef.current) return
       if (!numberRef.current || !expiryRef.current || !cvcRef.current) return
@@ -221,7 +225,7 @@ export default function CheckoutDrawer({
         if (r.current) { r.current.destroy(); r.current = null }
       }
     }
-  }, [step, stripeKey, savedCard, useNewCard])
+  }, [paymentActive, stripeKey, savedCard, useNewCard])
 
   // ── Computed ───────────────────────────────────────────────────────────────
   const fm = useMemo(() => extractFmMoney(fmTotals), [fmTotals])
@@ -393,10 +397,12 @@ export default function CheckoutDrawer({
 
   async function handlePlaceOrder() {
     if (!authUser) return
-    setStep('placing'); setError('')
+    setError('')
 
     try {
-      // Stripe tokenize
+      // Stripe tokenize FIRST — before any setStep. Changing step re-runs the
+      // mount effect and can tear down the card Element mid-createToken; doing
+      // this while still on 'payment' keeps the Element mounted.
       let stripeToken: string | null = null
       const usingSavedCard = savedCard && !useNewCard
       if (!usingSavedCard) {
@@ -410,6 +416,9 @@ export default function CheckoutDrawer({
         if (result.error) { setError(result.error.message || 'Card error.'); setStep('payment'); return }
         stripeToken = result.token?.id ?? null
       }
+
+      // Tokenized (or using a saved card) — now show the placing state.
+      setStep('placing')
 
       // Confirm payment
       const confRes = await fetch('/api/order/confirm-payment', {
