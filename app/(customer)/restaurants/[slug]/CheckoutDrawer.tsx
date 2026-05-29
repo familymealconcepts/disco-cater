@@ -262,14 +262,10 @@ export default function CheckoutDrawer({
     [cart],
   )
 
-  async function runPricing(advance: boolean): Promise<string | null> {
-    const seq = ++previewSeq.current
-    // Mirrors FM's checkoutPricesV2 (meal-package.service.ts:311-355): an if/else
-    // that POSTs /orders/init the first time (no ref yet), then PUTs /orders/{ref}
-    // to re-price on later changes — exactly ONE request per pricing event. FM
-    // never fires init and the PUT back-to-back (re-pricing an order it just
-    // created is what 500'd). Both take the SAME full ICheckoutPreview DTO, so
-    // build it once and apply the dynamic fields (tips / tax-exempt / coupon).
+  // The full ICheckoutPreview DTO that FM's init, re-price (PUT), and place all
+  // take. Built from one place so the priced order and the placed order can't
+  // drift apart.
+  function buildCheckoutDto() {
     const base = buildCheckoutPayload({
       restaurantRef: fmRef,
       cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
@@ -278,7 +274,7 @@ export default function CheckoutDrawer({
       deliveryAddress: orderType === 'DELIVERY' ? fmAddr : undefined,
       headcount,
     })
-    const dto = {
+    return {
       ...base,
       tips: tipAmt,
       // FM's TipsType enum is CUSTOM | PERCENTAGE only ("DOLLAR" 500'd the init/
@@ -289,6 +285,16 @@ export default function CheckoutDrawer({
       ...(taxExemptApplied ? { taxExemptId, taxExemptState } : {}),
       ...(couponApplied ? { couponCode: couponApplied } : {}),
     }
+  }
+
+  async function runPricing(advance: boolean): Promise<string | null> {
+    const seq = ++previewSeq.current
+    // Mirrors FM's checkoutPricesV2 (meal-package.service.ts:311-355): an if/else
+    // that POSTs /orders/init the first time (no ref yet), then PUTs /orders/{ref}
+    // to re-price on later changes — exactly ONE request per pricing event. FM
+    // never fires init and the PUT back-to-back (re-pricing an order it just
+    // created is what 500'd).
+    const dto = buildCheckoutDto()
 
     let ref = orderRefRef.current
     if (!ref) {
@@ -421,10 +427,27 @@ export default function CheckoutDrawer({
         }).catch(() => {})
       }
 
-      // Place order
+      // Place order — FM expects the full order object, not just the ref
+      // (checkout-sidebar-preview.component.ts:1169-1176 + 1300-1309): the priced
+      // DTO under checkoutDetails (+ paymentMethod, sourceoforder), the customer,
+      // and deliveryAddress for DELIVERY only (FM deletes it for PICKUP, :1178).
+      const checkoutDetails: Record<string, unknown> = {
+        ...buildCheckoutDto(),
+        paymentMethod: 'PAYMENT',
+        // ALWAYS "DISCO" for discocater.com orders — this is how FM attributes
+        // lead-generation fees. Never change or make this configurable.
+        sourceoforder: 'DISCO',
+      }
+      delete checkoutDetails.restaurantRef // proxy-URL field only; not part of ICheckoutPreview
       const placeRes = await fetch('/api/order/place', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantRef: fmRef, orderRef }),
+        body: JSON.stringify({
+          restaurantRef: fmRef,
+          orderRef,
+          checkoutDetails,
+          customer: { firstName: authUser.firstName, lastName: authUser.lastName, email: authUser.email, phoneNumber: authUser.phoneNumber },
+          ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
+        }),
       })
       const placeData = await placeRes.json()
       if (!placeRes.ok && placeData.error) throw new Error(placeData.error || placeData.message || 'Failed to place order.')
