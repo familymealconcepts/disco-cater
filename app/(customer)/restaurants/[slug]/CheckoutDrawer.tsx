@@ -188,13 +188,24 @@ export default function CheckoutDrawer({
       })
       cardElRef.current.mount(cardRef.current)
     }
+    let poll: ReturnType<typeof setInterval> | undefined
     if (window.Stripe) { mount() }
     else if (!document.getElementById('stripe-js')) {
       const s = document.createElement('script')
       s.id = 'stripe-js'; s.src = 'https://js.stripe.com/v3/'; s.onload = mount
       document.head.appendChild(s)
+    } else {
+      // Script tag present but Stripe still loading (e.g. re-entering the
+      // payment step) — onload won't fire again, so poll briefly. Without this
+      // the Element never mounts and createToken throws "could not retrieve
+      // data from the specified Element".
+      poll = setInterval(() => { if (window.Stripe) { clearInterval(poll); mount() } }, 50)
+      setTimeout(() => poll && clearInterval(poll), 3000)
     }
-    return () => { if (cardElRef.current) { cardElRef.current.destroy(); cardElRef.current = null } }
+    return () => {
+      if (poll) clearInterval(poll)
+      if (cardElRef.current) { cardElRef.current.destroy(); cardElRef.current = null }
+    }
   }, [step, stripeKey, savedCard, useNewCard])
 
   // ── Computed ───────────────────────────────────────────────────────────────

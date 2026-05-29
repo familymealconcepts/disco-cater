@@ -11,8 +11,14 @@ export async function GET(req: NextRequest) {
     const res = await fetch(`${FM}/api/users/payment/defaultSource`, {
       headers: { Accept: 'application/json', Authorization: token },
     })
-    const data = await res.json()
-    return NextResponse.json(data, { status: res.status })
+    if (res.status === 401) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    // FM 404 (and sometimes 204) = no card on file. That's the empty state, not
+    // an error — return 200 null so the page renders a fresh Stripe Element
+    // (matches fm-payment-source/route.ts).
+    if (res.status === 404 || res.status === 204) return NextResponse.json(null)
+    if (!res.ok) return NextResponse.json({ error: 'Failed to fetch saved card' }, { status: res.status })
+    const text = await res.text()
+    return NextResponse.json(text ? JSON.parse(text) : null)
   } catch {
     return NextResponse.json({ error: 'Failed to fetch saved card' }, { status: 500 })
   }
