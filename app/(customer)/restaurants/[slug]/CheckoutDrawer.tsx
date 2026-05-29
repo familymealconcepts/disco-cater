@@ -264,10 +264,12 @@ export default function CheckoutDrawer({
 
   async function runPricing(advance: boolean): Promise<string | null> {
     const seq = ++previewSeq.current
-    // FM's init POST and the re-price PUT both take the SAME full ICheckoutPreview
-    // DTO (meal-package.service.ts:311-355). The PUT was previously sent a partial
-    // body (tips only) with no items → FM 500. Build the full DTO once and apply
-    // the dynamic fields (tips / tax-exempt / coupon) to it for both calls.
+    // Mirrors FM's checkoutPricesV2 (meal-package.service.ts:311-355): an if/else
+    // that POSTs /orders/init the first time (no ref yet), then PUTs /orders/{ref}
+    // to re-price on later changes — exactly ONE request per pricing event. FM
+    // never fires init and the PUT back-to-back (re-pricing an order it just
+    // created is what 500'd). Both take the SAME full ICheckoutPreview DTO, so
+    // build it once and apply the dynamic fields (tips / tax-exempt / coupon).
     const base = buildCheckoutPayload({
       restaurantRef: fmRef,
       cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
@@ -307,9 +309,12 @@ export default function CheckoutDrawer({
       // payload mismatch (FM wants orderDate DD.MM.YYYY + restaurantReference +
       // menuReference, activity-tracker.service.ts:127-133). Re-add with that
       // exact shape only if slot-hold-on-reserve becomes necessary.
+      // init already returned the full pricing (set above); do NOT PUT on the
+      // first run — re-pricing an order FM just created is what 500'd.
+      return ref
     }
-    // Re-price with the FULL DTO + the ref (proxy strips restaurantRef/orderRef
-    // for the URL and forwards the rest to FM's PUT).
+    // Re-price an EXISTING order (ref existed on entry) with the FULL DTO + the
+    // ref (proxy strips restaurantRef/orderRef for the URL, forwards the rest).
     const updRes = await fetch('/api/order/update', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...dto, restaurantRef: fmRef, orderRef: ref }),
