@@ -252,23 +252,33 @@ export default function CheckoutDrawer({
 
   async function runPricing(advance: boolean): Promise<string | null> {
     const seq = ++previewSeq.current
+    // FM's init POST and the re-price PUT both take the SAME full ICheckoutPreview
+    // DTO (meal-package.service.ts:311-355). The PUT was previously sent a partial
+    // body (tips only) with no items → FM 500. Build the full DTO once and apply
+    // the dynamic fields (tips / tax-exempt / coupon) to it for both calls.
+    const base = buildCheckoutPayload({
+      restaurantRef: fmRef,
+      cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
+      orderType: orderType as 'DELIVERY' | 'PICKUP',
+      orderDate: selDate, orderTime: selTime,
+      deliveryAddress: orderType === 'DELIVERY' ? fmAddr : undefined,
+      headcount,
+    })
+    const dto = {
+      ...base,
+      tips: tipAmt,
+      tipsType: 'DOLLAR',
+      taxExempt: taxExemptApplied,
+      ...(taxExemptApplied ? { taxExemptId, taxExemptState } : {}),
+      ...(couponApplied ? { couponCode: couponApplied } : {}),
+    }
+
     let ref = orderRefRef.current
     if (!ref) {
-      const initBody = buildCheckoutPayload({
-        restaurantRef: fmRef,
-        cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
-        orderType: orderType as 'DELIVERY' | 'PICKUP',
-        orderDate: selDate, orderTime: selTime,
-        deliveryAddress: orderType === 'DELIVERY' ? fmAddr : undefined,
-        headcount,
-      })
-      const initRes = await fetch('/api/order/init', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(initBody) })
+      const initRes = await fetch('/api/order/init', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dto) })
       const initData = await initRes.json()
       if (!initRes.ok) throw new Error(initData.error || initData.message || 'Failed to create order draft.')
-      // FM init returns { success, data: { orderReference, checkoutPublicResponseDto } }
-      // (meal-package.service.ts:339-345). The reference lives at
-      // data.orderReference — the old top-level reads missed it ("no reference
-      // returned"). Seed totals from the init response too.
+      // FM init returns { success, data: { orderReference, checkoutPublicResponseDto } }.
       ref = initData.data?.orderReference || initData.orderReference || initData.reference || initData.orderRef || initData.id || ''
       if (!ref) throw new Error('Order created but no reference returned.')
       orderRefRef.current = ref
@@ -277,16 +287,17 @@ export default function CheckoutDrawer({
       if (orderType === 'DELIVERY') {
         fetch('/api/order/validate-address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantReference: fmRef, deliveryAddress: fmAddr }) }).catch(() => {})
       }
-      fetch('/api/fm-slot-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantRef: fmRef, orderRef: ref, localDate: selDate, localTime: selTime, orderType }) }).catch(() => {})
+      // NOTE: FM's /orders/slotselected (slot reservation) is intentionally not
+      // called — init already creates the draft order, and the call 400'd from a
+      // payload mismatch (FM wants orderDate DD.MM.YYYY + restaurantReference +
+      // menuReference, activity-tracker.service.ts:127-133). Re-add with that
+      // exact shape only if slot-hold-on-reserve becomes necessary.
     }
+    // Re-price with the FULL DTO + the ref (proxy strips restaurantRef/orderRef
+    // for the URL and forwards the rest to FM's PUT).
     const updRes = await fetch('/api/order/update', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        restaurantRef: fmRef, orderRef: ref, tips: tipAmt, tipsType: 'DOLLAR',
-        ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
-        ...(taxExemptApplied ? { taxExempt: true, taxExemptId, taxExemptState } : { taxExempt: false }),
-        ...(couponApplied ? { couponCode: couponApplied } : {}),
-      }),
+      body: JSON.stringify({ ...dto, restaurantRef: fmRef, orderRef: ref }),
     })
     const updData = await updRes.json()
     if (updRes.ok && !updData.error && (advance || seq === previewSeq.current)) setFmTotals(updData)
