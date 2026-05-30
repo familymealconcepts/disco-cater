@@ -57,7 +57,7 @@ interface Props {
   onClose: () => void
 }
 
-type DrawerStep = 'review' | 'processing' | 'payment' | 'placing'
+type DrawerStep = 'processing' | 'payment' | 'placing'
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
 
@@ -109,7 +109,7 @@ export default function CheckoutDrawer({
   const { user: authUser, openAuthModal } = useAuthContext()
 
   // Checkout flow
-  const [step, setStep] = useState<DrawerStep>('review')
+  const [step, setStep] = useState<DrawerStep>('payment')
   const [orderRef, setOrderRef] = useState('')
   const [fmTotals, setFmTotals] = useState<any>(null)
   // Tax Exempt Account (Item 4). FM fields: taxExempt (bool) + taxExemptId;
@@ -145,6 +145,22 @@ export default function CheckoutDrawer({
   const numberElRef = useRef<any>(null) // primary element for createToken
   const expiryElRef = useRef<any>(null)
   const cvcElRef = useRef<any>(null)
+
+  // Contact fields — pre-filled from authUser but EDITABLE (customers often
+  // order for someone else). Mirrors FM's customerInfoForm pattern in
+  // checkout-customer-info.component.ts:195-204, 313-318. These values feed the
+  // place body's `customer` object — NOT authUser directly.
+  const [contactFirst, setContactFirst] = useState('')
+  const [contactLast, setContactLast] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
+  const [contactPhone, setContactPhone] = useState('')
+  useEffect(() => {
+    if (!authUser) return
+    setContactFirst(p => p || authUser.firstName || '')
+    setContactLast(p => p || authUser.lastName || '')
+    setContactEmail(p => p || authUser.email || '')
+    setContactPhone(p => p || authUser.phoneNumber || '')
+  }, [authUser])
 
   // Continue checkout after login via AuthModal
   useEffect(() => {
@@ -261,11 +277,6 @@ export default function CheckoutDrawer({
   const orderRefRef = useRef('')
   useEffect(() => { orderRefRef.current = orderRef }, [orderRef])
 
-  const cartKey = useMemo(
-    () => cart.map(i => `${i.pkg.reference}:${i.quantity}:${i.addOns.map(a => `${a.reference}x${a.count}`).join(',')}`).join('|'),
-    [cart],
-  )
-
   // The full ICheckoutPreview DTO that FM's init, re-price (PUT), and place all
   // take. Built from one place so the priced order and the placed order can't
   // drift apart.
@@ -334,29 +345,20 @@ export default function CheckoutDrawer({
     return ref
   }
 
-  // Debounced preview while on the review step (only relevant if a logged-out
-  // user is still on the review fallback).
-  const canPreview = cart.length > 0 && !!selDate && !!selTime && (orderType === 'PICKUP' || !!addr.line1)
+  // Stage 2 is the ONLY drawer view (the old in-drawer "review" step is gone —
+  // Stage 1 is the cart on the restaurant page). On mount, draft the order
+  // (init + price) and put us on the payment step. Logged-out users get the
+  // auth modal via processOrder's existing branch; waitingForAuth resumes the
+  // flow on login. The drawer trigger upstream already gates on canProceed, so
+  // this should always run on mount.
+  const startedRef = useRef(false)
   useEffect(() => {
-    if (step !== 'review' || !canPreview) return
-    const t = setTimeout(() => { runPricing(false).catch(() => {}) }, 450)
-    return () => clearTimeout(t)
+    if (startedRef.current) return
+    if (!canProceed) return
+    startedRef.current = true
+    processOrder()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, canPreview, cartKey, orderType, selDate, selTime, addr.line1, tipAmt, taxExemptApplied])
-
-  // Skip the intermediate "Review Your Order" step: CHECKOUT goes straight to
-  // the final checkout page. Auto-advance once, when the user is logged in and
-  // the order is ready. Logged-out users stay on the review fallback (which has
-  // the login CTA) so a cancelled login can't strand them on a spinner.
-  const autoAdvancedRef = useRef(false)
-  useEffect(() => {
-    if (autoAdvancedRef.current) return
-    if (step === 'review' && authUser && canProceed) {
-      autoAdvancedRef.current = true
-      processOrder()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, authUser, canProceed])
+  }, [canProceed])
 
   // Re-price on the payment step when tax-exempt or the promo code changes (FM
   // applies both server-side; the update PUT carries them).
@@ -391,7 +393,7 @@ export default function CheckoutDrawer({
       setStep('payment')
     } catch (err: any) {
       setError(err.message || 'Something went wrong. Please try again.')
-      setStep('review')
+      setStep('payment')
     }
   }
 
@@ -444,7 +446,7 @@ export default function CheckoutDrawer({
           restaurantRef: fmRef,
           orderRef,
           checkoutDetails,
-          customer: { firstName: authUser.firstName, lastName: authUser.lastName, email: authUser.email, phoneNumber: authUser.phoneNumber },
+          customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: contactPhone },
           ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
         }),
       })
@@ -496,177 +498,6 @@ export default function CheckoutDrawer({
     }
   }
 
-  // ── Step: Review ───────────────────────────────────────────────────────────
-  function ReviewStep() {
-    return (
-      <>
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0' }}>
-          <h2 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '0 0 4px', letterSpacing: '-0.02em' }}>Review Your Order</h2>
-          <div style={{ fontSize: 13, color: '#888' }}>{restaurantName}</div>
-        </div>
-
-        <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px' }}>
-          {/* Date/time/type */}
-          <div style={{ padding: '16px 0', borderBottom: '1px solid #f4f4f4' }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              {selDate && <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtDateShort(selDate)}</span>}
-              {selTime && <><span style={{ color: '#ddd' }}>·</span><span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtTime(selTime)}</span></>}
-              <span style={{ color: '#ddd' }}>·</span>
-              <span style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: orderType === 'PICKUP' ? '#EEF0FD' : '#F0FDF4', color: orderType === 'PICKUP' ? INDIGO : '#166534' }}>
-                {orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}
-              </span>
-            </div>
-            {orderType === 'DELIVERY' && addr.line1 && (
-              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>📍 {addr.line1}, {addr.city}, {addr.state} {addr.zip}</div>
-            )}
-          </div>
-
-          {/* Headcount prompt — inline, not a blocker */}
-          {headcount == null && !headcountSkipped && (
-            <div style={{ background: '#F5F4FF', border: '1px solid #E5E3FB', borderRadius: 10, padding: '12px 14px', margin: '12px 0' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 8 }}>
-                How many people are you feeding?
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  type="number" inputMode="numeric" min={1}
-                  value={headcountInput}
-                  onChange={e => setHeadcountInput(e.target.value.replace(/[^0-9]/g, ''))}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      const n = parseInt(headcountInput, 10)
-                      if (!isNaN(n) && n > 0) onHeadcount(n)
-                    }
-                  }}
-                  placeholder="e.g. 40"
-                  style={{ flex: 1, height: 38, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: DARK, fontFamily: F, background: '#fff', outline: 'none' }}
-                />
-                <button onClick={() => {
-                    const n = parseInt(headcountInput, 10)
-                    if (!isNaN(n) && n > 0) onHeadcount(n)
-                  }}
-                  disabled={!headcountInput}
-                  style={{ height: 38, padding: '0 14px', background: headcountInput ? INDIGO : '#e0e0e0', color: headcountInput ? '#fff' : '#aaa', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: headcountInput ? 'pointer' : 'default', fontFamily: F }}>
-                  Save
-                </button>
-                <button onClick={() => setHeadcountSkipped(true)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#888', fontWeight: 600, fontFamily: F, padding: '6px 4px' }}>
-                  Skip
-                </button>
-              </div>
-            </div>
-          )}
-
-          {headcount != null && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f4f4f4' }}>
-              <div style={{ fontSize: 13, color: '#555' }}>
-                👥 {headcount} {headcount === 1 ? 'person' : 'people'}
-              </div>
-              <button onClick={() => { setHeadcountInput(String(headcount)); onHeadcount(null) }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>
-                Edit
-              </button>
-            </div>
-          )}
-
-          {/* Items */}
-          <div style={{ padding: '12px 0', borderBottom: '1px solid #f4f4f4' }}>
-            {cart.map(item => (
-              <div key={item.lineId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '8px 0' }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{item.quantity > 1 && <span style={{ color: '#888' }}>{item.quantity}× </span>}{item.pkg.name}</div>
-                  {item.pkg.serves && <div style={{ fontSize: 11, color: '#aaa' }}>Serves {item.pkg.serves}</div>}
-                  {item.addOns.length > 0 && (
-                    <div style={{ marginTop: 2 }}>
-                      {item.addOns.map(a => (
-                        <div key={a.reference} style={{ fontSize: 11, color: '#888' }}>+ ({a.count}) {a.name}{a.price > 0 ? ` (+${fmt$(a.price)} each)` : ''}</div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: DARK, flexShrink: 0, marginLeft: 12 }}>{fmt$(item.unitPrice * item.quantity)}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Pricing */}
-          <div style={{ padding: '14px 0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 6 }}>
-              <span>Subtotal</span><span style={{ fontWeight: 600, color: DARK }}>{fmt$(subtotal)}</span>
-            </div>
-            {orderType === 'DELIVERY' && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                <span>Delivery fee</span>
-                {displayDeliveryFee !== null
-                  ? <span style={{ fontWeight: 600, color: DARK }}>{displayDeliveryFee === 0 ? 'Free' : fmt$(displayDeliveryFee)}</span>
-                  : <span style={{ color: '#aaa', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
-              </div>
-            )}
-            {displaySvc > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                <span>Service fee</span><span style={{ fontWeight: 600, color: DARK }}>{fmt$(displaySvc)}</span>
-              </div>
-            )}
-            {tipAmt > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                <span>Tip</span><span style={{ fontWeight: 600, color: DARK }}>{fmt$(tipAmt)}</span>
-              </div>
-            )}
-            {/* Taxes & Fees — real numbers from FM's server pricing once the
-                preview returns; "Calculated at checkout" until then. */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 14 }}>
-              <span
-                title={taxesAndFees !== null
-                  ? `Tax: ${fmt$(displayTax ?? 0)}\nFee: ${fmt$(displayFee ?? 0)}${taxExemptApplied ? '\n(tax exempt)' : ''}\nThis allows us to be free for restaurants`
-                  : undefined}
-                style={{ borderBottom: taxesAndFees !== null ? '1px dotted #bbb' : 'none', cursor: taxesAndFees !== null ? 'help' : 'default' }}>
-                Taxes &amp; Fees{taxesAndFees !== null ? ' ⓘ' : ''}
-              </span>
-              {taxesAndFees !== null
-                ? <span style={{ fontWeight: 600, color: DARK }}>{fmt$(taxesAndFees)}</span>
-                : <span style={{ color: '#aaa', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid #f0f0f0', paddingTop: 12, fontSize: 17, fontWeight: 800, color: DARK }}>
-              <span>{taxesAndFees !== null ? 'Total' : 'Estimated Total'}</span>
-              <span>{fmt$(subtotal + tipAmt + (displaySvc || 0) + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0))}</span>
-            </div>
-            {orderType === 'DELIVERY' && displayDeliveryFee === null && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>+ delivery &amp; tax</div>}
-          </div>
-
-          {!canProceed && (
-            <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10, padding: '10px 14px', marginBottom: 8, fontSize: 13, color: '#92400E' }}>
-              {!selDate && '📅 Please select a date and time before checking out.'}
-              {selDate && !selTime && '⏰ Please select a pickup time before checking out.'}
-              {selDate && selTime && orderType === 'DELIVERY' && !addr.line1 && '📍 Please enter a delivery address before checking out.'}
-            </div>
-          )}
-        </div>
-
-        <div style={{ padding: '16px 24px', borderTop: '1px solid #f0f0f0' }}>
-          <button
-            onClick={() => {
-              if (authUser) {
-                processOrder()
-              } else {
-                setWaitingForAuth(true)
-                // no-op pendingAction → no post-login redirect; resume checkout
-                openAuthModal(() => {}, 'login')
-              }
-            }}
-            disabled={!canProceed}
-            style={{ width: '100%', padding: '14px', background: canProceed ? BLUE : '#e8e8e8', color: canProceed ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: canProceed ? 'pointer' : 'default', fontFamily: F, boxShadow: canProceed ? '0 4px 14px rgba(91,111,232,0.25)' : 'none', transition: 'all 0.15s' }}>
-            {authUser ? `Continue as ${authUser.firstName} →` : 'Continue to Login →'}
-          </button>
-          {!authUser && (
-            <div style={{ textAlign: 'center', marginTop: 10, fontSize: 12, color: '#aaa' }}>
-              You&apos;ll log in or create an account on the next step
-            </div>
-          )}
-        </div>
-      </>
-    )
-  }
-
   // ── Step: Processing ───────────────────────────────────────────────────────
   function ProcessingStep() {
     return (
@@ -689,11 +520,95 @@ export default function CheckoutDrawer({
     return (
       <>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0' }}>
-          <h2 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '0 0 4px', letterSpacing: '-0.02em' }}>Payment</h2>
-          {authUser && <div style={{ fontSize: 13, color: '#888' }}>Placing order as {authUser.firstName} {authUser.lastName}</div>}
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: 0, letterSpacing: '-0.02em' }}>Review &amp; Pay</h2>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {/* Date / time / order-type pill (lifted from the old ReviewStep so the
+              drawer is a single Review & Pay surface). */}
+          <div style={{ padding: '0 0 14px', borderBottom: '1px solid #f4f4f4', marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              {selDate && <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtDateShort(selDate)}</span>}
+              {selTime && <><span style={{ color: '#ddd' }}>·</span><span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtTime(selTime)}</span></>}
+              <span style={{ color: '#ddd' }}>·</span>
+              <span style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: orderType === 'PICKUP' ? '#EEF0FD' : '#F0FDF4', color: orderType === 'PICKUP' ? INDIGO : '#166534' }}>
+                {orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}
+              </span>
+            </div>
+            {orderType === 'DELIVERY' && addr.line1 && (
+              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>📍 {addr.line1}, {addr.city}, {addr.state} {addr.zip}</div>
+            )}
+          </div>
+
+          {/* Items summary (read-only — quantities are edited in Stage 1). */}
+          <div style={{ padding: '0 0 14px', borderBottom: '1px solid #f4f4f4', marginBottom: 16 }}>
+            {cart.map(item => (
+              <div key={item.lineId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '6px 0' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{item.quantity > 1 && <span style={{ color: '#888' }}>{item.quantity}× </span>}{item.pkg.name}</div>
+                  {item.pkg.serves && <div style={{ fontSize: 11, color: '#aaa' }}>Serves {item.pkg.serves}</div>}
+                  {item.addOns.length > 0 && (
+                    <div style={{ marginTop: 2 }}>
+                      {item.addOns.map(a => (
+                        <div key={a.reference} style={{ fontSize: 11, color: '#888' }}>+ ({a.count}) {a.name}{a.price > 0 ? ` (+${fmt$(a.price)} each)` : ''}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: DARK, flexShrink: 0, marginLeft: 12 }}>{fmt$(item.unitPrice * item.quantity)}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Headcount — inline prompt if not set, otherwise a single-line summary. */}
+          {headcount == null && !headcountSkipped ? (
+            <div style={{ background: '#F5F4FF', border: '1px solid #E5E3FB', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 8 }}>How many people are you feeding?</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input type="number" inputMode="numeric" min={1}
+                  value={headcountInput}
+                  onChange={e => setHeadcountInput(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={e => { if (e.key === 'Enter') { const n = parseInt(headcountInput, 10); if (!isNaN(n) && n > 0) onHeadcount(n) } }}
+                  placeholder="e.g. 40"
+                  style={{ flex: 1, height: 38, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: DARK, fontFamily: F, background: '#fff', outline: 'none' }} />
+                <button onClick={() => { const n = parseInt(headcountInput, 10); if (!isNaN(n) && n > 0) onHeadcount(n) }}
+                  disabled={!headcountInput}
+                  style={{ height: 38, padding: '0 14px', background: headcountInput ? INDIGO : '#e0e0e0', color: headcountInput ? '#fff' : '#aaa', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: headcountInput ? 'pointer' : 'default', fontFamily: F }}>
+                  Save
+                </button>
+                <button onClick={() => setHeadcountSkipped(true)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#888', fontWeight: 600, fontFamily: F, padding: '6px 4px' }}>
+                  Skip
+                </button>
+              </div>
+            </div>
+          ) : headcount != null ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0 14px', borderBottom: '1px solid #f4f4f4', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: '#555' }}>👥 {headcount} {headcount === 1 ? 'person' : 'people'}</div>
+              <button onClick={() => { setHeadcountInput(String(headcount)); onHeadcount(null) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>
+                Edit
+              </button>
+            </div>
+          ) : null}
+
+          {/* Contact fields — pre-filled from authUser, editable per the spec.
+              These values feed the place body's `customer` object, mirroring FM
+              (checkout-customer-info.component.ts:195-204, 313-318). */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Contact</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <input value={contactFirst} onChange={e => setContactFirst(e.target.value)} placeholder="First name" aria-label="First name"
+                style={{ height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
+              <input value={contactLast} onChange={e => setContactLast(e.target.value)} placeholder="Last name" aria-label="Last name"
+                style={{ height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
+            </div>
+            <input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email" type="email" inputMode="email" aria-label="Email"
+              style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
+            <input value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="Phone" type="tel" inputMode="tel" aria-label="Phone"
+              style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+
           {/* Totals from FM (or client-side estimate) */}
           <div style={{ background: '#fafafa', borderRadius: 12, padding: '14px 16px', marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
@@ -853,7 +768,6 @@ export default function CheckoutDrawer({
             style={{ width: '100%', padding: '14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(91,111,232,0.25)', transition: 'all 0.15s' }}>
             Place Order · {fmt$(payTotal)}
           </button>
-          <button onClick={() => setStep('review')} style={{ width: '100%', marginTop: 10, padding: '10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#888', fontFamily: F }}>← Edit order</button>
         </div>
       </>
     )
@@ -897,24 +811,13 @@ export default function CheckoutDrawer({
           )}
         </div>
 
-        {/* Error banner (for review step) */}
-        {error && step === 'review' && (
-          <div style={{ padding: '10px 24px', background: '#FEF2F2', borderBottom: '1px solid #FCA5A5', color: '#991B1B', fontSize: 13 }}>{error}</div>
-        )}
-
-        {/* Step content */}
+        {/* Step content. Call the step renderers as functions, NOT <PaymentStep />.
+            As JSX elements they'd be a fresh component type on each parent
+            re-render, so React would unmount/remount the subtree — destroying
+            the card <div> and detaching the mounted Stripe Element ("could not
+            retrieve data"). Inlining keeps the node stable. (None of these use
+            hooks, so calling them conditionally is safe.) */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Logged-in + ready users auto-advance past review (Item 2) — show
-              the spinner, not the review UI, so the intermediate drawer never
-              paints. Logged-out / not-ready users still get the review. */}
-          {/* Call the step renderers as functions, NOT <PaymentStep />. As JSX
-              elements they'd be a fresh component type each parent re-render, so
-              React would unmount/remount the subtree (and the pricing preview
-              re-renders often) — destroying the card <div> and detaching the
-              mounted Stripe Element ("could not retrieve data"). Inlining keeps
-              the node stable. (None of these use hooks, so calling them
-              conditionally is safe.) */}
-          {step === 'review' && (authUser && canProceed ? ProcessingStep() : ReviewStep())}
           {step === 'processing' && ProcessingStep()}
           {step === 'payment' && PaymentStep()}
           {step === 'placing' && PlacingStep()}

@@ -510,6 +510,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     .filter(i => i.pkg.reference === ref)
     .reduce((s, i) => s + i.quantity, 0)
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
+  // Mirrors CheckoutDrawer's canProceed (now that the drawer has no in-drawer
+  // review step, the trigger has to gate on date + time + delivery address
+  // upstream instead of the drawer rendering a "complete your selections"
+  // fallback).
+  const canCheckout = cart.length > 0 && !belowMin && !!selDate && !!selTime &&
+    (orderType === 'PICKUP' || !!addr.line1)
+  const ctaLabel = cartCount > 0
+    ? `${cartCount} item${cartCount !== 1 ? 's' : ''} · ${formatPrice(clientTotal)} — Continue to Checkout`
+    : 'Browse Menu → Start Order'
 
   function genLineId(): string {
     return Math.random().toString(36).slice(2) + Date.now().toString(36)
@@ -977,11 +986,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             {/* CHECKOUT button — outside the card */}
             {fmRef && (
               <button
-                onClick={() => { if (cart.length > 0 && !belowMin) setCheckoutOpen(true) }}
-                disabled={cart.length === 0 || belowMin}
-                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: cart.length > 0 && !belowMin ? DARK : '#e0e0e0', color: cart.length > 0 && !belowMin ? '#fff' : '#bbb', fontSize: 14, fontWeight: 800, fontFamily: F, cursor: cart.length > 0 && !belowMin ? 'pointer' : 'default', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: cart.length > 0 && !belowMin ? '0 4px 16px rgba(26,16,40,0.22)' : 'none', transition: 'all 0.15s' }}>
-                <span>CHECKOUT</span>
-                {cart.length > 0 && <span>{formatPrice(clientTotal)}</span>}
+                onClick={() => { if (canCheckout) setCheckoutOpen(true) }}
+                disabled={!canCheckout}
+                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? DARK : '#e0e0e0', color: canCheckout ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(26,16,40,0.22)' : 'none', transition: 'all 0.15s' }}>
+                {ctaLabel}
               </button>
             )}
           </div>
@@ -991,7 +999,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       {/* Mobile bottom bar */}
       <div className="mobile-order-bar" style={{ display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: '#fff', borderTop: '1px solid #f0f0f0', boxShadow: '0 -4px 16px rgba(0,0,0,0.06)', zIndex: 100 }}>
         <button onClick={() => setMobileCartOpen(true)} style={{ width: '100%', padding: '14px', background: cartCount > 0 ? BLUE : '#e8e8e8', color: cartCount > 0 ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: cartCount > 0 ? '0 4px 14px rgba(91,111,232,0.25)' : 'none' }}>
-          {cartCount > 0 ? `${cartCount} item${cartCount !== 1 ? 's' : ''} · ${formatPrice(subtotal)} — Continue to Checkout` : 'Browse Menu → Start Order'}
+          {ctaLabel}
         </button>
       </div>
 
@@ -1007,11 +1015,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           {fmRef && (
             <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
               <button
-                onClick={() => { if (cart.length > 0 && !belowMin) { setMobileCartOpen(false); setCheckoutOpen(true) } }}
-                disabled={cart.length === 0 || belowMin}
-                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: cart.length > 0 && !belowMin ? DARK : '#e0e0e0', color: cart.length > 0 && !belowMin ? '#fff' : '#bbb', fontSize: 14, fontWeight: 800, fontFamily: F, cursor: cart.length > 0 && !belowMin ? 'pointer' : 'default', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: cart.length > 0 && !belowMin ? '0 4px 16px rgba(26,16,40,0.22)' : 'none', transition: 'all 0.15s' }}>
-                <span>CHECKOUT</span>
-                {cart.length > 0 && <span>{formatPrice(clientTotal)}</span>}
+                onClick={() => { if (canCheckout) { setMobileCartOpen(false); setCheckoutOpen(true) } }}
+                disabled={!canCheckout}
+                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? DARK : '#e0e0e0', color: canCheckout ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(26,16,40,0.22)' : 'none', transition: 'all 0.15s' }}>
+                {ctaLabel}
               </button>
             </div>
           )}
