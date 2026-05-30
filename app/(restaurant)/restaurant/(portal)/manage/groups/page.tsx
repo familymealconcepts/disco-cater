@@ -83,7 +83,7 @@ export default function GroupsPage() {
   const loadGroups = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/restaurant/groups?page=0&size=100')
+      const res = await fetch('/api/restaurant/groups/list')
       if (res.ok) {
         const d = await res.json()
         setGroups(d.content || [])

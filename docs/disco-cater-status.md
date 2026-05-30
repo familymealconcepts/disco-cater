@@ -36,6 +36,25 @@ blocker on the native ordering flow.
 3. ✅ **Stripe "Incomplete" on first test order — RESOLVED (`8d9c304`).** See
    "Recently resolved" below.
 
+## 📋 Group library — follow-ups (deferred)
+Restored visibility this session — `manage/groups/page.tsx` was calling the
+broken `/api/restaurant/groups` GET (forwarded to a non-existent FM list path)
+instead of `/api/restaurant/groups/list`. Page + CRUD + clone proxies are wired;
+the items below are nice-to-haves left for later:
+1. **Reorder (drag-drop + position proxy).** FM exposes
+   `PUT /api/extraItemsGroups/{ref}/position?position=N` (`groups.service.ts:42`)
+   and the Angular UI has drag-drop. Disco has neither the proxy nor the UI.
+2. **Archive workflow (PUT body merge).** `page.tsx:191-198` PUTs a *partial*
+   body `{ archived, visible }`. FM's PUT replaces the full group, so this may
+   silently fail or wipe other fields. Fetch the current group and PUT the
+   merged body.
+3. **`existing` endpoint for meal-package attachment.** FM
+   `GET /api/restaurants/{ref}/extraItemsGroups/existing` (`groups.service.ts:88`)
+   is what `manage-v2` would call when attaching an existing group to a meal
+   package. No Disco proxy yet.
+4. **Verify edit/clone/delete round-trip on live test** for the restaurant whose
+   live order showed Coke + Cajun Blue Shrimp Sandwich.
+
 ## Open notes (low priority, unverifiable from this repo)
 - **Stripe description "DIRECT" vs "DISCO".** The "DIRECT" suffix on the charge
   is the restaurant's `moneyFlow` (payout routing; `restaurant.service.ts:323`),
