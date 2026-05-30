@@ -37,28 +37,6 @@ function fmtCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
 }
 
-// US states + DC, alphabetical by full name; value = 2-letter code (FM stores
-// restaurant address.state as a 2-letter code — add-restaurant maxLength 2).
-const US_STATES: { name: string; code: string }[] = [
-  { name: 'Alabama', code: 'AL' }, { name: 'Alaska', code: 'AK' }, { name: 'Arizona', code: 'AZ' },
-  { name: 'Arkansas', code: 'AR' }, { name: 'California', code: 'CA' }, { name: 'Colorado', code: 'CO' },
-  { name: 'Connecticut', code: 'CT' }, { name: 'Delaware', code: 'DE' }, { name: 'District of Columbia', code: 'DC' },
-  { name: 'Florida', code: 'FL' }, { name: 'Georgia', code: 'GA' }, { name: 'Hawaii', code: 'HI' },
-  { name: 'Idaho', code: 'ID' }, { name: 'Illinois', code: 'IL' }, { name: 'Indiana', code: 'IN' },
-  { name: 'Iowa', code: 'IA' }, { name: 'Kansas', code: 'KS' }, { name: 'Kentucky', code: 'KY' },
-  { name: 'Louisiana', code: 'LA' }, { name: 'Maine', code: 'ME' }, { name: 'Maryland', code: 'MD' },
-  { name: 'Massachusetts', code: 'MA' }, { name: 'Michigan', code: 'MI' }, { name: 'Minnesota', code: 'MN' },
-  { name: 'Mississippi', code: 'MS' }, { name: 'Missouri', code: 'MO' }, { name: 'Montana', code: 'MT' },
-  { name: 'Nebraska', code: 'NE' }, { name: 'Nevada', code: 'NV' }, { name: 'New Hampshire', code: 'NH' },
-  { name: 'New Jersey', code: 'NJ' }, { name: 'New Mexico', code: 'NM' }, { name: 'New York', code: 'NY' },
-  { name: 'North Carolina', code: 'NC' }, { name: 'North Dakota', code: 'ND' }, { name: 'Ohio', code: 'OH' },
-  { name: 'Oklahoma', code: 'OK' }, { name: 'Oregon', code: 'OR' }, { name: 'Pennsylvania', code: 'PA' },
-  { name: 'Rhode Island', code: 'RI' }, { name: 'South Carolina', code: 'SC' }, { name: 'South Dakota', code: 'SD' },
-  { name: 'Tennessee', code: 'TN' }, { name: 'Texas', code: 'TX' }, { name: 'Utah', code: 'UT' },
-  { name: 'Vermont', code: 'VT' }, { name: 'Virginia', code: 'VA' }, { name: 'Washington', code: 'WA' },
-  { name: 'West Virginia', code: 'WV' }, { name: 'Wisconsin', code: 'WI' }, { name: 'Wyoming', code: 'WY' },
-]
-
 // Orders list join key. FM's /api/admin/userOrders items expose firstName +
 // lastName (no email / customer ref — confirmed in admin-orders-table.html), so
 // we join orders→customers by normalized name (customers list `username`).
@@ -66,7 +44,34 @@ function normalizeName(s?: string): string {
   return (s || '').toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
-interface CustomerLoc { states: Set<string>; zips: Set<string> }
+interface CustomerLastLoc { city: string; state: string; ts: number }
+
+// FM orderDate is DD.MM.YYYY (DateFormatService); orderTime is HH:mm:ss.
+// Combine to an epoch ms so we can pick each customer's most-recent order.
+// Returns 0 on invalid input so a malformed entry never beats a valid one.
+function parseFmDateTime(date?: string, time?: string): number {
+  if (!date) return 0
+  const m = date.match(/^(\d{2})\.(\d{2})\.(\d{4})$/)
+  if (!m) return 0
+  const t = (time || '00:00:00').split(':').map(Number)
+  return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), t[0] || 0, t[1] || 0, t[2] || 0).getTime() || 0
+}
+
+// Extract city + state from a Google Place's address_components. state is the
+// 2-letter short_name; city falls back through locality → postal_town →
+// sublocality → administrative_area_level_3 so most US picks resolve cleanly.
+function extractPlaceCityState(place: { address_components?: { types: string[]; long_name: string; short_name: string }[] } | null): { city: string; state: string } | null {
+  const comps = place?.address_components || []
+  let city = ''
+  let state = ''
+  for (const c of comps) {
+    if (c.types.includes('locality')) city = c.long_name
+    else if (!city && (c.types.includes('postal_town') || c.types.includes('sublocality') || c.types.includes('administrative_area_level_3'))) city = c.long_name
+    if (c.types.includes('administrative_area_level_1')) state = c.short_name.toUpperCase()
+  }
+  if (!city && !state) return null
+  return { city, state }
+}
 
 type SortKey = 'username' | 'email' | 'phone' | 'source' | 'type' | 'numberOfOrders' | 'totalspend'
 // Sort value per column: numbers for orders/spend/phone (phone by leading
@@ -108,15 +113,25 @@ function CustomersInner() {
   // click cycles asc → desc → off.
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null)
 
-  // Location filters (derived from restaurant addresses via orders).
-  const [selectedStates, setSelectedStates] = useState<string[]>(
-    (sp.get('states') || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
-  )
-  const [zip, setZip] = useState(sp.get('zip') || '')
-  const [customerLoc, setCustomerLoc] = useState<Map<string, CustomerLoc>>(new Map())
+  // Location filter: a Google Place selection → city+state we match against
+  // each customer's LAST order's restaurant. FM returns no customer address, so
+  // we derive it via orders→restaurants and join orders→customers by name
+  // (orders carry no customer ref). URL stores the chosen "City, ST" so the
+  // filter is deep-linkable and survives reload.
+  const initialPlace = useMemo(() => {
+    const v = sp.get('location') || ''
+    const m = v.match(/^(.+),\s*([A-Z]{2})$/i)
+    return m ? { city: m[1].trim(), state: m[2].toUpperCase(), label: `${m[1].trim()}, ${m[2].toUpperCase()}` } : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const [locInput, setLocInput] = useState(initialPlace?.label || '')
+  const [placeFilter, setPlaceFilter] = useState<{ city: string; state: string; label: string } | null>(initialPlace)
+  const [customerLastLoc, setCustomerLastLoc] = useState<Map<string, CustomerLastLoc>>(new Map())
   const [locLoading, setLocLoading] = useState(false)
   const [locReady, setLocReady] = useState(false)
   const locStartedRef = useRef(false)
+  const locInputRef = useRef<HTMLInputElement>(null)
+  const autocompleteRef = useRef<any>(null)
 
   const [rows, setRows] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
@@ -138,11 +153,10 @@ function CustomersInner() {
     if (maxOrders) params.set('maxOrders', maxOrders)
     if (fromDate) params.set('fromDate', fromDate)
     if (toDate) params.set('toDate', toDate)
-    if (selectedStates.length) params.set('states', selectedStates.join(','))
-    if (zip) params.set('zip', zip)
+    if (placeFilter) params.set('location', placeFilter.label)
     const qs = params.toString()
     router.replace(qs ? `?${qs}` : '?', { scroll: false })
-  }, [search, type, minOrders, maxOrders, fromDate, toDate, selectedStates, zip, router])
+  }, [search, type, minOrders, maxOrders, fromDate, toDate, placeFilter, router])
 
   // Fetch the FULL matching set (all pages, capped) so client filters + export
   // operate over everything, not one server page. Server filters: search + date.
@@ -179,10 +193,12 @@ function CustomersInner() {
   useEffect(() => { load() }, [load])
 
   // Location aggregation (lazy, cached for the session). FM returns no customer
-  // address, so we derive location from each order's restaurant address:
-  //   restaurant ref → { state, zip }  (GET /api/admin/restaurants)
-  //   order → customer name + restaurantReference  (GET /api/admin/userOrders)
-  //   customerLoc[name] = { states, zips }
+  // address, so we derive each customer's LAST order's location from the order's
+  // restaurant city/state:
+  //   restaurant ref → { city, state }  (GET /api/admin/restaurants)
+  //   order → customer name + restaurantReference + orderDate/Time  (GET /api/admin/userOrders)
+  //   customerLastLoc[name] = the city/state of the restaurant on the most
+  //                           recent order (by orderDate + orderTime).
   // Join is by NAME (orders have no email/customer ref on the list).
   const ensureLocData = useCallback(async () => {
     if (locStartedRef.current) return
@@ -190,11 +206,11 @@ function CustomersInner() {
     setLocLoading(true)
     try {
       const restJson = await fetch('/api/admin/restaurants?size=1000').then(r => (r.ok ? r.json() : null))
-      const restMap = new Map<string, { state: string; zip: string }>()
+      const restMap = new Map<string, { city: string; state: string }>()
       for (const rr of (restJson?.content || [])) {
         const a = rr.address || {}
-        if (!a.state && !a.zipcode) { console.warn('[customers] restaurant missing address, skipped:', rr.reference); continue }
-        restMap.set(rr.reference, { state: (a.state || '').toUpperCase(), zip: a.zipcode || '' })
+        if (!a.city && !a.state) { console.warn('[customers] restaurant missing city/state, skipped:', rr.reference); continue }
+        restMap.set(rr.reference, { city: a.city || '', state: (a.state || '').toUpperCase() })
       }
       const ordUrl = (p: number) => {
         const q = new URLSearchParams()
@@ -203,7 +219,7 @@ function CustomersInner() {
         return `/api/admin/orders?${q}`
       }
       const first = await fetch(ordUrl(0)).then(r => (r.ok ? r.json() : null))
-      let orders: { firstName?: string; lastName?: string; restaurantReference?: string }[] = first?.content || []
+      let orders: { firstName?: string; lastName?: string; restaurantReference?: string; orderDate?: string; orderTime?: string }[] = first?.content || []
       const totalPages = Math.min(first?.totalPages ?? 1, MAX_PAGES)
       if (totalPages > 1) {
         const rest = await Promise.all(
@@ -211,36 +227,74 @@ function CustomersInner() {
         )
         for (const pg of rest) if (pg?.content) orders = orders.concat(pg.content)
       }
-      const loc = new Map<string, CustomerLoc>()
+      const last = new Map<string, CustomerLastLoc>()
       for (const o of orders) {
         const r = o.restaurantReference ? restMap.get(o.restaurantReference) : undefined
         if (!r) continue
         const key = normalizeName(`${o.firstName || ''} ${o.lastName || ''}`)
         if (!key) continue
-        let e = loc.get(key)
-        if (!e) { e = { states: new Set(), zips: new Set() }; loc.set(key, e) }
-        if (r.state) e.states.add(r.state)
-        if (r.zip) e.zips.add(r.zip)
+        const ts = parseFmDateTime(o.orderDate, o.orderTime)
+        const cur = last.get(key)
+        if (!cur || ts > cur.ts) last.set(key, { city: r.city, state: r.state, ts })
       }
-      setCustomerLoc(loc)
+      setCustomerLastLoc(last)
       setLocReady(true)
     } finally {
       setLocLoading(false)
     }
   }, [])
 
-  // Run aggregation on mount only if the URL deep-links a location filter;
-  // otherwise it's deferred until the user opens the State/Zip filter.
+  // Loads Google Maps Places SDK (idempotent — single shared script tag) and
+  // wires the location input to a Places Autocomplete restricted to US geocodes.
+  // Mirrors the homepage pattern (app/(customer)/page.tsx:20-60), inlined here
+  // because no shared component exists yet.
   useEffect(() => {
-    if (selectedStates.length || /^\d{5}$/.test(zip)) ensureLocData()
+    function init() {
+      if (!locInputRef.current || autocompleteRef.current) return
+      const g = (window as { google?: { maps?: { places?: { Autocomplete: new (input: HTMLInputElement, opts?: object) => { addListener: (e: string, cb: () => void) => void; getPlace: () => unknown } } } } }).google
+      if (!g?.maps?.places) return
+      const ac = new g.maps.places.Autocomplete(locInputRef.current, {
+        types: ['geocode'],
+        componentRestrictions: { country: 'us' },
+        fields: ['address_components', 'formatted_address'],
+      })
+      ac.addListener('place_changed', () => {
+        const cs = extractPlaceCityState(ac.getPlace() as { address_components?: { types: string[]; long_name: string; short_name: string }[] })
+        if (!cs) return
+        const label = cs.city && cs.state ? `${cs.city}, ${cs.state}` : (cs.city || cs.state)
+        setPlaceFilter({ city: cs.city, state: cs.state, label })
+        setLocInput(label)
+        ensureLocData()
+      })
+      autocompleteRef.current = ac
+    }
+    if ((window as { google?: { maps?: { places?: unknown } } }).google?.maps?.places) { init(); return }
+    if (document.getElementById('google-maps-script')) {
+      const poll = setInterval(() => {
+        if ((window as { google?: { maps?: { places?: unknown } } }).google?.maps?.places) { clearInterval(poll); init() }
+      }, 100)
+      return () => clearInterval(poll)
+    }
+    ;(window as { initGooglePlaces?: () => void }).initGooglePlaces = init
+    const s = document.createElement('script')
+    s.id = 'google-maps-script'
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places&callback=initGooglePlaces`
+    s.async = true; s.defer = true
+    document.head.appendChild(s)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Run aggregation on mount only if the URL deep-links a location filter;
+  // otherwise it's deferred until the user picks a place.
+  useEffect(() => {
+    if (placeFilter) ensureLocData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Reset to first page whenever the result set changes.
-  useEffect(() => { setPage(0) }, [search, fromDate, toDate, type, minOrders, maxOrders, selectedStates, zip, pageSize])
+  useEffect(() => { setPage(0) }, [search, fromDate, toDate, type, minOrders, maxOrders, placeFilter, pageSize])
 
-  const zipValid = /^\d{5}$/.test(zip)
-  const locActive = selectedStates.length > 0 || zipValid
+  const placeActive = !!placeFilter
 
   const filtered = useMemo(() => rows.filter(r => {
     if (type === 'corporate' && isSocial(r.email)) return false
@@ -249,15 +303,16 @@ function CustomersInner() {
     if (minOrders !== '' && n < Number(minOrders)) return false
     if (maxOrders !== '' && n > Number(maxOrders)) return false
     // Location filter only applies once the aggregation is ready, so the list
-    // isn't blanked while it loads.
-    if (locActive && locReady) {
-      const loc = customerLoc.get(normalizeName(r.username))
-      if (!loc) return false
-      if (selectedStates.length && !selectedStates.some(s => loc.states.has(s))) return false
-      if (zipValid && !loc.zips.has(zip)) return false
+    // isn't blanked while it loads. Match the customer's LAST order against the
+    // picked place's city + state (both case-insensitive; state must match).
+    if (placeActive && locReady && placeFilter) {
+      const last = customerLastLoc.get(normalizeName(r.username))
+      if (!last) return false
+      if (placeFilter.state && last.state !== placeFilter.state) return false
+      if (placeFilter.city && last.city.toLowerCase() !== placeFilter.city.toLowerCase()) return false
     }
     return true
-  }), [rows, type, minOrders, maxOrders, locActive, locReady, customerLoc, selectedStates, zip, zipValid])
+  }), [rows, type, minOrders, maxOrders, placeActive, locReady, customerLastLoc, placeFilter])
 
   // Sort the filtered set. null sort → FM's natural order (filtered preserves it).
   const sorted = useMemo(() => {
@@ -279,7 +334,7 @@ function CustomersInner() {
     })
   }
 
-  const filtersActive = !!search || !!fromDate || !!toDate || type !== 'all' || minOrders !== '' || maxOrders !== '' || locActive
+  const filtersActive = !!search || !!fromDate || !!toDate || type !== 'all' || minOrders !== '' || maxOrders !== '' || placeActive
   const datesChanged = fromInput !== fromDate || toInput !== toDate
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize)
@@ -288,21 +343,21 @@ function CustomersInner() {
     setSearchInput(''); setSearch('')
     setFromInput(''); setToInput(''); setFromDate(''); setToDate('')
     setType('all'); setMinOrders(''); setMaxOrders('')
-    setSelectedStates([]); setZip('')
+    setLocInput(''); setPlaceFilter(null)
     setSort(null)
   }
 
   // Export reflects the CURRENT filtered set (all of it, not just the page).
   function exportCsv() {
-    const headers = ['Name', 'Email', 'Phone', '# Orders', 'Total Spend', 'Source', 'Type', 'States', 'Zips']
+    const headers = ['Name', 'Email', 'Phone', '# Orders', 'Total Spend', 'Source', 'Type', 'Last order city', 'Last order state']
     const body = sorted.map(r => {
-      const loc = customerLoc.get(normalizeName(r.username))
+      const last = customerLastLoc.get(normalizeName(r.username))
       return [
         r.username, r.email, r.phoneNumber || '',
         String(r.numberOfOrders ?? 0), String(r.totalspend ?? 0),
         r.sourceoforder || '', custType(r.email),
-        loc ? [...loc.states].sort().join(', ') : '',
-        loc ? [...loc.zips].sort().join(', ') : '',
+        last?.city || '',
+        last?.state || '',
       ]
     })
     const csv = [headers, ...body]
@@ -337,14 +392,21 @@ function CustomersInner() {
         <span style={chipLabel}>Orders</span>
         <input type="number" min={0} placeholder="min" value={minOrders} onChange={e => setMinOrders(e.target.value)} style={{ ...inputSt, width: 70 }} />
         <input type="number" min={0} placeholder="max" value={maxOrders} onChange={e => setMaxOrders(e.target.value)} style={{ ...inputSt, width: 70 }} />
-        <StateMultiSelect value={selectedStates} onChange={setSelectedStates} onOpen={ensureLocData} />
         <input
-          type="text" inputMode="numeric" placeholder="Zip"
-          value={zip}
+          ref={locInputRef}
+          type="text"
+          placeholder="Location (city, state)…"
+          value={locInput}
           onFocus={ensureLocData}
-          onChange={e => setZip(e.target.value.replace(/\D/g, '').slice(0, 5))}
-          style={{ ...inputSt, width: 90 }}
-          aria-label="Zip code"
+          onChange={e => {
+            setLocInput(e.target.value)
+            // Typing without picking a suggestion clears the active filter —
+            // the box is now an unconfirmed search, not the applied place.
+            if (placeFilter && e.target.value !== placeFilter.label) setPlaceFilter(null)
+          }}
+          onKeyDown={e => { if (e.key === 'Enter') e.preventDefault() }}
+          style={{ ...inputSt, width: 220 }}
+          aria-label="Location"
         />
         <span style={chipLabel}>Last order</span>
         <input type="date" value={fromInput} onChange={e => setFromInput(e.target.value)} style={inputSt} aria-label="From date" />
@@ -443,42 +505,6 @@ function SortTh({ label, k, sort, onSort, align }: {
       style={{ ...colHead, textAlign: align || 'left', cursor: 'pointer', userSelect: 'none', color: active ? DARK : '#888' }}>
       {label}{arrow}
     </th>
-  )
-}
-
-function StateMultiSelect({ value, onChange, onOpen }: { value: string[]; onChange: (v: string[]) => void; onOpen: () => void }) {
-  const [open, setOpen] = useState(false)
-  const label = value.length === 0
-    ? 'All States'
-    : value.length <= 2 ? value.join(', ') : `${value.slice(0, 2).join(', ')} +${value.length - 2} more`
-  return (
-    <span style={{ position: 'relative', display: 'inline-block' }}>
-      <button onClick={() => { const n = !open; setOpen(n); if (n) onOpen() }} style={{ ...selectSt, cursor: 'pointer', minWidth: 120, textAlign: 'left' }}>
-        {label} ▾
-      </button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-          <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 41, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', maxHeight: 300, overflow: 'auto', minWidth: 210, padding: 6 }}>
-            <button onClick={() => onChange([])}
-              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: F, fontWeight: 600, color: value.length === 0 ? BLUE : '#555' }}>
-              All States
-            </button>
-            {US_STATES.map(s => {
-              const on = value.includes(s.code)
-              return (
-                <label key={s.code} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 13, color: DARK }}>
-                  <input type="checkbox" checked={on}
-                    onChange={() => onChange(on ? value.filter(x => x !== s.code) : [...value, s.code])}
-                    style={{ accentColor: BLUE }} />
-                  {s.name} <span style={{ color: '#aaa' }}>({s.code})</span>
-                </label>
-              )
-            })}
-          </div>
-        </>
-      )}
-    </span>
   )
 }
 
