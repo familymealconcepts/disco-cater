@@ -988,7 +988,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               <button
                 onClick={() => { if (canCheckout) setCheckoutOpen(true) }}
                 disabled={!canCheckout}
-                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? DARK : '#e0e0e0', color: canCheckout ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(26,16,40,0.22)' : 'none', transition: 'all 0.15s' }}>
+                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? GRAD : '#e0e0e0', color: canCheckout ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(107,110,249,0.28)' : 'none', transition: 'all 0.15s' }}>
                 {ctaLabel}
               </button>
             )}
@@ -998,7 +998,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
       {/* Mobile bottom bar */}
       <div className="mobile-order-bar" style={{ display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: '#fff', borderTop: '1px solid #f0f0f0', boxShadow: '0 -4px 16px rgba(0,0,0,0.06)', zIndex: 100 }}>
-        <button onClick={() => setMobileCartOpen(true)} style={{ width: '100%', padding: '14px', background: cartCount > 0 ? BLUE : '#e8e8e8', color: cartCount > 0 ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: cartCount > 0 ? '0 4px 14px rgba(91,111,232,0.25)' : 'none' }}>
+        <button onClick={() => setMobileCartOpen(true)} style={{ width: '100%', padding: '14px', background: cartCount > 0 ? GRAD : '#e8e8e8', color: cartCount > 0 ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: cartCount > 0 ? '0 4px 14px rgba(107,110,249,0.28)' : 'none' }}>
           {ctaLabel}
         </button>
       </div>
@@ -1017,7 +1017,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               <button
                 onClick={() => { if (canCheckout) { setMobileCartOpen(false); setCheckoutOpen(true) } }}
                 disabled={!canCheckout}
-                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? DARK : '#e0e0e0', color: canCheckout ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(26,16,40,0.22)' : 'none', transition: 'all 0.15s' }}>
+                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? GRAD : '#e0e0e0', color: canCheckout ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(107,110,249,0.28)' : 'none', transition: 'all 0.15s' }}>
                 {ctaLabel}
               </button>
             </div>

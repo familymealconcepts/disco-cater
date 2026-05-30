@@ -17,7 +17,12 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
   async function signOut() {
     setMenuOpen(false)
     await logout()
-    window.location.href = '/'
+    // Stay on restaurant pages — the diner is in the middle of browsing/
+    // ordering and a logout redirect would be jarring (also kills cart state).
+    // Everywhere else, drop to the homepage as before.
+    if (!window.location.pathname.startsWith('/restaurants/')) {
+      window.location.href = '/'
+    }
   }
 
   const initials = user ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() : ''

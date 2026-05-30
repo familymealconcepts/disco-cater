@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useAuthContext } from '../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
@@ -44,6 +44,7 @@ const labelStyle: React.CSSProperties = {
 export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Props) {
   const { login, register, pendingAction, closeAuthModal } = useAuthContext()
   const router = useRouter()
+  const pathname = usePathname()
   const [tab, setTab] = useState<'login' | 'signup'>(defaultTab)
 
   // Login form state
@@ -99,10 +100,11 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
         // Finishing an interrupted action (e.g. add-to-cart / checkout) —
         // stay where they are and run it.
         pendingAction()
-      } else if (!u.role || u.role === 'USER') {
+      } else if ((!u.role || u.role === 'USER') && !pathname?.startsWith('/restaurants/')) {
         // Mirror FM: a diner login with no pending action lands on the
         // account area (sign-in.component.ts:113-114 → USER → /account,
-        // which redirects to /account/orders in Disco).
+        // which redirects to /account/orders in Disco). Skip on restaurant
+        // pages — the diner is browsing/ordering and shouldn't be punted.
         router.push('/account/orders')
       }
     } catch (err: any) {

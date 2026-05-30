@@ -512,10 +512,16 @@ export default function CheckoutDrawer({
 
   // ── Step: Payment ──────────────────────────────────────────────────────────
   function PaymentStep() {
-    const fmSubtotal = fmTotals?.subtotal ?? fmTotals?.subTotal ?? subtotal
-    const payTotal = fmTotals
-      ? (fmTotals.total ?? fmTotals.totalAmount ?? fmTotals.totalCost ?? subtotal + tipAmt + svcAmt)
-      : subtotal + tipAmt + svcAmt
+    // Read totals from the EXTRACTED `fm` (which walks
+    // data.checkoutPublicResponseDto), not raw `fmTotals` — fmTotals.total is
+    // nested under data.* so the direct lookup missed it and silently fell
+    // through to subtotal+tip+svc, dropping tax/fees from the displayed total.
+    const fmSubtotal = fm?.subtotal ?? subtotal
+    const payTotal = fm?.total ?? (
+      subtotal + (displayTips || 0) + (displaySvc || 0)
+        + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0)
+        - (fm?.discount ?? 0)
+    )
 
     return (
       <>
@@ -627,15 +633,12 @@ export default function CheckoutDrawer({
                 <span>Service fee</span><span>{fmt$(displaySvc)}</span>
               </div>
             )}
-            {displayTips > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
-                <span>Tip</span><span>{fmt$(displayTips)}</span>
-              </div>
-            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
+              <span>Tip</span><span>{fmt$(displayTips || 0)}</span>
+            </div>
             {taxesAndFees !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
-                <span title={`Tax: ${fmt$(displayTax ?? 0)}\nFee: ${fmt$(displayFee ?? 0)}${taxExemptApplied ? '\n(tax exempt)' : ''}\nThis allows us to be free for restaurants`}
-                  style={{ borderBottom: '1px dotted #bbb', cursor: 'help' }}>Taxes &amp; Fees ⓘ</span>
+                <span title={`Includes applicable sales tax and a small service fee.${taxExemptApplied ? ' (tax exempt)' : ''}`}>Taxes &amp; Fees</span>
                 <span>{fmt$(taxesAndFees)}</span>
               </div>
             )}
@@ -716,7 +719,9 @@ export default function CheckoutDrawer({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <span style={{ fontSize: 26 }}>💳</span>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{savedCard.brand || savedCard.cardBrand || 'Card'} ···· {savedCard.last4 || savedCard.lastFour || '••••'}</div>
+                    {/* Render last4 plainly — no card brand label, so a "link"
+                        brand (Stripe Link) doesn't show a Link bubble. */}
+                    <div style={{ fontSize: 14, fontWeight: 700, color: DARK, letterSpacing: '0.04em' }}>•••• {savedCard.last4 || savedCard.lastFour || '••••'}</div>
                     {(savedCard.expMonth || savedCard.exp_month) && (
                       <div style={{ fontSize: 12, color: '#888' }}>Expires {savedCard.expMonth || savedCard.exp_month}/{String(savedCard.expYear || savedCard.exp_year || '').slice(-2)}</div>
                     )}
@@ -754,10 +759,6 @@ export default function CheckoutDrawer({
             </div>
           )}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f8f8fc', borderRadius: 10, padding: '11px 14px', marginBottom: 4 }}>
-            <span style={{ fontSize: 16 }}>🔒</span>
-            <span style={{ fontSize: 12, color: '#777', lineHeight: 1.4 }}>Payments processed securely by Stripe. Your card details never touch our servers.</span>
-          </div>
         </div>
 
         <div style={{ padding: '16px 24px', borderTop: '1px solid #f0f0f0' }}>
@@ -765,7 +766,7 @@ export default function CheckoutDrawer({
             <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 12px', marginBottom: 12, color: '#991B1B', fontSize: 13 }}>{error}</div>
           )}
           <button onClick={handlePlaceOrder}
-            style={{ width: '100%', padding: '14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(91,111,232,0.25)', transition: 'all 0.15s' }}>
+            style={{ width: '100%', padding: '14px', background: DARK, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(26,16,40,0.25)', transition: 'all 0.15s' }}>
             Place Order · {fmt$(payTotal)}
           </button>
         </div>
