@@ -417,10 +417,8 @@ export default function CheckoutDrawer({
         // the mount effect and would tear down the Element mid-tokenization),
         // then turn the token into a PaymentMethod, exactly as FM does.
         const tok = await stripeRef.current.createToken(numberElRef.current)
-        console.log('[place] createToken →', tok.error ? `ERROR: ${tok.error.message}` : tok.token?.id)
         if (tok.error) { setError(tok.error.message || 'Card error.'); setStep('payment'); return }
         const pm = await stripeRef.current.createPaymentMethod({ type: 'card', card: { token: tok.token.id } })
-        console.log('[place] createPaymentMethod →', pm.error ? `ERROR: ${pm.error.message}` : pm.paymentMethod?.id)
         if (pm.error) { setError(pm.error.message || 'Card error.'); setStep('payment'); return }
         paymentMethodId = pm.paymentMethod?.id ?? null
       }
@@ -453,7 +451,6 @@ export default function CheckoutDrawer({
       const placeData = await placeRes.json()
       if (!placeRes.ok && placeData.error) throw new Error(placeData.error || placeData.message || 'Failed to place order.')
       const finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
-      console.log('[place] placeData.data →', JSON.stringify(placeData.data, null, 2))
 
       // Confirm the PaymentIntent FM created during placement — THIS charges the
       // card (checkout-sidebar-preview.component.ts:1205-1252). FM's contract
@@ -462,7 +459,6 @@ export default function CheckoutDrawer({
       // paymentMethodId is dropped server-side when confirmWithDefaultSource.
       const paymentDetails = placeData.data?.paymentDetails ?? placeData.paymentDetails
       const paymentIntentId = paymentDetails?.stripePaymentIntentDto?.paymentIntentId
-      console.log('[place] paymentIntentId →', paymentIntentId, '| paymentMethodId →', paymentMethodId)
       if (paymentIntentId) {
         const confRes = await fetch('/api/order/confirm-payment', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -476,7 +472,6 @@ export default function CheckoutDrawer({
         })
         const confData = await confRes.json()
         const payStatus = (confData.data?.stripePaymentIntentDto ?? confData.stripePaymentIntentDto)?.paymentIntentStatus
-        console.log('[place] confirmData →', JSON.stringify(confData, null, 2), '| payStatus →', payStatus)
         // FM requires the PaymentIntent to be 'succeeded' (checkout-sidebar-
         // preview.component.ts:1215). Anything else → card not charged: surface
         // the failure and stay on payment (do NOT redirect to confirmation).
