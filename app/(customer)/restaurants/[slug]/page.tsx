@@ -1,3 +1,5 @@
+import { cache } from 'react'
+import type { Metadata } from 'next'
 import { createClient } from '@sanity/client'
 import { notFound } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
@@ -10,6 +12,33 @@ const sanity = createClient({
 })
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const SITE = 'https://www.discocater.com'
+
+// React.cache() memoizes within a single request — generateMetadata and the
+// page render both call this and share one Sanity round-trip.
+const getSanityRestaurant = cache(async (slug: string) => {
+  return sanity.fetch(
+    `*[_type=="restaurant" && slug.current==$slug][0]{
+      name, slug, address, cuisine, cuisines, description,
+      image, orderUrl, isDisco, location, tags, lat, lng
+    }`,
+    { slug },
+  )
+})
+
+// Sanity image asset → CDN URL (same transform used in RestaurantClient.tsx).
+function sanityImageUrl(image: any): string | null {
+  const ref: string | undefined = image?.asset?._ref
+  if (!ref) return null
+  const path = ref.replace(/^image-/, '').replace(/-([a-z]+)$/, '.$1')
+  return `https://cdn.sanity.io/images/0j4eqnmw/production/${path}`
+}
+
+function truncate(s: string, n: number): string {
+  if (!s) return ''
+  if (s.length <= n) return s
+  return s.slice(0, n - 1).trimEnd() + '…'
+}
 
 interface FmRestaurantLookup {
   reference: string
@@ -112,6 +141,75 @@ async function fetchMenuData(restaurantRef: string) {
   }
 }
 
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>
+}): Promise<Metadata> {
+  const { slug } = await params
+  const r = await getSanityRestaurant(slug)
+  const url = `${SITE}/restaurants/${slug}`
+
+  // Fall back to a minimal but useful set if Sanity has no doc (e.g. FM
+  // fallback path) — the page itself still renders via the FM lookup.
+  if (!r) {
+    return {
+      title: 'Catering | Disco Cater',
+      description: 'Order catering on Disco Cater.',
+      alternates: { canonical: url },
+    }
+  }
+
+  const loc = r.location || r.address || ''
+  const title = loc
+    ? `${r.name} — Catering in ${loc} | Disco Cater`
+    : `${r.name} — Catering | Disco Cater`
+  const description = r.description
+    ? truncate(String(r.description), 155)
+    : `Order catering from ${r.name}${loc ? ` in ${loc}` : ''} on Disco Cater.`
+  const ogImage = sanityImageUrl(r.image)
+
+  return {
+    title,
+    description,
+    alternates: { canonical: url },
+    openGraph: {
+      title,
+      description,
+      url,
+      siteName: 'Disco Cater',
+      type: 'website',
+      ...(ogImage ? { images: [{ url: ogImage }] } : {}),
+    },
+    twitter: {
+      card: ogImage ? 'summary_large_image' : 'summary',
+      title,
+      description,
+      ...(ogImage ? { images: [ogImage] } : {}),
+    },
+  }
+}
+
+// Visually-hidden block so the restaurant name + description are in the HTML
+// before the client component hydrates — gives Google something to index even
+// if it stops at static HTML. Standard sr-only CSS (clip + 1px).
+const srOnly: React.CSSProperties = {
+  position: 'absolute', width: 1, height: 1, padding: 0, margin: -1,
+  overflow: 'hidden', clip: 'rect(0,0,0,0)', whiteSpace: 'nowrap', border: 0,
+}
+
+function SeoBlock({ name, location, cuisine, description }: {
+  name: string; location?: string; cuisine?: string; description?: string
+}) {
+  return (
+    <div style={srOnly} aria-hidden="false">
+      <h1>{name}</h1>
+      {(location || cuisine) && <p>{[location, cuisine].filter(Boolean).join(' · ')}</p>}
+      {description && <p>{description}</p>}
+    </div>
+  )
+}
+
 export default async function RestaurantPage({
   params,
 }: {
@@ -121,13 +219,7 @@ export default async function RestaurantPage({
 
   // Try Sanity first (existing path — preserves cuisine tags,
   // descriptions, hero image overrides for restaurants curated there).
-  const sanityRestaurant = await sanity.fetch(
-    `*[_type=="restaurant" && slug.current==$slug][0]{
-      name, slug, address, cuisine, cuisines, description,
-      image, orderUrl, isDisco, location, tags, lat, lng
-    }`,
-    { slug }
-  )
+  const sanityRestaurant = await getSanityRestaurant(slug)
 
   if (sanityRestaurant) {
     const fmSlug = sanityRestaurant.orderUrl
@@ -136,13 +228,21 @@ export default async function RestaurantPage({
     const fmRef = fmSlug ? await resolveFmRef(fmSlug) : null
     const menuData = fmRef ? await fetchMenuData(fmRef) : []
     return (
-      <RestaurantClient
-        restaurant={sanityRestaurant}
-        fmSlug={fmSlug}
-        fmRef={fmRef}
-        menuData={menuData}
-        slug={slug}
-      />
+      <>
+        <SeoBlock
+          name={sanityRestaurant.name}
+          location={sanityRestaurant.location || sanityRestaurant.address}
+          cuisine={sanityRestaurant.cuisines?.[0] || sanityRestaurant.cuisine}
+          description={sanityRestaurant.description}
+        />
+        <RestaurantClient
+          restaurant={sanityRestaurant}
+          fmSlug={fmSlug}
+          fmRef={fmRef}
+          menuData={menuData}
+          slug={slug}
+        />
+      </>
     )
   }
 
@@ -174,12 +274,18 @@ export default async function RestaurantPage({
   const menuData = await fetchMenuData(fmRestaurant.reference)
 
   return (
-    <RestaurantClient
-      restaurant={minimalRestaurant}
-      fmSlug={fmRestaurant.businessNameWithoutSpaces || slug}
-      fmRef={fmRestaurant.reference}
-      menuData={menuData}
-      slug={slug}
-    />
+    <>
+      <SeoBlock
+        name={minimalRestaurant.name}
+        location={minimalRestaurant.address}
+      />
+      <RestaurantClient
+        restaurant={minimalRestaurant}
+        fmSlug={fmRestaurant.businessNameWithoutSpaces || slug}
+        fmRef={fmRestaurant.reference}
+        menuData={menuData}
+        slug={slug}
+      />
+    </>
   )
 }
