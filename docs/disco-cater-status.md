@@ -45,6 +45,56 @@ blocker on the native ordering flow.
    into the drawer so they can be tweaked in-flight; the wiring is already
    there to receive the change.
 
+## ⏳ Order Editing (Orca 3.5)
+
+**Status: BLOCKED — waiting on Revyrie/FM to ship the edit endpoints.** Spec is
+`docs/project-orca-scope.md` § 3.5 (Restaurant-initiated = High priority,
+Customer-initiated = Very Low priority). Do not build the editor until FM's
+item/payment edit surface is live; the plumbing below is partial.
+
+**What exists in Disco today (no real editing):**
+- Customer: stubs only in `account/components/OrderDetailPanel.tsx`. `handleEdit()`
+  just routes to `/restaurants/[slug]` to start a *new* order; `handleCancel()` /
+  `handleSkip()` are "coming soon" alerts. The comment already cites Orca 3.5.
+  Order detail itself is read-only (`GET /api/userOrder/{ref}` via
+  `/api/fm-order-detail/[ref]`).
+- Restaurant: `restaurant/(portal)/orders/page.tsx` OrderDrawer does order
+  *management* — status change, refund, void, **reopen** (`PUT /api/orders/{ref}/reopen`,
+  date/time only), note, print. No add/remove items, qty change, or charge delta.
+- `/api/order/update` is the **draft checkout re-price** (`PUT /public-api/v2/restaurants/{ref}/orders/{orderRef}`),
+  not placed-order editing.
+
+**What FM exposes today (partial):**
+- `GET /public-api/v2/orders/{ref}/details` — load a placed order for editing.
+- `POST /public-api/v2/restaurants/{ref}/orders/slotselected?editOrder=true` +
+  the `editOrder` flag threaded through the checkout/cart flow
+  (`activity-tracker.service.ts:135`, `checkout-pantry`, `cart-date-and-time-update-popup`).
+- `PUT /api/admin/userOrders/{ref}/date-time` — restaurant/admin date-time edit.
+- Re-price reuses `PUT /public-api/v2/restaurants/{ref}/orders/{orderRef}` (already proxied).
+- **Not shipped yet:** item-level edit + payment delta (additions charge / removals
+  auto-refund), 2-edit limit, edit window, approval workflow, activity log, and any
+  customer-side edit/cancel endpoint. This is what Revyrie is actively building.
+
+**What Disco needs to build when FM ships:**
+1. **Restaurant-side editor (High priority).** Add an "Edit" entry point in the
+   OrderDrawer / Active Orders; reuse `CheckoutDrawer` + the existing `/api/order/*`
+   stack in `editOrder` mode (load existing order → modify time/items/qty →
+   re-price); handle payment delta (additional charge via `confirm-payment`,
+   partial refund via the existing refund route); internal notes + customer
+   notification. Status restrictions: no edit when Ready / Out for Delivery /
+   Completed.
+2. **Customer-side editor (Very Low priority).** Replace the `handleEdit` stub in
+   `OrderDetailPanel.tsx` with an editable cart (time, items, qty), pay-difference /
+   refund, and a real cancel flow; enforce the **2-edit limit** with a 3rd-attempt
+   "contact restaurant" alert.
+3. **New proxy routes:** `GET /api/order/[ref]/edit-details` → FM `…/v2/orders/{ref}/details`;
+   edit-mode init/slotselected + reuse `/api/order/update` carrying the `editOrder`
+   flag; `PUT /api/restaurant/orders/[ref]/date-time` → FM `…/admin/userOrders/{ref}/date-time`;
+   reuse `confirm-payment` / refund for deltas; customer cancel route once FM ships it.
+
+**Trigger:** when Revyrie confirms the FM edit endpoints are live, revisit this
+section and start with the High-priority restaurant-side editor.
+
 ## 📋 Group library — follow-ups (deferred)
 Restored visibility this session — `manage/groups/page.tsx` was calling the
 broken `/api/restaurant/groups` GET (forwarded to a non-existent FM list path)
