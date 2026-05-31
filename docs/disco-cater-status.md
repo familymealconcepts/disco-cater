@@ -64,6 +64,20 @@ the items below are nice-to-haves left for later:
 4. **Verify edit/clone/delete round-trip on live test** for the restaurant whose
    live order showed Coke + Cajun Blue Shrimp Sandwich.
 
+## Manual tasks — owner action required
+These need a browser login and can't be done from the repo / by the assistant.
+
+- **Submit sitemap to Google Search Console.** The sitemap shipped in `4155b1f`
+  but Google won't discover it until it's registered.
+  1. Go to https://search.google.com/search-console
+  2. Select the `discocater.com` property
+  3. Sidebar → **Sitemaps** → **Submit new sitemap**
+  4. Enter: `https://www.discocater.com/sitemap.xml`
+
+  Re-submit any time `/new-york`, `/new-jersey`, `/los-angeles` (or other new
+  static routes) are added back to `app/sitemap.ts` — they're omitted today
+  because the pages don't exist yet and would 404 on crawl.
+
 ## Open notes (low priority, unverifiable from this repo)
 - **Stripe description "DIRECT" vs "DISCO".** The "DIRECT" suffix on the charge
   is the restaurant's `moneyFlow` (payout routing; `restaurant.service.ts:323`),

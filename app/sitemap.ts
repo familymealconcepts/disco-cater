@@ -31,9 +31,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: SITE, lastModified: now, changeFrequency: 'daily', priority: 1.0 },
     { url: `${SITE}/fullmap`, lastModified: now, changeFrequency: 'daily', priority: 0.9 },
     { url: `${SITE}/faq`, lastModified: now, changeFrequency: 'monthly', priority: 0.5 },
-    { url: `${SITE}/new-york`, lastModified: now, changeFrequency: 'weekly', priority: 0.8 },
-    { url: `${SITE}/new-jersey`, lastModified: now, changeFrequency: 'weekly', priority: 0.8 },
-    { url: `${SITE}/los-angeles`, lastModified: now, changeFrequency: 'weekly', priority: 0.8 },
+    // /new-york, /new-jersey, /los-angeles intentionally omitted — pages
+    // not built yet; add back when they ship.
   ]
 
   const restaurantEntries: MetadataRoute.Sitemap = restaurantSlugs.map(r => ({
