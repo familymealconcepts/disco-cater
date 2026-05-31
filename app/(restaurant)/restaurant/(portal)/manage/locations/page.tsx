@@ -7,6 +7,7 @@ import { useSelectedRestaurant } from '../../_components/SelectedRestaurantConte
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
+const INDICATOR = '#5B6FE8'
 const PAGE_BG = '#F7F8FC'
 const DISCO_FRONTEND = 'https://www.discocater.com/restaurants/'
 
@@ -99,15 +100,32 @@ export default function LocationsPage() {
   const [editLoading, setEditLoading] = useState(false)
   const [toast, setToast] = useState('')
 
-  // ── Drag-and-drop (native HTML5) ───────────────────────────────────────────
-  // Deliberately simple: the dragged row dims, the hovered row highlights, and
-  // on drop we send ONE PUT then re-fetch from FM. We never reorder the local
-  // array optimistically — the re-fetch (sorted by locationPosition) is the
-  // single source of truth, so the UI can't drift from what FM actually saved.
+  // ── Drag-and-drop (native HTML5 + aesthetic layer) ─────────────────────────
+  // CORE LOGIC IS UNCHANGED: on drop we send one position PUT and re-fetch from
+  // FM (see reorder()); we never optimistically reorder the array. Everything
+  // below is *visual only* — a floating ghost, live row shifting, and an
+  // insertion line. Hover/drop target is resolved from the POINTER against the
+  // ORIGINAL row layout (captured at drag start), so the CSS transforms used for
+  // the shift animation can never move a row out from under the cursor and
+  // change which row the drop lands on.
   const [draggedRef, setDraggedRef] = useState<string | null>(null)
   const [dragOverRef, setDragOverRef] = useState<string | null>(null)
-  // A 1x1 transparent image used to suppress the browser's translucent drag
-  // ghost — we want the in-place opacity change to be the only drag visual.
+  const [ghostWidth, setGhostWidth] = useState<number | undefined>(undefined)
+  const [ghostWidths, setGhostWidths] = useState<number[]>([])
+
+  const containerRef = useRef<HTMLDivElement>(null)
+  const ghostRef = useRef<HTMLDivElement>(null)
+  // Live mirrors of state so the stable window-dragover listener reads fresh values.
+  const locationsRef = useRef<Location[]>(locations); locationsRef.current = locations
+  const draggedRefRef = useRef<string | null>(draggedRef); draggedRefRef.current = draggedRef
+  const dragOverRefRef = useRef<string | null>(dragOverRef); dragOverRefRef.current = dragOverRef
+  // Geometry captured at drag start (original, pre-transform layout).
+  const grabOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })   // cursor → row top-left
+  const ghostStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })   // initial ghost position
+  const rowHeightRef = useRef<number>(48)                                   // row height (px)
+  const bodyTopViewportRef = useRef<number>(0)                              // first row top (viewport Y)
+  const bodyTopRelRef = useRef<number>(0)                                   // first row top (relative to card)
+  // 1x1 transparent image → suppress the browser's default drag ghost; ours is custom.
   const dragImgRef = useRef<HTMLImageElement | null>(null)
   useEffect(() => {
     const img = document.createElement('img')
@@ -115,34 +133,82 @@ export default function LocationsPage() {
     dragImgRef.current = img
   }, [])
 
+  // Move the ghost with the cursor + resolve the hovered row from the pointer
+  // (original layout). Stable identity so add/removeEventListener pair up.
+  const onWindowDragOver = useCallback((ev: DragEvent) => {
+    ev.preventDefault()
+    if (ghostRef.current) {
+      const off = grabOffsetRef.current
+      ghostRef.current.style.transform = `translate(${ev.clientX - off.x}px, ${ev.clientY - off.y}px)`
+    }
+    const rh = rowHeightRef.current || 48
+    const list = locationsRef.current
+    if (!list.length || !rh) return
+    let i = Math.floor((ev.clientY - bodyTopViewportRef.current) / rh)
+    i = Math.max(0, Math.min(list.length - 1, i))
+    const ref = list[i]?.reference
+    if (ref && ref !== draggedRefRef.current && ref !== dragOverRefRef.current) {
+      setDragOverRef(ref)
+    }
+  }, [])
+
+  useEffect(() => () => window.removeEventListener('dragover', onWindowDragOver), [onWindowDragOver])
+
+  // Position the ghost at the grabbed row the instant it mounts (no flash).
+  useEffect(() => {
+    if (draggedRef && ghostRef.current) {
+      const s = ghostStartRef.current
+      ghostRef.current.style.transform = `translate(${s.x}px, ${s.y}px)`
+    }
+  }, [draggedRef])
+
+  function endDragVisuals() {
+    setDraggedRef(null)
+    setDragOverRef(null)
+    window.removeEventListener('dragover', onWindowDragOver)
+  }
+
   function handleRowDragStart(e: React.DragEvent, ref: string) {
     setDraggedRef(ref)
     e.dataTransfer.effectAllowed = 'move'
-    // Firefox won't start a drag unless some data is set.
     try { e.dataTransfer.setData('text/plain', ref) } catch {}
     if (dragImgRef.current) {
       try { e.dataTransfer.setDragImage(dragImgRef.current, 0, 0) } catch {}
     }
-  }
-
-  function handleRowDragOver(e: React.DragEvent, ref: string) {
-    e.preventDefault() // required so the row is a valid drop target
-    e.dataTransfer.dropEffect = 'move'
-    if (ref !== draggedRef && ref !== dragOverRef) setDragOverRef(ref)
-  }
-
-  function handleRowDrop(e: React.DragEvent, toRef: string) {
-    e.preventDefault()
-    const fromRef = draggedRef
-    setDraggedRef(null)
-    setDragOverRef(null)
-    if (!fromRef || fromRef === toRef) return
-    reorder(fromRef, toRef)
+    // Measure the original layout for the ghost clone + shift math.
+    const rowEl = (e.currentTarget as HTMLElement).closest('tr') as HTMLElement | null
+    const cont = containerRef.current
+    if (rowEl) {
+      const r = rowEl.getBoundingClientRect()
+      grabOffsetRef.current = { x: e.clientX - r.left, y: e.clientY - r.top }
+      ghostStartRef.current = { x: r.left, y: r.top }
+      rowHeightRef.current = r.height || 48
+      setGhostWidth(r.width)
+      setGhostWidths(Array.from(rowEl.querySelectorAll('td')).map(td => (td as HTMLElement).getBoundingClientRect().width))
+      const firstRow = cont?.querySelector('tbody tr') as HTMLElement | null
+      if (firstRow) {
+        const fr = firstRow.getBoundingClientRect()
+        bodyTopViewportRef.current = fr.top
+        bodyTopRelRef.current = cont ? fr.top - cont.getBoundingClientRect().top : 0
+      }
+    }
+    window.addEventListener('dragover', onWindowDragOver)
   }
 
   function handleRowDragEnd() {
-    setDraggedRef(null)
-    setDragOverRef(null)
+    endDragVisuals()
+  }
+
+  // Drop is handled at the container so it fires no matter where in the table
+  // the pointer is released (rows may be transformed by the shift animation).
+  // The target row is the pointer-resolved dragOverRef.
+  function handleContainerDrop(e: React.DragEvent) {
+    e.preventDefault()
+    const fromRef = draggedRefRef.current
+    const toRef = dragOverRefRef.current
+    endDragVisuals()
+    if (!fromRef || !toRef || fromRef === toRef) return
+    reorder(fromRef, toRef)
   }
 
   // Persist a single move, then ALWAYS re-fetch so the list reflects FM's saved
@@ -282,6 +348,21 @@ export default function LocationsPage() {
   const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
   const input: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff', width: '100%' }
 
+  // Derived drag geometry for the visual layer (no effect on the saved order).
+  const fromIndex = draggedRef ? locations.findIndex(l => l.reference === draggedRef) : -1
+  const overIndex = dragOverRef ? locations.findIndex(l => l.reference === dragOverRef) : -1
+  const dragging = fromIndex >= 0 && overIndex >= 0 && fromIndex !== overIndex
+  const rh = rowHeightRef.current || 48
+  // Shift every row at/after the insertion slot down to open a one-row gap; the
+  // dragged source row stays put (dimmed). Pointer hit-testing uses the original
+  // layout, so this is purely cosmetic.
+  function shiftFor(i: number): number {
+    if (!dragging || i === fromIndex) return 0
+    return i >= overIndex ? rh : 0
+  }
+  const indicatorTop = dragging ? bodyTopRelRef.current + overIndex * rh : null
+  const draggedLoc = draggedRef ? locations.find(l => l.reference === draggedRef) ?? null : null
+
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -299,7 +380,12 @@ export default function LocationsPage() {
 
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
+      <div
+        ref={containerRef}
+        onDragOver={dragging || draggedRef ? e => e.preventDefault() : undefined}
+        onDrop={draggedRef ? handleContainerDrop : undefined}
+        style={{ position: 'relative', background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}
+      >
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <colgroup>
             <col style={{ width: 36 }} />
@@ -322,16 +408,14 @@ export default function LocationsPage() {
           <tbody>
             {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
             {!loading && !locations.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No locations.</td></tr>}
-            {!loading && locations.map(loc => (
+            {!loading && locations.map((loc, i) => (
               <LocationRow
                 key={loc.reference}
                 loc={loc}
                 isDragged={draggedRef === loc.reference}
-                isDragOver={dragOverRef === loc.reference}
+                shift={shiftFor(i)}
                 switching={switching === loc.reference}
                 onDragStart={e => handleRowDragStart(e, loc.reference)}
-                onDragOver={e => handleRowDragOver(e, loc.reference)}
-                onDrop={e => handleRowDrop(e, loc.reference)}
                 onDragEnd={handleRowDragEnd}
                 onToggleStatus={() => toggleStatus(loc)}
                 onSwitch={() => switchToLocation(loc)}
@@ -341,6 +425,11 @@ export default function LocationsPage() {
             ))}
           </tbody>
         </table>
+
+        {/* Insertion line — the exact spot the dragged row will land. */}
+        {indicatorTop != null && (
+          <div style={{ position: 'absolute', left: 0, right: 0, top: indicatorTop - 1, height: 2, background: INDICATOR, zIndex: 4, pointerEvents: 'none' }} />
+        )}
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
@@ -372,6 +461,22 @@ export default function LocationsPage() {
           </select>
         </div>
       </div>
+
+      {/* Floating ghost — a clone of the dragged row that follows the cursor.
+          Rendered outside the card (and pointer-events:none) so it never clips
+          or intercepts the drop. Position is set imperatively in the dragover
+          listener; initial spot via the [draggedRef] effect. */}
+      {draggedLoc && (
+        <div ref={ghostRef} style={{ position: 'fixed', left: 0, top: 0, zIndex: 1000, pointerEvents: 'none', opacity: 0.9, width: ghostWidth, willChange: 'transform' }}>
+          <table style={{ width: ghostWidth, tableLayout: 'fixed', borderCollapse: 'collapse', background: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.22)', borderRadius: 8, fontFamily: F }}>
+            <tbody>
+              <tr style={{ background: '#f5f6ff' }}>
+                <LocationCells loc={draggedLoc} switching={false} widths={ghostWidths} />
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {toast && (
         <div style={{
@@ -413,64 +518,48 @@ const pageBtn: React.CSSProperties = {
   padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK,
 }
 
-interface LocationRowProps {
+interface LocationCellsProps {
   loc: Location
-  isDragged: boolean
-  isDragOver: boolean
   switching: boolean
-  onDragStart: (e: React.DragEvent) => void
-  onDragOver: (e: React.DragEvent) => void
-  onDrop: (e: React.DragEvent) => void
-  onDragEnd: (e: React.DragEvent) => void
-  onToggleStatus: () => void
-  onSwitch: () => void
-  onCopy: () => void
-  onEdit: () => void
+  // Drag handle props for the first cell (real row only); omitted for the ghost.
+  dragHandle?: { draggable: boolean; onDragStart: (e: React.DragEvent) => void; onDragEnd: (e: React.DragEvent) => void }
+  // Per-column pixel widths — applied only to the ghost so its <table> lines up.
+  widths?: number[]
+  onToggleStatus?: () => void
+  onSwitch?: () => void
+  onCopy?: () => void
+  onEdit?: () => void
 }
 
-function LocationRow({
-  loc, isDragged, isDragOver, switching,
-  onDragStart, onDragOver, onDrop, onDragEnd,
-  onToggleStatus, onSwitch, onCopy, onEdit,
-}: LocationRowProps) {
+// The seven <td>s of a location row, shared by the live row and the ghost clone
+// so they can never visually drift apart.
+function LocationCells({ loc, switching, dragHandle, widths, onToggleStatus, onSwitch, onCopy, onEdit }: LocationCellsProps) {
   const slug = loc.businessNameWithoutSpaces || ''
   const checkoutHref = slug ? `${DISCO_FRONTEND}${slug}` : ''
   const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
   const clickableCell: React.CSSProperties = { ...cell, cursor: 'pointer' }
+  const w = (i: number): React.CSSProperties => (widths && widths[i] != null ? { width: widths[i], boxSizing: 'border-box' } : {})
   return (
-    <tr
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
-      style={{
-        opacity: isDragged ? 0.4 : (loc.archived ? 0.6 : 1),
-        background: isDragOver ? '#eef0ff' : (loc.archived ? '#fafafa' : '#fff'),
-      }}
-    >
+    <>
       {/* Only the drag handle is draggable, so clicks on the other cells still
           switch/edit the location. */}
-      <td
-        draggable
-        onDragStart={onDragStart}
-        style={{ ...cell, textAlign: 'center', cursor: 'grab' }}
-        title="Drag to reorder"
-      >
+      <td {...(dragHandle || {})} style={{ ...cell, ...w(0), textAlign: 'center', cursor: 'grab' }} title="Drag to reorder">
         <IconDrag />
       </td>
-      <td style={cell}>
-        <Toggle checked={!loc.blocked} onChange={onToggleStatus} disabled={loc.archived} />
+      <td style={{ ...cell, ...w(1) }}>
+        <Toggle checked={!loc.blocked} onChange={onToggleStatus || (() => {})} disabled={loc.archived} />
       </td>
-      <td style={{ ...clickableCell, fontWeight: 500 }} onClick={onSwitch} title="Switch to this restaurant">
+      <td style={{ ...clickableCell, ...w(2), fontWeight: 500 }} onClick={onSwitch} title="Switch to this restaurant">
         {loc.businessName}
         {switching && <span style={{ marginLeft: 6, color: '#aaa', fontSize: 11 }}>switching…</span>}
       </td>
-      <td style={{ ...clickableCell, color: '#555' }} onClick={onSwitch}>
+      <td style={{ ...clickableCell, ...w(3), color: '#555' }} onClick={onSwitch}>
         {loc.address?.addressLine1 || ''}
       </td>
-      <td style={{ ...clickableCell, color: '#666' }} onClick={onSwitch}>
+      <td style={{ ...clickableCell, ...w(4), color: '#666' }} onClick={onSwitch}>
         {fmtRegDate(loc.createdDate)}
       </td>
-      <td style={cell}>
+      <td style={{ ...cell, ...w(5) }}>
         {checkoutHref ? (
           <a
             href={checkoutHref}
@@ -487,12 +576,54 @@ function LocationRow({
           </a>
         ) : <span style={{ color: '#bbb' }}>—</span>}
       </td>
-      <td style={{ ...cell, textAlign: 'right' }}>
+      <td style={{ ...cell, ...w(6), textAlign: 'right' }}>
         <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
           <button onClick={onCopy} title="Copy" style={iconBtn}><IconCopy /></button>
           <button onClick={onEdit} title="Edit" style={iconBtn}><IconEdit /></button>
         </div>
       </td>
+    </>
+  )
+}
+
+interface LocationRowProps {
+  loc: Location
+  isDragged: boolean
+  shift: number
+  switching: boolean
+  onDragStart: (e: React.DragEvent) => void
+  onDragEnd: (e: React.DragEvent) => void
+  onToggleStatus: () => void
+  onSwitch: () => void
+  onCopy: () => void
+  onEdit: () => void
+}
+
+function LocationRow({
+  loc, isDragged, shift, switching,
+  onDragStart, onDragEnd,
+  onToggleStatus, onSwitch, onCopy, onEdit,
+}: LocationRowProps) {
+  return (
+    <tr
+      style={{
+        transform: shift ? `translateY(${shift}px)` : undefined,
+        transition: 'transform 0.16s ease',
+        // The dragged row stays dimmed in place — the floating ghost is its
+        // moving representation.
+        opacity: isDragged ? 0.4 : (loc.archived ? 0.6 : 1),
+        background: loc.archived ? '#fafafa' : '#fff',
+      }}
+    >
+      <LocationCells
+        loc={loc}
+        switching={switching}
+        dragHandle={{ draggable: true, onDragStart, onDragEnd }}
+        onToggleStatus={onToggleStatus}
+        onSwitch={onSwitch}
+        onCopy={onCopy}
+        onEdit={onEdit}
+      />
     </tr>
   )
 }
