@@ -286,7 +286,7 @@ export default function OrderSettingsPage() {
         </p>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>https://www.discocater.com/</span>
+          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>https://www.discocater.com/order/</span>
           <input
             value={urlSlug}
             onChange={e => {
@@ -304,7 +304,7 @@ export default function OrderSettingsPage() {
           {/* External link — opens the live page */}
           {urlSlug && !urlSlugDirty && (
             <a
-              href={`https://www.discocater.com/${urlSlug}`}
+              href={`https://www.discocater.com/order/${urlSlug}`}
               target="_blank" rel="noreferrer"
               title="Open public page in new tab"
               style={{ color: BLUE, fontSize: 16, lineHeight: 1, padding: '8px 10px', textDecoration: 'none', border: '1px solid #e8e8e8', borderRadius: 8 }}
@@ -315,7 +315,7 @@ export default function OrderSettingsPage() {
           {urlSlug && !urlSlugDirty && (
             <button
               onClick={() => {
-                navigator.clipboard?.writeText(`https://www.discocater.com/${urlSlug}`)
+                navigator.clipboard?.writeText(`https://www.discocater.com/order/${urlSlug}`)
                 showToast('URL copied')
               }}
               title="Copy URL"

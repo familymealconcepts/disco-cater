@@ -9,7 +9,9 @@ const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 const INDICATOR = '#5B6FE8'
 const PAGE_BG = '#F7F8FC'
-const DISCO_FRONTEND = 'https://www.discocater.com/restaurants/'
+// 1st-party (commission-free) ordering link — restaurants are always pointed at
+// /order/[slug], never the 3P /restaurants/[slug] marketplace URL.
+const DISCO_FRONTEND = 'https://www.discocater.com/order/'
 
 interface Location {
   reference: string
