@@ -20,9 +20,31 @@ interface Order {
   nashDeliveryPickupEta?: string
   nashDeliveryDropoffEta?: string
   orderNumber?: number
+  // FM wire attribution: "DISCO" (3P, marketplace, lead-gen fee) or
+  // "FAMILYMEAL" (1P, restaurant's own direct link). Rendered as a "3P"/"1P"
+  // pill; never show the raw value.
+  sourceoforder?: string
 }
 
 const STATUS_OPTIONS = ['DUE', 'PAID', 'UNPAID', 'COMPLETED', 'CANCELED', 'REFUND', 'PARTIAL_REFUND', 'VOID', 'EXPIRED', 'REOPEN', 'RESERVED']
+
+// 3P / 1P attribution pill. "DISCO" → 3P (Disco Blue), "FAMILYMEAL" → 1P
+// (gray). Small + subtle, no emoji. Renders nothing for unknown/absent values.
+// Style matches the restaurant admin orders table exactly.
+function SourcePill({ source }: { source?: string }) {
+  if (source !== 'DISCO' && source !== 'FAMILYMEAL') return null
+  const is3P = source === 'DISCO'
+  return (
+    <span style={{
+      display: 'inline-block', padding: '1px 5px', borderRadius: 4,
+      fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', verticalAlign: 'middle',
+      color: '#fff', background: is3P ? '#5B6FE8' : '#9090C8',
+    }}
+      title={is3P ? 'Third-party (marketplace)' : 'First-party (direct link)'}>
+      {is3P ? '3P' : '1P'}
+    </span>
+  )
+}
 
 function fmtCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
@@ -115,12 +137,13 @@ export default function AdminOrdersPage() {
               <th style={{ ...colHead, textAlign: 'right' }}>Total</th>
               <th style={colHead}>Order Time</th>
               <th style={colHead}>Type</th>
+              <th style={colHead}>Source</th>
               <th style={colHead}>Status</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !orders.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No orders.</td></tr>}
+            {loading && <tr><td colSpan={8} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !orders.length && <tr><td colSpan={8} style={{ ...cell, textAlign: 'center', color: '#999' }}>No orders.</td></tr>}
             {!loading && orders.map(o => (
               <tr key={o.orderReference}>
                 <td style={{ ...cell, color: '#666' }}>{fmtDate(o.createdDate)}</td>
@@ -129,6 +152,7 @@ export default function AdminOrdersPage() {
                 <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>{fmtCurrency(o.total)}</td>
                 <td style={cell}>{fmtDate(o.orderDate)} {fmtTime(o.orderTime)}</td>
                 <td style={cell}>{o.orderType}</td>
+                <td style={cell}><SourcePill source={o.sourceoforder} /></td>
                 <td style={cell}>
                   <select value={o.orderStatus} onChange={e => changeStatus(o, e.target.value)} style={smallSelect}>
                     {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}

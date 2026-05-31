@@ -117,11 +117,27 @@ export default function LocationsPage() {
     const oldIndex = locations.findIndex(l => l.reference === active.id)
     const newIndex = locations.findIndex(l => l.reference === over.id)
     if (oldIndex < 0 || newIndex < 0) return
+    // Snapshot the current order so we can roll back if FM rejects the move —
+    // otherwise a failed save leaves the optimistic order on screen while a
+    // reload silently reverts it (the "reorder not persisting" symptom).
+    const previous = locations
+    const moved = locations[oldIndex]
     const reordered = arrayMove(locations, oldIndex, newIndex)
     setLocations(reordered)
     // FM's drop handler computes the absolute index across pages
     const absoluteIndex = newIndex + (page * pageSize)
-    await fetch(`/api/restaurant/locations/${active.id}/position?position=${absoluteIndex}`, { method: 'PUT' })
+    try {
+      const res = await fetch(`/api/restaurant/locations/${active.id}/position?position=${absoluteIndex}`, { method: 'PUT' })
+      if (res.ok) {
+        showToast(`Order for ${moved.businessName} successfully updated!`)
+      } else {
+        setLocations(previous)
+        showToast('Could not save the new order. Please try again.')
+      }
+    } catch {
+      setLocations(previous)
+      showToast('Could not save the new order. Please try again.')
+    }
   }
 
   // Restore page size from localStorage like FM does
