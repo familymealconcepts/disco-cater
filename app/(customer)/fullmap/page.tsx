@@ -1092,7 +1092,7 @@ function FullMapInner() {
                     const now = Date.now()
                     const last = (lastTapTimes.current[r._id] ?? 0)
                     if (now - last < 350) {
-                      if (r.orderUrl) window.open(r.orderUrl, '_blank', 'noopener,noreferrer')
+                      if (r.orderUrl) window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer')
                       lastTapTimes.current[r._id] = 0
                     } else {
                       lastTapTimes.current[r._id] = now
@@ -1130,7 +1130,7 @@ function FullMapInner() {
                       </div>
                       {r.orderUrl ? (
                         <a
-                          href={r.orderUrl}
+                          href={r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={e => e.stopPropagation()}
@@ -1253,7 +1253,7 @@ function FullMapInner() {
               )}
               {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No restaurants match.</div>}
               {filtered.map((r, i) => (
-                <div key={r._id} onClick={() => handleSidebarClick(r)} onDoubleClick={() => { if (r.orderUrl) window.open(r.orderUrl, '_blank', 'noopener,noreferrer') }} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.07)' : hoveredId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'background 0.18s, border-color 0.18s', position: 'relative' }}>
+                <div key={r._id} onClick={() => handleSidebarClick(r)} onDoubleClick={() => { if (r.orderUrl) window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer') }} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.07)' : hoveredId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'background 0.18s, border-color 0.18s', position: 'relative' }}>
                   <FavoriteHeart
                     authGate
                     size={16}
@@ -1283,7 +1283,7 @@ function FullMapInner() {
                       </div>
                       {r.orderUrl && (
                         <a
-                          href={r.orderUrl}
+                          href={r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={e => e.stopPropagation()}
