@@ -82,9 +82,12 @@ type Restaurant = {
   slug?: { current: string }
 }
 
-const OCCASIONS = ['Corporate Lunch', 'Office Party', 'Birthday / Celebration', 'Team Dinner', 'Other']
-const GROUP_SIZES = ['Under 20 people', '20–50 people', '50–100 people', '100+ people']
-const CUISINES = ['American', 'Italian', 'Mexican', 'Asian', 'Mediterranean', 'Surprise Me 🎲']
+// Mode 1 guided-intake chip sets
+const OCCASIONS = ['Work', 'Social', 'Holiday', 'Special Event']
+const HEADCOUNTS = ['Under 20', '20–50', '50–100', '100+']
+const CUISINES = ['Italian', 'Mexican', 'Japanese', 'Mediterranean', 'Indian', 'Korean', 'BBQ', 'Vegan', 'Surprise me']
+
+type IntakeStep = 'location' | 'occasion' | 'headcount' | 'cuisine' | 'finding'
 
 function FullMapInner() {
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -117,11 +120,14 @@ function FullMapInner() {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
 
-  // Decision tree state
-  const [treeStep, setTreeStep] = useState<0 | 1 | 2 | 3>(0)
-  const [treeOccasion, setTreeOccasion] = useState('')
-  const [treeGroupSize, setTreeGroupSize] = useState('')
-  const [treeCuisine, setTreeCuisine] = useState('')
+  // Guided intake state (Mode 1)
+  const [phase, setPhase] = useState<'intake' | 'results'>('intake')
+  const [intakeStep, setIntakeStep] = useState<IntakeStep>('location')
+  const [occasion, setOccasion] = useState('')
+  const [headcount, setHeadcount] = useState('')
+  const [cuisines, setCuisines] = useState<string[]>([])
+  const [locationStr, setLocationStr] = useState('')
+  const intakeLocRef = useRef<HTMLInputElement>(null)
   const [treeResults, setTreeResults] = useState<Restaurant[]>([])
   const [treeAiText, setTreeAiText] = useState('')
   const [treeLoading, setTreeLoading] = useState(false)
@@ -277,6 +283,46 @@ function FullMapInner() {
       setProximityAnchor({ lat, lng })
     })
   }, [])
+
+  // Google Places Autocomplete for the in-intake "Where are you ordering?" step.
+  // Same pattern as initAutocomplete; on select it sets the map's proximity
+  // anchor AND advances the guided flow to the occasion step.
+  const initIntakeAutocomplete = useCallback(() => {
+    if (!intakeLocRef.current || !(window as any).google?.maps?.places) return
+    const ac = new (window as any).google.maps.places.Autocomplete(intakeLocRef.current, {
+      types: ['geocode', 'establishment'],
+      componentRestrictions: { country: 'us' },
+    })
+    ac.addListener('place_changed', () => {
+      const place = ac.getPlace()
+      if (!place.geometry?.location) return
+      const lat = place.geometry.location.lat()
+      const lng = place.geometry.location.lng()
+      const label = place.formatted_address || place.name || ''
+      setLocInput(label)
+      setLocationStr(label)
+      map.current?.flyTo({ center: [lng, lat], zoom: 11, speed: 3, essential: true })
+      setProximityAnchor({ lat, lng })
+      setIntakeStep('occasion')
+    })
+  }, [])
+
+  // Attach the intake autocomplete whenever the location step mounts. Retry once
+  // shortly after in case the Maps script hasn't finished loading yet.
+  useEffect(() => {
+    if (!chatOpen || phase !== 'intake' || intakeStep !== 'location') return
+    initIntakeAutocomplete()
+    const t = setTimeout(initIntakeAutocomplete, 600)
+    return () => clearTimeout(t)
+  }, [chatOpen, phase, intakeStep, initIntakeAutocomplete])
+
+  // If a location is already known (map search / geolocation / URL), skip the
+  // location step silently and start the guided flow at occasion.
+  useEffect(() => {
+    if (phase === 'intake' && intakeStep === 'location' && proximityAnchor) {
+      setIntakeStep('occasion')
+    }
+  }, [phase, intakeStep, proximityAnchor])
 
   useEffect(() => {
     let out = restaurants
@@ -468,21 +514,37 @@ function FullMapInner() {
     return results
   }
 
-  async function runDiscoTree(occasion: string, groupSize: string, cuisine: string) {
+  // Candidate list sent to the API — the CURRENT filtered map list, so
+  // recommendations respect the active proximity/cuisine filters.
+  function candidateRestaurants() {
+    return filtered.map(r => ({
+      name: r.name, cuisine: r.cuisine, location: r.location,
+      isDisco: r.isDisco, orderUrl: r.orderUrl, description: r.description,
+    }))
+  }
+
+  function buildIntake(finalCuisines = cuisines) {
+    return {
+      occasion,
+      headcount,
+      cuisines: finalCuisines,
+      location: locationStr || locInput || '',
+    }
+  }
+
+  async function runDiscoIntake(finalCuisines: string[]) {
+    setIntakeStep('finding')
     setTreeLoading(true)
-    setTreeStep(3)
-    const prompt = `I need catering for a ${occasion}. Group size: ${groupSize}. Cuisine preference: ${cuisine === 'Surprise Me 🎲' ? 'anything fun and interesting — surprise me!' : cuisine}.`
-    trackEvent('ai_tree_submitted', { occasion, groupSize, cuisine })
+    const intake = buildIntake(finalCuisines)
+    trackEvent('ai_intake_submitted', { occasion, headcount, cuisines: finalCuisines.join(',') })
     try {
       const res = await fetch('/api/disco-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [{ role: 'user', content: prompt }],
-          restaurants: restaurants.map(r => ({
-            name: r.name, cuisine: r.cuisine, location: r.location,
-            isDisco: r.isDisco, orderUrl: r.orderUrl, description: r.description,
-          })),
+          messages: [{ role: 'user', content: 'Recommend catering options for my event.' }],
+          restaurants: candidateRestaurants(),
+          intake,
         }),
       })
       if (!res.ok) throw new Error(`API ${res.status}`)
@@ -491,10 +553,11 @@ function FullMapInner() {
       setTreeAiText(reply)
       setTreeResults(extractRecommendedRestaurants(reply, restaurants))
     } catch {
-      setTreeAiText("Sorry, I couldn't get recommendations. Please try again!")
+      setTreeAiText("Sorry, I couldn't get recommendations. Please try again.")
       setTreeResults([])
     } finally {
       setTreeLoading(false)
+      setPhase('results')
       setTimeout(() => treeBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 150)
     }
   }
@@ -503,9 +566,6 @@ function FullMapInner() {
     if (!chatInput.trim() || chatLoading) return
     trackEvent('ai_chat_message_sent', { message_preview: chatInput.slice(0, 50) })
     const userMsg: ChatMessage = { role: 'user', content: chatInput }
-    const contextPrefix: ChatMessage[] = treeOccasion
-      ? [{ role: 'user', content: `[Context: catering for ${treeOccasion}, ${treeGroupSize}, ${treeCuisine} cuisine]` }]
-      : []
     const next = [...chatMessages, userMsg]
     setChatMessages(next)
     setChatInput('')
@@ -515,28 +575,40 @@ function FullMapInner() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...contextPrefix, ...next],
-          restaurants: restaurants.map(r => ({
-            name: r.name, cuisine: r.cuisine, location: r.location,
-            isDisco: r.isDisco, orderUrl: r.orderUrl, description: r.description,
-          })),
+          messages: next,
+          restaurants: candidateRestaurants(),
+          intake: buildIntake(),
         }),
       })
       if (!res.ok) throw new Error(`API ${res.status}`)
       const data = await res.json()
-      setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply || "Sorry, try again!" }])
+      setChatMessages(prev => [...prev, { role: 'assistant', content: data.reply || 'Sorry, try again.' }])
     } catch {
-      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again!' }])
+      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }])
     } finally {
       setChatLoading(false)
     }
   }
 
-  function resetTree() {
-    setTreeStep(0)
-    setTreeOccasion('')
-    setTreeGroupSize('')
-    setTreeCuisine('')
+  function toggleCuisine(c: string) {
+    if (c === 'Surprise me') { setCuisines(prev => prev.includes(c) ? [] : ['Surprise me']); return }
+    setCuisines(prev =>
+      prev.includes(c) ? prev.filter(x => x !== c) : [...prev.filter(x => x !== 'Surprise me'), c]
+    )
+  }
+
+  // Hand the intake context to Mode 2 (restaurant page) before navigating.
+  function stashIntakeForHandoff() {
+    try { sessionStorage.setItem('disco_intake', JSON.stringify(buildIntake())) } catch {}
+  }
+
+  function resetIntake() {
+    setPhase('intake')
+    setIntakeStep(proximityAnchor ? 'occasion' : 'location')
+    setOccasion('')
+    setHeadcount('')
+    setCuisines([])
+    setLocationStr('')
     setTreeResults([])
     setTreeAiText('')
     setTreeLoading(false)
@@ -630,141 +702,155 @@ function FullMapInner() {
 
   function renderTreeContent(compact: boolean) {
     const p = compact ? '14px 12px' : '20px 18px'
-    const titleSz = compact ? 14 : 16
+    const titleSz = compact ? 15 : 17
     const bodySz = compact ? 12 : 13
-    const pillPadding = compact ? '9px 14px' : '11px 20px'
+    const pillPadding = compact ? '8px 13px' : '9px 16px'
     const pillFontSz = compact ? 12 : 13
     const cardImgH = compact ? 110 : 130
+    const DK = '#1A1028'
 
-    const treePillStyle = (selected: boolean): React.CSSProperties => ({
-      padding: pillPadding,
-      borderRadius: 999,
-      border: selected ? 'none' : '1.5px solid #e0e0e0',
-      background: selected ? '#6B6EF9' : '#f5f5f5',
-      color: selected ? '#fff' : '#444',
-      fontSize: pillFontSz,
-      fontWeight: selected ? 700 : 500,
-      cursor: 'pointer',
-      fontFamily: "'DM Sans',sans-serif",
-      transition: 'background 0.12s, color 0.12s',
-      lineHeight: 1.3,
-    })
-
-    const progressBar = (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: compact ? 18 : 22 }}>
-        {[0, 1, 2].map(i => {
-          const done = treeStep === 3 || i < treeStep
-          const current = treeStep < 3 && treeStep === i
-          return (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, flex: i < 2 ? 1 : 0 }}>
-              <div style={{
-                width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-                background: done ? '#6B6EF9' : current ? 'transparent' : '#ddd',
-                border: current ? '2.5px solid #6B6EF9' : 'none',
-                transition: 'all 0.25s',
-              }} />
-              {i < 2 && <div style={{ flex: 1, height: 2, background: done ? '#6B6EF9' : '#ddd', transition: 'all 0.25s', borderRadius: 2 }} />}
-            </div>
-          )
-        })}
-        <span style={{ fontSize: 11, color: '#aaa', marginLeft: 8, fontFamily: "'DM Sans',sans-serif", whiteSpace: 'nowrap', flexShrink: 0 }}>
-          {treeStep < 3 ? `Step ${treeStep + 1} of 3` : 'Your picks'}
-        </span>
-      </div>
+    // Chip per spec: white/dark-outline by default, solid dark when selected,
+    // #E8E8FF hover on unselected.
+    const chip = (label: string, selected: boolean, onClick: () => void) => (
+      <button
+        key={label}
+        onClick={onClick}
+        onMouseOver={e => { if (!selected) (e.currentTarget as HTMLButtonElement).style.background = '#E8E8FF' }}
+        onMouseOut={e => { if (!selected) (e.currentTarget as HTMLButtonElement).style.background = '#fff' }}
+        style={{
+          padding: pillPadding, borderRadius: 999, border: `1.5px solid ${DK}`,
+          background: selected ? DK : '#fff', color: selected ? '#fff' : DK,
+          fontSize: pillFontSz, fontWeight: 600, cursor: 'pointer',
+          fontFamily: "'DM Sans',sans-serif", transition: 'background 0.12s, color 0.12s', lineHeight: 1.3,
+        }}
+      >
+        {label}
+      </button>
     )
 
-    // Steps 0–2
-    if (treeStep < 3) {
-      const stepConfig = [
-        {
-          question: "What's the occasion?",
-          options: OCCASIONS,
-          current: treeOccasion,
-          onSelect: (v: string) => { setTreeOccasion(v); setTreeStep(1) },
-        },
-        {
-          question: 'How many people?',
-          options: GROUP_SIZES,
-          current: treeGroupSize,
-          onSelect: (v: string) => { setTreeGroupSize(v); setTreeStep(2) },
-        },
-        {
-          question: 'Cuisine preference?',
-          options: CUISINES,
-          current: treeCuisine,
-          onSelect: (v: string) => { setTreeCuisine(v); runDiscoTree(treeOccasion, treeGroupSize, v) },
-        },
-      ][treeStep]
+    // Visible step order (location step is skipped when a location is known).
+    const order: IntakeStep[] = (proximityAnchor || locationStr)
+      ? ['occasion', 'headcount', 'cuisine']
+      : ['location', 'occasion', 'headcount', 'cuisine']
+    const backTo: Partial<Record<IntakeStep, IntakeStep>> = { headcount: 'occasion', cuisine: 'headcount' }
 
+    const stepHeader = (question: string, current: IntakeStep) => {
+      const idx = order.indexOf(current)
       return (
-        <div key={`step-${treeStep}`} style={{ padding: p, animation: 'treeSlide 0.22s ease' }}>
-          {progressBar}
-          {/* Breadcrumb chips for completed steps */}
-          {(treeOccasion || treeGroupSize) && (
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 12 }}>
-              {treeOccasion && (
-                <span style={{ fontSize: 10, background: '#ede9fe', color: '#6B6EF9', padding: '3px 9px', borderRadius: 20, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
-                  {treeOccasion}
-                </span>
-              )}
-              {treeGroupSize && treeStep > 1 && (
-                <span style={{ fontSize: 10, background: '#ede9fe', color: '#6B6EF9', padding: '3px 9px', borderRadius: 20, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
-                  {treeGroupSize}
-                </span>
-              )}
-            </div>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: compact ? 14 : 18 }}>
-            <div style={{ fontSize: titleSz, fontWeight: 700, color: '#111', fontFamily: "'DM Sans',sans-serif" }}>
-              {stepConfig.question}
-            </div>
-            {treeStep > 0 && (
-              <button
-                onClick={() => setTreeStep(s => (s - 1) as 0 | 1 | 2)}
-                style={{ fontSize: 11, color: '#6B6EF9', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0', fontFamily: "'DM Sans',sans-serif", fontWeight: 600, flexShrink: 0, marginLeft: 8 }}
-              >
-                ← Back
-              </button>
+        <div style={{ marginBottom: compact ? 14 : 18 }}>
+          <div style={{ fontSize: 11, color: '#aaa', marginBottom: 8, fontFamily: "'DM Sans',sans-serif", display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>Step {idx + 1} of {order.length}</span>
+            {backTo[current] && (
+              <button onClick={() => setIntakeStep(backTo[current] as IntakeStep)} style={{ fontSize: 11, color: DK, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'DM Sans',sans-serif", fontWeight: 600 }}>← Back</button>
             )}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {stepConfig.options.map(o => (
-              <button key={o} onClick={() => stepConfig.onSelect(o)} style={treePillStyle(stepConfig.current === o)}>
-                {o}
-              </button>
-            ))}
-          </div>
+          <div style={{ fontSize: titleSz, fontWeight: 700, color: '#111', fontFamily: "'DM Sans',sans-serif" }}>{question}</div>
         </div>
       )
     }
 
-    // Loading
-    if (treeLoading) {
+    // ── STATE A — guided intake ──────────────────────────────────────────────
+    if (phase === 'intake') {
+      // Loading / "Finding your options…"
+      if (intakeStep === 'finding' || treeLoading) {
+        return (
+          <div key="loading" style={{ padding: p }}>
+            <div style={{ textAlign: 'center', padding: '48px 0' }}>
+              <div style={{ fontSize: bodySz, color: '#585786', marginBottom: 20, fontFamily: "'DM Sans',sans-serif" }}>Finding your options…</div>
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                {[0, 150, 300].map(d => (
+                  <div key={d} style={{ width: 8, height: 8, borderRadius: '50%', background: DK, animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      // Step: location (only when no location is known)
+      if (intakeStep === 'location') {
+        return (
+          <div key="step-location" style={{ padding: p, animation: 'treeSlide 0.22s ease' }}>
+            {stepHeader('Where are you ordering?', 'location')}
+            <input
+              ref={intakeLocRef}
+              value={locInput}
+              onChange={e => setLocInput(e.target.value)}
+              onKeyDown={async e => {
+                if (e.key !== 'Enter' || !locInput.trim()) return
+                try {
+                  const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(locInput)}&format=json&limit=1&countrycodes=us`, { headers: { 'Accept-Language': 'en' } })
+                  const data = await res.json()
+                  if (data?.[0]) {
+                    const { lat, lon } = data[0]
+                    map.current?.flyTo({ center: [parseFloat(lon), parseFloat(lat)], zoom: 11, speed: 3, essential: true })
+                    setLocationStr(locInput)
+                    setProximityAnchor({ lat: parseFloat(lat), lng: parseFloat(lon) })
+                    setIntakeStep('occasion')
+                  }
+                } catch {}
+              }}
+              placeholder="City or address…"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 12, border: `1.5px solid ${DK}`, fontSize: 14, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fff', color: '#111' }}
+            />
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 8, fontFamily: "'DM Sans',sans-serif" }}>Start typing and pick a suggestion.</div>
+          </div>
+        )
+      }
+
+      // Step: occasion
+      if (intakeStep === 'occasion') {
+        return (
+          <div key="step-occasion" style={{ padding: p, animation: 'treeSlide 0.22s ease' }}>
+            {stepHeader("What's the occasion?", 'occasion')}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {OCCASIONS.map(o => chip(o, occasion === o, () => { setOccasion(o); setIntakeStep('headcount') }))}
+            </div>
+          </div>
+        )
+      }
+
+      // Step: headcount
+      if (intakeStep === 'headcount') {
+        return (
+          <div key="step-headcount" style={{ padding: p, animation: 'treeSlide 0.22s ease' }}>
+            {stepHeader('How many people?', 'headcount')}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {HEADCOUNTS.map(h => chip(h, headcount === h, () => { setHeadcount(h); setIntakeStep('cuisine') }))}
+            </div>
+          </div>
+        )
+      }
+
+      // Step: cuisine (multi-select, optional)
       return (
-        <div key="loading" style={{ padding: p }}>
-          {progressBar}
-          <div style={{ textAlign: 'center', padding: '40px 0' }}>
-            <div style={{ fontSize: 32, marginBottom: 14 }}>✨</div>
-            <div style={{ fontSize: bodySz, color: '#585786', marginBottom: 20, fontFamily: "'DM Sans',sans-serif" }}>
-              Finding your perfect match…
-            </div>
-            <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-              {[0, 150, 300].map(d => (
-                <div key={d} style={{ width: 8, height: 8, borderRadius: '50%', background: '#6B6EF9', animation: 'bounce 1s infinite', animationDelay: `${d}ms` }} />
-              ))}
-            </div>
+        <div key="step-cuisine" style={{ padding: p, animation: 'treeSlide 0.22s ease' }}>
+          {stepHeader('Any cuisine preferences?', 'cuisine')}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+            {CUISINES.map(c => chip(c, cuisines.includes(c), () => toggleCuisine(c)))}
           </div>
+          <button
+            onClick={() => runDiscoIntake(cuisines)}
+            style={{ width: '100%', padding: compact ? '11px' : '12px', borderRadius: 10, border: 'none', background: DK, color: '#fff', fontSize: compact ? 13 : 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", marginBottom: 10 }}
+          >
+            See options →
+          </button>
+          <button
+            onClick={() => runDiscoIntake([])}
+            style={{ display: 'block', margin: '0 auto', background: 'none', border: 'none', color: '#999', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", textDecoration: 'underline' }}
+          >
+            Skip
+          </button>
         </div>
       )
     }
 
-    // Results (treeStep === 3, not loading)
+    // ── STATE B — results + conversation ─────────────────────────────────────
     return (
       <div key="results" style={{ padding: p }}>
-        {progressBar}
         {/* Selection summary */}
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 14 }}>
-          {[treeOccasion, treeGroupSize, treeCuisine].filter(Boolean).map(s => (
+          {[occasion, headcount, ...cuisines, locationStr].filter(Boolean).map(s => (
             <span key={s} style={{ fontSize: 10, background: '#ede9fe', color: '#6B6EF9', padding: '3px 9px', borderRadius: 20, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
               {s}
             </span>
@@ -772,7 +858,7 @@ function FullMapInner() {
         </div>
 
         <div style={{ fontSize: compact ? 13 : 14, fontWeight: 700, color: '#111', marginBottom: 14, fontFamily: "'DM Sans',sans-serif" }}>
-          {treeResults.length > 0 ? 'Here are your top picks 🎉' : 'Here\'s what we found'}
+          {treeResults.length > 0 ? 'Your options' : 'What we found'}
         </div>
 
         {/* Fallback text when no restaurant cards matched */}
@@ -782,8 +868,13 @@ function FullMapInner() {
           </div>
         )}
 
-        {/* Restaurant cards */}
-        {treeResults.map(r => (
+        {/* Restaurant cards — clicking hands intake to Mode 2 and opens the
+            restaurant page (/restaurants/[slug]); external orderUrl is the
+            fallback when there's no slug. */}
+        {treeResults.map(r => {
+          const internalHref = r.slug?.current ? `/restaurants/${r.slug.current}` : ''
+          const href = internalHref || r.orderUrl || ''
+          return (
           <div key={r._id} style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #e8e8e8', overflow: 'hidden', marginBottom: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
             {r.image && (
               <img src={r.image} alt={r.name} style={{ width: '100%', height: cardImgH, objectFit: 'cover', display: 'block' }} />
@@ -797,14 +888,14 @@ function FullMapInner() {
                   <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888', fontFamily: "'DM Sans',sans-serif" }}>{tag}</span>
                 ))}
               </div>
-              {r.orderUrl ? (
+              {href ? (
                 <a
-                  href={r.orderUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ display: 'block', textAlign: 'center', padding: compact ? '9px 0' : '10px 0', background: '#6B6EF9', color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: compact ? 12 : 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}
+                  href={href}
+                  onClick={stashIntakeForHandoff}
+                  {...(internalHref ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+                  style={{ display: 'block', textAlign: 'center', padding: compact ? '9px 0' : '10px 0', background: DK, color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: compact ? 12 : 13, fontWeight: 700, fontFamily: "'DM Sans',sans-serif" }}
                 >
-                  Order Now →
+                  View &amp; Order →
                 </a>
               ) : (
                 <div style={{ textAlign: 'center', padding: compact ? '9px 0' : '10px 0', background: '#f5f5f5', color: '#bbb', borderRadius: 8, fontSize: compact ? 12 : 13, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
@@ -813,7 +904,8 @@ function FullMapInner() {
               )}
             </div>
           </div>
-        ))}
+          )
+        })}
 
         {/* Follow-up bubbles */}
         {chatMessages.length > 0 && (
@@ -868,12 +960,12 @@ function FullMapInner() {
           </div>
         </div>
 
-        {/* Start Over */}
+        {/* Start over */}
         <button
-          onClick={resetTree}
-          style={{ width: '100%', padding: compact ? '9px' : '10px', borderRadius: 8, border: '1.5px solid #e0e0e0', background: '#fff', color: '#999', fontSize: compact ? 12 : 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}
+          onClick={resetIntake}
+          style={{ width: '100%', padding: compact ? '9px' : '10px', borderRadius: 8, border: 'none', background: 'none', color: '#999', fontSize: compact ? 12 : 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", textDecoration: 'underline' }}
         >
-          ↺ Start Over
+          Start over
         </button>
 
         <div ref={treeBottomRef} />

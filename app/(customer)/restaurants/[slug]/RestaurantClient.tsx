@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
 import CheckoutDrawer from './CheckoutDrawer'
+import MenuAdvisor, { type DiscoIntake } from './MenuAdvisor'
 import { cartSubtotal } from '../../../../lib/pricing/cart'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
 import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
@@ -185,6 +186,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const [headerImgError, setHeaderImgError] = useState(false)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+
+  // Mode 2 (menu advisor) — pick up intake context handed off from the fullmap
+  // discovery flow via sessionStorage, if present.
+  const [discoIntake, setDiscoIntake] = useState<DiscoIntake | null>(null)
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('disco_intake')
+      if (raw) setDiscoIntake(JSON.parse(raw))
+    } catch {}
+  }, [])
 
   // Viewport-aware rendering for the order CTA: SSR has no window so we keep
   // BOTH bars in the initial HTML (existing CSS media-query hides the wrong
@@ -1339,6 +1350,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           .pkg-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
+
+      {/* Mode 2 — menu advisor (collapsed gold pill, bottom-right) */}
+      <MenuAdvisor
+        restaurant={{
+          name: restaurant.name,
+          cuisine: restaurant.cuisines?.[0] || restaurant.cuisine,
+          location: restaurant.location || restaurant.address,
+        }}
+        intake={discoIntake}
+      />
     </div>
   )
 }

@@ -56,23 +56,26 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = 3): P
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, restaurants } = await req.json()
+    const { messages, restaurants, intake } = await req.json()
 
     const restaurantContext = buildEnrichedContext(restaurants || [])
 
-    const systemPrompt = `You are Disco, a catering assistant for Disco Cater.
+    // Intake context (Mode 1 guided flow). Optional so refinement follow-ups
+    // and any legacy callers without intake still work.
+    const planningLine = intake
+      ? `\nThe customer is planning: ${intake.occasion || 'catering'} catering for ${intake.headcount || 'their group'} people${intake.location ? ` in ${intake.location}` : ''}.${(intake.cuisines && intake.cuisines.length > 0) ? `\nCuisine preference: ${intake.cuisines.join(', ')}.` : ''}\n`
+      : ''
 
-Recommend exactly 2-3 restaurants. Be brief and direct — customers want to order quickly.
+    const systemPrompt = `You are Disco — a concierge catering assistant. Ultra-luxury positioning. Minimalist, direct, hospitable. No filler words. No exclamation points. No emoji.
+${planningLine}
+Recommend exactly 2-3 restaurants from the list below. Prioritize restaurants whose packages fit the headcount and occasion. For each:
 
-For each restaurant use this exact format:
-**[Restaurant Name]** — [one sentence why it fits, include a key package with price/person if available]
+**[Restaurant Name]**
+[One sentence. What makes it right for this event.]
+Best package: [package name], serves [N], [price]/person.
 [order URL on its own line]
 
-Rules:
-- Put the order URL on its own line immediately after the description so it renders as a button
-- No extra commentary before or after the recommendations
-- Do not repeat the URL in the text
-- If no restaurants match well, pick the closest 2-3 options anyway
+If the customer asks a follow-up, answer it directly and concisely. Never suggest contacting support. Never apologize.
 
 Available restaurants:
 ${restaurantContext}`
