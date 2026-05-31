@@ -2,13 +2,21 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
-  type DragEndEvent,
+  DndContext, DragOverlay, closestCenter, MeasuringStrategy,
+  PointerSensor, useSensor, useSensors,
+  type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core'
 import {
   arrayMove, SortableContext, useSortable, verticalListSortingStrategy,
+  defaultAnimateLayoutChanges, type AnimateLayoutChanges,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+
+// Animate sibling rows shifting up/down as the dragged ghost passes over them
+// (forces the default to animate even on the post-drop commit, not just while
+// sorting).
+const animateLayoutChanges: AnimateLayoutChanges = (args) =>
+  defaultAnimateLayoutChanges({ ...args, wasDragging: true })
 import EditLocationDialog, { type EditLocationFullData } from './EditLocationDialog'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 
@@ -106,12 +114,35 @@ export default function LocationsPage() {
   const [editing, setEditing] = useState<EditLocationFullData | null>(null)
   const [editLoading, setEditLoading] = useState(false)
   const [toast, setToast] = useState('')
+  // The row currently being dragged + the column widths captured at drag start,
+  // so the floating DragOverlay ghost matches the table's column layout.
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [overlayWidths, setOverlayWidths] = useState<number[]>([])
+  const activeLoc = activeId ? locations.find(l => l.reference === activeId) ?? null : null
+  const overlayWidth = overlayWidths.reduce((a, b) => a + b, 0)
 
   // Drag-and-drop: require 6px pointer movement before drag activates so
   // single clicks on the row still register as switch/edit/copy.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id))
+    // All body rows share the same column widths, so measuring any one row's
+    // cells gives the widths the overlay <table> needs to line up exactly.
+    if (typeof document !== 'undefined') {
+      const row = document.querySelector('[data-loc-row]')
+      if (row) {
+        setOverlayWidths(Array.from(row.querySelectorAll('td')).map(td => (td as HTMLElement).getBoundingClientRect().width))
+      }
+    }
+  }
+
+  function handleDragCancel() {
+    setActiveId(null)
+  }
+
   async function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null)
     const { active, over } = event
     if (!over || active.id === over.id) return
     const oldIndex = locations.findIndex(l => l.reference === active.id)
@@ -275,27 +306,37 @@ export default function LocationsPage() {
 
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <colgroup>
-            <col style={{ width: 36 }} />
-            <col style={{ width: 90 }} />
-            <col />
-            <col />
-            <col style={{ width: 130 }} />
-            <col style={{ width: 90 }} />
-            <col style={{ width: 110 }} />
-          </colgroup>
-          <thead><tr>
-            <th style={colHead}></th>
-            <th style={colHead}>STATUS:</th>
-            <th style={colHead}>RESTAURANT:</th>
-            <th style={colHead}>ADDRESS:</th>
-            <th style={colHead}>REGISTRATION:</th>
-            <th style={colHead}>CHECKOUT:</th>
-            <th style={colHead}></th>
-          </tr></thead>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        // Re-measure row rects continuously — the rows move as siblings shift,
+        // so the default (measure-once) can resolve the drop target to the
+        // wrong row. Always-measuring keeps `over` (the saved position) accurate.
+        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <colgroup>
+              <col style={{ width: 36 }} />
+              <col style={{ width: 90 }} />
+              <col />
+              <col />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 90 }} />
+              <col style={{ width: 110 }} />
+            </colgroup>
+            <thead><tr>
+              <th style={colHead}></th>
+              <th style={colHead}>STATUS:</th>
+              <th style={colHead}>RESTAURANT:</th>
+              <th style={colHead}>ADDRESS:</th>
+              <th style={colHead}>REGISTRATION:</th>
+              <th style={colHead}>CHECKOUT:</th>
+              <th style={colHead}></th>
+            </tr></thead>
             <SortableContext items={locations.map(l => l.reference)} strategy={verticalListSortingStrategy}>
               <tbody>
                 {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
@@ -313,9 +354,27 @@ export default function LocationsPage() {
                 ))}
               </tbody>
             </SortableContext>
-          </DndContext>
-        </table>
-      </div>
+          </table>
+        </div>
+
+        {/* Floating ghost of the dragged row. Rendering it in an overlay (a) lets
+            the row follow the cursor smoothly outside the table's flow, and (b)
+            fixes drop-target detection in native <table>s — collision is now
+            computed against this normally-positioned overlay instead of a
+            transformed <tr>, so `over` (and thus the saved position) resolves
+            correctly. Width is mirrored from the real row's measured cells. */}
+        <DragOverlay>
+          {activeLoc ? (
+            <table style={{ width: overlayWidth || undefined, tableLayout: 'fixed', borderCollapse: 'collapse', background: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.18)', borderRadius: 8, fontFamily: F }}>
+              <tbody>
+                <tr style={{ background: '#f5f6ff' }}>
+                  <LocationCells loc={activeLoc} switching={switching === activeLoc.reference} widths={overlayWidths} />
+                </tr>
+              </tbody>
+            </table>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
         <div style={{ fontSize: 12, color: '#666' }}>
@@ -386,47 +445,48 @@ const pageBtn: React.CSSProperties = {
   background: '#fff', border: '1px solid #ddd', borderRadius: 6,
   padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK,
 }
-interface SortableLocationRowProps {
+interface LocationCellsProps {
   loc: Location
   switching: boolean
-  onToggleStatus: () => void
-  onSwitch: () => void
-  onCopy: () => void
-  onEdit: () => void
+  // Drag handle (attributes + listeners) for the real row's first cell; omitted
+  // for the overlay ghost.
+  handleProps?: React.HTMLAttributes<HTMLTableCellElement>
+  // Per-column pixel widths, applied only to the overlay ghost so its <table>
+  // lines up with the real one.
+  widths?: number[]
+  onToggleStatus?: () => void
+  onSwitch?: () => void
+  onCopy?: () => void
+  onEdit?: () => void
 }
 
-function SortableLocationRow({ loc, switching, onToggleStatus, onSwitch, onCopy, onEdit }: SortableLocationRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: loc.reference })
+// The seven <td>s of a location row, shared by the live sortable row and the
+// drag overlay so they can never visually drift apart.
+function LocationCells({ loc, switching, handleProps, widths, onToggleStatus, onSwitch, onCopy, onEdit }: LocationCellsProps) {
   const slug = loc.businessNameWithoutSpaces || ''
   const checkoutHref = slug ? `${DISCO_FRONTEND}${slug}` : ''
   const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
   const clickableCell: React.CSSProperties = { ...cell, cursor: 'pointer' }
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    background: isDragging ? '#f5f6ff' : (loc.archived ? '#fafafa' : '#fff'),
-    opacity: loc.archived ? 0.6 : 1,
-    boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.08)' : undefined,
-  }
+  const w = (i: number): React.CSSProperties => (widths && widths[i] != null ? { width: widths[i], boxSizing: 'border-box' } : {})
   return (
-    <tr ref={setNodeRef} style={style}>
-      <td style={{ ...cell, textAlign: 'center', cursor: 'grab', touchAction: 'none' }} {...attributes} {...listeners} title="Drag to reorder">
+    <>
+      <td style={{ ...cell, ...w(0), textAlign: 'center', cursor: 'grab', touchAction: 'none' }} {...(handleProps || {})} title="Drag to reorder">
         <IconDrag />
       </td>
-      <td style={cell}>
-        <Toggle checked={!loc.blocked} onChange={onToggleStatus} disabled={loc.archived} />
+      <td style={{ ...cell, ...w(1) }}>
+        <Toggle checked={!loc.blocked} onChange={onToggleStatus || (() => {})} disabled={loc.archived} />
       </td>
-      <td style={{ ...clickableCell, fontWeight: 500 }} onClick={onSwitch} title="Switch to this restaurant">
+      <td style={{ ...clickableCell, ...w(2), fontWeight: 500 }} onClick={onSwitch} title="Switch to this restaurant">
         {loc.businessName}
         {switching && <span style={{ marginLeft: 6, color: '#aaa', fontSize: 11 }}>switching…</span>}
       </td>
-      <td style={{ ...clickableCell, color: '#555' }} onClick={onSwitch}>
+      <td style={{ ...clickableCell, ...w(3), color: '#555' }} onClick={onSwitch}>
         {loc.address?.addressLine1 || ''}
       </td>
-      <td style={{ ...clickableCell, color: '#666' }} onClick={onSwitch}>
+      <td style={{ ...clickableCell, ...w(4), color: '#666' }} onClick={onSwitch}>
         {fmtRegDate(loc.createdDate)}
       </td>
-      <td style={cell}>
+      <td style={{ ...cell, ...w(5) }}>
         {checkoutHref ? (
           <a
             href={checkoutHref}
@@ -443,12 +503,47 @@ function SortableLocationRow({ loc, switching, onToggleStatus, onSwitch, onCopy,
           </a>
         ) : <span style={{ color: '#bbb' }}>—</span>}
       </td>
-      <td style={{ ...cell, textAlign: 'right' }}>
+      <td style={{ ...cell, ...w(6), textAlign: 'right' }}>
         <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
           <button onClick={onCopy} title="Copy" style={iconBtn}><IconCopy /></button>
           <button onClick={onEdit} title="Edit" style={iconBtn}><IconEdit /></button>
         </div>
       </td>
+    </>
+  )
+}
+
+interface SortableLocationRowProps {
+  loc: Location
+  switching: boolean
+  onToggleStatus: () => void
+  onSwitch: () => void
+  onCopy: () => void
+  onEdit: () => void
+}
+
+function SortableLocationRow({ loc, switching, onToggleStatus, onSwitch, onCopy, onEdit }: SortableLocationRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: loc.reference, animateLayoutChanges })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    // While THIS row is the one being dragged it's hidden in place — the
+    // DragOverlay renders the floating ghost. Its slot stays, and the sibling
+    // rows shift via the sortable transform to show where it will land.
+    opacity: isDragging ? 0 : (loc.archived ? 0.6 : 1),
+    background: loc.archived ? '#fafafa' : '#fff',
+  }
+  return (
+    <tr ref={setNodeRef} data-loc-row={loc.reference} style={style}>
+      <LocationCells
+        loc={loc}
+        switching={switching}
+        handleProps={{ ...attributes, ...listeners } as React.HTMLAttributes<HTMLTableCellElement>}
+        onToggleStatus={onToggleStatus}
+        onSwitch={onSwitch}
+        onCopy={onCopy}
+        onEdit={onEdit}
+      />
     </tr>
   )
 }
