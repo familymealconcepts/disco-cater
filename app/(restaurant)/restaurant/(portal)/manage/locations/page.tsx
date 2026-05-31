@@ -1,22 +1,6 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  DndContext, DragOverlay, closestCenter, MeasuringStrategy,
-  PointerSensor, useSensor, useSensors,
-  type DragEndEvent, type DragStartEvent,
-} from '@dnd-kit/core'
-import {
-  arrayMove, SortableContext, useSortable, verticalListSortingStrategy,
-  defaultAnimateLayoutChanges, type AnimateLayoutChanges,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-
-// Animate sibling rows shifting up/down as the dragged ghost passes over them
-// (forces the default to animate even on the post-drop commit, not just while
-// sorting).
-const animateLayoutChanges: AnimateLayoutChanges = (args) =>
-  defaultAnimateLayoutChanges({ ...args, wasDragging: true })
 import EditLocationDialog, { type EditLocationFullData } from './EditLocationDialog'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 
@@ -114,67 +98,69 @@ export default function LocationsPage() {
   const [editing, setEditing] = useState<EditLocationFullData | null>(null)
   const [editLoading, setEditLoading] = useState(false)
   const [toast, setToast] = useState('')
-  // The row currently being dragged + the column widths captured at drag start,
-  // so the floating DragOverlay ghost matches the table's column layout.
-  const [activeId, setActiveId] = useState<string | null>(null)
-  const [overlayWidths, setOverlayWidths] = useState<number[]>([])
-  const activeLoc = activeId ? locations.find(l => l.reference === activeId) ?? null : null
-  const overlayWidth = overlayWidths.reduce((a, b) => a + b, 0)
 
-  // Drag-and-drop: require 6px pointer movement before drag activates so
-  // single clicks on the row still register as switch/edit/copy.
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  // ── Drag-and-drop (native HTML5) ───────────────────────────────────────────
+  // Deliberately simple: the dragged row dims, the hovered row highlights, and
+  // on drop we send ONE PUT then re-fetch from FM. We never reorder the local
+  // array optimistically — the re-fetch (sorted by locationPosition) is the
+  // single source of truth, so the UI can't drift from what FM actually saved.
+  const [draggedRef, setDraggedRef] = useState<string | null>(null)
+  const [dragOverRef, setDragOverRef] = useState<string | null>(null)
+  // A 1x1 transparent image used to suppress the browser's translucent drag
+  // ghost — we want the in-place opacity change to be the only drag visual.
+  const dragImgRef = useRef<HTMLImageElement | null>(null)
+  useEffect(() => {
+    const img = document.createElement('img')
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+    dragImgRef.current = img
+  }, [])
 
-  function handleDragStart(event: DragStartEvent) {
-    setActiveId(String(event.active.id))
-    // All body rows share the same column widths, so measuring any one row's
-    // cells gives the widths the overlay <table> needs to line up exactly.
-    if (typeof document !== 'undefined') {
-      const row = document.querySelector('[data-loc-row]')
-      if (row) {
-        setOverlayWidths(Array.from(row.querySelectorAll('td')).map(td => (td as HTMLElement).getBoundingClientRect().width))
-      }
+  function handleRowDragStart(e: React.DragEvent, ref: string) {
+    setDraggedRef(ref)
+    e.dataTransfer.effectAllowed = 'move'
+    // Firefox won't start a drag unless some data is set.
+    try { e.dataTransfer.setData('text/plain', ref) } catch {}
+    if (dragImgRef.current) {
+      try { e.dataTransfer.setDragImage(dragImgRef.current, 0, 0) } catch {}
     }
   }
 
-  function handleDragCancel() {
-    setActiveId(null)
+  function handleRowDragOver(e: React.DragEvent, ref: string) {
+    e.preventDefault() // required so the row is a valid drop target
+    e.dataTransfer.dropEffect = 'move'
+    if (ref !== draggedRef && ref !== dragOverRef) setDragOverRef(ref)
   }
 
-  async function handleDragEnd(event: DragEndEvent) {
-    setActiveId(null)
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const oldIndex = locations.findIndex(l => l.reference === active.id)
-    const newIndex = locations.findIndex(l => l.reference === over.id)
-    if (oldIndex < 0 || newIndex < 0) return
-    // Snapshot the current order so we can roll back if FM rejects the move —
-    // otherwise a failed save leaves the optimistic order on screen while a
-    // reload silently reverts it (the "reorder not persisting" symptom).
-    const previous = locations
-    const reordered = arrayMove(locations, oldIndex, newIndex)
-    setLocations(reordered)
-    // Position is the 0-based index where the row actually LANDED, made
-    // absolute across pages. Mirrors FM's drop() (locations.component.ts:115)
-    // which sends event.currentIndex (+ page offset) to
-    // restaurantService.updatePosition → /system-admin/restaurants/{ref}/position.
-    // Derive it from the post-move array so it reflects the true landing spot
-    // (the old code reused `newIndex`, the pre-move index of the row dropped
-    // ON — which collapses to 0 whenever you drop onto the top row).
-    const landedIndex = reordered.findIndex(l => l.reference === active.id)
-    const position = landedIndex + page * pageSize
+  function handleRowDrop(e: React.DragEvent, toRef: string) {
+    e.preventDefault()
+    const fromRef = draggedRef
+    setDraggedRef(null)
+    setDragOverRef(null)
+    if (!fromRef || fromRef === toRef) return
+    reorder(fromRef, toRef)
+  }
+
+  function handleRowDragEnd() {
+    setDraggedRef(null)
+    setDragOverRef(null)
+  }
+
+  // Persist a single move, then ALWAYS re-fetch so the list reflects FM's saved
+  // order. The target index of the dropped-on row is the position FM expects
+  // (it removes the dragged restaurant, then inserts at `position`).
+  async function reorder(fromRef: string, toRef: string) {
+    const toIndex = locations.findIndex(l => l.reference === toRef)
+    if (toIndex < 0) return
+    const position = toIndex + page * pageSize
+    let ok = false
     try {
-      const res = await fetch(`/api/restaurant/locations/${active.id}/position?position=${position}`, { method: 'PUT' })
-      if (res.ok) {
-        showToast('Updated')
-      } else {
-        setLocations(previous)
-        showToast('Could not save the new position. Please try again.')
-      }
-    } catch {
-      setLocations(previous)
-      showToast('Could not save the new position. Please try again.')
-    }
+      const res = await fetch(`/api/restaurant/locations/${fromRef}/position?position=${position}`, { method: 'PUT' })
+      ok = res.ok
+    } catch { ok = false }
+    showToast(ok ? 'Updated' : 'Could not save the new position. Please try again.')
+    // Re-fetch from FM (sorted by locationPosition) on BOTH success and failure
+    // so the displayed order always equals the server's order.
+    await load()
   }
 
   // Restore page size from localStorage like FM does
@@ -294,7 +280,6 @@ export default function LocationsPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const colHead: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#888', letterSpacing: 0.3, padding: '12px 14px', textAlign: 'left', background: '#F7F8FC', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' }
   const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
-  const clickableCell: React.CSSProperties = { ...cell, cursor: 'pointer' }
   const input: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff', width: '100%' }
 
   return (
@@ -314,75 +299,49 @@ export default function LocationsPage() {
 
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        // Re-measure row rects continuously — the rows move as siblings shift,
-        // so the default (measure-once) can resolve the drop target to the
-        // wrong row. Always-measuring keeps `over` (the saved position) accurate.
-        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-      >
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <colgroup>
-              <col style={{ width: 36 }} />
-              <col style={{ width: 90 }} />
-              <col />
-              <col />
-              <col style={{ width: 130 }} />
-              <col style={{ width: 90 }} />
-              <col style={{ width: 110 }} />
-            </colgroup>
-            <thead><tr>
-              <th style={colHead}></th>
-              <th style={colHead}>STATUS:</th>
-              <th style={colHead}>RESTAURANT:</th>
-              <th style={colHead}>ADDRESS:</th>
-              <th style={colHead}>REGISTRATION:</th>
-              <th style={colHead}>CHECKOUT:</th>
-              <th style={colHead}></th>
-            </tr></thead>
-            <SortableContext items={locations.map(l => l.reference)} strategy={verticalListSortingStrategy}>
-              <tbody>
-                {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-                {!loading && !locations.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No locations.</td></tr>}
-                {!loading && locations.map(loc => (
-                  <SortableLocationRow
-                    key={loc.reference}
-                    loc={loc}
-                    switching={switching === loc.reference}
-                    onToggleStatus={() => toggleStatus(loc)}
-                    onSwitch={() => switchToLocation(loc)}
-                    onCopy={() => copyLocation(loc)}
-                    onEdit={() => openEdit(loc)}
-                  />
-                ))}
-              </tbody>
-            </SortableContext>
-          </table>
-        </div>
-
-        {/* Floating ghost of the dragged row. Rendering it in an overlay (a) lets
-            the row follow the cursor smoothly outside the table's flow, and (b)
-            fixes drop-target detection in native <table>s — collision is now
-            computed against this normally-positioned overlay instead of a
-            transformed <tr>, so `over` (and thus the saved position) resolves
-            correctly. Width is mirrored from the real row's measured cells. */}
-        <DragOverlay>
-          {activeLoc ? (
-            <table style={{ width: overlayWidth || undefined, tableLayout: 'fixed', borderCollapse: 'collapse', background: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.18)', borderRadius: 8, fontFamily: F }}>
-              <tbody>
-                <tr style={{ background: '#f5f6ff' }}>
-                  <LocationCells loc={activeLoc} switching={switching === activeLoc.reference} widths={overlayWidths} />
-                </tr>
-              </tbody>
-            </table>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <colgroup>
+            <col style={{ width: 36 }} />
+            <col style={{ width: 90 }} />
+            <col />
+            <col />
+            <col style={{ width: 130 }} />
+            <col style={{ width: 90 }} />
+            <col style={{ width: 110 }} />
+          </colgroup>
+          <thead><tr>
+            <th style={colHead}></th>
+            <th style={colHead}>STATUS:</th>
+            <th style={colHead}>RESTAURANT:</th>
+            <th style={colHead}>ADDRESS:</th>
+            <th style={colHead}>REGISTRATION:</th>
+            <th style={colHead}>CHECKOUT:</th>
+            <th style={colHead}></th>
+          </tr></thead>
+          <tbody>
+            {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !locations.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No locations.</td></tr>}
+            {!loading && locations.map(loc => (
+              <LocationRow
+                key={loc.reference}
+                loc={loc}
+                isDragged={draggedRef === loc.reference}
+                isDragOver={dragOverRef === loc.reference}
+                switching={switching === loc.reference}
+                onDragStart={e => handleRowDragStart(e, loc.reference)}
+                onDragOver={e => handleRowDragOver(e, loc.reference)}
+                onDrop={e => handleRowDrop(e, loc.reference)}
+                onDragEnd={handleRowDragEnd}
+                onToggleStatus={() => toggleStatus(loc)}
+                onSwitch={() => switchToLocation(loc)}
+                onCopy={() => copyLocation(loc)}
+                onEdit={() => openEdit(loc)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
         <div style={{ fontSize: 12, color: '#666' }}>
@@ -453,48 +412,65 @@ const pageBtn: React.CSSProperties = {
   background: '#fff', border: '1px solid #ddd', borderRadius: 6,
   padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK,
 }
-interface LocationCellsProps {
+
+interface LocationRowProps {
   loc: Location
+  isDragged: boolean
+  isDragOver: boolean
   switching: boolean
-  // Drag handle (attributes + listeners) for the real row's first cell; omitted
-  // for the overlay ghost.
-  handleProps?: React.HTMLAttributes<HTMLTableCellElement>
-  // Per-column pixel widths, applied only to the overlay ghost so its <table>
-  // lines up with the real one.
-  widths?: number[]
-  onToggleStatus?: () => void
-  onSwitch?: () => void
-  onCopy?: () => void
-  onEdit?: () => void
+  onDragStart: (e: React.DragEvent) => void
+  onDragOver: (e: React.DragEvent) => void
+  onDrop: (e: React.DragEvent) => void
+  onDragEnd: (e: React.DragEvent) => void
+  onToggleStatus: () => void
+  onSwitch: () => void
+  onCopy: () => void
+  onEdit: () => void
 }
 
-// The seven <td>s of a location row, shared by the live sortable row and the
-// drag overlay so they can never visually drift apart.
-function LocationCells({ loc, switching, handleProps, widths, onToggleStatus, onSwitch, onCopy, onEdit }: LocationCellsProps) {
+function LocationRow({
+  loc, isDragged, isDragOver, switching,
+  onDragStart, onDragOver, onDrop, onDragEnd,
+  onToggleStatus, onSwitch, onCopy, onEdit,
+}: LocationRowProps) {
   const slug = loc.businessNameWithoutSpaces || ''
   const checkoutHref = slug ? `${DISCO_FRONTEND}${slug}` : ''
   const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
   const clickableCell: React.CSSProperties = { ...cell, cursor: 'pointer' }
-  const w = (i: number): React.CSSProperties => (widths && widths[i] != null ? { width: widths[i], boxSizing: 'border-box' } : {})
   return (
-    <>
-      <td style={{ ...cell, ...w(0), textAlign: 'center', cursor: 'grab', touchAction: 'none' }} {...(handleProps || {})} title="Drag to reorder">
+    <tr
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+      style={{
+        opacity: isDragged ? 0.4 : (loc.archived ? 0.6 : 1),
+        background: isDragOver ? '#eef0ff' : (loc.archived ? '#fafafa' : '#fff'),
+      }}
+    >
+      {/* Only the drag handle is draggable, so clicks on the other cells still
+          switch/edit the location. */}
+      <td
+        draggable
+        onDragStart={onDragStart}
+        style={{ ...cell, textAlign: 'center', cursor: 'grab' }}
+        title="Drag to reorder"
+      >
         <IconDrag />
       </td>
-      <td style={{ ...cell, ...w(1) }}>
-        <Toggle checked={!loc.blocked} onChange={onToggleStatus || (() => {})} disabled={loc.archived} />
+      <td style={cell}>
+        <Toggle checked={!loc.blocked} onChange={onToggleStatus} disabled={loc.archived} />
       </td>
-      <td style={{ ...clickableCell, ...w(2), fontWeight: 500 }} onClick={onSwitch} title="Switch to this restaurant">
+      <td style={{ ...clickableCell, fontWeight: 500 }} onClick={onSwitch} title="Switch to this restaurant">
         {loc.businessName}
         {switching && <span style={{ marginLeft: 6, color: '#aaa', fontSize: 11 }}>switching…</span>}
       </td>
-      <td style={{ ...clickableCell, ...w(3), color: '#555' }} onClick={onSwitch}>
+      <td style={{ ...clickableCell, color: '#555' }} onClick={onSwitch}>
         {loc.address?.addressLine1 || ''}
       </td>
-      <td style={{ ...clickableCell, ...w(4), color: '#666' }} onClick={onSwitch}>
+      <td style={{ ...clickableCell, color: '#666' }} onClick={onSwitch}>
         {fmtRegDate(loc.createdDate)}
       </td>
-      <td style={{ ...cell, ...w(5) }}>
+      <td style={cell}>
         {checkoutHref ? (
           <a
             href={checkoutHref}
@@ -511,47 +487,12 @@ function LocationCells({ loc, switching, handleProps, widths, onToggleStatus, on
           </a>
         ) : <span style={{ color: '#bbb' }}>—</span>}
       </td>
-      <td style={{ ...cell, ...w(6), textAlign: 'right' }}>
+      <td style={{ ...cell, textAlign: 'right' }}>
         <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
           <button onClick={onCopy} title="Copy" style={iconBtn}><IconCopy /></button>
           <button onClick={onEdit} title="Edit" style={iconBtn}><IconEdit /></button>
         </div>
       </td>
-    </>
-  )
-}
-
-interface SortableLocationRowProps {
-  loc: Location
-  switching: boolean
-  onToggleStatus: () => void
-  onSwitch: () => void
-  onCopy: () => void
-  onEdit: () => void
-}
-
-function SortableLocationRow({ loc, switching, onToggleStatus, onSwitch, onCopy, onEdit }: SortableLocationRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: loc.reference, animateLayoutChanges })
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    // While THIS row is the one being dragged it's hidden in place — the
-    // DragOverlay renders the floating ghost. Its slot stays, and the sibling
-    // rows shift via the sortable transform to show where it will land.
-    opacity: isDragging ? 0 : (loc.archived ? 0.6 : 1),
-    background: loc.archived ? '#fafafa' : '#fff',
-  }
-  return (
-    <tr ref={setNodeRef} data-loc-row={loc.reference} style={style}>
-      <LocationCells
-        loc={loc}
-        switching={switching}
-        handleProps={{ ...attributes, ...listeners } as React.HTMLAttributes<HTMLTableCellElement>}
-        onToggleStatus={onToggleStatus}
-        onSwitch={onSwitch}
-        onCopy={onCopy}
-        onEdit={onEdit}
-      />
     </tr>
   )
 }
