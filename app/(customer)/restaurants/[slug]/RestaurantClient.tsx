@@ -181,6 +181,21 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
 
+  // Viewport-aware rendering for the order CTA: SSR has no window so we keep
+  // BOTH bars in the initial HTML (existing CSS media-query hides the wrong
+  // one — no FOUC on mobile). After hydration we drop the inactive one from
+  // the DOM, so the CTA text doesn't show up twice in the rendered page.
+  // null === hydration hasn't run yet, render both.
+  const [isMobileViewport, setIsMobileViewport] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(max-width: 900px)')
+    const update = () => setIsMobileViewport(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+
   // Add-ons modal
   const [addOnsPkg, setAddOnsPkg] = useState<FmPackage | null>(null)
   const [selAddOns, setSelAddOns] = useState<Record<string, Record<string, number>>>({})
@@ -501,7 +516,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const notices: string[] = []
   if (sched?.prepTime) notices.push(`${sched.prepTime}hr lead time`)
   if (minOrder) notices.push(`${formatPrice(minOrder)} minimum`)
-  if (menuAvail.length) notices.push(menuAvail.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & '))
+  // Only surface fulfillment in the notice bar when FM EXPLICITLY returned
+  // menuAvailability — the order-flow fallback to [PICKUP, DELIVERY] (used
+  // elsewhere) is a sensible default for the cart, but in the announcement
+  // bar it would falsely advertise delivery for restaurants that may only
+  // offer pickup. Skip the line when FM is silent rather than claim both.
+  const fmFulfillment = settings?.menuAvailability
+  if (Array.isArray(fmFulfillment) && fmFulfillment.length) {
+    notices.push(fmFulfillment.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & '))
+  }
 
   // ── Cart helpers ──────────────────────────────────────────────────────────
   // cartQty sums across all configurations of the same package, since the
@@ -851,17 +874,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             ← Back to Catering Map
           </Link>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 18 }}>
-            <div style={{ width: 80, height: 80, borderRadius: 14, overflow: 'hidden', flexShrink: 0, background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 80, height: 80, borderRadius: 14, overflow: 'hidden', flexShrink: 0, background: (headerImg && !headerImgError) ? '#f0f0f0' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {headerImg && !headerImgError
                 ? <img src={headerImg} alt={restaurant.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={() => setHeaderImgError(true)} />
-                : <span style={{ fontSize: 32 }}>🍽️</span>}
+                : <span style={{ fontSize: 32, color: '#fff', fontWeight: 700, fontFamily: F }}>{(restaurant.name?.[0] || '·').toUpperCase()}</span>}
             </div>
             <div style={{ flex: 1 }}>
               {restaurant.isDisco && (
                 <div style={{ display: 'inline-block', background: GRAD, color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 10px', borderRadius: 20, marginBottom: 6, letterSpacing: '0.06em' }}>🪩 PREMIUM</div>
               )}
               <h1 style={{ fontSize: 24, fontWeight: 800, color: DARK, margin: '0 0 4px', letterSpacing: '-0.02em' }}>{restaurant.name}</h1>
-              <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>📍 {restaurant.location || restaurant.address}</div>
+              <div style={{ fontSize: 13, color: '#585786', marginBottom: 6 }}>📍 {restaurant.location || restaurant.address}</div>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {tags.map(t => <span key={t} style={{ background: '#f0f0f0', color: '#555', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
                 {restaurant.tags?.map(t => <span key={t} style={{ background: '#EEEDFE', color: '#3C3489', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
@@ -936,7 +959,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                           <div style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 4, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pkg.name}</div>
                           {pkg.description && (
-                            <p style={{ fontSize: 12, color: '#666', lineHeight: 1.5, margin: '0 0 8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>
+                            <p style={{ fontSize: 12, color: '#585786', lineHeight: 1.5, margin: '0 0 8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>
                               {pkg.description}
                             </p>
                           )}
@@ -973,7 +996,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         </div>
 
         {/* RIGHT: sticky cart — explicit flex basis so it can't expand
-            and push the left column out from under it. */}
+            and push the left column out from under it. Hidden after
+            hydration on mobile viewports (see isMobileViewport). */}
+        {isMobileViewport !== true && (
         <div className="order-sidebar" style={{ flex: '0 0 340px', width: 340 }}>
           <div style={{ position: 'sticky', top: hasSelection ? 106 : 68 }}>
             <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', marginBottom: cart.length > 0 && fmRef ? 10 : 0 }}>
@@ -994,14 +1019,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             )}
           </div>
         </div>
+        )}
       </div>
 
-      {/* Mobile bottom bar */}
+      {/* Mobile bottom bar — hidden after hydration on desktop viewports. */}
+      {isMobileViewport !== false && (
       <div className="mobile-order-bar" style={{ display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: '#fff', borderTop: '1px solid #f0f0f0', boxShadow: '0 -4px 16px rgba(0,0,0,0.06)', zIndex: 100 }}>
         <button onClick={() => setMobileCartOpen(true)} style={{ width: '100%', padding: '14px', background: cartCount > 0 ? GRAD : '#e8e8e8', color: cartCount > 0 ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: cartCount > 0 ? '0 4px 14px rgba(107,110,249,0.28)' : 'none' }}>
           {ctaLabel}
         </button>
       </div>
+      )}
 
       {mobileCartOpen && (
         <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 600, display: 'flex', flexDirection: 'column' }}>
@@ -1208,7 +1236,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em', marginBottom: 4 }}>{addOnsPkg.name}</div>
                 {addOnsPkg.description && (
-                  <p style={{ fontSize: 13, color: '#666', lineHeight: 1.55, margin: '0 0 4px' }}>{addOnsPkg.description}</p>
+                  <p style={{ fontSize: 13, color: '#585786', lineHeight: 1.55, margin: '0 0 4px' }}>{addOnsPkg.description}</p>
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{formatPrice(addOnsPkg.price)}</span>

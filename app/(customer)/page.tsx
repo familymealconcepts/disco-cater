@@ -283,7 +283,7 @@ export default function HomePage() {
           <p className="home-description" style={{
             fontSize: 14,
             fontWeight: 400,
-            color: '#888',
+            color: '#585786',
             marginTop: 40,
             lineHeight: 1.65,
             textAlign: 'center',
@@ -302,14 +302,14 @@ export default function HomePage() {
           gap: 24,
           paddingBottom: 'max(18px, env(safe-area-inset-bottom))',
         }}>
-          <a href="mailto:info@familymeal.com"
+          <a href="mailto:concierge@discocater.com"
             style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
             onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
             onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
             Contact
           </a>
           <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-          <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 FamilyMeal Concepts</span>
+          <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 Disco Cater</span>
         </footer>
 
       </div>

@@ -150,7 +150,7 @@ function OrderListRow({ o, onClick }: { o: ApiOrder; onClick: () => void }) {
       onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#fafafa'}
       onMouseOut={e => (e.currentTarget as HTMLElement).style.background = ''}
     >
-      <div style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>🍽️</div>
+      <div style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, background: '#1A1028', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>{(name?.[0] || '·').toUpperCase()}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{name}</div>
         <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>

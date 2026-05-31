@@ -151,8 +151,8 @@ export default async function RestaurantsPage() {
       {/* ── Footer ─────────────────────────────────────────────── */}
       <footer style={{ borderTop: '1px solid #f0f0f0', padding: '20px 24px', textAlign: 'center' }}>
         <span style={{ fontSize: 12, color: '#bbb', fontFamily: 'sans-serif' }}>
-          <a href="mailto:info@familymeal.com" style={{ color: '#bbb', textDecoration: 'none' }}>Contact</a>
-          {' · '}© {new Date().getFullYear()} FamilyMeal Concepts
+          <a href="mailto:concierge@discocater.com" style={{ color: '#bbb', textDecoration: 'none' }}>Contact</a>
+          {' · '}© {new Date().getFullYear()} Disco Cater
         </span>
       </footer>
     </>

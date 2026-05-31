@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Disco Cater",
-  description: "Premium catering, perfectly curated.",
+  description: "Discover and order premium catering from the best local restaurants. Corporate, holiday, and event catering — delivered or picked up.",
 };
 
 export default function RootLayout({

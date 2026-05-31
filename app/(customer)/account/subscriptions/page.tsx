@@ -405,11 +405,12 @@ function SubscriptionCard({ sub, busy, onPause, onResume, onCancel, onArchive }:
       {/* Thumbnail */}
       <div style={{
         width: 56, height: 56, borderRadius: 10, flexShrink: 0,
-        background: img ? `center/cover no-repeat url(${img})` : '#EEEDFE',
+        background: img ? `center/cover no-repeat url(${img})` : '#1A1028',
+        color: '#fff',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 22,
+        fontSize: 22, fontWeight: 700, fontFamily: "'DM Sans', sans-serif",
       }}>
-        {!img && '🍽️'}
+        {!img && (restName?.[0] || '·').toUpperCase()}
       </div>
 
       {/* Main */}

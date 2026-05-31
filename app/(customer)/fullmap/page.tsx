@@ -745,7 +745,7 @@ function FullMapInner() {
           {progressBar}
           <div style={{ textAlign: 'center', padding: '40px 0' }}>
             <div style={{ fontSize: 32, marginBottom: 14 }}>✨</div>
-            <div style={{ fontSize: bodySz, color: '#777', marginBottom: 20, fontFamily: "'DM Sans',sans-serif" }}>
+            <div style={{ fontSize: bodySz, color: '#585786', marginBottom: 20, fontFamily: "'DM Sans',sans-serif" }}>
               Finding your perfect match…
             </div>
             <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
@@ -1084,7 +1084,22 @@ function FullMapInner() {
                 </div>
               ))
             )}
-            {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: '48px 24px', textAlign: 'center', color: '#bbb', fontSize: 14 }}><div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>No restaurants match.</div>}
+            {restaurantsLoaded && filtered.length === 0 && (
+              <div style={{ padding: '48px 24px', textAlign: 'center', color: '#777', fontSize: 14 }}>
+                <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
+                {proximityAnchor ? (
+                  <>
+                    <div style={{ marginBottom: 14, lineHeight: 1.5 }}>
+                      No restaurants found near <strong style={{ color: '#1A1028' }}>{locInput || 'this area'}</strong>.<br />
+                      Try expanding your search or browsing all restaurants.
+                    </div>
+                    <button onClick={() => { setProximityAnchor(null); setLocInput('') }} style={{ padding: '9px 18px', borderRadius: 20, background: '#1A1028', color: '#fff', border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
+                      Clear location filter
+                    </button>
+                  </>
+                ) : 'No restaurants match.'}
+              </div>
+            )}
             {filtered.map((r, i) => (
                 <div
                   key={r._id}
@@ -1251,7 +1266,21 @@ function FullMapInner() {
                   </div>
                 ))
               )}
-              {restaurantsLoaded && filtered.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No restaurants match.</div>}
+              {restaurantsLoaded && filtered.length === 0 && (
+                <div style={{ padding: '32px 22px', textAlign: 'center', color: '#777', fontSize: 13 }}>
+                  {proximityAnchor ? (
+                    <>
+                      <div style={{ marginBottom: 12, lineHeight: 1.5 }}>
+                        No restaurants found near <strong style={{ color: '#1A1028' }}>{locInput || 'this area'}</strong>.<br />
+                        Try expanding your search or browsing all restaurants.
+                      </div>
+                      <button onClick={() => { setProximityAnchor(null); setLocInput('') }} style={{ padding: '8px 16px', borderRadius: 20, background: '#1A1028', color: '#fff', border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
+                        Clear location filter
+                      </button>
+                    </>
+                  ) : 'No restaurants match.'}
+                </div>
+              )}
               {filtered.map((r, i) => (
                 <div key={r._id} onClick={() => handleSidebarClick(r)} onDoubleClick={() => { if (r.orderUrl) window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer') }} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.07)' : hoveredId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'background 0.18s, border-color 0.18s', position: 'relative' }}>
                   <FavoriteHeart

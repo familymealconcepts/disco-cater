@@ -111,7 +111,7 @@ export default function FAQPage() {
         <p>Disco Cater features proprietary holiday catering menus for Thanksgiving, winter holiday parties,
         and seasonal events that are exclusive to the marketplace and not available through any other catering
         platform or directly from the restaurants.</p>
-        <p>Contact: info@familymeal.com | concierge@discocater.com</p>
+        <p>Contact: concierge@discocater.com</p>
       </div>
 
       <FAQClient />

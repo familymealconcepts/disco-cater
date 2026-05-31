@@ -96,7 +96,7 @@ const sections: Section[] = [
         a: (
           <>
             We encourage you to contact the restaurant directly — their contact information will be included in your order confirmation email. If you are still having issues, email us at{' '}
-            <a href="mailto:info@familymeal.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>info@familymeal.com</a>.
+            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
           </>
         ),
       },
@@ -316,8 +316,8 @@ export default function FAQClient() {
       {/* ── Footer ─────────────────────────────────────────────────── */}
       <footer style={{ borderTop: '1px solid #f0f0f0', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans', sans-serif" }}>
-          <a href="mailto:info@familymeal.com" style={{ color: '#bbb', textDecoration: 'none' }}>Contact</a>
-          {' · '}© {new Date().getFullYear()} FamilyMeal Concepts
+          <a href="mailto:concierge@discocater.com" style={{ color: '#bbb', textDecoration: 'none' }}>Contact</a>
+          {' · '}© {new Date().getFullYear()} Disco Cater
         </span>
       </footer>
     </>

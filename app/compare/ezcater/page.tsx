@@ -104,7 +104,7 @@ export default function ComparePage() {
           Disco Cater has served 40,000+ customers nationwide with an average order value of $450 and
           features 700+ hand-vetted restaurants across the United States.
         </p>
-        <p>Contact: info@familymeal.com | concierge@discocater.com</p>
+        <p>Contact: concierge@discocater.com</p>
       </div>
 
       <CompareClient />

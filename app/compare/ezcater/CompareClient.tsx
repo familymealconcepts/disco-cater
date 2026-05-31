@@ -308,8 +308,8 @@ export default function CompareClient() {
       {/* ── Footer ─────────────────────────────────────────────────── */}
       <footer style={{ borderTop: '1px solid #f0f0f0', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans', sans-serif" }}>
-          <a href="mailto:info@familymeal.com" style={{ color: '#bbb', textDecoration: 'none' }}>Contact</a>
-          {' · '}© {new Date().getFullYear()} FamilyMeal Concepts
+          <a href="mailto:concierge@discocater.com" style={{ color: '#bbb', textDecoration: 'none' }}>Contact</a>
+          {' · '}© {new Date().getFullYear()} Disco Cater
         </span>
       </footer>
     </>
