@@ -202,6 +202,14 @@ export default function LocationsPage() {
       if (page > 0) params.set('page', String(page))
       params.set('size', String(pageSize))
       if (search) params.set('search', search)
+      // Order by the saved drag position. FM's list endpoint only honors
+      // locationPosition when a sort param is present — with none it returns the
+      // managedRestaurants HashSet in arbitrary order, so reorders (persisted via
+      // PUT .../position) never show. "locationPosition" isn't one of the
+      // backend's named sort cases, so it hits the default branch:
+      // Comparator.comparing(Restaurant::getLocationPosition). (FM's own UI omits
+      // this, which is why its reorder doesn't stick either.)
+      params.append('sort', 'locationPosition,asc')
       const res = await fetch(`/api/restaurant/locations?${params}`)
       if (!res.ok) {
         const data = await res.json().catch(() => null)
