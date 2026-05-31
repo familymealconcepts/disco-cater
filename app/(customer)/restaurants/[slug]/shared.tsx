@@ -112,6 +112,19 @@ function joinFmAddress(a?: FmRestaurantLookup['address']): string {
   return [line, cityStateZip].filter(Boolean).join(' · ').replace(/ · ([A-Z]{2})/g, ', $1')
 }
 
+// Full street address, comma-joined: "123 Main St, New York, NY 10001".
+// Used for the restaurant header so it shows the complete address rather than
+// just the "City, ST" that Sanity's `location` field carries.
+function formatFullAddress(a?: FmRestaurantLookup['address']): string {
+  if (!a) return ''
+  const street = [a.addressLine1, a.addressLine2].filter(Boolean).join(', ')
+  const tail = [
+    [a.city, a.state].filter(Boolean).join(', '),
+    a.zipcode,
+  ].filter(Boolean).join(' ')
+  return [street, tail].filter(Boolean).join(', ')
+}
+
 async function fetchMenuData(restaurantRef: string) {
   try {
     const menuRes = await fetch(
@@ -249,8 +262,17 @@ export async function RestaurantView({
     const fmSlug = sanityRestaurant.orderUrl
       ? sanityRestaurant.orderUrl.replace(/.*\/disco\//, '').replace(/\/.*/, '').trim()
       : null
-    const fmRef = fmSlug ? await resolveFmRef(fmSlug) : null
+    // Resolve the FM restaurant once — it carries the full street address
+    // (Sanity's `location` is only "City, ST" and its `address` is null for most
+    // restaurants). Fall back to the list-based ref lookup if the business
+    // endpoint doesn't recognize this slug, so ref resolution stays as robust.
+    const fmBody = fmSlug ? await fetchFmRestaurantBySlug(fmSlug) : null
+    const fmRef = fmBody?.reference ?? (fmSlug ? await resolveFmRef(fmSlug) : null)
+    const fmFullAddress = fmBody ? formatFullAddress(fmBody.address) : ''
     const menuData = fmRef ? await fetchMenuData(fmRef) : []
+    // Prefer the full FM address, then Sanity's full address string, then the
+    // short "City, ST" so the header always renders something.
+    const fullAddress = fmFullAddress || sanityRestaurant.address || sanityRestaurant.location || ''
     return (
       <>
         <SeoBlock
@@ -260,7 +282,7 @@ export async function RestaurantView({
           description={sanityRestaurant.description}
         />
         <RestaurantClient
-          restaurant={sanityRestaurant}
+          restaurant={{ ...sanityRestaurant, address: fullAddress }}
           fmSlug={fmSlug}
           fmRef={fmRef}
           menuData={menuData}

@@ -900,7 +900,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 <div style={{ display: 'inline-block', background: GRAD, color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 10px', borderRadius: 20, marginBottom: 6, letterSpacing: '0.06em' }}>🪩 PREMIUM</div>
               )}
               <h1 style={{ fontSize: 24, fontWeight: 800, color: DARK, margin: '0 0 4px', letterSpacing: '-0.02em' }}>{restaurant.name}</h1>
-              <div style={{ fontSize: 13, color: '#585786', marginBottom: 6 }}>📍 {restaurant.location || restaurant.address}</div>
+              <div style={{ fontSize: 13, color: '#585786', marginBottom: 6 }}>📍 {restaurant.address || restaurant.location}</div>
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {tags.map(t => <span key={t} style={{ background: '#f0f0f0', color: '#555', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
                 {restaurant.tags?.map(t => <span key={t} style={{ background: '#EEEDFE', color: '#3C3489', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
