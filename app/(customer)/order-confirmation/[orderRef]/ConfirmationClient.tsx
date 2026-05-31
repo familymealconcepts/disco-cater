@@ -44,6 +44,11 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   }, [orderRef])
 
   const restaurantName = order?.restaurantName || order?.restaurant?.name || order?.restaurantReference || ''
+  // FM returns a short human-friendly order number on /api/userOrder/{ref}
+  // (e.g. 82243405) — show that instead of the UUID. Fall back to the first
+  // 8 chars of the UUID if FM doesn't return one (older orders, etc).
+  const orderNumber = order?.orderNumber ?? order?.orderNum
+  const displayId = orderNumber ? String(orderNumber) : orderRef.slice(0, 8)
   const items: any[] = order?.mealPackages || order?.items || order?.packages || []
   const total = order?.total ?? order?.totalAmount ?? order?.totalCost ?? 0
   const deliveryFee = order?.deliveryFee ?? 0
@@ -68,7 +73,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
               <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
               <h1 style={{ fontSize: 28, fontWeight: 800, color: DARK, margin: '0 0 10px' }}>Order Placed!</h1>
               <p style={{ fontSize: 15, color: '#666', margin: '0 0 6px' }}>Your order has been confirmed.</p>
-              <p style={{ fontSize: 13, color: '#aaa', margin: '0 0 32px' }}>Order #{orderRef}</p>
+              <p style={{ fontSize: 13, color: '#aaa', margin: '0 0 32px' }}>Order #{displayId}</p>
             </div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
               <Link href="/portal" style={{ padding: '12px 24px', background: BLUE, color: '#fff', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>My Orders</Link>
@@ -81,7 +86,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
               <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 36 }}>✅</div>
               <h1 style={{ fontSize: 28, fontWeight: 800, color: DARK, margin: '0 0 8px', letterSpacing: '-0.02em' }}>Order Confirmed!</h1>
               {restaurantName && <p style={{ fontSize: 16, color: '#666', margin: '0 0 6px' }}>Your catering from <strong>{restaurantName}</strong> is confirmed.</p>}
-              <p style={{ fontSize: 13, color: '#aaa' }}>Order #{orderRef}</p>
+              <p style={{ fontSize: 13, color: '#aaa' }}>Order #{displayId}</p>
               {status && <span style={{ display: 'inline-block', marginTop: 8, padding: '4px 12px', borderRadius: 20, background: '#ECFDF5', color: '#166534', fontSize: 12, fontWeight: 700 }}>{status}</span>}
             </div>
 

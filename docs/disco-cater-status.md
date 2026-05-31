@@ -26,15 +26,24 @@ First live order successfully placed and charged end-to-end on 2026-05-30
 blocker on the native ordering flow.
 
 ## 📋 Next priorities
-1. **Editable contact fields at checkout.** FM pre-fills firstName/lastName/email/
-   phone from the logged-in user but keeps them **editable** (customers order for
-   others) — `checkout-customer-info.component.ts:195-204, 313-318`. Disco
-   hardcodes `customer` from `authUser` with no editable UI.
-2. **Order-ID display format.** FM shows a short `orderNumber`
-   (`order-confirmed.component.html:14-15`); Disco shows the raw UUID `orderRef`
-   (`ConfirmationClient.tsx:71, 84`). Show `orderNumber` instead.
+1. ✅ **Editable contact fields at checkout — RESOLVED (`f897f8f`).** First/last/
+   email/phone are pre-filled from `authUser` and editable in the drawer; the
+   place body's `customer` reads from those values, mirroring FM
+   (`checkout-customer-info.component.ts:195-204, 313-318`).
+2. ✅ **Order-ID display format — RESOLVED (`6cba9c4`+).** Confirmation page
+   shows FM's short `orderNumber` instead of the UUID (falls back to the first
+   8 chars of the UUID if FM doesn't return one).
 3. ✅ **Stripe "Incomplete" on first test order — RESOLVED (`8d9c304`).** See
    "Recently resolved" below.
+4. **In-drawer tip / quantity controls (future UX).** The re-pricing effect on
+   `[tipAmt, cartKey]` is wired in `CheckoutDrawer.tsx` — a PUT will fire and
+   FM will recompute tax/fees/total whenever those props change. But the tip
+   pills (10/15/20/Other) and qty +/- buttons currently only exist in
+   `RestaurantClient.tsx`'s Stage 1 cart panel; the drawer overlays Stage 1
+   with a click-blocking backdrop, so today the diner has to close the drawer,
+   change tip or qty, and reopen. A future pass should lift those controls
+   into the drawer so they can be tweaked in-flight; the wiring is already
+   there to receive the change.
 
 ## 📋 Group library — follow-ups (deferred)
 Restored visibility this session — `manage/groups/page.tsx` was calling the

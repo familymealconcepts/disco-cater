@@ -277,6 +277,14 @@ export default function CheckoutDrawer({
   const orderRefRef = useRef('')
   useEffect(() => { orderRefRef.current = orderRef }, [orderRef])
 
+  // Stable string fingerprint of the cart, used as a dependency for the
+  // re-price effect below — cart changes (qty +/- or add-on edits upstream)
+  // mean the PUT must re-fire so FM recomputes tax/fees/total.
+  const cartKey = useMemo(
+    () => cart.map(i => `${i.pkg.reference}:${i.quantity}:${i.addOns.map(a => `${a.reference}x${a.count}`).join(',')}`).join('|'),
+    [cart],
+  )
+
   // The full ICheckoutPreview DTO that FM's init, re-price (PUT), and place all
   // take. Built from one place so the priced order and the placed order can't
   // drift apart.
@@ -367,6 +375,18 @@ export default function CheckoutDrawer({
     runPricing(true).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taxExemptApplied, couponApplied])
+
+  // Re-price when the upstream tip selection or cart contents change. tipAmt,
+  // cart subtotal, and cart contents come in as props (the tip pills and qty
+  // +/- buttons live in RestaurantClient's cart panel), and FM has to recompute
+  // tax/fees/total whenever any of them shift. Skips on first mount because
+  // step is still 'processing' until init returns. Once on 'payment' with a
+  // ref, every later change in deps fires a PUT.
+  useEffect(() => {
+    if (step !== 'payment' || !orderRef) return
+    runPricing(true).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipAmt, cartKey])
 
   // After a re-price, validate the promo: a code with no resulting discount is
   // reported as invalid/ineligible.
