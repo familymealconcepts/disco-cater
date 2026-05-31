@@ -121,7 +121,6 @@ export default function LocationsPage() {
     // otherwise a failed save leaves the optimistic order on screen while a
     // reload silently reverts it (the "reorder not persisting" symptom).
     const previous = locations
-    const moved = locations[oldIndex]
     const reordered = arrayMove(locations, oldIndex, newIndex)
     setLocations(reordered)
     // FM's drop handler computes the absolute index across pages
@@ -129,14 +128,14 @@ export default function LocationsPage() {
     try {
       const res = await fetch(`/api/restaurant/locations/${active.id}/position?position=${absoluteIndex}`, { method: 'PUT' })
       if (res.ok) {
-        showToast(`Order for ${moved.businessName} successfully updated!`)
+        showToast('Updated')
       } else {
         setLocations(previous)
-        showToast('Could not save the new order. Please try again.')
+        showToast('Could not save the new position. Please try again.')
       }
     } catch {
       setLocations(previous)
-      showToast('Could not save the new order. Please try again.')
+      showToast('Could not save the new position. Please try again.')
     }
   }
 
