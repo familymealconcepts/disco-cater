@@ -54,6 +54,11 @@ interface Props {
   // an inline prompt so we can still ask — Skip is allowed.
   headcount: number | null
   onHeadcount: (n: number | null) => void
+  // True only on the 1st-party /order/[slug] route. Selects the sourceoforder
+  // wire value sent to FM ("FAMILYMEAL" when true → no lead-gen fee; "DISCO"
+  // when false → 3P lead-gen fee). Defaults false so /restaurants/[slug] is
+  // unchanged.
+  isFirstParty?: boolean
   onClose: () => void
 }
 
@@ -101,7 +106,8 @@ function fmtTime(t: string) {
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function CheckoutDrawer({
   fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType,
-  addr, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount, onClose,
+  addr, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount,
+  isFirstParty = false, onClose,
 }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -455,9 +461,11 @@ export default function CheckoutDrawer({
       const checkoutDetails: Record<string, unknown> = {
         ...buildCheckoutDto(),
         paymentMethod: 'PAYMENT',
-        // ALWAYS "DISCO" for discocater.com orders — this is how FM attributes
-        // lead-generation fees. Never change or make this configurable.
-        sourceoforder: 'DISCO',
+        // FM attributes lead-generation fees off this wire value. Two ordering
+        // surfaces, two values: "DISCO" for /restaurants/[slug] (3P, lead gen
+        // fee applies), "FAMILYMEAL" for /order/[slug] (1P, no fee). Never
+        // change these strings or expose them in the UI (show "3P"/"1P").
+        sourceoforder: isFirstParty ? 'FAMILYMEAL' : 'DISCO',
       }
       delete checkoutDetails.restaurantRef // proxy-URL field only; not part of ICheckoutPreview
       const placeRes = await fetch('/api/order/place', {

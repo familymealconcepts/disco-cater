@@ -27,6 +27,26 @@ interface ApiOrder {
   serviceType?: string
   headcount?: number
   numberOfPeople?: number
+  // FM wire attribution: "DISCO" (3P) or "FAMILYMEAL" (1P). Shown as a small
+  // "3P"/"1P" pill; the raw value is never displayed.
+  sourceoforder?: string
+}
+
+// 3P / 1P attribution pill. "DISCO" → 3P (Disco Blue), "FAMILYMEAL" → 1P
+// (gray). Renders nothing for unknown/absent values.
+function SourcePill({ source }: { source?: string }) {
+  if (source !== 'DISCO' && source !== 'FAMILYMEAL') return null
+  const is3P = source === 'DISCO'
+  return (
+    <span style={{
+      display: 'inline-block', marginLeft: 6, padding: '1px 5px', borderRadius: 4,
+      fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', verticalAlign: 'middle',
+      color: '#fff', background: is3P ? '#5B6FE8' : '#9090C8',
+    }}
+      title={is3P ? 'Third-party (marketplace)' : 'First-party (direct link)'}>
+      {is3P ? '3P' : '1P'}
+    </span>
+  )
 }
 
 function fmtDateLong(d?: string) {
@@ -152,7 +172,7 @@ function OrderListRow({ o, onClick }: { o: ApiOrder; onClick: () => void }) {
     >
       <div style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, background: '#1A1028', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17, fontWeight: 700, fontFamily: "'DM Sans', sans-serif" }}>{(name?.[0] || '·').toUpperCase()}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{name}</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#111' }}>{name}<SourcePill source={o.sourceoforder} /></div>
         <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
           {people ? `${people} people · ` : ''}{service ? `${service} · ` : ''}
           <span style={{ color: paid ? '#1D9E75' : '#E24B4A', fontWeight: 600 }}>{paid ? 'Paid' : 'Unpaid'}</span>

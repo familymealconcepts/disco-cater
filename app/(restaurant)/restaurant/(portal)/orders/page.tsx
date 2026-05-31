@@ -61,6 +61,11 @@ interface Order {
   nashDeliveryPublicTrackingUrl?: string
   maxAllowedRefundAmount?: number
   note?: string
+  // FM wire attribution: "DISCO" (3P, marketplace, lead-gen fee) or
+  // "FAMILYMEAL" (1P, restaurant's own direct link). It's already on the FM
+  // response — the old type just dropped it. Rendered as a "3P"/"1P" pill;
+  // never show the raw value.
+  sourceoforder?: string
 
   // detail-shape additions (returned by GET /api/orders/{ref})
   email?: string
@@ -126,6 +131,24 @@ const DELIVERY_LABEL: Record<string, string> = {
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
+}
+
+// 3P / 1P attribution pill. "DISCO" → 3P (Disco Blue), "FAMILYMEAL" → 1P
+// (gray). Small + subtle, no emoji. Never renders the raw wire value, and
+// renders nothing for unknown/absent values.
+function SourcePill({ source }: { source?: string }) {
+  if (source !== 'DISCO' && source !== 'FAMILYMEAL') return null
+  const is3P = source === 'DISCO'
+  return (
+    <span style={{
+      display: 'inline-block', marginLeft: 6, padding: '1px 5px', borderRadius: 4,
+      fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', verticalAlign: 'middle',
+      color: '#fff', background: is3P ? '#5B6FE8' : '#9090C8',
+    }}
+      title={is3P ? 'Third-party (marketplace)' : 'First-party (direct link)'}>
+      {is3P ? '3P' : '1P'}
+    </span>
+  )
 }
 
 function fmtTime(t: string) {
@@ -864,7 +887,7 @@ function OrdersContent() {
                           {order.firstName} {order.lastName}
                           {isNew && <span style={{ marginLeft: 6, background: BLUE, color: '#fff', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontWeight: 700 }}>NEW</span>}
                         </div>
-                        <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>#{order.orderNumber}</div>
+                        <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>#{order.orderNumber}<SourcePill source={order.sourceoforder} /></div>
                       </td>
                       {aggregating && (
                         <td style={{ padding: '12px 14px', fontSize: 13, color: '#555' }}>

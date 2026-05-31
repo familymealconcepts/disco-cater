@@ -171,9 +171,14 @@ function MonthCalendar({ year, month, availSet, todayIso, selDate, onSelect }: {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, slug }: {
+export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, slug, isFirstParty = false }: {
   restaurant: Restaurant; fmSlug: string | null; fmRef: string | null
   menuData: MenuSection[]; slug: string
+  // True only on the 1st-party /order/[slug] route. Flows straight to
+  // CheckoutDrawer, which uses it to pick the sourceoforder wire value
+  // ("FAMILYMEAL" when true, "DISCO" when false). Defaults false so the
+  // existing 3P /restaurants/[slug] behavior is unchanged.
+  isFirstParty?: boolean
 }) {
   // ── UI state ──────────────────────────────────────────────────────────────
   const [activeMenuIdx, setActiveMenuIdx] = useState(0)
@@ -1217,6 +1222,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           cart={cart} selDate={selDate} selTime={selTime} orderType={orderType}
           addr={addr} subtotal={subtotal} tipAmt={tipAmt} svcAmt={svcAmt} minOrder={minOrder}
           headcount={headcount} onHeadcount={setHeadcount}
+          isFirstParty={isFirstParty}
           onClose={() => setCheckoutOpen(false)}
         />
       )}

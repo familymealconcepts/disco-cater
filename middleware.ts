@@ -60,6 +60,11 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
+  // Public ordering routes — /restaurants/[slug] (3P) and /order/[slug] (1P) —
+  // are intentionally NOT listed here, so the middleware never runs on them and
+  // they stay auth-free (anyone can browse + start an order; auth is only
+  // required at the place-order step inside CheckoutDrawer). Only the portals
+  // below are gated.
   matcher: [
     '/account/:path*',
     '/portal/:path*',

@@ -30,6 +30,9 @@ interface Address {
 interface Restaurant {
   reference: string
   businessName: string
+  // FM's URL-safe slug (e.g. "twohandsfranklin"). Used to build the direct
+  // (1st-party) ordering link. Falls back to a derived slug if absent.
+  businessNameWithoutSpaces?: string
   businessLegalName: string
   timezone: string
   pickupInstructions: string
@@ -123,6 +126,68 @@ function Card({
         </div>
       )}
     </div>
+  )
+}
+
+// FM's businessNameWithoutSpaces when present, else derived from the business
+// name (lowercase, alphanumerics only) to match FM's slug format.
+function restaurantSlug(r: Restaurant | null): string {
+  if (!r) return ''
+  if (r.businessNameWithoutSpaces) return r.businessNameWithoutSpaces
+  return (r.businessName || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+// Read-only "Ordering Links" card. Shows ONLY the 1st-party (commission-free)
+// direct link the restaurant can put on its own site. The 3rd-party
+// marketplace link (/restaurants/[slug]) is deliberately NOT shown — it's
+// controlled by Disco employees only.
+function OrderingLinksCard({ slug }: { slug: string }) {
+  const [copied, setCopied] = useState(false)
+  const directLink = `https://www.discocater.com/order/${slug}`
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(directLink)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard API unavailable (insecure context / older browser) — no-op;
+      // the link text stays selectable for a manual copy.
+    }
+  }
+
+  return (
+    <Card title="Ordering Links">
+      <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 6 }}>
+        Direct ordering link
+      </div>
+      <div style={{ fontSize: 12, color: '#666', marginBottom: 10 }}>
+        Share this link on your website (commission-free).
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+        <input
+          type="text"
+          value={directLink}
+          readOnly
+          onFocus={e => e.currentTarget.select()}
+          style={{
+            flex: 1, border: '1.5px solid #e0e0e0', borderRadius: 8,
+            padding: '9px 12px', fontSize: 13, fontFamily: F, outline: 'none',
+            background: '#f9f9fb', color: DARK,
+          }}
+        />
+        <button
+          onClick={copy}
+          style={{
+            padding: '9px 16px', background: copied ? '#22C55E' : BLUE, color: '#fff',
+            border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap',
+          }}
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+    </Card>
   )
 }
 
@@ -411,6 +476,9 @@ export default function ProfilePage() {
             {inp(admin.phoneNumber, v => setAdmin({ ...admin, phoneNumber: v }), { type: 'tel' })}
           </FormField>
         </Card>
+
+        {/* Ordering Links — read-only, 1st-party direct link only */}
+        <OrderingLinksCard slug={restaurantSlug(restaurant)} />
 
         {/* Card 2: Change Password */}
         <Card title="Change Password" onSave={savePassword} saving={pwSaving} success={pwSuccess} error={pwError}>
