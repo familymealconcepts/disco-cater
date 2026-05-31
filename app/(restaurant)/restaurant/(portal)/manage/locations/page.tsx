@@ -123,10 +123,17 @@ export default function LocationsPage() {
     const previous = locations
     const reordered = arrayMove(locations, oldIndex, newIndex)
     setLocations(reordered)
-    // FM's drop handler computes the absolute index across pages
-    const absoluteIndex = newIndex + (page * pageSize)
+    // Position is the 0-based index where the row actually LANDED, made
+    // absolute across pages. Mirrors FM's drop() (locations.component.ts:115)
+    // which sends event.currentIndex (+ page offset) to
+    // restaurantService.updatePosition → /system-admin/restaurants/{ref}/position.
+    // Derive it from the post-move array so it reflects the true landing spot
+    // (the old code reused `newIndex`, the pre-move index of the row dropped
+    // ON — which collapses to 0 whenever you drop onto the top row).
+    const landedIndex = reordered.findIndex(l => l.reference === active.id)
+    const position = landedIndex + page * pageSize
     try {
-      const res = await fetch(`/api/restaurant/locations/${active.id}/position?position=${absoluteIndex}`, { method: 'PUT' })
+      const res = await fetch(`/api/restaurant/locations/${active.id}/position?position=${position}`, { method: 'PUT' })
       if (res.ok) {
         showToast('Updated')
       } else {
