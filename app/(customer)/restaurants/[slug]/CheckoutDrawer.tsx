@@ -61,13 +61,20 @@ interface Props {
   // when false → 3P lead-gen fee). Defaults false so /restaurants/[slug] is
   // unchanged.
   isFirstParty?: boolean
+  // Direct Entry: a restaurant admin placing on behalf of a customer (routed in
+  // from /restaurant/orders/create?mode=direct-entry). Bypasses the customer
+  // auth gate, places via the restaurant-authed proxy, and forces sourceoforder
+  // FAMILYMEAL. method=invoice hides the card fields and sends a payment link
+  // instead of charging; method=payment keeps the card UI but is gated.
+  isDirectEntry?: boolean
+  directEntryMethod?: 'payment' | 'invoice'
   // Close the drawer and reopen the order-setup modal so the diner can
   // re-validate a different delivery address. Falls back to onClose.
   onChangeAddress?: () => void
   onClose: () => void
 }
 
-type DrawerStep = 'processing' | 'payment' | 'placing'
+type DrawerStep = 'processing' | 'payment' | 'placing' | 'sent'
 
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
 
@@ -112,7 +119,8 @@ function fmtTime(t: string) {
 export default function CheckoutDrawer({
   fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType,
   addr, menuReference, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount,
-  isFirstParty = false, onChangeAddress, onClose,
+  isFirstParty = false, isDirectEntry = false, directEntryMethod = 'payment',
+  onChangeAddress, onClose,
 }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -190,6 +198,13 @@ export default function CheckoutDrawer({
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = '' }
   }, [])
+
+  // Direct-entry invoice success → auto-return to the portal Orders list.
+  useEffect(() => {
+    if (step !== 'sent') return
+    const t = setTimeout(() => router.push('/restaurant/orders'), 2500)
+    return () => clearTimeout(t)
+  }, [step, router])
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -426,7 +441,9 @@ export default function CheckoutDrawer({
     // Pass a (no-op) pendingAction so AuthModal does NOT redirect a diner to
     // /account/orders after login — the waitingForAuth effect resumes checkout
     // here instead, keeping them in the cart/checkout flow (Item 5).
-    if (!authUser) { setWaitingForAuth(true); openAuthModal(() => {}, 'login'); return }
+    // Direct entry skips this entirely: the restaurant admin is authenticated
+    // via the restaurant cookie, not the customer AuthContext.
+    if (!isDirectEntry && !authUser) { setWaitingForAuth(true); openAuthModal(() => {}, 'login'); return }
 
     try {
       // Reuses the draft from the review-step preview if one exists (no
@@ -440,8 +457,15 @@ export default function CheckoutDrawer({
   }
 
   async function handlePlaceOrder() {
-    if (!authUser) return
+    // Direct-entry CARD payment is gated (button disabled) pending confirmation
+    // that FM accepts a restaurant JWT on confirmPayment — guard so it can't run.
+    if (isDirectEntry && directEntryMethod === 'payment') return
+    // Customer payment path still requires a logged-in diner; direct entry does
+    // not (admin auth is the restaurant cookie).
+    if (!isDirectEntry && !authUser) return
     setError('')
+
+    const isInvoice = isDirectEntry && directEntryMethod === 'invoice'
 
     try {
       // FM's payment flow (checkout-customer-info.component.ts:762-816 +
@@ -452,7 +476,7 @@ export default function CheckoutDrawer({
       // charged in the confirm step; placing the order alone does NOT charge it.
       const usingSavedCard = savedCard && !useNewCard
       let paymentMethodId: string | null = null
-      if (!usingSavedCard) {
+      if (!isInvoice && !usingSavedCard) {
         if (!stripeRef.current || !numberElRef.current) {
           setError('Payment form not ready. Please wait and try again.')
           setStep('payment'); return
@@ -476,15 +500,19 @@ export default function CheckoutDrawer({
       // deliveryAddress for DELIVERY only (FM deletes it for PICKUP, :1178).
       const checkoutDetails: Record<string, unknown> = {
         ...buildCheckoutDto(),
-        paymentMethod: 'PAYMENT',
-        // FM attributes lead-generation fees off this wire value. Two ordering
-        // surfaces, two values: "DISCO" for /restaurants/[slug] (3P, lead gen
-        // fee applies), "FAMILYMEAL" for /order/[slug] (1P, no fee). Never
-        // change these strings or expose them in the UI (show "3P"/"1P").
-        sourceoforder: isFirstParty ? 'FAMILYMEAL' : 'DISCO',
+        // INVOICE for direct-entry invoice flow (FM creates an unpaid order +
+        // emails a payment link); PAYMENT otherwise.
+        paymentMethod: isInvoice ? 'INVOICE' : 'PAYMENT',
+        // FM attributes lead-generation fees off this wire value. "DISCO" for
+        // /restaurants/[slug] (3P, lead gen fee), "FAMILYMEAL" for /order/[slug]
+        // (1P) AND for direct entry (restaurant placing for its own customer →
+        // no lead-gen fee). Never expose these strings in the UI (show 3P/1P).
+        sourceoforder: (isFirstParty || isDirectEntry) ? 'FAMILYMEAL' : 'DISCO',
       }
       delete checkoutDetails.restaurantRef // proxy-URL field only; not part of ICheckoutPreview
-      const placeRes = await fetch('/api/order/place', {
+      // Direct entry places with the restaurant token (admin acting for the
+      // customer); the customer flow uses the diner token.
+      const placeRes = await fetch(isDirectEntry ? '/api/restaurant/orders/place' : '/api/order/place', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurantRef: fmRef,
@@ -497,6 +525,10 @@ export default function CheckoutDrawer({
       const placeData = await placeRes.json()
       if (!placeRes.ok && placeData.error) throw new Error(placeData.error || placeData.message || 'Failed to place order.')
       const finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
+
+      // Invoice (direct entry): the order is created unpaid and FM emails the
+      // customer a payment link. No card, no confirm-payment — done.
+      if (isInvoice) { setStep('sent'); return }
 
       // Confirm the PaymentIntent FM created during placement — THIS charges the
       // card (checkout-sidebar-preview.component.ts:1205-1252). FM's contract
@@ -556,6 +588,9 @@ export default function CheckoutDrawer({
 
   // ── Step: Payment ──────────────────────────────────────────────────────────
   function PaymentStep() {
+    // Direct entry: invoice hides all card UI; card-payment is gated.
+    const hideCard = isDirectEntry && directEntryMethod === 'invoice'
+    const isDirectPaymentGated = isDirectEntry && directEntryMethod === 'payment'
     // Read totals from the EXTRACTED `fm` (which walks
     // data.checkoutPublicResponseDto), not raw `fmTotals` — fmTotals.total is
     // nested under data.* so the direct lookup missed it and silently fell
@@ -782,7 +817,7 @@ export default function CheckoutDrawer({
           {/* Payment method — saved card is offered as a selectable option
               alongside "Use a different card". When no saved card exists, the
               card-entry fields render directly. */}
-          {(() => {
+          {!hideCard && (() => {
             const cardFields = stripeKey ? (
               <>
                 <label style={fieldLabel}>Card number</label>
@@ -849,9 +884,14 @@ export default function CheckoutDrawer({
           {error && (
             <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 12px', marginBottom: 12, color: '#991B1B', fontSize: 13 }}>{error}</div>
           )}
-          <button onClick={handlePlaceOrder}
-            style={{ width: '100%', padding: '14px', background: DARK, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(26,16,40,0.25)', transition: 'all 0.15s' }}>
-            Place Order · {fmt$(payTotal)}
+          {isDirectPaymentGated && (
+            <div style={{ background: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 8, padding: '10px 12px', marginBottom: 12, color: '#8D6E00', fontSize: 12.5 }}>
+              Card payment for direct entry is coming soon. Use <strong>Invoice Method</strong> to send the customer a payment link.
+            </div>
+          )}
+          <button onClick={handlePlaceOrder} disabled={isDirectPaymentGated}
+            style={{ width: '100%', padding: '14px', background: isDirectPaymentGated ? '#ccc' : DARK, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: isDirectPaymentGated ? 'not-allowed' : 'pointer', fontFamily: F, boxShadow: isDirectPaymentGated ? 'none' : '0 4px 14px rgba(26,16,40,0.25)', transition: 'all 0.15s' }}>
+            {hideCard ? 'Send Invoice' : isDirectPaymentGated ? 'Place Order (coming soon)' : `Place Order · ${fmt$(payTotal)}`}
           </button>
         </div>
       </>
@@ -866,6 +906,21 @@ export default function CheckoutDrawer({
         <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 6 }}>Placing your order…</div>
         <div style={{ fontSize: 13, color: '#888', textAlign: 'center' }}>Please don&apos;t close this window</div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    )
+  }
+
+  // ── Step: Invoice sent (direct entry) ───────────────────────────────────────
+  function SentStep() {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 24px', textAlign: 'center' }}>
+        <div style={{ fontSize: 52, marginBottom: 14 }}>✉️</div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: DARK, marginBottom: 8 }}>Invoice sent</div>
+        <div style={{ fontSize: 13.5, color: '#888', maxWidth: 320, marginBottom: 24 }}>The customer will receive a payment link by email to complete this order.</div>
+        <button onClick={() => router.push('/restaurant/orders')}
+          style={{ padding: '12px 24px', background: BLUE, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+          Back to Orders
+        </button>
       </div>
     )
   }
@@ -906,6 +961,7 @@ export default function CheckoutDrawer({
           {step === 'processing' && ProcessingStep()}
           {step === 'payment' && PaymentStep()}
           {step === 'placing' && PlacingStep()}
+          {step === 'sent' && SentStep()}
         </div>
       </div>
 

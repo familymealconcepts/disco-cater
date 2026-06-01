@@ -320,6 +320,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const searchParams = useSearchParams()
   const embedded = searchParams?.get('embed') === '1'
   const presetOrderDate = searchParams?.get('orderDate') || ''
+  // Direct Entry — restaurant staff placing an order on behalf of a customer.
+  // Routed here from /restaurant/orders/create with ?mode=direct-entry. The flag
+  // shows a banner and switches CheckoutDrawer to the restaurant-authed place
+  // call (and, for method=invoice, the no-card "Send Invoice" flow).
+  const isDirectEntry = searchParams?.get('mode') === 'direct-entry'
+  const directEntryMethod: 'payment' | 'invoice' = searchParams?.get('method') === 'invoice' ? 'invoice' : 'payment'
   const prefilledRef = useRef(false)
   useEffect(() => {
     if (prefilledRef.current || !presetOrderDate) return
@@ -964,6 +970,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100svh', background: '#f8f8fc', fontFamily: F }}>
+      {/* Direct Entry banner — full-width, dark, above everything. Makes it
+          unmistakable that staff are placing on behalf of a customer. */}
+      {isDirectEntry && (
+        <div style={{ background: DARK, color: '#fff', padding: '10px 20px', textAlign: 'center', fontFamily: F, fontSize: 13.5, fontWeight: 600, letterSpacing: '0.02em' }}>
+          <span style={{ fontWeight: 800, marginRight: 8 }}>DIRECT ENTRY</span>
+          <span style={{ opacity: 0.85, fontWeight: 500 }}>
+            Placing order on behalf of customer{directEntryMethod === 'invoice' ? ' — Invoice (payment link by email)' : ' — Card payment'}
+          </span>
+        </div>
+      )}
       {!embedded && <GlobalHeader />}
 
       {/* Date/time/pickup sticky bar — hidden in embed mode because the
@@ -1367,6 +1383,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           headcount={headcount} onHeadcount={setHeadcount}
           menuReference={menuData[activeMenuIdx]?.menu?.reference ?? null}
           isFirstParty={isFirstParty}
+          isDirectEntry={isDirectEntry}
+          directEntryMethod={directEntryMethod}
           onChangeAddress={() => { setCheckoutOpen(false); openMenus() }}
           onClose={() => setCheckoutOpen(false)}
         />
