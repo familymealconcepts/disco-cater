@@ -35,7 +35,7 @@ interface CartItem {
   addOns: CartAddOn[]
   unitPrice: number
 }
-interface FmDeliveryAddr { addressLine1: string; city: string; state: string; zipcode: string }
+interface FmDeliveryAddr { addressLine1: string; addressLine2?: string; city: string; state: string; zipcode: string; latitude?: number; longitude?: number; deliveryInstructions?: string }
 
 interface Props {
   fmRef: string
@@ -45,7 +45,9 @@ interface Props {
   selDate: string
   selTime: string
   orderType: 'PICKUP' | 'DELIVERY'
-  addr: { line1: string; city: string; state: string; zip: string }
+  addr: { line1: string; line2?: string; city: string; state: string; zip: string; lat?: number | null; lng?: number | null; instructions?: string }
+  // Selected menu reference — required by FM's delivery validate contract.
+  menuReference?: string | null
   subtotal: number
   tipAmt: number
   svcAmt: number
@@ -106,7 +108,7 @@ function fmtTime(t: string) {
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function CheckoutDrawer({
   fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType,
-  addr, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount,
+  addr, menuReference, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount,
   isFirstParty = false, onClose,
 }: Props) {
   const router = useRouter()
@@ -265,12 +267,16 @@ export default function CheckoutDrawer({
     : null
   const taxIdValid = /^\d{6,12}$/.test(taxExemptId)
   const canApplyExempt = taxIdValid && !!taxExemptState
-  const canProceed = cart.length > 0 && !!selDate && !!selTime && (orderType === 'PICKUP' || (!!addr.line1 && !!addr.city && !!addr.state && !!addr.zip))
+  const canProceed = cart.length > 0 && !!selDate && !!selTime && (orderType === 'PICKUP' || (!!addr.line1 && !!addr.city && !!addr.state && !!addr.zip && addr.lat != null && addr.lng != null))
   const fmAddr: FmDeliveryAddr = {
     addressLine1: addr.line1,
+    addressLine2: addr.line2 || '',
     city: addr.city,
     state: addr.state,
     zipcode: addr.zip,
+    latitude: addr.lat ?? undefined,
+    longitude: addr.lng ?? undefined,
+    deliveryInstructions: addr.instructions || '',
   }
 
   // ── Pricing preview (Item 1) ─────────────────────────────────────────────────
@@ -337,7 +343,7 @@ export default function CheckoutDrawer({
       setOrderRef(ref)
       if (initData.data?.checkoutPublicResponseDto || initData.data) setFmTotals(initData)
       if (orderType === 'DELIVERY') {
-        fetch('/api/order/validate-address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantReference: fmRef, deliveryAddress: fmAddr }) }).catch(() => {})
+        fetch('/api/order/validate-address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantReference: fmRef, deliveryAddress: fmAddr, menuReference }) }).catch(() => {})
       }
       // NOTE: FM's /orders/slotselected (slot reservation) is intentionally not
       // called — init already creates the draft order, and the call 400'd from a

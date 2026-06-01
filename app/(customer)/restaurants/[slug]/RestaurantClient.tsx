@@ -224,7 +224,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // "Other" tip mode: a blank custom input means $0 (NOT the menu default).
   const [tipOther, setTipOther] = useState(false)
   const [tipCustomInput, setTipCustomInput] = useState('')
-  const [addr, setAddr] = useState({ line1: '', city: '', state: '', zip: '' })
+  const [addr, setAddr] = useState<{ line1: string; line2: string; city: string; state: string; zip: string; lat: number | null; lng: number | null; instructions: string }>({ line1: '', line2: '', city: '', state: '', zip: '', lat: null, lng: null, instructions: '' })
 
   // Order config
   const [selDate, setSelDate] = useState('')
@@ -258,6 +258,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const [placesLoaded, setPlacesLoaded] = useState(false)
   const [deliveryAddrLine, setDeliveryAddrLine] = useState('')
   const [deliveryAddrDetails, setDeliveryAddrDetails] = useState<AddrDetails | null>(null)
+  const [deliveryAddr2, setDeliveryAddr2] = useState('')
+  const [deliveryInstr, setDeliveryInstr] = useState('')
   const [addrValidating, setAddrValidating] = useState(false)
   const [addrValidated, setAddrValidated] = useState(false)
   const [addrError, setAddrError] = useState('')
@@ -380,10 +382,27 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     if (!fmRef) return
     setAddrValidating(true); setAddrError(''); setAddrValidated(false); setAddrFee(null)
     try {
+      // FM contract (doordash.service.ts checkValidate): nested deliveryAddress
+      // with lat/lng + deliveryInstructions, plus restaurantReference and the
+      // selected menuReference. (Endpoint stays /public-api/delivery/validate —
+      // FM's Expedite/Dlivrd dispatch path.)
       const res = await fetch('/api/order/validate-address', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...details, restaurantReference: fmRef }),
+        body: JSON.stringify({
+          deliveryAddress: {
+            addressLine1: details.addressLine1,
+            addressLine2: deliveryAddr2 || '',
+            city: details.city,
+            state: details.state,
+            zipcode: details.zipcode,
+            latitude: details.latitude,
+            longitude: details.longitude,
+            deliveryInstructions: deliveryInstr || '',
+          },
+          restaurantReference: fmRef,
+          menuReference: menuData[tempMenuIdx]?.menu?.reference,
+        }),
       })
       const data = await res.json()
       if (res.ok && data.error == null && data.valid !== false) {
@@ -436,6 +455,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setTempHeadcount(headcount != null ? String(headcount) : '')
     setDeliveryAddrLine('')
     setDeliveryAddrDetails(null)
+    setDeliveryAddr2(''); setDeliveryInstr('')
     setAddrValidated(false); setAddrError(''); setAddrFee(null)
     if (first) {
       const d = new Date(first + 'T12:00:00')
@@ -486,7 +506,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       setHeadcount(!isNaN(n) && n > 0 ? n : null)
     }
     if (tempType === 'DELIVERY' && deliveryAddrDetails) {
-      setAddr({ line1: deliveryAddrDetails.addressLine1, city: deliveryAddrDetails.city, state: deliveryAddrDetails.state, zip: deliveryAddrDetails.zipcode })
+      setAddr({
+        line1: deliveryAddrDetails.addressLine1,
+        line2: deliveryAddr2,
+        city: deliveryAddrDetails.city,
+        state: deliveryAddrDetails.state,
+        zip: deliveryAddrDetails.zipcode,
+        lat: deliveryAddrDetails.latitude,
+        lng: deliveryAddrDetails.longitude,
+        instructions: deliveryInstr,
+      })
     }
     setHasSelection(true)
     const pending = pendingItemRef.current
@@ -554,7 +583,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // upstream instead of the drawer rendering a "complete your selections"
   // fallback).
   const canCheckout = cart.length > 0 && !belowMin && !!selDate && !!selTime &&
-    (orderType === 'PICKUP' || !!addr.line1)
+    (orderType === 'PICKUP' || (!!addr.line1 && addr.lat != null && addr.lng != null))
   const ctaLabel = cartCount > 0
     ? `${cartCount} item${cartCount !== 1 ? 's' : ''} · ${formatPrice(clientTotal)} — Continue to Checkout`
     : 'Browse Menu → Start Order'
@@ -665,11 +694,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
   const [taxTooltip, setTaxTooltip] = useState(false)
 
-  const inp: React.CSSProperties = {
-    width: '100%', padding: '9px 11px', border: '1.5px solid #e8e8e8',
-    borderRadius: 8, fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box',
-  }
-
   // ── Cart panel ────────────────────────────────────────────────────────────
   const cartPanel = (
     <div>
@@ -710,12 +734,21 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       {hasSelection && orderType === 'DELIVERY' && (
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f4f4f4' }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 7 }}>Delivery Address</div>
-          <input value={addr.line1} onChange={e => setAddr(a => ({ ...a, line1: e.target.value }))} placeholder="Street address" style={{ ...inp, marginBottom: 5 }} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 44px 68px', gap: 5 }}>
-            <input value={addr.city} onChange={e => setAddr(a => ({ ...a, city: e.target.value }))} placeholder="City" style={inp} />
-            <input value={addr.state} onChange={e => setAddr(a => ({ ...a, state: e.target.value.toUpperCase() }))} placeholder="ST" maxLength={2} style={inp} />
-            <input value={addr.zip} onChange={e => setAddr(a => ({ ...a, zip: e.target.value }))} placeholder="ZIP" style={inp} />
-          </div>
+          {/* Read-only — the validated, geocoded address from the order-setup
+              modal. Editing here is via "Change address" (reopens the modal with
+              Places autocomplete + re-validation) so we never lose lat/lng. */}
+          {addr.line1 ? (
+            <div style={{ fontSize: 13, color: DARK, lineHeight: 1.5 }}>
+              {addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}<br />
+              {[addr.city, addr.state].filter(Boolean).join(', ')} {addr.zip}
+              {addr.instructions && <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>📝 {addr.instructions}</div>}
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: '#bbb' }}>No address selected</div>
+          )}
+          <button onClick={openMenus} style={{ marginTop: 7, background: 'none', border: 'none', color: BLUE, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: F }}>
+            Change address
+          </button>
         </div>
       )}
 
@@ -1153,6 +1186,19 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 </div>
                 {addrError && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 5 }}>{addrError}</div>}
                 {addrValidated && addrFee != null && <div style={{ fontSize: 12, color: '#22C55E', marginTop: 5 }}>Delivery fee: {formatPrice(addrFee)}</div>}
+                {/* Apt/suite (line 2) + delivery instructions — optional, no re-validation needed. */}
+                <input
+                  value={deliveryAddr2}
+                  onChange={e => setDeliveryAddr2(e.target.value)}
+                  placeholder="Apt, suite, floor (optional)"
+                  style={{ width: '100%', height: 38, marginTop: 8, padding: '0 10px', border: '1.5px solid #e8e8e8', borderRadius: 8, fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }}
+                />
+                <input
+                  value={deliveryInstr}
+                  onChange={e => setDeliveryInstr(e.target.value)}
+                  placeholder="Delivery instructions (optional)"
+                  style={{ width: '100%', height: 38, marginTop: 6, padding: '0 10px', border: '1.5px solid #e8e8e8', borderRadius: 8, fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }}
+                />
               </div>
             )}
 
@@ -1240,6 +1286,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           cart={cart} selDate={selDate} selTime={selTime} orderType={orderType}
           addr={addr} subtotal={subtotal} tipAmt={tipAmt} svcAmt={svcAmt} minOrder={minOrder}
           headcount={headcount} onHeadcount={setHeadcount}
+          menuReference={menuData[activeMenuIdx]?.menu?.reference ?? null}
           isFirstParty={isFirstParty}
           onClose={() => setCheckoutOpen(false)}
         />

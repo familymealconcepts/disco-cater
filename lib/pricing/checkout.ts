@@ -40,11 +40,13 @@ export interface CheckoutPayloadOptions {
   orderTime: string
   deliveryAddress?: {
     addressLine1: string
+    addressLine2?: string
     city: string
     state: string
     zipcode: string
     latitude?: number
     longitude?: number
+    deliveryInstructions?: string
   }
   /** Diner headcount; FM has no dedicated field so we stash it in the
    *  note (and also send `orderHeadcount` in case FM ever adds support). */
