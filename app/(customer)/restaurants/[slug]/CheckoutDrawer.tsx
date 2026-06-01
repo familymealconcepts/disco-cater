@@ -232,9 +232,10 @@ export default function CheckoutDrawer({
       const elements = stripeRef.current.elements()
       const style = { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } }
       // showIcon: false → no Stripe-rendered network/Link brand mark in the
-      // field. Cosmetic only; tokenization (createToken on numberElRef) is
-      // unaffected.
-      numberElRef.current = elements.create('cardNumber', { style, showIcon: false })
+      // field. disableLink: true → suppress Stripe Link's autofill badge that
+      // injects a green "link" + Visa + last4 chip on the right of the field.
+      // Cosmetic only; tokenization (createToken on numberElRef) is unaffected.
+      numberElRef.current = elements.create('cardNumber', { style, showIcon: false, disableLink: true })
       expiryElRef.current = elements.create('cardExpiry', { style })
       cvcElRef.current = elements.create('cardCvc', { style })
       numberElRef.current.mount(numberRef.current)

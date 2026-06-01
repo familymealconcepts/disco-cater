@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { AddExistingGroupDialog, GroupFormDialog, type LibraryGroup, type AttachedGroup } from './_GroupDialogs'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -9,42 +10,16 @@ const IMG_BASE = 'https://api.familymeal.com/public-api/images'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PKG_TYPES = [
-  { value: 'FAMILY_MEAL', label: 'Family Meal' },
-  { value: 'KITS', label: 'Kits' },
-  { value: 'BEVERAGES', label: 'Beverages' },
-  { value: 'PANTRY', label: 'Pantry' },
-  { value: 'CHEFS_TABLE', label: "Chef's Table" },
-  { value: 'POPUP', label: 'Pop Up' },
-  { value: 'COLLABS', label: 'Collabs' },
-  { value: 'DRINKS', label: 'Drinks' },
-  { value: 'SERIES', label: 'Series' },
-]
-
-const PREP_TIMES = [0, 0.25, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-const PREP_DAYS = [0, 1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 28]
-const HOURS = ['01','02','03','04','05','06','07','08','09','10','11','12']
-const MINUTES = ['00','15','30','45']
+// Availability scheduling fields are still sent in the save payload (FM needs
+// them), but their advanced UI was removed — these days drive the daySelect
+// default only.
 const DAYS_OF_WEEK = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const
-
-type DayKey = typeof DAYS_OF_WEEK[number]
 
 interface DaySelect {
   [key: string]: boolean
 }
 
-interface Group {
-  reference: string
-  name: string
-  externalName?: string
-}
-
-interface GroupToggle {
-  reference: string
-  name: string
-  externalName?: string
-  enabled: boolean
-}
+// LibraryGroup / AttachedGroup come from ./_GroupDialogs.
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,9 +83,17 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
     Object.fromEntries(DAYS_OF_WEEK.map(d => [d, true]))
   )
 
-  // ── Groups ──
-  const [groups, setGroups] = useState<GroupToggle[]>([])
+  // ── Groups (modifier groups attached to this meal package) ──
+  const [library, setLibrary] = useState<LibraryGroup[]>([])        // all groups in the restaurant's library
+  const [attached, setAttached] = useState<AttachedGroup[]>([])     // attached to THIS item, in display order
+  const [pkgGroupRefs, setPkgGroupRefs] = useState<{ reference: string; enabled: boolean }[] | null>(null) // raw from package (edit)
   const [loadingGroups, setLoadingGroups] = useState(false)
+  // Dialogs
+  const [addExistingOpen, setAddExistingOpen] = useState(false)
+  const [groupForm, setGroupForm] = useState<{ mode: 'create' | 'edit'; group?: AttachedGroup } | null>(null)
+  // Native HTML5 drag reorder (same pattern as the locations page)
+  const [draggedRef, setDraggedRef] = useState<string | null>(null)
+  const [dragOverRef, setDragOverRef] = useState<string | null>(null)
 
   // ── UI ──
   const [loading, setLoading] = useState(mode === 'edit')
@@ -145,7 +128,7 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
     loadNames()
   }, [menuRef, categoryRef])
 
-  // Load groups
+  // Load the restaurant's group library (for "Add Existing" + display details)
   useEffect(() => {
     async function loadGroups() {
       setLoadingGroups(true)
@@ -153,13 +136,37 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
         const res = await fetch('/api/restaurant/groups/list')
         if (res.ok) {
           const data = await res.json()
-          const list: Group[] = data.content || data || []
-          setGroups(list.map(g => ({ reference: g.reference, name: g.name, externalName: g.externalName, enabled: false })))
+          const list: any[] = data.content || data || []
+          setLibrary(list.map((g): LibraryGroup => ({
+            reference: g.reference,
+            name: g.name,
+            externalName: g.externalName || '',
+            subExternalName: g.subExternalName || '',
+            minSelectedItems: g.minSelectedItems ?? 0,
+            maxSelectedItems: g.maxSelectedItems ?? 1,
+            itemCount: Array.isArray(g.addOns) ? g.addOns.length : 0,
+            addOnsReferences: Array.isArray(g.addOns) ? g.addOns.map((a: { reference: string }) => a.reference) : [],
+          })))
         }
       } finally { setLoadingGroups(false) }
     }
     loadGroups()
   }, [])
+
+  // Join the package's attached group refs (edit) with the library details, in
+  // the package's order. Runs once both are available; create mode starts empty.
+  useEffect(() => {
+    if (!pkgGroupRefs) return
+    if (library.length === 0) return
+    setAttached(
+      pkgGroupRefs
+        .map(({ reference, enabled }) => {
+          const lib = library.find(g => g.reference === reference)
+          return lib ? { ...lib, enabled } : null
+        })
+        .filter((g): g is AttachedGroup => g !== null),
+    )
+  }, [pkgGroupRefs, library])
 
   // Load existing package for edit
   useEffect(() => {
@@ -204,13 +211,13 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
         if (d.cutOffDate) { setCutOffType('BY_DATE'); setCutOffDate(d.cutOffDate.split('T')[0]) }
         else if (d.cutOffTimeFrom) { setCutOffType('DAILY'); setCutOffTimeFrom(d.cutOffTimeFrom); setCutOffMinutesFrom(d.cutOffMinutesFrom || '00'); setCutOffMeridiem(d.cutOffMeridiem || 'PM') }
         if (d.daySelect) setDaySelect(d.daySelect)
-        // Merge existing group settings
-        if (d.extraItemsGroups?.length) {
-          setGroups(prev => prev.map(g => {
-            const existing = d.extraItemsGroups.find((eg: { reference: string; enabled: boolean }) => eg.reference === g.reference)
-            return existing ? { ...g, enabled: !!existing.enabled } : g
-          }))
-        }
+        // Capture attached groups (reference + enabled, in order); the join
+        // effect fills in display details once the library has loaded.
+        setPkgGroupRefs(
+          Array.isArray(d.extraItemsGroups)
+            ? d.extraItemsGroups.map((eg: { reference: string; enabled?: boolean }) => ({ reference: eg.reference, enabled: eg.enabled !== false }))
+            : [],
+        )
       } finally { setLoading(false) }
     }
     loadPkg()
@@ -239,7 +246,9 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
     e.preventDefault()
     setError('')
     if (!name.trim()) { setError('Name is required.'); return }
-    if (!price) { setError('Price is required.'); return }
+    // Price OR Display Price is enough — when Price is blank/0 the Display
+    // Price string is what shows to the diner.
+    if (!price && !displayPrice.trim()) { setError('Enter a Price or a Display Price.'); return }
     if (!serves.trim()) { setError('Serves is required.'); return }
 
     const payload: Record<string, unknown> = {
@@ -247,7 +256,7 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
       description: description.trim(),
       type,
       itemCategoryReference: categoryRef,
-      price: parseFloat(price),
+      price: price ? parseFloat(price) : 0,
       displayPrice: displayPrice.trim() || undefined,
       serves: serves.trim(),
       minQuantity: minQuantity ? parseInt(minQuantity) : undefined,
@@ -273,7 +282,7 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
       sameDaysMeridiemTo,
       inheritScheduleOptionFromRestaurant: inheritSchedule,
       daySelect: inheritSchedule ? undefined : daySelect,
-      extraItemsGroups: groups.map(g => ({ reference: g.reference, enabled: g.enabled })),
+      extraItemsGroups: attached.map(g => ({ reference: g.reference, enabled: g.enabled })),
     }
 
     if (cutOffType === 'DAILY') {
@@ -296,6 +305,53 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
     }
   }
 
+  // ── Group attach / detach / edit / reorder (per-item, persisted via save) ──
+  const attachable = library.filter(g => !attached.some(a => a.reference === g.reference))
+
+  function attachGroups(groups: LibraryGroup[]) {
+    setAttached(prev => {
+      const have = new Set(prev.map(g => g.reference))
+      return [...prev, ...groups.filter(g => !have.has(g.reference)).map(g => ({ ...g, enabled: true }))]
+    })
+    setAddExistingOpen(false)
+  }
+  function upsertGroup(g: AttachedGroup) {
+    setAttached(prev => prev.some(x => x.reference === g.reference) ? prev.map(x => x.reference === g.reference ? g : x) : [...prev, g])
+    // Keep the library copy in sync so Add-Existing details stay fresh.
+    setLibrary(prev => prev.some(x => x.reference === g.reference)
+      ? prev.map(x => x.reference === g.reference ? { reference: g.reference, name: g.name, externalName: g.externalName, subExternalName: g.subExternalName, minSelectedItems: g.minSelectedItems, maxSelectedItems: g.maxSelectedItems, itemCount: g.itemCount, addOnsReferences: g.addOnsReferences } : x)
+      : [...prev, { reference: g.reference, name: g.name, externalName: g.externalName, subExternalName: g.subExternalName, minSelectedItems: g.minSelectedItems, maxSelectedItems: g.maxSelectedItems, itemCount: g.itemCount, addOnsReferences: g.addOnsReferences }])
+    setGroupForm(null)
+  }
+  function removeGroup(ref: string) { setAttached(prev => prev.filter(g => g.reference !== ref)) }
+  function toggleGroup(ref: string) { setAttached(prev => prev.map(g => g.reference === ref ? { ...g, enabled: !g.enabled } : g)) }
+
+  function onGroupDragStart(e: React.DragEvent, ref: string) {
+    setDraggedRef(ref)
+    e.dataTransfer.effectAllowed = 'move'
+    try { e.dataTransfer.setData('text/plain', ref) } catch {}
+  }
+  function onGroupDragOver(e: React.DragEvent, ref: string) {
+    e.preventDefault()
+    if (ref !== draggedRef && ref !== dragOverRef) setDragOverRef(ref)
+  }
+  function onGroupDrop(e: React.DragEvent, toRef: string) {
+    e.preventDefault()
+    const fromRef = draggedRef
+    setDraggedRef(null); setDragOverRef(null)
+    if (!fromRef || fromRef === toRef) return
+    setAttached(prev => {
+      const from = prev.findIndex(g => g.reference === fromRef)
+      const to = prev.findIndex(g => g.reference === toRef)
+      if (from < 0 || to < 0) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+  function onGroupDragEnd() { setDraggedRef(null); setDragOverRef(null) }
+
   // ── Styles ──
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '10px 12px', fontSize: 13, fontFamily: F,
@@ -314,6 +370,15 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
   const checkStyle: React.CSSProperties = {
     display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: DARK, cursor: 'pointer', userSelect: 'none',
   }
+  const groupBtnStyle: React.CSSProperties = {
+    background: '#fff', border: `1px solid ${BLUE}`, color: BLUE, borderRadius: 8,
+    padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: F,
+  }
+  const thStyle: React.CSSProperties = {
+    fontSize: 10.5, fontWeight: 700, color: '#999', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '9px 12px', textAlign: 'left', whiteSpace: 'nowrap',
+  }
+  const tdStyle: React.CSSProperties = { fontSize: 12.5, color: DARK, padding: '10px 12px', verticalAlign: 'middle' }
+  const groupIconBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#888', padding: '4px 6px' }
 
   if (loading) {
     return (
@@ -378,27 +443,19 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
             <div>
-              <label style={labelStyle}>Type</label>
-              <select value={type} onChange={e => setType(e.target.value)} style={inputStyle}>
-                <option value="">Select a type…</option>
-                {PKG_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-              </select>
+              <label style={labelStyle}>Price</label>
+              <div style={{ display: 'flex', alignItems: 'stretch', border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                <span style={{ display: 'flex', alignItems: 'center', padding: '0 12px', background: '#f5f5f7', color: '#888', fontSize: 13, fontWeight: 600, borderRight: '1px solid #eee' }}>$</span>
+                <input
+                  type="text"
+                  value={price}
+                  onChange={e => setPrice(e.target.value)}
+                  placeholder="0.00"
+                  pattern="^[0-9.,]*$"
+                  style={{ ...inputStyle, border: 'none', borderRadius: 0 }}
+                />
+              </div>
             </div>
-            <div>
-              <label style={labelStyle}>Price <span style={{ color: '#E53935' }}>*</span></label>
-              <input
-                type="text"
-                value={price}
-                onChange={e => setPrice(e.target.value)}
-                placeholder="0.00"
-                pattern="^[0-9.,]+$"
-                style={inputStyle}
-                required
-              />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
             <div>
               <label style={labelStyle}>Display Price <span style={{ color: '#aaa', fontWeight: 400 }}>(optional)</span></label>
               <input
@@ -409,6 +466,9 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
                 style={inputStyle}
               />
             </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
             <div>
               <label style={labelStyle}>Serves <span style={{ color: '#E53935' }}>*</span></label>
               <input
@@ -420,17 +480,16 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
                 required
               />
             </div>
-          </div>
-
-          <div style={{ maxWidth: 200 }}>
-            <label style={labelStyle}>Min Quantity <span style={{ color: '#aaa', fontWeight: 400 }}>(optional)</span></label>
-            <input
-              type="number"
-              value={minQuantity}
-              onChange={e => setMinQuantity(e.target.value)}
-              min={1}
-              style={inputStyle}
-            />
+            <div>
+              <label style={labelStyle}>Min Quantity <span style={{ color: '#aaa', fontWeight: 400 }}>(optional)</span></label>
+              <input
+                type="number"
+                value={minQuantity}
+                onChange={e => setMinQuantity(e.target.value)}
+                min={1}
+                style={inputStyle}
+              />
+            </div>
           </div>
         </div>
 
@@ -496,222 +555,64 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
               <input type="checkbox" checked={vegan} onChange={e => setVegan(e.target.checked)} style={{ accentColor: BLUE }} />
               Vegan
             </label>
-            <label style={checkStyle}>
-              <input type="checkbox" checked={containsAlcohol} onChange={e => setContainsAlcohol(e.target.checked)} style={{ accentColor: BLUE }} />
-              Contains Alcohol
-            </label>
           </div>
-        </div>
-
-        {/* ── Section 4: Availability ── */}
-        <div style={sectionStyle}>
-          <h2 style={sectionTitleStyle}>Availability (Advanced Settings)</h2>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-            <div>
-              <label style={labelStyle}>Available From</label>
-              <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Available To</label>
-              <input type="date" value={to} onChange={e => setTo(e.target.value)} min={from} style={inputStyle} />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-            <div>
-              <label style={labelStyle}>Lead Time (hours)</label>
-              <select value={prepTime} onChange={e => setPrepTime(Number(e.target.value))} style={inputStyle}>
-                {PREP_TIMES.map(t => <option key={t} value={t}>{t === 0 ? '0' : t < 1 ? `${t * 60} min` : `${t} hr`}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Prep Days</label>
-              <select value={prepDays} onChange={e => setPrepDays(Number(e.target.value))} style={inputStyle}>
-                {PREP_DAYS.map(d => <option key={d} value={d}>{d} {d === 1 ? 'day' : 'days'}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-            <div>
-              <label style={labelStyle}>Inventory Per Day <span style={{ color: '#E53935' }}>*</span></label>
-              <input
-                type="number"
-                value={inventoryPerDay}
-                onChange={e => setInventoryPerDay(Number(e.target.value))}
-                min={1}
-                style={inputStyle}
-                required
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Max Order <span style={{ color: '#E53935' }}>*</span></label>
-              <input
-                type="number"
-                value={maxOrder}
-                onChange={e => setMaxOrder(Number(e.target.value))}
-                min={1}
-                style={inputStyle}
-                required
-              />
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <label style={checkStyle}>
-              <input type="checkbox" checked={inheritSchedule} onChange={e => setInheritSchedule(e.target.checked)} style={{ accentColor: BLUE }} />
-              Inherit Schedule from Restaurant
-            </label>
-          </div>
-
-          {/* Per-day availability (only when not inheriting) */}
-          {!inheritSchedule && (
-            <div style={{ marginBottom: 16, padding: '16px', background: '#fafafa', borderRadius: 8, border: '1px solid #eee' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 12 }}>Available Days</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                {DAYS_OF_WEEK.map(day => (
-                  <label key={day} style={checkStyle}>
-                    <input
-                      type="checkbox"
-                      checked={!!daySelect[day]}
-                      onChange={e => setDaySelect(prev => ({ ...prev, [day]: e.target.checked }))}
-                      style={{ accentColor: BLUE }}
-                    />
-                    {day.charAt(0).toUpperCase() + day.slice(1, 3)}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Same Day Ordering */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 8 }}>Same Day Ordering</div>
-            <div style={{ display: 'flex', gap: 20 }}>
-              <label style={checkStyle}>
-                <input type="radio" name="sameDay" value="enabled" checked={isSameDay === 'enabled'} onChange={() => setIsSameDay('enabled')} style={{ accentColor: BLUE }} />
-                Enabled
-              </label>
-              <label style={checkStyle}>
-                <input type="radio" name="sameDay" value="disabled" checked={isSameDay === 'disabled'} onChange={() => setIsSameDay('disabled')} style={{ accentColor: BLUE }} />
-                Disabled
-              </label>
-            </div>
-          </div>
-
-          {isSameDay === 'enabled' && (
-            <div style={{ marginBottom: 16, padding: '16px', background: '#fafafa', borderRadius: 8, border: '1px solid #eee' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 12 }}>Same Day Window</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div>
-                  <label style={{ ...labelStyle, marginBottom: 4 }}>From</label>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <select value={sameDaysTimeFrom} onChange={e => setSameDaysTimeFrom(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-                      {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
-                    </select>
-                    <span style={{ color: '#aaa' }}>:</span>
-                    <select value={sameDaysMinutesFrom} onChange={e => setSameDaysMinutesFrom(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-                      {MINUTES.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                    <select value={sameDaysMeridiemFrom} onChange={e => setSameDaysMeridiemFrom(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-                      <option value="AM">AM</option><option value="PM">PM</option>
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label style={{ ...labelStyle, marginBottom: 4 }}>To</label>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <select value={sameDaysTimeTo} onChange={e => setSameDaysTimeTo(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-                      {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
-                    </select>
-                    <span style={{ color: '#aaa' }}>:</span>
-                    <select value={sameDaysMinutesTo} onChange={e => setSameDaysMinutesTo(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-                      {MINUTES.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                    <select value={sameDaysMeridiemTo} onChange={e => setSameDaysMeridiemTo(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-                      <option value="AM">AM</option><option value="PM">PM</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Cut-off */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 8 }}>Cut-off Type</div>
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-              {(['NO', 'DAILY', 'BY_DATE'] as const).map(opt => (
-                <label key={opt} style={checkStyle}>
-                  <input type="radio" name="cutOffType" value={opt} checked={cutOffType === opt} onChange={() => setCutOffType(opt)} style={{ accentColor: BLUE }} />
-                  {opt === 'NO' ? 'No Cut-off' : opt === 'DAILY' ? 'Daily Cut-off' : 'By Date'}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {cutOffType === 'DAILY' && (
-            <div style={{ marginBottom: 16, padding: '16px', background: '#fafafa', borderRadius: 8, border: '1px solid #eee' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 10 }}>Daily Cut-off Time</div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <select value={cutOffTimeFrom} onChange={e => setCutOffTimeFrom(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-                  {HOURS.map(h => <option key={h} value={h}>{h}</option>)}
-                </select>
-                <span style={{ color: '#aaa' }}>:</span>
-                <select value={cutOffMinutesFrom} onChange={e => setCutOffMinutesFrom(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-                  {MINUTES.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-                <select value={cutOffMeridiem} onChange={e => setCutOffMeridiem(e.target.value)} style={{ ...inputStyle, width: 'auto' }}>
-                  <option value="AM">AM</option><option value="PM">PM</option>
-                </select>
-              </div>
-            </div>
-          )}
-
-          {cutOffType === 'BY_DATE' && (
-            <div style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>Cut-off Date</label>
-              <input type="date" value={cutOffDate} onChange={e => setCutOffDate(e.target.value)} style={{ ...inputStyle, maxWidth: 220 }} />
-            </div>
-          )}
         </div>
 
         {/* ── Section 5: Modifier Groups ── */}
         <div style={sectionStyle}>
-          <h2 style={sectionTitleStyle}>Modifier Groups</h2>
-
-          {loadingGroups ? (
-            <div style={{ color: '#aaa', fontSize: 13 }}>Loading groups…</div>
-          ) : groups.length === 0 ? (
-            <div style={{ color: '#aaa', fontSize: 13 }}>
-              No modifier groups found.{' '}
-              <Link href="/restaurant/manage/groups" style={{ color: BLUE }}>Create groups</Link> first.
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h2 style={{ ...sectionTitleStyle, margin: 0 }}>Modifier Groups</h2>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setAddExistingOpen(true)} style={groupBtnStyle}>+ Add Existing Group</button>
+              <button type="button" onClick={() => setGroupForm({ mode: 'create' })} style={groupBtnStyle}>+ Add New Group</button>
             </div>
+          </div>
+
+          {loadingGroups && attached.length === 0 ? (
+            <div style={{ color: '#aaa', fontSize: 13 }}>Loading groups…</div>
+          ) : attached.length === 0 ? (
+            <div style={{ color: '#aaa', fontSize: 13, padding: '4px 0' }}>No groups on this item yet. Use the buttons above to add one.</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {groups.map(group => (
-                <label
-                  key={group.reference}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 14px', border: `1px solid ${group.enabled ? BLUE : '#eee'}`,
-                    borderRadius: 8, cursor: 'pointer', background: group.enabled ? '#EEF2FF' : '#fff',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={group.enabled}
-                    onChange={e => setGroups(prev => prev.map(g => g.reference === group.reference ? { ...g, enabled: e.target.checked } : g))}
-                    style={{ accentColor: BLUE, width: 15, height: 15 }}
-                  />
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{group.name}</div>
-                    {group.externalName && <div style={{ fontSize: 11, color: '#888' }}>{group.externalName}</div>}
-                  </div>
-                </label>
-              ))}
+            <div style={{ border: '1px solid #eee', borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#fafafa' }}>
+                    <th style={{ ...thStyle, width: 30 }}></th>
+                    <th style={thStyle}>Group Name</th>
+                    <th style={thStyle}>External</th>
+                    <th style={{ ...thStyle, textAlign: 'center' }}>Items</th>
+                    <th style={{ ...thStyle, textAlign: 'center' }}>Min</th>
+                    <th style={{ ...thStyle, textAlign: 'center' }}>Max</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attached.map(g => (
+                    <tr
+                      key={g.reference}
+                      onDragOver={e => onGroupDragOver(e, g.reference)}
+                      onDrop={e => onGroupDrop(e, g.reference)}
+                      onDragEnd={onGroupDragEnd}
+                      style={{ borderTop: '1px solid #f0f0f0', background: dragOverRef === g.reference ? '#EEF2FF' : draggedRef === g.reference ? '#f7f7fb' : '#fff' }}
+                    >
+                      <td draggable onDragStart={e => onGroupDragStart(e, g.reference)} style={{ ...tdStyle, textAlign: 'center', cursor: 'grab', color: '#bbb', userSelect: 'none' }} title="Drag to reorder">⠿</td>
+                      <td style={{ ...tdStyle, fontWeight: 600 }}>{g.name}</td>
+                      <td style={{ ...tdStyle, color: '#666' }}>{g.externalName || '—'}</td>
+                      <td style={{ ...tdStyle, textAlign: 'center' }}>{g.itemCount}</td>
+                      <td style={{ ...tdStyle, textAlign: 'center' }}>{g.minSelectedItems}</td>
+                      <td style={{ ...tdStyle, textAlign: 'center' }}>{g.maxSelectedItems}</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button type="button" title="Edit group" onClick={() => setGroupForm({ mode: 'edit', group: g })} style={groupIconBtn}>✎</button>
+                        <button type="button" title="Remove from item" onClick={() => removeGroup(g.reference)} style={groupIconBtn}>🗑</button>
+                        <button type="button" title={g.enabled ? 'Disable on this item' : 'Enable on this item'} onClick={() => toggleGroup(g.reference)}
+                          style={{ width: 34, height: 18, borderRadius: 10, border: 'none', background: g.enabled ? BLUE : '#d9d9d9', position: 'relative', cursor: 'pointer', verticalAlign: 'middle', marginLeft: 6 }}>
+                          <span style={{ position: 'absolute', top: 2, left: g.enabled ? 18 : 2, width: 14, height: 14, borderRadius: '50%', background: '#fff', transition: 'left 0.15s' }} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -742,6 +643,24 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
         </div>
 
       </form>
+
+      {/* Group dialogs — rendered outside the form so their buttons never
+          submit the meal-package form. */}
+      {addExistingOpen && (
+        <AddExistingGroupDialog
+          candidates={attachable}
+          onAdd={attachGroups}
+          onClose={() => setAddExistingOpen(false)}
+        />
+      )}
+      {groupForm && (
+        <GroupFormDialog
+          mode={groupForm.mode}
+          initial={groupForm.group}
+          onSaved={upsertGroup}
+          onClose={() => setGroupForm(null)}
+        />
+      )}
     </div>
   )
 }
