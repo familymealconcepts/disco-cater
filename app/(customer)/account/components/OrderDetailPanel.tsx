@@ -182,6 +182,22 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
 
   function handleReorder() {
     const slug = detail?.restaurant?.businessNameWithoutSpaces
+    // Stash the order's items so the restaurant page can rebuild the cart by
+    // name-matching against the current menu (one-time use; the page clears it
+    // on read). FM's order response has no item references, only names.
+    if (detail && slug) {
+      try {
+        sessionStorage.setItem('disco_reorder', JSON.stringify({
+          restaurantSlug: slug,
+          items: (detail.orderMealPackages || []).map(p => ({
+            name: p.name ?? '',
+            count: p.count ?? 1,
+            comment: p.comment ?? '',
+            addOns: (p.orderAddOns || []).map(a => ({ name: a.name ?? '', count: a.count ?? 1 })),
+          })),
+        }))
+      } catch {}
+    }
     if (slug) router.push(`/restaurants/${slug}`)
     else router.push('/fullmap')
   }

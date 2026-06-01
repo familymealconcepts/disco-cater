@@ -83,6 +83,12 @@ interface CartItem {
 }
 interface AddrDetails { addressLine1: string; city: string; state: string; zipcode: string; latitude: number; longitude: number }
 
+// Reorder stash (sessionStorage 'disco_reorder', written by OrderDetailPanel).
+// Items are name-only snapshots from FM's order response — references are
+// recovered by matching against the live menu.
+interface ReorderStashItem { name: string; count?: number; comment?: string; addOns?: { name: string; count?: number }[] }
+interface ReorderStash { restaurantSlug?: string; items?: ReorderStashItem[] }
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const formatPrice = (p: number) => `$${p.toFixed(2)}`
@@ -227,6 +233,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
   // Cart
   const [cart, setCart] = useState<CartItem[]>([])
+  // Reorder: transient feedback toast + one-time guard so the stash is
+  // reconstructed into the cart exactly once after mount.
+  const [reorderToast, setReorderToast] = useState('')
+  const reorderRef = useRef(false)
   const [tipPct, setTipPct] = useState<number | null>(null)
   // "Other" tip mode: a blank custom input means $0 (NOT the menu default).
   const [tipOther, setTipOther] = useState(false)
@@ -626,6 +636,65 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       .map(i => i.lineId === lineId ? { ...i, quantity: i.quantity + delta } : i)
       .filter(i => i.quantity > 0))
   }
+
+  // ── Reorder reconstruction ──────────────────────────────────────────────────
+  // After the (server-loaded) menu is available, rebuild the cart from a
+  // 'disco_reorder' stash by name-matching against the live menu — references
+  // aren't in FM's order response. Date/time are intentionally NOT pre-set; the
+  // diner picks them as normal and the reordered cart reveals once they do.
+  useEffect(() => {
+    if (reorderRef.current) return
+    reorderRef.current = true
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('disco_reorder') } catch {}
+    if (!raw) return
+    try { sessionStorage.removeItem('disco_reorder') } catch {} // one-time use
+    let stash: ReorderStash
+    try { stash = JSON.parse(raw) } catch { return }
+
+    // Guard against stale data from a different restaurant.
+    const stashedSlug = (stash.restaurantSlug || '').toLowerCase().trim()
+    const curSlugs = [slug, fmSlug].filter(Boolean).map(s => String(s).toLowerCase().trim())
+    if (!stashedSlug || !curSlugs.includes(stashedSlug)) return
+
+    const items = Array.isArray(stash.items) ? stash.items : []
+    if (items.length === 0) return
+
+    const norm = (x: string) => (x || '').toLowerCase().trim()
+    const allPkgs = menuData.flatMap(s => s.categories.flatMap(c => c.mealPackages))
+
+    let matched = 0
+    for (const item of items) {
+      const pkg = allPkgs.find(p => norm(p.name) === norm(item.name))
+      if (!pkg) continue // renamed/removed package → miss
+      matched++
+      const addOns: CartAddOn[] = []
+      let extra = 0
+      for (const sa of item.addOns ?? []) {
+        let hit: { a: FmAddOn; groupRef: string } | null = null
+        for (const g of pkg.extraItemsGroups ?? []) {
+          const a = g.addOns.find(x => norm(x.name) === norm(sa.name))
+          if (a) { hit = { a, groupRef: g.reference }; break }
+        }
+        if (!hit) continue // add-on gone → add the package without it
+        const count = sa.count && sa.count > 0 ? sa.count : 1
+        addOns.push({ reference: hit.a.reference, name: hit.a.name, price: hit.a.price, count, extraItemsGroupReference: hit.groupRef })
+        extra += hit.a.price * count
+      }
+      const qty = item.count && item.count > 0 ? item.count : 1
+      addItemWithConfig(pkg, qty, addOns, item.comment || undefined, pkg.price + extra)
+    }
+
+    const total = items.length
+    const msg = matched === 0
+      ? "We couldn't match your previous order to the current menu."
+      : matched < total
+        ? `${matched} of ${total} items added — some items may no longer be available.`
+        : 'Your previous order has been added to your cart.'
+    setReorderToast(msg)
+    setTimeout(() => setReorderToast(''), 6000)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Add-ons modal helpers ─────────────────────────────────────────────────
   function handleAddClickInner(pkg: FmPackage) {
@@ -1408,6 +1477,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           .pkg-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
+
+      {/* Reorder feedback toast */}
+      {reorderToast && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: DARK, color: '#fff', padding: '12px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, fontFamily: F, zIndex: 900, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', maxWidth: 'calc(100vw - 32px)', textAlign: 'center' }}>
+          {reorderToast}
+        </div>
+      )}
 
       {/* Mode 2 — menu advisor (collapsed gold pill, bottom-right) */}
       <MenuAdvisor
