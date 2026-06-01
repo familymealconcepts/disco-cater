@@ -90,7 +90,7 @@ export default function LoginModal({ onClose, onSuccess }: LoginModalProps) {
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: DISCO_DARK }}>Password</label>
-              <a href="#" style={{ fontSize: 12, color: DISCO_PURPLE, textDecoration: 'none' }}>Forgot password?</a>
+              <a href="mailto:concierge@discocater.com?subject=Password%20Reset%20Request" style={{ fontSize: 12, color: DISCO_PURPLE, textDecoration: 'none' }}>Forgot password?</a>
             </div>
             <input
               type="password"

@@ -233,7 +233,10 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
             <div style={{ marginBottom: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, alignItems: 'center' }}>
                 <label style={labelStyle}>Password</label>
-                <a href="https://www.familymeal.com/forgot-password" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: INDIGO, textDecoration: 'none', fontWeight: 500 }}>Forgot password?</a>
+                {/* Self-service reset is blocked on FM (reset emails link to
+                    familymeal.com, not discocater.com — needs a backend change).
+                    Until then, route password help to the concierge inbox. */}
+                <a href="mailto:concierge@discocater.com?subject=Password%20Reset%20Request" style={{ fontSize: 12, color: INDIGO, textDecoration: 'none', fontWeight: 500 }}>Forgot password?</a>
               </div>
               <div style={{ position: 'relative' }}>
                 <input

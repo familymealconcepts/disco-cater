@@ -153,14 +153,28 @@ function joinFmAddress(a?: FmRestaurantLookup['address']): string {
 // Full street address, comma-joined: "123 Main St, New York, NY 10001".
 // Used for the restaurant header so it shows the complete address rather than
 // just the "City, ST" that Sanity's `location` field carries.
+//
+// Some FM records stuff the WHOLE address (incl. city/state/zip and a trailing
+// "USA") into addressLine1 — e.g. "205 E Houston St, New York, NY 10002 USA".
+// In that case appending city/state/zip again double-prints it, so when
+// addressLine1 already contains both the city and the state we show it alone.
 function formatFullAddress(a?: FmRestaurantLookup['address'] | null): string {
   if (!a) return ''
   const street = [a.addressLine1, a.addressLine2].filter(Boolean).join(', ')
+  // Drop a trailing "USA" (US-only platform) — handles "… 10002 USA" / "…, USA".
+  const cleanedStreet = street.replace(/[,\s]+USA\s*$/i, '').trim()
+
+  const line1 = (a.addressLine1 || '').toLowerCase()
+  const hasCity = !!a.city && line1.includes(a.city.toLowerCase())
+  const hasState = !!a.state && new RegExp(`\\b${a.state.toLowerCase()}\\b`).test(line1)
+  // addressLine1 is already a full address → don't re-append city/state/zip.
+  if (hasCity && hasState) return cleanedStreet
+
   const tail = [
     [a.city, a.state].filter(Boolean).join(', '),
     a.zipcode,
   ].filter(Boolean).join(' ')
-  return [street, tail].filter(Boolean).join(', ')
+  return [cleanedStreet, tail].filter(Boolean).join(', ')
 }
 
 async function fetchMenuData(restaurantRef: string) {
