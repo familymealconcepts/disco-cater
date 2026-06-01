@@ -851,7 +851,13 @@ function OrdersContent() {
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 20px' }}>Orders</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 20px', gap: 16 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Orders</h1>
+        <button onClick={() => router.push('/restaurant/orders/create')}
+          style={{ padding: '9px 18px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.25)', whiteSpace: 'nowrap' }}>
+          + Create Order
+        </button>
+      </div>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e8e8e8', marginBottom: 20 }}>
