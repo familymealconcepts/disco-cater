@@ -154,6 +154,11 @@ export default function CheckoutDrawer({
   const [stripeKey, setStripeKey] = useState('')
   const [savedCard, setSavedCard] = useState<any>(null)
   const [useNewCard, setUseNewCard] = useState(false)
+  // Bumped to force a destroy+remount of the Stripe Elements. After a declined
+  // card in direct-entry payment, returning to the payment step would otherwise
+  // leave the fields detached/unusable (the elements survive the placing step by
+  // design, so they don't re-mount into the freshly-rendered divs on their own).
+  const [cardResetKey, setCardResetKey] = useState(0)
   // Individual Stripe Elements (number / expiry / CVC) — clearer per-field
   // structure than the unified Card Element, and they don't render the Stripe
   // Link chip/prefill that the 'card' element does.
@@ -164,6 +169,12 @@ export default function CheckoutDrawer({
   const numberElRef = useRef<any>(null) // primary element for createToken
   const expiryElRef = useRef<any>(null)
   const cvcElRef = useRef<any>(null)
+  // Direct-entry payment retry context: after a declined confirm, hold the
+  // placed order + its PaymentIntent so the NEXT attempt re-confirms the SAME
+  // PaymentIntent with a new card (FM's confirmOrderPaymentByPayStatement)
+  // instead of re-placing the order — re-placing mints a second PaymentIntent
+  // for the same orderRef and FM returns 409.
+  const directEntryRetry = useRef<{ orderReference: string; paymentIntentId: string } | null>(null)
 
   // Contact fields — pre-filled from authUser but EDITABLE (customers often
   // order for someone else). Mirrors FM's customerInfoForm pattern in
@@ -274,7 +285,7 @@ export default function CheckoutDrawer({
         if (r.current) { r.current.destroy(); r.current = null }
       }
     }
-  }, [paymentActive, stripeKey, savedCard, useNewCard])
+  }, [paymentActive, stripeKey, savedCard, useNewCard, cardResetKey])
 
   // ── Computed ───────────────────────────────────────────────────────────────
   const fm = useMemo(() => extractFmMoney(fmTotals), [fmTotals])
@@ -463,6 +474,13 @@ export default function CheckoutDrawer({
     setError('')
 
     const isInvoice = isDirectEntry && directEntryMethod === 'invoice'
+    // Direct-entry payment RETRY after a declined card: FM
+    // (confirmOrderPaymentByPayStatement, checkout-sidebar-preview.component.ts:
+    // 1342) reuses the SAME orderRef + paymentIntentId and just re-confirms with
+    // a NEW paymentMethodId — it never re-places (the isOrderAlreadyCreated flag
+    // guards that). Re-placing mints a second PaymentIntent for the same order →
+    // FM 409. So on a retry we skip the place call and confirm the stored PI.
+    const retry = (isDirectEntry && !isInvoice) ? directEntryRetry.current : null
 
     try {
       // FM's payment flow (checkout-customer-info.component.ts:762-816 +
@@ -491,49 +509,60 @@ export default function CheckoutDrawer({
       // Card ready (or using a saved card) — now show the placing state.
       setStep('placing')
 
-      // Place the order — FM expects the full order object (checkout-sidebar-
-      // preview.component.ts:1169-1176 + 1300-1309): the priced DTO under
-      // checkoutDetails (+ paymentMethod, sourceoforder), the customer, and
-      // deliveryAddress for DELIVERY only (FM deletes it for PICKUP, :1178).
-      const checkoutDetails: Record<string, unknown> = {
-        ...buildCheckoutDto(),
-        // INVOICE for direct-entry invoice flow (FM creates an unpaid order +
-        // emails a payment link); PAYMENT otherwise.
-        paymentMethod: isInvoice ? 'INVOICE' : 'PAYMENT',
-        // FM attributes lead-generation fees off this wire value. "DISCO" for
-        // /restaurants/[slug] (3P, lead gen fee), "FAMILYMEAL" for /order/[slug]
-        // (1P) AND for direct entry (restaurant placing for its own customer →
-        // no lead-gen fee). Never expose these strings in the UI (show 3P/1P).
-        sourceoforder: (isFirstParty || isDirectEntry) ? 'FAMILYMEAL' : 'DISCO',
-      }
-      delete checkoutDetails.restaurantRef // proxy-URL field only; not part of ICheckoutPreview
-      // Direct entry places with the restaurant token (admin acting for the
-      // customer); the customer flow uses the diner token.
-      const placeRes = await fetch(isDirectEntry ? '/api/restaurant/orders/place' : '/api/order/place', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurantRef: fmRef,
-          orderRef,
-          checkoutDetails,
-          customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: contactPhone },
-          ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
-        }),
-      })
-      const placeData = await placeRes.json()
-      if (!placeRes.ok && placeData.error) throw new Error(placeData.error || placeData.message || 'Failed to place order.')
-      const finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
+      // Resolve the order + PaymentIntent we'll confirm. On a retry we reuse the
+      // ones from the prior (failed) attempt; otherwise we place the order now.
+      let finalRef: string
+      let paymentIntentId: string | undefined
 
-      // Invoice (direct entry): the order is created unpaid and FM emails the
-      // customer a payment link. No card, no confirm-payment — done.
-      if (isInvoice) { setStep('sent'); return }
+      if (retry) {
+        finalRef = retry.orderReference
+        paymentIntentId = retry.paymentIntentId
+      } else {
+        // Place the order — FM expects the full order object (checkout-sidebar-
+        // preview.component.ts:1169-1176 + 1300-1309): the priced DTO under
+        // checkoutDetails (+ paymentMethod, sourceoforder), the customer, and
+        // deliveryAddress for DELIVERY only (FM deletes it for PICKUP, :1178).
+        const checkoutDetails: Record<string, unknown> = {
+          ...buildCheckoutDto(),
+          // INVOICE for direct-entry invoice flow (FM creates an unpaid order +
+          // emails a payment link); PAYMENT otherwise.
+          paymentMethod: isInvoice ? 'INVOICE' : 'PAYMENT',
+          // FM attributes lead-generation fees off this wire value. "DISCO" for
+          // /restaurants/[slug] (3P, lead gen fee), "FAMILYMEAL" for /order/[slug]
+          // (1P) AND for direct entry (restaurant placing for its own customer →
+          // no lead-gen fee). Never expose these strings in the UI (show 3P/1P).
+          sourceoforder: (isFirstParty || isDirectEntry) ? 'FAMILYMEAL' : 'DISCO',
+        }
+        delete checkoutDetails.restaurantRef // proxy-URL field only; not part of ICheckoutPreview
+        // Direct entry places with the restaurant token (admin acting for the
+        // customer); the customer flow uses the diner token.
+        const placeRes = await fetch(isDirectEntry ? '/api/restaurant/orders/place' : '/api/order/place', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            restaurantRef: fmRef,
+            orderRef,
+            checkoutDetails,
+            customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: contactPhone },
+            ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
+          }),
+        })
+        const placeData = await placeRes.json()
+        if (!placeRes.ok && placeData.error) throw new Error(placeData.error || placeData.message || 'Failed to place order.')
+        finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
+
+        // Invoice (direct entry): the order is created unpaid and FM emails the
+        // customer a payment link. No card, no confirm-payment — done.
+        if (isInvoice) { setStep('sent'); return }
+
+        const paymentDetails = placeData.data?.paymentDetails ?? placeData.paymentDetails
+        paymentIntentId = paymentDetails?.stripePaymentIntentDto?.paymentIntentId
+      }
 
       // Confirm the PaymentIntent FM created during placement — THIS charges the
       // card (checkout-sidebar-preview.component.ts:1205-1252). FM's contract
       // (order.service.ts:55-70): { orderReference, restaurantReference,
       // paymentIntentId, confirmWithDefaultSource, paymentMethodId } — the
       // paymentMethodId is dropped server-side when confirmWithDefaultSource.
-      const paymentDetails = placeData.data?.paymentDetails ?? placeData.paymentDetails
-      const paymentIntentId = paymentDetails?.stripePaymentIntentDto?.paymentIntentId
       if (paymentIntentId) {
         // Direct entry confirms via the restaurant-authed proxy (admin token),
         // never confirmWithDefaultSource (no saved diner card). The customer
@@ -542,23 +571,29 @@ export default function CheckoutDrawer({
         const confirmBody = isDirectEntry
           ? { orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, paymentMethodId, confirmWithDefaultSource: false }
           : { orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, confirmWithDefaultSource: usingSavedCard, ...(usingSavedCard ? {} : { paymentMethodId }) }
-        // Diagnostic (Vercel logs): does FM accept the restaurant JWT on
-        // confirmPayment, or return 401/403? Log the exact payload + response.
-        if (isDirectEntry) console.log('[direct-entry confirm-payment] →', JSON.stringify(confirmBody))
         const confRes = await fetch(confirmUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(confirmBody),
         })
         const confData = await confRes.json()
-        if (isDirectEntry) console.log('[direct-entry confirm-payment] ←', JSON.stringify({ status: confRes.status, ok: confRes.ok, body: confData }))
         const payStatus = (confData.data?.stripePaymentIntentDto ?? confData.stripePaymentIntentDto)?.paymentIntentStatus
         // FM requires the PaymentIntent to be 'succeeded' (checkout-sidebar-
         // preview.component.ts:1215). Anything else → card not charged: surface
         // the failure and stay on payment (do NOT redirect to confirmation).
         if (!confRes.ok || (payStatus && payStatus.toLowerCase() !== 'succeeded')) {
-          setError(confData.error || confData.message || 'Payment could not be completed — the card was not charged. Please try again.')
+          // Direct-entry payment failure: keep the order + PaymentIntent so the
+          // NEXT attempt re-confirms the SAME PI with a new card (FM's retry —
+          // no re-place, avoids the 409), and remount the card fields so a fresh
+          // number can be entered without closing the drawer.
+          if (isDirectEntry && !isInvoice && paymentIntentId) {
+            directEntryRetry.current = { orderReference: finalRef, paymentIntentId }
+            setCardResetKey(k => k + 1)
+          }
+          setError(confData.error || confData.message || 'Payment could not be completed — the card was not charged. Please try again with a different card.')
           setStep('payment'); return
         }
+        // Confirmed — clear any retry context.
+        directEntryRetry.current = null
       }
 
       // Save address silently (post-order) — customer flow only; direct entry
@@ -575,6 +610,9 @@ export default function CheckoutDrawer({
       router.push(isDirectEntry ? '/restaurant/orders' : `/order-confirmation/${finalRef}`)
     } catch (err: any) {
       setError(err.message || 'Something went wrong. Please try again.')
+      // If we'd already entered the placing step, the card fields were detached;
+      // remount them (direct entry) so the admin can retry without reopening.
+      if (isDirectEntry && !isInvoice) setCardResetKey(k => k + 1)
       setStep('payment')
     }
   }
