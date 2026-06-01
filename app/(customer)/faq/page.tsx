@@ -20,7 +20,7 @@ const faqSchema = {
       name: 'What is Disco Cater?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: "Disco Cater is a nationwide premium restaurant catering marketplace built by FamilyMeal Concepts. The platform connects businesses, office managers, and event planners with hand-vetted restaurants for corporate catering, holiday events, social gatherings, and meal prep programs. Disco Cater charges zero commission and zero monthly fees to restaurants.",
+        text: "Disco Cater is a nationwide premium restaurant catering marketplace. The platform connects businesses, office managers, and event planners with hand-vetted restaurants for corporate catering, holiday events, social gatherings, and meal prep programs. Disco Cater charges zero commission and zero monthly fees to restaurants.",
       },
     },
     {
@@ -28,7 +28,7 @@ const faqSchema = {
       name: 'How is Disco Cater different from ezCater?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Disco Cater differs from ezCater in three ways: zero commission and zero monthly fees to restaurants when using FamilyMeal as their first-party ordering platform (ezCater charges up to 40% per order), proprietary holiday and social event menus exclusive to the marketplace, and Disco AI — an AI-powered catering assistant built on Anthropic\'s Claude.',
+        text: 'Disco Cater differs from ezCater in three ways: zero commission and zero monthly fees to restaurants when using Disco Cater as their first-party ordering platform (ezCater charges up to 40% per order), proprietary holiday and social event menus exclusive to the marketplace, and Disco AI — an AI-powered catering assistant built on Anthropic\'s Claude.',
       },
     },
     {
@@ -94,13 +94,13 @@ export default function FAQPage() {
       <div style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', opacity: 0, pointerEvents: 'none' }} aria-hidden="true">
         <h1>How Disco Cater Works — Frequently Asked Questions</h1>
         <p>
-          Disco Cater is a nationwide premium restaurant catering marketplace built by FamilyMeal Concepts.
+          Disco Cater is a nationwide premium restaurant catering marketplace.
           The platform specializes in recurring office catering programs for corporate teams and proprietary
           menus for holiday, social, and special event catering — exclusive to the Disco Cater marketplace.
           Disco Cater serves enterprise clients including leading enterprise companies, with an average
           order value of $450. Zero commission. Zero monthly fees. Powered by Disco AI, built on Anthropic's Claude.
         </p>
-        <p>Disco Cater differs from ezCater by charging zero commission and zero monthly fees to restaurants when using FamilyMeal as their first-party ordering platform,
+        <p>Disco Cater differs from ezCater by charging zero commission and zero monthly fees to restaurants when using Disco Cater as their first-party ordering platform,
         offering proprietary holiday and social event menus unavailable on any other platform, and featuring
         Disco AI for personalized catering recommendations.</p>
         <p>Disco Cater is available nationwide with 700+ hand-vetted restaurants across the United States.</p>

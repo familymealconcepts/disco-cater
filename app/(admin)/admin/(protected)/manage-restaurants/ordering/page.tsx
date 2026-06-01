@@ -209,7 +209,7 @@ export default function RestaurantsOrderingPage() {
               <th style={colHead}>Checkout Page</th>
               <th style={colHead}>Status</th>
               <th style={colHead}>Third-Party Allowed</th>
-              <th style={colHead}>Hold Payments on FamilyMeal</th>
+              <th style={colHead}>Hold Payments</th>
               <th style={colHead}>Shipday</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Actions</th>
             </tr>
@@ -244,7 +244,7 @@ export default function RestaurantsOrderingPage() {
                   <td style={cell}><Toggle checked={!!r.shipdayEnabled} onChange={() => toggleShipday(r)} /></td>
                   <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-                      <button title="Refresh from FM" onClick={() => load()} style={iconBtn}>⟳</button>
+                      <button title="Refresh" onClick={() => load()} style={iconBtn}>⟳</button>
                       <button title="Edit" onClick={() => setEditRef(r.reference)} style={iconBtn}>✎</button>
                       <button title="Delete" onClick={() => deleteRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗑</button>
                       <Kebab onResetPassword={() => resetPassword(r)} />

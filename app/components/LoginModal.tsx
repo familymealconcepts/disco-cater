@@ -121,7 +121,7 @@ export default function LoginModal({ onClose, onSuccess }: LoginModalProps) {
         </form>
 
         <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #f5f5f5', textAlign: 'center', fontSize: 13, color: '#888' }}>
-          Use your FamilyMeal account credentials to sign in.
+          Use your Disco Cater account credentials to sign in.
         </div>
       </div>
     </div>

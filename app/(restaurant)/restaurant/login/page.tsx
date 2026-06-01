@@ -112,7 +112,7 @@ export default function RestaurantLoginPage() {
               Log in to Restaurant Portal
             </h1>
             <p style={{ fontSize: 13, color: '#888', marginBottom: 24, marginTop: 0 }}>
-              Use your FamilyMeal restaurant account credentials.
+              Use your Disco Cater restaurant account credentials.
             </p>
 
             {error && (

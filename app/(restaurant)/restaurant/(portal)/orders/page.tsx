@@ -381,7 +381,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             {/* FM-style print header */}
             <div style={{ marginBottom: 18 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: DARK, lineHeight: 1.5 }}>
-                FamilyMeal Order #{order.orderNumber} ({fmt(totals.total)}) {fmtDate(order.orderDate)}
+                Disco Cater Order #{order.orderNumber} ({fmt(totals.total)}) {fmtDate(order.orderDate)}
                 {order.orderTime && <>, {fmtTime(order.orderTime)}</>}
                 {customerFull && <> for {customerFull}</>}
               </div>

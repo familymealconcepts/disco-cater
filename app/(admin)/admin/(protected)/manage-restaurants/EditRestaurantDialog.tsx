@@ -207,7 +207,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         })
         if (!mpRes.ok) {
           const d = await mpRes.json().catch(() => null)
-          throw new Error(d?.error || 'Saved FM data, but the Marketplace (Sanity) write failed')
+          throw new Error(d?.error || 'Saved restaurant data, but the Marketplace (Sanity) write failed')
         }
       }
 

@@ -341,15 +341,6 @@ export default function OrderSettingsPage() {
         {urlSlugError && (
           <p style={{ fontSize: 12, color: '#E76F51', margin: '6px 0 0' }}>{urlSlugError}</p>
         )}
-
-        {/* Secondary FM URL reference — kept so restaurants can find their
-            legacy FM ordering link while the migration is in flight. */}
-        {urlSlug && (
-          <p style={{ fontSize: 11, color: '#aaa', margin: '10px 0 0' }}>
-            FamilyMeal page: <a href={`https://www.familymeal.com/${urlSlug}`} target="_blank" rel="noreferrer"
-              style={{ color: '#888', textDecoration: 'underline' }}>familymeal.com/{urlSlug}</a>
-          </p>
-        )}
       </Section>
 
       {/* Notifications */}

@@ -69,7 +69,7 @@ export default function AdminLoginPage() {
             <label style={lbl}>Email</label>
             <input
               type="email" required value={email} onChange={e => setEmail(e.target.value)}
-              autoComplete="email" style={input} placeholder="you@familymeal.com"
+              autoComplete="email" style={input} placeholder="you@discocater.com"
             />
           </div>
           <div style={{ marginBottom: 20 }}>

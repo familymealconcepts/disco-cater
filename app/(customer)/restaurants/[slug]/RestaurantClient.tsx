@@ -951,7 +951,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               {!fmRef && (
                 <a href={fmSlug ? `https://www.familymeal.com/disco/${fmSlug}` : '#'} target="_blank" rel="noopener noreferrer"
                   style={{ display: 'block', textAlign: 'center', padding: '13px', background: BLUE, color: '#fff', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: F }}>
-                  Order on FamilyMeal →
+                  Order Catering →
                 </a>
               )}
             </div>
@@ -1045,7 +1045,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               {fmSlug && (
                 <a href={`https://www.familymeal.com/disco/${fmSlug}`} target="_blank" rel="noopener noreferrer"
                   style={{ display: 'inline-block', padding: '11px 22px', background: BLUE, color: '#fff', borderRadius: 10, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
-                  Order on FamilyMeal →
+                  Order Catering →
                 </a>
               )}
             </div>

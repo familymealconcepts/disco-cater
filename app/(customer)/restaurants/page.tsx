@@ -137,7 +137,7 @@ export default async function RestaurantsPage() {
         {/* ── Bottom crawlable context block ─────────────────── */}
         <div style={{ marginTop: 48, padding: '24px', background: '#fafafa', borderRadius: 12, border: '1px solid #f0f0f0' }}>
           <p style={{ fontSize: 13, color: '#888', lineHeight: 1.8, margin: 0 }}>
-            Disco Cater is a nationwide restaurant catering marketplace built by FamilyMeal Concepts.
+            Disco Cater is a nationwide restaurant catering marketplace.
             The platform specializes in recurring office catering programs, proprietary holiday and social
             event menus, and meal prep catering. Disco Cater charges zero commission and zero monthly fees
             to restaurants. Enterprise clients including leading enterprise companies use Disco Cater

@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     }
     const data = await res.json()
     if (data.role !== 'SUPER_ADMIN') {
-      return NextResponse.json({ error: 'This portal is for FamilyMeal admins only.' }, { status: 403 })
+      return NextResponse.json({ error: 'This portal is for Disco Cater admins only.' }, { status: 403 })
     }
     // FM stores tokens with possible "Bearer" prefix in the response; strip if present.
     const rawToken = String(data.authorization || '').replace(/^Bearer\s+/i, '').trim()

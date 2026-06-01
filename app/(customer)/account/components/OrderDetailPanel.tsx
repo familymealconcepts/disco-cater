@@ -173,11 +173,11 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
   }
 
   function handleSkip() {
-    alert('Skip next is coming soon — FM hasn\'t shipped the customer subscription-skip endpoint yet.')
+    alert('Skip next is coming soon.')
   }
 
   function handleCancel() {
-    alert('Cancel order is coming soon — FM hasn\'t shipped a customer-side cancel endpoint yet.')
+    alert('Cancel order is coming soon.')
   }
 
   function handleReorder() {

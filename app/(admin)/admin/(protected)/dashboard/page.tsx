@@ -171,7 +171,7 @@ export default function AdminDashboard() {
 
       {/* Sale stats — top block (matches FM template 2-87) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginTop: 18 }}>
-        <SaleCard title="FamilyMeal Fees" value={saleRaw.feeSum} />
+        <SaleCard title="Platform Fees" value={saleRaw.feeSum} />
         <SaleCard title="Processing Fees" value={saleRaw.stripeFeeSum} />
         <SaleCard title="Net Sales" value={saleRaw.subtotalOrdersSum} />
         <SaleCard title="Tax Amount" value={taxAmount} />

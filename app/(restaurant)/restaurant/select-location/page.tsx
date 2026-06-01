@@ -162,7 +162,7 @@ function SelectLocationContent() {
           <div style={{ background: '#fff', border: '1px solid #ebebeb', borderRadius: 12, padding: '40px 24px', textAlign: 'center' }}>
             <div style={{ fontSize: 36, marginBottom: 14 }}>📍</div>
             <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 6 }}>No locations on your account</div>
-            <div style={{ fontSize: 13, color: '#888' }}>Contact FamilyMeal support if this seems wrong.</div>
+            <div style={{ fontSize: 13, color: '#888' }}>Contact Disco Cater support if this seems wrong.</div>
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ background: '#fff', border: '1px solid #ebebeb', borderRadius: 12, padding: '30px 24px', textAlign: 'center', fontSize: 13, color: '#888' }}>

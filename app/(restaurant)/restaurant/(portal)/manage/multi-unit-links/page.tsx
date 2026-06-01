@@ -8,12 +8,9 @@ const INDIGO = '#5B6FE8'
 const PAGE_BG = '#F7F8FC'
 const FM_IMG_BASE = 'https://api.familymeal.com/public-api/images'
 
-// Where the shareable links resolve. The "primary" link is the
-// Disco Cater equivalent of FM's multi-unit /locations/{slug} page,
-// shown as the headline URL — the FM link is kept as a secondary
-// reference until /locations/ is built on this side.
+// Where the shareable links resolve — the Disco Cater multi-unit
+// /locations/{slug} page.
 const DISCO_BASE = 'https://www.discocater.com/locations/'
-const FM_BASE = 'https://www.familymeal.com/locations/'
 
 // FM's link object — fields observed on /api/system-admin/restaurants/links.
 // `urlFrom: 'Dashboard'` is the "this is the restaurant's own dashboard
@@ -157,7 +154,7 @@ export default function MultiUnitLinksPage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Links</h1>
           <p style={{ fontSize: 12, color: '#777', margin: '4px 0 0', lineHeight: 1.5, maxWidth: 600 }}>
             Shareable URLs that route customers to one or more of your locations.
-            The Disco Cater URL is the one to hand out; the FamilyMeal URL is shown for reference.
+            Share the Disco Cater URL with your customers.
           </p>
         </div>
         <button onClick={() => setEditing({ url: '', header: '', restaurantReferences: [] })}
@@ -184,7 +181,6 @@ export default function MultiUnitLinksPage() {
             {!loading && links.map(l => {
               const img = imageUrl(l)
               const discoUrl = `${DISCO_BASE}${l.url}`
-              const fmUrl = `${FM_BASE}${l.url}`
               const protectedRow = l.urlFrom === 'Dashboard'
               return (
                 <tr key={l.reference}>
@@ -206,18 +202,6 @@ export default function MultiUnitLinksPage() {
                       <button onClick={() => copy(discoUrl, `disco-${l.reference}`)} title="Copy"
                         style={iconBtn}>
                         {copied === `disco-${l.reference}` ? '✓' : '⧉'}
-                      </button>
-                    </div>
-                    {/* Secondary: FM */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                      <a href={fmUrl} target="_blank" rel="noreferrer"
-                        style={{ color: '#999', textDecoration: 'none', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}
-                        title={fmUrl}>
-                        FM: {fmUrl}
-                      </a>
-                      <button onClick={() => copy(fmUrl, `fm-${l.reference}`)} title="Copy"
-                        style={{ ...iconBtn, color: '#999' }}>
-                        {copied === `fm-${l.reference}` ? '✓' : '⧉'}
                       </button>
                     </div>
                   </td>

@@ -15,7 +15,7 @@ const sections: Section[] = [
     items: [
       {
         q: 'What is Disco Cater?',
-        a: 'Disco Cater is a nationwide premium restaurant catering marketplace built by FamilyMeal Concepts. The platform connects businesses, office managers, and event planners with hand-vetted restaurants for corporate catering, holiday events, social gatherings, and meal prep programs. Unlike general food delivery apps, Disco Cater is built exclusively for catering — with proprietary menus for holidays and special events that are only available through the platform.',
+        a: 'Disco Cater is a nationwide premium restaurant catering marketplace. The platform connects businesses, office managers, and event planners with hand-vetted restaurants for corporate catering, holiday events, social gatherings, and meal prep programs. Unlike general food delivery apps, Disco Cater is built exclusively for catering — with proprietary menus for holidays and special events that are only available through the platform.',
       },
       {
         q: 'How is Disco Cater different from ezCater?',
@@ -173,17 +173,14 @@ const sections: Section[] = [
         a: "There are no monthly or fixed fees. The marketplace fee is 15% on a customer's first order, and 5% on all recurring orders from that same customer. Additionally, credit card processing (2.90% + $0.30) is paid by the restaurant partner.",
       },
       {
-        q: 'Do I need to use FamilyMeal as my 1st-party ordering platform?',
-        a: "No, but it's the recommended path. If you use FamilyMeal as your native catering platform, order management and payouts are handled seamlessly. Pricing is also reduced for partners using FamilyMeal as their 1st-party ordering platform.",
+        q: 'Do I need to use Disco Cater as my 1st-party ordering platform?',
+        a: "No, but it's the recommended path. If you use Disco Cater as your native catering platform, order management and payouts are handled seamlessly. Pricing is also reduced for partners using Disco Cater as their 1st-party ordering platform.",
       },
       {
         q: 'What are the next steps for joining?',
         a: (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <p style={{ margin: 0, fontSize: 14, color: '#555' }}>Create a free account on our catering platform, FamilyMeal:</p>
-            <a href="https://www.familymeal.com/become-a-partner" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 20, background: '#1A1028', color: '#fff', fontSize: 13, fontWeight: 700, textDecoration: 'none', width: 'fit-content' }}>
-              Get started on FamilyMeal →
-            </a>
+            <p style={{ margin: 0, fontSize: 14, color: '#555' }}>Create a free account on Disco Cater to get started:</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
               {[
                 'Enter your business and contact details',
