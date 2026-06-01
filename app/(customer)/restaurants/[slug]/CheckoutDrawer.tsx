@@ -61,6 +61,9 @@ interface Props {
   // when false → 3P lead-gen fee). Defaults false so /restaurants/[slug] is
   // unchanged.
   isFirstParty?: boolean
+  // Close the drawer and reopen the order-setup modal so the diner can
+  // re-validate a different delivery address. Falls back to onClose.
+  onChangeAddress?: () => void
   onClose: () => void
 }
 
@@ -109,7 +112,7 @@ function fmtTime(t: string) {
 export default function CheckoutDrawer({
   fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType,
   addr, menuReference, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount,
-  isFirstParty = false, onClose,
+  isFirstParty = false, onChangeAddress, onClose,
 }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -162,6 +165,9 @@ export default function CheckoutDrawer({
   const [contactLast, setContactLast] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [contactPhone, setContactPhone] = useState('')
+  // Delivery instructions — editable at checkout, pre-filled from what was
+  // entered in the order-setup modal. Flows into fmAddr → DTO + place body.
+  const [deliveryNotes, setDeliveryNotes] = useState(() => addr.instructions || '')
   useEffect(() => {
     if (!authUser) return
     setContactFirst(p => p || authUser.firstName || '')
@@ -225,7 +231,10 @@ export default function CheckoutDrawer({
       stripeRef.current = window.Stripe(stripeKey)
       const elements = stripeRef.current.elements()
       const style = { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } }
-      numberElRef.current = elements.create('cardNumber', { style, showIcon: true })
+      // showIcon: false → no Stripe-rendered network/Link brand mark in the
+      // field. Cosmetic only; tokenization (createToken on numberElRef) is
+      // unaffected.
+      numberElRef.current = elements.create('cardNumber', { style, showIcon: false })
       expiryElRef.current = elements.create('cardExpiry', { style })
       cvcElRef.current = elements.create('cardCvc', { style })
       numberElRef.current.mount(numberRef.current)
@@ -276,7 +285,7 @@ export default function CheckoutDrawer({
     zipcode: addr.zip,
     latitude: addr.lat ?? undefined,
     longitude: addr.lng ?? undefined,
-    deliveryInstructions: addr.instructions || '',
+    deliveryInstructions: deliveryNotes || '',
   }
 
   // ── Pricing preview (Item 1) ─────────────────────────────────────────────────
@@ -575,10 +584,34 @@ export default function CheckoutDrawer({
                 {orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}
               </span>
             </div>
-            {orderType === 'DELIVERY' && addr.line1 && (
-              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>📍 {addr.line1}, {addr.city}, {addr.state} {addr.zip}</div>
-            )}
           </div>
+
+          {/* Delivery — validated address (read-only) + editable instructions +
+              Change address. Mirrors FM's checkout-customer-info delivery panel
+              (addressLine1/addressLine2 + Delivery Instructions). PICKUP shows
+              nothing here. */}
+          {orderType === 'DELIVERY' && (
+            <div style={{ padding: '0 0 14px', borderBottom: '1px solid #f4f4f4', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Delivery to</div>
+                <button onClick={onChangeAddress || onClose}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: 0 }}>
+                  Change address
+                </button>
+              </div>
+              <div style={{ fontSize: 13, color: DARK, lineHeight: 1.5 }}>
+                {addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}<br />
+                {[addr.city, addr.state].filter(Boolean).join(', ')} {addr.zip}
+              </div>
+              <input
+                value={deliveryNotes}
+                onChange={e => setDeliveryNotes(e.target.value)}
+                placeholder="Delivery instructions (optional)"
+                aria-label="Delivery instructions"
+                style={{ width: '100%', height: 38, marginTop: 8, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+          )}
 
           {/* Items summary (read-only — quantities are edited in Stage 1). */}
           <div style={{ padding: '0 0 14px', borderBottom: '1px solid #f4f4f4', marginBottom: 16 }}>
@@ -751,7 +784,11 @@ export default function CheckoutDrawer({
               <div style={{ background: '#fff', border: '1.5px solid #f0f0f0', borderRadius: 12, padding: '14px 18px', marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Saved card</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 26 }}>💳</span>
+                  {/* Generic card icon only — never a network/Stripe Link brand mark. */}
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="2" y="5" width="20" height="14" rx="2" />
+                    <line x1="2" y1="10" x2="22" y2="10" />
+                  </svg>
                   <div>
                     {/* Render last4 plainly — no card brand label, so a "link"
                         brand (Stripe Link) doesn't show a Link bubble. */}

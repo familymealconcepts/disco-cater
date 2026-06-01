@@ -1298,6 +1298,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           headcount={headcount} onHeadcount={setHeadcount}
           menuReference={menuData[activeMenuIdx]?.menu?.reference ?? null}
           isFirstParty={isFirstParty}
+          onChangeAddress={() => { setCheckoutOpen(false); openMenus() }}
           onClose={() => setCheckoutOpen(false)}
         />
       )}
