@@ -8,7 +8,10 @@ async function auth() { return getRestaurantAuthHeader() }
 export async function GET(req: NextRequest) {
   let h: Record<string, string>
   try { h = await auth() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
-  const restaurantRef = await getRestaurantRef()
+  // Optional ?restaurantRef=<ref> overrides the selected-location default so a
+  // SYSTEM_ADMIN can fetch an EXPLICIT location's packages without switching
+  // (powers the bulk-pricing fan-out). Falls back to the selected location.
+  const restaurantRef = req.nextUrl.searchParams.get('restaurantRef') || await getRestaurantRef()
   if (!restaurantRef) return NextResponse.json({ error: 'No restaurant reference' }, { status: 401 })
   try {
     const sp = req.nextUrl.searchParams
