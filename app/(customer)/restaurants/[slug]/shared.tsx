@@ -68,7 +68,7 @@ interface FmRestaurantLookup {
   image?: { reference?: string }
 }
 
-async function resolveFmRef(slug: string): Promise<string | null> {
+const resolveFmRef = cache(async (slug: string): Promise<string | null> => {
   try {
     const res = await fetch(`${FM}/public-api/restaurants`, {
       headers: { Accept: 'application/json' },
@@ -80,14 +80,14 @@ async function resolveFmRef(slug: string): Promise<string | null> {
   } catch {
     return null
   }
-}
+})
 
 // FM direct slug lookup — mirrors getRestaurantByName() in
 // _system/_services/restaurant/restaurant.service.ts:436-440 + the
 // two-step flow used by checkout-pantry.component.ts:480-507.
-// Returns the full restaurant body (with reference + address + image)
-// or null if FM doesn't recognize the slug.
-async function fetchFmRestaurantBySlug(slug: string): Promise<FmRestaurantLookup | null> {
+// Returns reference + businessName (NOTE: this endpoint does NOT include the
+// address — use fetchFmRestaurantByRef for that). null if FM 404s the slug.
+const fetchFmRestaurantBySlug = cache(async (slug: string): Promise<FmRestaurantLookup | null> => {
   try {
     const res = await fetch(`${FM}/public-api/restaurants/business/${encodeURIComponent(slug)}`, {
       headers: { Accept: 'application/json' },
@@ -100,6 +100,44 @@ async function fetchFmRestaurantBySlug(slug: string): Promise<FmRestaurantLookup
   } catch {
     return null
   }
+})
+
+// FM restaurant detail BY REFERENCE — /public-api/restaurants/{ref}. Unlike the
+// business-by-slug endpoint, this DOES carry the full `address` object
+// ({ addressLine1, city, state, zipcode, … }). This is the canonical address
+// source for the page header + SEO (Sanity is missing it for some restaurants,
+// e.g. Katz's). cache()d so generateMetadata + the page render share one call.
+const fetchFmRestaurantByRef = cache(async (ref: string): Promise<FmRestaurantLookup | null> => {
+  try {
+    const res = await fetch(`${FM}/public-api/restaurants/${ref}`, {
+      headers: { Accept: 'application/json' },
+      next: { revalidate: 3600 },
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    if (!data || !data.reference) return null
+    return data as FmRestaurantLookup
+  } catch {
+    return null
+  }
+})
+
+// Resolve a restaurant's FM address object from an FM slug (business lookup →
+// ref → by-ref detail). cache()d on the slug so metadata + render share it.
+const resolveFmAddress = cache(async (fmSlug: string): Promise<FmRestaurantLookup['address'] | null> => {
+  if (!fmSlug) return null
+  const body = await fetchFmRestaurantBySlug(fmSlug)
+  const ref = body?.reference ?? (await resolveFmRef(fmSlug))
+  if (!ref) return null
+  const detail = await fetchFmRestaurantByRef(ref)
+  return detail?.address ?? null
+})
+
+// "City, ST" from an FM address — the right granularity for an SEO "Catering
+// in {loc}" title, and a never-blank last resort for the header.
+function cityState(a?: FmRestaurantLookup['address'] | null): string {
+  if (!a) return ''
+  return [a.city, a.state].filter(Boolean).join(', ')
 }
 
 function joinFmAddress(a?: FmRestaurantLookup['address']): string {
@@ -115,7 +153,7 @@ function joinFmAddress(a?: FmRestaurantLookup['address']): string {
 // Full street address, comma-joined: "123 Main St, New York, NY 10001".
 // Used for the restaurant header so it shows the complete address rather than
 // just the "City, ST" that Sanity's `location` field carries.
-function formatFullAddress(a?: FmRestaurantLookup['address']): string {
+function formatFullAddress(a?: FmRestaurantLookup['address'] | null): string {
   if (!a) return ''
   const street = [a.addressLine1, a.addressLine2].filter(Boolean).join(', ')
   const tail = [
@@ -193,7 +231,14 @@ export async function buildRestaurantMetadata(
     }
   }
 
-  const loc = r.location || r.address || ''
+  // Locale for the title/description: Sanity's curated `location` first, then
+  // FM's city/state (Sanity is blank for some restaurants, e.g. Katz's), then
+  // the Sanity address as a last resort.
+  const fmSlug = r.orderUrl
+    ? r.orderUrl.replace(/.*\/disco\//, '').replace(/\/.*/, '').trim()
+    : null
+  const fmAddr = fmSlug ? await resolveFmAddress(fmSlug) : null
+  const loc = r.location || cityState(fmAddr) || r.address || ''
   const title = loc
     ? `${r.name} — Catering in ${loc} | Disco Cater`
     : `${r.name} — Catering | Disco Cater`
@@ -268,11 +313,13 @@ export async function RestaurantView({
     // endpoint doesn't recognize this slug, so ref resolution stays as robust.
     const fmBody = fmSlug ? await fetchFmRestaurantBySlug(fmSlug) : null
     const fmRef = fmBody?.reference ?? (fmSlug ? await resolveFmRef(fmSlug) : null)
-    const fmFullAddress = fmBody ? formatFullAddress(fmBody.address) : ''
+    // The address lives on the by-REFERENCE endpoint, not business-by-slug.
+    const fmDetail = fmRef ? await fetchFmRestaurantByRef(fmRef) : null
+    const fmFullAddress = formatFullAddress(fmDetail?.address)
     const menuData = fmRef ? await fetchMenuData(fmRef) : []
-    // Prefer the full FM address, then Sanity's full address string, then the
-    // short "City, ST" so the header always renders something.
-    const fullAddress = fmFullAddress || sanityRestaurant.address || sanityRestaurant.location || ''
+    // FM full street address first, then Sanity's address, then Sanity's
+    // "City, ST" location, then FM's city/state — so it's never blank.
+    const fullAddress = fmFullAddress || sanityRestaurant.address || sanityRestaurant.location || cityState(fmDetail?.address) || ''
     return (
       <>
         <SeoBlock
@@ -302,10 +349,13 @@ export async function RestaurantView({
   const fmRestaurant = await fetchFmRestaurantBySlug(slug)
   if (!fmRestaurant) return notFound()
 
+  // Address comes from the by-reference detail (business-by-slug has none).
+  const fmDetail = await fetchFmRestaurantByRef(fmRestaurant.reference)
+
   const FM_IMG = process.env.NEXT_PUBLIC_FM_API_BASE_URL || 'https://api.familymeal.com'
   const minimalRestaurant = {
     name: fmRestaurant.businessName,
-    address: joinFmAddress(fmRestaurant.address),
+    address: formatFullAddress(fmDetail?.address) || joinFmAddress(fmRestaurant.address),
     cuisine: undefined,
     cuisines: [] as string[],
     description: undefined,
@@ -314,7 +364,8 @@ export async function RestaurantView({
       : undefined,
     orderUrl: `https://www.familymeal.com/${fmRestaurant.businessNameWithoutSpaces || slug}`,
     isDisco: false,
-    location: undefined,
+    // City/State so the header never renders blank if the full address is empty.
+    location: cityState(fmDetail?.address) || undefined,
     tags: [] as string[],
   }
 
