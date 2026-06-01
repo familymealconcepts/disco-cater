@@ -115,13 +115,20 @@ function pkgImg(ref: string, size = 300) {
   return `${FM_PUBLIC}/public-api/images/${ref}/download?size=${size}`
 }
 
+// Google Places returns a NYC address's borough (Manhattan, Brooklyn, Queens,
+// The Bronx, Staten Island) as the locality, but Expedite dispatch expects the
+// city as "New York". Normalize boroughs → "New York" when state is NY; every
+// other locality is kept as-is.
+const NYC_BOROUGHS = new Set(['manhattan', 'brooklyn', 'queens', 'the bronx', 'bronx', 'staten island'])
+
 function extractAddressComponents(place: any): AddrDetails {
   const c = place.address_components ?? []
   const find = (...types: string[]) => c.find((x: any) => types.some(t => x.types.includes(t)))
   const streetNum = find('street_number')?.long_name ?? ''
   const route = find('route')?.short_name ?? ''
-  const city = find('locality', 'sublocality')?.long_name ?? ''
   const state = find('administrative_area_level_1')?.short_name ?? ''
+  const locality = find('locality', 'sublocality')?.long_name ?? ''
+  const city = state === 'NY' && NYC_BOROUGHS.has(locality.trim().toLowerCase()) ? 'New York' : locality
   const zipcode = find('postal_code')?.long_name ?? ''
   const lat = place.geometry?.location?.lat() ?? 0
   const lng = place.geometry?.location?.lng() ?? 0
@@ -1185,7 +1192,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   {addrValidated && !addrValidating && <span style={{ position: 'absolute', right: 10, color: '#22C55E', fontSize: 16, fontWeight: 700 }}>✓</span>}
                 </div>
                 {addrError && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 5 }}>{addrError}</div>}
-                {addrValidated && addrFee != null && <div style={{ fontSize: 12, color: '#22C55E', marginTop: 5 }}>Delivery fee: {formatPrice(addrFee)}</div>}
+                {addrValidated && (addrFee != null
+                  ? <div style={{ fontSize: 12, color: '#22C55E', marginTop: 5 }}>Delivery fee: {formatPrice(addrFee)}</div>
+                  : <div style={{ fontSize: 12, color: '#888', marginTop: 5 }}>Delivery fee calculated at checkout</div>
+                )}
                 {/* Apt/suite (line 2) + delivery instructions — optional, no re-validation needed. */}
                 <input
                   value={deliveryAddr2}
