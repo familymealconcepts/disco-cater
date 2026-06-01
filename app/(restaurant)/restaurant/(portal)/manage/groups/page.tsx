@@ -189,10 +189,28 @@ export default function GroupsPage() {
   }
 
   async function handleArchive(g: Group) {
+    // FM's PUT /api/extraItemsGroups/{ref} REPLACES the whole group object, so a
+    // partial { archived, visible } body wipes name, external names, min/max and
+    // add-ons. Send the COMPLETE object instead — mirrors FM's own groups-table
+    // archive(), which PUTs the full element with addOnsReferences =
+    // addOns.map(reference). The list load already carries every field FM needs,
+    // so we merge the archive flags into it (no extra GET required).
+    const body = {
+      name: g.name,
+      externalName: g.externalName || '',
+      subExternalName: g.subExternalName || '',
+      minSelectedItems: g.minSelectedItems,
+      maxSelectedItems: g.maxSelectedItems,
+      addOnsReferences: g.addOns?.map(a => a.reference) || [],
+      archived: !g.archived,
+      // Archiving forces visible=false (FM does the same); unarchiving merges
+      // only `archived` and keeps the group's existing visibility.
+      visible: g.archived ? g.visible : false,
+    }
     await fetch(`/api/restaurant/groups/${g.reference}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archived: !g.archived, visible: g.archived ? g.visible : false }),
+      body: JSON.stringify(body),
     })
     loadGroups()
   }
