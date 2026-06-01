@@ -20,5 +20,11 @@
       ],
       "destination": "/admin/$1"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/regenerate-compact",
+      "schedule": "0 3 * * *"
+    }
   ]
 }

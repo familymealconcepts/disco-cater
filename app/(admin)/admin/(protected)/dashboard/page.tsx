@@ -118,10 +118,48 @@ export default function AdminDashboard() {
   const hasFilters = !!(fromDate || toDate || restaurantRef)
   const selectedRestaurantName = restaurants.find(r => r.reference === restaurantRef)?.businessName
 
+  // Manual on-demand regeneration of the AI assistant's restaurant data. POSTs
+  // to the cron route, authorized by the admin session cookie (credentials:
+  // 'include') — CRON_SECRET is never exposed to the browser.
+  const [regenLoading, setRegenLoading] = useState(false)
+  const [regenMsg, setRegenMsg] = useState('')
+  async function regenerateAiData() {
+    setRegenLoading(true); setRegenMsg('')
+    try {
+      const res = await fetch('/api/cron/regenerate-compact', { method: 'POST', credentials: 'include' })
+      const d = await res.json().catch(() => ({}))
+      if (res.ok && d.success) {
+        setRegenMsg(`✓ ${d.count} restaurants${typeof d.skipped === 'number' ? `, ${d.skipped} skipped` : ''}`)
+      } else {
+        setRegenMsg(`✕ ${d.error || `Failed (HTTP ${res.status})`}`)
+      }
+    } catch {
+      setRegenMsg('✕ Network error')
+    } finally {
+      setRegenLoading(false)
+    }
+  }
+
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Dashboard</h1>
-      <p style={{ fontSize: 13, color: '#888', margin: 0 }}>Platform overview.</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Dashboard</h1>
+          <p style={{ fontSize: 13, color: '#888', margin: 0 }}>Platform overview.</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {regenMsg && <span style={{ fontSize: 12, fontWeight: 600, color: regenMsg.startsWith('✓') ? '#2E7D32' : '#C0392B' }}>{regenMsg}</span>}
+          <button
+            type="button"
+            onClick={regenerateAiData}
+            disabled={regenLoading}
+            title="Rebuild the AI assistant's restaurant pricing/package data from Sanity + FM"
+            style={{ background: GOLD, color: DARK, border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: regenLoading ? 'default' : 'pointer', fontFamily: F, opacity: regenLoading ? 0.7 : 1, whiteSpace: 'nowrap' }}
+          >
+            {regenLoading ? 'Regenerating…' : 'Regenerate AI Data'}
+          </button>
+        </div>
+      </div>
 
       {/* Count metrics — always unfiltered (FM behavior) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginTop: 22 }}>
