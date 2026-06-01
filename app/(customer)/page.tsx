@@ -297,19 +297,37 @@ export default function HomePage() {
         <footer style={{
           padding: '18px 40px',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
-          gap: 24,
+          gap: 12,
           paddingBottom: 'max(18px, env(safe-area-inset-bottom))',
         }}>
-          <a href="mailto:concierge@discocater.com"
-            style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
-            onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-            onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
-            Contact
-          </a>
-          <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-          <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 Disco Cater</span>
+          {/* Browse by City — plain crawlable links so Google finds the city
+              landing pages from the homepage. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: '#bbb' }}>Browse by City</span>
+            {[
+              { slug: 'new-york', name: 'New York' },
+              { slug: 'new-jersey', name: 'New Jersey' },
+              { slug: 'los-angeles', name: 'Los Angeles' },
+              { slug: 'chicago', name: 'Chicago' },
+            ].map((c, i) => (
+              <span key={c.slug} style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                {i > 0 && <span style={{ fontSize: 13, color: '#ddd' }}>·</span>}
+                <a href={`/${c.slug}`} style={{ fontSize: 13, color: '#bbb', textDecoration: 'none' }}>{c.name}</a>
+              </span>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
+            <a href="mailto:concierge@discocater.com"
+              style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+              onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
+              onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+              Contact
+            </a>
+            <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+            <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 Disco Cater</span>
+          </div>
         </footer>
 
       </div>

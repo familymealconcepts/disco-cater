@@ -31,9 +31,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: SITE, lastModified: now, changeFrequency: 'daily', priority: 1.0 },
     { url: `${SITE}/fullmap`, lastModified: now, changeFrequency: 'daily', priority: 0.9 },
     { url: `${SITE}/faq`, lastModified: now, changeFrequency: 'monthly', priority: 0.5 },
-    // /new-york, /new-jersey, /los-angeles intentionally omitted — pages
-    // not built yet; add back when they ship.
   ]
+
+  // City landing pages — priority above restaurant pages (0.7), below the
+  // homepage (1.0).
+  const cityEntries: MetadataRoute.Sitemap = ['new-york', 'new-jersey', 'los-angeles', 'chicago'].map(slug => ({
+    url: `${SITE}/${slug}`,
+    lastModified: now,
+    changeFrequency: 'weekly',
+    priority: 0.8,
+  }))
 
   const restaurantEntries: MetadataRoute.Sitemap = restaurantSlugs.map(r => ({
     url: `${SITE}/restaurants/${r.slug}`,
@@ -42,5 +49,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.7,
   }))
 
-  return [...staticEntries, ...restaurantEntries]
+  return [...staticEntries, ...cityEntries, ...restaurantEntries]
 }
