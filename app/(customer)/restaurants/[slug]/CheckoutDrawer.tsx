@@ -457,9 +457,6 @@ export default function CheckoutDrawer({
   }
 
   async function handlePlaceOrder() {
-    // Direct-entry CARD payment is gated (button disabled) pending confirmation
-    // that FM accepts a restaurant JWT on confirmPayment — guard so it can't run.
-    if (isDirectEntry && directEntryMethod === 'payment') return
     // Customer payment path still requires a logged-in diner; direct entry does
     // not (admin auth is the restaurant cookie).
     if (!isDirectEntry && !authUser) return
@@ -538,36 +535,44 @@ export default function CheckoutDrawer({
       const paymentDetails = placeData.data?.paymentDetails ?? placeData.paymentDetails
       const paymentIntentId = paymentDetails?.stripePaymentIntentDto?.paymentIntentId
       if (paymentIntentId) {
-        const confRes = await fetch('/api/order/confirm-payment', {
+        // Direct entry confirms via the restaurant-authed proxy (admin token),
+        // never confirmWithDefaultSource (no saved diner card). The customer
+        // flow is unchanged.
+        const confirmUrl = isDirectEntry ? '/api/restaurant/orders/confirm-payment' : '/api/order/confirm-payment'
+        const confirmBody = isDirectEntry
+          ? { orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, paymentMethodId, confirmWithDefaultSource: false }
+          : { orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, confirmWithDefaultSource: usingSavedCard, ...(usingSavedCard ? {} : { paymentMethodId }) }
+        // Diagnostic (Vercel logs): does FM accept the restaurant JWT on
+        // confirmPayment, or return 401/403? Log the exact payload + response.
+        if (isDirectEntry) console.log('[direct-entry confirm-payment] →', JSON.stringify(confirmBody))
+        const confRes = await fetch(confirmUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            orderReference: finalRef,
-            restaurantReference: fmRef,
-            paymentIntentId,
-            confirmWithDefaultSource: usingSavedCard,
-            ...(usingSavedCard ? {} : { paymentMethodId }),
-          }),
+          body: JSON.stringify(confirmBody),
         })
         const confData = await confRes.json()
+        if (isDirectEntry) console.log('[direct-entry confirm-payment] ←', JSON.stringify({ status: confRes.status, ok: confRes.ok, body: confData }))
         const payStatus = (confData.data?.stripePaymentIntentDto ?? confData.stripePaymentIntentDto)?.paymentIntentStatus
         // FM requires the PaymentIntent to be 'succeeded' (checkout-sidebar-
         // preview.component.ts:1215). Anything else → card not charged: surface
         // the failure and stay on payment (do NOT redirect to confirmation).
         if (!confRes.ok || (payStatus && payStatus.toLowerCase() !== 'succeeded')) {
-          setError(confData.error || confData.message || 'Payment could not be completed — your card was not charged. Please try again.')
+          setError(confData.error || confData.message || 'Payment could not be completed — the card was not charged. Please try again.')
           setStep('payment'); return
         }
       }
 
-      // Save address silently (post-order)
-      if (orderType === 'DELIVERY' && addr.line1) {
+      // Save address silently (post-order) — customer flow only; direct entry
+      // has no diner account to attach it to.
+      if (!isDirectEntry && orderType === 'DELIVERY' && addr.line1) {
         fetch('/api/fm-user-addresses', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ address: addr.line1, city: addr.city, state: addr.state, zipCode: addr.zip }),
         }).catch(() => {})
       }
 
-      router.push(`/order-confirmation/${finalRef}`)
+      // Direct entry returns to the portal Orders list; the customer flow goes
+      // to the public order-confirmation page.
+      router.push(isDirectEntry ? '/restaurant/orders' : `/order-confirmation/${finalRef}`)
     } catch (err: any) {
       setError(err.message || 'Something went wrong. Please try again.')
       setStep('payment')
@@ -588,9 +593,9 @@ export default function CheckoutDrawer({
 
   // ── Step: Payment ──────────────────────────────────────────────────────────
   function PaymentStep() {
-    // Direct entry: invoice hides all card UI; card-payment is gated.
+    // Direct-entry invoice hides all card UI; card-payment uses the normal
+    // card fields + Place Order button (now live via the restaurant proxy).
     const hideCard = isDirectEntry && directEntryMethod === 'invoice'
-    const isDirectPaymentGated = isDirectEntry && directEntryMethod === 'payment'
     // Read totals from the EXTRACTED `fm` (which walks
     // data.checkoutPublicResponseDto), not raw `fmTotals` — fmTotals.total is
     // nested under data.* so the direct lookup missed it and silently fell
@@ -884,14 +889,9 @@ export default function CheckoutDrawer({
           {error && (
             <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 12px', marginBottom: 12, color: '#991B1B', fontSize: 13 }}>{error}</div>
           )}
-          {isDirectPaymentGated && (
-            <div style={{ background: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 8, padding: '10px 12px', marginBottom: 12, color: '#8D6E00', fontSize: 12.5 }}>
-              Card payment for direct entry is coming soon. Use <strong>Invoice Method</strong> to send the customer a payment link.
-            </div>
-          )}
-          <button onClick={handlePlaceOrder} disabled={isDirectPaymentGated}
-            style={{ width: '100%', padding: '14px', background: isDirectPaymentGated ? '#ccc' : DARK, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: isDirectPaymentGated ? 'not-allowed' : 'pointer', fontFamily: F, boxShadow: isDirectPaymentGated ? 'none' : '0 4px 14px rgba(26,16,40,0.25)', transition: 'all 0.15s' }}>
-            {hideCard ? 'Send Invoice' : isDirectPaymentGated ? 'Place Order (coming soon)' : `Place Order · ${fmt$(payTotal)}`}
+          <button onClick={handlePlaceOrder}
+            style={{ width: '100%', padding: '14px', background: DARK, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(26,16,40,0.25)', transition: 'all 0.15s' }}>
+            {hideCard ? 'Send Invoice' : `Place Order · ${fmt$(payTotal)}`}
           </button>
         </div>
       </>
