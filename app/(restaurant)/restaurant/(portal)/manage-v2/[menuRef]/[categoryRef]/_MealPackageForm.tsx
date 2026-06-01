@@ -530,15 +530,20 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
           {imageRef && <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Image ref: {imageRef}</div>}
         </div>
 
+        {/* ── Section: Special Instructions ── */}
+        <div style={sectionStyle}>
+          <h2 style={sectionTitleStyle}>Special Instructions</h2>
+          <label style={checkStyle}>
+            <input type="checkbox" checked={allowedSpecialInstructions} onChange={e => setAllowedSpecialInstructions(e.target.checked)} style={{ accentColor: BLUE }} />
+            Allow Special Instructions
+          </label>
+        </div>
+
         {/* ── Section 3: Dietary & Options ── */}
         <div style={sectionStyle}>
           <h2 style={sectionTitleStyle}>Dietary & Options</h2>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <label style={checkStyle}>
-              <input type="checkbox" checked={allowedSpecialInstructions} onChange={e => setAllowedSpecialInstructions(e.target.checked)} style={{ accentColor: BLUE }} />
-              Allow Special Instructions
-            </label>
             <label style={checkStyle}>
               <input type="checkbox" checked={vegetarian} onChange={e => setVegetarian(e.target.checked)} style={{ accentColor: BLUE }} />
               Vegetarian

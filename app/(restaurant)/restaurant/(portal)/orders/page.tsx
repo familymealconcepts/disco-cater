@@ -571,8 +571,69 @@ function OrderCountsTab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [])
 
+  const hasData = !!(data && (data.mealPackages.length || data.addOns.length))
+  const num = (n: number | undefined) => (typeof n === 'number' ? n.toFixed(2) : '')
+
+  // CSV: one file, Items section then Modifiers section. Raw numeric values
+  // (no $/commas) so the file opens cleanly in any spreadsheet app.
+  const exportCsv = () => {
+    if (!data) return
+    const q = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const lines: string[] = []
+    lines.push(`Disco Cater Order Counts,${fromDate} to ${toDate}`)
+    lines.push('')
+    lines.push('Items')
+    lines.push(['Item', 'Count', 'Price', 'Total'].join(','))
+    data.mealPackages.forEach(it => lines.push([q(it.mealPackageName || it.addOnName || ''), it.count, num(it.price), num(it.total)].join(',')))
+    lines.push('')
+    lines.push('Modifiers')
+    lines.push(['Modifier', 'Item', 'Count', 'Price', 'Total'].join(','))
+    data.addOns.forEach(it => lines.push([q(it.addOnName || ''), q(it.mealPackageName || ''), it.count, num(it.price), num(it.total)].join(',')))
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `order-counts_${fromDate}_${toDate}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  // PDF: print-optimized HTML in a new window, then trigger the browser's
+  // print dialog (Save as PDF). Mirrors the print pattern used for orders.
+  const exportPdf = () => {
+    if (!data) return
+    const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!))
+    const money = (n: number | undefined) => (typeof n === 'number' ? `$${n.toFixed(2)}` : '—')
+    const itemRows = data.mealPackages.map(it => `<tr><td>${esc(it.mealPackageName || it.addOnName || '—')}</td><td class="r">${it.count}</td><td class="r">${money(it.price)}</td><td class="r">${money(it.total)}</td></tr>`).join('')
+    const modRows = data.addOns.map(it => `<tr><td>${esc(it.addOnName || '—')}</td><td>${esc(it.mealPackageName || '—')}</td><td class="r">${it.count}</td><td class="r">${money(it.price)}</td><td class="r">${money(it.total)}</td></tr>`).join('')
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Order Counts ${esc(fromDate)} – ${esc(toDate)}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1A1028; margin: 32px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #888; font-size: 13px; margin: 0 0 24px; }
+  h2 { font-size: 15px; margin: 24px 0 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; text-transform: uppercase; font-size: 11px; color: #888; padding: 8px 10px; border-bottom: 2px solid #eee; }
+  td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+  .r { text-align: right; }
+  @media print { body { margin: 0; } }
+</style></head><body>
+  <h1>Disco Cater — Order Counts</h1>
+  <p class="sub">${esc(fromDate)} to ${esc(toDate)}</p>
+  <h2>Items</h2>
+  <table><thead><tr><th>Item</th><th class="r">Count</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>${itemRows || '<tr><td colspan="4" style="text-align:center;color:#aaa">No items</td></tr>'}</tbody></table>
+  <h2>Modifiers</h2>
+  <table><thead><tr><th>Modifier</th><th>Item</th><th class="r">Count</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>${modRows || '<tr><td colspan="5" style="text-align:center;color:#aaa">No modifiers</td></tr>'}</tbody></table>
+  <script>window.onload = function(){ window.print() }<\/script>
+</body></html>`
+    const w = window.open('', '_blank', 'width=900,height=700')
+    if (!w) return
+    w.document.write(html)
+    w.document.close()
+  }
+
   const colHead = { fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase' as const, padding: '10px 14px', textAlign: 'left' as const }
   const cell = { padding: '10px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0' }
+  const exportBtn: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: F, color: DARK, background: '#fff', cursor: 'pointer' }
 
   return (
     <div>
@@ -583,6 +644,8 @@ function OrderCountsTab() {
         <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} disabled={loading}
           style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', opacity: loading ? 0.6 : 1 }} />
         <GenerateReportButton onClick={load} loading={loading} />
+        <button onClick={exportCsv} disabled={!hasData || loading} style={{ ...exportBtn, opacity: !hasData || loading ? 0.5 : 1, cursor: !hasData || loading ? 'default' : 'pointer' }}>Export CSV</button>
+        <button onClick={exportPdf} disabled={!hasData || loading} style={{ ...exportBtn, opacity: !hasData || loading ? 0.5 : 1, cursor: !hasData || loading ? 'default' : 'pointer' }}>Export PDF</button>
       </div>
 
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}

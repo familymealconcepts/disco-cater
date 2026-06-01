@@ -779,12 +779,44 @@ export default function CheckoutDrawer({
             </button>
           )}
 
-          {/* Saved card or new card */}
-          {savedCard && !useNewCard ? (
-            <div>
-              <div style={{ background: '#fff', border: '1.5px solid #f0f0f0', borderRadius: 12, padding: '14px 18px', marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Saved card</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Payment method — saved card is offered as a selectable option
+              alongside "Use a different card". When no saved card exists, the
+              card-entry fields render directly. */}
+          {(() => {
+            const cardFields = stripeKey ? (
+              <>
+                <label style={fieldLabel}>Card number</label>
+                <div ref={numberRef} style={fieldBox} />
+                <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={fieldLabel}>Expiry</label>
+                    <div ref={expiryRef} style={fieldBox} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={fieldLabel}>CVC</label>
+                    <div ref={cvcRef} style={fieldBox} />
+                  </div>
+                </div>
+              </>
+            ) : <div style={{ fontSize: 13, color: '#aaa', padding: '8px 0' }}>Loading secure payment form…</div>
+
+            if (!savedCard) {
+              return (
+                <div style={{ background: '#fff', border: '1.5px solid #e8e8e8', borderRadius: 12, padding: '14px 18px', marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Payment Method</div>
+                  {cardFields}
+                </div>
+              )
+            }
+
+            const optionRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '12px 0' }
+            return (
+              <div style={{ background: '#fff', border: '1.5px solid #e8e8e8', borderRadius: 12, padding: '4px 18px 14px', marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '12px 0 0' }}>Payment Method</div>
+
+                {/* Option 1 — saved card (default) */}
+                <label style={optionRow}>
+                  <input type="radio" name="disco-pay-method" checked={!useNewCard} onChange={() => setUseNewCard(false)} style={{ accentColor: BLUE, width: 16, height: 16, flexShrink: 0 }} />
                   {/* Generic card icon only — never a network/Stripe Link brand mark. */}
                   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <rect x="2" y="5" width="20" height="14" rx="2" />
@@ -793,43 +825,23 @@ export default function CheckoutDrawer({
                   <div>
                     {/* Render last4 plainly — no card brand label, so a "link"
                         brand (Stripe Link) doesn't show a Link bubble. */}
-                    <div style={{ fontSize: 14, fontWeight: 700, color: DARK, letterSpacing: '0.04em' }}>•••• {savedCard.last4 || savedCard.lastFour || '••••'}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: DARK, letterSpacing: '0.04em' }}>•••• {savedCard.last4 || savedCard.lastFour || '••••'} — Use saved card</div>
                     {(savedCard.expMonth || savedCard.exp_month) && (
                       <div style={{ fontSize: 12, color: '#888' }}>Expires {savedCard.expMonth || savedCard.exp_month}/{String(savedCard.expYear || savedCard.exp_year || '').slice(-2)}</div>
                     )}
                   </div>
-                </div>
+                </label>
+
+                {/* Option 2 — different card */}
+                <label style={{ ...optionRow, borderTop: '1px solid #f5f5f5' }}>
+                  <input type="radio" name="disco-pay-method" checked={useNewCard} onChange={() => setUseNewCard(true)} style={{ accentColor: BLUE, width: 16, height: 16, flexShrink: 0 }} />
+                  <span style={{ fontSize: 14, fontWeight: 600, color: DARK }}>Use a different card</span>
+                </label>
+
+                {useNewCard && <div style={{ marginTop: 4 }}>{cardFields}</div>}
               </div>
-              <button onClick={() => setUseNewCard(true)} style={{ fontSize: 13, color: BLUE, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, padding: '4px 0', marginBottom: 16 }}>
-                Use a different card →
-              </button>
-            </div>
-          ) : (
-            <div style={{ background: '#fff', border: '1.5px solid #e8e8e8', borderRadius: 12, padding: '14px 18px', marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Payment Method</div>
-              {stripeKey ? (
-                <>
-                  <label style={fieldLabel}>Card number</label>
-                  <div ref={numberRef} style={fieldBox} />
-                  <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={fieldLabel}>Expiry</label>
-                      <div ref={expiryRef} style={fieldBox} />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={fieldLabel}>CVC</label>
-                      <div ref={cvcRef} style={fieldBox} />
-                    </div>
-                  </div>
-                </>
-              ) : <div style={{ fontSize: 13, color: '#aaa', padding: '8px 0' }}>Loading secure payment form…</div>}
-              {savedCard && (
-                <button onClick={() => setUseNewCard(false)} style={{ fontSize: 13, color: '#888', fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, padding: '10px 0 0', display: 'block' }}>
-                  ← Use saved card
-                </button>
-              )}
-            </div>
-          )}
+            )
+          })()}
 
         </div>
 
