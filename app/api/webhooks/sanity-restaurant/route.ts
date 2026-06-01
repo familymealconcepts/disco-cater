@@ -6,18 +6,19 @@
 //                           Send it from Sanity as `Authorization: Bearer <secret>`,
 //                           an `x-sanity-webhook-secret` header, or `?secret=` on
 //                           the URL.
+//   GITHUB_TOKEN            PAT with `repo` / contents:write scope on
+//                           familymealconcepts/disco-cater. Used to commit the
+//                           regenerated JSON back to the repo (→ Vercel redeploy),
+//                           since the serverless FS is read-only.
 //
 // Configure in Sanity (Manage → API → Webhooks): trigger on create/update/delete
 // of `_type == "restaurant"`, POST to /api/webhooks/sanity-restaurant.
 //
 // V1: any restaurant change triggers a FULL regeneration (same core as the
 // cron). Incremental single-restaurant updates can come later.
-//
-// NOTE: same Vercel read-only-FS caveat as the cron route — see
-// lib/generateCompact.ts.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { generateCompact, writeCompactFile } from '../../../../lib/generateCompact'
+import { generateCompact, commitCompactToGitHub } from '../../../../lib/generateCompact'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -45,13 +46,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const { entries, skipped } = await generateCompact()
-    let sizeKb: number | undefined
-    try {
-      ;({ sizeKb } = writeCompactFile(entries))
-    } catch (e: any) {
-      throw new Error(`Generated ${entries.length} entries but could not write file: ${e?.message || e}`)
-    }
-    return NextResponse.json({ success: true, count: entries.length, skipped: skipped.length, sizeKb })
+    // Commit back to the repo (→ Vercel redeploy) — serverless FS is read-only.
+    const { sha } = await commitCompactToGitHub(entries)
+    return NextResponse.json({ success: true, count: entries.length, skipped: skipped.length, committed: true, sha })
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message || 'Regeneration failed' }, { status: 500 })
   }

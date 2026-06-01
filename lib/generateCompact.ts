@@ -14,13 +14,15 @@
 // against /public-api/restaurants/business/{slug} until one returns a
 // reference. A restaurant FM can't resolve is logged + skipped (no partials).
 //
-// NOTE on writeCompactFile + serverless: this writes to the project tree
-// (scripts/output). That works locally, in CI, and on any writable host. On
-// Vercel's serverless runtime the deployment filesystem is READ-ONLY, so a
-// cron/webhook write there will not persist into the deployed bundle that
-// disco-chat reads. To wire production end-to-end, regenerate then commit the
-// file back to the repo (e.g. via the GitHub API → redeploy) or move the data
-// to Blob/KV. The format + disco-chat are intentionally untouched here.
+// Two write paths:
+//   • writeCompactFile() — writes to the project tree (scripts/output). Used by
+//     the CLI script for local runs. On Vercel's serverless runtime the
+//     deployment filesystem is READ-ONLY, so this throws there.
+//   • commitCompactToGitHub() — commits the JSON back to the repo via the GitHub
+//     API, which triggers a Vercel redeploy that bundles the fresh file. This is
+//     the production path used by the cron + webhook routes (the only way the
+//     regenerated data reaches disco-chat, which reads the bundled file at cold
+//     start). The format + disco-chat are intentionally untouched here.
 
 import { createClient } from '@sanity/client'
 import * as fs from 'fs'
@@ -283,4 +285,62 @@ export function writeCompactFile(entries: CompactEntry[]): { path: string; sizeK
   fs.writeFileSync(COMPACT_OUTPUT_PATH, JSON.stringify(entries))
   const sizeKb = Math.round(fs.statSync(COMPACT_OUTPUT_PATH).size / 1024)
   return { path: COMPACT_OUTPUT_PATH, sizeKb }
+}
+
+const GITHUB_REPO = 'familymealconcepts/disco-cater'
+// Path within the repo (NOT the absolute COMPACT_OUTPUT_PATH, which is CWD-based).
+const COMPACT_REPO_PATH = 'scripts/output/restaurant-compact.json'
+
+/**
+ * Commit the regenerated compact JSON back to the repo via the GitHub Contents
+ * API. This is the production write path: the commit to `main` triggers a Vercel
+ * redeploy that bundles the fresh file, which disco-chat then reads at cold
+ * start (the serverless FS is read-only, so writeCompactFile can't be used).
+ *
+ * Requires env GITHUB_TOKEN (a PAT with `repo` / contents:write scope on
+ * familymealconcepts/disco-cater). `[skip ci]` in the message keeps it from
+ * triggering CI workflows — only Vercel's deploy hook fires.
+ */
+export async function commitCompactToGitHub(entries: CompactEntry[]): Promise<{ success: true; sha: string }> {
+  const token = process.env.GITHUB_TOKEN
+  if (!token) throw new Error('GITHUB_TOKEN is not set')
+
+  const apiUrl = `https://api.github.com/repos/${GITHUB_REPO}/contents/${COMPACT_REPO_PATH}`
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'disco-cater-compact-regen',
+    'X-GitHub-Api-Version': '2022-11-28',
+  }
+
+  // 1. Current file SHA — required to UPDATE an existing file. 404 → create new.
+  let sha: string | undefined
+  const getRes = await fetch(`${apiUrl}?ref=main`, { headers })
+  if (getRes.ok) {
+    const cur = await getRes.json()
+    sha = cur?.sha
+  } else if (getRes.status !== 404) {
+    const body = await getRes.text().catch(() => '')
+    throw new Error(`GitHub GET contents failed (${getRes.status}): ${body.slice(0, 300)}`)
+  }
+
+  // 2. PUT the new content (base64). Same compact format writeCompactFile emits.
+  const content = Buffer.from(JSON.stringify(entries), 'utf8').toString('base64')
+  const putRes = await fetch(apiUrl, {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'chore: regenerate restaurant-compact.json [skip ci]',
+      content,
+      ...(sha ? { sha } : {}),
+      branch: 'main',
+    }),
+  })
+  if (!putRes.ok) {
+    const body = await putRes.text().catch(() => '')
+    throw new Error(`GitHub PUT contents failed (${putRes.status}): ${body.slice(0, 300)}`)
+  }
+  const out = await putRes.json()
+  // commit.sha = the redeploy-triggering commit; content.sha = the new blob SHA.
+  return { success: true, sha: out?.commit?.sha || out?.content?.sha || '' }
 }
