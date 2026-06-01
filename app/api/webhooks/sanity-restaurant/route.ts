@@ -47,8 +47,16 @@ export async function POST(req: NextRequest) {
   try {
     const { entries, skipped } = await generateCompact()
     // Commit back to the repo (→ Vercel redeploy) — serverless FS is read-only.
-    const { sha } = await commitCompactToGitHub(entries)
-    return NextResponse.json({ success: true, count: entries.length, skipped: skipped.length, committed: true, sha })
+    // No-op when the regenerated output matches what's already in the repo.
+    const gh = await commitCompactToGitHub(entries)
+    return NextResponse.json({
+      success: true,
+      count: entries.length,
+      skipped: skipped.length,
+      committed: !gh.skipped,
+      ...(gh.sha ? { sha: gh.sha } : {}),
+      ...(gh.skipped ? { reason: gh.reason } : {}),
+    })
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message || 'Regeneration failed' }, { status: 500 })
   }

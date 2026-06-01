@@ -35,9 +35,16 @@ function hasCronSecret(req: NextRequest): boolean {
 async function regenerate() {
   const { entries, skipped } = await generateCompact()
   // Commit back to the repo (→ Vercel redeploy) rather than writing to the
-  // read-only serverless FS.
-  const { sha } = await commitCompactToGitHub(entries)
-  return { success: true, count: entries.length, skipped: skipped.length, committed: true, sha }
+  // read-only serverless FS. No-op when nothing changed (skips the commit).
+  const gh = await commitCompactToGitHub(entries)
+  return {
+    success: true,
+    count: entries.length,
+    skipped: skipped.length,        // restaurants skipped during generation
+    committed: !gh.skipped,         // false when the repo file was unchanged
+    ...(gh.sha ? { sha: gh.sha } : {}),
+    ...(gh.skipped ? { reason: gh.reason } : {}),
+  }
 }
 
 // Vercel Cron + CLI — Bearer CRON_SECRET only.

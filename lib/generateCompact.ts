@@ -301,7 +301,9 @@ const COMPACT_REPO_PATH = 'scripts/output/restaurant-compact.json'
  * familymealconcepts/disco-cater). `[skip ci]` in the message keeps it from
  * triggering CI workflows — only Vercel's deploy hook fires.
  */
-export async function commitCompactToGitHub(entries: CompactEntry[]): Promise<{ success: true; sha: string }> {
+export async function commitCompactToGitHub(
+  entries: CompactEntry[],
+): Promise<{ success: true; sha?: string; skipped?: boolean; reason?: string }> {
   const token = process.env.GITHUB_TOKEN
   if (!token) throw new Error('GITHUB_TOKEN is not set')
 
@@ -313,19 +315,33 @@ export async function commitCompactToGitHub(entries: CompactEntry[]): Promise<{ 
     'X-GitHub-Api-Version': '2022-11-28',
   }
 
-  // 1. Current file SHA — required to UPDATE an existing file. 404 → create new.
+  const newJson = JSON.stringify(entries)
+
+  // 1. Current file SHA + content. SHA is required to UPDATE an existing file;
+  //    content lets us skip a no-op commit when nothing changed. 404 → create.
   let sha: string | undefined
+  let currentJson: string | null = null
   const getRes = await fetch(`${apiUrl}?ref=main`, { headers })
   if (getRes.ok) {
     const cur = await getRes.json()
     sha = cur?.sha
+    // Contents API returns base64 (with embedded newlines) for files < 1MB.
+    if (typeof cur?.content === 'string' && cur.content) {
+      try { currentJson = Buffer.from(cur.content, 'base64').toString('utf8') } catch { currentJson = null }
+    }
   } else if (getRes.status !== 404) {
     const body = await getRes.text().catch(() => '')
     throw new Error(`GitHub GET contents failed (${getRes.status}): ${body.slice(0, 300)}`)
   }
 
+  // Skip the commit (and the redeploy it would trigger) when the regenerated
+  // output is byte-identical to what's already in the repo.
+  if (currentJson !== null && currentJson === newJson) {
+    return { success: true, skipped: true, reason: 'no changes' }
+  }
+
   // 2. PUT the new content (base64). Same compact format writeCompactFile emits.
-  const content = Buffer.from(JSON.stringify(entries), 'utf8').toString('base64')
+  const content = Buffer.from(newJson, 'utf8').toString('base64')
   const putRes = await fetch(apiUrl, {
     method: 'PUT',
     headers: { ...headers, 'Content-Type': 'application/json' },

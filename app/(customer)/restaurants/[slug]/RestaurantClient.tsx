@@ -43,6 +43,10 @@ interface FmExtraItemsGroup {
 interface FmPackage {
   reference: string; name: string; description?: string | null
   price: number; serves?: string | number | null
+  // Free-text display price set in the restaurant admin (e.g. "$200.00+").
+  // Shown on the ordering page IN PLACE OF the numeric base price when set;
+  // the checkout total still uses the numeric `price` (+ modifiers).
+  displayPrice?: string | number | null
   image?: { reference: string; availableResolutions?: number[] } | null
   available?: boolean; allowedSpecialInstructions?: boolean
   extraItemsGroups?: FmExtraItemsGroup[]
@@ -92,6 +96,15 @@ interface ReorderStash { restaurantSlug?: string; items?: ReorderStashItem[] }
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 const formatPrice = (p: number) => `$${p.toFixed(2)}`
+
+// What to SHOW for a package's price on the ordering page: the admin's
+// free-text display price (e.g. "$200.00+") when set, else the base price as
+// currency. Display only — never used for cart/checkout math.
+function packagePriceLabel(p: { displayPrice?: string | number | null; price: number }): string {
+  const dp = p.displayPrice
+  if (dp != null && String(dp).trim() !== '') return String(dp).trim()
+  return formatPrice(p.price)
+}
 
 // Scheduling now lives in lib/scheduling/cutoffs.ts (Lead Time + Daily Cutoff +
 // Hard Cutoff, with self-tests). These return only ENABLED entries so the
@@ -1105,7 +1118,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                             </p>
                           )}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto' }}>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{formatPrice(pkg.price)}</span>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{packagePriceLabel(pkg)}</span>
                             {pkg.serves && <><span style={{ color: '#ddd', fontSize: 14 }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {pkg.serves}</span></>}
                           </div>
                           {qty > 0 && (
@@ -1408,7 +1421,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   <p style={{ fontSize: 13, color: '#585786', lineHeight: 1.55, margin: '0 0 4px' }}>{addOnsPkg.description}</p>
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{formatPrice(addOnsPkg.price)}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{packagePriceLabel(addOnsPkg)}</span>
                   {addOnsPkg.serves && <><span style={{ color: '#ddd' }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {addOnsPkg.serves}</span></>}
                 </div>
               </div>
