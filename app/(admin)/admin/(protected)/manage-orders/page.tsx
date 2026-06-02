@@ -106,11 +106,10 @@ function buildTimeOptions(current?: string): string[] {
   return opts
 }
 
-// 3P / 1P attribution pill. "DISCO" → 3P (Disco Blue), "FAMILYMEAL" → 1P
-// (gray). Small + subtle, no emoji. Renders nothing for unknown/absent values.
-// Style matches the restaurant admin orders table exactly.
+// 3P / 1P attribution pill. "DISCO" → 3P (Disco Blue); everything else —
+// "FAMILYMEAL", unknown, or absent — → 1P (gray), since direct/unknown orders
+// are treated as first-party. Always renders one pill. Small + subtle, no emoji.
 function SourcePill({ source }: { source?: string }) {
-  if (source !== 'DISCO' && source !== 'FAMILYMEAL') return null
   const is3P = source === 'DISCO'
   return (
     <span style={{
@@ -136,26 +135,6 @@ function InvoicePill({ paymentMethod }: { paymentMethod?: string }) {
     }}
       title="Invoice — payment link sent, not yet paid">
       Invoice
-    </span>
-  )
-}
-
-// Muted "Draft" badge — flags a likely abandoned cart (zero total, still in an
-// early status, and not an invoice order which legitimately starts at $0).
-function DraftBadge({ order }: { order: Order }) {
-  const value = order.total ?? order.transactionsTotal ?? 0
-  const isDraft = value === 0 &&
-    (order.orderStatus === 'RESERVED' || order.orderStatus === 'UNPAID') &&
-    order.paymentMethod !== 'INVOICE'
-  if (!isDraft) return null
-  return (
-    <span style={{
-      display: 'inline-block', marginLeft: 6, padding: '1px 5px', borderRadius: 4,
-      fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', verticalAlign: 'middle',
-      color: '#999', background: '#f0f0f0',
-    }}
-      title="Likely abandoned cart — initiated but never paid">
-      Draft
     </span>
   )
 }
@@ -319,10 +298,7 @@ export default function AdminOrdersPage() {
                 <td style={{ ...cell, color: '#666' }}>{fmtDate(o.createdDate)}</td>
                 <td style={cell}>{o.restaurantName}</td>
                 <td style={cell}>{customerName(o)}</td>
-                <td style={cell}>
-                  {o.orderNumber ? `#${o.orderNumber}` : '—'}
-                  <DraftBadge order={o} />
-                </td>
+                <td style={cell}>{o.orderNumber ? `#${o.orderNumber}` : '—'}</td>
                 <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>
                   {fmtCurrency(o.total ?? o.transactionsTotal ?? 0)}
                   <InvoicePill paymentMethod={o.paymentMethod} />
