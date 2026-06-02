@@ -17,18 +17,24 @@ interface Row {
   name: string
   currentPrice: number | null
   currentDisplayPrice: string | null
+  currentDescription: string
+  currentServes: string
   newPrice: string
   newDisplayPrice: string
+  newName: string
+  newDescription: string
+  newServes: string
   checked: boolean
   status: 'idle' | 'pending' | 'ok' | 'error'
   error?: string
 }
 interface Group { restaurantRef: string; restaurantName: string; rows: Row[] }
+interface SearchItem { pkgRef: string; name: string; description: string | null; price: number | null; displayPrice: string | null; serves: string | null }
 interface SearchResp {
   query: string
   totalLocations: number
   matchedLocations: number
-  matches: { restaurantRef: string; restaurantName: string; items: { pkgRef: string; name: string; price: number | null; displayPrice: string | null; serves: string | null }[] }[]
+  matches: { restaurantRef: string; restaurantName: string; items: SearchItem[] }[]
 }
 
 export default function BulkPricingClient() {
@@ -79,8 +85,13 @@ export default function BulkPricingClient() {
           name: it.name,
           currentPrice: it.price,
           currentDisplayPrice: it.displayPrice,
+          currentDescription: it.description || '',
+          currentServes: it.serves || '',
           newPrice: it.price != null ? String(it.price) : '',
           newDisplayPrice: it.displayPrice || '',
+          newName: it.name,
+          newDescription: it.description || '',
+          newServes: it.serves || '',
           checked: true,
           status: 'idle' as const,
         })),
@@ -107,9 +118,19 @@ export default function BulkPricingClient() {
       const r = targets[i]
       updateRow(r.key, { status: 'pending', error: undefined })
       try {
+        // Smart change detection — only send a text field when its (trimmed,
+        // case-sensitive) value differs from the originally-fetched value, so an
+        // untouched field is preserved server-side rather than overwritten.
+        const payload: Record<string, unknown> = {
+          pkgRef: r.pkgRef, restaurantRef: r.restaurantRef,
+          price: parseFloat(r.newPrice), displayPrice: r.newDisplayPrice.trim() || null,
+        }
+        if (r.newName.trim() !== r.name.trim()) payload.newName = r.newName.trim()
+        if (r.newDescription.trim() !== r.currentDescription.trim()) payload.newDescription = r.newDescription.trim()
+        if (r.newServes.trim() !== r.currentServes.trim()) payload.newServes = r.newServes.trim()
         const res = await fetch('/api/restaurant/bulk-pricing/apply-one', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pkgRef: r.pkgRef, restaurantRef: r.restaurantRef, price: parseFloat(r.newPrice), displayPrice: r.newDisplayPrice.trim() || null }),
+          body: JSON.stringify(payload),
         })
         const d = await res.json().catch(() => ({ ok: false, error: 'Bad response' }))
         if (res.ok && d.ok) { updateRow(r.key, { status: 'ok' }); ok++ }
@@ -141,17 +162,23 @@ export default function BulkPricingClient() {
   const th: React.CSSProperties = { textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', padding: '8px 10px', whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '8px 10px', fontSize: 13, color: DARK, borderTop: '1px solid #f3f3f3', verticalAlign: 'middle' }
   const btn = (bg: string): React.CSSProperties => ({ background: bg, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F })
+  // ✕ reset-to-current button shown beside each editable text field.
+  const clearBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 15, lineHeight: 1, padding: '0 2px', flexShrink: 0 }
+  // Sticky left columns (checkbox + Item) stay visible while the wide table
+  // scrolls horizontally. Opaque background so scrolled cells don't show through.
+  const stickyTh = (left: number): React.CSSProperties => ({ position: 'sticky', left, background: '#fff', zIndex: 2, boxShadow: '1px 0 0 #f0f0f0' })
+  const stickyTd = (left: number): React.CSSProperties => ({ position: 'sticky', left, background: '#fff', zIndex: 1, boxShadow: '1px 0 0 #f0f0f0' })
 
   const statusIcon = (s: Row['status']) => s === 'ok' ? <span style={{ color: '#2E7D32', fontWeight: 700 }}>✓</span>
     : s === 'error' ? <span style={{ color: '#C0392B', fontWeight: 700 }}>✗</span>
     : s === 'pending' ? <span style={{ color: BLUE }}>⟳</span> : <span style={{ color: '#ccc' }}>·</span>
 
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F, maxWidth: 1000 }}>
+    <div style={{ padding: '28px 32px', fontFamily: F, maxWidth: 1400 }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');`}</style>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 6px' }}>Bulk Pricing</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 6px' }}>Bulk Menu Editor</h1>
       <p style={{ fontSize: 13, color: '#888', margin: '0 0 22px' }}>
-        Find a menu item by name across all your locations and update its price everywhere.
+        Find a menu item by name across all your locations and update price, description, and serving size everywhere.
       </p>
 
       {/* Step 1 — Search */}
@@ -205,23 +232,29 @@ export default function BulkPricingClient() {
             {groups.map(g => (
               <div key={g.restaurantRef} style={card}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 8 }}>{g.restaurantName}</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', minWidth: 1280 }}>
                   <thead><tr>
-                    <th style={{ ...th, width: 28 }}></th>
-                    <th style={th}>Item</th>
+                    <th style={{ ...th, ...stickyTh(0), width: 28 }}></th>
+                    <th style={{ ...th, ...stickyTh(28), minWidth: 150 }}>Item (current name)</th>
                     <th style={{ ...th, textAlign: 'right' }}>Current base</th>
                     <th style={{ ...th, textAlign: 'right' }}>Current display</th>
                     <th style={{ ...th, width: 120 }}>New base price</th>
                     <th style={{ ...th, width: 150 }}>New display price</th>
+                    <th style={{ ...th, width: 180 }}>New name</th>
+                    <th style={{ ...th, width: 200 }}>Current description</th>
+                    <th style={{ ...th, width: 260 }}>New description</th>
+                    <th style={{ ...th, width: 110 }}>Current serves</th>
+                    <th style={{ ...th, width: 130 }}>New serves</th>
                     <th style={{ ...th, width: 40, textAlign: 'center' }}></th>
                   </tr></thead>
                   <tbody>
                     {g.rows.map(r => (
                       <tr key={r.key}>
-                        <td style={td}>
+                        <td style={{ ...td, ...stickyTd(0) }}>
                           <input type="checkbox" checked={r.checked} disabled={applying} onChange={e => updateRow(r.key, { checked: e.target.checked })} style={{ accentColor: BLUE }} />
                         </td>
-                        <td style={{ ...td, fontWeight: 600 }}>{r.name}</td>
+                        <td style={{ ...td, ...stickyTd(28), fontWeight: 600 }}>{r.name}</td>
                         <td style={{ ...td, textAlign: 'right' }}>{fmtMoney(r.currentPrice)}</td>
                         <td style={{ ...td, textAlign: 'right', color: '#888' }}>{r.currentDisplayPrice || '—'}</td>
                         <td style={td}>
@@ -236,11 +269,36 @@ export default function BulkPricingClient() {
                           <input type="text" value={r.newDisplayPrice} disabled={applying} placeholder="(preserve)"
                             onChange={e => updateRow(r.key, { newDisplayPrice: e.target.value })} style={{ ...input, width: '100%' }} />
                         </td>
+                        <td style={td}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <input type="text" value={r.newName} disabled={applying}
+                              onChange={e => updateRow(r.key, { newName: e.target.value })} style={{ ...input, width: '100%' }} />
+                            <button title="Reset to current name" disabled={applying} onClick={() => updateRow(r.key, { newName: r.name })} style={clearBtn}>✕</button>
+                          </div>
+                        </td>
+                        <td style={{ ...td, color: '#888', maxWidth: 200, whiteSpace: 'normal' }}>{r.currentDescription || '—'}</td>
+                        <td style={td}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+                            <textarea rows={2} value={r.newDescription} disabled={applying} placeholder="(preserve)"
+                              onChange={e => updateRow(r.key, { newDescription: e.target.value })}
+                              style={{ ...input, width: '100%', resize: 'vertical', fontFamily: F, lineHeight: 1.4 }} />
+                            <button title="Reset to current description" disabled={applying} onClick={() => updateRow(r.key, { newDescription: r.currentDescription })} style={clearBtn}>✕</button>
+                          </div>
+                        </td>
+                        <td style={{ ...td, color: '#888' }}>{r.currentServes || '—'}</td>
+                        <td style={td}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <input type="text" value={r.newServes} disabled={applying} placeholder="(preserve)"
+                              onChange={e => updateRow(r.key, { newServes: e.target.value })} style={{ ...input, width: '100%' }} />
+                            <button title="Reset to current serves" disabled={applying} onClick={() => updateRow(r.key, { newServes: r.currentServes })} style={clearBtn}>✕</button>
+                          </div>
+                        </td>
                         <td style={{ ...td, textAlign: 'center' }} title={r.error || ''}>{statusIcon(r.status)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             ))}
 

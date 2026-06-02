@@ -42,11 +42,11 @@ export async function GET(req: NextRequest) {
   const locations = await fmJson<{ reference: string; businessName: string }[]>('/api/system-admin/restaurants/list', h)
   if (!Array.isArray(locations)) return NextResponse.json({ error: 'Could not load locations' }, { status: 502 })
 
-  const matches: { restaurantRef: string; restaurantName: string; items: { pkgRef: string; name: string; price: number | null; displayPrice: string | null; serves: string | null }[] }[] = []
+  const matches: { restaurantRef: string; restaurantName: string; items: { pkgRef: string; name: string; description: string | null; price: number | null; displayPrice: string | null; serves: string | null }[] }[] = []
 
   for (const loc of locations) {
     const seen = new Set<string>()
-    const items: { pkgRef: string; name: string; price: number | null; displayPrice: string | null; serves: string | null }[] = []
+    const items: { pkgRef: string; name: string; description: string | null; price: number | null; displayPrice: string | null; serves: string | null }[] = []
     const menus = await fmJson<{ reference: string }[]>(`/public-api/menu?restaurantReference=${loc.reference}`)
     for (const menu of menus || []) {
       const cats = await fmJson<any[]>(`/public-api/restaurants/${loc.reference}/mealPackages?menuReference=${menu.reference}`)
@@ -59,6 +59,7 @@ export async function GET(req: NextRequest) {
             items.push({
               pkgRef: p.reference,
               name: String(p.name || ''),
+              description: p.description != null && String(p.description).trim() !== '' ? String(p.description) : null,
               price: typeof p.price === 'number' ? p.price : (p.price != null ? Number(p.price) : null),
               displayPrice: p.displayPrice != null && String(p.displayPrice).trim() !== '' ? String(p.displayPrice) : null,
               serves: p.serves != null ? String(p.serves) : null,

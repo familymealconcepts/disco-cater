@@ -53,7 +53,14 @@ export async function POST(req: NextRequest) {
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch { return NextResponse.json({ ok: false, error: 'Not authenticated' }, { status: 401 }) }
 
-  let body: { pkgRef?: string; restaurantRef?: string; price?: number | string; displayPrice?: string | null }
+  let body: {
+    pkgRef?: string; restaurantRef?: string; price?: number | string; displayPrice?: string | null
+    // Optional bulk-editable text fields. The client only sends a field when it
+    // actually changed (smart change detection), so an absent field here means
+    // "preserve the existing value". newName is guarded against empty so a blank
+    // input never wipes the item name; description/serves may be cleared.
+    newName?: string; newDescription?: string; newServes?: string
+  }
   try { body = await req.json() } catch { return NextResponse.json({ ok: false, error: 'Bad request' }, { status: 400 }) }
 
   const { pkgRef, restaurantRef } = body
@@ -93,6 +100,14 @@ export async function POST(req: NextRequest) {
   const merged: Record<string, unknown> = { ...obj, price: priceNum }
   if (typeof newDp === 'string' && newDp.trim() !== '') merged.displayPrice = newDp.trim()
   // (blank → keep the existing displayPrice from the spread)
+
+  // Bulk text overrides. Only present when the client detected a change, so each
+  // is applied over the preserved GET value. name is guarded against empty (a
+  // blank input must never erase the item name); description and serves may be
+  // intentionally cleared.
+  if (typeof body.newName === 'string' && body.newName.trim() !== '') merged.name = body.newName.trim()
+  if (typeof body.newDescription === 'string') merged.description = body.newDescription.trim()
+  if (typeof body.newServes === 'string') merged.serves = body.newServes.trim()
 
   // extraItemsGroups: rich → [{reference,enabled}]; image: rich → {reference}.
   if (Array.isArray(obj.extraItemsGroups)) {
