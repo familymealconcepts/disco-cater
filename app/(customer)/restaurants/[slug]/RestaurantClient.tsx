@@ -8,6 +8,7 @@ import MenuAdvisor, { type DiscoIntake } from './MenuAdvisor'
 import { cartSubtotal } from '../../../../lib/pricing/cart'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
 import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
+import { trackEvent } from '../../../../lib/analytics'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
@@ -620,6 +621,21 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // fallback).
   const canCheckout = cart.length > 0 && !belowMin && !!selDate && !!selTime &&
     (orderType === 'PICKUP' || (!!addr.line1 && addr.lat != null && addr.lng != null))
+
+  // GA funnel: checkout drawer opened. Fires once per open (covers both the
+  // desktop and mobile "Continue to Checkout" buttons). Skips Direct Entry —
+  // those are internal restaurant orders, not customer funnel data.
+  useEffect(() => {
+    if (!checkoutOpen || isDirectEntry) return
+    trackEvent('checkout_opened', {
+      restaurant_name: restaurant.name,
+      restaurant_slug: slug,
+      item_count: cartCount,
+      subtotal,
+    })
+    // Intentionally only re-runs on open/close toggle, not on cart edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkoutOpen])
   const ctaLabel = cartCount > 0
     ? `${cartCount} item${cartCount !== 1 ? 's' : ''} · ${formatPrice(clientTotal)} — Continue to Checkout`
     : 'Browse Menu → Start Order'

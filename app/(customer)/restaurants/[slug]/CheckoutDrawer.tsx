@@ -5,6 +5,7 @@ import { useAuthContext } from '../../../context/AuthContext'
 import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { cartLineTotal, cartSubtotal } from '../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../lib/pricing/lineItem'
+import { trackEvent } from '../../../../lib/analytics'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
@@ -176,6 +177,14 @@ export default function CheckoutDrawer({
   // for the same orderRef and FM returns 409.
   const directEntryRetry = useRef<{ orderReference: string; paymentIntentId: string } | null>(null)
 
+  // GA funnel guards — each fires at most once per drawer session. totalRef
+  // holds the latest computed order total so the Stripe focus handler (whose
+  // closure doesn't re-run on re-price) can read a fresh value. Direct Entry is
+  // excluded from all funnel events (internal orders, not customer funnel data).
+  const contactCompletedRef = useRef(false)
+  const paymentStartedRef = useRef(false)
+  const totalRef = useRef(0)
+
   // Contact fields — pre-filled from authUser but EDITABLE (customers often
   // order for someone else). Mirrors FM's customerInfoForm pattern in
   // checkout-customer-info.component.ts:195-204, 313-318. These values feed the
@@ -194,6 +203,16 @@ export default function CheckoutDrawer({
     setContactEmail(p => p || authUser.email || '')
     setContactPhone(p => p || authUser.phoneNumber || '')
   }, [authUser])
+
+  // GA funnel: contact details completed. Fires once when all four contact
+  // fields are non-empty; later edits don't re-fire (the ref latches).
+  useEffect(() => {
+    if (isDirectEntry || contactCompletedRef.current) return
+    if (contactFirst.trim() && contactLast.trim() && contactEmail.trim() && contactPhone.trim()) {
+      contactCompletedRef.current = true
+      trackEvent('checkout_contact_completed', { restaurant_name: restaurantName })
+    }
+  }, [contactFirst, contactLast, contactEmail, contactPhone, isDirectEntry, restaurantName])
 
   // Continue checkout after login via AuthModal
   useEffect(() => {
@@ -262,6 +281,13 @@ export default function CheckoutDrawer({
       // injects a green "link" + Visa + last4 chip on the right of the field.
       // Cosmetic only; tokenization (createToken on numberElRef) is unaffected.
       numberElRef.current = elements.create('cardNumber', { style, showIcon: false, disableLink: true })
+      // GA funnel: payment started — fires the first time the diner focuses the
+      // card number field. Once per session; excludes Direct Entry.
+      numberElRef.current.on('focus', () => {
+        if (paymentStartedRef.current || isDirectEntry) return
+        paymentStartedRef.current = true
+        trackEvent('checkout_payment_started', { restaurant_name: restaurantName, total: totalRef.current })
+      })
       expiryElRef.current = elements.create('cardExpiry', { style })
       cvcElRef.current = elements.create('cardCvc', { style })
       numberElRef.current.mount(numberRef.current)
@@ -301,6 +327,16 @@ export default function CheckoutDrawer({
   const taxesAndFees = (displayFee !== null || displayTax !== null)
     ? (displayFee ?? 0) + (displayTax ?? 0)
     : null
+  // Best-known order total for analytics — mirrors PaymentStep's payTotal
+  // (FM's canonical total, else the client estimate). Kept in a ref so the
+  // Stripe focus handler reads the freshest value. Display logic is unchanged.
+  const trackingTotal = fm?.total ?? (
+    subtotal + (displayTips || 0) + (displaySvc || 0)
+      + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0)
+      - (fm?.discount ?? 0)
+  )
+  totalRef.current = trackingTotal
+
   const taxIdValid = /^\d{6,12}$/.test(taxExemptId)
   const canApplyExempt = taxIdValid && !!taxExemptState
   const canProceed = cart.length > 0 && !!selDate && !!selTime && (orderType === 'PICKUP' || (!!addr.line1 && !!addr.city && !!addr.state && !!addr.zip && addr.lat != null && addr.lng != null))
@@ -467,6 +503,13 @@ export default function CheckoutDrawer({
     }
   }
 
+  // GA funnel: payment failed (card declined, tokenization error, or a
+  // confirm-payment that didn't reach 'succeeded'). Excludes Direct Entry.
+  function trackPaymentFailed(errorType: string) {
+    if (isDirectEntry) return
+    trackEvent('checkout_payment_failed', { restaurant_name: restaurantName, total: trackingTotal, error_type: errorType })
+  }
+
   async function handlePlaceOrder() {
     // Customer payment path still requires a logged-in diner; direct entry does
     // not (admin auth is the restaurant cookie).
@@ -474,6 +517,17 @@ export default function CheckoutDrawer({
     setError('')
 
     const isInvoice = isDirectEntry && directEntryMethod === 'invoice'
+
+    // GA funnel: Place Order clicked, before any API call. Excludes Direct Entry.
+    if (!isDirectEntry) {
+      const usingSavedCard = savedCard && !useNewCard
+      trackEvent('checkout_payment_attempted', {
+        restaurant_name: restaurantName,
+        total: trackingTotal,
+        order_type: orderType,
+        payment_method: isInvoice ? 'invoice' : (usingSavedCard ? 'saved_card' : 'card'),
+      })
+    }
     // Direct-entry payment RETRY after a declined card: FM
     // (confirmOrderPaymentByPayStatement, checkout-sidebar-preview.component.ts:
     // 1342) reuses the SAME orderRef + paymentIntentId and just re-confirms with
@@ -500,9 +554,9 @@ export default function CheckoutDrawer({
         // the mount effect and would tear down the Element mid-tokenization),
         // then turn the token into a PaymentMethod, exactly as FM does.
         const tok = await stripeRef.current.createToken(numberElRef.current)
-        if (tok.error) { setError(tok.error.message || 'Card error.'); setStep('payment'); return }
+        if (tok.error) { trackPaymentFailed('card_token_error'); setError(tok.error.message || 'Card error.'); setStep('payment'); return }
         const pm = await stripeRef.current.createPaymentMethod({ type: 'card', card: { token: tok.token.id } })
-        if (pm.error) { setError(pm.error.message || 'Card error.'); setStep('payment'); return }
+        if (pm.error) { trackPaymentFailed('card_method_error'); setError(pm.error.message || 'Card error.'); setStep('payment'); return }
         paymentMethodId = pm.paymentMethod?.id ?? null
       }
 
@@ -513,6 +567,7 @@ export default function CheckoutDrawer({
       // ones from the prior (failed) attempt; otherwise we place the order now.
       let finalRef: string
       let paymentIntentId: string | undefined
+      let placedOrderNumber: number | string | undefined // for checkout_completed
 
       if (retry) {
         finalRef = retry.orderReference
@@ -549,6 +604,7 @@ export default function CheckoutDrawer({
         const placeData = await placeRes.json()
         if (!placeRes.ok && placeData.error) throw new Error(placeData.error || placeData.message || 'Failed to place order.')
         finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
+        placedOrderNumber = placeData.data?.orderNumber ?? placeData.orderNumber ?? finalRef
 
         // Invoice (direct entry): the order is created unpaid and FM emails the
         // customer a payment link. No card, no confirm-payment — done.
@@ -589,6 +645,7 @@ export default function CheckoutDrawer({
             directEntryRetry.current = { orderReference: finalRef, paymentIntentId }
             setCardResetKey(k => k + 1)
           }
+          trackPaymentFailed(payStatus ? `confirm_${payStatus.toLowerCase()}` : 'confirm_failed')
           setError(confData.error || confData.message || 'Payment could not be completed — the card was not charged. Please try again with a different card.')
           setStep('payment'); return
         }
@@ -605,10 +662,24 @@ export default function CheckoutDrawer({
         }).catch(() => {})
       }
 
+      // GA funnel: order completed. Customer flow only (Direct Entry excluded).
+      // Fires after payment confirmed 'succeeded' (or, for non-card flows, a
+      // successful place), just before the confirmation redirect.
+      if (!isDirectEntry) {
+        trackEvent('checkout_completed', {
+          restaurant_name: restaurantName,
+          order_number: placedOrderNumber ?? finalRef,
+          total: trackingTotal,
+          order_type: orderType,
+          source: isFirstParty ? 'FAMILYMEAL' : 'DISCO',
+        })
+      }
+
       // Direct entry returns to the portal Orders list; the customer flow goes
       // to the public order-confirmation page.
       router.push(isDirectEntry ? '/restaurant/orders' : `/order-confirmation/${finalRef}`)
     } catch (err: any) {
+      trackPaymentFailed('exception')
       setError(err.message || 'Something went wrong. Please try again.')
       // If we'd already entered the placing step, the card fields were detached;
       // remount them (direct entry) so the admin can retry without reopening.
