@@ -103,10 +103,16 @@ export async function POST(req: NextRequest) {
   }
   if (obj.image && obj.image.reference) merged.image = { reference: obj.image.reference }
 
-  // Keep inherit consistent with the item's real schedule: a custom schedule
-  // (scheduleOption.isRestaurantDefault === false) MUST send inherit=false.
+  // Category: the GET nests it as `itemCategory: {reference, name, …}` but the
+  // PUT wants the flat `itemCategoryReference` string (sending the nested object
+  // → FM 404-034 "Item category not found").
+  if (obj.itemCategory?.reference) merged.itemCategoryReference = obj.itemCategory.reference
+  delete merged.itemCategory
+
+  // inherit MUST track the real schedule: isRestaurantDefault === true means the
+  // item uses the restaurant default (inherit), false means a custom schedule.
   if (obj.scheduleOption && typeof obj.scheduleOption === 'object' && obj.scheduleOption.isRestaurantDefault != null) {
-    merged.inheritScheduleOptionFromRestaurant = !obj.scheduleOption.isRestaurantDefault
+    merged.inheritScheduleOptionFromRestaurant = !!obj.scheduleOption.isRestaurantDefault
   }
 
   // ISO YYYY-MM-DD → DD.MM.YYYY everywhere (scheduleOption dates, etc.).
