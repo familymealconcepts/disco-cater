@@ -17,6 +17,15 @@ interface Order {
   orderType: string
   orderStatus: string
   total: number
+  // FM sometimes returns the order value under transactionsTotal instead of
+  // total (list-shape vs detail-shape) — fall back to it so legitimate orders
+  // don't render as $0.00.
+  transactionsTotal?: number
+  // 'INVOICE' (email payment link, explains UNPAID) or 'PAYMENT' (card charged).
+  paymentMethod?: string
+  firstName?: string
+  lastName?: string
+  email?: string
   nashDeliveryPickupEta?: string
   nashDeliveryDropoffEta?: string
   orderNumber?: number
@@ -27,6 +36,16 @@ interface Order {
 }
 
 const STATUS_OPTIONS = ['DUE', 'PAID', 'UNPAID', 'COMPLETED', 'CANCELED', 'REFUND', 'PARTIAL_REFUND', 'VOID', 'EXPIRED', 'REOPEN', 'RESERVED']
+
+// Friendly labels for the raw FM enum (mirrors the restaurant portal orders
+// page). Falls back to the raw value for any status not mapped here.
+const STATUS_LABEL: Record<string, string> = {
+  DUE: 'Due', PAID: 'Paid', UNPAID: 'Unpaid', COMPLETED: 'Completed',
+  CANCELED: 'Canceled', REFUND: 'Refunded', PARTIAL_REFUND: 'Partial Refund',
+  VOID: 'Void', EXPIRED: 'Expired', RESERVED: 'Reserved', REOPEN: 'Reopened',
+  IN_PROGRESS: 'In Progress',
+}
+const statusLabel = (s: string) => STATUS_LABEL[s] || s
 
 // 3P / 1P attribution pill. "DISCO" → 3P (Disco Blue), "FAMILYMEAL" → 1P
 // (gray). Small + subtle, no emoji. Renders nothing for unknown/absent values.
@@ -46,8 +65,49 @@ function SourcePill({ source }: { source?: string }) {
   )
 }
 
+// Amber "Invoice" pill — shown for paymentMethod === 'INVOICE' to explain why
+// an order may be UNPAID. Card payments (PAYMENT) are the default and get no pill.
+function InvoicePill({ paymentMethod }: { paymentMethod?: string }) {
+  if (paymentMethod !== 'INVOICE') return null
+  return (
+    <span style={{
+      display: 'inline-block', marginLeft: 6, padding: '1px 5px', borderRadius: 4,
+      fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', verticalAlign: 'middle',
+      color: DARK, background: '#EFB84A',
+    }}
+      title="Invoice — payment link sent, not yet paid">
+      Invoice
+    </span>
+  )
+}
+
+// Muted "Draft" badge — flags a likely abandoned cart (zero total, still in an
+// early status, and not an invoice order which legitimately starts at $0).
+function DraftBadge({ order }: { order: Order }) {
+  const value = order.total ?? order.transactionsTotal ?? 0
+  const isDraft = value === 0 &&
+    (order.orderStatus === 'RESERVED' || order.orderStatus === 'UNPAID') &&
+    order.paymentMethod !== 'INVOICE'
+  if (!isDraft) return null
+  return (
+    <span style={{
+      display: 'inline-block', marginLeft: 6, padding: '1px 5px', borderRadius: 4,
+      fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', verticalAlign: 'middle',
+      color: '#999', background: '#f0f0f0',
+    }}
+      title="Likely abandoned cart — initiated but never paid">
+      Draft
+    </span>
+  )
+}
+
 function fmtCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
+}
+// firstName + lastName, falling back to email, then an em dash.
+function customerName(o: Order) {
+  const name = [o.firstName, o.lastName].filter(Boolean).join(' ').trim()
+  return name || o.email || '—'
 }
 function fmtDate(d?: string) {
   if (!d) return ''
@@ -131,8 +191,9 @@ export default function AdminOrdersPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
           <thead>
             <tr>
-              <th style={colHead}>Received</th>
+              <th style={colHead}>Placed</th>
               <th style={colHead}>Restaurant</th>
+              <th style={colHead}>Customer</th>
               <th style={colHead}>Order #</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Total</th>
               <th style={colHead}>Order Time</th>
@@ -142,20 +203,27 @@ export default function AdminOrdersPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={8} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !orders.length && <tr><td colSpan={8} style={{ ...cell, textAlign: 'center', color: '#999' }}>No orders.</td></tr>}
+            {loading && <tr><td colSpan={9} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !orders.length && <tr><td colSpan={9} style={{ ...cell, textAlign: 'center', color: '#999' }}>No orders.</td></tr>}
             {!loading && orders.map(o => (
               <tr key={o.orderReference}>
                 <td style={{ ...cell, color: '#666' }}>{fmtDate(o.createdDate)}</td>
                 <td style={cell}>{o.restaurantName}</td>
-                <td style={cell}>{o.orderNumber ? `#${o.orderNumber}` : '—'}</td>
-                <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>{fmtCurrency(o.total)}</td>
+                <td style={cell}>{customerName(o)}</td>
+                <td style={cell}>
+                  {o.orderNumber ? `#${o.orderNumber}` : '—'}
+                  <DraftBadge order={o} />
+                </td>
+                <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>
+                  {fmtCurrency(o.total ?? o.transactionsTotal ?? 0)}
+                  <InvoicePill paymentMethod={o.paymentMethod} />
+                </td>
                 <td style={cell}>{fmtDate(o.orderDate)} {fmtTime(o.orderTime)}</td>
                 <td style={cell}>{o.orderType}</td>
                 <td style={cell}><SourcePill source={o.sourceoforder} /></td>
                 <td style={cell}>
                   <select value={o.orderStatus} onChange={e => changeStatus(o, e.target.value)} style={smallSelect}>
-                    {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    {STATUS_OPTIONS.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
                   </select>
                 </td>
               </tr>
