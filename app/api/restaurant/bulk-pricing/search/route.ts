@@ -20,7 +20,8 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 async function fmJson<T>(url: string, headers?: Record<string, string>): Promise<T | null> {
   try {
-    const res = await fetch(`${FM}${url}`, { headers: { Accept: 'application/json', ...(headers || {}) } })
+    // no-store so the post-apply refresh reflects freshly-updated prices.
+    const res = await fetch(`${FM}${url}`, { headers: { Accept: 'application/json', ...(headers || {}) }, cache: 'no-store' })
     if (!res.ok) return null
     return (await res.json()) as T
   } catch { return null }

@@ -42,6 +42,7 @@ export default function BulkPricingClient() {
   const [groups, setGroups] = useState<Group[]>([])
   const [applying, setApplying] = useState(false)
   const [summary, setSummary] = useState<{ ok: number; fail: number; failedLocs: string[] } | null>(null)
+  const [showLocations, setShowLocations] = useState(false)
 
   // Location count up front, so the search spinner can say "Searching X locations…".
   useEffect(() => {
@@ -57,10 +58,10 @@ export default function BulkPricingClient() {
     setGroups(gs => gs.map(g => ({ ...g, rows: g.rows.map(r => (r.key === key ? { ...r, ...patch } : r)) })))
   }
 
-  async function runSearch() {
-    const q = query.trim()
+  async function loadResults(q: string, opts?: { preserveSummary?: boolean }) {
     if (!q) return
-    setSearching(true); setSearchError(''); setResp(null); setGroups([]); setSummary(null)
+    setSearching(true); setSearchError(''); setResp(null); setGroups([])
+    if (!opts?.preserveSummary) setSummary(null)
     try {
       const res = await fetch(`/api/restaurant/bulk-pricing/search?name=${encodeURIComponent(q)}`)
       const d = await res.json()
@@ -91,6 +92,11 @@ export default function BulkPricingClient() {
     }
   }
 
+  function runSearch() {
+    setShowLocations(false)
+    loadResults(query.trim())
+  }
+
   async function apply(onlyFailed: boolean) {
     const targets = flatRows().filter(r => r.checked && (!onlyFailed || r.status === 'error'))
     if (targets.length === 0) return
@@ -118,6 +124,12 @@ export default function BulkPricingClient() {
     // admin's actual selection so the rest of the portal stays consistent.
     try { if (selectedRef) await setRestaurant(selectedRef, selectedName || undefined) } catch {}
     setApplying(false)
+    // Re-run the search so "Current Display"/"Current base" reflect the new
+    // values (keep the summary visible). Small delay for FM to settle.
+    if (ok > 0 && resp?.query) {
+      await sleep(800)
+      loadResults(resp.query, { preserveSummary: true })
+    }
   }
 
   const checkedCount = flatRows().filter(r => r.checked).length
@@ -178,7 +190,12 @@ export default function BulkPricingClient() {
           <>
             <div style={{ ...card, paddingBottom: 12 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 12 }}>
-                Found “{resp.query}” at {resp.matchedLocations} of {resp.totalLocations} locations
+                Found “{resp.query}” at{' '}
+                <button onClick={() => setShowLocations(true)} title="View all matched locations"
+                  style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: BLUE, cursor: 'pointer', textDecoration: 'underline' }}>
+                  {resp.matchedLocations}
+                </button>{' '}
+                of {resp.totalLocations} locations
               </div>
               <div style={{ background: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 8, padding: '10px 12px', fontSize: 12.5, color: '#8D6E00' }}>
                 ⚠ Changes are applied per location. Review carefully before applying — this cannot be undone automatically.
@@ -248,6 +265,39 @@ export default function BulkPricingClient() {
             </div>
           </>
         )
+      )}
+
+      {/* Locations lightbox — list every matched location; click a row to toggle
+          its checkbox in the table. */}
+      {showLocations && resp && (
+        <div onClick={() => setShowLocations(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 560, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(0,0,0,0.25)', fontFamily: F }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>
+                “{resp.query}” — {resp.matchedLocations} location{resp.matchedLocations === 1 ? '' : 's'}
+              </div>
+              <button onClick={() => setShowLocations(false)} aria-label="Close"
+                style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 30, height: 30, borderRadius: '50%', fontSize: 17, color: '#555', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: '6px 0', overflowY: 'auto' }}>
+              {flatRows().map(r => (
+                <button key={r.key} onClick={() => updateRow(r.key, { checked: !r.checked })}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '11px 20px', background: 'none', border: 'none', borderBottom: '1px solid #f5f5f5', cursor: 'pointer', textAlign: 'left', fontFamily: F }}>
+                  <input type="checkbox" readOnly checked={r.checked} style={{ accentColor: BLUE, pointerEvents: 'none', flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.restaurantName}</span>
+                  <span style={{ fontSize: 13, color: DARK, width: 70, textAlign: 'right' }}>{fmtMoney(r.currentPrice)}</span>
+                  <span style={{ fontSize: 12.5, color: '#888', width: 90, textAlign: 'right' }}>{r.currentDisplayPrice || '—'}</span>
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: '10px 20px', borderTop: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: '#888' }}>{checkedCount} selected · click a row to toggle</span>
+              <button onClick={() => setShowLocations(false)} style={btn(BLUE)}>Done</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

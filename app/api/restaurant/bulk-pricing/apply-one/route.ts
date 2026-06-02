@@ -72,9 +72,6 @@ export async function POST(req: NextRequest) {
   let obj: any
   try { obj = await getRes.json() } catch { return NextResponse.json({ ok: false, error: 'Could not parse item' }) }
   if (!obj || typeof obj !== 'object') return NextResponse.json({ ok: false, error: 'Empty item response' })
-  // TEMPORARY diagnostic — see the exact GET shape (type/itemType + any field
-  // we might be omitting). Remove once bulk pricing is confirmed.
-  console.log('[bulk apply-one] GET response', JSON.stringify(obj))
 
   // 3. Build the PUT body to EXACTLY match the working menu-item editor
   //    (_MealPackageForm.tsx:254-296) — a curated FLAT payload, NOT a raw
@@ -124,11 +121,8 @@ export async function POST(req: NextRequest) {
     headers: { ...h, 'Content-Type': 'application/json' },
     body: JSON.stringify(putBody),
   })
-  const putText = await putRes.text().catch(() => '')
-  // TEMPORARY diagnostic — surface FM's exact response so we can see the failure.
-  console.log('[bulk apply-one] PUT body', JSON.stringify(putBody))
-  console.log('[bulk apply-one] PUT result', JSON.stringify({ status: putRes.status, ok: putRes.ok, body: putText.slice(0, 800) }))
   if (!putRes.ok) {
+    const putText = await putRes.text().catch(() => '')
     return NextResponse.json({ ok: false, error: `Update failed (HTTP ${putRes.status})${putText ? `: ${putText.slice(0, 140)}` : ''}` })
   }
   return NextResponse.json({ ok: true })
