@@ -39,17 +39,28 @@ export async function POST(req: NextRequest) {
   const priceNum = typeof body.price === 'number' ? body.price : parseFloat(String(body.price ?? ''))
   if (!isFinite(priceNum) || priceNum < 0) return NextResponse.json({ ok: false, error: 'Invalid price' }, { status: 400 })
 
+  // ── DIAGNOSTIC LOGGING (Vercel logs) — temporary, to find the PUT failure.
+  console.log('[bulk apply-one] START', JSON.stringify({ pkgRef, restaurantRef, priceNum, displayPrice: body.displayPrice }))
+
   // 1. Scope FM to the target location (best-effort).
+  let curStatus = 'n/a'
   try {
-    await fetch(`${FM}/api/system-admin/restaurants/current?restaurantReference=${encodeURIComponent(restaurantRef)}`, { method: 'PUT', headers: h })
-  } catch {}
+    const curRes = await fetch(`${FM}/api/system-admin/restaurants/current?restaurantReference=${encodeURIComponent(restaurantRef)}`, { method: 'PUT', headers: h })
+    curStatus = String(curRes.status)
+  } catch (e: any) { curStatus = `threw: ${e?.message || e}` }
+  console.log('[bulk apply-one] setCurrentRestaurant →', JSON.stringify({ restaurantRef, status: curStatus }))
 
   // 2. GET the full current object.
   const getRes = await fetch(`${FM}/api/mealPackages/${pkgRef}`, { headers: h })
-  if (!getRes.ok) return NextResponse.json({ ok: false, error: `Could not load item (HTTP ${getRes.status})` })
+  if (!getRes.ok) {
+    const gt = await getRes.text().catch(() => '')
+    console.log('[bulk apply-one] GET FAILED', JSON.stringify({ pkgRef, status: getRes.status, body: gt.slice(0, 500) }))
+    return NextResponse.json({ ok: false, error: `Could not load item (HTTP ${getRes.status})` })
+  }
   let obj: any
   try { obj = await getRes.json() } catch { return NextResponse.json({ ok: false, error: 'Could not parse item' }) }
   if (!obj || typeof obj !== 'object') return NextResponse.json({ ok: false, error: 'Empty item response' })
+  console.log('[bulk apply-one] GET response', JSON.stringify(obj))
 
   // 3. Merge ONLY price + displayPrice; preserve everything else. Fix the two
   //    shapes the editor normalizes (extraItemsGroups, image).
@@ -61,6 +72,7 @@ export async function POST(req: NextRequest) {
     merged.extraItemsGroups = obj.extraItemsGroups.map((g: any) => ({ reference: g.reference, enabled: g.enabled !== false }))
   }
   if (obj.image && obj.image.reference) merged.image = { reference: obj.image.reference }
+  console.log('[bulk apply-one] PUT body', JSON.stringify(merged))
 
   // 4. PUT the merged full object.
   const putRes = await fetch(`${FM}/api/mealPackages/${pkgRef}`, {
@@ -68,9 +80,10 @@ export async function POST(req: NextRequest) {
     headers: { ...h, 'Content-Type': 'application/json' },
     body: JSON.stringify(merged),
   })
+  const putText = await putRes.text().catch(() => '')
+  console.log('[bulk apply-one] PUT result', JSON.stringify({ status: putRes.status, ok: putRes.ok, body: putText.slice(0, 800) }))
   if (!putRes.ok) {
-    const t = await putRes.text().catch(() => '')
-    return NextResponse.json({ ok: false, error: `Update failed (HTTP ${putRes.status})${t ? `: ${t.slice(0, 140)}` : ''}` })
+    return NextResponse.json({ ok: false, error: `Update failed (HTTP ${putRes.status})${putText ? `: ${putText.slice(0, 140)}` : ''}` })
   }
   return NextResponse.json({ ok: true })
 }
