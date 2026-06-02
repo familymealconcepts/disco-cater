@@ -43,6 +43,10 @@ export default function BulkPricingClient() {
   const [locationCount, setLocationCount] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
+  // Post-apply refresh re-runs the SAME search but keeps the current results +
+  // summary on screen (no blank "fresh search" flash). Tracked separately from
+  // `searching` so the results block stays mounted while it reloads.
+  const [refreshing, setRefreshing] = useState(false)
   const [searchError, setSearchError] = useState('')
   const [resp, setResp] = useState<SearchResp | null>(null)
   const [groups, setGroups] = useState<Group[]>([])
@@ -64,9 +68,15 @@ export default function BulkPricingClient() {
     setGroups(gs => gs.map(g => ({ ...g, rows: g.rows.map(r => (r.key === key ? { ...r, ...patch } : r)) })))
   }
 
-  async function loadResults(q: string, opts?: { preserveSummary?: boolean }) {
+  async function loadResults(q: string, opts?: { preserveSummary?: boolean; refresh?: boolean }) {
     if (!q) return
-    setSearching(true); setSearchError(''); setResp(null); setGroups([])
+    const isRefresh = !!opts?.refresh
+    setSearchError('')
+    // Fresh search clears the table and shows the full-screen spinner. A refresh
+    // keeps the existing results/summary visible and only flips `refreshing`, so
+    // the review block stays on screen until the new data swaps in.
+    if (isRefresh) { setRefreshing(true) }
+    else { setSearching(true); setResp(null); setGroups([]) }
     if (!opts?.preserveSummary) setSummary(null)
     try {
       const res = await fetch(`/api/restaurant/bulk-pricing/search?name=${encodeURIComponent(q)}`)
@@ -99,7 +109,8 @@ export default function BulkPricingClient() {
     } catch {
       setSearchError('Unable to reach the server.')
     } finally {
-      setSearching(false)
+      if (isRefresh) setRefreshing(false)
+      else setSearching(false)
     }
   }
 
@@ -145,11 +156,12 @@ export default function BulkPricingClient() {
     // admin's actual selection so the rest of the portal stays consistent.
     try { if (selectedRef) await setRestaurant(selectedRef, selectedName || undefined) } catch {}
     setApplying(false)
-    // Re-run the search so "Current Display"/"Current base" reflect the new
-    // values (keep the summary visible). Small delay for FM to settle.
+    // Re-run the search IN PLACE so "Current base"/"Current display"/etc. reflect
+    // the new values, keeping the search term, current results, and the summary
+    // on screen (no reset to a fresh/empty search). Small delay for FM to settle.
     if (ok > 0 && resp?.query) {
       await sleep(800)
-      loadResults(resp.query, { preserveSummary: true })
+      loadResults(resp.query, { preserveSummary: true, refresh: true })
     }
   }
 
@@ -173,6 +185,15 @@ export default function BulkPricingClient() {
     : s === 'error' ? <span style={{ color: '#C0392B', fontWeight: 700 }}>✗</span>
     : s === 'pending' ? <span style={{ color: BLUE }}>⟳</span> : <span style={{ color: '#ccc' }}>·</span>
 
+  // Two-line stacked header — top line muted (CURRENT/NEW), bottom line darker
+  // (the field). Keeps each column narrow and far less crowded horizontally.
+  const Th = (top: string, bottom: string, extra?: React.CSSProperties) => (
+    <th style={{ ...th, ...extra }}>
+      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#aaa', lineHeight: 1.3 }}>{top}</span>
+      <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#555', lineHeight: 1.3 }}>{bottom}</span>
+    </th>
+  )
+
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, maxWidth: 1400 }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');`}</style>
@@ -191,15 +212,20 @@ export default function BulkPricingClient() {
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') runSearch() }}
             placeholder="e.g. Pastrami on Rye"
-            disabled={searching || applying}
+            disabled={searching || applying || refreshing}
           />
-          <button onClick={runSearch} disabled={searching || applying || !query.trim()} style={{ ...btn(BLUE), opacity: searching || applying || !query.trim() ? 0.5 : 1 }}>
+          <button onClick={runSearch} disabled={searching || applying || refreshing || !query.trim()} style={{ ...btn(BLUE), opacity: searching || applying || refreshing || !query.trim() ? 0.5 : 1 }}>
             {searching ? 'Searching…' : 'Search'}
           </button>
         </div>
         {searching && (
           <div style={{ fontSize: 12.5, color: '#888', marginTop: 10 }}>
             Searching {locationCount != null ? `${locationCount} ` : ''}locations… (matches by exact item name)
+          </div>
+        )}
+        {refreshing && (
+          <div style={{ fontSize: 12.5, color: '#888', marginTop: 10 }}>
+            Refreshing results to reflect your changes…
           </div>
         )}
         {searchError && <div style={{ marginTop: 10, fontSize: 13, color: '#C0392B' }}>{searchError}</div>}
@@ -236,16 +262,16 @@ export default function BulkPricingClient() {
                 <table style={{ borderCollapse: 'collapse', minWidth: 1280 }}>
                   <thead><tr>
                     <th style={{ ...th, ...stickyTh(0), width: 28 }}></th>
-                    <th style={{ ...th, ...stickyTh(28), minWidth: 150 }}>Item (current name)</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Current base</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Current display</th>
-                    <th style={{ ...th, width: 120 }}>New base price</th>
-                    <th style={{ ...th, width: 150 }}>New display price</th>
-                    <th style={{ ...th, width: 180 }}>New name</th>
-                    <th style={{ ...th, width: 200 }}>Current description</th>
-                    <th style={{ ...th, width: 260 }}>New description</th>
-                    <th style={{ ...th, width: 110 }}>Current serves</th>
-                    <th style={{ ...th, width: 130 }}>New serves</th>
+                    {Th('Current', 'Name', { ...stickyTh(28), minWidth: 160 })}
+                    {Th('Current', 'Base', { textAlign: 'right' })}
+                    {Th('Current', 'Display', { textAlign: 'right' })}
+                    {Th('New', 'Base Price', { width: 120 })}
+                    {Th('New', 'Display Price', { width: 150 })}
+                    {Th('New', 'Name', { width: 200 })}
+                    {Th('Current', 'Description', { width: 200 })}
+                    {Th('New', 'Description', { width: 280 })}
+                    {Th('Current', 'Serves', { width: 110 })}
+                    {Th('New', 'Serves', { width: 130 })}
                     <th style={{ ...th, width: 40, textAlign: 'center' }}></th>
                   </tr></thead>
                   <tbody>
@@ -272,16 +298,16 @@ export default function BulkPricingClient() {
                         <td style={td}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                             <input type="text" value={r.newName} disabled={applying}
-                              onChange={e => updateRow(r.key, { newName: e.target.value })} style={{ ...input, width: '100%' }} />
+                              onChange={e => updateRow(r.key, { newName: e.target.value })} style={{ ...input, width: '100%', minWidth: 160 }} />
                             <button title="Reset to current name" disabled={applying} onClick={() => updateRow(r.key, { newName: r.name })} style={clearBtn}>✕</button>
                           </div>
                         </td>
                         <td style={{ ...td, color: '#888', maxWidth: 200, whiteSpace: 'normal' }}>{r.currentDescription || '—'}</td>
                         <td style={td}>
                           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                            <textarea rows={2} value={r.newDescription} disabled={applying} placeholder="(preserve)"
+                            <textarea rows={3} value={r.newDescription} disabled={applying} placeholder="(preserve)"
                               onChange={e => updateRow(r.key, { newDescription: e.target.value })}
-                              style={{ ...input, width: '100%', resize: 'vertical', fontFamily: F, lineHeight: 1.4 }} />
+                              style={{ ...input, width: '100%', minWidth: 200, resize: 'vertical', fontFamily: F, lineHeight: 1.4 }} />
                             <button title="Reset to current description" disabled={applying} onClick={() => updateRow(r.key, { newDescription: r.currentDescription })} style={clearBtn}>✕</button>
                           </div>
                         </td>
@@ -313,11 +339,11 @@ export default function BulkPricingClient() {
                 )}
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                {failedCount > 0 && !applying && (
+                {failedCount > 0 && !applying && !refreshing && (
                   <button onClick={() => apply(true)} style={btn('#E76F51')}>Retry failed ({failedCount})</button>
                 )}
-                <button onClick={() => apply(false)} disabled={applying || checkedCount === 0} style={{ ...btn(DARK), opacity: applying || checkedCount === 0 ? 0.5 : 1 }}>
-                  {applying ? 'Applying…' : 'Apply Changes'}
+                <button onClick={() => apply(false)} disabled={applying || refreshing || checkedCount === 0} style={{ ...btn(DARK), opacity: applying || refreshing || checkedCount === 0 ? 0.5 : 1 }}>
+                  {applying ? 'Applying…' : refreshing ? 'Refreshing…' : 'Apply Changes'}
                 </button>
               </div>
             </div>
