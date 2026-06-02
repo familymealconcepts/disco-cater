@@ -23,6 +23,16 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// FM's mealPackages PUT parses scheduleOption dates as DD.MM.YYYY, but its GET
+// hands them back as ISO YYYY-MM-DD — forwarding ISO verbatim 500s with a Java
+// "Text '2025-11-01' could not be parsed". Convert ISO → DD.MM.YYYY; pass
+// through null/undefined and anything not in ISO form unchanged.
+function isoToDdMmYyyy(d?: string | null): string | null | undefined {
+  if (d == null) return d
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d).trim())
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : d
+}
+
 export async function POST(req: NextRequest) {
   const role = await getRestaurantRole()
   if (role !== 'SYSTEM_ADMIN' && role !== 'SUPER_ADMIN') {
@@ -39,31 +49,23 @@ export async function POST(req: NextRequest) {
   const priceNum = typeof body.price === 'number' ? body.price : parseFloat(String(body.price ?? ''))
   if (!isFinite(priceNum) || priceNum < 0) return NextResponse.json({ ok: false, error: 'Invalid price' }, { status: 400 })
 
-  // ── DIAGNOSTIC LOGGING (Vercel logs) — temporary, to find the PUT failure.
-  console.log('[bulk apply-one] START', JSON.stringify({ pkgRef, restaurantRef, priceNum, displayPrice: body.displayPrice }))
-
   // 1. Scope FM to the target location (best-effort).
-  let curStatus = 'n/a'
   try {
-    const curRes = await fetch(`${FM}/api/system-admin/restaurants/current?restaurantReference=${encodeURIComponent(restaurantRef)}`, { method: 'PUT', headers: h })
-    curStatus = String(curRes.status)
-  } catch (e: any) { curStatus = `threw: ${e?.message || e}` }
-  console.log('[bulk apply-one] setCurrentRestaurant →', JSON.stringify({ restaurantRef, status: curStatus }))
+    await fetch(`${FM}/api/system-admin/restaurants/current?restaurantReference=${encodeURIComponent(restaurantRef)}`, { method: 'PUT', headers: h })
+  } catch {}
 
   // 2. GET the full current object.
   const getRes = await fetch(`${FM}/api/mealPackages/${pkgRef}`, { headers: h })
-  if (!getRes.ok) {
-    const gt = await getRes.text().catch(() => '')
-    console.log('[bulk apply-one] GET FAILED', JSON.stringify({ pkgRef, status: getRes.status, body: gt.slice(0, 500) }))
-    return NextResponse.json({ ok: false, error: `Could not load item (HTTP ${getRes.status})` })
-  }
+  if (!getRes.ok) return NextResponse.json({ ok: false, error: `Could not load item (HTTP ${getRes.status})` })
   let obj: any
   try { obj = await getRes.json() } catch { return NextResponse.json({ ok: false, error: 'Could not parse item' }) }
   if (!obj || typeof obj !== 'object') return NextResponse.json({ ok: false, error: 'Empty item response' })
-  console.log('[bulk apply-one] GET response', JSON.stringify(obj))
 
-  // 3. Merge ONLY price + displayPrice; preserve everything else. Fix the two
-  //    shapes the editor normalizes (extraItemsGroups, image).
+  // 3. Merge ONLY price + displayPrice; preserve everything else. Fix the
+  //    shapes FM's PUT needs that the GET returns differently: extraItemsGroups
+  //    (rich → [{reference,enabled}]), image (rich → {reference}), and
+  //    scheduleOption dates (ISO → DD.MM.YYYY — FM's PUT parses DD.MM.YYYY and
+  //    rejects the ISO YYYY-MM-DD it hands back on GET).
   const merged: Record<string, unknown> = { ...obj, price: priceNum }
   const dp = body.displayPrice
   if (typeof dp === 'string' && dp.trim() !== '') merged.displayPrice = dp.trim()
@@ -72,7 +74,14 @@ export async function POST(req: NextRequest) {
     merged.extraItemsGroups = obj.extraItemsGroups.map((g: any) => ({ reference: g.reference, enabled: g.enabled !== false }))
   }
   if (obj.image && obj.image.reference) merged.image = { reference: obj.image.reference }
-  console.log('[bulk apply-one] PUT body', JSON.stringify(merged))
+  if (obj.scheduleOption && typeof obj.scheduleOption === 'object') {
+    const so: any = { ...obj.scheduleOption }
+    so.startDate = isoToDdMmYyyy(so.startDate)
+    so.endDate = isoToDdMmYyyy(so.endDate)
+    so.cutOffDate = isoToDdMmYyyy(so.cutOffDate)
+    // repeatWeekDays carries only fromPickUpTime/toPickUpTime/days — no dates.
+    merged.scheduleOption = so
+  }
 
   // 4. PUT the merged full object.
   const putRes = await fetch(`${FM}/api/mealPackages/${pkgRef}`, {
@@ -80,9 +89,8 @@ export async function POST(req: NextRequest) {
     headers: { ...h, 'Content-Type': 'application/json' },
     body: JSON.stringify(merged),
   })
-  const putText = await putRes.text().catch(() => '')
-  console.log('[bulk apply-one] PUT result', JSON.stringify({ status: putRes.status, ok: putRes.ok, body: putText.slice(0, 800) }))
   if (!putRes.ok) {
+    const putText = await putRes.text().catch(() => '')
     return NextResponse.json({ ok: false, error: `Update failed (HTTP ${putRes.status})${putText ? `: ${putText.slice(0, 140)}` : ''}` })
   }
   return NextResponse.json({ ok: true })
