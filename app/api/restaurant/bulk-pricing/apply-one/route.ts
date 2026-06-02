@@ -63,6 +63,9 @@ export async function POST(req: NextRequest) {
   let obj: any
   try { obj = await getRes.json() } catch { return NextResponse.json({ ok: false, error: 'Could not parse item' }) }
   if (!obj || typeof obj !== 'object') return NextResponse.json({ ok: false, error: 'Empty item response' })
+  // TEMPORARY diagnostic — see the exact GET shape (type/itemType + any field
+  // we might be omitting). Remove once bulk pricing is confirmed.
+  console.log('[bulk apply-one] GET response', JSON.stringify(obj))
 
   // 3. Build the PUT body to EXACTLY match the working menu-item editor
   //    (_MealPackageForm.tsx:254-296) — a curated FLAT payload, NOT a raw
@@ -81,6 +84,12 @@ export async function POST(req: NextRequest) {
   // inherit gates daySelect exactly as the editor does (default true).
   const inherit = obj.inheritScheduleOptionFromRestaurant != null ? !!obj.inheritScheduleOptionFromRestaurant : true
 
+  // `type` is round-tripped, not user-set. FM's model calls it `itemType`
+  // (meal-package.model.ts:59) while the editor reads `d.type`, so accept both.
+  // An empty-string type is an invalid enum → FM 500-001, so OMIT it when blank
+  // (undefined is dropped by JSON.stringify) and let FM keep the stored value.
+  const typeOut = (obj.type || obj.itemType) || undefined
+
   // IDENTICAL to _MealPackageForm.tsx:254-296 — same field names, same defaults
   // (editor ALWAYS sends the schedule fields with its state defaults when the
   // GET omits them), same transforms (trim, parseInt, date-only, hardcoded
@@ -89,7 +98,7 @@ export async function POST(req: NextRequest) {
   const putBody: Record<string, unknown> = {
     name: String(obj.name ?? '').trim(),
     description: String(obj.description ?? '').trim(),
-    type: obj.type ?? '',
+    type: typeOut,
     itemCategoryReference: obj.itemCategoryReference ?? obj.itemCategory?.reference ?? obj.category?.reference ?? obj.categoryReference,
     price: priceNum,
     displayPrice: displayPriceOut,
