@@ -2,13 +2,14 @@
 // package's base price (+ optional display price) at a specific location.
 //
 // CRITICAL: FM's PUT /api/mealPackages/{ref} is a FULL-OBJECT REPLACE. We GET
-// the current object, then rebuild the body to EXACTLY match the working
-// menu-item editor (_MealPackageForm.tsx:254-296) — a curated FLAT payload —
-// overriding only price + displayPrice. Raw-spreading the GET (which carries a
-// scheduleOption{} block the editor never sends) returns 200 but FM silently
-// DROPS displayPrice; the editor's curated shape persists it. Dates use the
-// editor's flat ISO date-only fields (from/to/cutOffDate), extraItemsGroups is
-// stripped to [{reference,enabled}], and image is reduced to {reference}.
+// the current object and PRESERVE it (including its real scheduleOption — real
+// inventoryPerDay/maxOrder/prepTime/scheduleType/isRestaurantDefault), then
+// override ONLY price + displayPrice. Rebuilding a curated flat payload with the
+// editor's DEFAULT schedule values (100/100, inherit:true) conflicts with a
+// custom-schedule item (isRestaurantDefault:false) → FM 500-001. We only fix the
+// shapes FM's PUT needs differently from its GET: extraItemsGroups (rich →
+// [{reference,enabled}]), image (rich → {reference}), scheduleOption dates (ISO →
+// DD.MM.YYYY), and inherit = !scheduleOption.isRestaurantDefault.
 //
 // FM's single-package endpoint carries no restaurant ref, so it authorizes
 // against the SYSTEM_ADMIN's CURRENT restaurant. We best-effort set that to the
@@ -24,17 +25,25 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Date-only string from a possibly-datetime value, mirroring the editor's
-// `d.from.split('T')[0]` (_MealPackageForm.tsx:197-198,211). FM's flat
-// from/to/cutOffDate fields take ISO YYYY-MM-DD here (this is the shape the
-// working editor sends — NOT scheduleOption/DD.MM.YYYY).
-function dateOnly(v: unknown): string | undefined {
-  if (v == null || v === '') return undefined
-  return String(v).split('T')[0]
+// FM's PUT parses scheduleOption dates as DD.MM.YYYY but its GET returns ISO
+// YYYY-MM-DD; forwarding ISO 500s ("Text '2025-11-01' could not be parsed").
+function isoToDdMmYyyy(d?: string | null): string | null | undefined {
+  if (d == null) return d
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d).trim())
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : d
 }
-// Editor's daySelect default — all days true (_MealPackageForm.tsx:16,82-84).
-const DAYS_OF_WEEK = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-const allDaysTrue = Object.fromEntries(DAYS_OF_WEEK.map(d => [d, true]))
+// Deep-convert every bare YYYY-MM-DD string anywhere in the object. Datetimes
+// ("…T…") and times ("HH:MM:SS") don't match, so they're left untouched.
+function convertDatesDeep(v: any): any {
+  if (typeof v === 'string') return isoToDdMmYyyy(v)
+  if (Array.isArray(v)) return v.map(convertDatesDeep)
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(v)) out[k] = convertDatesDeep(v[k])
+    return out
+  }
+  return v
+}
 
 export async function POST(req: NextRequest) {
   const role = await getRestaurantRole()
@@ -77,67 +86,31 @@ export async function POST(req: NextRequest) {
   //    displayPrice: new value when provided, else preserve the existing one
   //    (trimmed string, exactly as the editor sends it).
   const newDp = body.displayPrice
-  const displayPriceOut = (typeof newDp === 'string' && newDp.trim() !== '')
-    ? newDp.trim()
-    : (obj.displayPrice != null && String(obj.displayPrice).trim() !== '' ? String(obj.displayPrice).trim() : undefined)
 
-  // inherit gates daySelect exactly as the editor does (default true).
-  const inherit = obj.inheritScheduleOptionFromRestaurant != null ? !!obj.inheritScheduleOptionFromRestaurant : true
+  // PRESERVE the full GET object (incl. its real scheduleOption: inventoryPerDay,
+  // maxOrder, prepTime, scheduleType, isRestaurantDefault, dates, repeatWeekDays)
+  // and override ONLY price + displayPrice. Rebuilding the schedule from editor
+  // defaults (100/100, inherit:true) conflicts with a custom-schedule item
+  // (isRestaurantDefault:false) → FM 500. We just fix the shapes FM's PUT needs
+  // differently from its GET.
+  const merged: Record<string, unknown> = { ...obj, price: priceNum }
+  if (typeof newDp === 'string' && newDp.trim() !== '') merged.displayPrice = newDp.trim()
+  // (blank → keep the existing displayPrice from the spread)
 
-  // `type` is round-tripped, not user-set. FM's model calls it `itemType`
-  // (meal-package.model.ts:59) while the editor reads `d.type`, so accept both.
-  // An empty-string type is an invalid enum → FM 500-001, so OMIT it when blank
-  // (undefined is dropped by JSON.stringify) and let FM keep the stored value.
-  const typeOut = (obj.type || obj.itemType) || undefined
-
-  // IDENTICAL to _MealPackageForm.tsx:254-296 — same field names, same defaults
-  // (editor ALWAYS sends the schedule fields with its state defaults when the
-  // GET omits them), same transforms (trim, parseInt, date-only, hardcoded
-  // available:true, daySelect only when !inherit). undefined keys are dropped by
-  // JSON.stringify, matching the editor's `|| undefined`.
-  const putBody: Record<string, unknown> = {
-    name: String(obj.name ?? '').trim(),
-    description: String(obj.description ?? '').trim(),
-    type: typeOut,
-    itemCategoryReference: obj.itemCategoryReference ?? obj.itemCategory?.reference ?? obj.category?.reference ?? obj.categoryReference,
-    price: priceNum,
-    displayPrice: displayPriceOut,
-    serves: String(obj.serves ?? '').trim(),
-    minQuantity: obj.minQuantity != null ? parseInt(String(obj.minQuantity), 10) : undefined,
-    allowedSpecialInstructions: !!obj.allowedSpecialInstructions,
-    vegetarian: !!obj.vegetarian,
-    containsNuts: !!obj.containsNuts,
-    glutenFree: !!obj.glutenFree,
-    vegan: !!obj.vegan,
-    containsAlcohol: !!obj.containsAlcohol,
-    available: true,
-    prepTime: obj.prepTime != null ? obj.prepTime : 0,
-    prepDays: obj.prepDays != null ? obj.prepDays : 1,
-    from: dateOnly(obj.from),
-    to: dateOnly(obj.to),
-    inventoryPerDay: obj.inventoryPerDay != null ? obj.inventoryPerDay : 100,
-    maxOrder: obj.maxOrder != null ? obj.maxOrder : 100,
-    isSameDay: obj.isSameDay != null ? !!obj.isSameDay : true,
-    sameDaysTimeFrom: obj.sameDaysTimeFrom ?? '09',
-    sameDaysMinutesFrom: obj.sameDaysMinutesFrom ?? '00',
-    sameDaysMeridiemFrom: obj.sameDaysMeridiemFrom ?? 'AM',
-    sameDaysTimeTo: obj.sameDaysTimeTo ?? '09',
-    sameDaysMinutesTo: obj.sameDaysMinutesTo ?? '00',
-    sameDaysMeridiemTo: obj.sameDaysMeridiemTo ?? 'PM',
-    inheritScheduleOptionFromRestaurant: inherit,
-    daySelect: inherit ? undefined : (obj.daySelect ?? allDaysTrue),
-    extraItemsGroups: Array.isArray(obj.extraItemsGroups)
-      ? obj.extraItemsGroups.map((g: any) => ({ reference: g.reference, enabled: g.enabled !== false }))
-      : [],
+  // extraItemsGroups: rich → [{reference,enabled}]; image: rich → {reference}.
+  if (Array.isArray(obj.extraItemsGroups)) {
+    merged.extraItemsGroups = obj.extraItemsGroups.map((g: any) => ({ reference: g.reference, enabled: g.enabled !== false }))
   }
-  // Cut-off — editor sends BY_DATE date-only OR DAILY time fields.
-  if (obj.cutOffDate) putBody.cutOffDate = dateOnly(obj.cutOffDate)
-  else if (obj.cutOffTimeFrom) {
-    putBody.cutOffTimeFrom = obj.cutOffTimeFrom
-    putBody.cutOffMinutesFrom = obj.cutOffMinutesFrom
-    putBody.cutOffMeridiem = obj.cutOffMeridiem
+  if (obj.image && obj.image.reference) merged.image = { reference: obj.image.reference }
+
+  // Keep inherit consistent with the item's real schedule: a custom schedule
+  // (scheduleOption.isRestaurantDefault === false) MUST send inherit=false.
+  if (obj.scheduleOption && typeof obj.scheduleOption === 'object' && obj.scheduleOption.isRestaurantDefault != null) {
+    merged.inheritScheduleOptionFromRestaurant = !obj.scheduleOption.isRestaurantDefault
   }
-  if (obj.image && obj.image.reference) putBody.image = { reference: obj.image.reference }
+
+  // ISO YYYY-MM-DD → DD.MM.YYYY everywhere (scheduleOption dates, etc.).
+  const putBody = convertDatesDeep(merged)
 
   // 4. PUT the curated body.
   const putRes = await fetch(`${FM}/api/mealPackages/${pkgRef}`, {
