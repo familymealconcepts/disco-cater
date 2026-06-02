@@ -35,8 +35,6 @@ interface Order {
   sourceoforder?: string
 }
 
-const STATUS_OPTIONS = ['DUE', 'PAID', 'UNPAID', 'COMPLETED', 'CANCELED', 'REFUND', 'PARTIAL_REFUND', 'VOID', 'EXPIRED', 'REOPEN', 'RESERVED']
-
 // Friendly labels for the raw FM enum (mirrors the restaurant portal orders
 // page). Falls back to the raw value for any status not mapped here.
 const STATUS_LABEL: Record<string, string> = {
@@ -46,6 +44,67 @@ const STATUS_LABEL: Record<string, string> = {
   IN_PROGRESS: 'In Progress',
 }
 const statusLabel = (s: string) => STATUS_LABEL[s] || s
+
+// Subtle pill colors (bg + text) keyed by status family.
+const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
+  DUE: { bg: '#E8ECFB', fg: '#3A4BB0' },       // blue
+  REOPEN: { bg: '#E8ECFB', fg: '#3A4BB0' },     // blue
+  COMPLETED: { bg: '#E3F3E6', fg: '#2E7D43' },  // green
+  PAID: { bg: '#E3F3E6', fg: '#2E7D43' },       // green
+  CANCELED: { bg: '#EEEEEE', fg: '#777' },      // gray
+  VOID: { bg: '#EEEEEE', fg: '#777' },          // gray
+  EXPIRED: { bg: '#EEEEEE', fg: '#777' },       // gray
+  REFUND: { bg: '#FBEBDD', fg: '#B5651D' },     // orange
+  PARTIAL_REFUND: { bg: '#FBEBDD', fg: '#B5651D' }, // orange
+  UNPAID: { bg: '#FBF3D6', fg: '#9A7B1A' },     // yellow
+  RESERVED: { bg: '#FBF3D6', fg: '#9A7B1A' },   // yellow
+}
+const INCOMPLETE_COLOR = { bg: '#EEEEEE', fg: '#999' } // muted gray
+const DEFAULT_STATUS_COLOR = { bg: '#EEEEEE', fg: '#777' }
+
+// Abandoned-cart heuristic: no money on the order AND no customer attached.
+// These never completed checkout, so we display "Incomplete" instead of the raw
+// FM status (the underlying FM status is left untouched).
+function isIncomplete(o: Order) {
+  const value = (o.total ?? 0) + (o.transactionsTotal ?? 0)
+  return value === 0 && customerName(o) === '—'
+}
+
+// Read-only status pill (replaces the old editable dropdown). Shows "Incomplete"
+// for abandoned carts; otherwise the friendly label in a status-colored pill.
+function StatusPill({ order }: { order: Order }) {
+  const incomplete = isIncomplete(order)
+  const label = incomplete ? 'Incomplete' : statusLabel(order.orderStatus)
+  const c = incomplete ? INCOMPLETE_COLOR : (STATUS_COLORS[order.orderStatus] || DEFAULT_STATUS_COLOR)
+  return (
+    <span style={{
+      display: 'inline-block', padding: '3px 10px', borderRadius: 12,
+      fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
+      color: c.fg, background: c.bg,
+    }}
+      title={incomplete ? 'Abandoned cart — never completed checkout' : undefined}>
+      {label}
+    </span>
+  )
+}
+
+// Time options for the date/time edit dropdown: 15-minute increments across the
+// day, as "HH:MM" values. The current order time is injected if off-grid so the
+// dropdown always shows the existing value.
+function buildTimeOptions(current?: string): string[] {
+  const opts: string[] = []
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      opts.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
+    }
+  }
+  const cur = current?.slice(0, 5)
+  if (cur && !opts.includes(cur)) {
+    opts.push(cur)
+    opts.sort()
+  }
+  return opts
+}
 
 // 3P / 1P attribution pill. "DISCO" → 3P (Disco Blue), "FAMILYMEAL" → 1P
 // (gray). Small + subtle, no emoji. Renders nothing for unknown/absent values.
@@ -125,6 +184,64 @@ function fmtTime(t?: string) {
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
+// "Update Order Date & Time" modal — mirrors FM's date/time edit popup.
+// Date input + time dropdown pre-filled with the order's current values, the
+// FM operating-hours warning, and a Submit that PUTs to the admin date-time
+// proxy. Reuses the restaurant portal's body shape ({ orderDate, orderTime }).
+function DateTimeModal({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
+  const [orderDate, setOrderDate] = useState(order.orderDate || '')
+  const [orderTime, setOrderTime] = useState(order.orderTime?.slice(0, 5) || '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const timeOptions = buildTimeOptions(order.orderTime)
+
+  async function submit() {
+    setSaving(true)
+    setError('')
+    const res = await fetch(`/api/admin/orders/${order.orderReference}/date-time?restaurantReference=${order.restaurantReference}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderDate, orderTime: orderTime + ':00' }),
+    })
+    setSaving(false)
+    if (res.ok) { onSaved(); onClose() }
+    else setError('Could not update. Check the time falls within the restaurant’s hours.')
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: '26px 30px', maxWidth: 420, width: '90%', fontFamily: F }}>
+        <h3 style={{ margin: '0 0 14px', fontSize: 17, fontWeight: 700, color: DARK }}>Update Order Date &amp; Time</h3>
+        <p style={{ margin: '0 0 18px', fontSize: 12.5, lineHeight: 1.5, color: '#D32F2F' }}>
+          You are about to change your order&apos;s date and time. Please ensure that your new
+          selection falls within the restaurant&apos;s operating hours and that the menu items in
+          your order are available for delivery at the chosen time.
+        </p>
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Order Date</label>
+          <input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)}
+            style={{ width: '100%', border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: F, outline: 'none', color: DARK, boxSizing: 'border-box' }} />
+        </div>
+        <div style={{ marginBottom: 22 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Order Time</label>
+          <select value={orderTime} onChange={e => setOrderTime(e.target.value)}
+            style={{ width: '100%', border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: F, outline: 'none', color: DARK, background: '#fff', boxSizing: 'border-box' }}>
+            {timeOptions.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+          </select>
+        </div>
+        {error && <div style={{ fontSize: 12, color: '#D32F2F', marginBottom: 12 }}>{error}</div>}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F, color: DARK }}>Cancel</button>
+          <button onClick={submit} disabled={saving || !orderDate || !orderTime}
+            style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: BLUE, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'default' : 'pointer', fontFamily: F, opacity: saving || !orderDate || !orderTime ? 0.6 : 1 }}>
+            {saving ? 'Submitting…' : 'Submit'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [total, setTotal] = useState(0)
@@ -135,6 +252,7 @@ export default function AdminOrdersPage() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<Order | null>(null)
 
   useEffect(() => {
     const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(0) }, 300)
@@ -163,15 +281,6 @@ export default function AdminOrdersPage() {
   }, [page, pageSize, search, fromDate, toDate])
 
   useEffect(() => { load() }, [load])
-
-  async function changeStatus(o: Order, status: string) {
-    if (status === o.orderStatus) return
-    setOrders(prev => prev.map(x => x.orderReference === o.orderReference ? { ...x, orderStatus: status } : x))
-    const res = await fetch(`/api/admin/orders/${o.orderReference}/status?status=${status}&restaurantReference=${o.restaurantReference}`, {
-      method: 'PUT',
-    })
-    if (!res.ok) load()
-  }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
@@ -218,14 +327,18 @@ export default function AdminOrdersPage() {
                   {fmtCurrency(o.total ?? o.transactionsTotal ?? 0)}
                   <InvoicePill paymentMethod={o.paymentMethod} />
                 </td>
-                <td style={cell}>{fmtDate(o.orderDate)} {fmtTime(o.orderTime)}</td>
+                <td style={cell}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {fmtDate(o.orderDate)} {fmtTime(o.orderTime)}
+                    <button onClick={() => setEditing(o)} title="Update order date &amp; time"
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0, opacity: 0.6 }}>
+                      ✏️
+                    </button>
+                  </span>
+                </td>
                 <td style={cell}>{o.orderType}</td>
                 <td style={cell}><SourcePill source={o.sourceoforder} /></td>
-                <td style={cell}>
-                  <select value={o.orderStatus} onChange={e => changeStatus(o, e.target.value)} style={smallSelect}>
-                    {STATUS_OPTIONS.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}
-                  </select>
-                </td>
+                <td style={cell}><StatusPill order={o} /></td>
               </tr>
             ))}
           </tbody>
@@ -246,6 +359,8 @@ export default function AdminOrdersPage() {
           </select>
         </div>
       </div>
+
+      {editing && <DateTimeModal order={editing} onClose={() => setEditing(null)} onSaved={load} />}
     </div>
   )
 }
