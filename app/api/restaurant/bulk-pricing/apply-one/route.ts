@@ -23,14 +23,29 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// FM's mealPackages PUT parses scheduleOption dates as DD.MM.YYYY, but its GET
-// hands them back as ISO YYYY-MM-DD — forwarding ISO verbatim 500s with a Java
-// "Text '2025-11-01' could not be parsed". Convert ISO → DD.MM.YYYY; pass
-// through null/undefined and anything not in ISO form unchanged.
+// FM's mealPackages PUT parses date fields as DD.MM.YYYY, but its GET hands them
+// back as ISO YYYY-MM-DD — forwarding ISO verbatim 500s with a Java
+// "Text '2025-11-01' could not be parsed". Convert a single value ISO →
+// DD.MM.YYYY; pass through null/undefined and anything not a bare date.
 function isoToDdMmYyyy(d?: string | null): string | null | undefined {
   if (d == null) return d
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d).trim())
   return m ? `${m[3]}.${m[2]}.${m[1]}` : d
+}
+
+// Deep-convert EVERY bare YYYY-MM-DD string anywhere in the object (top level,
+// scheduleOption, repeatWeekDays, skippedDays, etc.) so no ISO date reaches FM's
+// PUT regardless of where it nests. Datetimes ("…T…") and times ("HH:MM:SS")
+// don't match the anchored date-only pattern, so they're left untouched.
+function convertDatesDeep(v: any): any {
+  if (typeof v === 'string') return isoToDdMmYyyy(v)
+  if (Array.isArray(v)) return v.map(convertDatesDeep)
+  if (v && typeof v === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const k of Object.keys(v)) out[k] = convertDatesDeep(v[k])
+    return out
+  }
+  return v
 }
 
 export async function POST(req: NextRequest) {
@@ -63,9 +78,7 @@ export async function POST(req: NextRequest) {
 
   // 3. Merge ONLY price + displayPrice; preserve everything else. Fix the
   //    shapes FM's PUT needs that the GET returns differently: extraItemsGroups
-  //    (rich → [{reference,enabled}]), image (rich → {reference}), and
-  //    scheduleOption dates (ISO → DD.MM.YYYY — FM's PUT parses DD.MM.YYYY and
-  //    rejects the ISO YYYY-MM-DD it hands back on GET).
+  //    (rich → [{reference,enabled}]) and image (rich → {reference}).
   const merged: Record<string, unknown> = { ...obj, price: priceNum }
   const dp = body.displayPrice
   if (typeof dp === 'string' && dp.trim() !== '') merged.displayPrice = dp.trim()
@@ -74,20 +87,15 @@ export async function POST(req: NextRequest) {
     merged.extraItemsGroups = obj.extraItemsGroups.map((g: any) => ({ reference: g.reference, enabled: g.enabled !== false }))
   }
   if (obj.image && obj.image.reference) merged.image = { reference: obj.image.reference }
-  if (obj.scheduleOption && typeof obj.scheduleOption === 'object') {
-    const so: any = { ...obj.scheduleOption }
-    so.startDate = isoToDdMmYyyy(so.startDate)
-    so.endDate = isoToDdMmYyyy(so.endDate)
-    so.cutOffDate = isoToDdMmYyyy(so.cutOffDate)
-    // repeatWeekDays carries only fromPickUpTime/toPickUpTime/days — no dates.
-    merged.scheduleOption = so
-  }
+
+  // Convert ALL ISO dates (anywhere in the body) to DD.MM.YYYY for FM's PUT.
+  const putBody = convertDatesDeep(merged)
 
   // 4. PUT the merged full object.
   const putRes = await fetch(`${FM}/api/mealPackages/${pkgRef}`, {
     method: 'PUT',
     headers: { ...h, 'Content-Type': 'application/json' },
-    body: JSON.stringify(merged),
+    body: JSON.stringify(putBody),
   })
   if (!putRes.ok) {
     const putText = await putRes.text().catch(() => '')
