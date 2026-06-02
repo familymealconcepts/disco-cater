@@ -1,13 +1,14 @@
 // Bulk-pricing apply (one item). SYSTEM_ADMIN only. Updates a single meal
 // package's base price (+ optional display price) at a specific location.
 //
-// CRITICAL: FM's PUT /api/mealPackages/{ref} is a FULL-OBJECT REPLACE — sending
-// a partial body wipes name/description/serves/schedule/modifiers (the same
-// class of bug as the groups-archive). So we GET the full object, merge ONLY
-// price + displayPrice, and PUT it back. extraItemsGroups comes back from the
-// GET as rich objects but the PUT wants [{reference, enabled}] (mirrors the
-// menu-item editor, _MealPackageForm.tsx:217-218,285) — and image is reduced to
-// {reference} like the editor does. Everything else is preserved verbatim.
+// CRITICAL: FM's PUT /api/mealPackages/{ref} is a FULL-OBJECT REPLACE. We GET
+// the current object, then rebuild the body to EXACTLY match the working
+// menu-item editor (_MealPackageForm.tsx:254-296) — a curated FLAT payload —
+// overriding only price + displayPrice. Raw-spreading the GET (which carries a
+// scheduleOption{} block the editor never sends) returns 200 but FM silently
+// DROPS displayPrice; the editor's curated shape persists it. Dates use the
+// editor's flat ISO date-only fields (from/to/cutOffDate), extraItemsGroups is
+// stripped to [{reference,enabled}], and image is reduced to {reference}.
 //
 // FM's single-package endpoint carries no restaurant ref, so it authorizes
 // against the SYSTEM_ADMIN's CURRENT restaurant. We best-effort set that to the
@@ -23,30 +24,15 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// FM's mealPackages PUT parses date fields as DD.MM.YYYY, but its GET hands them
-// back as ISO YYYY-MM-DD — forwarding ISO verbatim 500s with a Java
-// "Text '2025-11-01' could not be parsed". Convert a single value ISO →
-// DD.MM.YYYY; pass through null/undefined and anything not a bare date.
-function isoToDdMmYyyy(d?: string | null): string | null | undefined {
-  if (d == null) return d
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d).trim())
-  return m ? `${m[3]}.${m[2]}.${m[1]}` : d
+// Date-only string from a possibly-datetime value, mirroring the editor's
+// `d.from.split('T')[0]` (_MealPackageForm.tsx:197-198,211). FM's flat
+// from/to/cutOffDate fields take ISO YYYY-MM-DD here (this is the shape the
+// working editor sends — NOT scheduleOption/DD.MM.YYYY).
+function dateOnly(v: unknown): string | undefined {
+  if (v == null || v === '') return undefined
+  return String(v).split('T')[0]
 }
-
-// Deep-convert EVERY bare YYYY-MM-DD string anywhere in the object (top level,
-// scheduleOption, repeatWeekDays, skippedDays, etc.) so no ISO date reaches FM's
-// PUT regardless of where it nests. Datetimes ("…T…") and times ("HH:MM:SS")
-// don't match the anchored date-only pattern, so they're left untouched.
-function convertDatesDeep(v: any): any {
-  if (typeof v === 'string') return isoToDdMmYyyy(v)
-  if (Array.isArray(v)) return v.map(convertDatesDeep)
-  if (v && typeof v === 'object') {
-    const out: Record<string, unknown> = {}
-    for (const k of Object.keys(v)) out[k] = convertDatesDeep(v[k])
-    return out
-  }
-  return v
-}
+const def = (v: unknown) => (v == null ? undefined : v)
 
 export async function POST(req: NextRequest) {
   const role = await getRestaurantRole()
@@ -76,22 +62,65 @@ export async function POST(req: NextRequest) {
   try { obj = await getRes.json() } catch { return NextResponse.json({ ok: false, error: 'Could not parse item' }) }
   if (!obj || typeof obj !== 'object') return NextResponse.json({ ok: false, error: 'Empty item response' })
 
-  // 3. Merge ONLY price + displayPrice; preserve everything else. Fix the
-  //    shapes FM's PUT needs that the GET returns differently: extraItemsGroups
-  //    (rich → [{reference,enabled}]) and image (rich → {reference}).
-  const merged: Record<string, unknown> = { ...obj, price: priceNum }
-  const dp = body.displayPrice
-  if (typeof dp === 'string' && dp.trim() !== '') merged.displayPrice = dp.trim()
-  // (blank displayPrice → keep obj.displayPrice, already spread above)
-  if (Array.isArray(obj.extraItemsGroups)) {
-    merged.extraItemsGroups = obj.extraItemsGroups.map((g: any) => ({ reference: g.reference, enabled: g.enabled !== false }))
+  // 3. Build the PUT body to EXACTLY match the working menu-item editor
+  //    (_MealPackageForm.tsx:254-296) — a curated FLAT payload, NOT a raw
+  //    re-send of the GET. Raw-spreading the GET (which includes a
+  //    scheduleOption{} block) returns 200 but FM silently drops displayPrice;
+  //    the editor's curated shape persists it. We source every field from the
+  //    GET object and override only price + displayPrice.
+  //
+  //    displayPrice: new value when provided, else preserve the existing one
+  //    (trimmed string, exactly as the editor sends it).
+  const newDp = body.displayPrice
+  const displayPriceOut = (typeof newDp === 'string' && newDp.trim() !== '')
+    ? newDp.trim()
+    : (obj.displayPrice != null && String(obj.displayPrice).trim() !== '' ? String(obj.displayPrice).trim() : undefined)
+
+  const putBody: Record<string, unknown> = {
+    name: obj.name,
+    description: obj.description ?? '',
+    type: def(obj.type),
+    itemCategoryReference: obj.itemCategoryReference ?? obj.itemCategory?.reference ?? obj.category?.reference ?? obj.categoryReference,
+    price: priceNum,
+    ...(displayPriceOut !== undefined ? { displayPrice: displayPriceOut } : {}),
+    serves: def(obj.serves),
+    minQuantity: def(obj.minQuantity),
+    allowedSpecialInstructions: !!obj.allowedSpecialInstructions,
+    vegetarian: !!obj.vegetarian,
+    containsNuts: !!obj.containsNuts,
+    glutenFree: !!obj.glutenFree,
+    vegan: !!obj.vegan,
+    containsAlcohol: !!obj.containsAlcohol,
+    available: obj.available !== false,
+    prepTime: def(obj.prepTime),
+    prepDays: def(obj.prepDays),
+    from: dateOnly(obj.from),
+    to: dateOnly(obj.to),
+    inventoryPerDay: def(obj.inventoryPerDay),
+    maxOrder: def(obj.maxOrder),
+    isSameDay: def(obj.isSameDay),
+    sameDaysTimeFrom: def(obj.sameDaysTimeFrom),
+    sameDaysMinutesFrom: def(obj.sameDaysMinutesFrom),
+    sameDaysMeridiemFrom: def(obj.sameDaysMeridiemFrom),
+    sameDaysTimeTo: def(obj.sameDaysTimeTo),
+    sameDaysMinutesTo: def(obj.sameDaysMinutesTo),
+    sameDaysMeridiemTo: def(obj.sameDaysMeridiemTo),
+    inheritScheduleOptionFromRestaurant: def(obj.inheritScheduleOptionFromRestaurant),
+    daySelect: def(obj.daySelect),
+    extraItemsGroups: Array.isArray(obj.extraItemsGroups)
+      ? obj.extraItemsGroups.map((g: any) => ({ reference: g.reference, enabled: g.enabled !== false }))
+      : [],
   }
-  if (obj.image && obj.image.reference) merged.image = { reference: obj.image.reference }
+  // Cut-off (editor sends either a BY_DATE date-only or DAILY time fields).
+  if (obj.cutOffDate) putBody.cutOffDate = dateOnly(obj.cutOffDate)
+  else if (obj.cutOffTimeFrom) {
+    putBody.cutOffTimeFrom = obj.cutOffTimeFrom
+    putBody.cutOffMinutesFrom = obj.cutOffMinutesFrom
+    putBody.cutOffMeridiem = obj.cutOffMeridiem
+  }
+  if (obj.image && obj.image.reference) putBody.image = { reference: obj.image.reference }
 
-  // Convert ALL ISO dates (anywhere in the body) to DD.MM.YYYY for FM's PUT.
-  const putBody = convertDatesDeep(merged)
-
-  // 4. PUT the merged full object.
+  // 4. PUT the curated body.
   const putRes = await fetch(`${FM}/api/mealPackages/${pkgRef}`, {
     method: 'PUT',
     headers: { ...h, 'Content-Type': 'application/json' },

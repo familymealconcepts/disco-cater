@@ -208,8 +208,12 @@ export default function BulkPricingClient() {
                         <td style={{ ...td, textAlign: 'right' }}>{fmtMoney(r.currentPrice)}</td>
                         <td style={{ ...td, textAlign: 'right', color: '#888' }}>{r.currentDisplayPrice || '—'}</td>
                         <td style={td}>
-                          <input type="number" min={0} step="0.01" value={r.newPrice} disabled={applying}
-                            onChange={e => updateRow(r.key, { newPrice: e.target.value })} style={{ ...input, width: '100%' }} />
+                          <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 0 0 10px', background: '#fff' }}>
+                            <span style={{ fontSize: 13, color: '#888' }}>$</span>
+                            <input type="number" min={0} step="0.01" value={r.newPrice} disabled={applying}
+                              onChange={e => updateRow(r.key, { newPrice: e.target.value })}
+                              style={{ ...input, width: '100%', border: 'none', padding: '8px 10px 8px 4px', outline: 'none' }} />
+                          </div>
                         </td>
                         <td style={td}>
                           <input type="text" value={r.newDisplayPrice} disabled={applying} placeholder="(preserve)"
