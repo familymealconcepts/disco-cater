@@ -35,6 +35,18 @@ function decodeJwt(token: string): Record<string, unknown> | null {
   }
 }
 
+// Decode the current user's reference from the JWT. FM's /login response does
+// NOT include a reference, so the only server-side source is the token itself;
+// FM's backend derives the acting user from the same JWT, so this is the
+// trustworthy value to send as `userReference`. Returns null if absent.
+export async function getRestaurantUserRef(): Promise<string | null> {
+  const store = await cookies()
+  const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
+  if (!token) return null
+  const payload = decodeJwt(token)
+  return (payload?.reference as string) || (payload?.sub as string) || null
+}
+
 // Decode role from JWT payload field 'role'
 export async function getRestaurantRole(): Promise<string | null> {
   const store = await cookies()
