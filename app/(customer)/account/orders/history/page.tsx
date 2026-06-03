@@ -107,9 +107,10 @@ export default function HistoryPage() {
         </>
       )}
 
-      {/* Detail panel — right slide-in (Reorder mode for history) */}
+      {/* Detail panel — right slide-in (Reorder mode for history). `key` forces
+          a fresh remount per order so switching never flashes stale content. */}
       {selectedRef && (
-        <OrderDetailPanel orderRef={selectedRef} mode="history" onClose={closeDetail} />
+        <OrderDetailPanel key={selectedRef} orderRef={selectedRef} mode="history" onClose={closeDetail} />
       )}
     </div>
   )

@@ -285,9 +285,11 @@ export default function OrdersPage() {
         </div>
       )}
 
-      {/* Detail panel — right slide-in */}
+      {/* Detail panel — right slide-in. `key` forces a fresh remount per order
+          so clicking a different calendar date never flashes the previous
+          order's content before the new one loads (shows the spinner instead). */}
       {selectedRef && (
-        <OrderDetailPanel orderRef={selectedRef} mode="upcoming" onClose={closeDetail} />
+        <OrderDetailPanel key={selectedRef} orderRef={selectedRef} mode="upcoming" onClose={closeDetail} />
       )}
 
       {/* New order from a clicked empty calendar cell */}

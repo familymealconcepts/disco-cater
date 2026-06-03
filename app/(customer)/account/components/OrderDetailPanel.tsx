@@ -162,24 +162,6 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
     ? recurrenceLabel(detail?.orderSubscription)
     : fmtDate(detail?.orderDate)
 
-  function handleEdit() {
-    // FM has no customer-side edit endpoint yet (Project Orca 3.5 is on
-    // the roadmap). For now we send the user back to the restaurant page
-    // so they can start a new order; once the backend ships an edit flow
-    // we can deep-link to it from here.
-    const slug = detail?.restaurant?.businessNameWithoutSpaces
-    if (slug) router.push(`/restaurants/${slug}`)
-    else router.push('/fullmap')
-  }
-
-  function handleSkip() {
-    alert('Skip next is coming soon.')
-  }
-
-  function handleCancel() {
-    alert('Cancel order is coming soon.')
-  }
-
   function handleReorder() {
     const slug = detail?.restaurant?.businessNameWithoutSpaces
     // Stash the order's items so the restaurant page can rebuild the cart by
@@ -223,6 +205,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
       >
         <style>{`
           @keyframes odp-slide-in { from { transform: translateX(20px); opacity: 0 } to { transform: translateX(0); opacity: 1 } }
+          @keyframes odp-spin { to { transform: rotate(360deg) } }
           @media (max-width: 480px) {
             .order-detail-panel { width: 100% !important; }
           }
@@ -260,7 +243,12 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px' }}>
-          {loading && <div style={{ color: '#aaa', fontSize: 13 }}>Loading…</div>}
+          {loading && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 12 }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid #eee', borderTopColor: BLUE, animation: 'odp-spin 0.7s linear infinite' }} />
+              <div style={{ color: '#aaa', fontSize: 12 }}>Loading order…</div>
+            </div>
+          )}
           {error && !loading && <div style={{ background: '#fff3f3', color: '#c00', padding: 10, borderRadius: 8, fontSize: 13 }}>{error}</div>}
 
           {detail && !loading && !error && (
@@ -276,9 +264,13 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                       <div style={{ fontSize: 11, color: '#666', marginTop: 3 }}>{headcount} {headcount === 1 ? 'person' : 'people'}</div>
                     )}
                   </div>
-                  <span style={{ background: tagColors.bg, color: tagColors.fg, padding: '3px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                    {tagText}
-                  </span>
+                  {/* Only the recurring badge remains — the green "Event
+                      catering" badge was removed from both calendar + history. */}
+                  {recurring && (
+                    <span style={{ background: tagColors.bg, color: tagColors.fg, padding: '3px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      {tagText}
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
                   <div style={{ fontSize: 18, fontWeight: 700, color: DARK }}>{fmtMoney(detail.total)}</div>
@@ -295,14 +287,40 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                   <SectionLabel>Items</SectionLabel>
                   <div style={{ marginBottom: 16 }}>
                     {(detail.orderMealPackages || []).map((it, i) => (
-                      <LineItem key={`mp-${i}`} name={it.name || 'Item'} count={it.count} price={it.price} addOns={it.orderAddOns} comment={it.comment} />
+                      <LineItem key={`mp-${i}`} name={it.name || 'Item'} count={it.count} price={it.price} addOns={it.orderAddOns} comment={it.comment} hidePrices={mode === 'upcoming'} />
                     ))}
                     {(detail.orderClassics || []).map((it, i) => (
-                      <LineItem key={`cl-${i}`} name={it.name || 'Item'} count={it.count} price={it.price} comment={it.comment} />
+                      <LineItem key={`cl-${i}`} name={it.name || 'Item'} count={it.count} price={it.price} comment={it.comment} hidePrices={mode === 'upcoming'} />
                     ))}
                   </div>
                 </>
               )}
+
+              {/* Pricing — calendar view shows a checkout-style breakdown
+                  (subtotal / fees / tip / total) instead of per-person math.
+                  Mirrors the order-confirmation totals. */}
+              {mode === 'upcoming' && (() => {
+                const taxes = (detail.stateSalesTaxInPrice || 0) + (detail.localSalesTaxInPrice || 0) + (detail.otherSalesTaxInPrice || 0)
+                const feesTotal = (detail.fee || 0) + taxes
+                const deliveryFee = (detail.ownDeliveryFee || 0) + (detail.doordashDeliveryFee || 0) + (detail.thirdPartyDeliveryFee || 0)
+                const tip = (detail.tipsInPrice || 0) + (detail.thirdPartyDeliveryTipsInPrice || 0)
+                const discount = detail.discount || 0
+                return (
+                  <>
+                    <SectionLabel>Pricing</SectionLabel>
+                    <div style={{ marginBottom: 18 }}>
+                      {(detail.subtotal || 0) > 0 && <PriceRow label="Subtotal" value={fmtMoney(detail.subtotal)} />}
+                      {feesTotal > 0 && <PriceRow label="Taxes & Fees" value={fmtMoney(feesTotal)} />}
+                      {deliveryFee > 0 && <PriceRow label="Delivery fee" value={fmtMoney(deliveryFee)} />}
+                      {tip > 0 && <PriceRow label="Tip" value={fmtMoney(tip)} />}
+                      {discount > 0 && <PriceRow label="Discount" value={`−${fmtMoney(discount)}`} />}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee', fontSize: 14, fontWeight: 800, color: DARK }}>
+                        <span>Total</span><span>{fmtMoney(detail.total)}</span>
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
 
               {/* Details */}
               <SectionLabel>Details</SectionLabel>
@@ -338,41 +356,21 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
           )}
         </div>
 
-        {/* Action bar */}
+        {/* Action bar — reorder actions for both calendar and history. The
+            calendar view's Edit/Cancel were removed; it now shows the same
+            reorder buttons as the History detail view. */}
         {detail && !loading && !error && (
-          <div style={{ padding: '14px 18px', borderTop: '1px solid #f0f0f0', display: 'flex', flexDirection: mode === 'history' ? 'column' : 'row', gap: 8 }}>
-            {mode === 'history' ? (
-              <>
-                {/* Subscription upsell is the primary action for past
-                    orders; single-shot reorder drops to secondary. */}
-                <button onClick={() => setSetupOpen(true)}
-                  style={{ width: '100%', padding: '12px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-                  🔄 Make this a recurring order
-                </button>
-                <button onClick={handleReorder}
-                  style={{ width: '100%', padding: '10px 14px', background: '#fff', color: DARK, border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                  Reorder once
-                </button>
-              </>
-            ) : (
-              <>
-                <button onClick={handleEdit}
-                  style={{ flex: 2, padding: '10px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-                  Edit
-                </button>
-                {recurring ? (
-                  <button onClick={handleSkip}
-                    style={{ flex: 1, padding: '10px 14px', background: '#fff', color: DARK, border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                    Skip next
-                  </button>
-                ) : (
-                  <button onClick={handleCancel}
-                    style={{ flex: 1, padding: '10px 14px', background: '#fff', color: '#E24B4A', border: '1px solid #F0BFBE', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                    Cancel
-                  </button>
-                )}
-              </>
-            )}
+          <div style={{ padding: '14px 18px', borderTop: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Subscription upsell is the primary action; single-shot reorder
+                drops to secondary. */}
+            <button onClick={() => setSetupOpen(true)}
+              style={{ width: '100%', padding: '12px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+              🔄 Make this a recurring order
+            </button>
+            <button onClick={handleReorder}
+              style={{ width: '100%', padding: '10px 14px', background: '#fff', color: DARK, border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+              Reorder once
+            </button>
           </div>
         )}
       </aside>
@@ -413,12 +411,22 @@ function DetailRow({ label, value, valueNode }: { label: string; value?: string;
   )
 }
 
-function LineItem({ name, count, price, addOns, comment }: { name: string; count?: number; price?: number; addOns?: OrderAddOn[]; comment?: string }) {
+function PriceRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: '#666' }}>
+      <span>{label}</span><span>{value}</span>
+    </div>
+  )
+}
+
+function LineItem({ name, count, price, addOns, comment, hidePrices }: { name: string; count?: number; price?: number; addOns?: OrderAddOn[]; comment?: string; hidePrices?: boolean }) {
   // Routed through lib/pricing/lineItem.ts helpers for field-name
   // safety against the FM `count`/`orderAddOns` ↔ `quantity`/`extraItems`
   // historical mismatch. The visual is intentionally diner-friendly
   // ("/pp" per-person unit pricing) rather than FM's `× qty` totals —
   // confirmed with Peter, do not change without an explicit ask.
+  // `hidePrices` suppresses the per-person prices (calendar view) where a
+  // checkout-style subtotal/fees/tip/total breakdown carries the money instead.
   const line = { name, count, price, orderAddOns: addOns }
   const qty = lineQty(line)
   const modifiers = lineModifiers(line)
@@ -428,9 +436,11 @@ function LineItem({ name, count, price, addOns, comment }: { name: string; count
         <span style={{ fontSize: 12, color: DARK, fontWeight: 500 }}>
           {name}{qty > 1 ? ` (x${qty})` : ''}
         </span>
-        <span style={{ fontSize: 12, color: DARK, fontWeight: 600, whiteSpace: 'nowrap' }}>
-          {price !== undefined ? `${formatCurrency(price)}/pp` : ''}
-        </span>
+        {!hidePrices && (
+          <span style={{ fontSize: 12, color: DARK, fontWeight: 600, whiteSpace: 'nowrap' }}>
+            {price !== undefined ? `${formatCurrency(price)}/pp` : ''}
+          </span>
+        )}
       </div>
       {modifiers.length > 0 && (
         <div style={{ paddingLeft: 12, marginTop: 4 }}>
@@ -439,7 +449,7 @@ function LineItem({ name, count, price, addOns, comment }: { name: string; count
             return (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#666', padding: '2px 0' }}>
                 <span>+ {a.name}{mqty > 1 ? ` (x${mqty})` : ''}</span>
-                {a.price !== undefined && <span>{formatCurrency(a.price)}/pp</span>}
+                {!hidePrices && a.price !== undefined && <span>{formatCurrency(a.price)}/pp</span>}
               </div>
             )
           })}
