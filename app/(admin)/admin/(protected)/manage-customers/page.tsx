@@ -59,6 +59,19 @@ function normalizeName(s?: string): string {
 
 interface CustomerLastLoc { city: string; state: string; ts: number }
 
+// Lenient city comparison for the location filter. The old code used strict
+// `===` on the raw strings, so any whitespace/punctuation/format difference
+// (e.g. "St. Louis" vs "St Louis", trailing spaces) dropped the customer. We
+// normalize both and accept a containment match either direction.
+function cityMatches(have?: string, want?: string): boolean {
+  const norm = (s?: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  const h = norm(have)
+  const w = norm(want)
+  if (!w) return true
+  if (!h) return false
+  return h === w || h.includes(w) || w.includes(h)
+}
+
 // FM orderDate is DD.MM.YYYY (DateFormatService); orderTime is HH:mm:ss.
 // Combine to an epoch ms so we can pick each customer's most-recent order.
 // Returns 0 on invalid input so a malformed entry never beats a valid one.
@@ -120,6 +133,11 @@ function CustomersInner() {
   // Client-side filters.
   const [type, setType] = useState<'all' | 'corporate' | 'social'>((sp.get('type') as 'corporate' | 'social') || 'all')
   const [minOrders, setMinOrders] = useState(sp.get('minOrders') || '')
+  // FM's customer list has NO unique-restaurants field, so this is DERIVED from
+  // the orders→restaurants aggregation in ensureLocData (joined to customers by
+  // name; approximate and capped to MAX_PAGES of orders). If FM later exposes a
+  // real field (e.g. uniqueRestaurants/distinctRestaurants), prefer it here.
+  const [minUniqueRestaurants, setMinUniqueRestaurants] = useState(sp.get('minUniqueRestaurants') || '')
 
   // Click-to-sort: null = FM's natural return order. One column at a time;
   // click cycles asc → desc → off.
@@ -139,6 +157,9 @@ function CustomersInner() {
   const [locInput, setLocInput] = useState(initialPlace?.label || '')
   const [placeFilter, setPlaceFilter] = useState<{ city: string; state: string; label: string } | null>(initialPlace)
   const [customerLastLoc, setCustomerLastLoc] = useState<Map<string, CustomerLastLoc>>(new Map())
+  // name → count of DISTINCT restaurants ordered from (same name-join + source
+  // as customerLastLoc). Powers the "Min unique restaurants" filter.
+  const [customerRestaurantCount, setCustomerRestaurantCount] = useState<Map<string, number>>(new Map())
   const [locLoading, setLocLoading] = useState(false)
   const [locReady, setLocReady] = useState(false)
   const locStartedRef = useRef(false)
@@ -162,12 +183,13 @@ function CustomersInner() {
     if (search) params.set('search', search)
     if (type !== 'all') params.set('type', type)
     if (minOrders) params.set('minOrders', minOrders)
+    if (minUniqueRestaurants) params.set('minUniqueRestaurants', minUniqueRestaurants)
     if (fromDate) params.set('fromDate', fromDate)
     if (toDate) params.set('toDate', toDate)
     if (placeFilter) params.set('location', placeFilter.label)
     const qs = params.toString()
     router.replace(qs ? `?${qs}` : '?', { scroll: false })
-  }, [search, type, minOrders, fromDate, toDate, placeFilter, router])
+  }, [search, type, minOrders, minUniqueRestaurants, fromDate, toDate, placeFilter, router])
 
   // Fetch the FULL matching set (all pages, capped) so client filters + export
   // operate over everything, not one server page. Server filters: search + date.
@@ -239,16 +261,27 @@ function CustomersInner() {
         for (const pg of rest) if (pg?.content) orders = orders.concat(pg.content)
       }
       const last = new Map<string, CustomerLastLoc>()
+      // Distinct restaurants per customer — counted from ALL their orders (not
+      // gated on city/state, so restaurants missing an address still count).
+      const distinct = new Map<string, Set<string>>()
       for (const o of orders) {
-        const r = o.restaurantReference ? restMap.get(o.restaurantReference) : undefined
-        if (!r) continue
         const key = normalizeName(`${o.firstName || ''} ${o.lastName || ''}`)
         if (!key) continue
+        if (o.restaurantReference) {
+          let set = distinct.get(key)
+          if (!set) { set = new Set(); distinct.set(key, set) }
+          set.add(o.restaurantReference)
+        }
+        const r = o.restaurantReference ? restMap.get(o.restaurantReference) : undefined
+        if (!r) continue
         const ts = parseFmDateTime(o.orderDate, o.orderTime)
         const cur = last.get(key)
         if (!cur || ts > cur.ts) last.set(key, { city: r.city, state: r.state, ts })
       }
       setCustomerLastLoc(last)
+      const counts = new Map<string, number>()
+      distinct.forEach((set, k) => counts.set(k, set.size))
+      setCustomerRestaurantCount(counts)
       setLocReady(true)
     } finally {
       setLocLoading(false)
@@ -295,15 +328,21 @@ function CustomersInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Run aggregation on mount only if the URL deep-links a location filter;
-  // otherwise it's deferred until the user picks a place.
+  // Run aggregation on mount only if the URL deep-links a location filter or a
+  // unique-restaurants minimum; otherwise it's deferred until the user picks a
+  // place or enters a minimum.
   useEffect(() => {
-    if (placeFilter) ensureLocData()
+    if (placeFilter || minUniqueRestaurants) ensureLocData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Lazily load the aggregation when the user sets a unique-restaurants minimum.
+  useEffect(() => {
+    if (minUniqueRestaurants) ensureLocData()
+  }, [minUniqueRestaurants, ensureLocData])
+
   // Reset to first page whenever the result set changes.
-  useEffect(() => { setPage(0) }, [search, fromDate, toDate, type, minOrders, placeFilter, pageSize])
+  useEffect(() => { setPage(0) }, [search, fromDate, toDate, type, minOrders, minUniqueRestaurants, placeFilter, pageSize])
 
   const placeActive = !!placeFilter
 
@@ -312,17 +351,28 @@ function CustomersInner() {
     if (type === 'social' && !isSocial(r.email)) return false
     const n = r.numberOfOrders ?? 0
     if (minOrders !== '' && n < Number(minOrders)) return false
+    // Min unique restaurants — derived from the orders aggregation (see comment
+    // on minUniqueRestaurants state). Only applies once the data is ready.
+    if (minUniqueRestaurants !== '' && locReady) {
+      const cnt = customerRestaurantCount.get(normalizeName(r.username)) ?? 0
+      if (cnt < Number(minUniqueRestaurants)) return false
+    }
     // Location filter only applies once the aggregation is ready, so the list
     // isn't blanked while it loads. Match the customer's LAST order against the
-    // picked place's city + state (both case-insensitive; state must match).
+    // picked place. State must match when both sides have one; city uses a
+    // lenient match and is skipped when the restaurant has no city on file (so
+    // sparse restaurant-city data falls back to a state match instead of
+    // excluding everyone — the old strict `===` was the "not working" bug).
     if (placeActive && locReady && placeFilter) {
       const last = customerLastLoc.get(normalizeName(r.username))
       if (!last) return false
-      if (placeFilter.state && last.state !== placeFilter.state) return false
-      if (placeFilter.city && last.city.toLowerCase() !== placeFilter.city.toLowerCase()) return false
+      const wantState = (placeFilter.state || '').toUpperCase().trim()
+      const haveState = (last.state || '').toUpperCase().trim()
+      if (wantState && haveState && haveState !== wantState) return false
+      if (placeFilter.city && last.city && !cityMatches(last.city, placeFilter.city)) return false
     }
     return true
-  }), [rows, type, minOrders, placeActive, locReady, customerLastLoc, placeFilter])
+  }), [rows, type, minOrders, minUniqueRestaurants, customerRestaurantCount, placeActive, locReady, customerLastLoc, placeFilter])
 
   // Sort the filtered set. null sort → FM's natural order (filtered preserves it).
   const sorted = useMemo(() => {
@@ -344,7 +394,7 @@ function CustomersInner() {
     })
   }
 
-  const filtersActive = !!search || !!fromDate || !!toDate || type !== 'all' || minOrders !== '' || placeActive
+  const filtersActive = !!search || !!fromDate || !!toDate || type !== 'all' || minOrders !== '' || minUniqueRestaurants !== '' || placeActive
   const datesChanged = fromInput !== fromDate || toInput !== toDate
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize)
@@ -352,7 +402,7 @@ function CustomersInner() {
   function clearAll() {
     setSearchInput(''); setSearch('')
     setFromInput(''); setToInput(''); setFromDate(''); setToDate('')
-    setType('all'); setMinOrders('')
+    setType('all'); setMinOrders(''); setMinUniqueRestaurants('')
     setLocInput(''); setPlaceFilter(null)
     setSort(null)
   }
@@ -401,6 +451,8 @@ function CustomersInner() {
         </select>
         <span style={chipLabel}>Min orders</span>
         <input type="number" min={0} placeholder="min" value={minOrders} onChange={e => setMinOrders(e.target.value)} style={{ ...inputSt, width: 70 }} />
+        <span style={chipLabel}>Min restaurants</span>
+        <input type="number" min={0} placeholder="min" value={minUniqueRestaurants} onChange={e => setMinUniqueRestaurants(e.target.value)} onFocus={ensureLocData} style={{ ...inputSt, width: 70 }} title="Customers who ordered from at least N different restaurants" />
         <input
           ref={locInputRef}
           type="text"

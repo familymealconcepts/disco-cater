@@ -34,7 +34,19 @@ export default function FavoritesPage() {
       <p style={{ fontSize: 12, color: '#888', margin: '0 0 22px' }}>Restaurants you've saved for easy reordering.</p>
 
       {loading ? (
-        <div style={{ color: '#aaa', fontSize: 13 }}>Loading…</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 14 }}>
+          <style>{`@keyframes favShimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }`}</style>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} style={{ border: '1px solid #ebebeb', borderRadius: 12, overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ width: '100%', height: 130, background: 'linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'favShimmer 1.4s infinite' }} />
+              <div style={{ padding: '12px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ height: 13, width: '70%', borderRadius: 6, background: 'linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'favShimmer 1.4s infinite' }} />
+                <div style={{ height: 10, width: '45%', borderRadius: 6, background: 'linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'favShimmer 1.4s infinite' }} />
+                <div style={{ height: 30, width: '100%', borderRadius: 7, marginTop: 6, background: 'linear-gradient(90deg,#f0f0f0 25%,#e8e8e8 50%,#f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'favShimmer 1.4s infinite' }} />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : favorites.length === 0 ? (
         <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '56px 24px', textAlign: 'center', background: '#fff' }}>
           <div style={{ fontSize: 36, marginBottom: 14 }}>🤍</div>

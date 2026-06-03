@@ -176,7 +176,11 @@ export default function ManageSystemAdminsPage() {
               <tr key={u.reference}>
                 <td style={cell}>{u.firstName} {u.lastName || ''}</td>
                 <td style={{ ...cell, color: '#555' }}>{u.email}</td>
-                <td style={{ ...cell, textAlign: 'right' }}>{u.locations ?? u.restaurants?.length ?? 0}</td>
+                {/* FM's user-list response embeds the assigned locations under
+                    managedRestaurants[] (same field the Edit dialog reads), so
+                    count that first; fall back to a numeric `locations` or the
+                    legacy `restaurants[]`. */}
+                <td style={{ ...cell, textAlign: 'right' }}>{u.locations ?? u.managedRestaurants?.length ?? u.restaurants?.length ?? 0}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>
                   <button onClick={() => setEditing({
                     reference: u.reference,

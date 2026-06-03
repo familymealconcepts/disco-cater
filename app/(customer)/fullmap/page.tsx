@@ -1279,7 +1279,7 @@ function FullMapInner() {
       {locModal}
 
       <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: 'linear-gradient(180deg, rgba(107,110,249,0.08) 0%, rgba(240,70,138,0.04) 100%), #fff', overflow: 'visible' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: 'linear-gradient(180deg, rgba(107,110,249,0.08) 0%, rgba(240,70,138,0.04) 100%), #fff', overflow: 'visible' }}>
           <Link href="/" style={{ flexShrink: 0, marginRight: 4 }}><span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px', fontFamily: "'DM Sans',sans-serif" }}><span style={{ background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span><span style={{ color: '#999' }}> cater</span></span></Link>
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
           <button style={darkPillStyle(stageFilter === 'all')} onClick={() => setStageFilter('all')}>All</button>
@@ -1463,10 +1463,12 @@ function FullmapAuthBtn() {
 
   if (!user) return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-      <button onClick={() => openAuthModal(undefined, 'login')} style={{ fontSize: 13, color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, background: '#1A1028', padding: '7px 18px', borderRadius: 999, fontFamily: F, flexShrink: 0 }}>Log in</button>
-      {/* Desktop-only filled Sign up CTA next to Log in. */}
+      {/* Login button kept identical to GlobalHeader (the canonical header used on
+          the homepage, FAQ, compare, and restaurant pages) — outlined dark pill. */}
+      <button onClick={() => openAuthModal(undefined, 'login')} style={{ padding: '7px 16px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, flexShrink: 0 }}>Log In</button>
+      {/* Desktop-only filled Sign Up CTA next to Log In (matches GlobalHeader). */}
       {!isMobile && (
-        <a href="/signup" style={{ fontSize: 13, color: '#fff', fontWeight: 700, background: '#5B6FE8', padding: '7px 18px', borderRadius: 999, fontFamily: F, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>Sign up</a>
+        <a href="/signup" style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>Sign Up</a>
       )}
     </div>
   )

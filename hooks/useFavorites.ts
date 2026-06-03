@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // Per-user storage key prefix. The trailing segment is the FM user
 // reference (UUID) when signed in, falling back to email, or "guest"
@@ -129,40 +129,11 @@ export function useFavorites(): FavoritesState {
   const [loading, setLoading] = useState(true)
   const [source, setSource] = useState<'api' | 'local'>('local')
   const [userScope, setUserScope] = useState<string>('guest')
-
-  // Resolve scope on mount + whenever the auth payload changes. The hook
-  // re-reads from the new scope's bucket on any change, so logging in
-  // doesn't blend a guest's favorites with the user's, and logging out
-  // leaves the user's list intact under their own key for when they
-  // come back.
-  useEffect(() => {
-    setUserScope(readUserScope())
-    // Async-confirm against the cookie auth so AuthContext users (no
-    // localStorage shadow) still get scoped favorites.
-    let cancelled = false
-    resolveScopeFromCookie().then(s => {
-      if (cancelled) return
-      if (s) setUserScope(s)
-      else setUserScope(readUserScope())
-    })
-    function onStorage(e: StorageEvent) {
-      if (e.key === AUTH_STORAGE_KEY || e.key === CACHED_AUTH_SCOPE_KEY) {
-        setUserScope(readUserScope())
-      }
-    }
-    function onAuthChange() {
-      // Re-resolve from the cookie so a fresh login picks up the right
-      // user before any storage write lands.
-      resolveScopeFromCookie().then(s => setUserScope(s || readUserScope()))
-    }
-    window.addEventListener('storage', onStorage)
-    window.addEventListener('disco-user-changed', onAuthChange as EventListener)
-    return () => {
-      cancelled = true
-      window.removeEventListener('storage', onStorage)
-      window.removeEventListener('disco-user-changed', onAuthChange as EventListener)
-    }
-  }, [])
+  // Latest scope, readable inside the stable refresh() without making refresh
+  // depend on userScope (which caused a second /api/fm-favorites fetch — and a
+  // loading flash — every time the cookie scope resolved after mount).
+  const userScopeRef = useRef('guest')
+  useEffect(() => { userScopeRef.current = userScope }, [userScope])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -180,12 +151,55 @@ export function useFavorites(): FavoritesState {
     } catch {
       // network — fall through
     }
-    setFavorites(readLocal(userScope))
+    setFavorites(readLocal(userScopeRef.current))
     setSource('local')
     setLoading(false)
-  }, [userScope])
+  }, [])
 
+  // Initial load — runs once (refresh is stable). Auth changes re-fetch via the
+  // scope effect below; pure scope resolution does NOT re-hit the API.
   useEffect(() => { refresh() }, [refresh])
+
+  // Local fallback only: when the scope changes (login/logout) re-read the right
+  // bucket without an API call or a loading flash. API mode is scoped by JWT, so
+  // it needs no per-scope re-read.
+  useEffect(() => {
+    if (source === 'local') setFavorites(readLocal(userScope))
+  }, [userScope, source])
+
+  // Resolve scope on mount + whenever the auth payload changes. Pure scope
+  // resolution (mount) does NOT re-fetch the API (avoids the double fetch +
+  // loading flash); explicit login/logout events DO re-fetch.
+  useEffect(() => {
+    setUserScope(readUserScope())
+    // Async-confirm against the cookie auth so AuthContext users (no
+    // localStorage shadow) still get scoped favorites.
+    let cancelled = false
+    resolveScopeFromCookie().then(s => {
+      if (cancelled) return
+      if (s) setUserScope(s)
+      else setUserScope(readUserScope())
+    })
+    function onStorage(e: StorageEvent) {
+      if (e.key === AUTH_STORAGE_KEY || e.key === CACHED_AUTH_SCOPE_KEY) {
+        setUserScope(readUserScope())
+        refresh() // cross-tab login/logout — re-fetch the right user's list
+      }
+    }
+    function onAuthChange() {
+      // Re-resolve from the cookie so a fresh login picks up the right
+      // user, then re-fetch (handles both login and logout — logout 401s
+      // back to the guest local bucket).
+      resolveScopeFromCookie().then(s => { setUserScope(s || readUserScope()); refresh() })
+    }
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('disco-user-changed', onAuthChange as EventListener)
+    return () => {
+      cancelled = true
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('disco-user-changed', onAuthChange as EventListener)
+    }
+  }, [refresh])
 
   // Listen for cross-component favorite updates on this page
   useEffect(() => {
