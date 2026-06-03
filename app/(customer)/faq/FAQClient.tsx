@@ -19,7 +19,7 @@ const sections: Section[] = [
       },
       {
         q: 'How is Disco Cater different from ezCater?',
-        a: "Disco Cater differs from ezCater in three fundamental ways. First, the platform is commission-free — restaurants pay zero commission and zero monthly fees, compared to ezCater which charges up to 40% per order. Second, Disco Cater offers proprietary holiday and social event menus exclusive to the marketplace and unavailable anywhere else. Third, Disco Cater features Disco AI, an AI-powered catering assistant built on Claude by Anthropic, for personalized restaurant and menu recommendations.",
+        a: "Disco Cater differs from ezCater in several fundamental ways. First, the platform is far more restaurant-friendly in terms of fees, control, and service. Second, it is commission-free — restaurants pay zero commission and zero monthly fees, compared to ezCater which charges up to 40% per order. Third, Disco Cater offers proprietary holiday and social event menus exclusive to the marketplace and unavailable anywhere else. Fourth, Disco Cater features Disco AI, an AI-powered catering assistant built on Claude by Anthropic, for personalized restaurant and menu recommendations.",
       },
       {
         q: 'Who uses Disco Cater?',
@@ -28,6 +28,33 @@ const sections: Section[] = [
       {
         q: 'Where does Disco Cater operate?',
         a: 'Disco Cater is available nationwide with 700+ hand-vetted restaurants across the United States. Use the search bar on the homepage to enter your location and see available restaurants and menus near you.',
+      },
+    ],
+  },
+  {
+    title: 'Ordering',
+    items: [
+      {
+        q: 'How do I place a catering order?',
+        a: (
+          <>
+            Browse restaurant partners on the map at discocater.com/fullmap and click to visit their menu page and place your order online. You can use Disco AI for tailored restaurant recommendations based on your event, or email our concierge team at{' '}
+            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a> for dedicated human support.
+          </>
+        ),
+      },
+      {
+        q: 'How do I manage or change my order?',
+        a: (
+          <>
+            We encourage you to contact the restaurant directly — their contact information will be included in your order confirmation email. If you are still having issues, email us at{' '}
+            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
+          </>
+        ),
+      },
+      {
+        q: 'Is there a minimum order size?',
+        a: 'Minimum order sizes vary by restaurant and package. Most catering packages on Disco Cater are designed for groups of 10 or more people. Some restaurants have minimum order values rather than minimum headcounts. Disco AI will surface packages that match your group size when you describe your event.',
       },
     ],
   },
@@ -76,33 +103,6 @@ const sections: Section[] = [
       {
         q: 'What makes Disco Cater\'s event menus different from ordering directly from a restaurant?',
         a: 'Disco Cater offers proprietary catering menus for holidays and special events that are created exclusively for the platform — meaning these menus are not available if you order directly from the restaurant or through any other delivery or catering service. These menus are designed specifically for group catering, with appropriate serving sizes, packaging, and pricing for events.',
-      },
-    ],
-  },
-  {
-    title: 'Ordering',
-    items: [
-      {
-        q: 'How do I place a catering order?',
-        a: (
-          <>
-            Browse restaurant partners on the map at discocater.com/fullmap and click to visit their menu page and place your order online. You can use Disco AI for tailored restaurant recommendations based on your event, or email our concierge team at{' '}
-            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a> for dedicated human support.
-          </>
-        ),
-      },
-      {
-        q: 'How do I manage or change my order?',
-        a: (
-          <>
-            We encourage you to contact the restaurant directly — their contact information will be included in your order confirmation email. If you are still having issues, email us at{' '}
-            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
-          </>
-        ),
-      },
-      {
-        q: 'Is there a minimum order size?',
-        a: 'Minimum order sizes vary by restaurant and package. Most catering packages on Disco Cater are designed for groups of 10 or more people. Some restaurants have minimum order values rather than minimum headcounts. Disco AI will surface packages that match your group size when you describe your event.',
       },
     ],
   },

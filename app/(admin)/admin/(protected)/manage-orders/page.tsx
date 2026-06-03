@@ -31,8 +31,14 @@ interface Order {
   orderNumber?: number
   // FM wire attribution: "DISCO" (3P, marketplace, lead-gen fee) or
   // "FAMILYMEAL" (1P, restaurant's own direct link). Rendered as a "3P"/"1P"
-  // pill; never show the raw value.
+  // pill; never show the raw value. Also used to detect Direct Entry orders
+  // (FAMILYMEAL) for the (DE) type badge.
   sourceoforder?: string
+  // Third-party-delivery signals. FM doesn't always type these on the list
+  // shape, so they're optional; we also fall back to the Nash courier ETAs
+  // (nashDelivery*Eta) which only exist on third-party (dispatched) deliveries.
+  deliveryType?: string
+  thirdPartyDelivery?: boolean
 }
 
 // Friendly labels for the raw FM enum (mirrors the restaurant portal orders
@@ -119,6 +125,42 @@ function SourcePill({ source }: { source?: string }) {
     }}
       title={is3P ? 'Third-party (marketplace)' : 'First-party (direct link)'}>
       {is3P ? '3P' : '1P'}
+    </span>
+  )
+}
+
+// TYPE column — stacked badge chips matching the Slack notification format:
+//   PICKUP → (P) · DELIVERY self → (D) · DELIVERY third-party → (3D)
+//   Direct Entry (sourceoforder === 'FAMILYMEAL') adds (DE), e.g. (P)(DE).
+function typeBadgeLabels(o: Order): string[] {
+  const labels: string[] = []
+  const t = (o.orderType || '').toUpperCase()
+  if (t === 'DELIVERY') {
+    const thirdParty = o.thirdPartyDelivery === true
+      || (o.deliveryType || '').toUpperCase().includes('THIRD')
+      || !!(o.nashDeliveryPickupEta || o.nashDeliveryDropoffEta)
+    labels.push(thirdParty ? '3D' : 'D')
+  } else if (t === 'PICKUP') {
+    labels.push('P')
+  } else if (t) {
+    labels.push(t) // unknown order type — show raw value rather than nothing
+  }
+  if ((o.sourceoforder || '').toUpperCase() === 'FAMILYMEAL') labels.push('DE')
+  return labels
+}
+
+function TypeBadges({ order }: { order: Order }) {
+  const labels = typeBadgeLabels(order)
+  if (!labels.length) return <span style={{ color: '#bbb' }}>—</span>
+  return (
+    <span style={{ display: 'inline-flex', gap: 4 }}>
+      {labels.map(l => (
+        <span key={l} style={{
+          display: 'inline-flex', alignItems: 'center', background: DARK, color: '#fff',
+          fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 6, lineHeight: 1.4,
+          fontFamily: F,
+        }}>({l})</span>
+      ))}
     </span>
   )
 }
@@ -312,7 +354,7 @@ export default function AdminOrdersPage() {
                     </button>
                   </span>
                 </td>
-                <td style={cell}>{o.orderType}</td>
+                <td style={cell}><TypeBadges order={o} /></td>
                 <td style={cell}><SourcePill source={o.sourceoforder} /></td>
                 <td style={cell}><StatusPill order={o} /></td>
               </tr>

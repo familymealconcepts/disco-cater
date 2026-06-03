@@ -96,7 +96,7 @@ export default function ProfilePage() {
         </div>
         <div style={{ marginBottom: 14 }}>
           <label style={labelSt}>Phone number</label>
-          <input className="acct-input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} style={inputSt} />
+          <input className="acct-input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. (555) 555-5555" style={inputSt} />
         </div>
         <div style={{ marginBottom: 24 }}>
           <label style={labelSt}>Delivery instructions</label>

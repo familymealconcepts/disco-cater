@@ -1374,7 +1374,7 @@ function FullMapInner() {
                 </div>
               )}
               {filtered.map((r, i) => (
-                <div key={r._id} onClick={() => handleSidebarClick(r)} onDoubleClick={() => { if (r.orderUrl) window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer') }} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? '#6B6EF9' : 'transparent'}`, background: activeId === r._id ? 'rgba(107,110,249,0.07)' : hoveredId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'background 0.18s, border-color 0.18s', position: 'relative' }}>
+                <div key={r._id} onClick={() => handleSidebarClick(r)} onDoubleClick={() => { if (r.orderUrl) window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer') }} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? '#6B6EF9' : 'transparent'}`, borderBottom: i < filtered.length - 1 ? '1px solid #f0f0f0' : 'none', background: activeId === r._id ? 'rgba(107,110,249,0.07)' : hoveredId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'background 0.18s, border-color 0.18s', position: 'relative' }}>
                   <FavoriteHeart
                     authGate
                     size={16}

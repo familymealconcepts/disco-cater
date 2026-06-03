@@ -94,7 +94,10 @@ export default function AddressesPage() {
         .acct-input:focus { border-color: ${INDIGO} !important; box-shadow: 0 0 0 3px rgba(107,110,249,0.1) !important; }
       `}</style>
       <form onSubmit={save} style={{ maxWidth: 480, fontFamily: F }}>
-        <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 24, marginTop: 0 }}>Addresses</h1>
+        <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 8, marginTop: 0 }}>Addresses</h1>
+        <p style={{ fontSize: 13, color: '#888', margin: '0 0 24px', lineHeight: 1.5 }}>
+          This is your default delivery address and will be pre-filled at checkout.
+        </p>
         <div style={{ marginBottom: 14 }}>
           <label style={labelSt}>Street address</label>
           <input className="acct-input" value={line1} onChange={e => setLine1(e.target.value)} placeholder="123 Main St" style={inputSt} />
