@@ -319,6 +319,13 @@ export default function HomePage() {
             ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
+            <a href="/become-a-partner"
+              style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+              onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
+              onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+              For Restaurants
+            </a>
+            <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
             <a href="mailto:concierge@discocater.com"
               style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
               onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
