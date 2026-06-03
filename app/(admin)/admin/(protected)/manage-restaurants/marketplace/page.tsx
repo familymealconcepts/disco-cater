@@ -8,6 +8,13 @@ const BLUE = '#6B6EF9'
 const PAGE_BG = '#F7F8FC'
 
 interface Restaurant {
+  // Stable, guaranteed-unique per-row id assigned on load. FM's restaurant
+  // list can return the SAME `reference` for several multi-unit locations
+  // (e.g. multiple "Colonial Ranch Market" rows), so `reference` is NOT safe
+  // as the React key, the optimistic-update match, or the per-row toggle lock
+  // — doing so flipped every matching row at once. `_rowId` keeps each
+  // rendered row independent; FM API calls still use the real `reference`.
+  _rowId: string
   reference: string
   businessName: string
   url?: string
@@ -43,13 +50,13 @@ export default function MarketplaceRestaurantsPage() {
   // audit). Optimistic toggle; revert if FM fails.
   async function toggleBlocked(r: Restaurant) {
     const next = !r.blocked
-    setToggling(r.reference)
-    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, blocked: next } : x))
+    setToggling(r._rowId)
+    setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, blocked: next } : x))
     try {
       const res = await fetch(`/api/admin/restaurants/${r.reference}/block?block=${next}`, { method: 'POST' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch {
-      setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, blocked: !next } : x))
+      setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, blocked: !next } : x))
       alert('Could not update block status. Please try again.')
     } finally {
       setToggling(null)
@@ -70,7 +77,14 @@ export default function MarketplaceRestaurantsPage() {
     const res = await fetch(`/api/admin/restaurants/marketplace?${params}`)
     if (res.ok) {
       const d = await res.json()
-      setRows(d.content || [])
+      // Tag every row with a unique local id. FM can repeat `reference` across
+      // multi-unit locations, so we suffix with the array index to guarantee
+      // uniqueness for React keys + per-row optimistic updates.
+      const content: Restaurant[] = (d.content || []).map((r: Restaurant, i: number) => ({
+        ...r,
+        _rowId: `${r.reference ?? 'noref'}#${i}`,
+      }))
+      setRows(content)
       setTotal(d.totalElements || 0)
     } else { setRows([]); setTotal(0) }
     setLoading(false)
@@ -106,15 +120,15 @@ export default function MarketplaceRestaurantsPage() {
             {!loading && rows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               return (
-                <tr key={r.reference}>
+                <tr key={r._rowId}>
                   <td style={cell}>
                     <label title={r.blocked ? 'Hidden from marketplace' : 'Visible on marketplace'}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: toggling === r.reference ? 'wait' : 'pointer', fontSize: 12, color: r.blocked ? '#E76F51' : '#1D9E75', fontWeight: 600 }}>
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: toggling === r._rowId ? 'wait' : 'pointer', fontSize: 12, color: r.blocked ? '#E76F51' : '#1D9E75', fontWeight: 600 }}>
                       <input type="checkbox"
                         checked={!r.blocked}
-                        disabled={toggling === r.reference}
+                        disabled={toggling === r._rowId}
                         onChange={() => toggleBlocked(r)}
-                        style={{ accentColor: BLUE, cursor: toggling === r.reference ? 'wait' : 'pointer' }} />
+                        style={{ accentColor: BLUE, cursor: toggling === r._rowId ? 'wait' : 'pointer' }} />
                       {r.blocked ? 'Hidden' : 'Visible'}
                     </label>
                   </td>
