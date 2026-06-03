@@ -11,10 +11,23 @@ interface Customer {
   customerReference: string
   username: string
   email: string
+  // FM's /api/customer/users casing is inconsistent (e.g. `totalspend` is all
+  // lowercase). Phone has been observed under several keys; read every variant.
   phoneNumber?: string
+  phonenumber?: string
+  phone?: string
+  mobileNumber?: string
   numberOfOrders: number
   totalspend: number
   sourceoforder?: string
+}
+
+// Phone is NOT a column on FM's own customers table and the /api/customer/users
+// list response often omits it entirely. We read every known field-name variant
+// so it shows whenever FM does return it; otherwise it renders "—". We never
+// fabricate a value.
+function customerPhone(r: Customer): string {
+  return (r.phoneNumber || r.phonenumber || r.phone || r.mobileNumber || '').trim()
 }
 
 // Personal email providers → "Social". Anything else → "Corporate".
@@ -80,7 +93,7 @@ function sortValue(r: Customer, key: SortKey): string | number {
   switch (key) {
     case 'username': return (r.username || '').toLowerCase()
     case 'email': return (r.email || '').toLowerCase()
-    case 'phone': return Number((r.phoneNumber || '').replace(/\D/g, '')) || 0
+    case 'phone': return Number(customerPhone(r).replace(/\D/g, '')) || 0
     case 'source': return (r.sourceoforder || '').toLowerCase()
     case 'type': return custType(r.email)
     case 'numberOfOrders': return r.numberOfOrders ?? 0
@@ -107,7 +120,6 @@ function CustomersInner() {
   // Client-side filters.
   const [type, setType] = useState<'all' | 'corporate' | 'social'>((sp.get('type') as 'corporate' | 'social') || 'all')
   const [minOrders, setMinOrders] = useState(sp.get('minOrders') || '')
-  const [maxOrders, setMaxOrders] = useState(sp.get('maxOrders') || '')
 
   // Click-to-sort: null = FM's natural return order. One column at a time;
   // click cycles asc → desc → off.
@@ -150,13 +162,12 @@ function CustomersInner() {
     if (search) params.set('search', search)
     if (type !== 'all') params.set('type', type)
     if (minOrders) params.set('minOrders', minOrders)
-    if (maxOrders) params.set('maxOrders', maxOrders)
     if (fromDate) params.set('fromDate', fromDate)
     if (toDate) params.set('toDate', toDate)
     if (placeFilter) params.set('location', placeFilter.label)
     const qs = params.toString()
     router.replace(qs ? `?${qs}` : '?', { scroll: false })
-  }, [search, type, minOrders, maxOrders, fromDate, toDate, placeFilter, router])
+  }, [search, type, minOrders, fromDate, toDate, placeFilter, router])
 
   // Fetch the FULL matching set (all pages, capped) so client filters + export
   // operate over everything, not one server page. Server filters: search + date.
@@ -292,7 +303,7 @@ function CustomersInner() {
   }, [])
 
   // Reset to first page whenever the result set changes.
-  useEffect(() => { setPage(0) }, [search, fromDate, toDate, type, minOrders, maxOrders, placeFilter, pageSize])
+  useEffect(() => { setPage(0) }, [search, fromDate, toDate, type, minOrders, placeFilter, pageSize])
 
   const placeActive = !!placeFilter
 
@@ -301,7 +312,6 @@ function CustomersInner() {
     if (type === 'social' && !isSocial(r.email)) return false
     const n = r.numberOfOrders ?? 0
     if (minOrders !== '' && n < Number(minOrders)) return false
-    if (maxOrders !== '' && n > Number(maxOrders)) return false
     // Location filter only applies once the aggregation is ready, so the list
     // isn't blanked while it loads. Match the customer's LAST order against the
     // picked place's city + state (both case-insensitive; state must match).
@@ -312,7 +322,7 @@ function CustomersInner() {
       if (placeFilter.city && last.city.toLowerCase() !== placeFilter.city.toLowerCase()) return false
     }
     return true
-  }), [rows, type, minOrders, maxOrders, placeActive, locReady, customerLastLoc, placeFilter])
+  }), [rows, type, minOrders, placeActive, locReady, customerLastLoc, placeFilter])
 
   // Sort the filtered set. null sort → FM's natural order (filtered preserves it).
   const sorted = useMemo(() => {
@@ -334,7 +344,7 @@ function CustomersInner() {
     })
   }
 
-  const filtersActive = !!search || !!fromDate || !!toDate || type !== 'all' || minOrders !== '' || maxOrders !== '' || placeActive
+  const filtersActive = !!search || !!fromDate || !!toDate || type !== 'all' || minOrders !== '' || placeActive
   const datesChanged = fromInput !== fromDate || toInput !== toDate
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize)
@@ -342,7 +352,7 @@ function CustomersInner() {
   function clearAll() {
     setSearchInput(''); setSearch('')
     setFromInput(''); setToInput(''); setFromDate(''); setToDate('')
-    setType('all'); setMinOrders(''); setMaxOrders('')
+    setType('all'); setMinOrders('')
     setLocInput(''); setPlaceFilter(null)
     setSort(null)
   }
@@ -353,7 +363,7 @@ function CustomersInner() {
     const body = sorted.map(r => {
       const last = customerLastLoc.get(normalizeName(r.username))
       return [
-        r.username, r.email, r.phoneNumber || '',
+        r.username, r.email, customerPhone(r) || '',
         String(r.numberOfOrders ?? 0), String(r.totalspend ?? 0),
         r.sourceoforder || '', custType(r.email),
         last?.city || '',
@@ -389,9 +399,8 @@ function CustomersInner() {
           <option value="corporate">Corporate</option>
           <option value="social">Social</option>
         </select>
-        <span style={chipLabel}>Orders</span>
+        <span style={chipLabel}>Min orders</span>
         <input type="number" min={0} placeholder="min" value={minOrders} onChange={e => setMinOrders(e.target.value)} style={{ ...inputSt, width: 70 }} />
-        <input type="number" min={0} placeholder="max" value={maxOrders} onChange={e => setMaxOrders(e.target.value)} style={{ ...inputSt, width: 70 }} />
         <input
           ref={locInputRef}
           type="text"
@@ -455,7 +464,7 @@ function CustomersInner() {
               <tr key={r.customerReference}>
                 <td style={{ ...cell, fontWeight: 500 }}>{r.username}</td>
                 <td style={{ ...cell, color: '#555' }}>{r.email}</td>
-                <td style={{ ...cell, color: '#666' }}>{r.phoneNumber || '—'}</td>
+                <td style={{ ...cell, color: '#666' }}>{customerPhone(r) || '—'}</td>
                 <td style={{ ...cell, color: '#666' }}>{r.sourceoforder || '—'}</td>
                 <td style={{ ...cell, color: '#666' }}>{custType(r.email)}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>{r.numberOfOrders ?? 0}</td>

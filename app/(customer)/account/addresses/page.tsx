@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -35,8 +35,12 @@ export default function AddressesPage() {
   const [city, setCity] = useState('')
   const [state, setState] = useState('')
   const [zip, setZip] = useState('')
+  const [deliveryInstructions, setDeliveryInstructions] = useState('')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  // The current user's editable profile fields — captured on load so saving
+  // delivery instructions (PUT /api/users) doesn't clobber name/email/phone.
+  const userInfo = useRef<{ firstName?: string; lastName?: string; email?: string; phoneNumber?: string }>({})
 
   // AuthContext's `user.address` typing is a stale single-string remnant —
   // FM actually returns a structured { addressLine1, city, state, zipcode }
@@ -57,6 +61,8 @@ export default function AddressesPage() {
           // Some FM payloads still flatten address into a single string.
           setLine1(d.address)
         }
+        if (d.deliveryInstructions) setDeliveryInstructions(d.deliveryInstructions)
+        userInfo.current = { firstName: d.firstName, lastName: d.lastName, email: d.email, phoneNumber: d.phoneNumber }
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -71,13 +77,25 @@ export default function AddressesPage() {
     e.preventDefault()
     setSaving(true)
     try {
-      const res = await fetch('/api/fm-user-addresses', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addressLine1: line1, city, state, zipcode: zip }),
-        credentials: 'include',
-      })
-      if (!res.ok) throw new Error('Failed to save')
+      // Save the address and the delivery instructions in parallel. Delivery
+      // instructions live on the user record (PUT /api/users) — same save
+      // behavior they had on the Profile page; we merge them into the captured
+      // profile fields so name/email/phone aren't wiped.
+      const [addrRes, userRes] = await Promise.all([
+        fetch('/api/fm-user-addresses', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ addressLine1: line1, city, state, zipcode: zip }),
+          credentials: 'include',
+        }),
+        fetch('/api/fm-user', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...userInfo.current, deliveryInstructions }),
+          credentials: 'include',
+        }),
+      ])
+      if (!addrRes.ok || !userRes.ok) throw new Error('Failed to save')
       showToast('Address saved')
     } catch {
       showToast('Failed to save address', 'error')
@@ -115,6 +133,17 @@ export default function AddressesPage() {
             <label style={labelSt}>Zip</label>
             <input className="acct-input" value={zip} onChange={e => setZip(e.target.value)} placeholder="10001" style={inputSt} />
           </div>
+        </div>
+        <div style={{ marginBottom: 24 }}>
+          <label style={labelSt}>Delivery instructions</label>
+          <textarea
+            className="acct-input"
+            value={deliveryInstructions}
+            onChange={e => setDeliveryInstructions(e.target.value)}
+            placeholder="e.g. Leave at front desk, call on arrival…"
+            rows={3}
+            style={{ ...inputSt, resize: 'vertical' }}
+          />
         </div>
         <button
           type="submit"

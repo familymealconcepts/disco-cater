@@ -21,7 +21,6 @@ interface NavItem {
 const NAV: NavItem[] = [
   { title: 'Dashboard', path: '/admin/dashboard' },
   { title: 'Orders', path: '/admin/manage-orders' },
-  { title: 'Content Management', path: '/admin/content-management' },
   { title: 'Users', path: '/admin/manage-users' },
   { title: 'Customers', path: '/admin/manage-customers' },
   { title: 'System Admins', path: '/admin/manage-admins' },

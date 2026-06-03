@@ -30,7 +30,6 @@ export default function ProfilePage() {
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
-  const [deliveryInstructions, setDeliveryInstructions] = useState('')
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -41,7 +40,6 @@ export default function ProfilePage() {
       setLastName(user.lastName || '')
       setEmail(user.email || '')
       setPhone(user.phoneNumber || '')
-      setDeliveryInstructions(user.deliveryInstructions || '')
       setLoaded(true)
     }
   }, [user, loaded])
@@ -58,7 +56,7 @@ export default function ProfilePage() {
       const res = await fetch('/api/fm-user', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstName, lastName, email, phoneNumber: phone, deliveryInstructions }),
+        body: JSON.stringify({ firstName, lastName, email, phoneNumber: phone }),
         credentials: 'include',
       })
       if (!res.ok) throw new Error('Failed to save')
@@ -94,20 +92,9 @@ export default function ProfilePage() {
           <label style={labelSt}>Email address</label>
           <input className="acct-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputSt} />
         </div>
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 24 }}>
           <label style={labelSt}>Phone number</label>
           <input className="acct-input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. (555) 555-5555" style={inputSt} />
-        </div>
-        <div style={{ marginBottom: 24 }}>
-          <label style={labelSt}>Delivery instructions</label>
-          <textarea
-            className="acct-input"
-            value={deliveryInstructions}
-            onChange={e => setDeliveryInstructions(e.target.value)}
-            placeholder="e.g. Leave at front desk, call on arrival…"
-            rows={3}
-            style={{ ...inputSt, resize: 'vertical' }}
-          />
         </div>
         <button
           type="submit"

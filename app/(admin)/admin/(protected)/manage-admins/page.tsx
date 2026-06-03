@@ -11,7 +11,6 @@ interface SysAdmin {
   firstName: string
   lastName?: string
   email: string
-  phoneNumber?: string
   locations?: number
   restaurants?: { reference: string }[]
   // FM's user-list response embeds the assigned-locations list under
@@ -19,7 +18,7 @@ interface SysAdmin {
   managedRestaurants?: { reference: string; businessName?: string }[]
 }
 
-type FormState = Pick<SysAdmin, 'firstName' | 'lastName' | 'email' | 'phoneNumber'> & {
+type FormState = Pick<SysAdmin, 'firstName' | 'lastName' | 'email'> & {
   reference?: string
   /** Mirrors FM's UpdateAdminComponent restaurantReferences form
    *  control — array of restaurant UUID strings; required ≥1 on FM. */
@@ -118,7 +117,6 @@ export default function ManageSystemAdminsPage() {
           firstName: editing.firstName,
           lastName: editing.lastName || '',
           email: editing.email,
-          phoneNumber: editing.phoneNumber || '',
           // Payload shape mirrors FM UpdateAdminComponent.ts:54-59 →
           // restaurantReferences: string[]. Required field on FM.
           restaurantReferences: editing.restaurantReferences,
@@ -157,7 +155,7 @@ export default function ManageSystemAdminsPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>System Admins</h1>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <input type="text" placeholder="Search…" value={searchInput} onChange={e => setSearchInput(e.target.value)} style={{ ...inputSt, width: 240 }} />
-          <button onClick={() => setEditing({ firstName: '', lastName: '', email: '', phoneNumber: '', restaurantReferences: [] })} style={primaryBtn}>+ Add System Admin</button>
+          <button onClick={() => setEditing({ firstName: '', lastName: '', email: '', restaurantReferences: [] })} style={primaryBtn}>+ Add System Admin</button>
         </div>
       </div>
 
@@ -167,19 +165,17 @@ export default function ManageSystemAdminsPage() {
             <tr>
               <th style={colHead}>Name</th>
               <th style={colHead}>Email</th>
-              <th style={colHead}>Phone</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Locations</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={5} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={5} style={{ ...cell, textAlign: 'center', color: '#999' }}>No system admins.</td></tr>}
+            {loading && <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#999' }}>No system admins.</td></tr>}
             {!loading && rows.map(u => (
               <tr key={u.reference}>
                 <td style={cell}>{u.firstName} {u.lastName || ''}</td>
                 <td style={{ ...cell, color: '#555' }}>{u.email}</td>
-                <td style={{ ...cell, color: '#666' }}>{u.phoneNumber || '—'}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>{u.locations ?? u.restaurants?.length ?? 0}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>
                   <button onClick={() => setEditing({
@@ -187,7 +183,6 @@ export default function ManageSystemAdminsPage() {
                     firstName: u.firstName,
                     lastName: u.lastName,
                     email: u.email,
-                    phoneNumber: u.phoneNumber,
                     // FM embeds assignments under managedRestaurants[]
                     // on the user-list response; fall back to the older
                     // `restaurants` field for safety.
@@ -236,10 +231,6 @@ export default function ManageSystemAdminsPage() {
               <div>
                 <label style={lbl}>Email*</label>
                 <input type="email" style={inputSt} value={editing.email} onChange={e => setEditing({ ...editing, email: e.target.value })} />
-              </div>
-              <div>
-                <label style={lbl}>Phone</label>
-                <input style={inputSt} value={editing.phoneNumber || ''} onChange={e => setEditing({ ...editing, phoneNumber: e.target.value })} placeholder="000-000-0000" />
               </div>
 
               {/* Location assignment — mirrors FM UpdateAdminComponent's
