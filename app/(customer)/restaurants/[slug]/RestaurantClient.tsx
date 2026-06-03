@@ -6,6 +6,7 @@ import GlobalHeader from '../../../components/GlobalHeader'
 import CheckoutDrawer from './CheckoutDrawer'
 import MenuAdvisor, { type DiscoIntake } from './MenuAdvisor'
 import { cartSubtotal } from '../../../../lib/pricing/cart'
+import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
 import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
 import { trackEvent } from '../../../../lib/analytics'
@@ -130,6 +131,24 @@ function fmtTime(t: string) {
   try { const [h, m] = t.split(':').map(Number); const dt = new Date(); dt.setHours(h, m); return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) }
   catch { return t }
 }
+// Pull the server-computed money out of FM's /orders/init response. Mirrors
+// CheckoutDrawer's extractFmMoney (kept local to avoid touching the drawer):
+// FM nests the priced totals under data.checkoutPublicResponseDto, and tax is
+// the sum of state+local+other sales tax. Display-only — see previewPricing().
+function extractPreviewMoney(raw: any): { subtotal: number | null; tax: number; fee: number; deliveryFee: number | null; total: number | null } {
+  const d = raw?.data?.checkoutPublicResponseDto ?? raw?.data ?? raw ?? {}
+  const num = (v: any) => (typeof v === 'number' ? v : 0)
+  const components = num(d.stateSalesTaxInPrice) + num(d.localSalesTaxInPrice) + num(d.otherSalesTaxInPrice)
+  const tax = components > 0 ? components : num(d.tax ?? d.taxAmount)
+  return {
+    subtotal: d.subtotal ?? d.subTotal ?? null,
+    tax,
+    fee: num(d.fee ?? d.serviceFee ?? d.platformFee),
+    deliveryFee: d.deliveryFee ?? d.delivery ?? null,
+    total: d.total ?? d.totalAmount ?? d.totalCost ?? null,
+  }
+}
+
 const FM_PUBLIC = process.env.NEXT_PUBLIC_FM_API_BASE_URL || 'https://api.familymeal.com'
 function pkgImg(ref: string, size = 300) {
   return `${FM_PUBLIC}/public-api/images/${ref}/download?size=${size}`
@@ -595,6 +614,138 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const clientTotal = computeGrandTotal({ subtotal, serviceCharge: svcAmt, tip: tipAmt })
   const belowMin = minOrder > 0 && subtotal < minOrder && cart.length > 0
 
+  // ── Pricing preview (taxes & fees before checkout) ─────────────────────────
+  // FM has no client-side tax/fee math, so we POST /orders/init (the SAME public
+  // endpoint + payload CheckoutDrawer uses) to get FM's server-computed
+  // subtotal/tax/fee/delivery/total and show them in the Order Summary BEFORE the
+  // user opens the drawer. Best-effort: any failure silently falls back to
+  // "Calculated at checkout" (never a guessed amount). The orderRef FM returns
+  // here is DISPLAY-ONLY and is intentionally never read/stored — CheckoutDrawer
+  // always runs its own fresh init to mint the orderRef it actually places.
+  const [pricingPreview, setPricingPreview] = useState<{ subtotal: number | null; tax: number; fee: number; deliveryFee: number | null; total: number | null } | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const previewAbortRef = useRef<AbortController | null>(null)
+  const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const previewSeqRef = useRef(0)
+
+  // Stable fingerprint of the cart so the effect re-fires on any qty/add-on edit.
+  const cartKey = useMemo(
+    () => cart.map(i => `${i.pkg.reference}:${i.quantity}:${i.addOns.map(a => `${a.reference}x${a.count}`).join(',')}`).join('|'),
+    [cart],
+  )
+
+  // Conditions to preview: ≥1 item, date + time chosen, and for DELIVERY a
+  // validated, committed address (lat/lng present — that's what the payload
+  // needs). Logged-out users are fine: /orders/init is public (no auth).
+  const canPreview = !!fmRef && cart.length > 0 && !!selDate && !!selTime &&
+    (orderType === 'PICKUP' || (addrValidated && !!addr.line1 && addr.lat != null && addr.lng != null))
+
+  // Cancel any pending debounce + in-flight fetch and invalidate late responses.
+  function cancelPreview() {
+    previewSeqRef.current++ // any outstanding response is now ignored
+    previewAbortRef.current?.abort()
+    previewAbortRef.current = null
+    if (previewDebounceRef.current) { clearTimeout(previewDebounceRef.current); previewDebounceRef.current = null }
+    setPreviewLoading(false)
+  }
+
+  async function previewPricing() {
+    const seq = ++previewSeqRef.current
+    const controller = new AbortController()
+    previewAbortRef.current = controller
+    setPreviewLoading(true)
+
+    // Build the EXACT DTO CheckoutDrawer's init sends (buildCheckoutDto's init
+    // branch): base payload + tips + tipsType + taxExempt:false.
+    const fmAddr = {
+      addressLine1: addr.line1,
+      addressLine2: addr.line2 || '',
+      city: addr.city,
+      state: addr.state,
+      zipcode: addr.zip,
+      latitude: addr.lat ?? undefined,
+      longitude: addr.lng ?? undefined,
+      deliveryInstructions: addr.instructions || '',
+    }
+    const dto = {
+      ...buildCheckoutPayload({
+        restaurantRef: fmRef!,
+        cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
+        orderType,
+        orderDate: selDate,
+        orderTime: selTime,
+        deliveryAddress: orderType === 'DELIVERY' ? fmAddr : undefined,
+        headcount,
+      }),
+      tips: tipAmt,
+      // FM TipsType is CUSTOM (fixed $) | PERCENTAGE; a $ tip is CUSTOM, none is PERCENTAGE 0.
+      tipsType: tipAmt > 0 ? 'CUSTOM' : 'PERCENTAGE',
+      taxExempt: false,
+    }
+
+    try {
+      const res = await fetch('/api/order/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dto),
+        signal: controller.signal,
+      })
+      const data = await res.json()
+      // Stale (a newer change superseded this) or aborted → drop silently.
+      if (controller.signal.aborted || seq !== previewSeqRef.current) return
+      if (!res.ok) {
+        // eslint-disable-next-line no-console
+        console.warn('[pricingPreview] init failed', data?.error || res.status)
+        setPricingPreview(null)
+        return
+      }
+      // NOTE: data.data.orderReference is DELIBERATELY ignored — the preview
+      // orderRef must never be reused for the real order. CheckoutDrawer inits
+      // its own. We only read the priced money below.
+      const money = extractPreviewMoney(data)
+      const meaningful = money.total != null || money.subtotal != null || money.tax > 0 || money.fee > 0
+      if (!meaningful) { setPricingPreview(null); return }
+      setPricingPreview(money)
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return // superseded by a fresh debounce
+      // eslint-disable-next-line no-console
+      console.warn('[pricingPreview] error', err)
+      setPricingPreview(null)
+    } finally {
+      if (seq === previewSeqRef.current) setPreviewLoading(false)
+      if (previewAbortRef.current === controller) previewAbortRef.current = null
+    }
+  }
+
+  // Watch the inputs FM prices on. On ANY change: invalidate the old preview
+  // immediately (no stale taxes), cancel in-flight work, then — if eligible —
+  // show the loading state and debounce 800ms before firing one init.
+  useEffect(() => {
+    setPricingPreview(null)
+    previewAbortRef.current?.abort()
+    previewAbortRef.current = null
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current)
+
+    if (!canPreview) { setPreviewLoading(false); return }
+
+    setPreviewLoading(true)
+    previewDebounceRef.current = setTimeout(() => { previewPricing() }, 800)
+    return () => { if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current) }
+    // tipAmt is intentionally NOT a dep: tax/fees don't depend on tip, and the
+    // displayed Total folds in the live tip client-side (see previewTotal).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartKey, selDate, selTime, orderType, addrValidated, addr.line1, addr.lat, addr.lng])
+
+  // Derived display values. Taxes & Fees = FM fee + tax (mirrors the drawer's
+  // combined line). Total is built from parts + the LIVE tip so changing the tip
+  // updates it instantly without re-firing init.
+  const previewTaxesFees = pricingPreview ? pricingPreview.fee + pricingPreview.tax : null
+  const previewDelivery = pricingPreview ? pricingPreview.deliveryFee : null
+  const previewTotal = pricingPreview
+    ? (pricingPreview.subtotal ?? subtotal) + (previewTaxesFees ?? 0)
+        + (orderType === 'DELIVERY' ? (previewDelivery ?? 0) : 0) + svcAmt + tipAmt
+    : null
+
   const notices: string[] = []
   if (sched?.prepTime) notices.push(`${sched.prepTime}hr lead time`)
   if (minOrder) notices.push(`${formatPrice(minOrder)} minimum`)
@@ -805,6 +956,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
   const [taxTooltip, setTaxTooltip] = useState(false)
 
+  // Pulsing placeholder shown on the amount while a pricing preview is fetching.
+  const priceSkeleton = (
+    <span aria-label="Calculating" style={{ display: 'inline-block', width: 52, height: 12, borderRadius: 4, background: '#ececf2', animation: 'pricingPulse 1.1s ease-in-out infinite' }} />
+  )
+
   // ── Cart panel ────────────────────────────────────────────────────────────
   const cartPanel = (
     <div>
@@ -897,10 +1053,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               ))}
             </div>
             <div style={{ paddingTop: 12 }}>
-              {/* Subtotal */}
+              {/* Subtotal — prefers FM's priced value once the preview lands. */}
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
                 <span style={{ color: '#555' }}>Subtotal</span>
-                <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(subtotal)}</span>
+                <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(pricingPreview?.subtotal ?? subtotal)}</span>
               </div>
               {/* Service Charge */}
               {svcAmt > 0 && (
@@ -910,7 +1066,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 </div>
               )}
               {/* Taxes & Fees with tooltip */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: previewDelivery != null && orderType === 'DELIVERY' ? 6 : 14 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#555' }}>
                   Taxes &amp; Fees
                   <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
@@ -922,15 +1078,39 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     </span>
                     {taxTooltip && (
                       <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)', background: '#fff', border: '1px solid #e8e8e8', borderRadius: 8, padding: '10px 13px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', whiteSpace: 'nowrap', zIndex: 20, pointerEvents: 'none' as const, minWidth: 200 }}>
-                        <div style={{ fontSize: 12, color: DARK, marginBottom: 3 }}>Tax: Calculated at checkout</div>
-                        <div style={{ fontSize: 12, color: DARK, marginBottom: 8 }}>Platform fee included at checkout</div>
+                        {pricingPreview ? (
+                          <>
+                            <div style={{ fontSize: 12, color: DARK, marginBottom: 3 }}>Tax: {formatPrice(pricingPreview.tax)}</div>
+                            <div style={{ fontSize: 12, color: DARK, marginBottom: 8 }}>Platform fee: {formatPrice(pricingPreview.fee)}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 12, color: DARK, marginBottom: 3 }}>Tax: Calculated at checkout</div>
+                            <div style={{ fontSize: 12, color: DARK, marginBottom: 8 }}>Platform fee included at checkout</div>
+                          </>
+                        )}
                         <div style={{ fontSize: 11, color: '#888', fontStyle: 'italic', lineHeight: 1.4 }}>This allows us to be free for restaurants.</div>
                       </div>
                     )}
                   </span>
                 </span>
-                <span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>
+                {previewLoading
+                  ? priceSkeleton
+                  : previewTaxesFees != null
+                    ? <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(previewTaxesFees)}</span>
+                    : <span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
               </div>
+              {/* Delivery fee — only for delivery, once FM has priced it. */}
+              {orderType === 'DELIVERY' && (previewLoading || previewDelivery != null) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: 14 }}>
+                  <span style={{ color: '#555' }}>Delivery fee</span>
+                  {previewLoading
+                    ? priceSkeleton
+                    : previewDelivery === 0
+                      ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Free</span>
+                      : <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(previewDelivery as number)}</span>}
+                </div>
+              )}
               {/* Tips */}
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 7 }}>Tips</div>
@@ -976,6 +1156,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   </div>
                 )}
               </div>
+              {/* Total — shown once FM has priced the order (or while it's loading).
+                  Built from FM's parts + the live tip, so it tracks tip changes. */}
+              {(previewLoading || previewTotal != null) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #ebebeb', paddingTop: 12, marginBottom: 14, fontSize: 15, fontWeight: 800, color: DARK }}>
+                  <span>Total</span>
+                  {previewLoading
+                    ? priceSkeleton
+                    : <span>{formatPrice(previewTotal as number)}</span>}
+                </div>
+              )}
               {/* Below-min warning */}
               {belowMin && (
                 <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '8px 12px', marginBottom: 4, fontSize: 12, color: '#92400E' }}>
@@ -1181,7 +1371,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             {/* CHECKOUT button — outside the card */}
             {fmRef && (
               <button
-                onClick={() => { if (canCheckout) setCheckoutOpen(true) }}
+                onClick={() => { if (canCheckout) { cancelPreview(); setCheckoutOpen(true) } }}
                 disabled={!canCheckout}
                 onMouseOver={e => { if (canCheckout) e.currentTarget.style.background = '#4A5FD4' }}
                 onMouseOut={e => { if (canCheckout) e.currentTarget.style.background = '#5B6FE8' }}
@@ -1218,7 +1408,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           {fmRef && (
             <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
               <button
-                onClick={() => { if (canCheckout) { setMobileCartOpen(false); setCheckoutOpen(true) } }}
+                onClick={() => { if (canCheckout) { cancelPreview(); setMobileCartOpen(false); setCheckoutOpen(true) } }}
                 disabled={!canCheckout}
                 onMouseOver={e => { if (canCheckout) e.currentTarget.style.background = '#4A5FD4' }}
                 onMouseOut={e => { if (canCheckout) e.currentTarget.style.background = '#5B6FE8' }}
@@ -1512,6 +1702,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
+        @keyframes pricingPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .pkg-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
         .pkg-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.09) !important; }
         input:focus, textarea:focus, select:focus { border-color: ${BLUE} !important; box-shadow: 0 0 0 3px rgba(91,111,232,0.1) !important; }
