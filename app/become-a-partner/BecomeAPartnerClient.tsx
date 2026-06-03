@@ -246,6 +246,9 @@ export default function BecomeAPartnerClient() {
               <button onClick={() => { setError(''); setStep(3) }} style={{ ...secondaryBtn, marginTop: 10 }}>
                 Not now, let&apos;s keep going
               </button>
+              <p style={{ ...italicNote, marginTop: 16, fontSize: 12, color: '#999' }}>
+                Note: Stripe Connect integration is coming soon. Contact concierge@discocater.com to get set up.
+              </p>
             </>
           )}
 
@@ -262,10 +265,14 @@ export default function BecomeAPartnerClient() {
                 subsidize in your Order Settings.
               </p>
               <div style={{ marginTop: 18 }}>
-                <Check checked={agreeDelivery} onChange={(b) => { setAgreeDelivery(b); if (b) { setError(''); setStep(4) } }}>
+                <Check checked={agreeDelivery} onChange={setAgreeDelivery}>
                   I agree to Disco Cater&apos;s Third-Party Delivery Policy.
                 </Check>
               </div>
+              <button onClick={() => { setError(''); setStep(4) }} disabled={!agreeDelivery}
+                style={{ ...primaryBtn, marginBottom: 10, opacity: agreeDelivery ? 1 : 0.5, cursor: agreeDelivery ? 'pointer' : 'default' }}>
+                Continue
+              </button>
               <button onClick={() => { setError(''); setStep(4) }} style={secondaryBtn}>
                 Not now, let&apos;s keep going
               </button>
