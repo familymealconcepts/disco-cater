@@ -22,9 +22,16 @@ export default function PaymentPage() {
   const [showNew, setShowNew] = useState(false)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
-  const cardRef = useRef<HTMLDivElement>(null)
+  // Separate Stripe Elements (number / expiry / CVC) instead of the unified
+  // 'card' Element — the unified one renders Stripe Link's autofill overlay that
+  // covered the expiry/CVC. disableLink on the number field removes it entirely.
+  const numberRef = useRef<HTMLDivElement>(null)
+  const expiryRef = useRef<HTMLDivElement>(null)
+  const cvcRef = useRef<HTMLDivElement>(null)
   const stripeRef = useRef<any>(null)
-  const cardElRef = useRef<any>(null)
+  const numberElRef = useRef<any>(null) // primary element for createToken
+  const expiryElRef = useRef<any>(null)
+  const cvcElRef = useRef<any>(null)
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     setToast({ msg, type })
@@ -57,15 +64,21 @@ export default function PaymentPage() {
     // rendered (!card) but the Element never initialized. Wait for the
     // card load to finish so cardRef is in the DOM, then mount.
     const formVisible = !loadingCard && (!card || showNew)
-    if (!formVisible || !stripeKey || !cardRef.current) return
+    if (!formVisible || !stripeKey || !numberRef.current) return
     const mount = () => {
-      if (!window.Stripe || !cardRef.current || cardElRef.current) return
+      if (!window.Stripe || numberElRef.current) return
+      if (!numberRef.current || !expiryRef.current || !cvcRef.current) return
       stripeRef.current = window.Stripe(stripeKey)
       const elements = stripeRef.current.elements()
-      cardElRef.current = elements.create('card', {
-        style: { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } },
-      })
-      cardElRef.current.mount(cardRef.current)
+      const style = { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } }
+      // showIcon:false → no card-network mark; disableLink:true → suppress the
+      // Stripe Link autofill chip/overlay that was covering the expiry/CVC.
+      numberElRef.current = elements.create('cardNumber', { style, showIcon: false, disableLink: true })
+      expiryElRef.current = elements.create('cardExpiry', { style })
+      cvcElRef.current = elements.create('cardCvc', { style })
+      numberElRef.current.mount(numberRef.current)
+      expiryElRef.current.mount(expiryRef.current)
+      cvcElRef.current.mount(cvcRef.current)
     }
     if (window.Stripe) { mount() }
     else if (!document.getElementById('stripe-js')) {
@@ -77,15 +90,19 @@ export default function PaymentPage() {
       const t = setInterval(() => { if (window.Stripe) { clearInterval(t); mount() } }, 50)
       setTimeout(() => clearInterval(t), 3000)
     }
-    return () => { if (cardElRef.current) { cardElRef.current.destroy(); cardElRef.current = null } }
+    return () => {
+      for (const r of [numberElRef, expiryElRef, cvcElRef]) {
+        if (r.current) { r.current.destroy(); r.current = null }
+      }
+    }
   }, [showNew, stripeKey, card, loadingCard])
 
   async function saveCard(e: React.FormEvent) {
     e.preventDefault()
-    if (!stripeRef.current || !cardElRef.current) { showToast('Payment form not ready', 'error'); return }
+    if (!stripeRef.current || !numberElRef.current) { showToast('Payment form not ready', 'error'); return }
     setSaving(true)
     try {
-      const result = await stripeRef.current.createToken(cardElRef.current)
+      const result = await stripeRef.current.createToken(numberElRef.current)
       if (result.error) throw new Error(result.error.message)
       // FM's POST /api/users/payment/defaultSource expects `cardToken`
       // (update-payment-card.component.ts:200). Sending `token` was the
@@ -143,9 +160,22 @@ export default function PaymentPage() {
           <form onSubmit={saveCard}>
             <div style={{ border: '1.5px solid #e0e0e0', borderRadius: 12, padding: '14px 16px', marginBottom: 14, background: '#fff' }}>
               <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Card details</div>
-              {stripeKey
-                ? <div ref={cardRef} style={{ padding: '8px 2px', minHeight: 20 }} />
-                : <div style={{ fontSize: 13, color: '#aaa' }}>Loading payment form…</div>}
+              {stripeKey ? (
+                <>
+                  <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>Card number</div>
+                  <div ref={numberRef} style={{ border: '1px solid #e8e8e8', borderRadius: 8, padding: '11px 12px', marginBottom: 10, minHeight: 20 }} />
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>Expiry</div>
+                      <div ref={expiryRef} style={{ border: '1px solid #e8e8e8', borderRadius: 8, padding: '11px 12px', minHeight: 20 }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>CVC</div>
+                      <div ref={cvcRef} style={{ border: '1px solid #e8e8e8', borderRadius: 8, padding: '11px 12px', minHeight: 20 }} />
+                    </div>
+                  </div>
+                </>
+              ) : <div style={{ fontSize: 13, color: '#aaa' }}>Loading payment form…</div>}
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button type="submit" disabled={saving} style={{ background: saving ? '#ccc' : BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: F }}>

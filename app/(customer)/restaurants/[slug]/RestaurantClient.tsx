@@ -352,7 +352,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // hidden so it tucks cleanly under the drawer chrome.
   const searchParams = useSearchParams()
   const embedded = searchParams?.get('embed') === '1'
-  const presetOrderDate = searchParams?.get('orderDate') || ''
+  // Calendar deep-link date. The "New order from calendar" flow sends
+  // ?orderDate=YYYY-MM-DD; also accept a plain ?date= for any other caller.
+  const presetOrderDate = searchParams?.get('orderDate') || searchParams?.get('date') || ''
   // Direct Entry — restaurant staff placing an order on behalf of a customer.
   // Routed here from /restaurant/orders/create with ?mode=direct-entry. The flag
   // shows a banner and switches CheckoutDrawer to the restaurant-authed place
@@ -420,6 +422,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // ── Auto-open menus modal on mount ────────────────────────────────────────
   useEffect(() => {
     if (!fmSlug || availDates.length === 0) return
+    // When arriving from the calendar with a chosen date (?orderDate / ?date),
+    // the query-param prefill effect above already opened the modal on that
+    // date — don't clobber it with the next-available default.
+    if (presetOrderDate) return
     const first = availDates[0]
     const d = new Date(first + 'T12:00:00')
     setCalYear(d.getFullYear()); setCalMonth(d.getMonth())

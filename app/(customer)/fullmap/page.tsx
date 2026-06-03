@@ -1456,12 +1456,19 @@ function FullmapAuthBtn() {
   // localStorage 'disco_user' read never reflected a cookie-based modal login,
   // so the map header stayed on "Log in" after signing in elsewhere.
   const { user, logout, openAuthModal } = useAuthContext()
+  const isMobile = useIsMobile()
   const [menuOpen, setMenuOpen] = React.useState(false)
 
   const initials = user ? `${user.firstName?.[0]??''}${user.lastName?.[0]??''}`.toUpperCase() : ''
 
   if (!user) return (
-    <button onClick={() => openAuthModal(undefined, 'login')} style={{ fontSize: 13, color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, background: '#1A1028', padding: '7px 18px', borderRadius: 999, fontFamily: F, flexShrink: 0 }}>Log in</button>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      <button onClick={() => openAuthModal(undefined, 'login')} style={{ fontSize: 13, color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, background: '#1A1028', padding: '7px 18px', borderRadius: 999, fontFamily: F, flexShrink: 0 }}>Log in</button>
+      {/* Desktop-only filled Sign up CTA next to Log in. */}
+      {!isMobile && (
+        <a href="/signup" style={{ fontSize: 13, color: '#fff', fontWeight: 700, background: '#5B6FE8', padding: '7px 18px', borderRadius: 999, fontFamily: F, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>Sign up</a>
+      )}
+    </div>
   )
 
   return (
