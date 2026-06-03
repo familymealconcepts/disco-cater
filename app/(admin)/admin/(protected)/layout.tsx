@@ -31,6 +31,7 @@ const NAV: NavItem[] = [
       { title: 'Ordering', path: '/admin/manage-restaurants/ordering' },
       { title: 'Marketplace', path: '/admin/manage-restaurants/marketplace' },
       { title: 'Import Menus', path: '/admin/manage-restaurants/bulk-import-menu' },
+      { title: 'Menu Import', path: '/admin/manage-restaurants/menu-import' },
     ],
   },
   { title: 'Menus', path: '/admin/manage-menus' },
