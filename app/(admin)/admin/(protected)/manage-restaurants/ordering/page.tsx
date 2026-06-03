@@ -12,6 +12,13 @@ const PAGE_BG = '#F7F8FC'
 const STATUSES = ['ACTIVE', 'INACTIVE', 'SUSPENDED', 'ARCHIVED'] as const
 
 interface Restaurant {
+  // Stable, guaranteed-unique per-row id assigned on load. FM's ordering list
+  // can return the SAME `reference` for several multi-unit locations (e.g.
+  // multiple "Colonial Ranch Market" rows), so `reference` is NOT safe as the
+  // React key or the optimistic-update match — doing so flipped every matching
+  // row at once. `_rowId` keeps each rendered row independent; FM API calls
+  // still use the real `reference`.
+  _rowId: string
   reference: string
   businessName: string
   url?: string
@@ -90,7 +97,14 @@ export default function RestaurantsOrderingPage() {
     const res = await fetch(`/api/admin/restaurants?${params}`)
     if (res.ok) {
       const d = await res.json()
-      setRows(d.content || [])
+      // Tag every row with a unique local id. FM can repeat `reference` across
+      // multi-unit locations, so we suffix with the array index to guarantee
+      // uniqueness for React keys + per-row optimistic updates.
+      const content: Restaurant[] = (d.content || []).map((r: Restaurant, i: number) => ({
+        ...r,
+        _rowId: `${r.reference ?? 'noref'}#${i}`,
+      }))
+      setRows(content)
       setTotal(d.totalElements || 0)
     } else {
       setError('Failed to load restaurants')
@@ -109,10 +123,10 @@ export default function RestaurantsOrderingPage() {
 
   async function toggleBlock(r: Restaurant) {
     const next = !r.blocked
-    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, blocked: next } : x))
+    setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, blocked: next } : x))
     const res = await fetch(`/api/admin/restaurants/${r.reference}/block?block=${next}`, { method: 'POST' })
     if (!res.ok) {
-      setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, blocked: !next } : x))
+      setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, blocked: !next } : x))
     } else {
       showToast(`${r.businessName} ${next ? 'blocked' : 'unblocked'}`)
     }
@@ -120,9 +134,9 @@ export default function RestaurantsOrderingPage() {
 
   async function toggleNash(r: Restaurant) {
     const next = !r.nashAllowed
-    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, nashAllowed: next } : x))
+    setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, nashAllowed: next } : x))
     const res = await fetch(`/api/admin/restaurants/${r.reference}/nash?nashAllowed=${next}`, { method: 'PATCH' })
-    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, nashAllowed: !next } : x))
+    if (!res.ok) setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, nashAllowed: !next } : x))
   }
 
   // FM has a single Shipday toggle (restaurant.service.ts:317 —
@@ -130,9 +144,9 @@ export default function RestaurantsOrderingPage() {
   // delivery/pickup endpoints; the earlier split returned 404.
   async function toggleShipday(r: Restaurant) {
     const next = !r.shipdayEnabled
-    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayEnabled: next } : x))
+    setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, shipdayEnabled: next } : x))
     const res = await fetch(`/api/admin/restaurants/${r.reference}/shipday?shipdayEnabled=${next}`, { method: 'PATCH' })
-    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, shipdayEnabled: !next } : x))
+    if (!res.ok) setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, shipdayEnabled: !next } : x))
   }
 
   // "Hold Payments on FamilyMeal": ON = moneyFlow FAMILY_MEAL (held),
@@ -140,9 +154,9 @@ export default function RestaurantsOrderingPage() {
   async function toggleMoneyFlow(r: Restaurant) {
     const held = r.moneyFlow !== 'DIRECT'
     const next = held ? 'DIRECT' : 'FAMILY_MEAL'
-    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, moneyFlow: next } : x))
+    setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, moneyFlow: next } : x))
     const res = await fetch(`/api/admin/restaurants/${r.reference}/money-flow?moneyFlow=${next}`, { method: 'PUT' })
-    if (!res.ok) setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, moneyFlow: held ? 'FAMILY_MEAL' : 'DIRECT' } : x))
+    if (!res.ok) setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, moneyFlow: held ? 'FAMILY_MEAL' : 'DIRECT' } : x))
     else showToast(`${r.businessName}: payments ${next === 'FAMILY_MEAL' ? 'held' : 'released'}`)
   }
 
@@ -155,7 +169,7 @@ export default function RestaurantsOrderingPage() {
 
   async function changeStatus(r: Restaurant, status: string) {
     if (status === r.restaurantStatus) return
-    setRows(prev => prev.map(x => x.reference === r.reference ? { ...x, restaurantStatus: status } : x))
+    setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, restaurantStatus: status } : x))
     const res = await fetch(`/api/admin/restaurants/${r.reference}/status?status=${status}`, { method: 'POST' })
     if (res.ok) showToast(`${r.businessName} → ${status}`)
     else load() // revert by reload
@@ -221,7 +235,7 @@ export default function RestaurantsOrderingPage() {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
               return (
-                <tr key={r.reference}>
+                <tr key={r._rowId}>
                   {/* Marketplace: ON = visible (NOT blocked), mirroring FM's
                       [checked]="!element.blocked". */}
                   <td style={cell}>
