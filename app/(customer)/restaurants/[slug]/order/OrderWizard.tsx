@@ -187,7 +187,8 @@ export default function OrderWizard({
       // Update order with address + headcount to get totals
       const updRes = await fetch('/api/order/update', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantRef, orderRef: ref, deliveryAddress: addr, persons: headcount }),
+        // FM requires orderType as "PICKUP" or "DELIVERY" — empty string causes 500
+        body: JSON.stringify({ restaurantRef, orderRef: ref, orderType: initialOrderType || 'PICKUP', deliveryAddress: addr, persons: headcount }),
       })
       const updData = await updRes.json()
       if (updRes.ok && !updData.error) setTotals(updData)

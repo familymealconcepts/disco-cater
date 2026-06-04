@@ -376,7 +376,8 @@ export default function CheckoutDrawer({
     const base = buildCheckoutPayload({
       restaurantRef: fmRef,
       cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
-      orderType: orderType as 'DELIVERY' | 'PICKUP',
+      // FM requires orderType as "PICKUP" or "DELIVERY" — empty string causes 500
+      orderType: (orderType || 'PICKUP') as 'DELIVERY' | 'PICKUP',
       orderDate: selDate, orderTime: selTime,
       deliveryAddress: orderType === 'DELIVERY' ? fmAddr : undefined,
       headcount,

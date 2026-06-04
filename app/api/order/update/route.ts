@@ -17,6 +17,11 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
 
+    // FM requires orderType as "PICKUP" or "DELIVERY" — empty string causes 500.
+    // Normalize here as a server-side backstop: anything that isn't exactly
+    // "DELIVERY" becomes "PICKUP" so a missing/blank value can never 500 FM.
+    updateBody.orderType = updateBody.orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
+
     const res = await fetch(`${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },

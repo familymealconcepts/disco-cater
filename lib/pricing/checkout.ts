@@ -118,19 +118,22 @@ function mapItem(line: CheckoutCartLine, restaurantRef: string): CheckoutItem {
 export function buildCheckoutPayload(opts: CheckoutPayloadOptions): CheckoutPayload {
   const { restaurantRef, cart, orderType, orderDate, orderTime, deliveryAddress } = opts
 
+  // FM requires orderType as "PICKUP" or "DELIVERY" — empty string causes 500.
+  const safeOrderType: 'DELIVERY' | 'PICKUP' = orderType || 'PICKUP'
+
   const payload: CheckoutPayload = {
     restaurantRef,
     restaurantReference: restaurantRef,
     items: cart.map(line => mapItem(line, restaurantRef)),
     mealPackages: [],
-    orderType,
+    orderType: safeOrderType,
     orderDate: toFmDate(orderDate),
     orderTime,
     tips: 0,
     tipsType: 'PERCENTAGE',
     taxExempt: false,
   }
-  if (orderType === 'DELIVERY' && deliveryAddress) payload.deliveryAddress = deliveryAddress
+  if (safeOrderType === 'DELIVERY' && deliveryAddress) payload.deliveryAddress = deliveryAddress
   return payload
 }
 
