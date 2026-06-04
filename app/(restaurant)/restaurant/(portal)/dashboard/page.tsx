@@ -84,8 +84,12 @@ function fmt(n: number | undefined | null) {
   if (n === undefined || n === null) return '$0.00'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
 }
-function fmtUSD0(n: number) {
-  return `$${Math.round(n).toLocaleString()}`
+// Y-axis tick formatter: compact "$1.2K" for >= 1000, otherwise a precise
+// 2-decimal amount ("$2.00", "$0.50") so small daily totals aren't rounded
+// into identical "$2"/"$1" labels.
+function fmtAxisUSD(n: number) {
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}K`
+  return `$${n.toFixed(2)}`
 }
 
 // Local-tz YYYY-MM-DD (avoids the UTC off-by-one that toISOString causes).
@@ -351,6 +355,9 @@ export default function DashboardPage() {
       do {
         const p = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE), fromDate: fmFrom, toDate: fmTo })
         CHART_STATUSES.forEach(s => p.append('orderStatuses', s))
+        // Scope to the selected restaurant when one is picked (mirrors the
+        // sale-stats fetch). Empty selectedRef = "All restaurants" → aggregate.
+        if (selectedRef) p.set('restaurantReference', selectedRef)
         const res = await fetch(`/api/restaurant/orders?${p}`)
         if (!res.ok) break
         const d = await res.json()
@@ -605,7 +612,7 @@ export default function DashboardPage() {
             <LineChart data={trend} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f2f2f2" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#999' }} tickLine={false} axisLine={{ stroke: '#eee' }} minTickGap={24} />
-              <YAxis tickFormatter={fmtUSD0} tick={{ fontSize: 11, fill: '#999' }} tickLine={false} axisLine={false} width={64} />
+              <YAxis tickFormatter={(value) => fmtAxisUSD(Number(value))} tick={{ fontSize: 11, fill: '#999' }} tickLine={false} axisLine={false} width={64} />
               <Tooltip content={<TrendTooltip />} />
               <Line type="monotone" dataKey="revenue" stroke={ACCENT} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
             </LineChart>

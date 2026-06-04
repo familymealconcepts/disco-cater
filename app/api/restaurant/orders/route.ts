@@ -19,6 +19,12 @@ export async function GET(req: NextRequest) {
   if (sp.get('search')) params.set('search', sp.get('search')!)
   if (sp.get('fromDate')) params.set('fromDate', sp.get('fromDate')!)
   if (sp.get('toDate')) params.set('toDate', sp.get('toDate')!)
+  // Explicit restaurant scope (Reporting chart). Mirrors the sale-stats proxy:
+  // a SYSTEM_ADMIN/SUPER_ADMIN passes restaurantReference to scope the
+  // system-admin endpoint to one location. Additive — the orders page never
+  // sends this param, so its cookie/role scoping is unchanged.
+  const queryRef = sp.get('restaurantReference') || ''
+  if (queryRef) params.set('restaurantReference', queryRef)
 
   // Track 1 — SYSTEM_ADMIN multi-location orders. Per FM
   // admin-manager-orders (getOrdersBySystem → GET /api/system-admin/orders,
@@ -32,8 +38,14 @@ export async function GET(req: NextRequest) {
   const role = await getRestaurantRole()
   const store = await cookies()
   const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value
-  const aggregate = (role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN') && !selected
-  const url = aggregate
+  const isSA = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'
+  // SA uses the system-admin orders endpoint when scoping by an explicit
+  // restaurantReference (Reporting chart, scoped to one location) OR when no
+  // location is selected (aggregate across all locations). A SA who selected a
+  // location via the cookie (orders page) keeps the session-scoped /api/orders
+  // path. ADMIN always uses /api/orders (JWT carries its single restaurant).
+  const useSystemAdmin = isSA && (queryRef !== '' || !selected)
+  const url = useSystemAdmin
     ? `${FM}/api/system-admin/orders?${params}`
     : `${FM}/api/orders?${params}`
 
