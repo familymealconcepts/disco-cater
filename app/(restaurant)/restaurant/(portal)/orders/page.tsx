@@ -247,6 +247,13 @@ function EditHistoryPanel({ orderRef, onClose }: { orderRef: string; onClose: ()
   const [error, setError] = useState(false)
   const [history, setHistory] = useState<EditRecord[]>([])
   const [raw, setRaw] = useState<unknown>(null)
+  // Mount closed, then flip to open on the next tick so the CSS transition
+  // animates the panel in from the right.
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const id = setTimeout(() => setOpen(true), 10)
+    return () => clearTimeout(id)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -315,12 +322,20 @@ function EditHistoryPanel({ orderRef, onClose }: { orderRef: string; onClose: ()
 
   return (
     <>
-      <style>{`@keyframes ehSlideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}@keyframes ehSpin{to{transform:rotate(360deg)}}`}</style>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300 }} />
+      <style>{`@keyframes ehSpin{to{transform:rotate(360deg)}}`}</style>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+          opacity: open ? 1 : 0, transition: 'opacity 0.25s ease-out',
+        }}
+      />
       <div style={{
-        position: 'fixed', top: 0, right: 0, height: '100%', width: 'min(480px, 100%)',
-        background: '#fff', zIndex: 301, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
-        display: 'flex', flexDirection: 'column', fontFamily: F, animation: 'ehSlideIn 0.2s ease-out',
+        position: 'fixed', top: 0, right: 0, height: '100vh', width: 'min(480px, 100vw)',
+        background: '#fff', zIndex: 1000, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
+        display: 'flex', flexDirection: 'column', fontFamily: F,
+        transform: open ? 'translateX(0)' : 'translateX(100%)',
+        transition: 'transform 0.25s ease-out',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Edit History — Order #{orderRef}</div>
@@ -1096,7 +1111,13 @@ function OrdersContent() {
                   return (
                     <tr
                       key={order.orderReference}
-                      onClick={() => openOrder(order)}
+                      onClick={e => {
+                        // Belt-and-suspenders: even if a child's stopPropagation
+                        // is ever bypassed, never open the detail drawer for a
+                        // click that originated in the row-actions cell.
+                        if ((e.target as HTMLElement).closest('[data-row-actions]')) return
+                        openOrder(order)
+                      }}
                       style={{
                         cursor: 'pointer',
                         background: isNew ? 'rgba(107,110,249,0.04)' : undefined,
@@ -1162,7 +1183,7 @@ function OrdersContent() {
                           </select>
                         )}
                       </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <td data-row-actions style={{ padding: '12px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {isEditEligible(order) && (
                           <button
                             title="Edit order"
