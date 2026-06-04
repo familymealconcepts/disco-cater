@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -8,6 +8,10 @@ const BLUE = '#6B6EF9'
 const PAGE_BG = '#F7F8FC'
 
 const ITEM_TYPES = ['CATERING', 'REGULAR'] as const
+
+// ezCater URL validator — accepts ezcater.com / www.ezcater.com with a path,
+// with or without protocol.
+const EZCATER_RE = /^(https?:\/\/)?(www\.)?ezcater\.com\//i
 
 interface Pkg {
   _id: string
@@ -18,6 +22,7 @@ interface Pkg {
   itemType: string
 }
 
+interface SearchResult { reference: string; name: string; location: string }
 interface ImportResult { name: string; success: boolean; error?: string }
 
 let _seq = 0
@@ -29,17 +34,64 @@ function blankPkg(): Pkg {
 
 export default function MenuImportClient() {
   const [step, setStep] = useState<'setup' | 'review' | 'results'>('setup')
-  const [restaurantReference, setRestaurantReference] = useState('')
   const [mode, setMode] = useState<'pdf' | 'ezcater'>('pdf')
+
+  // Restaurant picker — the UUID is stored internally; the user only sees the name.
+  const [restaurantReference, setRestaurantReference] = useState('')
+  const [selectedRestaurant, setSelectedRestaurant] = useState<SearchResult | null>(null)
+  const [restoQuery, setRestoQuery] = useState('')
+  const [restoResults, setRestoResults] = useState<SearchResult[]>([])
+  const [restoSearching, setRestoSearching] = useState(false)
+
   const [file, setFile] = useState<File | null>(null)
+  const [ezUrl, setEzUrl] = useState('')
+  const [urlError, setUrlError] = useState('')
+
   const [parsing, setParsing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [packages, setPackages] = useState<Pkg[]>([])
   const [results, setResults] = useState<ImportResult[]>([])
 
+  // Debounced restaurant search (300ms). Only fires at ≥3 chars and when no
+  // restaurant is already selected.
+  const searchSeq = useRef(0)
+  useEffect(() => {
+    if (selectedRestaurant) return
+    const q = restoQuery.trim()
+    if (q.length < 3) { setRestoResults([]); setRestoSearching(false); return }
+    setRestoSearching(true)
+    const seq = ++searchSeq.current
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/admin/restaurants/search?q=${encodeURIComponent(q)}`)
+        const data = await res.json().catch(() => [])
+        if (seq !== searchSeq.current) return // superseded
+        setRestoResults(Array.isArray(data) ? data : [])
+      } catch {
+        if (seq === searchSeq.current) setRestoResults([])
+      } finally {
+        if (seq === searchSeq.current) setRestoSearching(false)
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [restoQuery, selectedRestaurant])
+
+  function selectRestaurant(r: SearchResult) {
+    setSelectedRestaurant(r)
+    setRestaurantReference(r.reference)
+    setRestoQuery('')
+    setRestoResults([])
+  }
+  function clearRestaurant() {
+    setSelectedRestaurant(null)
+    setRestaurantReference('')
+    setRestoQuery('')
+    setRestoResults([])
+  }
+
   function reset() {
-    setStep('setup'); setFile(null); setPackages([]); setResults([]); setError('')
+    setStep('setup'); setFile(null); setEzUrl(''); setUrlError(''); setPackages([]); setResults([]); setError('')
     setParsing(false); setSubmitting(false)
   }
 
@@ -54,18 +106,29 @@ export default function MenuImportClient() {
 
   async function parseMenu() {
     setError('')
-    if (!restaurantReference.trim()) { setError('Restaurant Reference is required.'); return }
-    if (!file) { setError('Please upload a PDF menu.'); return }
+    if (!restaurantReference) { setError('Please select a restaurant.'); return }
+
+    let res: Response
     setParsing(true)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('restaurantReference', restaurantReference.trim())
-      const res = await fetch('/api/admin/menu-import/parse', { method: 'POST', body: fd })
+      if (mode === 'pdf') {
+        if (!file) { setError('Please upload a PDF menu.'); return }
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('restaurantReference', restaurantReference)
+        res = await fetch('/api/admin/menu-import/parse', { method: 'POST', body: fd })
+      } else {
+        if (!EZCATER_RE.test(ezUrl.trim())) { setUrlError('Enter a valid ezCater URL.'); return }
+        res = await fetch('/api/admin/menu-import/parse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: ezUrl.trim(), restaurantReference }),
+        })
+      }
       const data = await res.json().catch(() => null)
       if (!res.ok) { setError(data?.error || 'Failed to parse the menu.'); return }
       const parsed: Pkg[] = (data?.packages || []).map((p: Omit<Pkg, '_id'>) => ({ ...p, _id: newId() }))
-      if (!parsed.length) { setError('No packages were found in this PDF.'); return }
+      if (!parsed.length) { setError('No packages were found. Try a different source.'); return }
       setPackages(parsed)
       setStep('review')
     } catch {
@@ -95,7 +158,7 @@ export default function MenuImportClient() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          restaurantReference: restaurantReference.trim(),
+          restaurantReference,
           packages: valid.map(({ name, description, price, serves, itemType }) => ({ name, description, price, serves, itemType })),
         }),
       })
@@ -111,6 +174,7 @@ export default function MenuImportClient() {
   }
 
   const successCount = results.filter(r => r.success).length
+  const ezUrlInvalid = !!ezUrl.trim() && !EZCATER_RE.test(ezUrl.trim())
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
@@ -140,26 +204,53 @@ export default function MenuImportClient() {
         {/* ── STEP 1: SETUP ── */}
         {step === 'setup' && (
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', padding: 24 }}>
-            <label style={lbl}>Restaurant Reference</label>
-            <input value={restaurantReference} onChange={e => setRestaurantReference(e.target.value)}
-              placeholder="e.g. 3f9a1c2e-…" style={inputSt} />
-            <p style={helper}>Find this in the restaurant&apos;s FM admin URL.</p>
+            {/* Restaurant type-ahead picker */}
+            <label style={lbl}>Search restaurant</label>
+            {selectedRestaurant ? (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#EEF0FD', border: '1.5px solid #c8cafd', borderRadius: 999, padding: '7px 8px 7px 14px', maxWidth: '100%' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {selectedRestaurant.name}{selectedRestaurant.location ? <span style={{ color: '#888', fontWeight: 400 }}> — {selectedRestaurant.location}</span> : null}
+                </span>
+                <button onClick={clearRestaurant} title="Clear selection"
+                  style={{ width: 22, height: 22, borderRadius: '50%', border: 'none', background: '#fff', cursor: 'pointer', color: '#666', fontSize: 14, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>×</button>
+              </div>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                <input value={restoQuery} onChange={e => setRestoQuery(e.target.value)}
+                  placeholder="Type a restaurant name..." style={inputSt} autoComplete="off" />
+                {(restoSearching || restoResults.length > 0) && restoQuery.trim().length >= 3 && (
+                  <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: '#fff', border: '1px solid #e6e6ee', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', zIndex: 20, maxHeight: 260, overflowY: 'auto' }}>
+                    {restoSearching && restoResults.length === 0 && (
+                      <div style={{ padding: '10px 14px', fontSize: 12, color: '#999' }}>Searching…</div>
+                    )}
+                    {!restoSearching && restoResults.length === 0 && (
+                      <div style={{ padding: '10px 14px', fontSize: 12, color: '#999' }}>No matches.</div>
+                    )}
+                    {restoResults.map(r => (
+                      <button key={r.reference} onClick={() => selectRestaurant(r)}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', borderTop: '1px solid #f4f4f6', padding: '10px 14px', cursor: 'pointer', fontFamily: F }}
+                        onMouseOver={e => (e.currentTarget.style.background = '#f7f7fb')}
+                        onMouseOut={e => (e.currentTarget.style.background = 'none')}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{r.name}</div>
+                        {r.location && <div style={{ fontSize: 11, color: '#999', marginTop: 1 }}>{r.location}</div>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <p style={helper}>Search by name and pick the restaurant to import into.</p>
 
             <div style={{ marginTop: 22 }}>
               <label style={lbl}>Import Source</label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 6 }}>
-                <button type="button" onClick={() => setMode('pdf')}
-                  style={modeCard(mode === 'pdf', false)}>
+                <button type="button" onClick={() => setMode('pdf')} style={modeCard(mode === 'pdf')}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: DARK }}>📄 PDF Menu</div>
                   <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>Upload a PDF catering menu</div>
                 </button>
-                <button type="button" disabled aria-disabled
-                  style={modeCard(false, true)}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#aaa', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    🔗 ezCater URL
-                    <span style={{ fontSize: 10, fontWeight: 700, color: '#B07000', background: '#FFF8E1', padding: '1px 7px', borderRadius: 10 }}>Coming Soon</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: '#bbb', marginTop: 4 }}>Paste an ezCater catering page URL</div>
+                <button type="button" onClick={() => setMode('ezcater')} style={modeCard(mode === 'ezcater')}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: DARK }}>🔗 ezCater URL</div>
+                  <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>Paste an ezCater catering page URL</div>
                 </button>
               </div>
             </div>
@@ -170,6 +261,18 @@ export default function MenuImportClient() {
                 <input type="file" accept="application/pdf" onChange={onPickFile}
                   style={{ display: 'block', fontSize: 13, fontFamily: F, marginTop: 6 }} />
                 <p style={helper}>PDF only, max 10MB.{file ? ` · Selected: ${file.name}` : ''}</p>
+              </div>
+            )}
+
+            {mode === 'ezcater' && (
+              <div style={{ marginTop: 22 }}>
+                <label style={lbl}>ezCater URL</label>
+                <input value={ezUrl} onChange={e => { setEzUrl(e.target.value); setUrlError('') }}
+                  placeholder="https://www.ezcater.com/catering/pvt/..."
+                  style={{ ...inputSt, borderColor: (urlError || ezUrlInvalid) ? '#E76F51' : '#e0e0e0' }} autoComplete="off" />
+                {(urlError || ezUrlInvalid)
+                  ? <p style={{ ...helper, color: '#E76F51' }}>Enter a valid ezCater URL (must be on ezcater.com).</p>
+                  : <p style={helper}>Paste the restaurant&apos;s ezCater catering page URL.</p>}
               </div>
             )}
 
@@ -265,12 +368,12 @@ export default function MenuImportClient() {
   )
 }
 
-function modeCard(active: boolean, disabled: boolean): React.CSSProperties {
+function modeCard(active: boolean): React.CSSProperties {
   return {
     textAlign: 'left', padding: '14px 16px', borderRadius: 12, fontFamily: F,
     border: `1.5px solid ${active ? BLUE : '#e6e6ee'}`,
-    background: active ? '#EEF0FD' : disabled ? '#fafafb' : '#fff',
-    cursor: disabled ? 'not-allowed' : 'pointer',
+    background: active ? '#EEF0FD' : '#fff',
+    cursor: 'pointer',
     boxShadow: active ? '0 2px 10px rgba(91,111,232,0.12)' : 'none',
   }
 }
