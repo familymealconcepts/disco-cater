@@ -10,7 +10,6 @@ import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import FavoriteHeart from '../account/components/FavoriteHeart'
 import { useAuthContext } from '../../context/AuthContext'
-import TalkToHumanButton from '../../components/TalkToHumanButton'
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
@@ -1026,11 +1025,6 @@ function FullMapInner() {
               <FullmapAuthBtn />
             </div>
           </div>
-
-          {/* Concierge button — floats bottom-right on mobile (the Disco AI
-              launcher lives in the top header, so the concierge button floats
-              below/clear of it rather than crowding the header bar). */}
-          <TalkToHumanButton style={{ position: 'fixed', right: 14, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)', zIndex: 50, height: 40, padding: '0 14px', fontSize: 13, boxShadow: '0 4px 14px rgba(0,0,0,0.18)' }} />
 
           {/* 2. Location search */}
           <div style={{ padding: '12px 16px 8px', background: '#fff', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
