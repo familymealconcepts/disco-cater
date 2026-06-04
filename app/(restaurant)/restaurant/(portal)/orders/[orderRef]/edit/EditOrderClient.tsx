@@ -147,10 +147,21 @@ export default function EditOrderClient({ orderRef, restaurantRef, menuData }: {
     let cancelled = false
     ;(async () => {
       try {
+        console.log('[edit-client] loading details', { orderRef })
         const res = await fetch(`/api/restaurant/orders/${orderRef}/details`)
-        if (!res.ok) throw new Error('details')
+        if (!res.ok) {
+          const body = await res.text().catch(() => '')
+          console.error('[edit-client] details fetch failed', { orderRef, status: res.status, body: body.slice(0, 1000) })
+          throw new Error(`details ${res.status}`)
+        }
         const o = (await res.json()) as AnyRec
         if (cancelled) return
+        console.log('[edit-client] details loaded', {
+          orderRef,
+          mealPackages: Array.isArray(o.orderMealPackages) ? o.orderMealPackages.length : 0,
+          classics: Array.isArray(o.orderClassics) ? o.orderClassics.length : 0,
+          orderType: o.orderType, orderDate: o.orderDate, orderTime: o.orderTime,
+        })
 
         const mps = [
           ...(Array.isArray(o.orderMealPackages) ? o.orderMealPackages : []),
@@ -200,7 +211,8 @@ export default function EditOrderClient({ orderRef, restaurantRef, menuData }: {
         // If the lock call fails we still let them view/edit; commit will surface
         // any server-side lock error.
         setLoading(false)
-      } catch {
+      } catch (err) {
+        console.error('[edit-client] load sequence threw', { orderRef, err })
         if (!cancelled) { setLoadError('Could not load this order for editing.'); setLoading(false) }
       }
     })()

@@ -40,12 +40,26 @@ export default async function EditOrderPage({ params }: { params: Promise<{ orde
   const { orderRef } = await params
 
   const role = await getRestaurantRole()
-  if (!role) redirect('/restaurant/login')
+  if (!role) {
+    console.error('[edit-page] no role — redirecting to login', { orderRef })
+    redirect('/restaurant/login')
+  }
 
   const restaurantRef = await getRestaurantRef()
-  if (!restaurantRef) redirect('/restaurant/select-location')
+  if (!restaurantRef) {
+    console.error('[edit-page] no restaurantRef — redirecting to select-location', { orderRef, role })
+    redirect('/restaurant/select-location')
+  }
 
-  const menuData = await fetchMenuData(restaurantRef)
+  console.error('[edit-page] loading', { orderRef, restaurantRef, role })
+
+  let menuData: MenuSection[] = []
+  try {
+    menuData = await fetchMenuData(restaurantRef)
+    console.error('[edit-page] menu loaded', { orderRef, restaurantRef, menuSections: menuData.length })
+  } catch (err) {
+    console.error('[edit-page] menu fetch failed', { orderRef, restaurantRef, err })
+  }
 
   return <EditOrderClient orderRef={orderRef} restaurantRef={restaurantRef} menuData={menuData} />
 }

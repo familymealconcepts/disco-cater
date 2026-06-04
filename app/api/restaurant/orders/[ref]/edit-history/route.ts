@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   }
   try {
     const res = await fetch(`${FM}/public-api/v2/orders/${ref}/details`, {
-      headers: { ...authHeaders, 'X-RESTAURANT-UUID': ref },
+      headers: { ...authHeaders, Accept: 'application/json' },
     })
     if (!res.ok) {
       return NextResponse.json({ error: 'Failed to load order details' }, { status: res.status })

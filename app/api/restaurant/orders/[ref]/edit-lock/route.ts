@@ -17,7 +17,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   try {
     await fetch(`${FM}/public-api/v2/orders/${ref}/edit-lock`, {
       method: 'DELETE',
-      headers: { ...authHeaders, Accept: 'application/json', 'X-RESTAURANT-UUID': ref },
+      headers: { ...authHeaders, Accept: 'application/json' },
     })
   } catch {
     // swallow — releasing the lock is best-effort
