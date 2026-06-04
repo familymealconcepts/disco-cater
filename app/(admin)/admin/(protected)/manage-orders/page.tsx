@@ -6,6 +6,12 @@ const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 const PAGE_BG = '#F7F8FC'
 
+// Pull the FULL order set up front (all pages, capped) so filters/sort/search run
+// client-side across everything, not just one server page. Mirrors the Customers
+// page pattern.
+const FETCH_SIZE = 200
+const MAX_PAGES = 50
+
 interface Order {
   orderReference: string
   restaurantReference: string
@@ -356,7 +362,6 @@ function DateTimeModal({ order, onClose, onSaved }: { order: Order; onClose: () 
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
   const [searchInput, setSearchInput] = useState('')
@@ -365,34 +370,49 @@ export default function AdminOrdersPage() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Order | null>(null)
 
-  // Client-side filters + sort (operate on the already-loaded page — no new API
-  // calls). Date range stays server-side since it controls which page is fetched.
+  // Client-side filters + sort, applied across the FULL fetched dataset (see
+  // load below). The date range stays a server filter — it scopes which orders
+  // are fetched up front; pagination is now client-side over the filtered set.
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null)
 
+  // Fetch ALL pages (capped at MAX_PAGES) so filters/sort run over everything.
   const load = useCallback(async () => {
     setLoading(true)
-    const params = new URLSearchParams()
-    if (page > 0) params.set('page', String(page))
-    params.set('size', String(pageSize))
-    if (fromDate) params.set('fromDate', fromDate)
-    if (toDate) params.set('toDate', toDate)
-    params.append('sort', 'createdDate,desc')
-    const res = await fetch(`/api/admin/orders?${params}`)
-    if (res.ok) {
-      const d = await res.json()
-      setOrders(d.content || [])
-      setTotal(d.totalElements || 0)
-    } else {
-      setOrders([])
-      setTotal(0)
+    const url = (p: number) => {
+      const params = new URLSearchParams()
+      if (p > 0) params.set('page', String(p))
+      params.set('size', String(FETCH_SIZE))
+      if (fromDate) params.set('fromDate', fromDate)
+      if (toDate) params.set('toDate', toDate)
+      params.append('sort', 'createdDate,desc')
+      return `/api/admin/orders?${params}`
     }
-    setLoading(false)
-  }, [page, pageSize, fromDate, toDate])
+    try {
+      const first = await fetch(url(0)).then(r => (r.ok ? r.json() : null))
+      if (!first) { setOrders([]); setLoading(false); return }
+      let all: Order[] = first.content || []
+      const totalPages = Math.min(first.totalPages ?? 1, MAX_PAGES)
+      if (totalPages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, i) => fetch(url(i + 1)).then(r => (r.ok ? r.json() : null))),
+        )
+        for (const pg of rest) if (pg?.content) all = all.concat(pg.content)
+      }
+      setOrders(all)
+    } catch {
+      setOrders([])
+    } finally {
+      setLoading(false)
+    }
+  }, [fromDate, toDate])
 
   useEffect(() => { load() }, [load])
+
+  // Reset to the first client page whenever the filtered/sorted result set changes.
+  useEffect(() => { setPage(0) }, [searchInput, typeFilter, statusFilter, sourceFilter, sort, pageSize])
 
   function toggleSort(key: SortKey) {
     setSort(prev => {
@@ -426,7 +446,9 @@ export default function AdminOrdersPage() {
     })
   })()
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  // Client-side pagination over the filtered/sorted full set.
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize))
+  const pageRows = visible.slice(page * pageSize, (page + 1) * pageSize)
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
@@ -486,9 +508,9 @@ export default function AdminOrdersPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={9} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {loading && <tr><td colSpan={9} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading orders…</td></tr>}
             {!loading && !visible.length && <tr><td colSpan={9} style={{ ...cell, textAlign: 'center', color: '#999' }}>{filtersActive ? 'No orders match these filters.' : 'No orders.'}</td></tr>}
-            {!loading && visible.map(o => (
+            {!loading && pageRows.map(o => (
               <tr key={o.orderReference}>
                 <td style={{ ...cell, color: '#666' }}>{fmtDate(o.createdDate)}</td>
                 <td style={cell}>{o.restaurantName}</td>
@@ -519,7 +541,7 @@ export default function AdminOrdersPage() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
         <div style={{ fontSize: 12, color: '#666' }}>
-          {filtersActive ? `${visible.length} of ${orders.length} on this page · ` : ''}{total} order{total === 1 ? '' : 's'} total
+          {loading ? 'Loading…' : `${filtersActive ? `${visible.length} of ${orders.length}` : visible.length} order${visible.length === 1 ? '' : 's'}`}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#666' }}>
           <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} style={pageBtn}>‹</button>
