@@ -318,8 +318,12 @@ export default function BecomeAPartnerClient() {
                 Estimated time to complete – 15min. Please have the following information ready:
                 Business Tax ID and/or Social Security Number, Bank Routing Number &amp; Bank Account Number.
               </p>
+              <p style={{ ...italicNote, marginTop: 12 }}>
+                After completing onboarding, a Disco Cater team member will contact you to complete your
+                Stripe setup and activate your account.
+              </p>
               <button onClick={() => { setError(''); setStep(3) }} style={{ ...secondaryBtn, marginTop: 10 }}>
-                Not now, let&apos;s keep going
+                Continue →
               </button>
             </>
           )}

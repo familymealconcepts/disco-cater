@@ -23,10 +23,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(`${FM}/stripe/clients/${restaurantReference}/connect`, {
+    const res = await fetch(`${FM}/api/stripe/clients/${restaurantReference}/connect`, {
       method: 'POST',
-      // FM expects the raw JWT (no "Bearer" prefix).
-      headers: { Authorization: token, 'Content-Type': 'application/json' },
+      // Mirrors the working portal route: raw JWT (no "Bearer"), form-encoded
+      // body with a callbackUri Stripe returns the merchant to after onboarding.
+      headers: { Authorization: token, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'callbackUri=https://www.discocater.com/become-a-partner?stripe=success',
     })
     const data = await res.json().catch(() => null)
     const stripeConnectUrl = data?.stripeConnectUrl || data?.url || data?.connectUrl || data?.link
