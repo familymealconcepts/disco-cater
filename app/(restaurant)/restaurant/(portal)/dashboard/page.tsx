@@ -101,6 +101,14 @@ function computeRange(p: Preset): { from: string; to: string } | null {
   if (p === 'month') { const d = new Date(now.getFullYear(), now.getMonth(), 1); return { from: ymd(d), to } }
   return null // custom
 }
+// FM's orders API parses date filters as DD.MM.YYYY (same as the sale-stats and
+// orders/saleStats proxies). The chart works in YYYY-MM-DD everywhere else
+// (grouping keys, axis labels) — only the query params sent to FM need this.
+// Sending YYYY-MM-DD silently matches nothing → the "no chart data" bug.
+function toFmDate(iso: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso
+}
 // Short label "Jun 1" — parse as local date so the day doesn't shift.
 function dayLabel(iso: string) {
   const [y, m, d] = iso.split('-').map(Number)
@@ -328,13 +336,20 @@ export default function DashboardPage() {
   const loadChartData = useCallback(async (from: string, to: string) => {
     if (!from || !to) return
     setChartLoading(true)
+    // FM's orders endpoint needs DD.MM.YYYY for the date filter (YYYY-MM-DD
+    // silently returns nothing). Convert only the query params — `from`/`to`
+    // stay YYYY-MM-DD for grouping and axis labels below. Scoping to the
+    // selected restaurant is handled server-side by the fm_selected_restaurant
+    // cookie (set by the dropdown), matching the sale-stats scope.
+    const fmFrom = toFmDate(from)
+    const fmTo = toFmDate(to)
     try {
       const all: ListOrder[] = []
       let page = 0
       let totalPages = 1
       let hitCap = false
       do {
-        const p = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE), fromDate: from, toDate: to })
+        const p = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE), fromDate: fmFrom, toDate: fmTo })
         CHART_STATUSES.forEach(s => p.append('orderStatuses', s))
         const res = await fetch(`/api/restaurant/orders?${p}`)
         if (!res.ok) break
