@@ -249,8 +249,10 @@ function typeBadgeLabels(o: Order): string[] {
 function TypeBadges({ order }: { order: Order }) {
   const labels = typeBadgeLabels(order)
   if (!labels.length) return <span style={{ color: '#bbb' }}>—</span>
+  // Stack vertically (delivery badge on top, (DE) below) so wide combos like
+  // (3D)(DE) don't overflow the cell. Both chips left-aligned.
   return (
-    <span style={{ display: 'inline-flex', gap: 4 }}>
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3 }}>
       {labels.map(l => (
         <span key={l} style={{
           display: 'inline-flex', alignItems: 'center', background: DARK, color: '#fff',
