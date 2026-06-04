@@ -202,7 +202,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
           </button>
           <button
             className="auth-tab-btn"
-            onClick={() => { setTab('signup'); setLoginError(''); setRegError('') }}
+            onClick={() => { handleClose(); router.push('/signup') }}
             style={{
               background: tab === 'signup' ? '#fff' : 'transparent',
               color: tab === 'signup' ? DARK : '#999',
