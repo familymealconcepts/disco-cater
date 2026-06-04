@@ -3,7 +3,6 @@ import { useState, useEffect, Fragment } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
-import TalkToHumanButton from '../../../components/TalkToHumanButton'
 import { useAuthContext } from '../../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
@@ -293,10 +292,6 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
           </main>
         </div>
       </div>
-
-      {/* Concierge — the portal has no floating AI chat, so just the
-          "Talk to a Human" button, floating bottom-right. */}
-      <TalkToHumanButton style={{ position: 'fixed', right: 20, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)', zIndex: 1000, height: 44, padding: '0 18px', fontSize: 14, boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }} />
     </>
   )
 }
