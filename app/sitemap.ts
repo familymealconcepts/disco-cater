@@ -1,14 +1,7 @@
 import type { MetadataRoute } from 'next'
-import { createClient } from '@sanity/client'
+import { client } from '../sanity/lib/client'
 
 const SITE = 'https://www.discocater.com'
-
-const sanity = createClient({
-  projectId: '0j4eqnmw',
-  dataset: 'production',
-  useCdn: true,
-  apiVersion: '2024-01-01',
-})
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date()
@@ -17,12 +10,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // — a transient Sanity failure shouldn't 500 the sitemap and tank crawl.
   let restaurantSlugs: { slug: string }[] = []
   try {
-    const rows: { slug: { current?: string } | null }[] = await sanity.fetch(
-      `*[_type=="restaurant" && defined(slug.current)]{ slug }`,
+    const rows: { slug: string }[] = await client.fetch(
+      `*[_type == "restaurant" && defined(slug.current)]{ "slug": slug.current }`,
     )
-    restaurantSlugs = rows
-      .map(r => ({ slug: r.slug?.current || '' }))
-      .filter(r => !!r.slug)
+    restaurantSlugs = (rows || []).filter(r => !!r.slug)
   } catch {
     restaurantSlugs = []
   }
@@ -31,11 +22,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: SITE, lastModified: now, changeFrequency: 'daily', priority: 1.0 },
     { url: `${SITE}/fullmap`, lastModified: now, changeFrequency: 'daily', priority: 0.9 },
     { url: `${SITE}/faq`, lastModified: now, changeFrequency: 'monthly', priority: 0.5 },
+    { url: `${SITE}/become-a-partner`, lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
+    { url: `${SITE}/privacy`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },
+    { url: `${SITE}/terms`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },
   ]
 
   // City landing pages — priority above restaurant pages (0.7), below the
   // homepage (1.0).
   const cityEntries: MetadataRoute.Sitemap = ['new-york', 'new-jersey', 'los-angeles', 'chicago'].map(slug => ({
+    url: `${SITE}/${slug}`,
+    lastModified: now,
+    changeFrequency: 'weekly',
+    priority: 0.8,
+  }))
+
+  // Use-case landing pages — listed now so they're crawl-ready when published.
+  const useCaseEntries: MetadataRoute.Sitemap = ['corporate-catering', 'holiday-catering', 'social-catering', 'meal-prep'].map(slug => ({
     url: `${SITE}/${slug}`,
     lastModified: now,
     changeFrequency: 'weekly',
@@ -49,5 +51,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.7,
   }))
 
-  return [...staticEntries, ...cityEntries, ...restaurantEntries]
+  return [...staticEntries, ...cityEntries, ...useCaseEntries, ...restaurantEntries]
 }

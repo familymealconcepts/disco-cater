@@ -19,6 +19,43 @@ export const metadata: Metadata = {
   description: "Discover and order premium catering from the best local restaurants. Corporate, holiday, and event catering — delivered or picked up.",
 };
 
+const ORG_SCHEMA = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://www.discocater.com/#organization",
+      "name": "Disco Cater",
+      "legalName": "FamilyMeal Concepts Inc.",
+      "url": "https://www.discocater.com",
+      "logo": "https://www.discocater.com/disco-cater-logo.png",
+      "description": "Disco Cater is a nationwide premium restaurant catering marketplace specializing in recurring office catering programs, holiday and social event menus, and AI-powered catering discovery.",
+      "email": "concierge@discocater.com",
+      "foundingLocation": "New Jersey, USA",
+      "areaServed": "United States",
+      "sameAs": [],
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://www.discocater.com/#app",
+      "name": "Disco Cater",
+      "applicationCategory": "Food & Beverage",
+      "operatingSystem": "Web",
+      "url": "https://www.discocater.com",
+      "description": "AI-powered catering marketplace connecting customers with premium restaurant catering nationwide. Features Disco AI for personalized catering recommendations.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "description": "Free for customers. No commission fees.",
+      },
+      "provider": {
+        "@id": "https://www.discocater.com/#organization",
+      },
+    },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -27,6 +64,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Organization + SoftwareApplication JSON-LD (knowledge-graph / GEO) */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(ORG_SCHEMA) }}
+        />
+
         {/* Google Analytics */}
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-KQV7RLHXTH"
