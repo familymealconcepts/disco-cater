@@ -73,6 +73,9 @@ export default function BecomeAPartnerClient() {
   const [agreePrivacy, setAgreePrivacy] = useState(false)
   const [agreeDelivery, setAgreeDelivery] = useState(false)
   const [agreePricing, setAgreePricing] = useState(false)
+  // Step 4 — optional catering menu the diner can share for our team to import.
+  const [menuUrl, setMenuUrl] = useState('')
+  const [menuFile, setMenuFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -117,18 +120,51 @@ export default function BecomeAPartnerClient() {
     }
   }
 
+  const hasMenu = !!(menuUrl.trim() || menuFile)
+
+  // Send the optional menu to the team for manual import. Best-effort — returns
+  // true on success/skip, false on failure (which must NOT block onboarding).
+  async function sendMenu(): Promise<boolean> {
+    if (!hasMenu) return true
+    try {
+      let res: Response
+      if (menuFile) {
+        const fd = new FormData()
+        if (menuUrl.trim()) fd.append('menuUrl', menuUrl.trim())
+        fd.append('menuFile', menuFile)
+        fd.append('restaurantName', form.restaurantName)
+        fd.append('email', form.email)
+        res = await fetch('/api/become-a-partner/menu-upload', { method: 'POST', body: fd })
+      } else {
+        res = await fetch('/api/become-a-partner/menu-upload', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ menuUrl: menuUrl.trim(), restaurantName: form.restaurantName, email: form.email }),
+        })
+      }
+      const data = await res.json().catch(() => null)
+      return !!(res.ok && data?.success)
+    } catch {
+      return false
+    }
+  }
+
   // ── Step 4: complete onboarding ────────────────────────────────────────────
   async function completeOnboarding() {
     setError('')
     if (!agreePricing) { setError('Please agree to the Merchant Order Form to continue.'); return }
     setLoading(true)
     try {
+      // 1. Send the menu (if provided) — failure is non-blocking.
+      const menuOk = await sendMenu()
+      // 2. Complete onboarding as normal.
       const res = await fetch('/api/become-a-partner/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: form.email, agreedToPricing: true, agreedToDelivery: agreeDelivery }),
       })
       const data = await res.json()
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
+      // 3. Surface a menu-upload failure but still advance — don't block onboarding.
+      if (!menuOk) setError('Menu upload failed — you can email your menu to concierge@discocater.com')
       setStep(5)
     } catch {
       setError('Unable to connect. Please try again.')
@@ -355,9 +391,34 @@ export default function BecomeAPartnerClient() {
                 I agree to the Disco Cater Merchant Order Form and Merchant Agreement Terms and Conditions.
               </Check>
 
+              {/* Optional menu upload — sent to the team for manual import. */}
+              <div style={{ borderTop: '1px solid #eee', paddingTop: 18, marginTop: 6, marginBottom: 8 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, margin: '0 0 6px' }}>Share your catering menu</div>
+                <p style={subStyle}>
+                  Optional: share your catering menu and our team will build it for you in FamilyMeal. You can also
+                  skip this step and send your menu to concierge@discocater.com later.
+                </p>
+                <div style={{ marginTop: 14 }}>
+                  <label style={label}>Menu link</label>
+                  <input value={menuUrl} onChange={e => setMenuUrl(e.target.value)}
+                    placeholder="Link to your online menu (ezCater, website, Google Drive…)"
+                    style={pillInput} />
+                </div>
+                <div style={{ marginTop: 12 }}>
+                  <label style={label}>Or upload a file</label>
+                  <input type="file"
+                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={e => setMenuFile(e.target.files?.[0] || null)}
+                    style={{ display: 'block', fontSize: 13, fontFamily: F, marginTop: 4 }} />
+                </div>
+                <p style={{ fontSize: 12, color: '#999', fontStyle: 'italic', lineHeight: 1.5, margin: '10px 0 0' }}>
+                  Accepted formats: PDF, DOC, DOCX, or a link to your online menu (ezCater, website, Google Drive, etc.)
+                </p>
+              </div>
+
               <button onClick={completeOnboarding} disabled={loading || !agreePricing}
-                style={{ ...primaryBtn, opacity: (loading || !agreePricing) ? 0.5 : 1, cursor: (loading || !agreePricing) ? 'default' : 'pointer' }}>
-                {loading ? 'Creating account…' : 'Create account'}
+                style={{ ...primaryBtn, marginTop: 8, opacity: (loading || !agreePricing) ? 0.5 : 1, cursor: (loading || !agreePricing) ? 'default' : 'pointer' }}>
+                {loading ? (hasMenu ? 'Uploading menu…' : 'Creating account…') : 'Create account'}
               </button>
             </>
           )}
@@ -370,6 +431,11 @@ export default function BecomeAPartnerClient() {
                 Your Disco Cater account has been created. A Disco Cater team member will be in touch
                 shortly to help you go live.
               </p>
+              {error && (
+                <div style={{ background: '#fff3f3', border: '1px solid #ffd6d6', color: '#c0392b', borderRadius: 12, padding: '10px 14px', fontSize: 13, maxWidth: 420, margin: '0 auto 24px', textAlign: 'left' }}>
+                  {error}
+                </div>
+              )}
               <a href="https://www.familymeal.com"
                 style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none' }}>
                 Go to your dashboard →
