@@ -140,17 +140,25 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
           <>
             <div onClick={() => setMobileOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 199 }} />
             <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', borderBottom: '1px solid #f0f0f0', boxShadow: '0 8px 24px rgba(0,0,0,0.10)', zIndex: 201, padding: '8px 16px 16px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Link href="/fullmap" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>Catering Map</Link>
-              <Link href="/faq" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>FAQ</Link>
-              <Link href="/become-a-partner" className="dc-mobile-item" style={{ color: '#6B6EF9' }} onClick={() => setMobileOpen(false)}>For Restaurants</Link>
-              <div style={{ height: 1, background: '#f0f0f0', margin: '8px 0' }} />
               {!isLoading && (user ? (
                 <>
+                  {/* Logged-in: greeting first, then account + nav, then sign out.
+                      "For Restaurants" is hidden for signed-in diners. */}
+                  <div style={{ padding: '8px 10px 6px', fontSize: 16, fontWeight: 700, color: '#1A1028', fontFamily: F }}>Hi, {user.firstName || 'there'} 👋</div>
+                  <div style={{ height: 1, background: '#f0f0f0', margin: '6px 0 8px' }} />
                   <Link href="/account/orders" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>My Account</Link>
-                  <button onClick={() => { setMobileOpen(false); signOut() }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: '1.5px solid #f0c0c0', background: '#fff', color: '#E24B4A', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: F, marginTop: 4 }}>Sign out</button>
+                  <Link href="/fullmap" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>Catering Map</Link>
+                  <Link href="/faq" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>FAQ</Link>
+                  <div style={{ height: 1, background: '#f0f0f0', margin: '8px 0' }} />
+                  <button onClick={() => { setMobileOpen(false); signOut() }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: '1.5px solid #f0c0c0', background: '#fff', color: '#E24B4A', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>Sign out</button>
                 </>
               ) : (
                 <>
+                  {/* Logged-out menu — unchanged. */}
+                  <Link href="/fullmap" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>Catering Map</Link>
+                  <Link href="/faq" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>FAQ</Link>
+                  <Link href="/become-a-partner" className="dc-mobile-item" style={{ color: '#6B6EF9' }} onClick={() => setMobileOpen(false)}>For Restaurants</Link>
+                  <div style={{ height: 1, background: '#f0f0f0', margin: '8px 0' }} />
                   <button onClick={() => { setMobileOpen(false); openAuthModal(undefined, 'login') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: F, marginTop: 4 }}>Log In</button>
                   <button onClick={() => { setMobileOpen(false); openAuthModal(undefined, 'signup') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F, marginTop: 6 }}>Sign Up</button>
                 </>
