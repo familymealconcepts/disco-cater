@@ -58,6 +58,7 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
           {rightLinks && <Link href="/fullmap" className="dc-link">Catering Map</Link>}
           {rightLinks && <Link href="/faq" className="dc-link">FAQ</Link>}
+          {rightLinks && <Link href="/become-a-partner" className="dc-link">For Restaurants</Link>}
 
           {!isLoading && (
             user ? (

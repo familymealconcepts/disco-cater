@@ -15,14 +15,14 @@ const pillInput: React.CSSProperties = {
 }
 const labelSt: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#777', marginBottom: 6, display: 'block' }
 
-function Field({ label, value, onChange, type = 'text', autoComplete }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string; autoComplete?: string
+function Field({ label, value, onChange, type = 'text', autoComplete, placeholder }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string; autoComplete?: string; placeholder?: string
 }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={labelSt}>{label}</label>
       <input
-        type={type} value={value} autoComplete={autoComplete}
+        type={type} value={value} autoComplete={autoComplete} placeholder={placeholder}
         onChange={e => onChange(e.target.value)}
         onFocus={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(91,111,232,0.12)' }}
         onBlur={e => { e.currentTarget.style.borderColor = '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
@@ -36,6 +36,7 @@ export default function SignupClient() {
   const router = useRouter()
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
+  const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [confirmEmail, setConfirmEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -46,6 +47,7 @@ export default function SignupClient() {
   async function submit() {
     setError('')
     if (!firstName || !lastName || !email || !password) { setError('Please complete all fields.'); return }
+    if (!phone.trim()) { setError('Phone number is required'); return }
     if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) { setError('Email addresses do not match.'); return }
     if (password.length < 8) { setError('Password must be at least 8 characters.'); return }
     if (!agree) { setError("Please agree to Disco Cater's Privacy Policy and Terms of Service."); return }
@@ -54,7 +56,7 @@ export default function SignupClient() {
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstName, lastName, email, password }),
+        body: JSON.stringify({ firstName, lastName, phoneNumber: phone, email, password }),
         credentials: 'include',
       })
       const data = await res.json()
@@ -100,6 +102,7 @@ export default function SignupClient() {
             <Field label="First Name" value={firstName} onChange={setFirstName} autoComplete="given-name" />
             <Field label="Last Name" value={lastName} onChange={setLastName} autoComplete="family-name" />
           </div>
+          <Field label="Phone Number" value={phone} onChange={setPhone} type="tel" autoComplete="tel" placeholder="e.g. (555) 555-5555" />
           <Field label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" />
           <Field label="Confirm Email" value={confirmEmail} onChange={setConfirmEmail} type="email" />
           <Field label="Password" value={password} onChange={setPassword} type="password" autoComplete="new-password" />
