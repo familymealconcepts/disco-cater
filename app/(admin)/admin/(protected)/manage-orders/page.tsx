@@ -9,7 +9,7 @@ const PAGE_BG = '#F7F8FC'
 // Pull the FULL order set up front (all pages, capped) so filters/sort/search run
 // client-side across everything, not just one server page. Mirrors the Customers
 // page pattern.
-const FETCH_SIZE = 200
+const FETCH_SIZE = 500
 const MAX_PAGES = 50
 
 interface Order {
@@ -409,15 +409,29 @@ export default function AdminOrdersPage() {
         setOrders([]); setLoading(false); return
       }
       let all: Order[] = first.content || []
-      const totalPages = Math.min(first.totalPages ?? 1, MAX_PAGES)
+      // FM's userOrders may omit totalPages (or name it total_pages); if so,
+      // `?? 1` would silently stop at page 0 and drop the rest. Fall back to
+      // computing pages from totalElements / FETCH_SIZE.
+      const totalElements = Number(first.totalElements ?? first.total_elements ?? 0)
+      const reportedPages = first.totalPages ?? first.total_pages
+      const computedPages = totalElements > 0
+        ? Math.ceil(totalElements / FETCH_SIZE)
+        : (all.length > 0 ? 1 : 0)
+      const totalPages = Math.min(Number(reportedPages ?? computedPages) || (all.length > 0 ? 1 : 0), MAX_PAGES)
+      console.log('[admin/orders] page 0 →', all.length, 'orders', { totalElements, reportedPages, computedPages, totalPages })
       if (totalPages > 1) {
         const rest = await Promise.all(
           Array.from({ length: totalPages - 1 }, (_, i) => fetch(url(i + 1)).then(r => (r.ok ? r.json() : null))),
         )
-        for (const pg of rest) if (pg?.content) all = all.concat(pg.content)
+        rest.forEach((pg, i) => {
+          const c = pg?.content?.length || 0
+          console.log(`[admin/orders] page ${i + 1} → ${c} orders`)
+          if (pg?.content) all = all.concat(pg.content)
+        })
       }
+      console.log(`[admin/orders] loaded ${all.length} orders across ${totalPages} page(s)`, { fromDate, toDate })
       if (all.length === 0) {
-        console.error('[admin/orders] FM returned 0 orders', { fromDate, toDate, totalElements: first.totalElements })
+        console.error('[admin/orders] FM returned 0 orders', { fromDate, toDate, totalElements })
       }
       setOrders(all)
     } catch (err) {

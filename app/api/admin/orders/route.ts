@@ -38,6 +38,8 @@ export async function GET(req: NextRequest) {
     }
     const data = await res.json()
     const count = Array.isArray(data?.content) ? data.content.length : (Array.isArray(data) ? data.length : 0)
+    // Diagnostic: how the FM pagination envelope looks per page fetch.
+    console.log(`[admin/orders] page=${page || '0'} size=${params.get('size')} → ${count} orders (totalElements=${data?.totalElements ?? data?.total_elements ?? 'n/a'}, totalPages=${data?.totalPages ?? data?.total_pages ?? 'n/a'})`)
     if (count === 0) {
       console.error(`[admin/orders] FM returned 0 orders for ?${params} (totalElements=${data?.totalElements ?? 'n/a'})`)
     }
