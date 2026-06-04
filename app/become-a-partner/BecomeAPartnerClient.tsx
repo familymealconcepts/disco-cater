@@ -289,7 +289,10 @@ export default function BecomeAPartnerClient() {
                 <Field label="Confirm Email" value={form.confirmEmail} onChange={v => set('confirmEmail', v)} type="email" />
                 <Field label="Password" value={form.password} onChange={v => set('password', v)} type="password" autoComplete="new-password" />
                 <Check checked={agreePrivacy} onChange={setAgreePrivacy}>
-                  I agree to Disco Cater&apos;s Privacy Policy and Merchant Agreement.
+                  I agree to Disco Cater&apos;s{' '}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: BLUE }}>Privacy Policy</a>
+                  {' '}and{' '}
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: BLUE }}>Merchant Agreement</a>.
                 </Check>
               </div>
               <button onClick={registerAccount} disabled={loading}

@@ -327,6 +327,20 @@ export default function HomePage() {
               For Restaurants
             </a>
             <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+            <a href="/privacy"
+              style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+              onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
+              onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+              Privacy Policy
+            </a>
+            <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+            <a href="/terms"
+              style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+              onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
+              onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+              Terms
+            </a>
+            <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
             <a href="mailto:concierge@discocater.com"
               style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
               onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
