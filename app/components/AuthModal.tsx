@@ -38,7 +38,7 @@ const labelStyle: React.CSSProperties = {
 }
 
 export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Props) {
-  const { login, register, pendingAction, closeAuthModal } = useAuthContext()
+  const { login, pendingAction, closeAuthModal } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
   const [tab, setTab] = useState<'login' | 'signup'>(defaultTab)
@@ -49,17 +49,6 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
   const [loginShowPw, setLoginShowPw] = useState(false)
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState('')
-
-  // Signup form state
-  const [regFirst, setRegFirst] = useState('')
-  const [regLast, setRegLast] = useState('')
-  const [regEmail, setRegEmail] = useState('')
-  const [regPhone, setRegPhone] = useState('')
-  const [regPassword, setRegPassword] = useState('')
-  const [regConfirm, setRegConfirm] = useState('')
-  const [regShowPw, setRegShowPw] = useState(false)
-  const [regLoading, setRegLoading] = useState(false)
-  const [regError, setRegError] = useState('')
 
   useEffect(() => {
     setTab(defaultTab)
@@ -78,9 +67,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
 
   function handleClose() {
     setLoginError('')
-    setRegError('')
     setLoginEmail(''); setLoginPassword('')
-    setRegFirst(''); setRegLast(''); setRegEmail(''); setRegPhone(''); setRegPassword(''); setRegConfirm('')
     onClose()
   }
 
@@ -109,26 +96,6 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
       setLoginError(err.message || 'Invalid email or password.')
     } finally {
       setLoginLoading(false)
-    }
-  }
-
-  async function handleRegister(e: React.FormEvent) {
-    e.preventDefault()
-    if (!regFirst || !regLast || !regEmail || !regPassword) { setRegError('Please fill in all required fields.'); return }
-    if (regPassword !== regConfirm) { setRegError('Passwords do not match.'); return }
-    if (regPassword.length < 8) { setRegError('Password must be at least 8 characters.'); return }
-    setRegLoading(true); setRegError('')
-    try {
-      await register({ email: regEmail, password: regPassword, firstName: regFirst, lastName: regLast, phoneNumber: regPhone || undefined })
-      if (pendingAction) {
-        pendingAction()
-      }
-      closeAuthModal()
-      handleClose()
-    } catch (err: any) {
-      setRegError(err.message || 'Registration failed.')
-    } finally {
-      setRegLoading(false)
     }
   }
 
@@ -186,34 +153,6 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
           </div>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', background: '#f4f4f8', borderRadius: 10, padding: 3, gap: 3, marginBottom: 24 }}>
-          <button
-            className="auth-tab-btn"
-            onClick={() => { setTab('login'); setLoginError(''); setRegError('') }}
-            style={{
-              background: tab === 'login' ? '#fff' : 'transparent',
-              color: tab === 'login' ? DARK : '#999',
-              fontWeight: tab === 'login' ? 700 : 500,
-              boxShadow: tab === 'login' ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
-            }}
-          >
-            Log In
-          </button>
-          <button
-            className="auth-tab-btn"
-            onClick={() => { handleClose(); router.push('/signup') }}
-            style={{
-              background: tab === 'signup' ? '#fff' : 'transparent',
-              color: tab === 'signup' ? DARK : '#999',
-              fontWeight: tab === 'signup' ? 700 : 500,
-              boxShadow: tab === 'signup' ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
-            }}
-          >
-            Sign Up
-          </button>
-        </div>
-
         {/* LOGIN FORM */}
         {tab === 'login' && (
           <form onSubmit={handleLogin}>
@@ -262,102 +201,6 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               style={{ width: '100%', padding: '13px', fontSize: 14, fontWeight: 700, color: '#fff', background: loginLoading ? '#ccc' : DARK, border: 'none', borderRadius: 10, cursor: loginLoading ? 'not-allowed' : 'pointer', fontFamily: F, marginTop: 8 }}
             >
               {loginLoading ? 'Signing in…' : 'Log In'}
-            </button>
-          </form>
-        )}
-
-        {/* SIGN UP FORM */}
-        {tab === 'signup' && (
-          <form onSubmit={handleRegister}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-              <div>
-                <label style={labelStyle}>First name</label>
-                <input
-                  className="auth-modal-input"
-                  value={regFirst}
-                  onChange={e => setRegFirst(e.target.value)}
-                  placeholder="Jane"
-                  required
-                  autoFocus
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Last name</label>
-                <input
-                  className="auth-modal-input"
-                  value={regLast}
-                  onChange={e => setRegLast(e.target.value)}
-                  placeholder="Smith"
-                  required
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Email address</label>
-              <input
-                className="auth-modal-input"
-                type="email"
-                value={regEmail}
-                onChange={e => setRegEmail(e.target.value)}
-                placeholder="you@company.com"
-                required
-                autoComplete="email"
-                style={inputStyle}
-              />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Phone <span style={{ color: '#aaa', fontWeight: 400 }}>(optional)</span></label>
-              <input
-                className="auth-modal-input"
-                type="tel"
-                value={regPhone}
-                onChange={e => setRegPhone(e.target.value)}
-                placeholder="+1 (555) 000-0000"
-                style={inputStyle}
-              />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Password</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  className="auth-modal-input"
-                  type={regShowPw ? 'text' : 'password'}
-                  value={regPassword}
-                  onChange={e => setRegPassword(e.target.value)}
-                  placeholder="Min. 8 characters"
-                  required
-                  autoComplete="new-password"
-                  style={{ ...inputStyle, paddingRight: 42 }}
-                />
-                <button type="button" onClick={() => setRegShowPw(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 14, padding: 0 }}>
-                  {regShowPw ? '🙈' : '👁'}
-                </button>
-              </div>
-            </div>
-            <div style={{ marginBottom: 8 }}>
-              <label style={labelStyle}>Confirm password</label>
-              <input
-                className="auth-modal-input"
-                type="password"
-                value={regConfirm}
-                onChange={e => setRegConfirm(e.target.value)}
-                placeholder="••••••••"
-                required
-                autoComplete="new-password"
-                style={inputStyle}
-              />
-            </div>
-            {regError && (
-              <div style={{ fontSize: 12, color: '#E24B4A', marginBottom: 14, padding: '9px 12px', background: '#FFF0F3', borderRadius: 8 }}>{regError}</div>
-            )}
-            <button
-              type="submit"
-              disabled={regLoading}
-              style={{ width: '100%', padding: '13px', fontSize: 14, fontWeight: 700, color: '#fff', background: regLoading ? '#ccc' : DARK, border: 'none', borderRadius: 10, cursor: regLoading ? 'not-allowed' : 'pointer', fontFamily: F, marginTop: 8 }}
-            >
-              {regLoading ? 'Creating account…' : 'Create Account'}
             </button>
           </form>
         )}
