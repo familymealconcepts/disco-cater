@@ -374,10 +374,10 @@ export default function AdminOrdersPage() {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
   const [searchInput, setSearchInput] = useState('')
-  // Default to the last 30 days so the all-pages fetch loads a manageable set on
+  // Default to the last 10 days so the all-pages fetch loads a manageable set on
   // first open. The user can still clear or widen the range. (YYYY-MM-DD to match
-  // the <input type="date"> value format.)
-  const [fromDate, setFromDate] = useState(() => isoDate(daysAgo(30)))
+  // the <input type="date"> value format; the API converts to FM's DD.MM.YYYY.)
+  const [fromDate, setFromDate] = useState(() => isoDate(daysAgo(10)))
   const [toDate, setToDate] = useState(() => isoDate(new Date()))
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Order | null>(null)
@@ -404,7 +404,10 @@ export default function AdminOrdersPage() {
     }
     try {
       const first = await fetch(url(0)).then(r => (r.ok ? r.json() : null))
-      if (!first) { setOrders([]); setLoading(false); return }
+      if (!first) {
+        console.error('[admin/orders] first page fetch failed', { fromDate, toDate })
+        setOrders([]); setLoading(false); return
+      }
       let all: Order[] = first.content || []
       const totalPages = Math.min(first.totalPages ?? 1, MAX_PAGES)
       if (totalPages > 1) {
@@ -413,8 +416,12 @@ export default function AdminOrdersPage() {
         )
         for (const pg of rest) if (pg?.content) all = all.concat(pg.content)
       }
+      if (all.length === 0) {
+        console.error('[admin/orders] FM returned 0 orders', { fromDate, toDate, totalElements: first.totalElements })
+      }
       setOrders(all)
-    } catch {
+    } catch (err) {
+      console.error('[admin/orders] orders fetch error', err)
       setOrders([])
     } finally {
       setLoading(false)
@@ -475,7 +482,7 @@ export default function AdminOrdersPage() {
       </div>
 
       <div style={{ fontSize: 12, color: '#999', marginBottom: 14 }}>
-        Showing last 30 days by default — adjust range to see more.
+        Showing last 10 days by default — adjust range to see more.
       </div>
 
       {/* Filter bar — client-side over the loaded page */}
