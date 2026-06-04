@@ -265,12 +265,16 @@ export default function SubscriptionsPage() {
         {loading ? (
           <div style={{ color: '#aaa', fontSize: 13 }}>Loading subscriptions…</div>
         ) : subs.length === 0 ? (
-          <div style={{ border: '1px dashed #d8d8e4', borderRadius: 12, padding: '28px 24px', textAlign: 'center', background: 'rgba(107,110,249,0.03)' }}>
-            <div style={{ fontSize: 30, marginBottom: 10 }}>🔄</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 4 }}>No recurring orders yet</div>
-            <div style={{ fontSize: 12, color: '#666', lineHeight: 1.5 }}>
-              Turn a past order into a recurring delivery — see Order History below ↓
+          <div style={{ border: '1px dashed #d8d8e4', borderRadius: 12, padding: '64px 24px', textAlign: 'center', background: 'rgba(107,110,249,0.03)' }}>
+            <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>🔄</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>No active subscriptions</div>
+            <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>
+              Set up a recurring catering order and manage it here.
             </div>
+            <button onClick={() => router.push('/fullmap')}
+              style={{ display: 'inline-block', padding: '11px 24px', background: BLUE, color: '#fff', border: 'none', borderRadius: 999, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+              Browse restaurants
+            </button>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

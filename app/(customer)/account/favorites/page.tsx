@@ -48,15 +48,15 @@ export default function FavoritesPage() {
           ))}
         </div>
       ) : favorites.length === 0 ? (
-        <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '56px 24px', textAlign: 'center', background: '#fff' }}>
-          <div style={{ fontSize: 36, marginBottom: 14 }}>🤍</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 6 }}>No favorites yet</div>
-          <div style={{ fontSize: 13, color: '#888', marginBottom: 22, lineHeight: 1.5 }}>
-            Explore the Catering Map to find restaurants you love.
+        <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '64px 24px', textAlign: 'center', background: '#fff' }}>
+          <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>⭐</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>No favorites yet</div>
+          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>
+            Star a restaurant on the catering map to save it here for easy access.
           </div>
           <Link href="/fullmap"
-            style={{ padding: '10px 22px', background: BLUE, color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
-            Catering Map →
+            style={{ display: 'inline-block', padding: '11px 24px', background: BLUE, color: '#fff', borderRadius: 999, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
+            Browse restaurants
           </Link>
         </div>
       ) : (

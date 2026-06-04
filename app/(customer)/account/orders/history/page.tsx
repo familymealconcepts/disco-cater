@@ -59,12 +59,12 @@ export default function HistoryPage() {
       {loading ? (
         <div style={{ color: '#aaa', fontSize: 13 }}>Loading orders…</div>
       ) : orders.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 0' }}>
-          <div style={{ fontSize: 40, marginBottom: 14 }}>🪩</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 6 }}>No orders yet</div>
-          <div style={{ fontSize: 13, color: '#aaa', marginBottom: 22 }}>Start exploring catering options</div>
-          <Link href="/fullmap" style={{ padding: '10px 24px', background: BLUE, color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
-            Browse restaurants
+        <div style={{ textAlign: 'center', padding: '64px 24px' }}>
+          <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>🕐</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>No order history yet</div>
+          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>Your completed orders will appear here.</div>
+          <Link href="/fullmap" style={{ display: 'inline-block', padding: '11px 24px', background: BLUE, color: '#fff', borderRadius: 999, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
+            Start ordering
           </Link>
         </div>
       ) : (

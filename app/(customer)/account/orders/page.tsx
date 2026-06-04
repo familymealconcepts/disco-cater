@@ -266,20 +266,20 @@ export default function OrdersPage() {
         ))}
       </div>
 
-      {/* Calendar or List */}
-      {view === 'cal' ? (
-        <Calendar orders={orders} onOpenOrder={openOrder} onEmptyDateClick={setNewOrderDate} />
-      ) : loading ? (
+      {/* Calendar or List — friendly empty state (any view) when there are no orders */}
+      {loading ? (
         <div style={{ color: '#aaa', fontSize: 13, padding: '20px 0' }}>Loading orders…</div>
       ) : orders.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 0' }}>
-          <div style={{ fontSize: 40, marginBottom: 14 }}>🪩</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 6 }}>No orders yet</div>
-          <div style={{ fontSize: 13, color: '#aaa', marginBottom: 22 }}>Start exploring catering options</div>
-          <Link href="/fullmap" style={{ padding: '10px 24px', background: BLUE, color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
-            Browse restaurants
+        <div style={{ textAlign: 'center', padding: '64px 24px' }}>
+          <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>🍽️</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>No orders yet</div>
+          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>When you place a catering order, it&apos;ll show up here.</div>
+          <Link href="/fullmap" style={{ display: 'inline-block', padding: '11px 24px', background: BLUE, color: '#fff', borderRadius: 999, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
+            Find a restaurant
           </Link>
         </div>
+      ) : view === 'cal' ? (
+        <Calendar orders={orders} onOpenOrder={openOrder} onEmptyDateClick={setNewOrderDate} />
       ) : (
         <div style={{ border: '1px solid #ebebeb', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
           {orders.map((o, i) => (
