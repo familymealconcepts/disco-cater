@@ -69,12 +69,16 @@ function extractFmMoney(resp: AnyRec | null) {
   return { subtotal, tax, delivery, tips, fee, discount, total }
 }
 
-export default function EditOrderClient({ orderRef, restaurantRef, menuData }: { orderRef: string; restaurantRef: string; menuData: MenuSection[] }) {
+export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const router = useRouter()
 
   // ─── Lifecycle / load state ───────────────────────────────────────────────
   const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<{ message: string; status?: number; body?: string } | null>(null)
+
+  // Resolved client-side (localStorage / details response), not passed in.
+  const [restaurantRef, setRestaurantRef] = useState('')
+  const [menuData, setMenuData] = useState<MenuSection[]>([])
 
   // ─── Order / cart state ───────────────────────────────────────────────────
   const [cart, setCart] = useState<EditCartLine[]>([])
@@ -142,7 +146,34 @@ export default function EditOrderClient({ orderRef, restaurantRef, menuData }: {
     }
   }, [])
 
-  // ─── PAGE LOAD: details → prepopulate → acquire lock ──────────────────────
+  // ─── Client-side menu loader (best effort — details is the critical path) ──
+  const loadMenu = useCallback(async (ref: string) => {
+    if (!ref) return
+    try {
+      const mRes = await fetch(`/api/fm-menu?ref=${encodeURIComponent(ref)}`)
+      if (!mRes.ok) { console.error('[edit-client] fm-menu failed', { ref, status: mRes.status }); return }
+      const menus = await mRes.json()
+      if (!Array.isArray(menus) || !menus.length) return
+      const ordered = [...menus].sort((a, b) => {
+        const pa = typeof a?.position === 'number' ? a.position : Number.MAX_SAFE_INTEGER
+        const pb = typeof b?.position === 'number' ? b.position : Number.MAX_SAFE_INTEGER
+        return pa - pb
+      })
+      const sections: MenuSection[] = []
+      for (const menu of ordered) {
+        const pRes = await fetch(`/api/fm-packages?restaurantRef=${encodeURIComponent(ref)}&menuRef=${encodeURIComponent(menu.reference)}`)
+        if (!pRes.ok) continue
+        const cats = await pRes.json()
+        sections.push({ menu, categories: Array.isArray(cats) ? cats : [] })
+      }
+      setMenuData(sections)
+      console.log('[edit-client] menu loaded', { ref, sections: sections.length })
+    } catch (err) {
+      console.error('[edit-client] menu load threw', err)
+    }
+  }, [])
+
+  // ─── PAGE LOAD: details → prepopulate → acquire lock → menu ───────────────
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -151,8 +182,12 @@ export default function EditOrderClient({ orderRef, restaurantRef, menuData }: {
         const res = await fetch(`/api/restaurant/orders/${orderRef}/details`)
         if (!res.ok) {
           const body = await res.text().catch(() => '')
-          console.error('[edit-client] details fetch failed', { orderRef, status: res.status, body: body.slice(0, 1000) })
-          throw new Error(`details ${res.status}`)
+          console.error('[edit-client] details fetch failed', { orderRef, status: res.status, body: body.slice(0, 1500) })
+          if (!cancelled) {
+            setLoadError({ message: 'The order details request failed.', status: res.status, body: body.slice(0, 2000) })
+            setLoading(false)
+          }
+          return
         }
         const o = (await res.json()) as AnyRec
         if (cancelled) return
@@ -162,6 +197,14 @@ export default function EditOrderClient({ orderRef, restaurantRef, menuData }: {
           classics: Array.isArray(o.orderClassics) ? o.orderClassics.length : 0,
           orderType: o.orderType, orderDate: o.orderDate, orderTime: o.orderTime,
         })
+
+        // Resolve the restaurant ref client-side: prefer the portal's selected
+        // location, fall back to whatever the order details carry.
+        const fromStorage = typeof window !== 'undefined' ? (localStorage.getItem('selectedRestaurant') || '') : ''
+        const fromDetails = str(o.restaurantReference) || str((o.restaurant as AnyRec | undefined)?.reference)
+        const rr = fromStorage || fromDetails
+        console.log('[edit-client] restaurantRef resolved', { fromStorage, fromDetails, used: rr })
+        if (rr) setRestaurantRef(rr)
 
         const mps = [
           ...(Array.isArray(o.orderMealPackages) ? o.orderMealPackages : []),
@@ -211,9 +254,15 @@ export default function EditOrderClient({ orderRef, restaurantRef, menuData }: {
         // If the lock call fails we still let them view/edit; commit will surface
         // any server-side lock error.
         setLoading(false)
+
+        // Load the menu (non-blocking — the editor is usable without it).
+        if (rr) loadMenu(rr)
       } catch (err) {
         console.error('[edit-client] load sequence threw', { orderRef, err })
-        if (!cancelled) { setLoadError('Could not load this order for editing.'); setLoading(false) }
+        if (!cancelled) {
+          setLoadError({ message: err instanceof Error ? err.message : 'Could not load this order for editing.' })
+          setLoading(false)
+        }
       }
     })()
     return () => { cancelled = true }
@@ -459,8 +508,21 @@ export default function EditOrderClient({ orderRef, restaurantRef, menuData }: {
   }
   if (loadError) {
     return (
-      <div style={{ fontFamily: F, textAlign: 'center', padding: '64px 20px' }}>
-        <p style={{ color: RED, fontSize: 15, marginBottom: 16 }}>{loadError}</p>
+      <div style={{ fontFamily: F, maxWidth: 720, margin: '0 auto', padding: '48px 20px' }}>
+        <h2 style={{ color: RED, fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Could not load this order for editing</h2>
+        <p style={{ color: DARK, fontSize: 14, margin: '0 0 14px' }}>{loadError.message}</p>
+        <div style={{ display: 'grid', gap: 8, marginBottom: 20 }}>
+          <ErrLine label="Order ref" value={orderRef} />
+          {loadError.status != null && <ErrLine label="HTTP status" value={String(loadError.status)} />}
+        </div>
+        {loadError.body && (
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#888', marginBottom: 6 }}>Response body</div>
+            <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#FAFAFC', border: '1px solid #eee', borderRadius: 10, padding: 14, fontSize: 12, color: '#444', margin: 0, maxHeight: 320, overflow: 'auto' }}>
+              {loadError.body}
+            </pre>
+          </div>
+        )}
         <button onClick={() => router.push('/restaurant/orders')} style={pillBtn(BLUE)}>Return to Orders</button>
       </div>
     )
@@ -657,6 +719,15 @@ export default function EditOrderClient({ orderRef, restaurantRef, menuData }: {
 }
 
 // ─── Small presentational pieces ─────────────────────────────────────────────
+function ErrLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, fontSize: 13 }}>
+      <span style={{ color: '#888', minWidth: 90 }}>{label}</span>
+      <span style={{ color: DARK, fontFamily: 'monospace', wordBreak: 'break-all' }}>{value}</span>
+    </div>
+  )
+}
+
 function Row({ label, value, bold, muted, strike }: { label: string; value: string; bold?: boolean; muted?: boolean; strike?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '3px 0' }}>
