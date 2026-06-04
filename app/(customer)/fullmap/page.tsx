@@ -1274,6 +1274,11 @@ function FullMapInner() {
         .disco-popup .mapboxgl-popup-content { padding:0; border-radius:12px; overflow:hidden; box-shadow:none; }
         .disco-popup .mapboxgl-popup-tip { display:none; }
         @keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
+        @keyframes discoPulse {
+          0% { box-shadow: 0 2px 10px rgba(239,184,74,0.4), 0 0 0 0 rgba(239,184,74,0.3); }
+          70% { box-shadow: 0 2px 10px rgba(239,184,74,0.4), 0 0 0 10px rgba(239,184,74,0); }
+          100% { box-shadow: 0 2px 10px rgba(239,184,74,0.4), 0 0 0 0 rgba(239,184,74,0); }
+        }
       `}</style>
 
       {locModal}
@@ -1427,7 +1432,7 @@ function FullMapInner() {
                 <input ref={locInputRef} value={locInput} onChange={e => { setLocInput(e.target.value); setLocError('') }} placeholder="Search by location…" style={{ padding: '9px 4px', fontSize: 12.5, border: 'none', outline: 'none', background: 'transparent', color: '#111', width: 380, fontFamily: "'DM Sans',sans-serif" }} />
                 <button type="submit" disabled={locLoading} style={{ padding: '0 14px', border: 'none', cursor: 'pointer', background: '#5B6FE8', color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>{locLoading ? '...' : 'Go'}</button>
               </form>
-              <button onClick={() => setChatOpen(o => !o)} style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', background: '#EFB84A', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 12px rgba(239,184,74,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, position: 'relative', transition: 'transform 0.15s' }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.1)' }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)' }} title="Ask Disco AI">
+              <button onClick={() => setChatOpen(o => !o)} style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', background: '#EFB84A', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 12px rgba(239,184,74,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, position: 'relative', transition: 'transform 0.15s', animation: 'discoPulse 2.5s ease-out infinite' }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.1)' }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)' }} title="Ask Disco AI">
                 🤖{!chatOpen && <div style={{ position: 'absolute', top: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />}
               </button>
             </div>
