@@ -320,9 +320,9 @@ export default function HomePage() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
             <a href="/become-a-partner"
-              style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+              style={{ fontSize: 13, color: '#6B6EF9', textDecoration: 'none', transition: 'color 0.15s' }}
               onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-              onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+              onMouseOut={e => (e.currentTarget.style.color = '#6B6EF9')}>
               For Restaurants
             </a>
             <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
