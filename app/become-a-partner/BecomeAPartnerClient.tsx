@@ -173,6 +173,44 @@ export default function BecomeAPartnerClient() {
     }
   }
 
+  // ── Step 2: Stripe Connect ─────────────────────────────────────────────────
+  async function connectStripe() {
+    setError('')
+    let ref = ''
+    let token = ''
+    try {
+      const cu = JSON.parse(localStorage.getItem('currentUser') || '{}')
+      // FM /registration returns the new account's `reference`; accept the other
+      // likely field names too in case the response differs.
+      ref = cu.restaurantReference || cu.reference || cu.locationReference || ''
+      token = cu.authorization || ''
+    } catch {}
+    if (!ref) {
+      setError('We couldn’t find your restaurant reference. Please contact concierge@discocater.com to finish Stripe setup.')
+      return
+    }
+    setLoading(true)
+    try {
+      const res = await fetch('/api/become-a-partner/stripe-connect', {
+        method: 'POST',
+        // currentUser.authorization (the FM JWT) — the onboarding flow stores it
+        // in localStorage rather than the disco_token cookie, so pass it along.
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: token } : {}) },
+        body: JSON.stringify({ restaurantReference: ref }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.stripeConnectUrl) {
+        setError(data.error || 'Could not initiate Stripe Connect. Please contact concierge@discocater.com.')
+        return
+      }
+      window.location.href = data.stripeConnectUrl
+    } catch {
+      setError('Could not initiate Stripe Connect. Please contact concierge@discocater.com.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   function back() { setError(''); setStep(s => Math.max(0, s - 1)) }
 
   const errorBox = error ? (
@@ -270,11 +308,12 @@ export default function BecomeAPartnerClient() {
                 to the terms and processing fees (2.90% + $0.30) of Stripe.
               </p>
               <div style={{ marginTop: 22 }}>
-                <a href="#"
-                  style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, textDecoration: 'none' }}>
-                  Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →
-                </a>
+                <button onClick={connectStripe} disabled={loading}
+                  style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                  {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
+                </button>
               </div>
+              {errorBox}
               <p style={{ ...italicNote, marginTop: 18 }}>
                 Estimated time to complete – 15min. Please have the following information ready:
                 Business Tax ID and/or Social Security Number, Bank Routing Number &amp; Bank Account Number.
@@ -282,9 +321,6 @@ export default function BecomeAPartnerClient() {
               <button onClick={() => { setError(''); setStep(3) }} style={{ ...secondaryBtn, marginTop: 10 }}>
                 Not now, let&apos;s keep going
               </button>
-              <p style={{ ...italicNote, marginTop: 16, fontSize: 12, color: '#999' }}>
-                Note: Stripe Connect integration is coming soon. Contact concierge@discocater.com to get set up.
-              </p>
             </>
           )}
 
