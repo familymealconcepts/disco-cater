@@ -195,6 +195,20 @@ function statusColor(status: string, orderDate: string, orderTime: string) {
   return undefined
 }
 
+// An order is editable only when it's not in a finished state AND the catering
+// date/time is more than 24h out. (Date/time are parsed in the browser's local
+// tz — matching statusColor — so this is approximate near the boundary; the
+// real edit page in Session 2 should re-validate server-side.)
+const NON_EDITABLE_STATUSES = new Set(['COMPLETED', 'EXPIRED', 'CANCELED', 'CANCELLED'])
+function isEditEligible(order: Order): boolean {
+  const status = (order.orderStatus || '').toUpperCase()
+  if (NON_EDITABLE_STATUSES.has(status)) return false
+  if (!order.orderDate || !order.orderTime) return false
+  const ts = new Date(`${order.orderDate}T${order.orderTime}`).getTime()
+  if (Number.isNaN(ts)) return false
+  return ts > Date.now() + 24 * 60 * 60 * 1000
+}
+
 // ─── Components ──────────────────────────────────────────────────────────────
 
 function ConfirmDialog({ message, onConfirm, onCancel }: { message: string; onConfirm: () => void; onCancel: () => void }) {
@@ -208,6 +222,143 @@ function ConfirmDialog({ message, onConfirm, onCancel }: { message: string; onCo
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── Edit History Panel ───────────────────────────────────────────────────────
+// Right slide-in panel showing the edit timeline for an order. The FM wire
+// shape for an edit record is unconfirmed, so each field is read defensively
+// across the likely key names, and a raw fallback is shown when the shape is
+// unrecognized (useful while we nail down the real payload in testing).
+
+interface EditRecord {
+  [key: string]: unknown
+}
+
+function pick(obj: EditRecord, keys: string[]): unknown {
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null && obj[k] !== '') return obj[k]
+  }
+  return undefined
+}
+
+function EditHistoryPanel({ orderRef, onClose }: { orderRef: string; onClose: () => void }) {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [history, setHistory] = useState<EditRecord[]>([])
+  const [raw, setRaw] = useState<unknown>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true); setError(false)
+    fetch(`/api/restaurant/orders/${orderRef}/edit-history`)
+      .then(async res => {
+        if (!res.ok) throw new Error('bad status')
+        return res.json()
+      })
+      .then(data => {
+        if (cancelled) return
+        setHistory(Array.isArray(data?.history) ? data.history : [])
+        setRaw(data?.raw ?? null)
+      })
+      .catch(() => { if (!cancelled) setError(true) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [orderRef])
+
+  function renderEdit(e: EditRecord, i: number) {
+    const editor = pick(e, ['editedBy', 'editorName', 'userName', 'user', 'adminName', 'changedBy']) as string | undefined
+    const when = pick(e, ['editedAt', 'timestamp', 'createdDate', 'createdAt', 'date', 'updatedAt']) as string | undefined
+    const oldTotal = pick(e, ['oldTotal', 'previousTotal', 'oldPrice', 'previousPrice']) as number | undefined
+    const newTotal = pick(e, ['newTotal', 'total', 'newPrice', 'price']) as number | undefined
+    const priceChanged = typeof oldTotal === 'number' && typeof newTotal === 'number' && oldTotal !== newTotal
+    const itemChanges = (pick(e, ['itemChanges', 'changes', 'items', 'lineChanges']) as EditRecord[] | undefined) || []
+
+    return (
+      <div key={i} style={{ borderLeft: '2px solid #5B6FE8', paddingLeft: 14, marginBottom: 22 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{editor || 'Edited'}</div>
+        {when && <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{fmtDateTime(typeof when === 'string' ? when : String(when))}</div>}
+
+        {priceChanged && (
+          <div style={{ marginTop: 10, fontSize: 12, color: '#555' }}>
+            <div style={{ fontWeight: 600, color: DARK, marginBottom: 4 }}>Price Change</div>
+            <span style={{ color: '#E76F51', textDecoration: 'line-through' }}>{fmt(oldTotal!)}</span>
+            <span style={{ margin: '0 6px', color: '#aaa' }}>→</span>
+            <span style={{ color: '#2E9E5B', fontWeight: 600 }}>{fmt(newTotal!)}</span>
+          </div>
+        )}
+
+        {Array.isArray(itemChanges) && itemChanges.length > 0 && (
+          <div style={{ marginTop: 10, fontSize: 12, color: '#555' }}>
+            <div style={{ fontWeight: 600, color: DARK, marginBottom: 4 }}>Item Changes</div>
+            {itemChanges.map((c, ci) => {
+              const action = String(pick(c, ['action', 'type', 'changeType']) || '').toUpperCase()
+              const name = String(pick(c, ['name', 'mealPackageName', 'itemName', 'addOnName']) || 'Item')
+              const oldQty = pick(c, ['oldCount', 'oldQty', 'previousCount'])
+              const newQty = pick(c, ['newCount', 'newQty', 'count', 'qty'])
+              const isAdd = action.includes('ADD')
+              const isRemove = action.includes('REMOVE') || action.includes('DELETE')
+              const color = isAdd ? '#2E9E5B' : isRemove ? '#E76F51' : '#555'
+              const sign = isAdd ? '+ ' : isRemove ? '− ' : ''
+              const qtyText = oldQty !== undefined && newQty !== undefined
+                ? ` (${oldQty} → ${newQty})`
+                : newQty !== undefined ? ` ×${newQty}` : ''
+              return (
+                <div key={ci} style={{ color, marginBottom: 2 }}>{sign}{name}{qtyText}</div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <style>{`@keyframes ehSlideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}@keyframes ehSpin{to{transform:rotate(360deg)}}`}</style>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300 }} />
+      <div style={{
+        position: 'fixed', top: 0, right: 0, height: '100%', width: 'min(480px, 100%)',
+        background: '#fff', zIndex: 301, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
+        display: 'flex', flexDirection: 'column', fontFamily: F, animation: 'ehSlideIn 0.2s ease-out',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Edit History — Order #{orderRef}</div>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', fontSize: 22, lineHeight: 1, color: '#999', cursor: 'pointer', padding: 0 }}>×</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {loading && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 14 }}>
+              <div style={{ width: 28, height: 28, border: '3px solid #eee', borderTopColor: '#5B6FE8', borderRadius: '50%', animation: 'ehSpin 0.7s linear infinite' }} />
+              <div style={{ fontSize: 13, color: '#999' }}>Loading…</div>
+            </div>
+          )}
+
+          {!loading && error && (
+            <div style={{ padding: '48px 0', textAlign: 'center', color: '#E76F51', fontSize: 14 }}>Could not load edit history.</div>
+          )}
+
+          {!loading && !error && history.length === 0 && (
+            <div style={{ padding: '48px 0', textAlign: 'center', color: '#999', fontSize: 14 }}>
+              No edits have been made to this order.
+            </div>
+          )}
+
+          {!loading && !error && history.length > 0 && (
+            <div>{history.map(renderEdit)}</div>
+          )}
+
+          {/* Raw fallback — only while the FM edit-record shape is unconfirmed. */}
+          {!loading && !error && raw != null && (
+            <details style={{ marginTop: 24, fontSize: 11, color: '#aaa' }}>
+              <summary style={{ cursor: 'pointer' }}>Raw response (debug)</summary>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#FAFAFC', padding: 10, borderRadius: 8, marginTop: 8 }}>{JSON.stringify(raw, null, 2)}</pre>
+            </details>
+          )}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -750,6 +901,7 @@ function OrdersContent() {
   const [sortField, setSortField] = useState('order_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [drawerRef, setDrawerRef] = useState<string | null>(null)
+  const [historyRef, setHistoryRef] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ msg: string; action: () => void } | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -928,14 +1080,15 @@ function OrdersContent() {
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Delivery Status</th>
                   {colHead('transactions_total', 'Total')}
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Status</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'right', background: '#F7F8FC' }}></th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
-                  <tr><td colSpan={aggregating ? 7 : 6} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
+                  <tr><td colSpan={aggregating ? 8 : 7} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
                 )}
                 {!loading && orders.length === 0 && (
-                  <tr><td colSpan={aggregating ? 7 : 6} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
+                  <tr><td colSpan={aggregating ? 8 : 7} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
                 )}
                 {orders.map(order => {
                   const timeColor = statusColor(order.orderStatus, order.orderDate, order.orderTime)
@@ -1009,6 +1162,34 @@ function OrdersContent() {
                           </select>
                         )}
                       </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {isEditEligible(order) && (
+                          <button
+                            title="Edit order"
+                            aria-label="Edit order"
+                            onClick={e => {
+                              e.stopPropagation()
+                              router.push(`/restaurant/orders/${order.orderReference}/edit`)
+                            }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#5B6FE8', padding: '2px 6px', lineHeight: 1 }}
+                          >
+                            ✏️
+                          </button>
+                        )}
+                        {/* No edit-tracking field exists on the order list shape
+                            yet, so the history button is shown on every order. */}
+                        <button
+                          title="View edit history"
+                          aria-label="View edit history"
+                          onClick={e => {
+                            e.stopPropagation()
+                            setHistoryRef(order.orderReference)
+                          }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#5B6FE8', padding: '2px 6px', lineHeight: 1 }}
+                        >
+                          🔄
+                        </button>
+                      </td>
                     </tr>
                   )
                 })}
@@ -1052,6 +1233,11 @@ function OrdersContent() {
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.2)', zIndex: 199 }} onClick={() => setDrawerRef(null)} />
           <OrderDrawer orderRef={drawerRef} onClose={() => setDrawerRef(null)} onOrderUpdated={() => loadOrders()} />
         </>
+      )}
+
+      {/* Edit History Panel */}
+      {historyRef && (
+        <EditHistoryPanel orderRef={historyRef} onClose={() => setHistoryRef(null)} />
       )}
 
       {confirm && <ConfirmDialog message={confirm.msg} onConfirm={() => { confirm.action(); setConfirm(null) }} onCancel={() => setConfirm(null)} />}
