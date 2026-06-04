@@ -281,6 +281,15 @@ function InvoicePill({ paymentMethod }: { paymentMethod?: string }) {
 function fmtCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
 }
+// Date helpers for the default range (YYYY-MM-DD, matching <input type="date">).
+function isoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function daysAgo(n: number): Date {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return d
+}
 // firstName + lastName, falling back to email, then an em dash.
 function customerName(o: Order) {
   const name = [o.firstName, o.lastName].filter(Boolean).join(' ').trim()
@@ -365,8 +374,11 @@ export default function AdminOrdersPage() {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
   const [searchInput, setSearchInput] = useState('')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  // Default to the last 30 days so the all-pages fetch loads a manageable set on
+  // first open. The user can still clear or widen the range. (YYYY-MM-DD to match
+  // the <input type="date"> value format.)
+  const [fromDate, setFromDate] = useState(() => isoDate(daysAgo(30)))
+  const [toDate, setToDate] = useState(() => isoDate(new Date()))
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Order | null>(null)
 
@@ -460,6 +472,10 @@ export default function AdminOrdersPage() {
           <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(0) }} style={inputSt} />
           <input type="text" placeholder="Search name or order #…" value={searchInput} onChange={e => setSearchInput(e.target.value)} style={{ ...inputSt, width: 220 }} />
         </div>
+      </div>
+
+      <div style={{ fontSize: 12, color: '#999', marginBottom: 14 }}>
+        Showing last 30 days by default — adjust range to see more.
       </div>
 
       {/* Filter bar — client-side over the loaded page */}
