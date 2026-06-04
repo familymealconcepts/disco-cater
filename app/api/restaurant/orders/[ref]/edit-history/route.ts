@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 
-const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FAMILYMEAL_API_BASE || 'https://api.familymeal.com'
 
 // Returns the edit history for an order. FM doesn't (yet) expose a dedicated
 // edit-history endpoint, so we pull the full order details and surface any
@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   try {
-    const res = await fetch(`${FM}/public-api/v2/orders/${ref}/details`, {
+    const res = await fetch(`${EDIT_FM_BASE}/public-api/v2/orders/${ref}/details`, {
       headers: { ...authHeaders, Accept: 'application/json' },
     })
     if (!res.ok) {

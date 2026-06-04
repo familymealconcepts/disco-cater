@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 
-const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FAMILYMEAL_API_BASE || 'https://api.familymeal.com'
 
 // Releases the edit lock when an edit session is committed, discarded, or
 // abandoned (tab close / navigate away). Best-effort — always reports success
@@ -15,7 +15,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ success: true })
   }
   try {
-    await fetch(`${FM}/public-api/v2/orders/${ref}/edit-lock`, {
+    await fetch(`${EDIT_FM_BASE}/public-api/v2/orders/${ref}/edit-lock`, {
       method: 'DELETE',
       headers: { ...authHeaders, Accept: 'application/json' },
     })

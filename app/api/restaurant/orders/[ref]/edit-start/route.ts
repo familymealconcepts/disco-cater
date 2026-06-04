@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../../lib/restaurant-auth'
 
-const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FAMILYMEAL_API_BASE || 'https://api.familymeal.com'
 
 // Starts an edit session: creates the edit draft and acquires the edit lock.
 // FM: POST /public-api/v2/restaurants/{restaurantRef}/orders/{orderRef}/slotselected?editOrder=true
@@ -18,7 +18,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
   }
   try {
     const res = await fetch(
-      `${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${ref}/slotselected?editOrder=true`,
+      `${EDIT_FM_BASE}/public-api/v2/restaurants/${restaurantRef}/orders/${ref}/slotselected?editOrder=true`,
       {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json', Accept: 'application/json' },
