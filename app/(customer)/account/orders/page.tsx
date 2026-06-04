@@ -211,6 +211,9 @@ export default function OrdersPage() {
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
 
+  // Land at the top of the portal on mount (e.g. right after login).
+  useEffect(() => { window.scrollTo(0, 0) }, [])
+
   function openOrder(ref: string) { setSelectedRef(ref) }
   function closeDetail() { setSelectedRef(null) }
 

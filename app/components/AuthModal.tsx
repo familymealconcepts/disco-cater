@@ -103,6 +103,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
         // pages — the diner is browsing/ordering and shouldn't be punted.
         router.push('/account/orders')
       }
+      // Post-login the viewport sometimes lands mid-page; snap to the top.
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
     } catch (err: any) {
       setLoginError(err.message || 'Invalid email or password.')
     } finally {
@@ -153,7 +155,9 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
         transform: 'translate(-50%,-50%)',
         background: '#fff',
         borderRadius: 16,
-        width: '100%',
+        // 16px breathing room on each side on mobile; maxWidth still caps it at
+        // 440 on desktop (unchanged there).
+        width: 'calc(100% - 32px)',
         maxWidth: 440,
         padding: '32px 32px 28px',
         zIndex: 1001,

@@ -214,7 +214,7 @@ function AccordionItem({ item }: { item: FAQItem }) {
           textAlign: 'left', gap: 16,
         }}
       >
-        <span style={{ fontSize: 15, fontWeight: 600, color: '#111', fontFamily: "'DM Sans', sans-serif", lineHeight: 1.4 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: '#111', fontFamily: "'DM Sans', sans-serif", lineHeight: 1.4, minWidth: 0, overflowWrap: 'break-word' }}>
           {item.q}
         </span>
         <span style={{
@@ -233,7 +233,7 @@ function AccordionItem({ item }: { item: FAQItem }) {
           fontSize: 14, color: '#555', lineHeight: 1.7,
           fontFamily: "'DM Sans', sans-serif",
           maxHeight: open ? '2000px' : '0px',
-          overflow: 'hidden',
+          overflow: 'hidden', overflowWrap: 'break-word',
           transition: 'max-height 0.2s ease, padding-bottom 0.2s ease',
         }}>
           {item.a}

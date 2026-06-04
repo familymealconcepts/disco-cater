@@ -13,6 +13,7 @@ const IconSignOut = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="
 export default function GlobalHeader({ centerContent, rightLinks = true }: { centerContent?: React.ReactNode; rightLinks?: boolean }) {
   const { user, isLoading, logout, openAuthModal, authModalOpen, authModalDefaultTab, closeAuthModal } = useAuthContext()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
 
   async function signOut() {
     setMenuOpen(false)
@@ -39,6 +40,17 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
         .dc-menu-link:hover { background: #f5f5f5; }
         .dc-menu-btn { display: flex; align-items: center; gap: 9px; padding: 8px 14px; cursor: pointer; font-size: 12px; font-weight: 500; border: none; background: transparent; width: 100%; font-family: 'DM Sans',sans-serif; text-align: left; transition: background 0.1s; }
         .dc-menu-btn:hover { background: #f5f5f5; }
+        /* Right nav: full layout on desktop, hidden on mobile (replaced by the
+           hamburger). Display lives in CSS — not inline — so the media query can
+           hide it. */
+        .dc-desktop-nav { margin-left: auto; display: flex; align-items: center; gap: 20px; }
+        .dc-hamburger { display: none; margin-left: auto; background: none; border: none; cursor: pointer; padding: 4px; line-height: 0; }
+        .dc-mobile-item { display: block; padding: 12px 10px; font-size: 15px; font-weight: 500; color: #333; text-decoration: none; font-family: 'DM Sans',sans-serif; border-radius: 8px; }
+        .dc-mobile-item:active { background: #f5f5f5; }
+        @media (max-width: 768px) {
+          .dc-desktop-nav { display: none; }
+          .dc-hamburger { display: inline-flex; align-items: center; justify-content: center; }
+        }
       `}</style>
 
       <header style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0, position: 'sticky', top: 0, zIndex: 200 }}>
@@ -55,7 +67,7 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
           {centerContent}
         </>}
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div className="dc-desktop-nav">
           {rightLinks && <Link href="/fullmap" className="dc-link">Catering Map</Link>}
           {rightLinks && <Link href="/faq" className="dc-link">FAQ</Link>}
 
@@ -115,6 +127,37 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
             )
           )}
         </div>
+
+        {/* Mobile hamburger — far right, ≤768px only (see .dc-hamburger CSS). */}
+        <button className="dc-hamburger" aria-label="Menu" onClick={() => setMobileOpen(o => !o)}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1A1028" strokeWidth="2" strokeLinecap="round">
+            <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+
+        {/* Mobile dropdown menu — full-width below the header. */}
+        {mobileOpen && (
+          <>
+            <div onClick={() => setMobileOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 199 }} />
+            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', borderBottom: '1px solid #f0f0f0', boxShadow: '0 8px 24px rgba(0,0,0,0.10)', zIndex: 201, padding: '8px 16px 16px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Link href="/fullmap" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>Catering Map</Link>
+              <Link href="/faq" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>FAQ</Link>
+              <Link href="/become-a-partner" className="dc-mobile-item" style={{ color: '#6B6EF9' }} onClick={() => setMobileOpen(false)}>For Restaurants</Link>
+              <div style={{ height: 1, background: '#f0f0f0', margin: '8px 0' }} />
+              {!isLoading && (user ? (
+                <>
+                  <Link href="/account/orders" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>My Account</Link>
+                  <button onClick={() => { setMobileOpen(false); signOut() }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: '1.5px solid #f0c0c0', background: '#fff', color: '#E24B4A', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: F, marginTop: 4 }}>Sign out</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => { setMobileOpen(false); openAuthModal(undefined, 'login') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: F, marginTop: 4 }}>Log In</button>
+                  <button onClick={() => { setMobileOpen(false); openAuthModal(undefined, 'signup') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F, marginTop: 6 }}>Sign Up</button>
+                </>
+              ))}
+            </div>
+          </>
+        )}
       </header>
 
       <AuthModal

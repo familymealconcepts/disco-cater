@@ -191,7 +191,8 @@ export default function HomePage() {
           .btn-long { display: none !important; }
           .btn-short { display: inline !important; }
           .btn-arrow { display: none !important; }
-          .search-wrap { width: calc(100vw - 48px) !important; }
+          .search-wrap { width: calc(100vw - 32px) !important; }
+          .home-footer { padding-left: 16px !important; padding-right: 16px !important; gap: 14px !important; }
         }
         @media (min-width: 769px) {
           .btn-short { display: none; }
@@ -294,7 +295,7 @@ export default function HomePage() {
         </main>
 
         {/* ── Footer ── */}
-        <footer style={{
+        <footer className="home-footer" style={{
           padding: '18px 40px',
           display: 'flex',
           flexDirection: 'column',
@@ -318,7 +319,7 @@ export default function HomePage() {
               </span>
             ))}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
             <a href="/become-a-partner"
               style={{ fontSize: 13, color: '#6B6EF9', textDecoration: 'none', transition: 'color 0.15s' }}
               onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
