@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 
-const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FAMILYMEAL_API_BASE || 'https://api.familymeal.com'
+// TEMPORARY: hardcoded to the dev/staging base to confirm staging
+// connectivity. Revert to the env-var form once verified:
+//   process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FAMILYMEAL_API_BASE || 'https://api.familymeal.com'
+const EDIT_FM_BASE = 'https://api.dev.familymeal.com'
 
 // Loads the full order details used to pre-populate the edit page.
 // FM (per Revyrie spec): GET /public-api/v2/orders/{orderRef}/details
@@ -9,6 +12,7 @@ const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FAMILYM
 // NOTE: the endpoint is keyed only by orderRef; restaurantRef is NOT part of
 // the path or headers here.
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
+  console.log('[orders/details] using base:', EDIT_FM_BASE)
   const { ref } = await params
   let authHeaders: Record<string, string>
   try { authHeaders = await getRestaurantAuthHeader() } catch {
