@@ -374,11 +374,13 @@ export default function AdminOrdersPage() {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
   const [searchInput, setSearchInput] = useState('')
-  // Default to the last 10 days so the all-pages fetch loads a manageable set on
-  // first open. The user can still clear or widen the range. (YYYY-MM-DD to match
-  // the <input type="date"> value format; the API converts to FM's DD.MM.YYYY.)
-  const [fromDate, setFromDate] = useState(() => isoDate(daysAgo(10)))
-  const [toDate, setToDate] = useState(() => isoDate(new Date()))
+  // FM filters this range by catering/order date, not placed date — so a recently
+  // placed order with a far-future (or past) catering date falls outside a narrow
+  // window. Default to ±60 days so recently placed orders show regardless of which
+  // date FM filters on. (YYYY-MM-DD to match the date inputs; the API converts to
+  // FM's DD.MM.YYYY. daysAgo(-60) = 60 days from now.)
+  const [fromDate, setFromDate] = useState(() => isoDate(daysAgo(60)))
+  const [toDate, setToDate] = useState(() => isoDate(daysAgo(-60)))
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Order | null>(null)
 
@@ -496,7 +498,7 @@ export default function AdminOrdersPage() {
       </div>
 
       <div style={{ fontSize: 12, color: '#999', marginBottom: 14 }}>
-        Showing last 10 days by default — adjust range to see more.
+        Showing active order window — adjust range to see more.
       </div>
 
       {/* Filter bar — client-side over the loaded page */}
