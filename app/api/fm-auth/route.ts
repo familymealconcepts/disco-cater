@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { COOKIE_OPTS } from '../../../lib/auth'
+import { SESSION_MAX_AGE } from '../../../lib/jwt'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
+// Both cookies live 30 days so a returning user stays logged in for the full
+// window; the proactive refresh-on-load rotates them forward on each visit.
 function setAuthCookies(resp: NextResponse, token: string, refreshToken: string) {
-  resp.cookies.set('disco_token', token, { ...COOKIE_OPTS, maxAge: 60 * 60 * 24 * 7 })
-  resp.cookies.set('disco_refresh', refreshToken, { ...COOKIE_OPTS, maxAge: 60 * 60 * 24 * 30 })
+  resp.cookies.set('disco_token', token, { ...COOKIE_OPTS, maxAge: SESSION_MAX_AGE })
+  resp.cookies.set('disco_refresh', refreshToken, { ...COOKIE_OPTS, maxAge: SESSION_MAX_AGE })
 }
 
 // Login or Register

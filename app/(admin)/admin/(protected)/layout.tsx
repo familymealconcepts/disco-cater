@@ -59,6 +59,22 @@ export default function AdminProtectedLayout({ children }: { children: React.Rea
     } catch {}
   }, [])
 
+  // Proactive refresh-on-load: silently rotates the token when it's expired or
+  // within 24h of expiry so admins stay logged in for the full 30-day window.
+  // If the refresh token is gone/invalid, the route clears cookies and 401s →
+  // bounce to login.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/admin-auth/refresh', { method: 'POST' })
+        if (res.status === 401) {
+          try { localStorage.removeItem('admin_user') } catch {}
+          router.push('/admin/login')
+        }
+      } catch {}
+    })()
+  }, [router])
+
   function isActive(path: string) {
     return pathname === path || pathname.startsWith(path + '/')
   }

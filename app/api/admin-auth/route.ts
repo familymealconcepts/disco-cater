@@ -4,6 +4,7 @@ import {
   ADMIN_REFRESH_COOKIE,
   ADMIN_COOKIE_OPTS,
 } from '../../../lib/admin-auth'
+import { SESSION_MAX_AGE } from '../../../lib/jwt'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -39,9 +40,9 @@ export async function POST(req: NextRequest) {
       role: data.role,
       reference: data.reference,
     })
-    resp.cookies.set(ADMIN_TOKEN_COOKIE, rawToken, { ...ADMIN_COOKIE_OPTS, maxAge: 60 * 60 * 24 * 7 })
+    resp.cookies.set(ADMIN_TOKEN_COOKIE, rawToken, { ...ADMIN_COOKIE_OPTS, maxAge: SESSION_MAX_AGE })
     if (rawRefresh) {
-      resp.cookies.set(ADMIN_REFRESH_COOKIE, rawRefresh, { ...ADMIN_COOKIE_OPTS, maxAge: 60 * 60 * 24 * 30 })
+      resp.cookies.set(ADMIN_REFRESH_COOKIE, rawRefresh, { ...ADMIN_COOKIE_OPTS, maxAge: SESSION_MAX_AGE })
     }
     return resp
   } catch {

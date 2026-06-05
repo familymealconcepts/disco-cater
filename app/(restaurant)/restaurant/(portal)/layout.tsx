@@ -86,6 +86,22 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     } catch {}
   }, [])
 
+  // Proactive refresh-on-load: silently rotates the token when it's expired or
+  // within 24h of expiry so restaurant users stay logged in for the full 30-day
+  // window. If the refresh token is gone/invalid, the route clears cookies and
+  // 401s → bounce to login.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/restaurant-auth/refresh', { method: 'POST' })
+        if (res.status === 401) {
+          try { localStorage.removeItem('restaurant_user') } catch {}
+          router.push('/restaurant/login')
+        }
+      } catch {}
+    })()
+  }, [router])
+
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN' || user?.role === 'SUPER_ADMIN'
   // ADMIN role is always in Mode B by definition. SYSTEM_ADMIN is in
   // Mode B only when they explicitly pick a location AND viewMode is

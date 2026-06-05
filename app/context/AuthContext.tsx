@@ -47,8 +47,8 @@ async function fetchUser(): Promise<AuthUser | null> {
       }
     }
     if (res.status === 401) {
-      // Try refresh
-      const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+      // FM rejected the token — force a refresh regardless of our local exp guess.
+      const refreshRes = await fetch('/api/auth/refresh?force=1', { method: 'POST', credentials: 'include' })
       if (refreshRes.ok) {
         // Retry after refresh
         const retry = await fetch('/api/fm-user', { credentials: 'include' })
@@ -81,10 +81,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 
   useEffect(() => {
-    fetchUser().then(u => {
+    (async () => {
+      // Proactive refresh-on-load: silently rotates the token if it's expired or
+      // within 24h of expiry (no-op otherwise), so a returning visitor stays
+      // logged in for the full 30-day window without any action.
+      try { await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' }) } catch {}
+      const u = await fetchUser()
       setUser(u)
       setIsLoading(false)
-    })
+    })()
   }, [])
 
   const login = useCallback(async (email: string, password: string) => {

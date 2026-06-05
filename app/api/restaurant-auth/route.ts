@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { RESTAURANT_COOKIE_OPTS, RESTAURANT_TOKEN_COOKIE, RESTAURANT_REFRESH_COOKIE } from '../../../lib/restaurant-auth'
+import { SESSION_MAX_AGE } from '../../../lib/jwt'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -52,13 +53,13 @@ export async function POST(req: NextRequest) {
     if (rawToken) {
       resp.cookies.set(RESTAURANT_TOKEN_COOKIE, rawToken, {
         ...RESTAURANT_COOKIE_OPTS,
-        maxAge: 60 * 60 * 24 * 7,
+        maxAge: SESSION_MAX_AGE,
       })
     }
     if (refreshToken) {
       resp.cookies.set(RESTAURANT_REFRESH_COOKIE, refreshToken, {
         ...RESTAURANT_COOKIE_OPTS,
-        maxAge: 60 * 60 * 24 * 30,
+        maxAge: SESSION_MAX_AGE,
       })
     }
     return resp
