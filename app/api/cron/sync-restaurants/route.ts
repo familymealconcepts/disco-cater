@@ -134,6 +134,23 @@ async function fetchAllMarketplace(token: string): Promise<FmRestaurant[]> {
     if (!res.ok) throw new Error(`FM restaurants fetch failed (page ${page}, HTTP ${res.status})`)
     const d = await res.json().catch(() => null)
     const content: FmRestaurant[] = Array.isArray(d) ? d : (d?.content || d?.data || [])
+
+    // ── Diagnostics: dump the raw FM object shape from the first page only,
+    //    before any filtering. Remove once the address/coords shape is confirmed.
+    if (page === 0) {
+      const sample = content?.[0] as (FmRestaurant & Record<string, unknown>) | undefined
+      console.log('[sync-diag] total in first page:', content?.length)
+      console.log('[sync-diag] top-level keys:', sample ? Object.keys(sample).join(', ') : 'NO SAMPLE')
+      console.log('[sync-diag] address field:', JSON.stringify(sample?.address))
+      console.log('[sync-diag] first restaurant blocked:', sample?.blocked, 'status:', sample?.restaurantStatus || sample?.status)
+      if (sample) {
+        console.log('[sync-diag] addressLine1:', sample?.address?.addressLine1)
+        console.log('[sync-diag] city:', sample?.address?.city)
+        console.log('[sync-diag] state:', sample?.address?.state)
+        console.log('[sync-diag] zipcode:', sample?.address?.zipcode)
+      }
+    }
+
     out.push(...content)
 
     const totalPages =
