@@ -149,6 +149,17 @@ async function fetchAllMarketplace(token: string): Promise<FmRestaurant[]> {
         console.log('[sync-diag] state:', sample?.address?.state)
         console.log('[sync-diag] zipcode:', sample?.address?.zipcode)
       }
+      const statusCounts: Record<string, number> = {}
+      const blockedCounts = { true: 0, false: 0, other: 0 }
+      content.forEach(r => {
+        const s = r.restaurantStatus || r.status || 'MISSING'
+        statusCounts[s] = (statusCounts[s] || 0) + 1
+        if (r.blocked === true) blockedCounts.true++
+        else if (r.blocked === false) blockedCounts.false++
+        else blockedCounts.other++
+      })
+      console.log('[sync-diag] status distribution:', JSON.stringify(statusCounts))
+      console.log('[sync-diag] blocked distribution:', JSON.stringify(blockedCounts))
     }
 
     out.push(...content)
@@ -174,20 +185,6 @@ function isActive(r: FmRestaurant): boolean {
 function hasAddressParts(a?: FmAddress): boolean {
   if (!a) return false
   return !!(a.addressLine1 && a.city && a.state && a.zipcode)
-}
-
-// FM detail endpoint — its address DOES include latitude/longitude (the list
-// endpoint does not). Returns null on any failure (treated as "no coords").
-async function fetchDetail(token: string, ref: string): Promise<FmRestaurant | null> {
-  try {
-    const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, {
-      headers: { Authorization: token, Accept: 'application/json' },
-    })
-    if (!res.ok) return null
-    return (await res.json().catch(() => null)) as FmRestaurant | null
-  } catch {
-    return null
-  }
 }
 
 // ── Sanity doc shape (only what we read for the merge) ───────────────────────
@@ -223,10 +220,9 @@ async function runSync() {
   console.log(`[sync-restaurants] fetched ${all.length} marketplace restaurants from FM`)
 
   // Classify: keep ACTIVE + not-blocked rows that have a full STREET address.
-  // We do NOT require coordinates here — the FM list omits lat/lng, so coords are
-  // fetched from the detail endpoint below. (Requiring coords here was the bug
-  // that rejected all 4329.) Inactive/blocked rows are neither processed nor
-  // protected → STEP 4 may deactivate them.
+  // Coordinates (latitude/longitude) are present directly on the list response's
+  // address object, so no detail fetch is needed. Inactive/blocked rows are
+  // neither processed nor protected → STEP 4 may deactivate them.
   const withAddress: FmRestaurant[] = []
   for (const r of all) {
     if (!r.reference) continue
@@ -250,29 +246,15 @@ async function runSync() {
   const toProcess = withAddress.slice(0, CAP)
   console.log(`[sync-restaurants] ${withAddress.length} with full address, ${skippedNoAddress} skipped (no address); processing ${toProcess.length}${cappedAt500 ? ' (capped at 500)' : ''}`)
 
-  // Fetch coordinates from the FM detail endpoint in batches of 10 concurrent
-  // requests (200ms between batches). The list endpoint has no lat/lng. Rows
-  // whose detail fails or has no coordinates are skipped this run.
+  // Coordinates come straight from the list response's address object — no detail
+  // fetch needed. Rows whose address has no lat/lng are skipped this run.
   const ready: { r: FmRestaurant; address: FmAddress; lat: number; lng: number }[] = []
-  const BATCH = 10
-  const totalBatches = Math.ceil(toProcess.length / BATCH)
-  for (let b = 0; b < totalBatches; b++) {
-    const batch = toProcess.slice(b * BATCH, b * BATCH + BATCH)
-    console.log(`[sync] processing batch ${b + 1}/${totalBatches} (restaurant ${b * BATCH + 1} of ${toProcess.length})`)
-    const details = await Promise.all(batch.map((r) => fetchDetail(token, r.reference as string)))
-    for (let i = 0; i < batch.length; i++) {
-      const r = batch[i]
-      const detail = details[i]
-      // Prefer the detail address (carries coordinates); fall back to the list
-      // address for the street parts.
-      const a = (detail?.address ?? r.address) as FmAddress | undefined
-      const lat = num(a?.latitude)
-      const lng = num(a?.longitude)
-      if (!a || lat == null || lng == null) { skippedNoCoords++; continue }
-      // Merge so downstream fields prefer detail values when present.
-      ready.push({ r: { ...r, ...(detail ?? {}) }, address: a, lat, lng })
-    }
-    if (b < totalBatches - 1) await sleep(200)
+  for (const r of toProcess) {
+    const a = r.address
+    const lat = num(a?.latitude)
+    const lng = num(a?.longitude)
+    if (!a || lat == null || lng == null) { skippedNoCoords++; continue }
+    ready.push({ r, address: a, lat, lng })
   }
   console.log(`[sync-restaurants] ${ready.length} ready to upsert, ${skippedNoCoords} skipped (no coords)`)
 
