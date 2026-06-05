@@ -20,19 +20,9 @@ export async function GET(req: NextRequest) {
     const res = await fetch(`${FM}/api/admin/dashboard/sale/stats?${params}`, { headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed to fetch sale stats' }, { status: res.status })
     const data = await res.json()
-    // DEBUG: inspect the real FM field names (e.g. which key actually holds
-    // platform fees) so the dashboard mapping can be corrected.
-    console.log('[Dashboard] FM analytics raw response:', JSON.stringify(data, null, 2))
-    // DEBUG: compare serviceChargesSum vs a computed 3% of subtotal to identify
-    // which field is the Disco platform fee.
-    console.log('[Dashboard] Derived platform fee check:', {
-      serviceChargesSum: data.serviceChargesSum,
-      subtotalOrdersSum: data.subtotalOrdersSum,
-      computed3pct: (data.subtotalOrdersSum ?? 0) * 0.03,
-      leadgen1: data.leadgenonediscofee,
-      leadgen2: data.leadgentwodiscofee,
-    })
-    return NextResponse.json(data)
+    // FM doesn't return a platform-fee field — Disco's platform fee is 3% of the
+    // order subtotal, so compute it here.
+    return NextResponse.json({ ...data, platformFees: (data.subtotalOrdersSum ?? 0) * 0.03 })
   } catch {
     return NextResponse.json({ error: 'Unable to fetch sale stats' }, { status: 500 })
   }

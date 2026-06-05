@@ -72,15 +72,8 @@ function dayLabel(iso: string): string {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-// FM /api/admin/dashboard/statistics fields used in template
-interface AdminStats {
-  totalRestaurantsCount?: number
-  totalOrdersCount?: number
-  totalVisitors?: number
-  avgOrdersPerDayCount?: number
-}
-
-// FM /api/admin/dashboard/sale/statistics raw response — we map below
+// FM /api/admin/dashboard/sale/stats raw response — we map below. `platformFees`
+// is computed in the proxy (3% of subtotal — FM returns no platform-fee field).
 interface AdminSaleStatsRaw {
   totalCustomersCount?: number
   totalOrdersAvgSum?: number
@@ -102,16 +95,7 @@ interface AdminSaleStatsRaw {
   serviceChargesSum?: number
   leadgenonediscofee?: number
   leadgentwodiscofee?: number
-  // Platform-fee candidates — FM's exact key is unconfirmed; read defensively.
-  // (Inspect the [Dashboard] FM analytics raw response server log to pin it.)
-  platformFeesSum?: number
-  platformFeeSum?: number
   platformFees?: number
-  platformFee?: number
-  discoFeeSum?: number
-  discoFee?: number
-  serviceFee?: number
-  [key: string]: number | undefined
 }
 
 interface LocationOption { reference: string; businessName: string }
@@ -124,7 +108,6 @@ function fmtNumber(n?: number) {
 }
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<AdminStats>({})
   const [saleRaw, setSaleRaw] = useState<AdminSaleStatsRaw>({})
   const [restaurants, setRestaurants] = useState<LocationOption[]>([])
   const [restaurantRef, setRestaurantRef] = useState<string>('')  // '' = All restaurants
@@ -137,26 +120,25 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [showRestaurantPicker, setShowRestaurantPicker] = useState(false)
 
-  // Order-volume chart
-  const [volume, setVolume] = useState<{ date: string; orders: number }[]>([])
-  const [volumeLoading, setVolumeLoading] = useState(true)
-  const [volumeTruncated, setVolumeTruncated] = useState(false)
+  // Daily GMV chart (always last 30 days, independent of the KPI preset)
+  const [gmv, setGmv] = useState<{ date: string; gmv: number }[]>([])
+  const [gmvLoading, setGmvLoading] = useState(true)
+  const [gmvTruncated, setGmvTruncated] = useState(false)
 
-  // Initial stats (no filters) + restaurant list
+  // Restaurant list (powers the picker + the "Total Restaurants" count).
   useEffect(() => {
-    Promise.all([
-      fetch('/api/admin/dashboard/stats').then(r => r.ok ? r.json() : null),
-      fetch('/api/admin/restaurants-list').then(r => r.ok ? r.json() : null),
-    ]).then(([statsRes, listRes]) => {
-      if (statsRes) setStats(statsRes)
-      if (Array.isArray(listRes)) {
-        setRestaurants(listRes.map((r: { reference: string; businessName: string }) => ({
-          reference: r.reference, businessName: r.businessName,
-        })))
-      } else if (listRes?.content) {
-        setRestaurants(listRes.content)
-      }
-    }).catch(() => {})
+    fetch('/api/admin/restaurants-list')
+      .then(r => r.ok ? r.json() : null)
+      .then(listRes => {
+        if (Array.isArray(listRes)) {
+          setRestaurants(listRes.map((r: { reference: string; businessName: string }) => ({
+            reference: r.reference, businessName: r.businessName,
+          })))
+        } else if (listRes?.content) {
+          setRestaurants(listRes.content)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // Sale stats — fire on mount and whenever filters change
@@ -175,27 +157,31 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadSaleStats() }, [loadSaleStats])
 
-  // Order-volume chart — aggregate daily order counts over the selected range.
-  // /api/admin/orders forwards fromDate/toDate (DD.MM.YYYY passes through). We
-  // page up to a cap to avoid a slow full crawl; if hit, the chart is marked
-  // partial. (The orders proxy isn't restaurant-scoped, so this is platform-wide.)
-  const loadOrderVolume = useCallback(async () => {
-    if (!fromDate || !toDate) return
-    setVolumeLoading(true)
-    setVolumeTruncated(false)
+  // Daily GMV chart — always the last 30 days, independent of the KPI preset.
+  // Sums each order's gross value (total, falling back to transactionsTotal) by
+  // day. /api/admin/orders forwards fromDate/toDate (DD.MM.YYYY passes through);
+  // we page up to a cap and mark the chart partial if it's hit. (The orders proxy
+  // isn't restaurant-scoped, so this is platform-wide.)
+  const loadDailyGmv = useCallback(async () => {
+    setGmvLoading(true)
+    setGmvTruncated(false)
+    const now = new Date()
+    const start = new Date(); start.setDate(start.getDate() - 29)
+    const from = fmtFm(start)
+    const to = fmtFm(now)
     const SIZE = 200
-    const MAX_PAGES = 10 // cap → up to 2000 orders in range
+    const MAX_PAGES = 10 // cap → up to 2000 orders
     try {
-      const all: { orderDate?: string }[] = []
+      const all: { orderDate?: string; total?: number; transactionsTotal?: number }[] = []
       let page = 0
       let totalPages = 1
       let truncated = false
       do {
-        const p = new URLSearchParams({ page: String(page), size: String(SIZE), fromDate, toDate })
+        const p = new URLSearchParams({ page: String(page), size: String(SIZE), fromDate: from, toDate: to })
         const res = await fetch(`/api/admin/orders?${p}`)
         if (!res.ok) break
         const d = await res.json()
-        const content: { orderDate?: string }[] = Array.isArray(d?.content) ? d.content : (Array.isArray(d) ? d : [])
+        const content = Array.isArray(d?.content) ? d.content : (Array.isArray(d) ? d : [])
         all.push(...content)
         totalPages = typeof d?.totalPages === 'number' ? d.totalPages : Math.ceil((d?.totalElements || content.length) / SIZE)
         page++
@@ -205,18 +191,20 @@ export default function AdminDashboard() {
       const byDay: Record<string, number> = {}
       for (const o of all) {
         const iso = (o.orderDate || '').slice(0, 10)
-        if (iso) byDay[iso] = (byDay[iso] || 0) + 1
+        if (!iso) continue
+        const gross = typeof o.total === 'number' ? o.total : (o.transactionsTotal ?? 0)
+        byDay[iso] = (byDay[iso] || 0) + gross
       }
-      setVolume(enumerateDays(fmToIso(fromDate), fmToIso(toDate)).map(iso => ({ date: dayLabel(iso), orders: byDay[iso] || 0 })))
-      setVolumeTruncated(truncated)
+      setGmv(enumerateDays(fmToIso(from), fmToIso(to)).map(iso => ({ date: dayLabel(iso), gmv: byDay[iso] || 0 })))
+      setGmvTruncated(truncated)
     } catch {
-      setVolume([])
+      setGmv([])
     } finally {
-      setVolumeLoading(false)
+      setGmvLoading(false)
     }
-  }, [fromDate, toDate])
+  }, [])
 
-  useEffect(() => { loadOrderVolume() }, [loadOrderVolume])
+  useEffect(() => { loadDailyGmv() }, [loadDailyGmv])
 
   // Apply a preset: compute its range (re-fetches via the effects above). For
   // 'custom', leave the dates as-is and reveal the pickers.
@@ -246,13 +234,14 @@ export default function AdminDashboard() {
   const hasLeadGen1 = (saleRaw.leadgenonediscofee ?? 0) > 0
   const hasLeadGen2 = (saleRaw.leadgentwodiscofee ?? 0) > 0
 
-  // Platform fees — FM's exact key is unconfirmed (the previous `feeSum` mapping
-  // read as 0/empty). Read across the likely field names; the server-side
-  // [Dashboard] raw-response log lets us pin the real one and trim this list.
-  const platformFees =
-    saleRaw.feeSum ?? saleRaw.platformFeesSum ?? saleRaw.platformFeeSum ??
-    saleRaw.platformFees ?? saleRaw.platformFee ?? saleRaw.discoFeeSum ??
-    saleRaw.discoFee ?? saleRaw.serviceFee ?? saleRaw.fee
+  // Platform fees — computed in the proxy as 3% of subtotal (FM has no field).
+  const platformFees = saleRaw.platformFees
+
+  // Top-card metrics derived from the (date-filtered) sale stats.
+  const totalOrders = saleRaw.totalOrdersCount ?? 0
+  const rangeDays = Math.max(1, enumerateDays(fmToIso(fromDate), fmToIso(toDate)).length)
+  const avgOrdersPerDay = totalOrders / rangeDays
+  const avgOrderValue = totalOrders > 0 ? (saleRaw.subtotalOrdersSum ?? 0) / totalOrders : 0
 
   const selectedRestaurantName = restaurants.find(r => r.reference === restaurantRef)?.businessName
 
@@ -333,12 +322,13 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Count metrics — always unfiltered (FM behavior) */}
+      {/* Top metrics — Total Restaurants is a global count; the rest reflect the
+          selected date range. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginTop: 22 }}>
-        <CountCard title="Total Restaurants" value={stats.totalRestaurantsCount} />
-        <CountCard title="Total Orders" value={stats.totalOrdersCount} />
-        <CountCard title="Total Visitors" value={stats.totalVisitors} />
-        <CountCard title="Avg Orders / Day" value={stats.avgOrdersPerDayCount} decimal />
+        <CountCard title="Total Restaurants" value={restaurants.length} />
+        <CountCard title="Total Orders" value={totalOrders} />
+        <SaleCard title="Avg Order Value" value={avgOrderValue} />
+        <CountCard title="Avg Orders / Day" value={avgOrdersPerDay} decimal />
       </div>
 
       {/* Filters */}
@@ -419,26 +409,27 @@ export default function AdminDashboard() {
         {hasLeadGen2 && <SaleCard title="Lead Gen 2" value={saleRaw.leadgentwodiscofee} />}
       </div>
 
-      {/* Order volume — daily order count over the selected range */}
+      {/* Daily GMV — gross order value per day, always the last 30 days */}
       <h2 style={{ fontSize: 13, fontWeight: 700, color: '#666', margin: '28px 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-        Order Volume
-        {volumeTruncated && <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: '#aaa', marginLeft: 8 }}>(showing first 2,000 orders in range)</span>}
+        Daily GMV
+        <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: '#999', marginLeft: 8 }}>Last 30 days</span>
+        {gmvTruncated && <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: '#aaa', marginLeft: 8 }}>(showing first 2,000 orders)</span>}
       </h2>
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', padding: '16px 18px' }}>
-        {volumeLoading ? (
+        {gmvLoading ? (
           <div style={{ height: 240, borderRadius: 10, background: 'linear-gradient(90deg,#f0f0f0 25%,#e6e6e6 50%,#f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'dash-shimmer 1.4s ease infinite' }} />
-        ) : volume.length === 0 ? (
+        ) : gmv.length === 0 ? (
           <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 13 }}>
-            No orders in this period
+            No orders in the last 30 days
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={volume} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+            <BarChart data={gmv} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f2f2f2" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#999' }} tickLine={false} axisLine={{ stroke: '#eee' }} minTickGap={20} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#999' }} tickLine={false} axisLine={false} width={32} />
-              <Tooltip cursor={{ fill: 'rgba(91,111,232,0.06)' }} />
-              <Bar dataKey="orders" fill={BLUE} radius={[3, 3, 0, 0]} />
+              <YAxis tickFormatter={(v: number) => `$${Math.round(v).toLocaleString()}`} tick={{ fontSize: 11, fill: '#999' }} tickLine={false} axisLine={false} width={56} />
+              <Tooltip cursor={{ fill: 'rgba(91,111,232,0.06)' }} content={<GmvTooltip />} />
+              <Bar dataKey="gmv" fill={BLUE} radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -452,6 +443,16 @@ export default function AdminDashboard() {
         <SaleCard title="Avg Check" value={saleRaw.totalOrdersAvgSum} />
         <CountCard title="Total Customers" value={saleRaw.totalCustomersCount} />
       </div>
+    </div>
+  )
+}
+
+// Recharts tooltip: "Jun 1 — $4,820.00"
+function GmvTooltip({ active, payload, label }: { active?: boolean; payload?: { value?: number }[]; label?: string }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{ background: DARK, color: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: 12, fontFamily: F }}>
+      {label} — {fmtCurrency(payload[0]?.value ?? 0)}
     </div>
   )
 }
