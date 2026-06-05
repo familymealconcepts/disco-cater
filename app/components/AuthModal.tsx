@@ -7,6 +7,7 @@ const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 const DARK = '#1A1028'
 const INDIGO = '#6B6EF9'
+const BLUE = '#5B6FE8'
 
 interface Props {
   isOpen: boolean
@@ -42,6 +43,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
   const router = useRouter()
   const pathname = usePathname()
   const [tab, setTab] = useState<'login' | 'signup'>(defaultTab)
+  // 'login' shows the login form; 'forgot' replaces it with the reset-request view.
+  const [mode, setMode] = useState<'login' | 'forgot'>('login')
 
   // Login form state
   const [loginEmail, setLoginEmail] = useState('')
@@ -50,8 +53,17 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState('')
 
+  // Forgot-password view state
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotError, setForgotError] = useState('')
+  const [forgotSent, setForgotSent] = useState(false)
+
   useEffect(() => {
     setTab(defaultTab)
+    // Always reopen on the login form, not a stale forgot view.
+    setMode('login')
+    setForgotEmail(''); setForgotError(''); setForgotSent(false); setForgotLoading(false)
   }, [defaultTab, isOpen])
 
   useEffect(() => {
@@ -68,7 +80,33 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
   function handleClose() {
     setLoginError('')
     setLoginEmail(''); setLoginPassword('')
+    setMode('login')
+    setForgotEmail(''); setForgotError(''); setForgotSent(false); setForgotLoading(false)
     onClose()
+  }
+
+  function backToLogin() {
+    setMode('login')
+    setForgotError(''); setForgotSent(false); setForgotLoading(false)
+  }
+
+  async function handleForgot(e: React.FormEvent) {
+    e.preventDefault()
+    if (!forgotEmail) { setForgotError('Please enter your email address.'); return }
+    setForgotLoading(true); setForgotError('')
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      })
+      if (!res.ok) throw new Error()
+      setForgotSent(true)
+    } catch {
+      setForgotError('Something went wrong. Please try again.')
+    } finally {
+      setForgotLoading(false)
+    }
   }
 
   async function handleLogin(e: React.FormEvent) {
@@ -149,12 +187,17 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
             <span style={{ color: '#999' }}> cater</span>
           </div>
           <div style={{ fontSize: 18, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>
-            {tab === 'login' ? 'Welcome back' : 'Create your account'}
+            {mode === 'forgot' ? 'Reset your password' : (tab === 'login' ? 'Welcome back' : 'Create your account')}
           </div>
+          {mode === 'forgot' && !forgotSent && (
+            <div style={{ fontSize: 13, color: '#777', marginTop: 6, lineHeight: 1.5 }}>
+              Enter your email address and we&apos;ll send you a reset link.
+            </div>
+          )}
         </div>
 
         {/* LOGIN FORM */}
-        {tab === 'login' && (
+        {mode === 'login' && tab === 'login' && (
           <form onSubmit={handleLogin}>
             <div style={{ marginBottom: 14 }}>
               <label style={labelStyle}>Email address</label>
@@ -172,10 +215,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
             <div style={{ marginBottom: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5, alignItems: 'center' }}>
                 <label style={labelStyle}>Password</label>
-                {/* Self-service reset is blocked on FM (reset emails link to
-                    familymeal.com, not discocater.com — needs a backend change).
-                    Until then, route password help to the concierge inbox. */}
-                <a href="mailto:concierge@discocater.com?subject=Password%20Reset%20Request" style={{ fontSize: 12, color: INDIGO, textDecoration: 'none', fontWeight: 500 }}>Forgot password?</a>
+                <button type="button" onClick={() => { setLoginError(''); setForgotEmail(loginEmail); setMode('forgot') }}
+                  style={{ fontSize: 12, color: INDIGO, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: F }}>Forgot password?</button>
               </div>
               <div style={{ position: 'relative' }}>
                 <input
@@ -203,6 +244,57 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               {loginLoading ? 'Signing in…' : 'Log In'}
             </button>
           </form>
+        )}
+
+        {/* FORGOT PASSWORD VIEW */}
+        {mode === 'forgot' && (
+          forgotSent ? (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 14 }}>📬</div>
+              <div style={{ fontSize: 14, color: '#444', lineHeight: 1.55, marginBottom: 22 }}>
+                Check your email — we&apos;ve sent a password reset link to <strong style={{ color: DARK }}>{forgotEmail}</strong>.
+              </div>
+              <button
+                type="button"
+                onClick={backToLogin}
+                style={{ width: '100%', padding: '13px', fontSize: 14, fontWeight: 700, color: '#fff', background: BLUE, border: 'none', borderRadius: 999, cursor: 'pointer', fontFamily: F }}
+              >
+                Back to login
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={handleForgot}>
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>Email address</label>
+                <input
+                  className="auth-modal-input"
+                  type="email"
+                  value={forgotEmail}
+                  onChange={e => setForgotEmail(e.target.value)}
+                  placeholder="you@company.com"
+                  autoFocus
+                  autoComplete="email"
+                  style={{ ...inputStyle, borderRadius: 999, padding: '0 18px' }}
+                />
+              </div>
+              {forgotError && (
+                <div style={{ fontSize: 12, color: '#E24B4A', marginBottom: 14, padding: '9px 12px', background: '#FFF0F3', borderRadius: 8 }}>{forgotError}</div>
+              )}
+              <button
+                type="submit"
+                disabled={forgotLoading}
+                style={{ width: '100%', padding: '13px', fontSize: 14, fontWeight: 700, color: '#fff', background: forgotLoading ? '#ccc' : BLUE, border: 'none', borderRadius: 999, cursor: forgotLoading ? 'not-allowed' : 'pointer', fontFamily: F, marginTop: 4 }}
+              >
+                {forgotLoading ? 'Sending…' : 'Send reset link'}
+              </button>
+              <div style={{ textAlign: 'center', marginTop: 16 }}>
+                <button type="button" onClick={backToLogin}
+                  style={{ fontSize: 13, color: INDIGO, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F }}>
+                  ← Back to login
+                </button>
+              </div>
+            </form>
+          )
         )}
       </div>
     </>

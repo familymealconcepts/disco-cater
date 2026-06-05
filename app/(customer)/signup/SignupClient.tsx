@@ -124,6 +124,10 @@ export default function SignupClient() {
             Already have an account?{' '}
             <Link href="/" style={{ color: BLUE, fontWeight: 700, textDecoration: 'none' }}>Log in</Link>
           </p>
+          <p style={{ textAlign: 'center', fontSize: 13, color: '#888', margin: '8px 0 0' }}>
+            Forgot your password?{' '}
+            <Link href="/" style={{ color: BLUE, fontWeight: 700, textDecoration: 'none' }}>Reset it →</Link>
+          </p>
         </div>
       </div>
     </div>
