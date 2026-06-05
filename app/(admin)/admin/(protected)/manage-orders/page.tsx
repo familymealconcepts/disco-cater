@@ -381,7 +381,9 @@ export default function AdminOrdersPage() {
   // window. Default to ±60 days so recently placed orders show regardless of which
   // date FM filters on. (YYYY-MM-DD to match the date inputs; the API converts to
   // FM's DD.MM.YYYY. daysAgo(-60) = 60 days from now.)
-  const [fromDate, setFromDate] = useState(() => isoDate(daysAgo(60)))
+  // Default to the last 10 days (was 60) — the FM dataset is large and the old
+  // window made the initial load slow. The proxy converts ISO → DD.MM.YYYY.
+  const [fromDate, setFromDate] = useState(() => isoDate(daysAgo(10)))
   const [toDate, setToDate] = useState(() => isoDate(daysAgo(-60)))
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Order | null>(null)

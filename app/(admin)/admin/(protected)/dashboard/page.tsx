@@ -1,10 +1,76 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const GOLD = '#EFB84A'
+const BLUE = '#5B6FE8'
 const PAGE_BG = '#F7F8FC'
+
+// ── Date range presets ────────────────────────────────────────────────────────
+type Preset = 'this_month' | 'last_month' | 'ytd' | 'last_7' | 'last_30' | 'custom'
+
+const PRESETS: { key: Preset; label: string }[] = [
+  { key: 'this_month', label: 'This Month' },
+  { key: 'last_month', label: 'Last Month' },
+  { key: 'ytd', label: 'YTD' },
+  { key: 'last_7', label: 'Last 7 Days' },
+  { key: 'last_30', label: 'Last 30 Days' },
+  { key: 'custom', label: 'Custom Range' },
+]
+
+// FM's dashboard sale/stats + orders endpoints filter by DD.MM.YYYY.
+function fmtFm(d: Date): string {
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`
+}
+// DD.MM.YYYY → YYYY-MM-DD (for <input type="date">), and back.
+function fmToIso(fm: string): string {
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(fm)
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : ''
+}
+function isoToFm(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : ''
+}
+
+// Returns { from, to } as DD.MM.YYYY for a preset, or null for 'custom'.
+function computeRange(preset: Preset): { from: string; to: string } | null {
+  const now = new Date()
+  const today = fmtFm(now)
+  if (preset === 'this_month') return { from: fmtFm(new Date(now.getFullYear(), now.getMonth(), 1)), to: today }
+  if (preset === 'last_month') {
+    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const last = new Date(now.getFullYear(), now.getMonth(), 0) // day 0 = last day of prev month
+    return { from: fmtFm(first), to: fmtFm(last) }
+  }
+  if (preset === 'ytd') return { from: fmtFm(new Date(now.getFullYear(), 0, 1)), to: today }
+  if (preset === 'last_7') { const d = new Date(); d.setDate(d.getDate() - 6); return { from: fmtFm(d), to: today } }
+  if (preset === 'last_30') { const d = new Date(); d.setDate(d.getDate() - 29); return { from: fmtFm(d), to: today } }
+  return null // custom
+}
+
+// Inclusive list of YYYY-MM-DD between two ISO dates (capped for safety).
+function enumerateDays(fromIso: string, toIso: string): string[] {
+  const [fy, fm, fd] = fromIso.split('-').map(Number)
+  const [ty, tm, td] = toIso.split('-').map(Number)
+  if (!fy || !ty) return []
+  const cur = new Date(fy, fm - 1, fd)
+  const end = new Date(ty, tm - 1, td)
+  const out: string[] = []
+  let guard = 0
+  while (cur <= end && guard < 400) {
+    out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`)
+    cur.setDate(cur.getDate() + 1); guard++
+  }
+  return out
+}
+// "Jun 1" — parse as local date so the day doesn't shift.
+function dayLabel(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return iso
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
 // FM /api/admin/dashboard/statistics fields used in template
 interface AdminStats {
@@ -36,6 +102,16 @@ interface AdminSaleStatsRaw {
   serviceChargesSum?: number
   leadgenonediscofee?: number
   leadgentwodiscofee?: number
+  // Platform-fee candidates — FM's exact key is unconfirmed; read defensively.
+  // (Inspect the [Dashboard] FM analytics raw response server log to pin it.)
+  platformFeesSum?: number
+  platformFeeSum?: number
+  platformFees?: number
+  platformFee?: number
+  discoFeeSum?: number
+  discoFee?: number
+  serviceFee?: number
+  [key: string]: number | undefined
 }
 
 interface LocationOption { reference: string; businessName: string }
@@ -52,10 +128,19 @@ export default function AdminDashboard() {
   const [saleRaw, setSaleRaw] = useState<AdminSaleStatsRaw>({})
   const [restaurants, setRestaurants] = useState<LocationOption[]>([])
   const [restaurantRef, setRestaurantRef] = useState<string>('')  // '' = All restaurants
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  // Date range driven by presets; default to the current month. fromDate/toDate
+  // are DD.MM.YYYY (what FM's sale/stats + orders endpoints expect).
+  const initRange = computeRange('this_month')!
+  const [preset, setPreset] = useState<Preset>('this_month')
+  const [fromDate, setFromDate] = useState(initRange.from)
+  const [toDate, setToDate] = useState(initRange.to)
   const [loading, setLoading] = useState(true)
   const [showRestaurantPicker, setShowRestaurantPicker] = useState(false)
+
+  // Order-volume chart
+  const [volume, setVolume] = useState<{ date: string; orders: number }[]>([])
+  const [volumeLoading, setVolumeLoading] = useState(true)
+  const [volumeTruncated, setVolumeTruncated] = useState(false)
 
   // Initial stats (no filters) + restaurant list
   useEffect(() => {
@@ -90,10 +175,56 @@ export default function AdminDashboard() {
 
   useEffect(() => { loadSaleStats() }, [loadSaleStats])
 
-  function clearFilters() {
-    setFromDate('')
-    setToDate('')
-    setRestaurantRef('')
+  // Order-volume chart — aggregate daily order counts over the selected range.
+  // /api/admin/orders forwards fromDate/toDate (DD.MM.YYYY passes through). We
+  // page up to a cap to avoid a slow full crawl; if hit, the chart is marked
+  // partial. (The orders proxy isn't restaurant-scoped, so this is platform-wide.)
+  const loadOrderVolume = useCallback(async () => {
+    if (!fromDate || !toDate) return
+    setVolumeLoading(true)
+    setVolumeTruncated(false)
+    const SIZE = 200
+    const MAX_PAGES = 10 // cap → up to 2000 orders in range
+    try {
+      const all: { orderDate?: string }[] = []
+      let page = 0
+      let totalPages = 1
+      let truncated = false
+      do {
+        const p = new URLSearchParams({ page: String(page), size: String(SIZE), fromDate, toDate })
+        const res = await fetch(`/api/admin/orders?${p}`)
+        if (!res.ok) break
+        const d = await res.json()
+        const content: { orderDate?: string }[] = Array.isArray(d?.content) ? d.content : (Array.isArray(d) ? d : [])
+        all.push(...content)
+        totalPages = typeof d?.totalPages === 'number' ? d.totalPages : Math.ceil((d?.totalElements || content.length) / SIZE)
+        page++
+        if (page >= MAX_PAGES && page < totalPages) { truncated = true; break }
+      } while (page < totalPages)
+
+      const byDay: Record<string, number> = {}
+      for (const o of all) {
+        const iso = (o.orderDate || '').slice(0, 10)
+        if (iso) byDay[iso] = (byDay[iso] || 0) + 1
+      }
+      setVolume(enumerateDays(fmToIso(fromDate), fmToIso(toDate)).map(iso => ({ date: dayLabel(iso), orders: byDay[iso] || 0 })))
+      setVolumeTruncated(truncated)
+    } catch {
+      setVolume([])
+    } finally {
+      setVolumeLoading(false)
+    }
+  }, [fromDate, toDate])
+
+  useEffect(() => { loadOrderVolume() }, [loadOrderVolume])
+
+  // Apply a preset: compute its range (re-fetches via the effects above). For
+  // 'custom', leave the dates as-is and reveal the pickers.
+  function selectPreset(p: Preset) {
+    setPreset(p)
+    if (p === 'custom') return
+    const r = computeRange(p)
+    if (r) { setFromDate(r.from); setToDate(r.to) }
   }
 
   // Derived sale-stats fields (mirror FM's loadSaleStats mapping in
@@ -115,7 +246,14 @@ export default function AdminDashboard() {
   const hasLeadGen1 = (saleRaw.leadgenonediscofee ?? 0) > 0
   const hasLeadGen2 = (saleRaw.leadgentwodiscofee ?? 0) > 0
 
-  const hasFilters = !!(fromDate || toDate || restaurantRef)
+  // Platform fees — FM's exact key is unconfirmed (the previous `feeSum` mapping
+  // read as 0/empty). Read across the likely field names; the server-side
+  // [Dashboard] raw-response log lets us pin the real one and trim this list.
+  const platformFees =
+    saleRaw.feeSum ?? saleRaw.platformFeesSum ?? saleRaw.platformFeeSum ??
+    saleRaw.platformFees ?? saleRaw.platformFee ?? saleRaw.discoFeeSum ??
+    saleRaw.discoFee ?? saleRaw.serviceFee ?? saleRaw.fee
+
   const selectedRestaurantName = restaurants.find(r => r.reference === restaurantRef)?.businessName
 
   // Manual on-demand regeneration of the AI assistant's restaurant data. POSTs
@@ -165,6 +303,7 @@ export default function AdminDashboard() {
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+      <style>{`@keyframes dash-shimmer { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }`}</style>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Dashboard</h1>
@@ -230,19 +369,42 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={inputSt} />
-        <span style={{ color: '#888' }}>→</span>
-        <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={inputSt} />
+        {/* Date range presets */}
+        <div style={{ display: 'inline-flex', background: '#F2F3F8', borderRadius: 10, padding: 3, gap: 2, flexWrap: 'wrap' }}>
+          {PRESETS.map(p => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => selectPreset(p.key)}
+              style={{
+                border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontFamily: F,
+                fontWeight: preset === p.key ? 700 : 500,
+                background: preset === p.key ? '#fff' : 'transparent',
+                color: preset === p.key ? DARK : '#777',
+                boxShadow: preset === p.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                cursor: 'pointer',
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
 
-        {hasFilters && (
-          <button onClick={clearFilters} style={clearBtn}>Clear</button>
+        {/* Custom date pickers — only shown for the Custom Range preset */}
+        {preset === 'custom' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="date" value={fmToIso(fromDate)} onChange={e => setFromDate(isoToFm(e.target.value))} style={inputSt} />
+            <span style={{ color: '#888' }}>→</span>
+            <input type="date" value={fmToIso(toDate)} onChange={e => setToDate(isoToFm(e.target.value))} style={inputSt} />
+          </div>
         )}
+
         {loading && <span style={{ fontSize: 12, color: '#aaa', marginLeft: 'auto' }}>Loading…</span>}
       </div>
 
       {/* Sale stats — top block (matches FM template 2-87) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginTop: 18 }}>
-        <SaleCard title="Platform Fees" value={saleRaw.feeSum} />
+        <SaleCard title="Platform Fees" value={platformFees} />
         <SaleCard title="Processing Fees" value={saleRaw.stripeFeeSum} />
         <SaleCard title="Net Sales" value={saleRaw.subtotalOrdersSum} />
         <SaleCard title="Tax Amount" value={taxAmount} />
@@ -255,6 +417,31 @@ export default function AdminDashboard() {
         {hasServiceCharges && <SaleCard title="Service Charges" value={saleRaw.serviceChargesSum} />}
         {hasLeadGen1 && <SaleCard title="Lead Gen 1" value={saleRaw.leadgenonediscofee} />}
         {hasLeadGen2 && <SaleCard title="Lead Gen 2" value={saleRaw.leadgentwodiscofee} />}
+      </div>
+
+      {/* Order volume — daily order count over the selected range */}
+      <h2 style={{ fontSize: 13, fontWeight: 700, color: '#666', margin: '28px 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        Order Volume
+        {volumeTruncated && <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: '#aaa', marginLeft: 8 }}>(showing first 2,000 orders in range)</span>}
+      </h2>
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', padding: '16px 18px' }}>
+        {volumeLoading ? (
+          <div style={{ height: 240, borderRadius: 10, background: 'linear-gradient(90deg,#f0f0f0 25%,#e6e6e6 50%,#f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'dash-shimmer 1.4s ease infinite' }} />
+        ) : volume.length === 0 ? (
+          <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 13 }}>
+            No orders in this period
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={volume} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f2f2f2" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#999' }} tickLine={false} axisLine={{ stroke: '#eee' }} minTickGap={20} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#999' }} tickLine={false} axisLine={false} width={32} />
+              <Tooltip cursor={{ fill: 'rgba(91,111,232,0.06)' }} />
+              <Bar dataKey="orders" fill={BLUE} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       {/* GMV / Customer metrics — bottom block (matches FM template 110-127) */}
@@ -292,7 +479,6 @@ const cardTitle: React.CSSProperties = { fontSize: 11, color: '#888', fontWeight
 const cardValue: React.CSSProperties = { fontSize: 22, fontWeight: 700, color: DARK }
 const inputSt: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff' }
 const selectBtn: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontFamily: F, color: DARK, background: '#fff', cursor: 'pointer' }
-const clearBtn: React.CSSProperties = { background: 'transparent', border: '1px solid #ddd', borderRadius: 7, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontFamily: F, color: DARK }
 const pickerItem = (active: boolean): React.CSSProperties => ({
   display: 'block', width: '100%', textAlign: 'left',
   background: active ? 'rgba(239,184,74,0.15)' : 'transparent',

@@ -19,7 +19,11 @@ export async function GET(req: NextRequest) {
   try {
     const res = await fetch(`${FM}/api/admin/dashboard/sale/stats?${params}`, { headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed to fetch sale stats' }, { status: res.status })
-    return NextResponse.json(await res.json())
+    const data = await res.json()
+    // DEBUG: inspect the real FM field names (e.g. which key actually holds
+    // platform fees) so the dashboard mapping can be corrected.
+    console.log('[Dashboard] FM analytics raw response:', JSON.stringify(data, null, 2))
+    return NextResponse.json(data)
   } catch {
     return NextResponse.json({ error: 'Unable to fetch sale stats' }, { status: 500 })
   }
