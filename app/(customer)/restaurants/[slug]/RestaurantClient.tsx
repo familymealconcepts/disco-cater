@@ -908,7 +908,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   function isGroupValid(g: FmExtraItemsGroup) { const t = groupTotal(g); return t >= g.minSelectedItems && t <= g.maxSelectedItems }
   function canConfirmAddOns() {
     if (!addOnsPkg) return false
-    return (addOnsPkg.extraItemsGroups ?? []).filter(g => g.subExternalName === 'Required' || g.minSelectedItems > 0).every(g => isGroupValid(g))
+    // A group is REQUIRED iff minSelectedItems > 0. Optional groups
+    // (minSelectedItems === 0) never block "Add to Order", regardless of
+    // selection.
+    return (addOnsPkg.extraItemsGroups ?? []).filter(g => g.minSelectedItems > 0).every(g => isGroupValid(g))
   }
   function addOnsRunningPrice() {
     if (!addOnsPkg) return 0
@@ -1642,7 +1645,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             <div style={{ overflowY: 'auto', padding: '16px 22px', flex: 1 }}>
               {(addOnsPkg.extraItemsGroups ?? []).map(group => {
                 const total = groupTotal(group)
-                const isRequired = group.subExternalName === 'Required' || group.minSelectedItems > 0
+                const isRequired = group.minSelectedItems > 0
                 const isFull = total >= group.maxSelectedItems
                 const isValid = isGroupValid(group)
                 return (
@@ -1650,7 +1653,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
                       <div>
                         <span style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{group.externalName || group.name}</span>
-                        {isRequired && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: '#C044C8' }}>Required</span>}
+                        {isRequired
+                          ? <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: '#E76F51', letterSpacing: '0.04em' }}>REQUIRED</span>
+                          : <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: '#22C55E', letterSpacing: '0.04em' }}>OPTIONAL</span>}
                       </div>
                       <span style={{ fontSize: 12, color: isValid ? '#22C55E' : '#aaa', fontWeight: 600 }}>{total} of {group.maxSelectedItems} selected</span>
                     </div>
