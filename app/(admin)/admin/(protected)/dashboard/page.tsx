@@ -140,6 +140,28 @@ export default function AdminDashboard() {
     }
   }
 
+  // Manual on-demand FM→Sanity restaurant sync. Same auth model as the AI-data
+  // regeneration above (admin session cookie; CRON_SECRET never hits the browser).
+  const [syncLoading, setSyncLoading] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
+  async function syncRestaurants() {
+    setSyncLoading(true); setSyncMsg('')
+    try {
+      const res = await fetch('/api/cron/sync-restaurants', { method: 'POST', credentials: 'include' })
+      const d = await res.json().catch(() => ({}))
+      if (res.ok && d.success) {
+        const errs = Array.isArray(d.errors) ? d.errors.length : 0
+        setSyncMsg(`✓ ${d.synced} synced (${d.new} new, ${d.updated} updated) · ${d.deactivated} deactivated · ${d.skipped} skipped${errs ? ` · ${errs} errors` : ''}`)
+      } else {
+        setSyncMsg(`✕ ${d.error || `Failed (HTTP ${res.status})`}`)
+      }
+    } catch {
+      setSyncMsg('✕ Network error')
+    } finally {
+      setSyncLoading(false)
+    }
+  }
+
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
@@ -147,7 +169,17 @@ export default function AdminDashboard() {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Dashboard</h1>
           <p style={{ fontSize: 13, color: '#888', margin: 0 }}>Platform overview.</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {syncMsg && <span style={{ fontSize: 12, fontWeight: 600, color: syncMsg.startsWith('✓') ? '#2E7D32' : '#C0392B' }}>{syncMsg}</span>}
+          <button
+            type="button"
+            onClick={syncRestaurants}
+            disabled={syncLoading}
+            title="Pull active marketplace restaurants from FamilyMeal into Sanity (address, location, coordinates, order URL)"
+            style={{ background: '#fff', color: DARK, border: `1.5px solid ${GOLD}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: syncLoading ? 'default' : 'pointer', fontFamily: F, opacity: syncLoading ? 0.7 : 1, whiteSpace: 'nowrap' }}
+          >
+            {syncLoading ? 'Syncing…' : 'Sync Restaurants from FM'}
+          </button>
           {regenMsg && <span style={{ fontSize: 12, fontWeight: 600, color: regenMsg.startsWith('✓') ? '#2E7D32' : '#C0392B' }}>{regenMsg}</span>}
           <button
             type="button"
