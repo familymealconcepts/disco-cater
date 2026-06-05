@@ -2,7 +2,6 @@
 import GlobalHeader from '../components/GlobalHeader'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import Image from 'next/image'
 import NavAuthButton from '../components/NavAuthButton'
 
@@ -292,25 +291,6 @@ export default function HomeClient() {
           }}>
             Discover premium office, holiday and event catering options in your area. Refine your search with AI or chat with a (human!) concierge. Order and enjoy.
           </p>
-
-          {/* GEO/SEO definitional block — server-rendered (SSR'd into the initial
-              HTML) for crawlers and AI answer engines. Muted, below the fold. */}
-          <div style={{ maxWidth: 600, margin: '32px auto 0', textAlign: 'center' }}>
-            <p style={{ fontSize: 14, color: '#666', lineHeight: 1.7, margin: 0 }}>
-              Disco Cater is a nationwide premium restaurant catering marketplace built by FamilyMeal Concepts. The platform specializes in recurring office catering programs for corporate teams and proprietary menus for holiday, social, and special event catering — exclusive to the Disco Cater marketplace. Disco Cater serves enterprise clients including Amazon, Meta, IBM, and J.P. Morgan, with an average order value of $450. The platform features Disco AI, an AI-powered catering assistant built on Claude (Anthropic), for personalized restaurant discovery.
-            </p>
-            <div style={{ marginTop: 14, fontSize: 12, color: '#666', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8, lineHeight: 1.6 }}>
-              <Link href="/corporate-catering" style={{ color: '#666', textDecoration: 'none' }}>Corporate Catering</Link>
-              <span style={{ color: '#ccc' }}>·</span>
-              <Link href="/holiday-catering" style={{ color: '#666', textDecoration: 'none' }}>Holiday Catering</Link>
-              <span style={{ color: '#ccc' }}>·</span>
-              <Link href="/social-catering" style={{ color: '#666', textDecoration: 'none' }}>Social Event Catering</Link>
-              <span style={{ color: '#ccc' }}>·</span>
-              <Link href="/corporate-catering" style={{ color: '#666', textDecoration: 'none' }}>Office Lunch Programs</Link>
-              <span style={{ color: '#ccc' }}>·</span>
-              <Link href="/fullmap" style={{ color: '#666', textDecoration: 'none' }}>AI Catering Assistant</Link>
-            </div>
-          </div>
         </main>
 
         {/* ── Footer ── */}
