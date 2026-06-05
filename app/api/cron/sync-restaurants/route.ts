@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@sanity/client'
 import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
+import { markRestaurantSyncActive } from '../../../../lib/syncState'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -184,6 +185,13 @@ async function runSync() {
   let deactivated = 0
   let skippedNoAddress = 0
   let skippedNoCoords = 0
+
+  // Tell the Sanity webhook to skip per-doc compact regeneration while this run
+  // writes ~150 restaurant docs (otherwise it fires 150× → FM/GitHub storm +
+  // 300s timeouts). Best-effort — never let coordination break the sync.
+  try { await markRestaurantSyncActive(15) } catch (e) {
+    console.warn('[sync-restaurants] could not mark sync active:', e)
+  }
 
   // STEP 1
   const token = await fmLogin()

@@ -19,14 +19,24 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateCompact, commitCompactToGitHub } from '../../../../lib/generateCompact'
+import { acquireRegenSlot } from '../../../../lib/syncState'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
+// IMPORTANT: this handler returns 200 for every non-success outcome (missing
+// config, debounced, regen error) ON PURPOSE. Sanity retries webhooks on any
+// non-2xx, so returning 500 amplified the failure into a retry storm. The 200
+// body carries `success`/`skipped`/`error` for observability; the daily
+// regenerate-compact cron is the backstop when the webhook skips or fails.
 export async function POST(req: NextRequest) {
   const secret = process.env.SANITY_WEBHOOK_SECRET
-  if (!secret) return NextResponse.json({ error: 'Webhook not configured' }, { status: 500 })
+  if (!secret) {
+    // Not configured → do nothing (don't 500, don't act unauthenticated).
+    console.warn('[sanity-restaurant webhook] SANITY_WEBHOOK_SECRET not set — skipping.')
+    return NextResponse.json({ success: false, skipped: 'webhook secret not configured' })
+  }
 
   const provided =
     req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ||
@@ -44,6 +54,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, skipped: `ignored ${docType}` })
   }
 
+  // Skip while the FM→Sanity sync is writing (~150 docs/run) and debounce rapid
+  // edits. generateCompact() crawls every restaurant with ~1s/req FM delays, so
+  // running it per-doc both storms FM + GitHub (409 commit conflicts) and blows
+  // the 300s budget. See lib/syncState.
+  const slot = await acquireRegenSlot()
+  if (!slot.run) {
+    return NextResponse.json({ success: true, skipped: slot.reason })
+  }
+
   try {
     const { entries, skipped } = await generateCompact()
     // Commit back to the repo (→ Vercel redeploy) — serverless FS is read-only.
@@ -58,6 +77,8 @@ export async function POST(req: NextRequest) {
       ...(gh.skipped ? { reason: gh.reason } : {}),
     })
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e?.message || 'Regeneration failed' }, { status: 500 })
+    // Log for diagnosis, but return 200 so Sanity doesn't retry-storm.
+    console.error('[sanity-restaurant webhook] regeneration failed:', e)
+    return NextResponse.json({ success: false, error: e?.message || 'Regeneration failed' })
   }
 }
