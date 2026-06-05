@@ -114,15 +114,16 @@ async function fetchAllMarketplace(token: string): Promise<FmRestaurant[]> {
   // `/api/admin/restaurants/{reference}`, so FM tries to parse "marketplace" as a
   // UUID and 400s. The plain list returns the same restaurant objects
   // (restaurantStatus, blocked, address) the marketplace filters below key on.
-  // Param shape mirrors that route exactly: omit `page` when 0, size, and the
-  // server-side restaurantStatus=ACTIVE filter (the sync only wants ACTIVE).
+  // Param shape mirrors that route exactly: omit `page` when 0, size only. We do
+  // NOT send restaurantStatus — FM's RestaurantStatus enum has no "ACTIVE"
+  // constant (the admin UI's default is "All statuses", i.e. no filter), so we
+  // fetch all restaurants and filter to ACTIVE client-side via isActive().
   const size = 25
   // 1000-page hard cap is a runaway-loop backstop, far above any real count.
   for (let page = 0; page < 1000; page++) {
     const params = new URLSearchParams()
     if (page > 0) params.set('page', String(page))
     params.set('size', String(size))
-    params.set('restaurantStatus', 'ACTIVE')
     const res = await fetch(`${FM}/api/admin/restaurants?${params}`, {
       headers: { Authorization: token, Accept: 'application/json' },
     })
