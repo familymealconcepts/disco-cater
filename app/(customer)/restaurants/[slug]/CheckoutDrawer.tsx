@@ -142,6 +142,15 @@ export default function CheckoutDrawer({
   const [couponInput, setCouponInput] = useState('')
   const [couponApplied, setCouponApplied] = useState('')
   const [couponError, setCouponError] = useState('')
+  // Disco-side promo (entirely separate from FM's couponCode above). DISPLAY-ONLY:
+  // the FM payload is never modified; after the order is placed + charged, the
+  // discount is refunded via Stripe (/api/promo/redeem). See /api/promo/validate.
+  const [promoOpen, setPromoOpen] = useState(false)
+  const [promoInput, setPromoInput] = useState('')
+  const [discoPromo, setDiscoPromo] = useState<{ code: string; discountAmount: number } | null>(null)
+  const [promoLoading, setPromoLoading] = useState(false)
+  const [promoError, setPromoError] = useState('')
+  const [isFirstTimeUser, setIsFirstTimeUser] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [waitingForAuth, setWaitingForAuth] = useState(false)
@@ -482,7 +491,58 @@ export default function CheckoutDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fm, couponApplied])
 
+  // First-time customer? (0 prior FM orders) — gates first_time_only promo codes.
+  // Customer flow only; direct entry never applies a customer promo.
+  useEffect(() => {
+    if (isDirectEntry || !authUser) return
+    fetch('/api/fm-order-history?page=0&size=1', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        const total = typeof d.totalElements === 'number'
+          ? d.totalElements
+          : (Array.isArray(d.content) ? d.content.length : (Array.isArray(d) ? d.length : 0))
+        setIsFirstTimeUser(total === 0)
+      })
+      .catch(() => {})
+  }, [authUser, isDirectEntry])
+
   // ── Handlers ───────────────────────────────────────────────────────────────
+
+  // Validate a Disco promo. Display-only: stores { code, discountAmount } so the
+  // summary shows the discount + a reduced total. The FM order is unchanged; the
+  // refund happens post-charge in handlePlaceOrder.
+  async function applyDiscoPromo() {
+    const code = promoInput.trim().toUpperCase()
+    if (!code) return
+    setPromoLoading(true); setPromoError('')
+    try {
+      const res = await fetch('/api/promo/validate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code,
+          restaurantRef: fmRef,
+          orderSubtotal: fm?.subtotal ?? subtotal,
+          orderTotal: trackingTotal,
+          userEmail: contactEmail || authUser?.email || '',
+          isFirstTimeUser,
+        }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (res.ok && d.valid) {
+        setDiscoPromo({ code: d.code || code, discountAmount: d.discountAmount })
+        setPromoError('')
+      } else {
+        setDiscoPromo(null)
+        setPromoError(d.message || 'Invalid promo code.')
+      }
+    } catch {
+      setPromoError('Could not validate the code. Please try again.')
+    } finally {
+      setPromoLoading(false)
+    }
+  }
+  function removeDiscoPromo() { setDiscoPromo(null); setPromoError(''); setPromoInput('') }
 
   async function processOrder() {
     setStep('processing'); setError('')
@@ -654,6 +714,24 @@ export default function CheckoutDrawer({
         directEntryRetry.current = null
       }
 
+      // Disco-side promo redemption — the charge succeeded, so issue the discount
+      // as a Stripe refund now. Best-effort: never blocks the confirmation (the
+      // order is already placed + paid; refund failures are recorded server-side).
+      if (!isDirectEntry && discoPromo && paymentIntentId) {
+        try {
+          await fetch('/api/promo/redeem', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              code: discoPromo.code,
+              orderRef: finalRef,
+              userEmail: contactEmail || authUser?.email || '',
+              discountAmount: discoPromo.discountAmount,
+              stripePaymentIntentId: paymentIntentId,
+            }),
+          })
+        } catch { /* order is placed; refund failure handled server-side / by ops */ }
+      }
+
       // Save address silently (post-order) — customer flow only; direct entry
       // has no diner account to attach it to.
       if (!isDirectEntry && orderType === 'DELIVERY' && addr.line1) {
@@ -716,6 +794,11 @@ export default function CheckoutDrawer({
         + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0)
         - (fm?.discount ?? 0)
     )
+    // Disco promo is DISPLAY-ONLY — the card is charged payTotal (the FM total),
+    // then discoDiscount is refunded via Stripe after placement. We show the
+    // post-refund net here so the customer sees what they'll actually pay.
+    const discoDiscount = discoPromo?.discountAmount ?? 0
+    const effectiveTotal = Math.max(0, payTotal - discoDiscount)
 
     return (
       <>
@@ -868,10 +951,45 @@ export default function CheckoutDrawer({
                 <span>Discount{couponApplied ? ` (${couponApplied})` : ''}</span><span>−{fmt$(fm.discount)}</span>
               </div>
             )}
+            {discoPromo && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#1D9E75', fontWeight: 600, marginBottom: 5 }}>
+                <span>Promo ({discoPromo.code})</span><span>−{fmt$(discoPromo.discountAmount)}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1.5px solid #ebebeb', paddingTop: 10, marginTop: 6, fontSize: 17, fontWeight: 800, color: DARK }}>
-              <span>Total</span><span>{fmt$(payTotal)}</span>
+              <span>Total</span><span>{fmt$(effectiveTotal)}</span>
             </div>
             {!fmTotals && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>Estimate — final total confirmed at payment</div>}
+          </div>
+
+          {/* Disco promo code (display-only; refunded via Stripe post-order). */}
+          <div style={{ marginBottom: 16 }}>
+            {discoPromo ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 10, padding: '10px 14px' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#047857' }}>Promo “{discoPromo.code}” applied — −{fmt$(discoPromo.discountAmount)}</span>
+                <button onClick={removeDiscoPromo} aria-label="Remove promo code"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#047857', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
+              </div>
+            ) : !promoOpen ? (
+              <button onClick={() => setPromoOpen(true)}
+                style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }}>
+                Have a promo code?
+              </button>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input value={promoInput} onChange={e => setPromoInput(e.target.value.toUpperCase())}
+                    onKeyDown={e => { if (e.key === 'Enter') applyDiscoPromo() }}
+                    placeholder="Enter code" aria-label="Promo code"
+                    style={{ flex: 1, height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', textTransform: 'uppercase' }} />
+                  <button onClick={applyDiscoPromo} disabled={!promoInput.trim() || promoLoading}
+                    style={{ height: 40, padding: '0 18px', background: promoInput.trim() && !promoLoading ? BLUE : '#e8e8e8', color: promoInput.trim() && !promoLoading ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: promoInput.trim() && !promoLoading ? 'pointer' : 'default', fontFamily: F }}>
+                    {promoLoading ? 'Checking…' : 'Apply'}
+                  </button>
+                </div>
+                {promoError && <div style={{ color: '#E24B4A', fontSize: 12, marginTop: 6 }}>{promoError}</div>}
+              </>
+            )}
           </div>
 
           {/* Promo code (Item 5). Apply re-prices via the update PUT with
@@ -1001,7 +1119,7 @@ export default function CheckoutDrawer({
           )}
           <button onClick={handlePlaceOrder}
             style={{ width: '100%', padding: '14px', background: DARK, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(26,16,40,0.25)', transition: 'all 0.15s' }}>
-            {hideCard ? 'Send Invoice' : `Place Order · ${fmt$(payTotal)}`}
+            {hideCard ? 'Send Invoice' : `Place Order · ${fmt$(effectiveTotal)}`}
           </button>
         </div>
       </>

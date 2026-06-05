@@ -34,6 +34,7 @@ const NAV: NavItem[] = [
     ],
   },
   { title: 'Menus', path: '/admin/manage-menus' },
+  { title: 'Promo Codes', path: '/admin/promo-codes' },
   { title: 'Banking', path: '/admin/manage-banking', comingSoon: true },
   { title: 'Settings', path: '/admin/manage-settings', comingSoon: true },
 ]
