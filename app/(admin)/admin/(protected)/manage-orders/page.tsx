@@ -592,12 +592,16 @@ export default function AdminOrdersPage() {
                 <td style={cell}><TypeBadges order={o} /></td>
                 <td style={cell}><SourcePill source={o.sourceoforder} /></td>
                 <td style={cell}>
-                  {promos[o.orderReference] ? (
-                    <span style={{ display: 'inline-block', background: 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)', color: '#fff', borderRadius: 999, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}
-                      title="Disco promo (credited to the customer via Stripe)">
-                      {promos[o.orderReference].code} −{fmtCurrency(promos[o.orderReference].discountApplied)}
-                    </span>
-                  ) : null}
+                  {promos[o.orderReference] ? (() => {
+                    const p = promos[o.orderReference]
+                    const pending = p.refundStatus !== 'completed'
+                    return (
+                      <span style={{ display: 'inline-block', color: '#fff', borderRadius: 999, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', background: pending ? '#EFB84A' : 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)' }}
+                        title={pending ? 'Disco promo — credit not yet applied (contact support)' : 'Disco promo (credited to the customer via Stripe)'}>
+                        {pending ? '⚠ ' : ''}{p.code} −{fmtCurrency(p.discountApplied)}
+                      </span>
+                    )
+                  })() : null}
                 </td>
                 <td style={cell}><StatusPill order={o} /></td>
               </tr>

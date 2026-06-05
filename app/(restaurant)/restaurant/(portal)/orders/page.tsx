@@ -694,15 +694,22 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               {/* Disco promo — display-only credit (FM total above is the full
                   amount the restaurant received). Gradient to distinguish from
                   FM's native Promo line. */}
-              {promo && (
+              {promo && (() => {
+                const pending = promo.refundStatus !== 'completed'
+                // Completed → gradient line; failed/pending → amber (Disco gold) warning.
+                const lineStyle = pending ? { color: '#EFB84A' } : GRADIENT_TEXT
+                return (
                 <>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 13, fontWeight: 700 }}>
-                    <span style={GRADIENT_TEXT}>Disco Promo ({promo.code})</span>
-                    <span style={GRADIENT_TEXT}>−{fmt(promo.discountApplied)}</span>
+                    <span style={lineStyle}>{pending ? '⚠ ' : ''}Disco Promo ({promo.code})</span>
+                    <span style={lineStyle}>−{fmt(promo.discountApplied)}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>Applied as a card credit to the customer</div>
+                  <div style={{ fontSize: 11, color: pending ? '#EFB84A' : '#999', marginTop: 2 }}>
+                    {pending ? 'Credit not yet applied — contact support' : 'Applied as a card credit to the customer'}
+                  </div>
                 </>
-              )}
+                )
+              })()}
             </div>
 
             {order.note && (
