@@ -212,12 +212,12 @@ async function runSync() {
   // that lack coords — so a legitimately-active restaurant is never deactivated.
   const qualifyingRefs = new Set(withAddress.map((r) => r.reference as string))
 
-  // Cap per run to stay within maxDuration: process the first 500; the next daily
-  // run picks up the rest.
-  const CAP = 500
-  const cappedAt500 = withAddress.length > CAP
+  // Cap per run to stay within maxDuration: process the first 150; the daily run
+  // drains the rest over subsequent days (~674 qualifying / 150 ≈ 5 runs).
+  const CAP = 150
+  const cappedAt500 = withAddress.length > CAP // summary key kept as capped_at_500 (dashboard contract)
   const toProcess = withAddress.slice(0, CAP)
-  console.log(`[sync-restaurants] ${withAddress.length} with full address, ${skippedNoAddress} skipped (no address); processing ${toProcess.length}${cappedAt500 ? ' (capped at 500)' : ''}`)
+  console.log(`[sync-restaurants] ${withAddress.length} with full address, ${skippedNoAddress} skipped (no address); processing ${toProcess.length}${cappedAt500 ? ` (capped at ${CAP})` : ''}`)
 
   // Coordinates come straight from the list response's address object — no detail
   // fetch needed. Rows whose address has no lat/lng are skipped this run.
@@ -231,9 +231,8 @@ async function runSync() {
   }
   console.log(`[sync-restaurants] ${ready.length} ready to upsert, ${skippedNoCoords} skipped (no coords)`)
 
-  // STEP 3 — upsert each coordinate-resolved restaurant into Sanity.
-  let processed = 0
-  for (const { r, address: a, lat, lng } of ready) {
+  // STEP 3 — upsert one coordinate-resolved restaurant into Sanity.
+  async function upsertOne({ r, address: a, lat, lng }: { r: FmRestaurant; address: FmAddress; lat: number; lng: number }) {
     const ref = r.reference as string
     const id = `restaurant.fm-${ref}`
     try {
@@ -285,10 +284,16 @@ async function runSync() {
     } catch (e) {
       errors.push(`upsert ${ref}: ${e instanceof Error ? e.message : String(e)}`)
     }
+  }
 
-    processed++
-    if (processed % 50 === 0) console.log(`[sync-restaurants] upserted ${processed}/${ready.length}`)
-    await sleep(100) // gentle on the Sanity write API
+  // Run upserts in parallel chunks of 10 — no per-write delay (Sanity handles
+  // concurrent writes; the old sequential 100ms delay was blowing the 300s
+  // budget). 50ms pause between chunks.
+  const CHUNK = 10
+  for (let i = 0; i < ready.length; i += CHUNK) {
+    await Promise.all(ready.slice(i, i + CHUNK).map(upsertOne))
+    console.log(`[sync-restaurants] upserted ${Math.min(i + CHUNK, ready.length)}/${ready.length}`)
+    if (i + CHUNK < ready.length) await sleep(50)
   }
 
   // STEP 4 — deactivate Sanity docs whose fmReference is no longer qualifying.
