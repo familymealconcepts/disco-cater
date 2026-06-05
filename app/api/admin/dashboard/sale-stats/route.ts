@@ -23,6 +23,15 @@ export async function GET(req: NextRequest) {
     // DEBUG: inspect the real FM field names (e.g. which key actually holds
     // platform fees) so the dashboard mapping can be corrected.
     console.log('[Dashboard] FM analytics raw response:', JSON.stringify(data, null, 2))
+    // DEBUG: compare serviceChargesSum vs a computed 3% of subtotal to identify
+    // which field is the Disco platform fee.
+    console.log('[Dashboard] Derived platform fee check:', {
+      serviceChargesSum: data.serviceChargesSum,
+      subtotalOrdersSum: data.subtotalOrdersSum,
+      computed3pct: (data.subtotalOrdersSum ?? 0) * 0.03,
+      leadgen1: data.leadgenonediscofee,
+      leadgen2: data.leadgentwodiscofee,
+    })
     return NextResponse.json(data)
   } catch {
     return NextResponse.json({ error: 'Unable to fetch sale stats' }, { status: 500 })
