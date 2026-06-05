@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import SubscriptionSetupModal from '../components/SubscriptionSetupModal'
+import RecurringOrderSetupModal, { type RecurringSourceOrder } from '../components/RecurringOrderSetupModal'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -172,6 +173,58 @@ function historyHeadcount(o: HistoryOrder): number | null {
   return m ? parseInt(m[1], 10) : null
 }
 
+// ── Disco-managed recurring orders (GET /api/recurring-orders) ──────────────
+// Rows come back snake_cased straight from Postgres, each with its generated
+// occurrences attached.
+
+interface DiscoOccurrence {
+  id: string
+  scheduled_date: string
+  status: string
+  cart_snapshot?: { name?: string; quantity?: number }[] | null
+}
+interface DiscoRecurringOrder {
+  id: string
+  restaurant_name: string
+  restaurant_slug: string | null
+  restaurant_reference: string
+  frequency_type: string
+  repeat_every_day: string
+  start_date: string
+  status: string
+  occurrences?: DiscoOccurrence[]
+}
+
+function discoFreqLabel(o: DiscoRecurringOrder): string {
+  const day = titleCase(o.repeat_every_day)
+  const t = (o.frequency_type || '').toUpperCase()
+  const word = t === 'WEEKLY' ? 'Weekly' : t === 'BIWEEKLY' ? 'Bi-weekly' : t === 'MONTHLY' ? 'Monthly' : titleCase(t)
+  return day ? `${word} on ${day}s` : word
+}
+
+function discoNextDate(o: DiscoRecurringOrder): string | null {
+  const today = new Date().toISOString().slice(0, 10)
+  const occ = o.occurrences || []
+  const upcoming = occ.find(x => x.status === 'SCHEDULED' && x.scheduled_date >= today)
+    || occ.find(x => x.scheduled_date >= today)
+    || occ[0]
+  return upcoming?.scheduled_date || null
+}
+
+function discoItemsSummary(o: DiscoRecurringOrder): string {
+  const snap = o.occurrences?.[0]?.cart_snapshot || []
+  const names = snap.map(i => i.name).filter(Boolean) as string[]
+  if (names.length === 0) return ''
+  if (names.length <= 2) return names.join(', ')
+  return `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`
+}
+
+function discoFmtDate(s?: string | null): string {
+  if (!s) return '—'
+  try { return new Date(`${s}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) }
+  catch { return s }
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 interface RepeatSeed {
@@ -190,6 +243,16 @@ export default function SubscriptionsPage() {
   const [history, setHistory] = useState<HistoryOrder[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
   const [repeatSeed, setRepeatSeed] = useState<RepeatSeed | null>(null)
+
+  // Disco-managed recurring orders (top section).
+  const [discoOrders, setDiscoOrders] = useState<DiscoRecurringOrder[]>([])
+  const [discoLoading, setDiscoLoading] = useState(true)
+  const [discoBusy, setDiscoBusy] = useState<string | null>(null)
+
+  // "From order history" picker → Disco setup modal.
+  const [showHistoryPicker, setShowHistoryPicker] = useState(false)
+  const [discoSeed, setDiscoSeed] = useState<RecurringSourceOrder | null>(null)
+  const [seedLoading, setSeedLoading] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -220,7 +283,66 @@ export default function SubscriptionsPage() {
     setHistoryLoading(false)
   }, [])
 
-  useEffect(() => { load(); loadHistory() }, [load, loadHistory])
+  const loadDisco = useCallback(async () => {
+    setDiscoLoading(true)
+    try {
+      const res = await fetch('/api/recurring-orders', { credentials: 'include' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      setDiscoOrders(d.recurringOrders || [])
+    } catch {
+      setDiscoOrders([])
+    }
+    setDiscoLoading(false)
+  }, [])
+
+  useEffect(() => { load(); loadHistory(); loadDisco() }, [load, loadHistory, loadDisco])
+
+  async function changeDiscoStatus(o: DiscoRecurringOrder, next: 'ACTIVE' | 'PAUSED' | 'CANCELED') {
+    setDiscoBusy(o.id)
+    try {
+      const res = await fetch(`/api/recurring-orders/${o.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setDiscoOrders(prev => prev.map(x => x.id === o.id ? { ...x, status: next } : x))
+    } catch {
+      alert('Could not update recurring order. Please try again.')
+    }
+    setDiscoBusy(null)
+  }
+
+  // Open the Disco setup modal seeded from a past order. Pulls the full order
+  // detail so we have the restaurant reference, items, and total the API needs.
+  async function repeatFromHistory(o: HistoryOrder) {
+    const ref = historyRef(o)
+    if (!ref) return
+    setSeedLoading(ref)
+    try {
+      const res = await fetch(`/api/fm-order-detail/${ref}`, { credentials: 'include' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const d = await res.json()
+      const slug = d.restaurant?.businessNameWithoutSpaces || ''
+      setDiscoSeed({
+        orderReference: ref,
+        restaurantName: d.restaurant?.businessName || historyRestName(o),
+        restaurantSlug: slug,
+        restaurantReference: slug,
+        items: (d.orderMealPackages || []).map((p: { name?: string; count?: number; price?: number }) => ({
+          name: p.name || 'Item',
+          quantity: p.count || 1,
+          price: p.price,
+        })),
+        total: typeof d.total === 'number' ? d.total : historyTotal(o),
+      })
+    } catch {
+      alert('Could not load that order. Please try again.')
+    }
+    setSeedLoading(null)
+  }
 
   async function changeStatus(sub: UserSubscription, next: 'ACTIVE' | 'PAUSED' | 'CANCELED') {
     const ref = subRef(sub)
@@ -250,13 +372,86 @@ export default function SubscriptionsPage() {
     <div style={{ fontFamily: F }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22, gap: 12, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: 0 }}>Subscriptions</h1>
-        <button onClick={() => router.push('/fullmap')}
-          style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-          + New subscription
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setShowHistoryPicker(v => !v)}
+            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 999, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+            📋 From order history
+          </button>
+          <button onClick={() => router.push('/fullmap')}
+            style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 999, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+            + New subscription
+          </button>
+        </div>
       </div>
 
+      {/* "From order history" picker — opens the Disco-managed setup modal */}
+      {showHistoryPicker && (
+        <div style={{ border: `1.5px solid ${BLUE}`, borderRadius: 12, background: 'rgba(91,111,232,0.04)', padding: 14, marginBottom: 28 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 4 }}>Repeat a past order with Disco Cater</div>
+          <div style={{ fontSize: 12, color: '#777', marginBottom: 12 }}>Pick one of your recent orders to set up as a Disco-managed recurring order.</div>
+          {historyLoading ? (
+            <div style={{ color: '#aaa', fontSize: 13 }}>Loading recent orders…</div>
+          ) : history.length === 0 ? (
+            <div style={{ fontSize: 13, color: '#888' }}>No past orders yet.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {history.slice(0, 5).map((o, i) => {
+                const ref = historyRef(o)
+                return (
+                  <div key={ref || i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1px solid #ebebeb', borderRadius: 10, padding: '10px 12px' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{historyRestName(o)}</div>
+                      <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{historyDate(o)} · {fmtMoney(historyTotal(o))}</div>
+                    </div>
+                    <button onClick={() => repeatFromHistory(o)} disabled={!ref || seedLoading === ref}
+                      style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 999, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: ref ? 'pointer' : 'not-allowed', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0, opacity: (!ref || seedLoading === ref) ? 0.6 : 1 }}>
+                      {seedLoading === ref ? 'Loading…' : 'Repeat this →'}
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
+
+      {/* SECTION 0 — Disco Cater Recurring Orders */}
+      <section style={{ marginBottom: 36 }}>
+        <SectionHeader title="🪩 Disco Cater Recurring Orders" subtitle="Managed by Disco Cater — auto-charged before each order. Pause, resume, or cancel anytime." />
+
+        {discoLoading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[0, 1].map(i => (
+              <div key={i} style={{ border: '1px solid #ebebeb', borderRadius: 12, background: '#fff', padding: 16, height: 96 }}>
+                <div style={{ width: '40%', height: 14, borderRadius: 6, background: '#f0f0f0', marginBottom: 10 }} />
+                <div style={{ width: '60%', height: 11, borderRadius: 6, background: '#f4f4f4', marginBottom: 8 }} />
+                <div style={{ width: '30%', height: 11, borderRadius: 6, background: '#f4f4f4' }} />
+              </div>
+            ))}
+          </div>
+        ) : discoOrders.length === 0 ? (
+          <div style={{ border: '1px dashed #d8d8e4', borderRadius: 12, padding: '40px 24px', textAlign: 'center', background: 'rgba(107,110,249,0.03)' }}>
+            <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5 }}>
+              No Disco Cater recurring orders yet. Set one up from your order history.
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {discoOrders.map(o => (
+              <DiscoRecurringCard
+                key={o.id}
+                order={o}
+                busy={discoBusy === o.id}
+                onPause={() => changeDiscoStatus(o, 'PAUSED')}
+                onResume={() => changeDiscoStatus(o, 'ACTIVE')}
+                onCancel={() => { if (confirm('Cancel this recurring order? All upcoming orders will be canceled.')) changeDiscoStatus(o, 'CANCELED') }}
+              />
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* SECTION 1 — Your Recurring Orders */}
       <section style={{ marginBottom: 36 }}>
@@ -360,6 +555,66 @@ export default function SubscriptionsPage() {
           onClose={() => setRepeatSeed(null)}
         />
       )}
+
+      {/* Disco-managed recurring order setup (from the "From order history" picker) */}
+      {discoSeed && (
+        <RecurringOrderSetupModal
+          isOpen
+          sourceOrder={discoSeed}
+          onClose={() => { setDiscoSeed(null); setShowHistoryPicker(false); loadDisco() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Disco recurring-order card ──────────────────────────────────────────────
+
+function DiscoRecurringCard({ order, busy, onPause, onResume, onCancel }: {
+  order: DiscoRecurringOrder
+  busy: boolean
+  onPause: () => void
+  onResume: () => void
+  onCancel: () => void
+}) {
+  const st = statusStyle(order.status)
+  const status = (order.status || '').toUpperCase()
+  const isPaused = status === 'PAUSED'
+  const isCanceled = status.startsWith('CANCEL')
+  const items = discoItemsSummary(order)
+  const next = discoNextDate(order)
+
+  return (
+    <div style={{ border: '1px solid #ebebeb', borderLeft: `3px solid ${st.accent}`, borderRadius: 12, background: '#fff', padding: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{order.restaurant_name}</span>
+            <span style={{ background: st.bg, color: st.fg, padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}>{st.label}</span>
+          </div>
+          <div style={{ fontSize: 11, color: st.accent, fontWeight: 600, marginTop: 4 }}>{discoFreqLabel(order)}</div>
+          {!isCanceled && next && (
+            <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>
+              Next order: <strong style={{ color: DARK }}>{discoFmtDate(next)}</strong>
+            </div>
+          )}
+          {items && <div style={{ fontSize: 12, color: '#444', marginTop: 4 }}>{items}</div>}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 12 }}>
+        {!isCanceled && (
+          <>
+            {isPaused ? (
+              <button onClick={onResume} disabled={busy} style={miniBtn(GREEN, '#fff')}>Resume</button>
+            ) : (
+              <button onClick={onPause} disabled={busy} style={miniBtn('#fff', DARK, '#e0e0e0')}>Pause</button>
+            )}
+            <button onClick={onCancel} disabled={busy} style={miniBtn('#fff', RED, '#F0BFBE')}>Cancel</button>
+          </>
+        )}
+        {isCanceled && <span style={{ fontSize: 11, color: '#999' }}>This recurring order has been canceled.</span>}
+      </div>
     </div>
   )
 }

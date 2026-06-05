@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import SubscriptionSetupModal from './SubscriptionSetupModal'
+import RecurringOrderSetupModal from './RecurringOrderSetupModal'
 import FavoriteHeart from './FavoriteHeart'
 import { lineQty, modifierQty, lineModifiers, formatCurrency } from '../../../../lib/pricing/lineItem'
 
@@ -130,6 +131,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [setupOpen, setSetupOpen] = useState(false)
+  const [discoSetupOpen, setDiscoSetupOpen] = useState(false)
 
   useEffect(() => {
     setLoading(true); setError(''); setDetail(null)
@@ -367,6 +369,10 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
               style={{ width: '100%', padding: '12px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
               🔄 Make this a recurring order
             </button>
+            <button onClick={() => setDiscoSetupOpen(true)}
+              style={{ width: '100%', padding: '11px 14px', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+              🔄 Set up with Disco Cater
+            </button>
             <button onClick={handleReorder}
               style={{ width: '100%', padding: '10px 14px', background: '#fff', color: DARK, border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
               Reorder once
@@ -382,6 +388,26 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
           restaurantSlug={detail?.restaurant?.businessNameWithoutSpaces}
           sourceOrderRef={orderRef}
           onClose={() => setSetupOpen(false)}
+        />
+      )}
+
+      {/* Disco-managed recurring order setup (separate from the FM flow) */}
+      {detail && (
+        <RecurringOrderSetupModal
+          isOpen={discoSetupOpen}
+          onClose={() => setDiscoSetupOpen(false)}
+          sourceOrder={{
+            orderReference: orderRef,
+            restaurantName: detail.restaurant?.businessName || 'Order',
+            restaurantSlug: detail.restaurant?.businessNameWithoutSpaces || '',
+            restaurantReference: detail.restaurant?.businessNameWithoutSpaces || '',
+            items: (detail.orderMealPackages || []).map(p => ({
+              name: p.name || 'Item',
+              quantity: p.count || 1,
+              price: p.price,
+            })),
+            total: detail.total || 0,
+          }}
         />
       )}
     </>
