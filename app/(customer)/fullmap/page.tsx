@@ -230,6 +230,10 @@ function FullMapInner() {
       cooperativeGestures: false,
     })
     map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-right')
+    // Disable scroll-wheel zoom so the page scrolls past the map instead of
+    // trapping the wheel. Zoom via the +/− NavigationControl (desktop) or
+    // pinch (mobile, still enabled); drag to pan.
+    map.current.scrollZoom.disable()
     const lat = searchParams.get('lat')
     const lng = searchParams.get('lng')
     if (lat && lng) {
@@ -1458,7 +1462,11 @@ function FullMapInner() {
                   cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
                 }}
               >
-                😊 Concierge
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="4" width="20" height="16" rx="2" />
+                  <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                </svg>
+                Concierge
               </button>
             </div>
             {locError && <div style={{ position: 'absolute', top: 56, left: 12, zIndex: 10, background: '#fff', border: '1px solid #f0c0c8', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#F0468A', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>{locError}</div>}
