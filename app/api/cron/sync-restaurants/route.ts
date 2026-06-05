@@ -107,23 +107,30 @@ async function fmLogin(): Promise<string> {
 
 async function fetchAllMarketplace(token: string): Promise<FmRestaurant[]> {
   const out: FmRestaurant[] = []
-  // Match the working admin marketplace page exactly: omit `page` when 0 and use
-  // size=25. Sending `page=0` explicitly is what FM 400s on (the proxy + client
-  // both only set `page` when > 0).
+  // Use the working admin restaurants list endpoint (the same one
+  // app/api/admin/restaurants/route.ts proxies for the ordering page + admin
+  // dashboard): GET ${FM}/api/admin/restaurants. The `/api/admin/restaurants/
+  // marketplace` path has no `/marketplace` sub-route on FM — it's matched by
+  // `/api/admin/restaurants/{reference}`, so FM tries to parse "marketplace" as a
+  // UUID and 400s. The plain list returns the same restaurant objects
+  // (restaurantStatus, blocked, address) the marketplace filters below key on.
+  // Param shape mirrors that route exactly: omit `page` when 0, size, and the
+  // server-side restaurantStatus=ACTIVE filter (the sync only wants ACTIVE).
   const size = 25
   // 1000-page hard cap is a runaway-loop backstop, far above any real count.
   for (let page = 0; page < 1000; page++) {
     const params = new URLSearchParams()
     if (page > 0) params.set('page', String(page))
     params.set('size', String(size))
-    const res = await fetch(`${FM}/api/admin/restaurants/marketplace?${params}`, {
+    params.set('restaurantStatus', 'ACTIVE')
+    const res = await fetch(`${FM}/api/admin/restaurants?${params}`, {
       headers: { Authorization: token, Accept: 'application/json' },
     })
     if (!res.ok) {
       const errBody = await res.text()
       console.log('[sync] marketplace 400 body:', errBody)
     }
-    if (!res.ok) throw new Error(`FM marketplace fetch failed (page ${page}, HTTP ${res.status})`)
+    if (!res.ok) throw new Error(`FM restaurants fetch failed (page ${page}, HTTP ${res.status})`)
     const d = await res.json().catch(() => null)
     const content: FmRestaurant[] = Array.isArray(d) ? d : (d?.content || d?.data || [])
     out.push(...content)
