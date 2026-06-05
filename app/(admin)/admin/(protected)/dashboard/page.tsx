@@ -151,7 +151,8 @@ export default function AdminDashboard() {
       const d = await res.json().catch(() => ({}))
       if (res.ok && d.success) {
         const errs = Array.isArray(d.errors) ? d.errors.length : 0
-        setSyncMsg(`✓ ${d.synced} synced (${d.new} new, ${d.updated} updated) · ${d.deactivated} deactivated · ${d.skipped} skipped${errs ? ` · ${errs} errors` : ''}`)
+        const skipped = (d.skipped_no_address || 0) + (d.skipped_no_coords || 0)
+        setSyncMsg(`✓ ${d.synced} synced (${d.new} new, ${d.updated} updated) · ${d.deactivated} deactivated · ${skipped} skipped${d.capped_at_500 ? ' · capped at 500' : ''}${errs ? ` · ${errs} errors` : ''}`)
       } else {
         setSyncMsg(`✕ ${d.error || `Failed (HTTP ${res.status})`}`)
       }

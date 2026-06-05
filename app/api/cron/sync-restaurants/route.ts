@@ -152,10 +152,25 @@ function isActive(r: FmRestaurant): boolean {
   const s = (r.restaurantStatus || r.status || '').toUpperCase()
   return s === 'ACTIVE'
 }
-function hasFullAddress(a?: FmAddress): boolean {
+// Full street address (no coordinates). The FM LIST endpoint omits lat/lng, so
+// coordinates are fetched separately from the detail endpoint (fetchDetail).
+function hasAddressParts(a?: FmAddress): boolean {
   if (!a) return false
-  if (!a.addressLine1 || !a.city || !a.state || !a.zipcode) return false
-  return num(a.latitude) != null && num(a.longitude) != null
+  return !!(a.addressLine1 && a.city && a.state && a.zipcode)
+}
+
+// FM detail endpoint — its address DOES include latitude/longitude (the list
+// endpoint does not). Returns null on any failure (treated as "no coords").
+async function fetchDetail(token: string, ref: string): Promise<FmRestaurant | null> {
+  try {
+    const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, {
+      headers: { Authorization: token, Accept: 'application/json' },
+    })
+    if (!res.ok) return null
+    return (await res.json().catch(() => null)) as FmRestaurant | null
+  } catch {
+    return null
+  }
 }
 
 // ── Sanity doc shape (only what we read for the merge) ───────────────────────
@@ -180,7 +195,8 @@ async function runSync() {
   let newCount = 0
   let updated = 0
   let deactivated = 0
-  let skipped = 0
+  let skippedNoAddress = 0
+  let skippedNoCoords = 0
 
   // STEP 1
   const token = await fmLogin()
@@ -189,10 +205,12 @@ async function runSync() {
   const all = await fetchAllMarketplace(token)
   console.log(`[sync-restaurants] fetched ${all.length} marketplace restaurants from FM`)
 
-  // Classify: qualifying (active + not blocked + full address/coords) vs skipped
-  // (active + not blocked but missing address/coords). Inactive/blocked rows are
-  // neither — they fall through to STEP 4 deactivation if present in Sanity.
-  const qualifying: FmRestaurant[] = []
+  // Classify: keep ACTIVE + not-blocked rows that have a full STREET address.
+  // We do NOT require coordinates here — the FM list omits lat/lng, so coords are
+  // fetched from the detail endpoint below. (Requiring coords here was the bug
+  // that rejected all 4329.) Inactive/blocked rows are neither processed nor
+  // protected → STEP 4 may deactivate them.
+  const withAddress: FmRestaurant[] = []
   for (const r of all) {
     if (!r.reference) continue
     const active = isActive(r)
@@ -200,27 +218,61 @@ async function runSync() {
     // visibility), only excluding rows explicitly blocked === true.
     const notBlocked = r.blocked !== true
     if (!active || !notBlocked) continue
-    if (hasFullAddress(r.address)) qualifying.push(r)
-    else skipped++ // failed address/coordinates check
+    if (hasAddressParts(r.address)) withAddress.push(r)
+    else skippedNoAddress++ // active + unblocked but missing a street address
   }
-  const qualifyingRefs = new Set(qualifying.map((r) => r.reference as string))
-  console.log(`[sync-restaurants] ${qualifying.length} qualifying, ${skipped} skipped (address check)`)
+  // Every active/unblocked/full-address restaurant counts as "qualifying" for the
+  // STEP 4 deactivation guard — INCLUDING ones we don't process this run (cap) or
+  // that lack coords — so a legitimately-active restaurant is never deactivated.
+  const qualifyingRefs = new Set(withAddress.map((r) => r.reference as string))
 
-  // STEP 3 — upsert each qualifying restaurant into Sanity.
+  // Cap per run to stay within maxDuration: process the first 500; the next daily
+  // run picks up the rest.
+  const CAP = 500
+  const cappedAt500 = withAddress.length > CAP
+  const toProcess = withAddress.slice(0, CAP)
+  console.log(`[sync-restaurants] ${withAddress.length} with full address, ${skippedNoAddress} skipped (no address); processing ${toProcess.length}${cappedAt500 ? ' (capped at 500)' : ''}`)
+
+  // Fetch coordinates from the FM detail endpoint in batches of 10 concurrent
+  // requests (200ms between batches). The list endpoint has no lat/lng. Rows
+  // whose detail fails or has no coordinates are skipped this run.
+  const ready: { r: FmRestaurant; address: FmAddress; lat: number; lng: number }[] = []
+  const BATCH = 10
+  const totalBatches = Math.ceil(toProcess.length / BATCH)
+  for (let b = 0; b < totalBatches; b++) {
+    const batch = toProcess.slice(b * BATCH, b * BATCH + BATCH)
+    console.log(`[sync] processing batch ${b + 1}/${totalBatches} (restaurant ${b * BATCH + 1} of ${toProcess.length})`)
+    const details = await Promise.all(batch.map((r) => fetchDetail(token, r.reference as string)))
+    for (let i = 0; i < batch.length; i++) {
+      const r = batch[i]
+      const detail = details[i]
+      // Prefer the detail address (carries coordinates); fall back to the list
+      // address for the street parts.
+      const a = (detail?.address ?? r.address) as FmAddress | undefined
+      const lat = num(a?.latitude)
+      const lng = num(a?.longitude)
+      if (!a || lat == null || lng == null) { skippedNoCoords++; continue }
+      // Merge so downstream fields prefer detail values when present.
+      ready.push({ r: { ...r, ...(detail ?? {}) }, address: a, lat, lng })
+    }
+    if (b < totalBatches - 1) await sleep(200)
+  }
+  console.log(`[sync-restaurants] ${ready.length} ready to upsert, ${skippedNoCoords} skipped (no coords)`)
+
+  // STEP 3 — upsert each coordinate-resolved restaurant into Sanity.
   let processed = 0
-  for (const r of qualifying) {
+  for (const { r, address: a, lat, lng } of ready) {
     const ref = r.reference as string
     const id = `restaurant.fm-${ref}`
     try {
-      const a = r.address as FmAddress
       // FM fields — ALWAYS overwrite.
       const fmFields = {
         name: r.businessName || '',
         fmReference: ref,
         address: `${a.addressLine1}, ${a.city}, ${a.state} ${a.zipcode}`,
         location: `${a.city}, ${a.state}`,
-        lat: num(a.latitude),
-        lng: num(a.longitude),
+        lat,
+        lng,
         orderUrl: `https://www.discocater.com/order/${r.businessNameWithoutSpaces || slugify(r.businessName || '')}`,
         active: true,
       }
@@ -263,7 +315,7 @@ async function runSync() {
     }
 
     processed++
-    if (processed % 50 === 0) console.log(`[sync-restaurants] processed ${processed}/${qualifying.length}`)
+    if (processed % 50 === 0) console.log(`[sync-restaurants] upserted ${processed}/${ready.length}`)
     await sleep(100) // gentle on the Sanity write API
   }
 
@@ -290,9 +342,19 @@ async function runSync() {
   }
 
   const synced = newCount + updated
-  console.log(`[sync-restaurants] done — synced ${synced} (new ${newCount}, updated ${updated}), deactivated ${deactivated}, skipped ${skipped}, errors ${errors.length}`)
+  console.log(`[sync-restaurants] done — synced ${synced} (new ${newCount}, updated ${updated}), deactivated ${deactivated}, no-address ${skippedNoAddress}, no-coords ${skippedNoCoords}, capped ${cappedAt500}, errors ${errors.length}`)
 
-  return { success: true, synced, new: newCount, updated, deactivated, skipped, errors }
+  return {
+    success: true,
+    synced,
+    new: newCount,
+    updated,
+    deactivated,
+    skipped_no_address: skippedNoAddress,
+    skipped_no_coords: skippedNoCoords,
+    capped_at_500: cappedAt500,
+    errors,
+  }
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
