@@ -594,11 +594,21 @@ export default function AdminOrdersPage() {
                 <td style={cell}>
                   {promos[o.orderReference] ? (() => {
                     const p = promos[o.orderReference]
-                    const pending = p.refundStatus !== 'completed'
+                    // Three states: completed (gradient), pending (grey, in-flight),
+                    // failed (amber warning).
+                    const failed = p.refundStatus === 'failed'
+                    const pending = p.refundStatus === 'pending'
+                    const bg = failed ? '#EFB84A' : pending ? '#999' : 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)'
+                    const prefix = failed ? '⚠ ' : pending ? '⏳ ' : ''
+                    const title = failed
+                      ? 'Disco promo — credit not yet applied (contact support)'
+                      : pending
+                        ? 'Disco promo — credit being processed'
+                        : 'Disco promo (credited to the customer via Stripe)'
                     return (
-                      <span style={{ display: 'inline-block', color: '#fff', borderRadius: 999, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', background: pending ? '#EFB84A' : 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)' }}
-                        title={pending ? 'Disco promo — credit not yet applied (contact support)' : 'Disco promo (credited to the customer via Stripe)'}>
-                        {pending ? '⚠ ' : ''}{p.code} −{fmtCurrency(p.discountApplied)}
+                      <span style={{ display: 'inline-block', color: '#fff', borderRadius: 999, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', background: bg }}
+                        title={title}>
+                        {prefix}{p.code} −{fmtCurrency(p.discountApplied)}
                       </span>
                     )
                   })() : null}

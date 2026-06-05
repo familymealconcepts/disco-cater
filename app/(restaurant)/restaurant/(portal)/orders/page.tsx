@@ -695,18 +695,25 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                   amount the restaurant received). Gradient to distinguish from
                   FM's native Promo line. */}
               {promo && (() => {
-                const pending = promo.refundStatus !== 'completed'
-                // Completed → gradient line; failed/pending → amber (Disco gold) warning.
-                const lineStyle = pending ? { color: '#EFB84A' } : GRADIENT_TEXT
+                // Three states: completed (gradient), pending (neutral grey,
+                // in-flight), failed (amber warning).
+                const failed = promo.refundStatus === 'failed'
+                const pending = promo.refundStatus === 'pending'
+                const lineStyle: React.CSSProperties = failed ? { color: '#EFB84A' } : pending ? { color: '#999' } : GRADIENT_TEXT
+                const prefix = failed ? '⚠ ' : pending ? '⏳ ' : ''
+                const note = failed
+                  ? 'Credit not yet applied — contact support'
+                  : pending
+                    ? 'Credit being processed'
+                    : 'Applied as a card credit to the customer'
+                const noteColor = failed ? '#EFB84A' : '#999'
                 return (
                 <>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 13, fontWeight: 700 }}>
-                    <span style={lineStyle}>{pending ? '⚠ ' : ''}Disco Promo ({promo.code})</span>
+                    <span style={lineStyle}>{prefix}Disco Promo ({promo.code})</span>
                     <span style={lineStyle}>−{fmt(promo.discountApplied)}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: pending ? '#EFB84A' : '#999', marginTop: 2 }}>
-                    {pending ? 'Credit not yet applied — contact support' : 'Applied as a card credit to the customer'}
-                  </div>
+                  <div style={{ fontSize: 11, color: noteColor, marginTop: 2 }}>{note}</div>
                 </>
                 )
               })()}
