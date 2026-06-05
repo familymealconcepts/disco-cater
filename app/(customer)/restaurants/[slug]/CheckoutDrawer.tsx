@@ -831,13 +831,9 @@ export default function CheckoutDrawer({
         + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0)
         - (fm?.discount ?? 0)
     )
-    // Disco promo is DISPLAY-ONLY — the card is charged payTotal (the FM total),
-    // then discoDiscount is refunded via Stripe after placement. We show the
-    // post-refund net here. FM coupons are already reflected in payTotal (fm.total),
-    // so they don't subtract again.
-    const discoDiscount = appliedPromo?.type === 'disco' ? appliedPromo.discountAmount : 0
-    const effectiveTotal = Math.max(0, payTotal - discoDiscount)
-
+    // Disco promo charges the full FM total, then credits it back via Stripe
+    // after placement — so the displayed total is always the full payTotal, with
+    // a note about the pending credit. (FM coupons are already in payTotal.)
     return (
       <>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0' }}>
@@ -989,14 +985,16 @@ export default function CheckoutDrawer({
                 <span>Discount{appliedPromo?.type === 'fm' ? ` (${appliedPromo.code})` : ''}</span><span>−{fmt$(fm.discount)}</span>
               </div>
             )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1.5px solid #ebebeb', paddingTop: 10, marginTop: 6, fontSize: 17, fontWeight: 800, color: DARK }}>
+              <span>Total</span><span>{fmt$(payTotal)}</span>
+            </div>
+            {/* Disco promo is charged in full, then credited back via Stripe after
+                the order — so the displayed total stays the full FM amount. */}
             {appliedPromo?.type === 'disco' && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#1D9E75', fontWeight: 600, marginBottom: 5 }}>
-                <span>Promo ({appliedPromo.code})</span><span>−{fmt$(appliedPromo.discountAmount)}</span>
+              <div style={{ fontSize: 11, color: '#999', marginTop: 6, lineHeight: 1.45 }}>
+                Promo code {appliedPromo.code} will apply a {fmt$(appliedPromo.discountAmount)} credit to your card after your order is placed
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1.5px solid #ebebeb', paddingTop: 10, marginTop: 6, fontSize: 17, fontWeight: 800, color: DARK }}>
-              <span>Total</span><span>{fmt$(effectiveTotal)}</span>
-            </div>
             {!fmTotals && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>Estimate — final total confirmed at payment</div>}
           </div>
 
@@ -1146,7 +1144,7 @@ export default function CheckoutDrawer({
           )}
           <button onClick={handlePlaceOrder}
             style={{ width: '100%', padding: '14px', background: DARK, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(26,16,40,0.25)', transition: 'all 0.15s' }}>
-            {hideCard ? 'Send Invoice' : `Place Order · ${fmt$(effectiveTotal)}`}
+            {hideCard ? 'Send Invoice' : `Place Order · ${fmt$(payTotal)}`}
           </button>
         </div>
       </>

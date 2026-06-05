@@ -10,6 +10,8 @@ import {
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
+// Disco-brand gradient text (used for the Disco promo line).
+const GRADIENT_TEXT: React.CSSProperties = { background: 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -516,6 +518,8 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'refund' | 'void' | 'reopen' | 'note' | null>(null)
   const [confirm, setConfirm] = useState<{ msg: string; action: () => void } | null>(null)
+  // Disco promo used on this order (from promo_code_uses), if any. Display-only.
+  const [promo, setPromo] = useState<{ code: string; discountApplied: number; refundStatus: string } | null>(null)
 
   const loadOrder = useCallback(async () => {
     const res = await fetch(`/api/restaurant/orders/${orderRef}`)
@@ -524,6 +528,16 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   }, [orderRef])
 
   useEffect(() => { loadOrder() }, [loadOrder])
+
+  // Disco promo lookup (separate from FM's native discount).
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/promo/order-promo?orderRef=${encodeURIComponent(orderRef)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled) setPromo(d || null) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [orderRef])
 
   async function updateStatus(status: string) {
     await fetch(`/api/restaurant/orders/${orderRef}/status?orderStatus=${status}`, { method: 'PUT' })
@@ -677,6 +691,18 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                 <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Total</span>
                 <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{fmt(totals.total)}</span>
               </div>
+              {/* Disco promo — display-only credit (FM total above is the full
+                  amount the restaurant received). Gradient to distinguish from
+                  FM's native Promo line. */}
+              {promo && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 13, fontWeight: 700 }}>
+                    <span style={GRADIENT_TEXT}>Disco Promo ({promo.code})</span>
+                    <span style={GRADIENT_TEXT}>−{fmt(promo.discountApplied)}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>Applied as a card credit to the customer</div>
+                </>
+              )}
             </div>
 
             {order.note && (

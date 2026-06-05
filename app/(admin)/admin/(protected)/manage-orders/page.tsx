@@ -387,6 +387,9 @@ export default function AdminOrdersPage() {
   const [toDate, setToDate] = useState(() => isoDate(daysAgo(-60)))
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Order | null>(null)
+  // Disco promo per order (orderRef → promo), from promo_code_uses. Batch-looked
+  // up after orders load. Display-only; FM coupons are not included here.
+  const [promos, setPromos] = useState<Record<string, { code: string; discountApplied: number; refundStatus: string }>>({})
 
   // Client-side filters + sort, applied across the FULL fetched dataset (see
   // load below). The date range stays a server filter — it scopes which orders
@@ -449,6 +452,18 @@ export default function AdminOrdersPage() {
   }, [fromDate, toDate])
 
   useEffect(() => { load() }, [load])
+
+  // Batch-lookup Disco promos for the loaded orders (one request, capped at 500).
+  useEffect(() => {
+    const refs = orders.map(o => o.orderReference).filter(Boolean)
+    if (refs.length === 0) { setPromos({}); return }
+    let cancelled = false
+    fetch(`/api/promo/order-promo?orderRefs=${encodeURIComponent(refs.slice(0, 500).join(','))}`)
+      .then(r => r.ok ? r.json() : {})
+      .then(d => { if (!cancelled) setPromos(d || {}) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [orders])
 
   // Reset to the first client page whenever the filtered/sorted result set changes.
   useEffect(() => { setPage(0) }, [searchInput, typeFilter, statusFilter, sourceFilter, sort, pageSize])
@@ -547,12 +562,13 @@ export default function AdminOrdersPage() {
               <SortTh label="Order Time" k="orderTime" sort={sort} onSort={toggleSort} />
               <SortTh label="Type" k="type" sort={sort} onSort={toggleSort} />
               <SortTh label="Source" k="source" sort={sort} onSort={toggleSort} />
+              <th style={colHead}>Promo</th>
               <SortTh label="Status" k="status" sort={sort} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={9} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading orders…</td></tr>}
-            {!loading && !visible.length && <tr><td colSpan={9} style={{ ...cell, textAlign: 'center', color: '#999' }}>{filtersActive ? 'No orders match these filters.' : 'No orders.'}</td></tr>}
+            {loading && <tr><td colSpan={10} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading orders…</td></tr>}
+            {!loading && !visible.length && <tr><td colSpan={10} style={{ ...cell, textAlign: 'center', color: '#999' }}>{filtersActive ? 'No orders match these filters.' : 'No orders.'}</td></tr>}
             {!loading && pageRows.map(o => (
               <tr key={o.orderReference}>
                 <td style={{ ...cell, color: '#666' }}>{fmtDate(o.createdDate)}</td>
@@ -575,6 +591,14 @@ export default function AdminOrdersPage() {
                 </td>
                 <td style={cell}><TypeBadges order={o} /></td>
                 <td style={cell}><SourcePill source={o.sourceoforder} /></td>
+                <td style={cell}>
+                  {promos[o.orderReference] ? (
+                    <span style={{ display: 'inline-block', background: 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)', color: '#fff', borderRadius: 999, padding: '2px 8px', fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}
+                      title="Disco promo (credited to the customer via Stripe)">
+                      {promos[o.orderReference].code} −{fmtCurrency(promos[o.orderReference].discountApplied)}
+                    </span>
+                  ) : null}
+                </td>
                 <td style={cell}><StatusPill order={o} /></td>
               </tr>
             ))}
