@@ -67,6 +67,14 @@ interface Order {
   // never show the raw value.
   sourceoforder?: string
 
+  // Recurring-order indicators. FM surfaces "this order is part of a recurring
+  // series" under different keys depending on deployment, so any truthy one of
+  // these marks the order as recurring (see isRecurringOrder).
+  orderSubscription?: unknown
+  isRecurring?: boolean
+  subscriptionReference?: string
+  recurring?: boolean
+
   // detail-shape additions (returned by GET /api/orders/{ref})
   email?: string
   phoneNumber?: string
@@ -157,6 +165,26 @@ function fmtTime(t: string) {
   const ampm = h >= 12 ? 'PM' : 'AM'
   const h12 = h % 12 || 12
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
+// Recurring detection — FM surfaces the indicator under different keys across
+// deployments, so any truthy one of these marks the order as recurring.
+function isRecurringOrder(o: {
+  orderSubscription?: unknown; isRecurring?: boolean; subscriptionReference?: string; recurring?: boolean
+}): boolean {
+  return !!(o.orderSubscription || o.isRecurring || o.subscriptionReference || o.recurring)
+}
+
+function RecurringBadge() {
+  return (
+    <span style={{
+      display: 'inline-block', marginLeft: 6, padding: '1px 6px', borderRadius: 6,
+      fontSize: 10, fontWeight: 700, verticalAlign: 'middle', color: '#fff', background: '#5B6FE8',
+    }}
+      title="Part of a recurring order">
+      🔄 Recurring
+    </span>
+  )
 }
 
 function fmtDate(d: string) {
@@ -553,6 +581,12 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               </div>
             </div>
 
+            {isRecurringOrder(order) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#EEF0FF', color: '#5B6FE8', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 13, fontWeight: 600 }} className="order-drawer-chrome">
+                🔄 Recurring order
+              </div>
+            )}
+
             <div style={{ background: '#F7F8FC', borderRadius: 8, padding: '8px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="order-drawer-chrome">
               <span style={{ fontSize: 12, color: '#666' }}>Status</span>
               <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{STATUS_LABEL[order.orderStatus] || order.orderStatus}</span>
@@ -912,6 +946,8 @@ function OrdersContent() {
   const [toDate, setToDate] = useState('')
   const [appliedFrom, setAppliedFrom] = useState('')
   const [appliedTo, setAppliedTo] = useState('')
+  // Client-side recurring filter over the loaded page of orders.
+  const [recurringFilter, setRecurringFilter] = useState<'all' | 'recurring' | 'onetime'>('all')
   const [loading, setLoading] = useState(false)
   const [sortField, setSortField] = useState('order_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -1016,6 +1052,11 @@ function OrdersContent() {
     </th>
   )
 
+  // Recurring filter is applied client-side over the currently-loaded page.
+  const displayedOrders = recurringFilter === 'all'
+    ? orders
+    : orders.filter(o => recurringFilter === 'recurring' ? isRecurringOrder(o) : !isRecurringOrder(o))
+
   return (
     <div style={{ padding: '28px 32px', fontFamily: F }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 20px', gap: 16 }}>
@@ -1066,6 +1107,13 @@ function OrdersContent() {
               style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, outline: 'none', opacity: loading ? 0.6 : 1 }} />
             <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} disabled={loading}
               style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, outline: 'none', opacity: loading ? 0.6 : 1 }} />
+            <select value={recurringFilter} onChange={e => setRecurringFilter(e.target.value as 'all' | 'recurring' | 'onetime')} disabled={loading}
+              title="Filter by recurring"
+              style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, outline: 'none', background: '#fff', color: DARK, cursor: 'pointer', opacity: loading ? 0.6 : 1 }}>
+              <option value="all">All orders</option>
+              <option value="recurring">Recurring only</option>
+              <option value="onetime">One-time only</option>
+            </select>
             <GenerateReportButton onClick={applyDateFilters} loading={loading} label="Apply Filters" loadingLabel="Loading…" />
             {(search || fromDate || toDate || appliedFrom || appliedTo) && !loading && (
               <button onClick={clearFilters}
@@ -1102,10 +1150,10 @@ function OrdersContent() {
                 {loading && (
                   <tr><td colSpan={aggregating ? 8 : 7} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
                 )}
-                {!loading && orders.length === 0 && (
+                {!loading && displayedOrders.length === 0 && (
                   <tr><td colSpan={aggregating ? 8 : 7} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
                 )}
-                {orders.map(order => {
+                {displayedOrders.map(order => {
                   const timeColor = statusColor(order.orderStatus, order.orderDate, order.orderTime)
                   const isNew = !order.orderSeenByAdmin
                   return (
@@ -1128,6 +1176,7 @@ function OrdersContent() {
                       <td style={{ padding: '12px 14px' }}>
                         <div style={{ fontWeight: isNew ? 700 : 500, fontSize: 13, color: DARK }}>
                           {order.firstName} {order.lastName}
+                          {isRecurringOrder(order) && <RecurringBadge />}
                           {isNew && <span style={{ marginLeft: 6, background: BLUE, color: '#fff', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontWeight: 700 }}>NEW</span>}
                         </div>
                         <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>#{order.orderNumber}<SourcePill source={order.sourceoforder} /></div>

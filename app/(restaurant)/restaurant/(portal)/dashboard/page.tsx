@@ -74,6 +74,16 @@ interface ListOrder {
   nashDeliveryPickupEta?: string
   nashDeliveryDropoffEta?: string
   nashDeliveryPublicTrackingUrl?: string
+  // Recurring-order indicators (any truthy → recurring; key varies by FM deploy).
+  orderSubscription?: unknown
+  isRecurring?: boolean
+  subscriptionReference?: string
+  recurring?: boolean
+}
+
+// Any truthy recurring indicator marks the order as part of a recurring series.
+function isRecurringOrder(o: ListOrder): boolean {
+  return !!(o.orderSubscription || o.isRecurring || o.subscriptionReference || o.recurring)
 }
 
 type Preset = 'today' | 'last7' | 'last30' | 'month' | 'custom'
@@ -265,6 +275,7 @@ export default function DashboardPage() {
   const [fulfillment, setFulfillment] = useState<Slice[]>([])
   const [source, setSource] = useState<Slice[]>([])
   const [mkt, setMkt] = useState({ orders: 0, revenue: 0, total: 0 })
+  const [recurring, setRecurring] = useState({ count: 0, revenue: 0, total: 0 })
   const [truncated, setTruncated] = useState(false)
 
   // Keep refs to current dates so the role/refresh effects can read them
@@ -383,11 +394,14 @@ export default function DashboardPage() {
       let pickup = 0, self = 0, tp = 0
       // Source breakdown + marketplace stats.
       let disco = 0, direct = 0, discoRev = 0
+      // Recurring breakdown (independent of source).
+      let recCount = 0, recRev = 0
       for (const o of all) {
         const f = fulfillmentOf(o)
         if (f === 'pickup') pickup++; else if (f === 'self') self++; else tp++
         if (o.sourceoforder === 'DISCO') { disco++; discoRev += o.transactionsTotal || 0 }
         else direct++
+        if (isRecurringOrder(o)) { recCount++; recRev += o.transactionsTotal || 0 }
       }
       setFulfillment([
         { name: 'Pickup', value: pickup, color: '#5B6FE8' },
@@ -399,8 +413,10 @@ export default function DashboardPage() {
         { name: 'Direct / 1st Party', value: direct, color: '#999999' },
       ])
       setMkt({ orders: disco, revenue: discoRev, total: all.length })
+      setRecurring({ count: recCount, revenue: recRev, total: all.length })
     } catch {
       setTrend([]); setFulfillment([]); setSource([]); setMkt({ orders: 0, revenue: 0, total: 0 })
+      setRecurring({ count: 0, revenue: 0, total: 0 })
     } finally {
       setChartLoading(false)
     }
@@ -648,6 +664,14 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Recurring orders summary — computed from the loaded orders dataset
+          (no extra fetch). Hidden when there are no recurring orders. */}
+      {!chartLoading && recurring.count > 0 && (
+        <div style={{ background: '#EEF0FF', color: '#5B6FE8', borderRadius: 8, padding: '12px 16px', fontSize: 14, fontWeight: 600, marginBottom: 16 }}>
+          🔄 Recurring Orders: {recurring.count.toLocaleString()} orders · {fmt(recurring.revenue)} revenue · {(recurring.total > 0 ? (recurring.count / recurring.total) * 100 : 0).toFixed(1)}% of total orders
+        </div>
+      )}
 
       {/* Existing financial cards (unchanged). For SA/SUPER_ADMIN with no
           restaurant selected this shows the all-restaurants aggregate; a
