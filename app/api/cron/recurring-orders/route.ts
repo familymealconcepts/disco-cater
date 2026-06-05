@@ -4,6 +4,7 @@
 //   TASK A — 5-day reminders   (scheduled_date = today + 5)
 //   TASK B — auto-charge        (scheduled_date = today + 2, i.e. 48h out)
 //   TASK C — cancel unpaid      (scheduled_date = today + 1, past the 48h cutoff)
+//   TASK D — menu availability  (active orders with an occurrence in next 7 days)
 //
 // REQUIRED ENV (set in Vercel → Project → Environment Variables):
 //   CRON_SECRET      shared secret. Vercel Cron sends it as
@@ -16,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '../../../../lib/db'
+import { checkMenuAvailability, type CartItem } from '../../../../lib/recurring'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -232,6 +234,25 @@ Cancellation reason: Payment not received 48 hours before order`
   return { subject, html, text }
 }
 
+function emailMenuPaused(firstName: string, restaurantName: string, unavailableItems: string[]) {
+  const subject = `Your recurring order from ${restaurantName} has been paused`
+  const list = unavailableItems.join(', ') || 'one or more items'
+  const html = layout(`
+    <p>Hi ${firstName || 'there'},</p>
+    <p>Some items in your recurring order are no longer available: <strong>${list}</strong>. Your order has been paused.</p>
+    <p>Please update your order to resume.</p>
+    ${button('Update your order', `${APP_URL}/account/subscriptions`)}
+  `)
+  const text = `Hi ${firstName || 'there'},
+
+Some items in your recurring order are no longer available: ${list}. Your order has been paused.
+
+Please update your order at ${APP_URL}/account/subscriptions to resume.
+
+— The Disco Cater Team`
+  return { subject, html, text }
+}
+
 // ── Joined occurrence row (occurrence + its parent recurring order) ─────────
 
 interface OccRow {
@@ -282,14 +303,17 @@ export async function GET(req: NextRequest) {
   if (!hasCronSecret(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const base = todayUTC()
+  const plus7 = toISO(addDays(base, 7))
   const plus5 = toISO(addDays(base, 5))
   const plus2 = toISO(addDays(base, 2))
   const plus1 = toISO(addDays(base, 1))
+  const todayISO = toISO(base)
 
   const errors: string[] = []
   let remindersSent = 0
   let chargesAttempted = 0
   let cancellations = 0
+  let menuPauses = 0
 
   // ── TASK A — 5-day reminders ───────────────────────────────────────────────
   try {
@@ -393,10 +417,58 @@ export async function GET(req: NextRequest) {
     errors.push(`TASK C: ${e instanceof Error ? e.message : String(e)}`)
   }
 
+  // ── TASK D — menu availability check ───────────────────────────────────────
+  // Pause any ACTIVE order whose cart contains an item that's no longer on the
+  // restaurant's menu, and tell the customer. Only orders with an occurrence in
+  // the next 7 days are checked (no point paging an inactive future order).
+  try {
+    const orders = (await sql`
+      SELECT DISTINCT r.id, r.restaurant_reference, r.restaurant_name,
+             r.customer_email, r.customer_first_name
+      FROM recurring_orders r
+      JOIN recurring_order_occurrences o ON o.recurring_order_id = r.id
+      WHERE r.status = 'ACTIVE'
+        AND o.scheduled_date BETWEEN ${todayISO}::date AND ${plus7}::date
+        AND o.status NOT IN ('PLACED', 'CANCELED', 'SKIPPED')
+    `) as {
+      id: string; restaurant_reference: string; restaurant_name: string
+      customer_email: string; customer_first_name: string | null
+    }[]
+
+    for (const ord of orders) {
+      try {
+        const snap = (await sql`
+          SELECT cart_snapshot FROM recurring_order_occurrences
+          WHERE recurring_order_id = ${ord.id} AND cart_snapshot IS NOT NULL
+          ORDER BY scheduled_date ASC LIMIT 1
+        `) as { cart_snapshot: CartItem[] | null }[]
+        const cart = snap[0]?.cart_snapshot ?? []
+        if (cart.length === 0) continue
+
+        // checkMenuAvailability throws on fetch/empty-menu errors — caught below
+        // so a transient FM hiccup never falsely pauses an order.
+        const result = await checkMenuAvailability(ord.restaurant_reference, cart)
+        if (result.available) continue
+
+        await sql`UPDATE recurring_orders SET status = 'PAUSED', updated_at = NOW() WHERE id = ${ord.id}`
+        const { subject, html, text } = emailMenuPaused(
+          ord.customer_first_name || '', ord.restaurant_name, result.unavailableItems,
+        )
+        await sendEmail(ord.customer_email, subject, html, text)
+        menuPauses++
+      } catch (e) {
+        errors.push(`menu-check ${ord.id}: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+  } catch (e) {
+    errors.push(`TASK D: ${e instanceof Error ? e.message : String(e)}`)
+  }
+
   return NextResponse.json({
     reminders_sent: remindersSent,
     charges_attempted: chargesAttempted,
     cancellations,
+    menu_pauses: menuPauses,
     errors,
   })
 }

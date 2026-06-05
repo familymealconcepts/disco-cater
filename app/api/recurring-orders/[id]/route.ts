@@ -79,7 +79,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ recurringOrder: updated[0] })
   }
 
-  return NextResponse.json({ error: 'Nothing to update — provide { status } or { occurrenceId, cartSnapshot }' }, { status: 400 })
+  // Update the cart for every FUTURE occurrence (the "update all future orders"
+  // path from the cart editor). Already-placed/canceled/skipped and past
+  // occurrences are left untouched.
+  if (body.cartSnapshot !== undefined) {
+    const snapshot = body.cartSnapshot === null ? null : JSON.stringify(body.cartSnapshot)
+    const updated = (await sql`
+      UPDATE recurring_order_occurrences
+      SET cart_snapshot = ${snapshot}::jsonb, updated_at = NOW()
+      WHERE recurring_order_id = ${id}
+        AND scheduled_date >= CURRENT_DATE
+        AND status NOT IN ('PLACED', 'CANCELED', 'SKIPPED')
+      RETURNING id
+    `) as { id: string }[]
+    return NextResponse.json({ updatedOccurrences: updated.length })
+  }
+
+  return NextResponse.json({ error: 'Nothing to update — provide { status }, { cartSnapshot }, or { occurrenceId, cartSnapshot }' }, { status: 400 })
 }
 
 // DELETE — cancel the recurring order: mark it CANCELED and cancel every

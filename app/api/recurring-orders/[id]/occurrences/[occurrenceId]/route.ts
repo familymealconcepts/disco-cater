@@ -5,8 +5,9 @@ import { getCustomer } from '../../../../../../lib/recurring'
 export const runtime = 'nodejs'
 
 // PATCH — update a single occurrence belonging to the caller's recurring order.
-// Accepts { status: 'SKIPPED' } to skip the occurrence, and/or { cartSnapshot }
-// to replace its cart.
+// Accepts { status: 'SKIPPED' } to skip, { status: 'SCHEDULED' } to restore a
+// skipped occurrence, and/or { cartSnapshot } to replace its cart.
+const OCC_STATUSES = ['SKIPPED', 'SCHEDULED']
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; occurrenceId: string }> }
@@ -38,32 +39,47 @@ export async function PATCH(
   const hasCart = body.cartSnapshot !== undefined
 
   if (!hasStatus && !hasCart) {
-    return NextResponse.json({ error: "Provide { status: 'SKIPPED' } and/or { cartSnapshot }" }, { status: 400 })
+    return NextResponse.json({ error: "Provide { status: 'SKIPPED' | 'SCHEDULED' } and/or { cartSnapshot }" }, { status: 400 })
   }
-  if (hasStatus && body.status !== 'SKIPPED') {
-    return NextResponse.json({ error: "status may only be set to 'SKIPPED' here" }, { status: 400 })
+  if (hasStatus && !OCC_STATUSES.includes(body.status as string)) {
+    return NextResponse.json({ error: "status may only be set to 'SKIPPED' or 'SCHEDULED' here" }, { status: 400 })
   }
 
-  // Apply the requested fields. Skipping also stamps canceled_at so the timeline
-  // reflects when the customer opted out.
+  const status = hasStatus ? (body.status as string) : null
+  const snapshot = hasCart ? (body.cartSnapshot === null ? null : JSON.stringify(body.cartSnapshot)) : null
+
+  // Apply the requested fields. Skipping stamps canceled_at so the timeline
+  // reflects when the customer opted out; restoring to SCHEDULED clears it.
   let updated: unknown[]
-  if (hasStatus && hasCart) {
-    const snapshot = body.cartSnapshot === null ? null : JSON.stringify(body.cartSnapshot)
+  if (status === 'SKIPPED' && hasCart) {
     updated = (await sql`
       UPDATE recurring_order_occurrences
       SET status = 'SKIPPED', canceled_at = NOW(), cart_snapshot = ${snapshot}::jsonb, updated_at = NOW()
       WHERE id = ${occurrenceId}
       RETURNING *
     `) as unknown[]
-  } else if (hasStatus) {
+  } else if (status === 'SKIPPED') {
     updated = (await sql`
       UPDATE recurring_order_occurrences
       SET status = 'SKIPPED', canceled_at = NOW(), updated_at = NOW()
       WHERE id = ${occurrenceId}
       RETURNING *
     `) as unknown[]
+  } else if (status === 'SCHEDULED' && hasCart) {
+    updated = (await sql`
+      UPDATE recurring_order_occurrences
+      SET status = 'SCHEDULED', canceled_at = NULL, cancellation_reason = NULL, cart_snapshot = ${snapshot}::jsonb, updated_at = NOW()
+      WHERE id = ${occurrenceId}
+      RETURNING *
+    `) as unknown[]
+  } else if (status === 'SCHEDULED') {
+    updated = (await sql`
+      UPDATE recurring_order_occurrences
+      SET status = 'SCHEDULED', canceled_at = NULL, cancellation_reason = NULL, updated_at = NOW()
+      WHERE id = ${occurrenceId}
+      RETURNING *
+    `) as unknown[]
   } else {
-    const snapshot = body.cartSnapshot === null ? null : JSON.stringify(body.cartSnapshot)
     updated = (await sql`
       UPDATE recurring_order_occurrences
       SET cart_snapshot = ${snapshot}::jsonb, updated_at = NOW()

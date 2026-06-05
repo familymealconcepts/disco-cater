@@ -151,3 +151,68 @@ export function generateOccurrences(
 
   return out
 }
+
+// ── Menu availability ────────────────────────────────────────────────────────
+// Used by POST /api/recurring-orders/[id]/check-menu and the daily cron's menu
+// pass. Compares a recurring order's cart against the restaurant's CURRENT
+// public FM menu and reports any items that have since been removed.
+
+const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+export interface CartItem {
+  name?: string
+  quantity?: number
+  price?: number
+}
+
+export interface MenuAvailability {
+  available: boolean
+  unavailableItems: string[]
+}
+
+interface MealPackageLike {
+  name?: string
+  mealPackages?: MealPackageLike[]
+}
+
+function normName(s: string): string {
+  return s.trim().toLowerCase()
+}
+
+// All meal-package names on a restaurant's public menu. The public endpoint
+// usually returns a flat array of packages, but some FM responses nest them
+// under categories — collect names from both shapes.
+async function fetchMenuItemNames(restaurantReference: string): Promise<string[]> {
+  const res = await fetch(`${FM_API}/public-api/restaurants/${restaurantReference}/mealPackages`, {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`FM mealPackages ${res.status}`)
+  const data = (await res.json()) as MealPackageLike[] | unknown
+  const names: string[] = []
+  const collect = (pkg: MealPackageLike) => {
+    if (pkg?.name) names.push(String(pkg.name))
+    if (Array.isArray(pkg?.mealPackages)) pkg.mealPackages!.forEach(collect)
+  }
+  if (Array.isArray(data)) data.forEach(collect)
+  return names
+}
+
+/**
+ * Compare a cart against the restaurant's current menu.
+ *
+ * Throws when the menu can't be fetched OR comes back empty — callers should
+ * treat that as "couldn't determine" rather than "everything is gone", so a
+ * transient FM hiccup never falsely pauses a recurring order.
+ */
+export async function checkMenuAvailability(
+  restaurantReference: string,
+  cart: CartItem[],
+): Promise<MenuAvailability> {
+  const menuNames = await fetchMenuItemNames(restaurantReference)
+  if (menuNames.length === 0) throw new Error('FM returned an empty menu')
+  const menuSet = new Set(menuNames.map(normName))
+  const wanted = (cart || []).map((i) => i?.name).filter(Boolean) as string[]
+  const unavailableItems = wanted.filter((n) => !menuSet.has(normName(n)))
+  return { available: unavailableItems.length === 0, unavailableItems }
+}
