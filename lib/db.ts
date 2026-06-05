@@ -41,6 +41,8 @@ export async function runMigrations(): Promise<void> {
     `CREATE TABLE IF NOT EXISTS promo_code_uses (id SERIAL PRIMARY KEY, promo_code_id INT NOT NULL REFERENCES promo_codes(id), user_email TEXT NOT NULL, order_ref TEXT NOT NULL, discount_applied NUMERIC(10,2) NOT NULL, stripe_refund_id TEXT, refund_status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
     `CREATE INDEX IF NOT EXISTS idx_promo_code_uses_email ON promo_code_uses(user_email)`,
     `CREATE INDEX IF NOT EXISTS idx_promo_code_uses_code_id ON promo_code_uses(promo_code_id)`,
+    // Generic key/value store for cross-run cursors (e.g. the FM→Sanity sync offset).
+    `CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true

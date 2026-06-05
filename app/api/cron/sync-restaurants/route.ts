@@ -20,6 +20,32 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@sanity/client'
 import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
 import { markRestaurantSyncActive } from '../../../../lib/syncState'
+import { sql, runMigrations } from '../../../../lib/db'
+
+// Cross-run cursor: where the next run starts in the qualifying list. Persisted
+// in Neon (sync_state) so each daily run drains the NEXT CAP restaurants instead
+// of reprocessing the same first 150 every time.
+const SYNC_OFFSET_KEY = 'fm_sanity_sync_offset'
+
+async function readSyncOffset(): Promise<number> {
+  try {
+    const rows = (await sql`SELECT value FROM sync_state WHERE key = ${SYNC_OFFSET_KEY}`) as { value: string }[]
+    const n = rows[0] ? parseInt(rows[0].value, 10) : 0
+    return Number.isFinite(n) && n >= 0 ? n : 0
+  } catch (e) {
+    console.warn('[sync-restaurants] could not read sync offset, defaulting to 0:', e)
+    return 0
+  }
+}
+
+async function saveSyncOffset(offset: number): Promise<void> {
+  const v = String(offset)
+  await sql`
+    INSERT INTO sync_state (key, value, updated_at)
+    VALUES (${SYNC_OFFSET_KEY}, ${v}, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = ${v}, updated_at = NOW()
+  `
+}
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -193,6 +219,10 @@ async function runSync() {
     console.warn('[sync-restaurants] could not mark sync active:', e)
   }
 
+  // Persisted cursor — where this run starts in the qualifying list.
+  await runMigrations()
+  const offset = await readSyncOffset()
+
   // STEP 1
   const token = await fmLogin()
 
@@ -220,12 +250,15 @@ async function runSync() {
   // that lack coords — so a legitimately-active restaurant is never deactivated.
   const qualifyingRefs = new Set(withAddress.map((r) => r.reference as string))
 
-  // Cap per run to stay within maxDuration: process the first 150; the daily run
-  // drains the rest over subsequent days (~674 qualifying / 150 ≈ 5 runs).
+  // Cap per run to stay within maxDuration: process CAP restaurants starting at
+  // the persisted offset; the daily run drains the rest over subsequent days
+  // (~674 qualifying / 150 ≈ 5 runs), then wraps back to 0 and re-syncs.
   const CAP = 150
   const cappedAt500 = withAddress.length > CAP // summary key kept as capped_at_500 (dashboard contract)
-  const toProcess = withAddress.slice(0, CAP)
-  console.log(`[sync-restaurants] ${withAddress.length} with full address, ${skippedNoAddress} skipped (no address); processing ${toProcess.length}${cappedAt500 ? ` (capped at ${CAP})` : ''}`)
+  // If the list shrank below the saved offset (or offset is stale), start over.
+  const startOffset = offset < withAddress.length ? offset : 0
+  const toProcess = withAddress.slice(startOffset, startOffset + CAP)
+  console.log(`[sync-restaurants] ${withAddress.length} with full address, ${skippedNoAddress} skipped (no address); processing ${toProcess.length} starting at offset ${startOffset}${cappedAt500 ? ` (capped at ${CAP}/run)` : ''}`)
 
   // Coordinates come straight from the list response's address object — no detail
   // fetch needed. Rows whose address has no lat/lng are skipped this run.
@@ -304,8 +337,20 @@ async function runSync() {
     if (i + CHUNK < ready.length) await sleep(50)
   }
 
+  // Advance (or wrap) the cursor so the NEXT run drains the following CAP. When
+  // this slice reached the end of the qualifying list, reset to 0 to re-sync from
+  // the top. Best-effort — a save failure must not fail the sync.
+  const cycleComplete = startOffset + CAP >= withAddress.length
+  const nextOffset = cycleComplete ? 0 : startOffset + CAP
+  try { await saveSyncOffset(nextOffset) } catch (e) {
+    errors.push(`save offset: ${e instanceof Error ? e.message : String(e)}`)
+  }
+
   // STEP 4 — deactivate Sanity docs whose fmReference is no longer qualifying.
-  // Never delete: they may carry custom Disco data.
+  // `qualifyingRefs` is built from the FULL withAddress list (not the current
+  // offset slice), so restaurants outside this run's window are protected from
+  // deactivation — only docs genuinely absent from the qualifying set are
+  // deactivated. Never delete: they may carry custom Disco data.
   try {
     const docs = (await sanity.fetch(
       `*[_type == "restaurant" && defined(fmReference)]{ _id, fmReference, active }`,
@@ -327,6 +372,8 @@ async function runSync() {
   }
 
   const synced = newCount + updated
+  const windowEnd = Math.min(startOffset + CAP, withAddress.length)
+  console.log(`[sync-restaurants] Sync complete: processed restaurants ${startOffset}–${windowEnd} of ${withAddress.length} qualifying. Next run starts at ${nextOffset}.`)
   console.log(`[sync-restaurants] done — synced ${synced} (new ${newCount}, updated ${updated}), deactivated ${deactivated}, no-address ${skippedNoAddress}, no-coords ${skippedNoCoords}, capped ${cappedAt500}, errors ${errors.length}`)
 
   return {
@@ -335,6 +382,9 @@ async function runSync() {
     new: newCount,
     updated,
     deactivated,
+    offset: startOffset,
+    next_offset: nextOffset,
+    qualifying_total: withAddress.length,
     skipped_no_address: skippedNoAddress,
     skipped_no_coords: skippedNoCoords,
     capped_at_500: cappedAt500,
