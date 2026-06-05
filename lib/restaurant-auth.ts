@@ -35,16 +35,24 @@ function decodeJwt(token: string): Record<string, unknown> | null {
   }
 }
 
-// Decode the current user's reference from the JWT. FM's /login response does
-// NOT include a reference, so the only server-side source is the token itself;
-// FM's backend derives the acting user from the same JWT, so this is the
-// trustworthy value to send as `userReference`. Returns null if absent.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Decode the current user's reference from the JWT. FM's MultiUnitLinks DTOs
+// require `userReference` to be a UUID, and FM's listing call validates it too.
+// The JWT's `sub` claim is the user's EMAIL (e.g. "chef@familymeal.com"), NOT a
+// UUID — sending it made FM reject both create-link and fetch-links. So we only
+// accept a UUID-shaped user claim, and fall back to the restaurant UUID
+// (getRestaurantRef) when the token carries no user UUID. Never returns the email.
 export async function getRestaurantUserRef(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
   if (!token) return null
   const payload = decodeJwt(token)
-  return (payload?.reference as string) || (payload?.sub as string) || null
+  const candidates = [payload?.reference, payload?.userReference, payload?.userRef, payload?.uid, payload?.id]
+  for (const c of candidates) {
+    if (typeof c === 'string' && UUID_RE.test(c)) return c
+  }
+  return await getRestaurantRef()
 }
 
 // Decode role from JWT payload field 'role'

@@ -1,11 +1,11 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  PieChart, Pie, Cell, Legend, ResponsiveContainer, Label,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import GenerateReportButton from '../_components/GenerateReportButton'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
+import { ScheduledReportsPanel } from '../manage/admin-manager-reports/page'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -88,7 +88,6 @@ function isRecurringOrder(o: ListOrder): boolean {
 
 type Preset = 'today' | 'last7' | 'last30' | 'month' | 'custom'
 interface TrendPoint { full: string; date: string; revenue: number }
-interface Slice { name: string; value: number; color: string }
 
 function fmt(n: number | undefined | null) {
   if (n === undefined || n === null) return '$0.00'
@@ -143,14 +142,6 @@ function enumerateDays(from: string, to: string): string[] {
   return out
 }
 
-function fulfillmentOf(o: ListOrder): 'pickup' | 'self' | '3p' {
-  const dt = (o.deliveryType || '').toUpperCase()
-  const has3P = !!(o.nashDeliveryStatus || o.nashDeliveryPickupEta || o.nashDeliveryDropoffEta || o.nashDeliveryPublicTrackingUrl)
-  if (has3P || dt === 'NASH_DELIVERY' || dt === 'DOOR_DASH_DELIVERY' || dt === 'DLIVRD_DELIVERY' || dt.includes('THIRD') || dt.includes('DOORDASH')) return '3p'
-  if (dt === 'OWN_DELIVERY' || dt.includes('SELF') || (o.orderType || '').toUpperCase() === 'DELIVERY') return 'self'
-  return 'pickup'
-}
-
 function Card({ title, value, isCurrency = true, gray = false, tooltip }: {
   title: string; value: number | undefined; isCurrency?: boolean; gray?: boolean; tooltip?: string
 }) {
@@ -200,51 +191,12 @@ function MktCard({ title, value, loading }: { title: string; value: string; load
   )
 }
 
-// Custom donut center label (recharts <Label content>).
-function DonutCenter({ viewBox, total }: { viewBox?: { cx?: number; cy?: number }; total: number }) {
-  const cx = viewBox?.cx ?? 0
-  const cy = viewBox?.cy ?? 0
-  return (
-    <g>
-      <text x={cx} y={cy - 3} textAnchor="middle" fontSize={22} fontWeight={700} fill={DARK}>{total.toLocaleString()}</text>
-      <text x={cx} y={cy + 15} textAnchor="middle" fontSize={10} fill="#999">orders</text>
-    </g>
-  )
-}
-
 function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value?: number }>; label?: string }) {
   if (!active || !payload || !payload.length) return null
   return (
     <div style={{ background: DARK, color: '#fff', borderRadius: 8, padding: '8px 10px', fontSize: 12, fontFamily: F }}>
       <div style={{ fontWeight: 600, marginBottom: 2 }}>{label}</div>
       <div>{fmt(payload[0].value ?? 0)}</div>
-    </div>
-  )
-}
-
-function Donut({ title, data, loading }: { title: string; data: Slice[]; loading?: boolean }) {
-  const total = data.reduce((s, d) => s + d.value, 0)
-  return (
-    <div style={{ flex: 1, minWidth: 0, background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '16px 18px' }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 8 }}>{title}</div>
-      {loading ? (
-        <div className="rep-skel" style={{ height: 200, borderRadius: 10 }} />
-      ) : total === 0 ? (
-        <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 13 }}>
-          No orders in this period
-        </div>
-      ) : (
-        <ResponsiveContainer width="100%" height={200}>
-          <PieChart>
-            <Pie data={data} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={2}>
-              {data.map((d, i) => <Cell key={i} fill={d.color} stroke="#fff" strokeWidth={2} />)}
-              <Label content={(props) => <DonutCenter viewBox={(props as { viewBox?: { cx?: number; cy?: number } }).viewBox} total={total} />} />
-            </Pie>
-            <Tooltip />
-            <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: 12, fontFamily: F }} />
-          </PieChart>
-        </ResponsiveContainer>
-      )}
     </div>
   )
 }
@@ -272,8 +224,6 @@ export default function DashboardPage() {
   // Chart / marketplace state (separate fetch from sale-stats).
   const [chartLoading, setChartLoading] = useState(true)
   const [trend, setTrend] = useState<TrendPoint[]>([])
-  const [fulfillment, setFulfillment] = useState<Slice[]>([])
-  const [source, setSource] = useState<Slice[]>([])
   const [mkt, setMkt] = useState({ orders: 0, revenue: 0, total: 0 })
   const [recurring, setRecurring] = useState({ count: 0, revenue: 0, total: 0 })
   const [truncated, setTruncated] = useState(false)
@@ -390,32 +340,17 @@ export default function DashboardPage() {
       }
       setTrend(enumerateDays(from, to).map(d => ({ full: d, date: dayLabel(d), revenue: byDay[d] || 0 })))
 
-      // Fulfillment breakdown.
-      let pickup = 0, self = 0, tp = 0
-      // Source breakdown + marketplace stats.
-      let disco = 0, direct = 0, discoRev = 0
-      // Recurring breakdown (independent of source).
+      // Marketplace (Disco) + recurring breakdowns.
+      let disco = 0, discoRev = 0
       let recCount = 0, recRev = 0
       for (const o of all) {
-        const f = fulfillmentOf(o)
-        if (f === 'pickup') pickup++; else if (f === 'self') self++; else tp++
         if (o.sourceoforder === 'DISCO') { disco++; discoRev += o.transactionsTotal || 0 }
-        else direct++
         if (isRecurringOrder(o)) { recCount++; recRev += o.transactionsTotal || 0 }
       }
-      setFulfillment([
-        { name: 'Pickup', value: pickup, color: '#5B6FE8' },
-        { name: 'Self-Delivery', value: self, color: '#C044C8' },
-        { name: '3rd Party Delivery', value: tp, color: '#F0468A' },
-      ])
-      setSource([
-        { name: 'Disco Cater Marketplace', value: disco, color: '#6B6EF9' },
-        { name: 'Direct / 1st Party', value: direct, color: '#999999' },
-      ])
       setMkt({ orders: disco, revenue: discoRev, total: all.length })
       setRecurring({ count: recCount, revenue: recRev, total: all.length })
     } catch {
-      setTrend([]); setFulfillment([]); setSource([]); setMkt({ orders: 0, revenue: 0, total: 0 })
+      setTrend([]); setMkt({ orders: 0, revenue: 0, total: 0 })
       setRecurring({ count: 0, revenue: 0, total: 0 })
     } finally {
       setChartLoading(false)
@@ -502,7 +437,6 @@ export default function DashboardPage() {
         .rep-skel { background: linear-gradient(90deg, #f0f0f0 25%, #e6e6e6 50%, #f0f0f0 75%); background-size: 200% 100%; animation: rep-shimmer 1.4s ease infinite; }
         @media (max-width: 768px) {
           .rep-trend-wrap { display: none !important; }
-          .rep-donuts { flex-direction: column !important; }
         }
       `}</style>
 
@@ -636,12 +570,6 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Order breakdown donuts */}
-      <div className="rep-donuts" style={{ display: 'flex', gap: 20, marginBottom: 28 }}>
-        <Donut title="Fulfillment Type" data={fulfillment} loading={chartLoading} />
-        <Donut title="Order Source" data={source} loading={chartLoading} />
-      </div>
-
       {/* Disco Cater Marketplace Performance */}
       <div style={{ marginBottom: 28 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '0 0 2px' }}>🪩 Disco Cater Marketplace Performance</h2>
@@ -691,6 +619,12 @@ export default function DashboardPage() {
         {hasServiceCharge && <Card title={serviceChargeTitle} value={saleStats.serviceChargesSum} />}
         <Card title="Stripe Fees" value={saleStats.stripeFeeSum} gray />
         <Card title="Total Amount" value={saleStats.totalOrdersSum} />
+      </div>
+
+      {/* Scheduled Reports — moved here from the standalone Reports page. */}
+      <div style={{ marginTop: 36 }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '0 0 14px' }}>Scheduled Reports</h2>
+        <ScheduledReportsPanel />
       </div>
     </div>
   )

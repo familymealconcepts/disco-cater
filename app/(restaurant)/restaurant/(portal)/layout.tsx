@@ -36,7 +36,6 @@ const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Orders', path: '/restaurant/orders', badge: true },
   { title: 'Links', path: '/restaurant/manage/multi-unit-links' },
   { title: 'Bulk Menu Editor', path: '/restaurant/manage/bulk-pricing' },
-  { title: 'Reports', path: '/restaurant/manage/admin-manager-reports' },
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
 ]
 

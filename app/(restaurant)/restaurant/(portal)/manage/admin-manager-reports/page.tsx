@@ -70,14 +70,15 @@ function fmtTime12(t?: string) {
   return `${h12}:${m} ${ampm}`
 }
 
-export default function ReportsPage() {
+// The scheduled-reports UI body (tabs + content + editor) without any page
+// chrome. Rendered both by this page and embedded at the bottom of the
+// Reporting (dashboard) page.
+export function ScheduledReportsPanel() {
   const [tab, setTab] = useState<Tab>('scheduled')
   const [editing, setEditing] = useState<ReportPayload | null>(null)
 
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 16px' }}>Reports</h1>
-
+    <div style={{ fontFamily: F }}>
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e6e6e6', marginBottom: 20 }}>
         <TabBtn label="Scheduled Reports" active={tab === 'scheduled'} onClick={() => setTab('scheduled')} />
@@ -96,6 +97,17 @@ export default function ReportsPage() {
           onSaved={() => { setEditing(null) }}
         />
       )}
+    </div>
+  )
+}
+
+// Standalone Reports page. No longer linked in the sidebar (the panel now lives
+// at the bottom of Reporting), but kept reachable by direct URL.
+export default function ReportsPage() {
+  return (
+    <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 16px' }}>Reports</h1>
+      <ScheduledReportsPanel />
     </div>
   )
 }
