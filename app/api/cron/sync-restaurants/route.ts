@@ -135,33 +135,6 @@ async function fetchAllMarketplace(token: string): Promise<FmRestaurant[]> {
     const d = await res.json().catch(() => null)
     const content: FmRestaurant[] = Array.isArray(d) ? d : (d?.content || d?.data || [])
 
-    // ── Diagnostics: dump the raw FM object shape from the first page only,
-    //    before any filtering. Remove once the address/coords shape is confirmed.
-    if (page === 0) {
-      const sample = content?.[0] as (FmRestaurant & Record<string, unknown>) | undefined
-      console.log('[sync-diag] total in first page:', content?.length)
-      console.log('[sync-diag] top-level keys:', sample ? Object.keys(sample).join(', ') : 'NO SAMPLE')
-      console.log('[sync-diag] address field:', JSON.stringify(sample?.address))
-      console.log('[sync-diag] first restaurant blocked:', sample?.blocked, 'status:', sample?.restaurantStatus || sample?.status)
-      if (sample) {
-        console.log('[sync-diag] addressLine1:', sample?.address?.addressLine1)
-        console.log('[sync-diag] city:', sample?.address?.city)
-        console.log('[sync-diag] state:', sample?.address?.state)
-        console.log('[sync-diag] zipcode:', sample?.address?.zipcode)
-      }
-      const statusCounts: Record<string, number> = {}
-      const blockedCounts = { true: 0, false: 0, other: 0 }
-      content.forEach(r => {
-        const s = r.restaurantStatus || r.status || 'MISSING'
-        statusCounts[s] = (statusCounts[s] || 0) + 1
-        if (r.blocked === true) blockedCounts.true++
-        else if (r.blocked === false) blockedCounts.false++
-        else blockedCounts.other++
-      })
-      console.log('[sync-diag] status distribution:', JSON.stringify(statusCounts))
-      console.log('[sync-diag] blocked distribution:', JSON.stringify(blockedCounts))
-    }
-
     out.push(...content)
 
     const totalPages =
@@ -178,7 +151,7 @@ async function fetchAllMarketplace(token: string): Promise<FmRestaurant[]> {
 
 function isActive(r: FmRestaurant): boolean {
   const s = (r.restaurantStatus || r.status || '').toUpperCase()
-  return s === 'ACTIVE'
+  return s === 'ACCEPTED' || s === 'ACTIVE' // FM uses ACCEPTED; ACTIVE kept as fallback
 }
 // Full street address (no coordinates). The FM LIST endpoint omits lat/lng, so
 // coordinates are fetched separately from the detail endpoint (fetchDetail).
