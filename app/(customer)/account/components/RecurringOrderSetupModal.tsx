@@ -239,6 +239,7 @@ export default function RecurringOrderSetupModal({ isOpen, onClose, sourceOrder 
           endCount: endKind === 'COUNT' ? endCount : null,
           endDate: endKind === 'DATE' ? endDate : null,
           cartSnapshot: sourceOrder.items,
+          sourceOrderTotal: sourceOrder.total,
         }),
       })
       if (!res.ok) {

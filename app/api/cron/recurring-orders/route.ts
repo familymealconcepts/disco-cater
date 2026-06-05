@@ -16,8 +16,12 @@
 // it just logs a warning and skips the emails.
 
 import { NextRequest, NextResponse } from 'next/server'
+import Stripe from 'stripe'
 import { sql } from '../../../../lib/db'
 import { checkMenuAvailability, type CartItem } from '../../../../lib/recurring'
+import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+
+const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -158,13 +162,20 @@ If you'd like to pause or cancel, you can do so from your subscriptions page bef
   return { subject, html, text }
 }
 
-function emailPaymentNeeded(firstName: string, restaurantName: string, dateISO: string, deadlineISO: string) {
+function emailPaymentNeeded(firstName: string, restaurantName: string, dateISO: string, deadlineISO: string, needsNewCard = false) {
   const subject = `Action required: Payment needed for your catering order from ${restaurantName} 🪩`
   const date = fmtLong(dateISO)
   const deadline = fmtLong(deadlineISO)
+  const cardNoteHtml = needsNewCard
+    ? `<p>Your bank requires you to re-confirm this card. Please <strong>update your payment method</strong> on your subscriptions page so we can charge it automatically.</p>`
+    : ''
+  const cardNoteText = needsNewCard
+    ? `\nYour bank requires you to re-confirm this card. Please update your payment method on your subscriptions page so we can charge it automatically.\n`
+    : ''
   const html = layout(`
     <p>Hi ${firstName || 'there'},</p>
     <p>We were unable to automatically charge your card for your upcoming catering order from <strong>${restaurantName}</strong> on <strong>${date}</strong>.</p>
+    ${cardNoteHtml}
     <p>Please log in and complete payment before <strong>${deadline}</strong> to keep your order.</p>
     ${button('Complete payment', `${APP_URL}/account/subscriptions`)}
     <p>If payment is not received by ${deadline}, your order will be automatically canceled.</p>
@@ -172,7 +183,7 @@ function emailPaymentNeeded(firstName: string, restaurantName: string, dateISO: 
   const text = `Hi ${firstName || 'there'},
 
 We were unable to automatically charge your card for your upcoming catering order from ${restaurantName} on ${date}.
-
+${cardNoteText}
 Please log in and complete payment before ${deadline} to keep your order.
 
 Complete payment: ${APP_URL}/account/subscriptions
@@ -180,6 +191,43 @@ Complete payment: ${APP_URL}/account/subscriptions
 If payment is not received by ${deadline}, your order will be automatically canceled.
 
 — The Disco Cater Team`
+  return { subject, html, text }
+}
+
+// Internal alert to concierge: a charge succeeded but the FM order couldn't be
+// placed automatically, so it needs manual fulfillment (do NOT refund).
+function emailManualReview(o: {
+  restaurantName: string; restaurantReference: string; customerName: string; customerEmail: string
+  dateISO: string; amount: number; paymentIntentId: string; occurrenceId: string; reason: string
+  cart: CartItem[]
+}) {
+  const subject = `⚠️ Manual placement needed — ${o.restaurantName} on ${fmtLong(o.dateISO)} (charged $${o.amount.toFixed(2)})`
+  const items = (o.cart || []).map(i => `  - ${i.name} ×${i.quantity ?? 1}`).join('\n') || '  (no items recorded)'
+  const text = `A recurring-order charge SUCCEEDED but the order could NOT be placed automatically. Do not refund — place the order manually.
+
+Restaurant: ${o.restaurantName} (${o.restaurantReference})
+Customer: ${o.customerName || '—'} (${o.customerEmail || '—'})
+Order date: ${fmtLong(o.dateISO)}
+Amount charged: $${o.amount.toFixed(2)}
+Stripe PaymentIntent: ${o.paymentIntentId}
+Occurrence: ${o.occurrenceId}
+Reason placement failed: ${o.reason}
+
+Items:
+${items}`
+  const html = layout(`
+    <p><strong>A recurring-order charge succeeded but the order could not be placed automatically.</strong> Do not refund — place the order manually.</p>
+    <p>
+      <strong>Restaurant:</strong> ${o.restaurantName} (${o.restaurantReference})<br/>
+      <strong>Customer:</strong> ${o.customerName || '—'} (${o.customerEmail || '—'})<br/>
+      <strong>Order date:</strong> ${fmtLong(o.dateISO)}<br/>
+      <strong>Amount charged:</strong> $${o.amount.toFixed(2)}<br/>
+      <strong>Stripe PaymentIntent:</strong> ${o.paymentIntentId}<br/>
+      <strong>Occurrence:</strong> ${o.occurrenceId}<br/>
+      <strong>Reason placement failed:</strong> ${o.reason}
+    </p>
+    <p><strong>Items:</strong><br/>${(o.cart || []).map(i => `${i.name} ×${i.quantity ?? 1}`).join('<br/>') || '(no items recorded)'}</p>
+  `)
   return { subject, html, text }
 }
 
@@ -297,6 +345,90 @@ async function nextOccurrenceDate(recurringOrderId: string, afterISO: string): P
   return rows[0] ? normDate(rows[0].scheduled_date) : null
 }
 
+// ── Charge pass (TASK B) helpers ─────────────────────────────────────────────
+
+interface ChargeRow {
+  id: string
+  recurring_order_id: string
+  scheduled_date: string
+  scheduled_time: string | null
+  status: string
+  cart_snapshot: CartItem[] | null
+  customer_email: string
+  customer_first_name: string | null
+  customer_last_name: string | null
+  restaurant_name: string
+  restaurant_reference: string
+  stripe_customer_id: string | null
+  stripe_payment_method_id: string | null
+  source_order_total: string | number | null
+}
+
+// Occurrences due for auto-charge (48h out) on an ACTIVE recurring order, with
+// the Stripe identity + amount fields needed to charge.
+async function chargeableOccurrences(dateISO: string): Promise<ChargeRow[]> {
+  return (await sql`
+    SELECT o.id, o.recurring_order_id, o.scheduled_date, o.scheduled_time, o.status, o.cart_snapshot,
+           r.customer_email, r.customer_first_name, r.customer_last_name,
+           r.restaurant_name, r.restaurant_reference,
+           r.stripe_customer_id, r.stripe_payment_method_id, r.source_order_total
+    FROM recurring_order_occurrences o
+    JOIN recurring_orders r ON r.id = o.recurring_order_id
+    WHERE o.scheduled_date = ${dateISO}::date
+      AND r.status = 'ACTIVE'
+      AND o.status = ANY(${['REMINDER_SENT', 'SCHEDULED']})
+    ORDER BY o.scheduled_date ASC
+  `) as ChargeRow[]
+}
+
+// Charge amount in dollars: sum of the occurrence cart's per-item pricing,
+// falling back to the recurring order's stored source-order total.
+function computeAmount(cart: CartItem[] | null, sourceTotal: string | number | null): number {
+  let sum = 0
+  let hasPrice = false
+  for (const it of cart || []) {
+    if (typeof it.price === 'number') { hasPrice = true; sum += it.price * (it.quantity || 1) }
+  }
+  if (hasPrice && sum > 0) return sum
+  const t = sourceTotal == null ? 0 : parseFloat(String(sourceTotal))
+  return Number.isFinite(t) ? t : 0
+}
+
+// Place the FM order for a charged occurrence using the Direct Entry pattern
+// (system-placed → sourceoforder FAMILYMEAL). Returns the FM order reference.
+//
+// Direct Entry requires an authenticated restaurant FM session
+// (getRestaurantAuthHeader, cookie-based). The Vercel cron has no such session,
+// so this throws there and the caller routes the (already-charged) occurrence to
+// the manual-review path. The init draft is created via the public endpoint; the
+// authenticated finalize/place steps run only when a restaurant session exists.
+async function placeFmOrder(restaurantRef: string, cart: CartItem[], scheduledDateISO: string): Promise<string> {
+  const authHeaders = await getRestaurantAuthHeader() // throws "Not authenticated" in cron
+
+  // Draft (public-api init) — mirrors /api/order/init.
+  const initRes = await fetch(`${FM_API}/public-api/v2/restaurants/${restaurantRef}/orders/init`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      localDate: scheduledDateISO,
+      orderMealPackages: (cart || []).map(i => ({ name: i.name, count: i.quantity || 1, price: i.price })),
+    }),
+  })
+  if (!initRes.ok) throw new Error(`FM init ${initRes.status}`)
+  const draft = await initRes.json().catch(() => ({}))
+  const orderRef: string | undefined = draft?.orderReference || draft?.reference
+  if (!orderRef) throw new Error('FM init returned no order reference')
+
+  // Place (authenticated). Direct Entry attribution.
+  const placeRes = await fetch(`${FM_API}/api/v2/restaurants/${restaurantRef}/orders/${orderRef}`, {
+    method: 'POST',
+    headers: { ...authHeaders, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ sourceoforder: 'FAMILYMEAL' }),
+  })
+  if (!placeRes.ok) throw new Error(`FM place ${placeRes.status}`)
+  return orderRef
+}
+
 // ── Cron handler ─────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -311,9 +443,19 @@ export async function GET(req: NextRequest) {
 
   const errors: string[] = []
   let remindersSent = 0
-  let chargesAttempted = 0
+  let chargesSucceeded = 0
+  let chargesFailed = 0
+  let ordersPlaced = 0
+  let manualReview = 0
   let cancellations = 0
   let menuPauses = 0
+
+  const stripeKey = process.env.STRIPE_SECRET_KEY
+  // The SDK pins apiVersion to its own literal; cast so we can request the
+  // version this integration was written against without hardcoding the SDK's.
+  const stripe = stripeKey
+    ? new Stripe(stripeKey, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
+    : null
 
   // ── TASK A — 5-day reminders ───────────────────────────────────────────────
   try {
@@ -340,42 +482,130 @@ export async function GET(req: NextRequest) {
     errors.push(`TASK A: ${e instanceof Error ? e.message : String(e)}`)
   }
 
-  // ── TASK B — auto-charge 48h before (currently a documented stub) ──────────
+  // ── TASK B — auto-charge 48h before via Stripe (off-session) ───────────────
   try {
     // Includes SCHEDULED as well as REMINDER_SENT in case the reminder pass was
     // ever missed for this occurrence.
-    const due = await dueOccurrences(plus2, ['REMINDER_SENT', 'SCHEDULED'])
+    const due = await chargeableOccurrences(plus2)
     for (const occ of due) {
       try {
         const date = normDate(occ.scheduled_date)
-
-        // TODO: Replace with FM API key auth or service account once available from Revyrie.
-        // The real charge flow places the order on the customer's behalf using
-        // the cart_snapshot (or the recurring order's source_order_reference)
-        // against the FM checkout endpoints:
-        //   1. POST /api/order/init    — create the draft for the scheduled date/time
-        //   2. POST /api/order/update  — finalize totals
-        //   3. POST /api/order/place   — place the order (requires the customer JWT)
-        // On success → status 'PLACED', fm_order_reference, placed_at = NOW().
-        // On failure → status 'CHARGE_FAILED', charge_failed_at = NOW().
-        // We cannot store customer JWTs long-term (they expire), so until a
-        // service-account / API-key auth path exists we cannot auto-place. For
-        // now we record the attempt and ask the customer to complete payment.
-        console.log(`[cron/recurring-orders] charge stub — occurrence ${occ.id} for ${occ.restaurant_name} on ${date}; awaiting FM service-account auth.`)
-
-        await sql`
-          UPDATE recurring_order_occurrences
-          SET status = 'CHARGE_ATTEMPTED', charge_attempted_at = NOW(), updated_at = NOW()
-          WHERE id = ${occ.id}
-        `
-
         // Cancellation cutoff is 24h after this attempt (scheduled_date - 1).
         const deadlineISO = shiftISO(date, -1)
-        const { subject, html, text } = emailPaymentNeeded(
-          occ.customer_first_name || '', occ.restaurant_name, date, deadlineISO,
-        )
-        await sendEmail(occ.customer_email, subject, html, text)
-        chargesAttempted++
+        const firstName = occ.customer_first_name || ''
+
+        // No Stripe identity on file (or Stripe unconfigured) → can't auto-charge.
+        if (!stripe || !occ.stripe_customer_id || !occ.stripe_payment_method_id) {
+          await sql`
+            UPDATE recurring_order_occurrences
+            SET status = 'CHARGE_FAILED', charge_failed_at = NOW(), updated_at = NOW()
+            WHERE id = ${occ.id}
+          `
+          const m = emailPaymentNeeded(firstName, occ.restaurant_name, date, deadlineISO, true)
+          await sendEmail(occ.customer_email, m.subject, m.html, m.text)
+          chargesFailed++
+          continue
+        }
+
+        const amount = computeAmount(occ.cart_snapshot, occ.source_order_total)
+        if (amount <= 0) {
+          await sql`
+            UPDATE recurring_order_occurrences
+            SET status = 'CHARGE_FAILED', charge_failed_at = NOW(), updated_at = NOW()
+            WHERE id = ${occ.id}
+          `
+          const m = emailPaymentNeeded(firstName, occ.restaurant_name, date, deadlineISO)
+          await sendEmail(occ.customer_email, m.subject, m.html, m.text)
+          chargesFailed++
+          continue
+        }
+
+        // ── Off-session charge ──────────────────────────────────────────────
+        let paymentIntent: Stripe.PaymentIntent
+        try {
+          paymentIntent = await stripe.paymentIntents.create({
+            amount: Math.round(amount * 100), // dollars → cents
+            currency: 'usd',
+            customer: occ.stripe_customer_id,
+            payment_method: occ.stripe_payment_method_id,
+            off_session: true,
+            confirm: true,
+            description: `Recurring catering order - ${occ.restaurant_name}`,
+            metadata: {
+              recurring_order_id: occ.recurring_order_id,
+              occurrence_id: occ.id,
+              customer_email: occ.customer_email,
+            },
+          })
+        } catch (stripeErr) {
+          // Card declined / authentication_required / etc.
+          const code = (stripeErr as Stripe.StripeRawError)?.code
+          await sql`
+            UPDATE recurring_order_occurrences
+            SET status = 'CHARGE_FAILED', charge_failed_at = NOW(), updated_at = NOW()
+            WHERE id = ${occ.id}
+          `
+          const m = emailPaymentNeeded(firstName, occ.restaurant_name, date, deadlineISO, code === 'authentication_required')
+          await sendEmail(occ.customer_email, m.subject, m.html, m.text)
+          chargesFailed++
+          continue
+        }
+
+        if (paymentIntent.status !== 'succeeded') {
+          // requires_action / requires_payment_method / etc. — treat as failed.
+          await sql`
+            UPDATE recurring_order_occurrences
+            SET status = 'CHARGE_FAILED', charge_failed_at = NOW(),
+                stripe_payment_intent_id = ${paymentIntent.id}, updated_at = NOW()
+            WHERE id = ${occ.id}
+          `
+          const m = emailPaymentNeeded(firstName, occ.restaurant_name, date, deadlineISO, paymentIntent.status === 'requires_action')
+          await sendEmail(occ.customer_email, m.subject, m.html, m.text)
+          chargesFailed++
+          continue
+        }
+
+        // Charge succeeded → record it (order placement pending). NOTE: TASK C
+        // intentionally does NOT cancel CHARGE_ATTEMPTED, so a charged-but-
+        // unplaced occurrence is never auto-canceled out from under the customer.
+        await sql`
+          UPDATE recurring_order_occurrences
+          SET status = 'CHARGE_ATTEMPTED', charge_attempted_at = NOW(),
+              stripe_payment_intent_id = ${paymentIntent.id}, updated_at = NOW()
+          WHERE id = ${occ.id}
+        `
+        chargesSucceeded++
+
+        // ── Place the FM order (Direct Entry) ───────────────────────────────
+        try {
+          const fmRef = await placeFmOrder(occ.restaurant_reference, occ.cart_snapshot || [], date)
+          await sql`
+            UPDATE recurring_order_occurrences
+            SET status = 'PLACED', fm_order_reference = ${fmRef}, placed_at = NOW(), updated_at = NOW()
+            WHERE id = ${occ.id}
+          `
+          ordersPlaced++
+        } catch (placeErr) {
+          // Charge captured but order couldn't be placed automatically. DO NOT
+          // refund — alert concierge for manual fulfillment. Status stays
+          // CHARGE_ATTEMPTED (paid, awaiting placement).
+          const reason = placeErr instanceof Error ? placeErr.message : String(placeErr)
+          console.error(`[cron/recurring-orders] FM placement failed for occurrence ${occ.id} (charged ${paymentIntent.id}): ${reason}`)
+          const alert = emailManualReview({
+            restaurantName: occ.restaurant_name,
+            restaurantReference: occ.restaurant_reference,
+            customerName: [occ.customer_first_name, occ.customer_last_name].filter(Boolean).join(' '),
+            customerEmail: occ.customer_email,
+            dateISO: date,
+            amount,
+            paymentIntentId: paymentIntent.id,
+            occurrenceId: occ.id,
+            reason,
+            cart: occ.cart_snapshot || [],
+          })
+          await sendEmail(RESTAURANT_NOTIFY_EMAIL, alert.subject, alert.html, alert.text)
+          manualReview++
+        }
       } catch (e) {
         errors.push(`charge ${occ.id}: ${e instanceof Error ? e.message : String(e)}`)
       }
@@ -385,8 +615,11 @@ export async function GET(req: NextRequest) {
   }
 
   // ── TASK C — cancel unpaid orders past the 48h cutoff ──────────────────────
+  // CHARGE_ATTEMPTED is deliberately excluded: with real Stripe charging it
+  // means "paid, placement pending" (handled by TASK B / manual review), so it
+  // must never be auto-canceled here.
   try {
-    const due = await dueOccurrences(plus1, ['SCHEDULED', 'REMINDER_SENT', 'CHARGE_ATTEMPTED', 'CHARGE_FAILED', 'PAYMENT_REMINDER_SENT'])
+    const due = await dueOccurrences(plus1, ['SCHEDULED', 'REMINDER_SENT', 'CHARGE_FAILED', 'PAYMENT_REMINDER_SENT'])
     for (const occ of due) {
       try {
         const date = normDate(occ.scheduled_date)
@@ -466,7 +699,10 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     reminders_sent: remindersSent,
-    charges_attempted: chargesAttempted,
+    charges_succeeded: chargesSucceeded,
+    charges_failed: chargesFailed,
+    orders_placed: ordersPlaced,
+    manual_review: manualReview,
     cancellations,
     menu_pauses: menuPauses,
     errors,

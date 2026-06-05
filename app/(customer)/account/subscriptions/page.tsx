@@ -66,7 +66,15 @@ interface DiscoRecurringOrder {
   repeat_every_day: string
   start_date: string
   status: string
+  stripe_payment_method_id?: string | null
   occurrences?: DiscoOccurrence[]
+}
+
+// Needs a payment-method refresh when no card is on file OR a recent charge
+// failed.
+function needsPaymentUpdate(o: DiscoRecurringOrder): boolean {
+  if (!o.stripe_payment_method_id) return true
+  return (o.occurrences || []).some(x => x.status === 'CHARGE_FAILED')
 }
 
 function discoFreqLabel(o: DiscoRecurringOrder): string {
@@ -204,6 +212,26 @@ export default function SubscriptionsPage() {
     setDiscoBusy(null)
   }
 
+  async function refreshPayment(o: DiscoRecurringOrder) {
+    setDiscoBusy(o.id)
+    try {
+      const res = await fetch(`/api/recurring-orders/${o.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshPayment: true }),
+      })
+      const d = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(d?.error || `HTTP ${res.status}`)
+      const pm = (d?.recurringOrder?.stripe_payment_method_id as string | null) ?? null
+      setDiscoOrders(prev => prev.map(x => x.id === o.id ? { ...x, stripe_payment_method_id: pm } : x))
+      alert('Payment method updated. Your next order will be charged automatically.')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not update payment method. Please try again.')
+    }
+    setDiscoBusy(null)
+  }
+
   // ── Occurrence-level actions ────────────────────────────────────────────────
 
   function patchOccLocal(orderId: string, occId: string, patch: Partial<DiscoOccurrence>) {
@@ -303,6 +331,7 @@ export default function SubscriptionsPage() {
                 onSkip={(occId) => setOccStatus(o.id, occId, 'SKIPPED')}
                 onRestore={(occId) => setOccStatus(o.id, occId, 'SCHEDULED')}
                 onModify={(occ) => openEditor(o, occ)}
+                onRefreshPayment={() => refreshPayment(o)}
               />
             ))}
           </div>
@@ -371,7 +400,7 @@ export default function SubscriptionsPage() {
 
 // ── Disco recurring-order card (rich, expandable) ───────────────────────────
 
-function DiscoRecurringCard({ order, busy, onPause, onResume, onCancel, onSkip, onRestore, onModify }: {
+function DiscoRecurringCard({ order, busy, onPause, onResume, onCancel, onSkip, onRestore, onModify, onRefreshPayment }: {
   order: DiscoRecurringOrder
   busy: boolean
   onPause: () => void
@@ -380,6 +409,7 @@ function DiscoRecurringCard({ order, busy, onPause, onResume, onCancel, onSkip, 
   onSkip: (occId: string) => Promise<void>
   onRestore: (occId: string) => Promise<void>
   onModify: (occ: DiscoOccurrence) => void
+  onRefreshPayment: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [skipForId, setSkipForId] = useState<string | null>(null)
@@ -471,6 +501,18 @@ function DiscoRecurringCard({ order, busy, onPause, onResume, onCancel, onSkip, 
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Payment-method update prompt — no card on file or a charge failed. */}
+      {!isCanceled && needsPaymentUpdate(order) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 12, background: '#FFF3F3', border: '1px solid #F3C9C9', borderRadius: 10, padding: '10px 12px' }}>
+          <span style={{ fontSize: 12, color: '#B23636', flex: 1, minWidth: 160 }}>
+            We couldn&apos;t charge your card. Update your payment method to keep this order.
+          </span>
+          <button onClick={onRefreshPayment} disabled={busy} style={miniBtn(BLUE, '#fff')}>
+            {busy ? 'Updating…' : 'Update payment method'}
+          </button>
         </div>
       )}
 

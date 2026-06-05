@@ -3,6 +3,7 @@ import { sql } from '../../../lib/db'
 import {
   getCustomer,
   generateOccurrences,
+  extractStripeIds,
   type FrequencyType,
   type EndKind,
 } from '../../../lib/recurring'
@@ -87,6 +88,7 @@ export async function POST(req: NextRequest) {
     endCount = null,
     endDate = null,
     cartSnapshot = null,
+    sourceOrderTotal = null,
   } = body as {
     restaurantReference?: string
     restaurantName?: string
@@ -99,6 +101,7 @@ export async function POST(req: NextRequest) {
     endCount?: number | null
     endDate?: string | null
     cartSnapshot?: unknown
+    sourceOrderTotal?: number | null
   }
 
   if (!restaurantReference || !restaurantName || !sourceOrderReference) {
@@ -114,15 +117,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'endKind must be NEVER, COUNT or DATE' }, { status: 400 })
   }
 
+  // Capture the diner's saved Stripe customer + payment method so the cron can
+  // charge off-session. We reuse the existing payment-source endpoint (forwarding
+  // the caller's cookies for its FM auth). No card on file → store nulls; the
+  // cron's "no card" path then handles the payment-reminder flow.
+  let stripeCustomerId: string | null = null
+  let stripePaymentMethodId: string | null = null
+  try {
+    const psRes = await fetch(new URL('/api/fm-payment-source', req.url), {
+      headers: { cookie: req.headers.get('cookie') || '' },
+    })
+    if (psRes.ok) {
+      const source = await psRes.json()
+      const ids = extractStripeIds(source)
+      stripeCustomerId = ids.stripeCustomerId
+      stripePaymentMethodId = ids.stripePaymentMethodId
+    }
+  } catch (e) {
+    console.warn('[recurring-orders POST] could not fetch payment source:', e)
+  }
+
   const created = (await sql`
     INSERT INTO recurring_orders (
       customer_fm_reference, customer_email, customer_first_name, customer_last_name,
       restaurant_reference, restaurant_name, restaurant_slug, source_order_reference,
-      frequency_type, repeat_every_day, start_date, end_kind, end_count, end_date
+      frequency_type, repeat_every_day, start_date, end_kind, end_count, end_date,
+      stripe_customer_id, stripe_payment_method_id, source_order_total
     ) VALUES (
       ${customer.reference}, ${customer.email}, ${customer.firstName}, ${customer.lastName},
       ${restaurantReference}, ${restaurantName}, ${restaurantSlug}, ${sourceOrderReference},
-      ${frequencyType}, ${repeatEveryDay}, ${startDate}, ${endKind}, ${endCount}, ${endDate}
+      ${frequencyType}, ${repeatEveryDay}, ${startDate}, ${endKind}, ${endCount}, ${endDate},
+      ${stripeCustomerId}, ${stripePaymentMethodId}, ${sourceOrderTotal}
     )
     RETURNING *
   `) as RecurringOrderRow[]

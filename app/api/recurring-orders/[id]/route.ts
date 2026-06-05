@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '../../../../lib/db'
-import { getCustomer } from '../../../../lib/recurring'
+import { getCustomer, extractStripeIds } from '../../../../lib/recurring'
 
 export const runtime = 'nodejs'
 
@@ -48,6 +48,31 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  // Refresh the saved Stripe payment method from the diner's current default
+  // card (used by the "Update payment method" action after a failed charge).
+  if (body.refreshPayment === true) {
+    let source: unknown = null
+    try {
+      const psRes = await fetch(new URL('/api/fm-payment-source', req.url), {
+        headers: { cookie: req.headers.get('cookie') || '' },
+      })
+      if (psRes.ok) source = await psRes.json()
+    } catch (e) {
+      console.warn('[recurring-orders PATCH] could not fetch payment source:', e)
+    }
+    const { stripeCustomerId, stripePaymentMethodId } = extractStripeIds(source)
+    if (!stripePaymentMethodId) {
+      return NextResponse.json({ error: 'No saved payment method found. Please add a card in Payment settings first.' }, { status: 400 })
+    }
+    const updated = (await sql`
+      UPDATE recurring_orders
+      SET stripe_customer_id = ${stripeCustomerId}, stripe_payment_method_id = ${stripePaymentMethodId}, updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING *
+    `) as unknown[]
+    return NextResponse.json({ recurringOrder: updated[0] })
   }
 
   // Update a specific occurrence's cart.

@@ -38,6 +38,33 @@ export async function getCustomer(): Promise<CustomerIdentity | null> {
   }
 }
 
+// ── Stripe identity extraction ───────────────────────────────────────────────
+// FM's GET /api/users/payment/defaultSource returns the diner's saved card, but
+// the exact field names for the underlying Stripe customer + payment method vary
+// across FM deployments (and may be nested). Rather than guess the keys, scan
+// every string value in the payload and match on Stripe's id prefixes — robust
+// to whatever shape FM returns. Prefers a modern PaymentMethod (pm_), falling
+// back to a legacy card/source id which Stripe still accepts off-session.
+export function extractStripeIds(source: unknown): {
+  stripeCustomerId: string | null
+  stripePaymentMethodId: string | null
+} {
+  const strings: string[] = []
+  const walk = (v: unknown) => {
+    if (typeof v === 'string') strings.push(v)
+    else if (Array.isArray(v)) v.forEach(walk)
+    else if (v && typeof v === 'object') Object.values(v as Record<string, unknown>).forEach(walk)
+  }
+  walk(source)
+  const stripeCustomerId = strings.find(s => s.startsWith('cus_')) ?? null
+  const stripePaymentMethodId =
+    strings.find(s => s.startsWith('pm_'))
+    ?? strings.find(s => s.startsWith('card_'))
+    ?? strings.find(s => s.startsWith('src_'))
+    ?? null
+  return { stripeCustomerId, stripePaymentMethodId }
+}
+
 // ── Occurrence generation ───────────────────────────────────────────────────
 
 export type FrequencyType = 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY'
