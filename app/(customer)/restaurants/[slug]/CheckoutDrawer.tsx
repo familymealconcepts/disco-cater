@@ -77,6 +77,12 @@ interface Props {
 
 type DrawerStep = 'processing' | 'payment' | 'placing' | 'sent'
 
+// A promo is either a Disco code (display-only discount; refunded via Stripe
+// after the order) or an FM coupon (sent as couponCode; FM computes the total).
+type AppliedPromo =
+  | { type: 'disco'; code: string; discountAmount: number }
+  | { type: 'fm'; code: string }
+
 const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
 
 // FM computes fee + tax server-side and returns them on the order PUT
@@ -138,16 +144,12 @@ export default function CheckoutDrawer({
   const [taxExemptState, setTaxExemptState] = useState('')
   const [taxExemptApplied, setTaxExemptApplied] = useState(false)
   const [taxExemptOpen, setTaxExemptOpen] = useState(false)
-  // Promo code (Item 5). FM checkout DTO field `couponCode`; response `discount`.
-  const [couponInput, setCouponInput] = useState('')
-  const [couponApplied, setCouponApplied] = useState('')
-  const [couponError, setCouponError] = useState('')
-  // Disco-side promo (entirely separate from FM's couponCode above). DISPLAY-ONLY:
-  // the FM payload is never modified; after the order is placed + charged, the
-  // discount is refunded via Stripe (/api/promo/redeem). See /api/promo/validate.
+  // Single unified promo entry. Disco codes (display-only discount + post-order
+  // Stripe refund) are tried first; a 404 from /api/promo/validate falls back to
+  // an FM coupon (couponCode in the FM payload — FM computes the discount).
   const [promoOpen, setPromoOpen] = useState(false)
   const [promoInput, setPromoInput] = useState('')
-  const [discoPromo, setDiscoPromo] = useState<{ code: string; discountAmount: number } | null>(null)
+  const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(null)
   const [promoLoading, setPromoLoading] = useState(false)
   const [promoError, setPromoError] = useState('')
   const [isFirstTimeUser, setIsFirstTimeUser] = useState(false)
@@ -381,7 +383,13 @@ export default function CheckoutDrawer({
   // The full ICheckoutPreview DTO that FM's init, re-price (PUT), and place all
   // take. Built from one place so the priced order and the placed order can't
   // drift apart.
-  function buildCheckoutDto() {
+  function buildCheckoutDto(opts?: { couponCode?: string | null }) {
+    // FM coupon code: explicit override (used by apply/clear to validate before
+    // committing state), else the currently-applied FM promo. Disco promos are
+    // NEVER sent to FM (display-only).
+    const couponCode = opts && 'couponCode' in opts
+      ? opts.couponCode
+      : (appliedPromo?.type === 'fm' ? appliedPromo.code : null)
     const base = buildCheckoutPayload({
       restaurantRef: fmRef,
       cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
@@ -400,7 +408,7 @@ export default function CheckoutDrawer({
       tipsType: tipAmt > 0 ? 'CUSTOM' : 'PERCENTAGE',
       taxExempt: taxExemptApplied,
       ...(taxExemptApplied ? { taxExemptId, taxExemptState } : {}),
-      ...(couponApplied ? { couponCode: couponApplied } : {}),
+      ...(couponCode ? { couponCode } : {}),
     }
   }
 
@@ -468,7 +476,7 @@ export default function CheckoutDrawer({
     if (step !== 'payment' || !orderRef) return
     runPricing(true).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taxExemptApplied, couponApplied])
+  }, [taxExemptApplied])
 
   // Re-price when the upstream tip selection or cart contents change. tipAmt,
   // cart subtotal, and cart contents come in as props (the tip pills and qty
@@ -481,15 +489,6 @@ export default function CheckoutDrawer({
     runPricing(true).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipAmt, cartKey])
-
-  // After a re-price, validate the promo: a code with no resulting discount is
-  // reported as invalid/ineligible.
-  useEffect(() => {
-    if (!couponApplied) { setCouponError(''); return }
-    if (!fm) return
-    setCouponError(fm.discount > 0 ? '' : 'Code not applied — invalid or not eligible.')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fm, couponApplied])
 
   // First-time customer? (0 prior FM orders) — gates first_time_only promo codes.
   // Customer flow only; direct entry never applies a customer promo.
@@ -509,14 +508,15 @@ export default function CheckoutDrawer({
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  // Validate a Disco promo. Display-only: stores { code, discountAmount } so the
-  // summary shows the discount + a reduced total. The FM order is unchanged; the
-  // refund happens post-charge in handlePlaceOrder.
-  async function applyDiscoPromo() {
+  // Unified Apply: try the code as a Disco promo first. On 404, fall back to an
+  // FM coupon — re-price the draft with couponCode and accept it only if FM
+  // returns a discount; otherwise it's invalid.
+  async function applyPromo() {
     const code = promoInput.trim().toUpperCase()
     if (!code) return
     setPromoLoading(true); setPromoError('')
     try {
+      // 1) Disco first.
       const res = await fetch('/api/promo/validate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -528,12 +528,35 @@ export default function CheckoutDrawer({
           isFirstTimeUser,
         }),
       })
+
+      if (res.status === 404) {
+        // 2) Not a Disco code → try as an FM coupon. PUT the draft with couponCode
+        // and confirm FM applied a discount.
+        const ref = orderRefRef.current
+        if (!ref) { setPromoError('Please wait a moment and try again.'); return }
+        const dto = { ...buildCheckoutDto({ couponCode: code }), restaurantRef: fmRef, orderRef: ref }
+        const updRes = await fetch('/api/order/update', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dto),
+        })
+        const updData = await updRes.json().catch(() => ({}))
+        const money = extractFmMoney(updData)
+        if (updRes.ok && !updData.error && money && money.discount > 0) {
+          setFmTotals(updData)
+          setAppliedPromo({ type: 'fm', code })
+          setPromoError('')
+        } else {
+          setPromoError('Invalid promo code.')
+        }
+        return
+      }
+
+      // Disco result.
       const d = await res.json().catch(() => ({}))
       if (res.ok && d.valid) {
-        setDiscoPromo({ code: d.code || code, discountAmount: d.discountAmount })
+        setAppliedPromo({ type: 'disco', code: d.code || code, discountAmount: d.discountAmount })
         setPromoError('')
       } else {
-        setDiscoPromo(null)
+        setAppliedPromo(null)
         setPromoError(d.message || 'Invalid promo code.')
       }
     } catch {
@@ -542,7 +565,21 @@ export default function CheckoutDrawer({
       setPromoLoading(false)
     }
   }
-  function removeDiscoPromo() { setDiscoPromo(null); setPromoError(''); setPromoInput('') }
+
+  // Clear the applied promo. For an FM coupon, re-price the draft WITHOUT the
+  // couponCode so the displayed total reverts.
+  function clearPromo() {
+    const wasFm = appliedPromo?.type === 'fm'
+    setAppliedPromo(null); setPromoError(''); setPromoInput('')
+    if (wasFm) {
+      const ref = orderRefRef.current
+      if (ref) {
+        const dto = { ...buildCheckoutDto({ couponCode: null }), restaurantRef: fmRef, orderRef: ref }
+        fetch('/api/order/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dto) })
+          .then(r => r.json()).then(d => { if (d && !d.error) setFmTotals(d) }).catch(() => {})
+      }
+    }
+  }
 
   async function processOrder() {
     setStep('processing'); setError('')
@@ -717,15 +754,15 @@ export default function CheckoutDrawer({
       // Disco-side promo redemption — the charge succeeded, so issue the discount
       // as a Stripe refund now. Best-effort: never blocks the confirmation (the
       // order is already placed + paid; refund failures are recorded server-side).
-      if (!isDirectEntry && discoPromo && paymentIntentId) {
+      if (!isDirectEntry && appliedPromo?.type === 'disco' && paymentIntentId) {
         try {
           await fetch('/api/promo/redeem', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              code: discoPromo.code,
+              code: appliedPromo.code,
               orderRef: finalRef,
               userEmail: contactEmail || authUser?.email || '',
-              discountAmount: discoPromo.discountAmount,
+              discountAmount: appliedPromo.discountAmount,
               stripePaymentIntentId: paymentIntentId,
             }),
           })
@@ -796,8 +833,9 @@ export default function CheckoutDrawer({
     )
     // Disco promo is DISPLAY-ONLY — the card is charged payTotal (the FM total),
     // then discoDiscount is refunded via Stripe after placement. We show the
-    // post-refund net here so the customer sees what they'll actually pay.
-    const discoDiscount = discoPromo?.discountAmount ?? 0
+    // post-refund net here. FM coupons are already reflected in payTotal (fm.total),
+    // so they don't subtract again.
+    const discoDiscount = appliedPromo?.type === 'disco' ? appliedPromo.discountAmount : 0
     const effectiveTotal = Math.max(0, payTotal - discoDiscount)
 
     return (
@@ -948,12 +986,12 @@ export default function CheckoutDrawer({
             )}
             {fm && fm.discount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#1D9E75', marginBottom: 5 }}>
-                <span>Discount{couponApplied ? ` (${couponApplied})` : ''}</span><span>−{fmt$(fm.discount)}</span>
+                <span>Discount{appliedPromo?.type === 'fm' ? ` (${appliedPromo.code})` : ''}</span><span>−{fmt$(fm.discount)}</span>
               </div>
             )}
-            {discoPromo && (
+            {appliedPromo?.type === 'disco' && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#1D9E75', fontWeight: 600, marginBottom: 5 }}>
-                <span>Promo ({discoPromo.code})</span><span>−{fmt$(discoPromo.discountAmount)}</span>
+                <span>Promo ({appliedPromo.code})</span><span>−{fmt$(appliedPromo.discountAmount)}</span>
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1.5px solid #ebebeb', paddingTop: 10, marginTop: 6, fontSize: 17, fontWeight: 800, color: DARK }}>
@@ -962,12 +1000,16 @@ export default function CheckoutDrawer({
             {!fmTotals && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>Estimate — final total confirmed at payment</div>}
           </div>
 
-          {/* Disco promo code (display-only; refunded via Stripe post-order). */}
+          {/* Single promo entry — Disco codes first, FM coupon fallback. */}
           <div style={{ marginBottom: 16 }}>
-            {discoPromo ? (
+            {appliedPromo ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 10, padding: '10px 14px' }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#047857' }}>Promo “{discoPromo.code}” applied — −{fmt$(discoPromo.discountAmount)}</span>
-                <button onClick={removeDiscoPromo} aria-label="Remove promo code"
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#047857' }}>
+                  {appliedPromo.type === 'disco'
+                    ? `Promo “${appliedPromo.code}” applied — −${fmt$(appliedPromo.discountAmount)}`
+                    : `Promo “${appliedPromo.code}” applied`}
+                </span>
+                <button onClick={clearPromo} aria-label="Remove promo code"
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#047857', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
               </div>
             ) : !promoOpen ? (
@@ -979,10 +1021,10 @@ export default function CheckoutDrawer({
               <>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input value={promoInput} onChange={e => setPromoInput(e.target.value.toUpperCase())}
-                    onKeyDown={e => { if (e.key === 'Enter') applyDiscoPromo() }}
+                    onKeyDown={e => { if (e.key === 'Enter') applyPromo() }}
                     placeholder="Enter code" aria-label="Promo code"
                     style={{ flex: 1, height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', textTransform: 'uppercase' }} />
-                  <button onClick={applyDiscoPromo} disabled={!promoInput.trim() || promoLoading}
+                  <button onClick={applyPromo} disabled={!promoInput.trim() || promoLoading}
                     style={{ height: 40, padding: '0 18px', background: promoInput.trim() && !promoLoading ? BLUE : '#e8e8e8', color: promoInput.trim() && !promoLoading ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: promoInput.trim() && !promoLoading ? 'pointer' : 'default', fontFamily: F }}>
                     {promoLoading ? 'Checking…' : 'Apply'}
                   </button>
@@ -990,21 +1032,6 @@ export default function CheckoutDrawer({
                 {promoError && <div style={{ color: '#E24B4A', fontSize: 12, marginTop: 6 }}>{promoError}</div>}
               </>
             )}
-          </div>
-
-          {/* Promo code (Item 5). Apply re-prices via the update PUT with
-              couponCode; FM returns the discount (or none → invalid). */}
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input value={couponInput} onChange={e => setCouponInput(e.target.value)} placeholder="Promo code"
-                style={{ flex: 1, height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
-              <button onClick={() => setCouponApplied(couponInput.trim())} disabled={!couponInput.trim()}
-                style={{ height: 40, padding: '0 18px', background: couponInput.trim() ? BLUE : '#e8e8e8', color: couponInput.trim() ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: couponInput.trim() ? 'pointer' : 'default', fontFamily: F }}>
-                Apply
-              </button>
-            </div>
-            {couponError && <div style={{ color: '#E24B4A', fontSize: 12, marginTop: 6 }}>{couponError}</div>}
-            {couponApplied && fm && fm.discount > 0 && <div style={{ color: '#1D9E75', fontSize: 12, marginTop: 6 }}>Promo “{couponApplied}” applied</div>}
           </div>
 
           {/* Tax Exempt Account (Item 4). On Apply the order re-prices with
