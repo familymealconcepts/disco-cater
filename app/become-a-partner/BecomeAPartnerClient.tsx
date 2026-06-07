@@ -316,26 +316,16 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 3 · BANKING + MENU ── */}
+          {/* ── STEP 3 · MENU + BANKING ── */}
           {step === 2 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Banking &amp; menu</h1>
+              <h1 style={h1Style}>Menu &amp; banking</h1>
               <p style={subStyle}>Two quick things and you&apos;re done.</p>
               {errorBox}
 
-              {/* Banking */}
-              <div style={{ marginTop: 18 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>Connect your bank account to receive payouts</div>
-                <p style={{ ...subStyle, fontSize: 13 }}>Powered by Stripe. You can complete this now or anytime from your dashboard.</p>
-                <button onClick={connectStripe} disabled={loading}
-                  style={{ ...primaryBtn, marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                  {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
-                </button>
-              </div>
-
               {/* Menu upload */}
-              <div style={{ borderTop: '1px solid #eee', paddingTop: 22, marginTop: 24 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>Upload your catering menu</div>
+              <div style={{ marginTop: 18 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>First, upload your catering menu</div>
                 <p style={{ ...subStyle, fontSize: 13 }}>Upload a PDF of your current catering menu. Our team will set it up in your portal within 1 business day.</p>
 
                 <label style={{
@@ -350,18 +340,29 @@ export default function BecomeAPartnerClient() {
                     onChange={e => setMenuFile(e.target.files?.[0] || null)}
                     style={{ display: 'none' }} />
                 </label>
+              </div>
 
-                <button onClick={() => completeOnboarding(false)} disabled={loading}
-                  style={{ ...primaryBtn, marginTop: 16, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                  {loading ? (menuFile ? 'Uploading menu…' : 'Finishing up…') : 'Complete setup'}
+              {/* Banking */}
+              <div style={{ borderTop: '1px solid #eee', paddingTop: 22, marginTop: 24 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>Then, connect your bank account to receive payouts</div>
+                <p style={{ ...subStyle, fontSize: 13 }}>Powered by Stripe. You can complete this now or anytime from your dashboard.</p>
+                <button onClick={connectStripe} disabled={loading}
+                  style={{ ...primaryBtn, marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                  {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
                 </button>
+              </div>
 
-                <div style={{ textAlign: 'center', marginTop: 12 }}>
-                  <button onClick={() => completeOnboarding(true)} disabled={loading}
-                    style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: loading ? 'default' : 'pointer', textDecoration: 'underline' }}>
-                    Skip for now
-                  </button>
-                </div>
+              {/* Finish */}
+              <button onClick={() => completeOnboarding(false)} disabled={loading}
+                style={{ ...primaryBtn, marginTop: 24, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                {loading ? (menuFile ? 'Uploading menu…' : 'Finishing up…') : 'Complete setup'}
+              </button>
+
+              <div style={{ textAlign: 'center', marginTop: 12 }}>
+                <button onClick={() => completeOnboarding(true)} disabled={loading}
+                  style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: loading ? 'default' : 'pointer', textDecoration: 'underline' }}>
+                  Skip for now
+                </button>
               </div>
             </div>
           )}
