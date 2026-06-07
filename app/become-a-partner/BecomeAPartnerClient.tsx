@@ -6,7 +6,6 @@ import Link from 'next/link'
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
 const DARK = '#1A1028'
-const CHARCOAL = '#2a2a2a'
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
 
 // ── Shared styles ────────────────────────────────────────────────────────────
@@ -15,33 +14,32 @@ const pillInput: React.CSSProperties = {
   padding: '0 20px', fontSize: 14, fontFamily: F, color: DARK, outline: 'none',
   background: '#fff', boxSizing: 'border-box',
 }
-const label: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#777', marginBottom: 6, display: 'block' }
+const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#777', marginBottom: 6, display: 'block' }
 const primaryBtn: React.CSSProperties = {
   width: '100%', height: 50, borderRadius: 999, border: 'none', background: BLUE,
   color: '#fff', fontSize: 15, fontWeight: 700, fontFamily: F, cursor: 'pointer',
   transition: 'opacity 0.15s, background 0.15s',
 }
-const secondaryBtn: React.CSSProperties = {
-  width: '100%', height: 50, borderRadius: 999, border: 'none', background: CHARCOAL,
-  color: '#fff', fontSize: 15, fontWeight: 700, fontFamily: F, cursor: 'pointer',
-}
 const h1Style: React.CSSProperties = { fontSize: 26, fontWeight: 800, color: DARK, margin: '0 0 10px', letterSpacing: '-0.02em', lineHeight: 1.2 }
 const subStyle: React.CSSProperties = { fontSize: 14, color: '#585786', lineHeight: 1.6, margin: '0 0 8px' }
-const italicNote: React.CSSProperties = { fontSize: 13, color: '#888', fontStyle: 'italic', lineHeight: 1.6, margin: '0 0 8px' }
+const cardStyle: React.CSSProperties = {
+  background: '#fff', border: '1px solid #ececf4', borderRadius: 20,
+  boxShadow: '0 10px 40px rgba(26,16,40,0.06)', padding: '28px 26px',
+}
 
 interface FormState {
   firstName: string; lastName: string; email: string; phoneNumber: string
-  restaurantName: string; zip: string; confirmEmail: string; password: string
+  restaurantName: string; zip: string; password: string
 }
 
 // Small field helper — pill input with a label.
-function Field({ label: lbl, value, onChange, type = 'text', placeholder, autoComplete }: {
+function Field({ label, value, onChange, type = 'text', placeholder, autoComplete }: {
   label: string; value: string; onChange: (v: string) => void
   type?: string; placeholder?: string; autoComplete?: string
 }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <label style={label}>{lbl}</label>
+      <label style={labelStyle}>{label}</label>
       <input
         type={type} value={value} placeholder={placeholder} autoComplete={autoComplete}
         onChange={e => onChange(e.target.value)}
@@ -53,53 +51,54 @@ function Field({ label: lbl, value, onChange, type = 'text', placeholder, autoCo
   )
 }
 
-// Checkbox row.
-function Check({ checked, onChange, children }: { checked: boolean; onChange: (b: boolean) => void; children: React.ReactNode }) {
+// One row in the pricing summary.
+function PriceRow({ label, detail, value, who, highlight }: {
+  label: string; detail?: string; value: string; who?: string; highlight?: boolean
+}) {
   return (
-    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', margin: '6px 0 18px' }}>
-      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)}
-        style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
-      <span style={{ fontSize: 13, color: '#555', lineHeight: 1.5 }}>{children}</span>
-    </label>
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14,
+      padding: '14px 0', borderTop: '1px solid #f1f1f6',
+    }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{label}</div>
+        {detail && <div style={{ fontSize: 12.5, color: '#888', lineHeight: 1.5, marginTop: 2 }}>{detail}</div>}
+        {who && <div style={{ fontSize: 11, color: '#aaa', marginTop: 3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Paid by {who}</div>}
+      </div>
+      <div style={{
+        fontSize: 15, fontWeight: 800, whiteSpace: 'nowrap', flexShrink: 0,
+        ...(highlight
+          ? { background: GRADIENT, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }
+          : { color: BLUE }),
+      }}>
+        {value}
+      </div>
+    </div>
   )
 }
 
 export default function BecomeAPartnerClient() {
-  const [step, setStep] = useState(0) // 0–4, then 5 = success
+  // 0 = your info, 1 = partner agreement, 2 = banking + menu, 3 = success.
+  const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormState>({
     firstName: '', lastName: '', email: '', phoneNumber: '',
-    restaurantName: '', zip: '', confirmEmail: '', password: '',
+    restaurantName: '', zip: '', password: '',
   })
-  const [agreePrivacy, setAgreePrivacy] = useState(false)
-  const [agreeDelivery, setAgreeDelivery] = useState(false)
-  const [agreePricing, setAgreePricing] = useState(false)
-  // Step 4 — optional catering menu the diner can share for our team to import.
-  const [menuUrl, setMenuUrl] = useState('')
+  const [agree, setAgree] = useState(false)
   const [menuFile, setMenuFile] = useState<File | null>(null)
+  const [menuSkipped, setMenuSkipped] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
 
-  // Step 1 → prefill confirm email from step 0 email the first time we land here.
-  function goToStep1() {
-    setError('')
-    setForm(p => ({ ...p, confirmEmail: p.confirmEmail || p.email }))
-    setStep(1)
-  }
+  const infoValid = !!form.firstName && !!form.lastName && !!form.email
+    && !!form.phoneNumber && !!form.restaurantName && !!form.zip && !!form.password
 
-  const step0Valid = !!form.firstName && !!form.lastName && !!form.email && !!form.phoneNumber && !!form.restaurantName && !!form.zip
-
-  // ── Step 1: create account (register) ──────────────────────────────────────
+  // ── Step 1 → create the FM account (POST /registration), unchanged wiring ──
   async function registerAccount() {
     setError('')
-    if (!form.firstName || !form.lastName || !form.email || !form.password) {
-      setError('Please complete all fields.'); return
-    }
-    if (form.email.trim().toLowerCase() !== form.confirmEmail.trim().toLowerCase()) {
-      setError('Email addresses do not match.'); return
-    }
-    if (!agreePrivacy) { setError("Please agree to Disco Cater's Privacy Policy and Merchant Agreement."); return }
+    if (!infoValid) { setError('Please complete all fields.'); return }
     setLoading(true)
     try {
       const res = await fetch('/api/become-a-partner/register', {
@@ -112,7 +111,7 @@ export default function BecomeAPartnerClient() {
       const data = await res.json()
       if (!res.ok) { setError(data.error || 'Registration failed.'); return }
       try { localStorage.setItem('currentUser', JSON.stringify(data)) } catch {}
-      setStep(2)
+      setStep(1)
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {
@@ -120,27 +119,17 @@ export default function BecomeAPartnerClient() {
     }
   }
 
-  const hasMenu = !!(menuUrl.trim() || menuFile)
-
-  // Send the optional menu to the team for manual import. Best-effort — returns
-  // true on success/skip, false on failure (which must NOT block onboarding).
+  // Send the optional menu PDF to the team for manual import. Best-effort —
+  // returns true on success/skip, false on failure (must NOT block onboarding).
+  // Same /menu-upload route + Mailgun email to concierge@discocater.com.
   async function sendMenu(): Promise<boolean> {
-    if (!hasMenu) return true
+    if (!menuFile) return true
     try {
-      let res: Response
-      if (menuFile) {
-        const fd = new FormData()
-        if (menuUrl.trim()) fd.append('menuUrl', menuUrl.trim())
-        fd.append('menuFile', menuFile)
-        fd.append('restaurantName', form.restaurantName)
-        fd.append('email', form.email)
-        res = await fetch('/api/become-a-partner/menu-upload', { method: 'POST', body: fd })
-      } else {
-        res = await fetch('/api/become-a-partner/menu-upload', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ menuUrl: menuUrl.trim(), restaurantName: form.restaurantName, email: form.email }),
-        })
-      }
+      const fd = new FormData()
+      fd.append('menuFile', menuFile)
+      fd.append('restaurantName', form.restaurantName)
+      fd.append('email', form.email)
+      const res = await fetch('/api/become-a-partner/menu-upload', { method: 'POST', body: fd })
       const data = await res.json().catch(() => null)
       return !!(res.ok && data?.success)
     } catch {
@@ -148,24 +137,22 @@ export default function BecomeAPartnerClient() {
     }
   }
 
-  // ── Step 4: complete onboarding ────────────────────────────────────────────
-  async function completeOnboarding() {
+  // ── Step 3 → finish onboarding (with or without a menu) ────────────────────
+  async function completeOnboarding(skip: boolean) {
     setError('')
-    if (!agreePricing) { setError('Please agree to the Merchant Order Form to continue.'); return }
     setLoading(true)
     try {
-      // 1. Send the menu (if provided) — failure is non-blocking.
-      const menuOk = await sendMenu()
-      // 2. Complete onboarding as normal.
+      const menuOk = skip ? true : await sendMenu()
       const res = await fetch('/api/become-a-partner/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: form.email, agreedToPricing: true, agreedToDelivery: agreeDelivery }),
+        body: JSON.stringify({ email: form.email, agreedToPricing: true, agreedToDelivery: false }),
       })
       const data = await res.json()
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
-      // 3. Surface a menu-upload failure but still advance — don't block onboarding.
+      if (skip || !menuFile) setMenuSkipped(true)
+      // Surface a menu-upload failure but still advance — never block onboarding.
       if (!menuOk) setError('Menu upload failed — you can email your menu to concierge@discocater.com')
-      setStep(5)
+      setStep(3)
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {
@@ -173,7 +160,7 @@ export default function BecomeAPartnerClient() {
     }
   }
 
-  // ── Step 2: Stripe Connect ─────────────────────────────────────────────────
+  // ── Stripe Connect — wiring unchanged ──────────────────────────────────────
   async function connectStripe() {
     setError('')
     let ref = ''
@@ -193,8 +180,6 @@ export default function BecomeAPartnerClient() {
     try {
       const res = await fetch('/api/become-a-partner/stripe-connect', {
         method: 'POST',
-        // currentUser.authorization (the FM JWT) — the onboarding flow stores it
-        // in localStorage rather than the disco_token cookie, so pass it along.
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: token } : {}) },
         body: JSON.stringify({ restaurantReference: ref }),
       })
@@ -220,267 +205,186 @@ export default function BecomeAPartnerClient() {
   ) : null
 
   return (
-    <div style={{ minHeight: '100svh', background: '#fff', fontFamily: F, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100svh', background: 'linear-gradient(180deg,rgba(107,110,249,0.06) 0%,rgba(240,70,138,0.03) 220px,#fafafc 520px,#fafafc 100%)', fontFamily: F, display: 'flex', flexDirection: 'column' }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap'); * { box-sizing: border-box; }`}</style>
 
-      {/* Top bar: back link (left) + step indicator (right) */}
+      {/* Top bar: back link (left) + step counter (right) */}
       <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '22px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 }}>
-        <div>
-          {step >= 1 && step <= 4 ? (
-            <button onClick={back} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#777', fontFamily: F, fontWeight: 600, padding: 0 }}>
-              ‹ Back
-            </button>
-          ) : (
-            <Link href="/" style={{ fontSize: 14, color: '#777', textDecoration: 'none', fontWeight: 600 }}>‹ Back</Link>
-          )}
-        </div>
-        {step >= 1 && step <= 4 && (
-          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 600 }}>Step {step} of 4</div>
+        {step >= 1 && step <= 2 ? (
+          <button onClick={back} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#777', fontFamily: F, fontWeight: 600, padding: 0 }}>
+            ‹ Back
+          </button>
+        ) : (
+          <Link href="/" style={{ fontSize: 14, color: '#777', textDecoration: 'none', fontWeight: 600 }}>‹ Back</Link>
+        )}
+        {step <= 2 && (
+          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 3</div>
         )}
       </div>
 
       {/* Logo */}
-      <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '18px 24px 0', textAlign: 'center' }}>
+      <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '16px 24px 0', textAlign: 'center' }}>
         <Link href="/" style={{ textDecoration: 'none', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em' }}>
           <span style={{ background: GRADIENT, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span>
           <span style={{ color: '#999' }}> cater</span>
         </Link>
       </div>
 
-      {/* Form card */}
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '28px 24px 60px' }}>
-        <div style={{ width: '100%', maxWidth: 500 }}>
+      {/* Step indicator — three segments */}
+      {step <= 2 && (
+        <div style={{ maxWidth: 560, width: '100%', margin: '18px auto 0', padding: '0 24px', display: 'flex', gap: 8 }}>
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{ flex: 1, height: 5, borderRadius: 999, background: i <= step ? GRADIENT : '#e8e8f0', transition: 'background 0.2s' }} />
+          ))}
+        </div>
+      )}
 
-          {/* ── STEP 0 ── */}
+      {/* Card */}
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '24px 24px 64px' }}>
+        <div style={{ width: '100%', maxWidth: 540 }}>
+
+          {/* ── STEP 1 · YOUR INFO ── */}
           {step === 0 && (
-            <>
-              <h1 style={h1Style}>Welcome to Disco Cater! Let&apos;s get started.</h1>
-              <p style={subStyle}>Please complete this form to create your restaurant account.</p>
-              <div style={{ marginTop: 22 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <Field label="First Name" value={form.firstName} onChange={v => set('firstName', v)} autoComplete="given-name" />
-                  <Field label="Last Name" value={form.lastName} onChange={v => set('lastName', v)} autoComplete="family-name" />
-                </div>
-                <Field label="Email" value={form.email} onChange={v => set('email', v)} type="email" autoComplete="email" />
-                <Field label="Phone Number" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
-                <Field label="Restaurant Name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
-                <Field label="Zip Code" value={form.zip} onChange={v => set('zip', v)} autoComplete="postal-code" />
-              </div>
-              <button onClick={goToStep1} disabled={!step0Valid}
-                style={{ ...primaryBtn, marginTop: 8, opacity: step0Valid ? 1 : 0.5, cursor: step0Valid ? 'pointer' : 'default' }}>
-                Continue
-              </button>
-            </>
-          )}
-
-          {/* ── STEP 1 ── */}
-          {step === 1 && (
-            <>
-              <h1 style={h1Style}>Let&apos;s create your account.</h1>
-              <p style={subStyle}>Signing up for Disco Cater is fast and free. No commitment or contract.</p>
-              <p style={italicNote}>You can edit or update your account information at any time.</p>
+            <div style={cardStyle}>
+              <h1 style={h1Style}>Let&apos;s get you set up</h1>
+              <p style={subStyle}>Tell us about you and your restaurant. Signing up is fast, free, and month-to-month — no contract.</p>
+              {errorBox}
               <div style={{ marginTop: 18 }}>
-                {errorBox}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <Field label="First Name" value={form.firstName} onChange={v => set('firstName', v)} autoComplete="given-name" />
-                  <Field label="Last Name" value={form.lastName} onChange={v => set('lastName', v)} autoComplete="family-name" />
+                  <Field label="First name" value={form.firstName} onChange={v => set('firstName', v)} autoComplete="given-name" />
+                  <Field label="Last name" value={form.lastName} onChange={v => set('lastName', v)} autoComplete="family-name" />
                 </div>
                 <Field label="Email" value={form.email} onChange={v => set('email', v)} type="email" autoComplete="email" />
-                <Field label="Confirm Email" value={form.confirmEmail} onChange={v => set('confirmEmail', v)} type="email" />
-                <Field label="Password" value={form.password} onChange={v => set('password', v)} type="password" autoComplete="new-password" />
-                <Check checked={agreePrivacy} onChange={setAgreePrivacy}>
-                  I agree to Disco Cater&apos;s{' '}
-                  <a href="/privacy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: BLUE }}>Privacy Policy</a>
-                  {' '}and{' '}
-                  <a href="/terms" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: BLUE }}>Merchant Agreement</a>.
-                </Check>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <Field label="Phone" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
+                  <Field label="Zip code" value={form.zip} onChange={v => set('zip', v)} autoComplete="postal-code" />
+                </div>
+                <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
+                <Field label="Create a password" value={form.password} onChange={v => set('password', v)} type="password" autoComplete="new-password" />
               </div>
-              <button onClick={registerAccount} disabled={loading}
-                style={{ ...primaryBtn, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
+              <button onClick={registerAccount} disabled={!infoValid || loading}
+                style={{ ...primaryBtn, marginTop: 8, opacity: (infoValid && !loading) ? 1 : 0.5, cursor: (infoValid && !loading) ? 'pointer' : 'default' }}>
                 {loading ? 'Creating your account…' : 'Continue'}
               </button>
-            </>
+            </div>
           )}
 
-          {/* ── STEP 2 ── */}
-          {step === 2 && (
-            <>
-              <h1 style={h1Style}>Time to get you paid.</h1>
-              <p style={subStyle}>
-                Connect to our payment processor, Stripe. By connecting your account, you are agreeing
-                to the terms and processing fees (2.90% + $0.30) of Stripe.
+          {/* ── STEP 2 · PARTNER AGREEMENT ── */}
+          {step === 1 && (
+            <div style={cardStyle}>
+              <h1 style={h1Style}>Partner Agreement</h1>
+              <p style={subStyle}>Simple, transparent pricing. No monthly fees, no commitment.</p>
+              {errorBox}
+
+              {/* Early-bird highlight */}
+              <div style={{
+                marginTop: 16, borderRadius: 14, padding: '14px 16px', color: '#fff',
+                background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+              }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 800 }}>🐦 Early bird special</div>
+                  <div style={{ fontSize: 12.5, opacity: 0.95, marginTop: 2 }}>Join before July 1, 2026 and pay just 5% flat on marketplace orders.</div>
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 800, whiteSpace: 'nowrap' }}>5%</div>
+              </div>
+
+              {/* Pricing summary */}
+              <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
+                <PriceRow label="Marketplace orders" detail="15% for first-time customers, 5% for returning customers" value="15% / 5%" who="restaurant" />
+                <PriceRow label="First Party / Direct Entry" detail="Orders you enter yourself" value="0%" who="restaurant" />
+                <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3%" who="customer" />
+                <PriceRow label="Stripe processing" detail="Card-not-present transactions" value="2.90% + $0.30" who="restaurant" />
+                <PriceRow label="Third-party delivery" detail="Optional couriers, billed to the customer" value="Paid by customer" who="customer" />
+              </div>
+
+              {/* Agreement checkbox */}
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 6px' }}>
+                <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)}
+                  style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
+                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>I agree to the Disco Cater Partner Agreement</span>
+              </label>
+              <p style={{ fontSize: 12, color: '#999', lineHeight: 1.5, margin: '0 0 18px', paddingLeft: 29 }}>
+                By checking this box you agree to our{' '}
+                <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: BLUE }}>Terms of Service</a>
+                {' '}and pricing structure above.
               </p>
-              <div style={{ marginTop: 22 }}>
+
+              <button onClick={() => { setError(''); setStep(2) }} disabled={!agree}
+                style={{ ...primaryBtn, opacity: agree ? 1 : 0.5, cursor: agree ? 'pointer' : 'default' }}>
+                Continue
+              </button>
+            </div>
+          )}
+
+          {/* ── STEP 3 · BANKING + MENU ── */}
+          {step === 2 && (
+            <div style={cardStyle}>
+              <h1 style={h1Style}>Banking &amp; menu</h1>
+              <p style={subStyle}>Two quick things and you&apos;re done.</p>
+              {errorBox}
+
+              {/* Banking */}
+              <div style={{ marginTop: 18 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>Connect your bank account to receive payouts</div>
+                <p style={{ ...subStyle, fontSize: 13 }}>Powered by Stripe. You can complete this now or anytime from your dashboard.</p>
                 <button onClick={connectStripe} disabled={loading}
-                  style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                  style={{ ...primaryBtn, marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
                   {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
                 </button>
               </div>
-              {errorBox}
-              <p style={{ ...italicNote, marginTop: 18 }}>
-                Estimated time to complete – 15min. Please have the following information ready:
-                Business Tax ID and/or Social Security Number, Bank Routing Number &amp; Bank Account Number.
-              </p>
-              <p style={{ ...italicNote, marginTop: 12 }}>
-                After completing onboarding, a Disco Cater team member will contact you to complete your
-                Stripe setup and activate your account.
-              </p>
-              <button onClick={() => { setError(''); setStep(3) }} style={{ ...secondaryBtn, marginTop: 10 }}>
-                Continue →
-              </button>
-            </>
-          )}
 
-          {/* ── STEP 3 ── */}
-          {step === 3 && (
-            <>
-              <h1 style={h1Style}>Interested in third-party delivery?</h1>
-              <p style={subStyle}>
-                Disco Cater provides immediate access to local couriers that can be automatically
-                dispatched when your customer chooses Delivery.
-              </p>
-              <p style={italicNote}>
-                Disco Cater&apos;s customer delivery fee is 15% of the subtotal with the option to
-                subsidize in your Order Settings.
-              </p>
-              <div style={{ marginTop: 18 }}>
-                <Check checked={agreeDelivery} onChange={setAgreeDelivery}>
-                  I agree to Disco Cater&apos;s Third-Party Delivery Policy.
-                </Check>
-              </div>
-              <button onClick={() => { setError(''); setStep(4) }} disabled={!agreeDelivery}
-                style={{ ...primaryBtn, marginBottom: 10, opacity: agreeDelivery ? 1 : 0.5, cursor: agreeDelivery ? 'pointer' : 'default' }}>
-                Continue
-              </button>
-              <button onClick={() => { setError(''); setStep(4) }} style={secondaryBtn}>
-                Not now, let&apos;s keep going
-              </button>
-            </>
-          )}
+              {/* Menu upload */}
+              <div style={{ borderTop: '1px solid #eee', paddingTop: 22, marginTop: 24 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>Upload your catering menu</div>
+                <p style={{ ...subStyle, fontSize: 13 }}>Upload a PDF of your current catering menu. Our team will set it up in your portal within 1 business day.</p>
 
-          {/* ── STEP 4 ── */}
-          {step === 4 && (
-            <>
-              <h1 style={h1Style}>Review your pricing agreement.</h1>
-              <p style={subStyle}>Before we get started, please review and accept the Disco Cater Merchant Order Form.</p>
-
-              {errorBox}
-
-              {/* Fee table */}
-              <div style={{ border: '1px solid #eee', borderRadius: 14, overflow: 'hidden', margin: '18px 0' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ background: DARK }}>
-                      {['Fee Type', 'Description', 'Paid By', 'Rate'].map(h => (
-                        <th key={h} style={{ color: '#fff', textAlign: 'left', padding: '10px 12px', fontWeight: 700, fontSize: 11 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      ['Lead Gen 1', '1st unique customer order per account (determined by email address)', 'Merchant', '15.00%*'],
-                      ['Lead Gen 2', 'Ongoing fee for returning customer at a unique merchant location', 'Merchant', '5.00%*'],
-                      ['Disco Cater Convenience Fee', 'Convenience fee collected at customer checkout', 'Customer', '3.00%*'],
-                      ['Third-Party Delivery', 'Optional fee for third-party delivery orders', 'Customer', '15.00%* (max $85.00)'],
-                      ['Credit Card Processing', 'Card-Not-Present transactions via Stripe', 'Merchant', '2.90% + $0.30**'],
-                    ].map((row, i) => (
-                      <tr key={row[0]} style={{ borderTop: '1px solid #f0f0f0', background: i % 2 ? '#fafafb' : '#fff' }}>
-                        <td style={{ padding: '10px 12px', fontWeight: 700, color: DARK, verticalAlign: 'top' }}>{row[0]}</td>
-                        <td style={{ padding: '10px 12px', color: '#666', verticalAlign: 'top', lineHeight: 1.45 }}>{row[1]}</td>
-                        <td style={{ padding: '10px 12px', color: '#666', verticalAlign: 'top' }}>{row[2]}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: 700, color: BLUE, verticalAlign: 'top', whiteSpace: 'nowrap' }}>{row[3]}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p style={{ fontSize: 11, color: '#999', margin: '0 0 18px', lineHeight: 1.6 }}>
-                *Calculated on order subtotal. &nbsp; **Calculated on order total.
-              </p>
-
-              {/* Subscription */}
-              <div style={{ border: '1px solid #eee', borderRadius: 14, overflow: 'hidden', marginBottom: 18 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ background: DARK }}>
-                      {['Service', 'Paid By', 'Monthly Cost'].map(h => (
-                        <th key={h} style={{ color: '#fff', textAlign: 'left', padding: '10px 12px', fontWeight: 700, fontSize: 11 }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td style={{ padding: '10px 12px', color: '#666', verticalAlign: 'top', lineHeight: 1.45 }}>
-                        <span style={{ fontWeight: 700, color: DARK }}>Disco Cater Platform</span> — Full access to the catering platform, including customer and sales data
-                      </td>
-                      <td style={{ padding: '10px 12px', color: '#666', verticalAlign: 'top' }}>Merchant</td>
-                      <td style={{ padding: '10px 12px', fontWeight: 700, color: BLUE, verticalAlign: 'top' }}>$0</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Contract terms */}
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 8 }}>Contract Terms</div>
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: '#666', lineHeight: 1.6 }}>
-                  <li style={{ marginBottom: 6 }}><strong>Start Date:</strong> The date you complete onboarding and check the acceptance box below (the &quot;Effective Date&quot;).</li>
-                  <li style={{ marginBottom: 6 }}><strong>Initial Term:</strong> Month-to-month (no minimum commitment).</li>
-                  <li><strong>Pricing Lock:</strong> All fees listed above are fixed and will not increase without at least 30 days&apos; prior written notice and your express written consent.</li>
-                </ul>
-              </div>
-
-              <Check checked={agreePricing} onChange={setAgreePricing}>
-                I agree to the Disco Cater Merchant Order Form and Merchant Agreement Terms and Conditions.
-              </Check>
-
-              {/* Optional menu upload — sent to the team for manual import. */}
-              <div style={{ borderTop: '1px solid #eee', paddingTop: 18, marginTop: 6, marginBottom: 8 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, margin: '0 0 6px' }}>Share your catering menu</div>
-                <p style={subStyle}>
-                  Optional: share your catering menu and our team will build it for you in FamilyMeal. You can also
-                  skip this step and send your menu to concierge@discocater.com later.
-                </p>
-                <div style={{ marginTop: 14 }}>
-                  <label style={label}>Menu link</label>
-                  <input value={menuUrl} onChange={e => setMenuUrl(e.target.value)}
-                    placeholder="Link to your online menu (ezCater, website, Google Drive…)"
-                    style={pillInput} />
-                </div>
-                <div style={{ marginTop: 12 }}>
-                  <label style={label}>Or upload a file</label>
-                  <input type="file"
-                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                <label style={{
+                  display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, padding: '14px 16px',
+                  border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe',
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>Choose PDF</span>
+                  <span style={{ fontSize: 13, color: menuFile ? DARK : '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {menuFile ? menuFile.name : 'No file selected'}
+                  </span>
+                  <input type="file" accept=".pdf,application/pdf"
                     onChange={e => setMenuFile(e.target.files?.[0] || null)}
-                    style={{ display: 'block', fontSize: 13, fontFamily: F, marginTop: 4 }} />
-                </div>
-                <p style={{ fontSize: 12, color: '#999', fontStyle: 'italic', lineHeight: 1.5, margin: '10px 0 0' }}>
-                  Accepted formats: PDF, DOC, DOCX, or a link to your online menu (ezCater, website, Google Drive, etc.)
-                </p>
-              </div>
+                    style={{ display: 'none' }} />
+                </label>
 
-              <button onClick={completeOnboarding} disabled={loading || !agreePricing}
-                style={{ ...primaryBtn, marginTop: 8, opacity: (loading || !agreePricing) ? 0.5 : 1, cursor: (loading || !agreePricing) ? 'default' : 'pointer' }}>
-                {loading ? (hasMenu ? 'Uploading menu…' : 'Creating account…') : 'Create account'}
-              </button>
-            </>
+                <button onClick={() => completeOnboarding(false)} disabled={loading}
+                  style={{ ...primaryBtn, marginTop: 16, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                  {loading ? (menuFile ? 'Uploading menu…' : 'Finishing up…') : 'Complete setup'}
+                </button>
+
+                <div style={{ textAlign: 'center', marginTop: 12 }}>
+                  <button onClick={() => completeOnboarding(true)} disabled={loading}
+                    style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: loading ? 'default' : 'pointer', textDecoration: 'underline' }}>
+                    Skip for now
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* ── SUCCESS ── */}
-          {step === 5 && (
-            <div style={{ textAlign: 'center', paddingTop: 24 }}>
-              <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re ready to get started. 🪩</h1>
-              <p style={{ ...subStyle, maxWidth: 420, margin: '0 auto 28px' }}>
-                Your Disco Cater account has been created. A Disco Cater team member will be in touch
-                shortly to help you go live.
+          {step === 3 && (
+            <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
+              <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>
+              <p style={{ ...subStyle, maxWidth: 420, margin: '0 auto 8px' }}>
+                Our team will be in touch within 1 business day to complete your setup.
               </p>
+              {menuSkipped && (
+                <p style={{ fontSize: 13, color: '#888', maxWidth: 420, margin: '0 auto 8px', lineHeight: 1.6 }}>
+                  You can send your menu to concierge@discocater.com at any time.
+                </p>
+              )}
               {error && (
-                <div style={{ background: '#fff3f3', border: '1px solid #ffd6d6', color: '#c0392b', borderRadius: 12, padding: '10px 14px', fontSize: 13, maxWidth: 420, margin: '0 auto 24px', textAlign: 'left' }}>
+                <div style={{ background: '#fff3f3', border: '1px solid #ffd6d6', color: '#c0392b', borderRadius: 12, padding: '10px 14px', fontSize: 13, maxWidth: 420, margin: '14px auto 0', textAlign: 'left' }}>
                   {error}
                 </div>
               )}
               <a href="https://www.familymeal.com"
-                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none' }}>
+                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
                 Go to your dashboard →
               </a>
             </div>
