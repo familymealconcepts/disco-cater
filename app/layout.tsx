@@ -83,6 +83,13 @@ export default function RootLayout({
             gtag('config', 'G-KQV7RLHXTH');
           `}
         </Script>
+        <Script id="ga-internal-traffic" strategy="afterInteractive">
+          {`
+            if (document.cookie.includes('disco_internal=true')) {
+              gtag('set', { 'traffic_type': 'internal' });
+            }
+          `}
+        </Script>
 
         {/* Microsoft Clarity */}
         <Script id="microsoft-clarity" strategy="afterInteractive">
@@ -97,14 +104,16 @@ export default function RootLayout({
 
         {/* RB2B */}
         <Script id="reb2b-tracking" strategy="afterInteractive">{`
-          !function(key) {
-            if (window.reb2b) return;
-            window.reb2b = {loaded: true};
-            var s = document.createElement("script");
-            s.async = true;
-            s.src = "https://ddwl4m2hdecbv.cloudfront.net/b/" + key + "/" + key + ".js.gz";
-            document.getElementsByTagName("script")[0].parentNode.insertBefore(s, document.getElementsByTagName("script")[0]);
-          }("GNLKQH7D136Q");
+          if (!document.cookie.includes('disco_internal=true')) {
+            !function(key) {
+              if (window.reb2b) return;
+              window.reb2b = {loaded: true};
+              var s = document.createElement("script");
+              s.async = true;
+              s.src = "https://ddwl4m2hdecbv.cloudfront.net/b/" + key + "/" + key + ".js.gz";
+              document.getElementsByTagName("script")[0].parentNode.insertBefore(s, document.getElementsByTagName("script")[0]);
+            }("GNLKQH7D136Q");
+          }
         `}</Script>
 
         {/* Apollo Pixel */}
