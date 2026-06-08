@@ -95,6 +95,18 @@ export default function RootLayout({
           `}
         </Script>
 
+        {/* RB2B */}
+        <Script id="reb2b-tracking" strategy="afterInteractive">{`
+          !function(key) {
+            if (window.reb2b) return;
+            window.reb2b = {loaded: true};
+            var s = document.createElement("script");
+            s.async = true;
+            s.src = "https://ddwl4m2hdecbv.cloudfront.net/b/" + key + "/" + key + ".js.gz";
+            document.getElementsByTagName("script")[0].parentNode.insertBefore(s, document.getElementsByTagName("script")[0]);
+          }("GNLKQH7D136Q");
+        `}</Script>
+
         {/* Apollo Pixel */}
         <Script id="apollo-pixel" strategy="afterInteractive">
           {`
