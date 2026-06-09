@@ -106,6 +106,16 @@ export async function GET() {
         }
       }), null, 2,
     ))
+    console.log('[Restaurants API] Sample cuisine fields:', JSON.stringify(
+      fmRows.slice(0, 5).map((r) => ({
+        name: r.businessName,
+        cuisine: r.cuisine,
+        cuisineType: r.cuisineType,
+        category: r.category,
+        categories: r.categories,
+        restaurantType: r.restaurantType,
+      })), null, 2,
+    ))
 
     // Core qualification: active marketplace restaurants only.
     const qualifying = fmRows.filter((r) => {
@@ -130,8 +140,12 @@ export async function GET() {
           ? String(r.businessNameWithoutSpaces).toLowerCase()
           : slugify(businessName)
 
+        // FM's cuisine field name is still being confirmed (see debug log above),
+        // so try the likely candidates before falling back to 'Other'.
         const categories = Array.isArray(r.categories) ? (r.categories as string[]) : []
-        const cuisine = mapCuisine((r.cuisine as string) || categories[0])
+        const cuisine = mapCuisine(
+          (r.cuisine as string) || (r.cuisineType as string) || (r.category as string) || categories[0],
+        )
 
         const city = String(addr.city || '')
         const state = String(addr.state || '')
@@ -162,12 +176,16 @@ export async function GET() {
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
 
+    // TEMP: cap results while we finish the cuisine mapping + perf work.
+    const limited = result.slice(0, 500)
+    if (result.length > 500) console.log('[Restaurants API] Capped to 500 for performance')
+
     const filteredOut = fmRows.length - result.length
     console.log(
-      `[Restaurants API] Returning ${result.length} restaurants (${qualifying.length} MARKETPLACE+ACCEPTED, ${filteredOut} filtered out)`,
+      `[Restaurants API] Returning ${limited.length} restaurants (${qualifying.length} MARKETPLACE+ACCEPTED, ${filteredOut} filtered out)`,
     )
 
-    return NextResponse.json(result)
+    return NextResponse.json(limited)
   } catch (e) {
     console.error('[Restaurants API] failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to load restaurants' }, { status: 500 })
