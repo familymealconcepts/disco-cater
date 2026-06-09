@@ -59,12 +59,23 @@ export async function GET(request: Request) {
       page++
     }
 
+    // One-time visibility into FM's actual order shape so we can confirm where
+    // the customer email/name actually live (customer.*, saleTransaction.customer.*, …).
+    if (all.length > 0) {
+      console.log('[Export Orders] Sample raw order:', JSON.stringify(all[0], null, 2))
+    }
+
     const orders = all.map((o) => {
-      const customerName = [o.firstName, o.lastName].filter(Boolean).join(' ') || null
+      const customer = o.customer as FmRow | undefined
+      const saleCustomer = (o.saleTransaction as FmRow | undefined)?.customer as FmRow | undefined
+      // Prefer nested customer first/last, then any top-level first/last, then a userName string.
+      const nestedName = [customer?.firstName, customer?.lastName].filter(Boolean).join(' ')
+      const topName = [o.firstName, o.lastName].filter(Boolean).join(' ')
+      const customerName = nestedName || topName || (o.userName as string | undefined) || null
       return {
         orderRef: o.orderReference ?? o.reference ?? null,
         orderNumber: o.orderNumber ?? null,
-        customerEmail: o.userEmail ?? o.customerEmail ?? o.email ?? null,
+        customerEmail: customer?.email ?? saleCustomer?.email ?? o.userEmail ?? o.customerEmail ?? o.email ?? null,
         customerName,
         restaurantName: o.restaurantName ?? null,
         restaurantReference: o.restaurantReference ?? null,

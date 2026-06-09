@@ -51,7 +51,8 @@ export async function GET(request: Request) {
       phoneNumber: c.phoneNumber ?? null,
       createdDate: c.createdDate ?? null,
       lastOrderDate: c.lastOrderDate ?? null,
-      totalOrders: c.totalOrders ?? null,
+      totalOrders: c.totalOrders ?? c.ordersCount ?? c.numberOfOrders ?? 0,
+      lifetimeValue: c.lifetimeValue ?? c.totalSpend ?? c.totalOrdersSum ?? null,
       role: c.role ?? null,
     }))
 
