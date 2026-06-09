@@ -112,7 +112,11 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [lat, setLat] = useState('')
   const [lng, setLng] = useState('')
   const [orderUrl, setOrderUrl] = useState('')
+  // Premium (isDisco) + order-URL override now live in Neon
+  // (disco_restaurant_overrides), read by the public fullmap. Loaded/saved via
+  // /api/admin/restaurant-overrides — independent of the Sanity marketplace doc.
   const [isDisco, setIsDisco] = useState(false)
+  const [orderUrlOverride, setOrderUrlOverride] = useState('')
   // Hero image: hidden from the form. The submit() upload branch + backend
   // marketplace-image route are kept intact; heroFile simply stays null now that
   // the input is removed, so the branch is dormant (no setter to avoid lint).
@@ -148,7 +152,8 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
     Promise.all([
       fetch(`/api/admin/restaurants/${restaurantRef}`).then(r => r.ok ? r.json() : null),
       fetch(`/api/admin/restaurant-marketplace?fmReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([fm, mp]: [FmRestaurant | null, SanityMarketplace | null]) => {
+      fetch(`/api/admin/restaurant-overrides?restaurantReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([fm, mp, ov]: [FmRestaurant | null, SanityMarketplace | null, { isPremium?: boolean; orderUrl?: string } | null]) => {
       if (cancel) return
       if (fm) {
         setExisting(fm)
@@ -173,7 +178,11 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         setLat(mp.lat != null ? String(mp.lat) : '')
         setLng(mp.lng != null ? String(mp.lng) : '')
         setOrderUrl(mp.orderUrl || '')
-        setIsDisco(!!mp.isDisco)
+      }
+      // Premium + order-URL override come from Neon (source of truth for fullmap).
+      if (ov) {
+        setIsDisco(!!ov.isPremium)
+        setOrderUrlOverride(ov.orderUrl || '')
       }
     }).catch(() => { if (!cancel) setErr('Failed to load restaurant') })
       .finally(() => { if (!cancel) setLoading(false) })
@@ -230,6 +239,14 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       })
       if (!putRes.ok) throw new Error('Failed to save restaurant')
 
+      // Premium flag + order-URL override → Neon (drives the public fullmap).
+      const ovRes = await fetch('/api/admin/restaurant-overrides', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantReference: restaurantRef, isPremium: isDisco, orderUrl: orderUrlOverride || undefined }),
+      })
+      if (!ovRes.ok) throw new Error('Saved restaurant, but the Premium / order-URL override failed to save')
+
       if (logoFile) {
         const fd = new FormData(); fd.append('file', logoFile)
         await fetch(`/api/admin/restaurants/${restaurantRef}/logo`, { method: 'POST', body: fd })
@@ -256,7 +273,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
           lat: lat === '' ? undefined : Number(lat),
           lng: lng === '' ? undefined : Number(lng),
           orderUrl: orderUrl || undefined,
-          isDisco,
         }
         if (imageField) mpBody.image = imageField
         const mpRes = await fetch('/api/admin/restaurant-marketplace', {
@@ -345,6 +361,32 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                 </div>
               </div>
 
+              {/* Disco fullmap listing — Premium flag + order-URL override (Neon) */}
+              <div style={section}>
+                <div style={sTitle}>Marketplace listing (Premium)</div>
+                <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>Controls the Disco fullmap. Saved to Disco (Neon), not Sanity.</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                  <label style={{ ...label, marginBottom: 0 }}>Premium</label>
+                  {/* isDisco toggle, shown as a Premium pill. Click toggles. */}
+                  <button type="button" onClick={() => setIsDisco(v => !v)} aria-pressed={isDisco}
+                    style={{
+                      border: 'none', borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 700,
+                      cursor: 'pointer', fontFamily: F, transition: 'opacity 0.15s',
+                      ...(isDisco
+                        ? { background: GRADIENT, color: '#fff' }
+                        : { background: '#eee', color: '#999' }),
+                    }}>
+                    Premium 🪩
+                  </button>
+                  <span style={{ fontSize: 12, color: '#aaa' }}>{isDisco ? 'On' : 'Off — tap to enable'}</span>
+                </div>
+                <div>
+                  <label style={label}>Order URL override</label>
+                  <input style={input} value={orderUrlOverride} onChange={e => setOrderUrlOverride(e.target.value)}
+                    placeholder="Leave blank to use /restaurants/<slug>" />
+                </div>
+              </div>
+
               {/* Marketplace (Sanity) — collapsible */}
               <div style={section}>
                 <button type="button" onClick={() => setMpOpen(o => !o)}
@@ -393,21 +435,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                       <div><label style={label}>Longitude</label><input style={input} type="number" step="any" value={lng} onChange={e => setLng(e.target.value)} /></div>
                     </div>
                     <div style={{ marginBottom: 12 }}><label style={label}>Order URL</label><input style={input} value={orderUrl} onChange={e => setOrderUrl(e.target.value)} placeholder="https://www.familymeal.com/disco/…/catering" /></div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <label style={{ ...label, marginBottom: 0 }}>Status</label>
-                      {/* isDisco toggle, shown as a Premium pill. Click toggles. */}
-                      <button type="button" onClick={() => setIsDisco(v => !v)} aria-pressed={isDisco}
-                        style={{
-                          border: 'none', borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 700,
-                          cursor: 'pointer', fontFamily: F, transition: 'opacity 0.15s',
-                          ...(isDisco
-                            ? { background: GRADIENT, color: '#fff' }
-                            : { background: '#eee', color: '#999' }),
-                        }}>
-                        Premium 🪩
-                      </button>
-                      <span style={{ fontSize: 12, color: '#aaa' }}>{isDisco ? 'On' : 'Off — tap to enable'}</span>
-                    </div>
                   </div>
                 )}
               </div>

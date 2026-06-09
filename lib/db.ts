@@ -45,6 +45,17 @@ export async function runMigrations(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_promo_code_uses_code_id ON promo_code_uses(promo_code_id)`,
     // Generic key/value store for cross-run cursors (e.g. the FM→Sanity sync offset).
     `CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+    // Disco-owned per-restaurant overrides layered on top of the FM restaurant
+    // record: Premium (isDisco) flag + an order-URL override, set in the super
+    // admin edit dialog and read by the public /api/restaurants (fullmap).
+    `CREATE TABLE IF NOT EXISTS disco_restaurant_overrides (
+      restaurant_reference TEXT PRIMARY KEY,
+      is_premium BOOLEAN NOT NULL DEFAULT false,
+      order_url TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true

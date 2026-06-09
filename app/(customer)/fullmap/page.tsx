@@ -217,9 +217,30 @@ function FullMapInner() {
     fetch('/api/restaurants')
       .then(r => r.json())
       .then(data => {
-        // Diagnostic: confirm the Sanity-resolved image URL shape for cards.
-        console.log('[Image] src:', Array.isArray(data) ? data.find((r: { image?: string }) => r.image)?.image : undefined)
-        setRestaurants(data); setFiltered(data); setRestaurantsLoaded(true)
+        // /api/restaurants now returns FM-direct rows (Sanity bypassed):
+        // { reference, name, slug (string), cuisine, description, image, lat, lng,
+        //   location, address, orderUrl, isPremium }. Map onto the shape the rest
+        // of this page already expects (_id, slug.current, isDisco ← isPremium) so
+        // proximity, cuisine pills, and the Premium filter stay exactly as-is.
+        const rows: Restaurant[] = (Array.isArray(data) ? data : []).map((r: {
+          reference: string; name: string; slug?: string; cuisine?: string
+          description?: string; image?: string | null; lat: number; lng: number
+          location?: string; orderUrl?: string; isPremium?: boolean
+        }) => ({
+          _id: r.reference,
+          name: r.name,
+          location: r.location || '',
+          cuisine: r.cuisine || 'Other',
+          cuisines: r.cuisine ? [r.cuisine] : [],
+          lat: r.lat,
+          lng: r.lng,
+          isDisco: !!r.isPremium,
+          orderUrl: r.orderUrl || '',
+          image: r.image || undefined,
+          description: r.description || undefined,
+          slug: r.slug ? { current: r.slug } : undefined,
+        }))
+        setRestaurants(rows); setFiltered(rows); setRestaurantsLoaded(true)
       })
   }, [])
 
