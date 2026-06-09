@@ -18,8 +18,12 @@ interface Pkg {
   name: string
   description: string
   price: number
+  displayPrice: string
+  minQuantity: number
   serves: number
   itemType: string
+  category: string
+  modifiers: string
 }
 
 interface SearchResult { reference: string; name: string; location: string }
@@ -29,7 +33,7 @@ let _seq = 0
 function newId() { return `p${Date.now().toString(36)}_${_seq++}` }
 
 function blankPkg(): Pkg {
-  return { _id: newId(), name: '', description: '', price: 0, serves: 10, itemType: 'CATERING' }
+  return { _id: newId(), name: '', description: '', price: 0, displayPrice: '', minQuantity: 0, serves: 10, itemType: 'CATERING', category: '', modifiers: '' }
 }
 
 export default function MenuImportClient() {
@@ -127,7 +131,7 @@ export default function MenuImportClient() {
       }
       const data = await res.json().catch(() => null)
       if (!res.ok) { setError(data?.error || 'Failed to parse the menu.'); return }
-      const parsed: Pkg[] = (data?.packages || []).map((p: Omit<Pkg, '_id'>) => ({ ...p, _id: newId() }))
+      const parsed: Pkg[] = (data?.packages || []).map((p: Partial<Pkg>) => ({ ...blankPkg(), ...p, _id: newId() }))
       if (!parsed.length) { setError('No packages were found. Try a different source.'); return }
       setPackages(parsed)
       setStep('review')
@@ -159,7 +163,7 @@ export default function MenuImportClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurantReference,
-          packages: valid.map(({ name, description, price, serves, itemType }) => ({ name, description, price, serves, itemType })),
+          packages: valid.map(({ name, description, price, displayPrice, minQuantity, serves, itemType, category, modifiers }) => ({ name, description, price, displayPrice, minQuantity, serves, itemType, category, modifiers })),
         }),
       })
       const data = await res.json().catch(() => null)
@@ -183,6 +187,18 @@ export default function MenuImportClient() {
         <p style={{ fontSize: 13, color: '#888', margin: '4px 0 22px' }}>
           Parse a catering menu with AI, review the results, and create meal packages in FamilyMeal.
         </p>
+
+        {/* Selected restaurant — persists across every step so the admin always
+            knows which restaurant they're importing for. */}
+        {selectedRestaurant && (
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Importing for</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: DARK, lineHeight: 1.15, marginTop: 2 }}>
+              {selectedRestaurant.name}
+              {selectedRestaurant.location ? <span style={{ fontSize: 15, fontWeight: 500, color: '#888' }}> — {selectedRestaurant.location}</span> : null}
+            </div>
+          </div>
+        )}
 
         {/* Step indicator */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 22 }}>
@@ -301,7 +317,7 @@ export default function MenuImportClient() {
                   <button onClick={() => removePkg(p._id)} title="Remove package"
                     style={{ position: 'absolute', top: 10, right: 10, width: 26, height: 26, borderRadius: '50%', border: '1px solid #eee', background: '#fff', cursor: 'pointer', color: '#c0392b', fontSize: 15, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
                   <div style={{ fontSize: 11, color: '#bbb', fontWeight: 700, marginBottom: 8 }}>#{idx + 1}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
                     <div>
                       <label style={lbl}>Name</label>
                       <input value={p.name} onChange={e => updatePkg(p._id, { name: e.target.value })} style={inputSt} placeholder="Package name" />
@@ -310,6 +326,17 @@ export default function MenuImportClient() {
                       <label style={lbl}>Price ($)</label>
                       <input type="number" min="0" step="0.01" value={p.price}
                         onChange={e => updatePkg(p._id, { price: parseFloat(e.target.value) || 0 })} style={inputSt} />
+                    </div>
+                    <div>
+                      <label style={lbl}>Display Price</label>
+                      <input value={p.displayPrice} onChange={e => updatePkg(p._id, { displayPrice: e.target.value })} style={inputSt} placeholder="$24.99" />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginTop: 10 }}>
+                    <div>
+                      <label style={lbl}>Min Quantity</label>
+                      <input type="number" min="0" step="1" value={p.minQuantity}
+                        onChange={e => updatePkg(p._id, { minQuantity: parseInt(e.target.value, 10) || 0 })} style={inputSt} />
                     </div>
                     <div>
                       <label style={lbl}>Serves</label>
@@ -322,11 +349,20 @@ export default function MenuImportClient() {
                         {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </div>
+                    <div>
+                      <label style={lbl}>Category</label>
+                      <input value={p.category} onChange={e => updatePkg(p._id, { category: e.target.value })} style={inputSt} placeholder="Appetizers" />
+                    </div>
                   </div>
                   <div style={{ marginTop: 10 }}>
                     <label style={lbl}>Description</label>
                     <textarea value={p.description} onChange={e => updatePkg(p._id, { description: e.target.value })} rows={2}
                       style={{ ...inputSt, resize: 'vertical', lineHeight: 1.5 }} placeholder="Description" />
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <label style={lbl}>Modifiers</label>
+                    <textarea value={p.modifiers} onChange={e => updatePkg(p._id, { modifiers: e.target.value })} rows={2}
+                      style={{ ...inputSt, resize: 'vertical', lineHeight: 1.5 }} placeholder="Choose protein: Chicken, Beef, Tofu" />
                   </div>
                 </div>
               ))}

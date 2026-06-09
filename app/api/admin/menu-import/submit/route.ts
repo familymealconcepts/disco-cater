@@ -7,8 +7,12 @@ interface ImportPackage {
   name: string
   description?: string
   price: number
+  displayPrice?: string
+  minQuantity?: number
   serves: number
   itemType: string
+  category?: string
+  modifiers?: string
 }
 
 export async function POST(req: NextRequest) {
@@ -53,6 +57,13 @@ export async function POST(req: NextRequest) {
           serves: Number(p?.serves) || 0,
           itemType: p?.itemType === 'REGULAR' ? 'REGULAR' : 'CATERING',
           restaurantReference,
+          // Additional captured fields. Sent only when populated so empty values
+          // keep the payload byte-identical to before (no regression risk); FM
+          // ignores any field names it doesn't recognize.
+          displayPrice: p?.displayPrice?.trim() ? p.displayPrice.trim() : undefined,
+          minQuantity: Number.isFinite(Number(p?.minQuantity)) && Number(p?.minQuantity) > 0 ? Math.round(Number(p?.minQuantity)) : undefined,
+          category: p?.category?.trim() ? p.category.trim() : undefined,
+          modifiers: p?.modifiers?.trim() ? p.modifiers.trim() : undefined,
         }),
       })
       if (res.ok) {

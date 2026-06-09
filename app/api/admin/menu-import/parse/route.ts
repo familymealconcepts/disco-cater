@@ -9,31 +9,40 @@ const MAX_PDF_BYTES = 10 * 1024 * 1024 // 10MB
 const MAX_HTML_CHARS = 400_000
 const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-const PDF_SYSTEM_PROMPT = `You are a catering menu parser. Extract all catering packages/items from this menu PDF and return ONLY a JSON array with no markdown, no preamble, no explanation. Each object must have:
-- name: string (the package or item name)
+const FIELD_SPEC = `Each object must have these fields:
+- name: string (required — the package or item name)
 - description: string (full description as written, or empty string if none)
-- price: number (price per person or per package as a decimal number, e.g. 14.99)
-- serves: number (number of people served, extract from "serves X" or "feeds X" language; use 10 if unclear)
-- itemType: "CATERING"
+- price: number (numeric price as a decimal, e.g. 24.99; use 0 if no price is shown)
+- displayPrice: string (the price exactly as printed on the menu, e.g. "$24.99", "$18/person", "Market Price"; "" if none)
+- minQuantity: number (minimum order quantity if specified, e.g. 10; use 0 if not specified)
+- serves: number (how many people it serves, from "serves X"/"feeds X"; use 10 if unclear)
+- itemType: "CATERING" for shareable packages/platters/trays, "REGULAR" for single individual items
+- category: string (the menu section it belongs to, e.g. "Appetizers", "Mains", "Desserts"; "" if none)
+- modifiers: string (modifier groups and their options if listed, e.g. "Choose protein: Chicken, Beef, Tofu"; "" if none)`
 
-Return only the raw JSON array. Example:
-[{"name":"Taco Bar","description":"Includes chicken, beef, rice, beans, tortillas, and toppings","price":18.00,"serves":10,"itemType":"CATERING"}]`
+const PDF_SYSTEM_PROMPT = `You are a catering menu parser. Extract EVERY menu item and package from this menu PDF. Do NOT stop early, do NOT summarize, and do NOT omit any items even when the menu is long — go through every section to the end. Return ONLY a JSON array with no markdown, no preamble, and no explanation.
 
-const URL_SYSTEM_PROMPT = `You are a catering menu parser. Extract all catering packages and menu items from this ezCater HTML page and return ONLY a JSON array with no markdown, no preamble, no explanation. Each object must have:
-- name: string (the package or item name)
-- description: string (full description as written, or empty string if none)
-- price: number (price per person or per package as a decimal, e.g. 14.99)
-- serves: number (number of people served; use 10 if unclear)
-- itemType: "CATERING"
+${FIELD_SPEC}
 
-Focus on extracting the actual menu packages/items, not page navigation or UI text. Return only the raw JSON array.`
+Extract ALL items across every section of the menu. Return only the raw JSON array. Example:
+[{"name":"Taco Bar","description":"Chicken, beef, rice, beans, tortillas, and toppings","price":18.00,"displayPrice":"$18/person","minQuantity":10,"serves":10,"itemType":"CATERING","category":"Build Your Own","modifiers":"Choose protein: Chicken, Beef, Carnitas"}]`
+
+const URL_SYSTEM_PROMPT = `You are a catering menu parser. Extract EVERY catering package and menu item from this ezCater HTML page. Do NOT stop early, do NOT summarize, and do NOT omit any items even when the list is long. Return ONLY a JSON array with no markdown, no preamble, and no explanation.
+
+${FIELD_SPEC}
+
+Focus on the actual menu packages/items, not page navigation or UI text. Extract ALL items. Return only the raw JSON array.`
 
 interface ParsedPackage {
   name: string
   description: string
   price: number
+  displayPrice?: string
+  minQuantity?: number
   serves: number
   itemType: string
+  category?: string
+  modifiers?: string
 }
 
 // Strip accidental ```json fences / preamble and pull out the first JSON array.
@@ -91,8 +100,12 @@ function finishParse(text: string): NextResponse {
     name: String(p?.name ?? '').trim(),
     description: String(p?.description ?? '').trim(),
     price: Number.isFinite(Number(p?.price)) ? Number(p?.price) : 0,
+    displayPrice: String(p?.displayPrice ?? '').trim(),
+    minQuantity: Number.isFinite(Number(p?.minQuantity)) && Number(p?.minQuantity) > 0 ? Math.round(Number(p?.minQuantity)) : 0,
     serves: Number.isFinite(Number(p?.serves)) && Number(p?.serves) > 0 ? Math.round(Number(p?.serves)) : 10,
     itemType: p?.itemType === 'REGULAR' ? 'REGULAR' : 'CATERING',
+    category: String(p?.category ?? '').trim(),
+    modifiers: String(p?.modifiers ?? '').trim(),
   })).filter(p => p.name)
   return NextResponse.json({ packages: cleaned })
 }

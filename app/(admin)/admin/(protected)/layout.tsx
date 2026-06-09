@@ -28,15 +28,11 @@ const NAV: NavItem[] = [
     title: 'Restaurants', path: '/admin/manage-restaurants/ordering',
     children: [
       { title: 'Ordering', path: '/admin/manage-restaurants/ordering' },
-      { title: 'Marketplace', path: '/admin/manage-restaurants/marketplace' },
-      { title: 'Import Menus', path: '/admin/manage-restaurants/bulk-import-menu' },
       { title: 'Menu Import', path: '/admin/manage-restaurants/menu-import' },
     ],
   },
   { title: 'Menus', path: '/admin/manage-menus' },
   { title: 'Promo Codes', path: '/admin/promo-codes' },
-  { title: 'Banking', path: '/admin/manage-banking', comingSoon: true },
-  { title: 'Settings', path: '/admin/manage-settings', comingSoon: true },
 ]
 
 interface AdminUser {

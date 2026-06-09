@@ -50,6 +50,25 @@ function fmtCurrency(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0)
 }
 
+// Default last-order window = last 7 days, so the page doesn't pull the entire
+// customer list on every open. Dates are ISO (YYYY-MM-DD) for the native date
+// inputs; the /api/admin/customers route converts ISO → DD.MM.YYYY (toFmDate)
+// before calling FM, so FM still receives the DD.MM.YYYY it expects.
+function isoLocal(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+function defaultFromDate(): string {
+  const d = new Date()
+  d.setDate(d.getDate() - 7)
+  return isoLocal(d)
+}
+function defaultToDate(): string {
+  return isoLocal(new Date())
+}
+
 // Orders list join key. FM's /api/admin/userOrders items expose firstName +
 // lastName (no email / customer ref — confirmed in admin-orders-table.html), so
 // we join orders→customers by normalized name (customers list `username`).
@@ -126,10 +145,10 @@ function CustomersInner() {
   // draft (fromInput/toInput) and "applied" (fromDate/toDate) drives load().
   const [searchInput, setSearchInput] = useState(sp.get('search') || '')
   const [search, setSearch] = useState(sp.get('search') || '')
-  const [fromInput, setFromInput] = useState(sp.get('fromDate') || '')
-  const [toInput, setToInput] = useState(sp.get('toDate') || '')
-  const [fromDate, setFromDate] = useState(sp.get('fromDate') || '')
-  const [toDate, setToDate] = useState(sp.get('toDate') || '')
+  const [fromInput, setFromInput] = useState(sp.get('fromDate') || defaultFromDate())
+  const [toInput, setToInput] = useState(sp.get('toDate') || defaultToDate())
+  const [fromDate, setFromDate] = useState(sp.get('fromDate') || defaultFromDate())
+  const [toDate, setToDate] = useState(sp.get('toDate') || defaultToDate())
   // Client-side filters.
   const [type, setType] = useState<'all' | 'corporate' | 'social'>((sp.get('type') as 'corporate' | 'social') || 'all')
   const [minOrders, setMinOrders] = useState(sp.get('minOrders') || '')

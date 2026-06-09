@@ -1,10 +1,40 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
 const INDIGO = '#6B6EF9'
+const GRADIENT = 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)'
+
+// Image picker with explicit Upload / Change / Remove buttons + a sizing hint.
+function ImageField({ label, currentSet, file, onChange }: {
+  label: string; currentSet?: boolean; file: File | null; onChange: (f: File | null) => void
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }
+  const btn: React.CSSProperties = { background: '#EEF0FD', border: '1.5px solid #c8cafd', color: '#3A3DB0', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F }
+  const ghost: React.CSSProperties = { background: '#fff', border: '1.5px solid #e0e0e0', color: '#777', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F }
+  return (
+    <div>
+      <label style={lbl}>{label}{currentSet ? ' (current set)' : ''}</label>
+      <input ref={ref} type="file" accept="image/*" style={{ display: 'none' }}
+        onChange={e => onChange(e.target.files?.[0] || null)} />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => ref.current?.click()} style={btn}>
+          {file ? 'Change image' : 'Upload image'}
+        </button>
+        {file && (
+          <button type="button" onClick={() => { onChange(null); if (ref.current) ref.current.value = '' }} style={ghost}>
+            Remove image
+          </button>
+        )}
+        {file && <span style={{ fontSize: 12, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{file.name}</span>}
+      </div>
+      <p style={{ fontSize: 11, color: '#aaa', margin: '6px 0 0' }}>Recommended: square image, min 400×400px</p>
+    </div>
+  )
+}
 
 // Cuisine options — must match the Sanity restaurant schema `cuisines` array
 // field exactly (sanity/schema/restaurant.ts). Max 3 selections.
@@ -83,7 +113,34 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [lng, setLng] = useState('')
   const [orderUrl, setOrderUrl] = useState('')
   const [isDisco, setIsDisco] = useState(false)
-  const [heroFile, setHeroFile] = useState<File | null>(null)
+  // Hero image: hidden from the form. The submit() upload branch + backend
+  // marketplace-image route are kept intact; heroFile simply stays null now that
+  // the input is removed, so the branch is dormant (no setter to avoid lint).
+  const [heroFile] = useState<File | null>(null)
+
+  // Google Places description fetch.
+  const [fetchingDesc, setFetchingDesc] = useState(false)
+  const [descError, setDescError] = useState('')
+
+  async function fetchGoogleDescription() {
+    setDescError('')
+    setFetchingDesc(true)
+    try {
+      const address = [addr1, city, stateVal, zipcode].map(s => s.trim()).filter(Boolean).join(', ')
+      const params = new URLSearchParams({ name: restaurantName.trim(), address })
+      const res = await fetch(`/api/admin/places-description?${params}`)
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.description) {
+        setDescription(String(data.description).slice(0, 500))
+      } else {
+        setDescError(data?.error || 'No description found on Google Places')
+      }
+    } catch {
+      setDescError('No description found on Google Places')
+    } finally {
+      setFetchingDesc(false)
+    }
+  }
 
   useEffect(() => {
     let cancel = false
@@ -273,14 +330,8 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
               <div style={section}>
                 <div style={sTitle}>Images</div>
                 <div style={grid2}>
-                  <div>
-                    <label style={label}>Restaurant logo {existing?.image?.reference ? '(current set)' : ''}</label>
-                    <input type="file" accept="image/*" onChange={e => setLogoFile(e.target.files?.[0] || null)} style={{ fontSize: 12 }} />
-                  </div>
-                  <div>
-                    <label style={label}>Marketplace image {existing?.marketplaceImage?.image?.reference ? '(current set)' : ''}</label>
-                    <input type="file" accept="image/*" onChange={e => setMarketImageFile(e.target.files?.[0] || null)} style={{ fontSize: 12 }} />
-                  </div>
+                  <ImageField label="Restaurant logo" currentSet={!!existing?.image?.reference} file={logoFile} onChange={setLogoFile} />
+                  <ImageField label="Marketplace image" currentSet={!!existing?.marketplaceImage?.image?.reference} file={marketImageFile} onChange={setMarketImageFile} />
                 </div>
               </div>
 
@@ -324,23 +375,38 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                     </div>
                     <div style={{ marginBottom: 12 }}><label style={label}>Location / display text</label><input style={input} value={location} onChange={e => setLocation(e.target.value)} placeholder="Brooklyn, NY" /></div>
                     <div style={{ marginBottom: 12 }}>
-                      <label style={label}>Description</label>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                        <label style={{ ...label, marginBottom: 0 }}>Description</label>
+                        <button type="button" onClick={fetchGoogleDescription} disabled={fetchingDesc || !restaurantName.trim()}
+                          style={{ background: '#EEF0FD', border: '1.5px solid #c8cafd', color: '#3A3DB0', borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: (fetchingDesc || !restaurantName.trim()) ? 'default' : 'pointer', fontFamily: F, opacity: (fetchingDesc || !restaurantName.trim()) ? 0.6 : 1 }}>
+                          {fetchingDesc ? 'Fetching…' : 'Fetch from Google 🔍'}
+                        </button>
+                      </div>
                       <textarea style={{ ...input, minHeight: 70, resize: 'vertical' }} maxLength={500} value={description} onChange={e => setDescription(e.target.value)} />
-                      <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right' }}>{description.length}/500</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 11, color: '#DC2626' }}>{descError}</span>
+                        <span style={{ fontSize: 11, color: '#aaa' }}>{description.length}/500</span>
+                      </div>
                     </div>
                     <div style={grid2}>
                       <div><label style={label}>Latitude</label><input style={input} type="number" step="any" value={lat} onChange={e => setLat(e.target.value)} /></div>
                       <div><label style={label}>Longitude</label><input style={input} type="number" step="any" value={lng} onChange={e => setLng(e.target.value)} /></div>
                     </div>
                     <div style={{ marginBottom: 12 }}><label style={label}>Order URL</label><input style={input} value={orderUrl} onChange={e => setOrderUrl(e.target.value)} placeholder="https://www.familymeal.com/disco/…/catering" /></div>
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={label}>Hero image</label>
-                      <input type="file" accept="image/*" onChange={e => setHeroFile(e.target.files?.[0] || null)} style={{ fontSize: 12 }} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 20 }}>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: DARK, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={isDisco} onChange={e => setIsDisco(e.target.checked)} style={{ accentColor: INDIGO }} /> isDisco (Premium)
-                      </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <label style={{ ...label, marginBottom: 0 }}>Status</label>
+                      {/* isDisco toggle, shown as a Premium pill. Click toggles. */}
+                      <button type="button" onClick={() => setIsDisco(v => !v)} aria-pressed={isDisco}
+                        style={{
+                          border: 'none', borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 700,
+                          cursor: 'pointer', fontFamily: F, transition: 'opacity 0.15s',
+                          ...(isDisco
+                            ? { background: GRADIENT, color: '#fff' }
+                            : { background: '#eee', color: '#999' }),
+                        }}>
+                        Premium 🪩
+                      </button>
+                      <span style={{ fontSize: 12, color: '#aaa' }}>{isDisco ? 'On' : 'Off — tap to enable'}</span>
                     </div>
                   </div>
                 )}
