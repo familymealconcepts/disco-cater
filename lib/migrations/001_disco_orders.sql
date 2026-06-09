@@ -118,12 +118,18 @@ CREATE TABLE IF NOT EXISTS disco_order_items (
 
 CREATE TABLE IF NOT EXISTS disco_order_events (
   id BIGSERIAL PRIMARY KEY,
-  order_reference UUID NOT NULL,
+  -- Nullable: account/payout/subscription and WEBHOOK_ERROR events are not tied
+  -- to a specific order, so they record with order_reference = NULL.
+  order_reference UUID,
   event_type TEXT NOT NULL,
   event_data JSONB,
   source TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Self-heal databases created before order_reference was made nullable. Safe to
+-- run repeatedly: a no-op once the constraint is already dropped.
+ALTER TABLE disco_order_events ALTER COLUMN order_reference DROP NOT NULL;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_disco_orders_reference ON disco_orders(reference);
