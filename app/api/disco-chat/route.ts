@@ -60,6 +60,14 @@ export async function POST(req: NextRequest) {
 
     const restaurantContext = buildEnrichedContext(restaurants || [])
 
+    // Debug: verify the package data (name/serves/pricePerPerson) the chatbot
+    // actually has for the incoming restaurants — first matched restaurant's
+    // topPackages. Catches missing/renamed fields behind bad price/serve answers.
+    const packages = (restaurants || [])
+      .map((r: any) => enrichedData.find(e => e.name?.toLowerCase().trim() === r.name?.toLowerCase().trim())?.topPackages)
+      .find((p: any) => Array.isArray(p) && p.length > 0)
+    console.log('[Chatbot] Restaurant packages:', JSON.stringify(packages?.slice(0, 3), null, 2))
+
     // Intake context (Mode 1 guided flow). Optional so refinement follow-ups
     // and any legacy callers without intake still work.
     const planningLine = intake
@@ -76,6 +84,13 @@ Best package: [package name], serves [N], [price]/person.
 [order URL on its own line]
 
 If the customer asks a follow-up, answer it directly and concisely. Never suggest contacting support. Never apologize.
+
+PRICING & SERVING RULES — follow these exactly, with no exceptions:
+- Always use the exact price and serves count from the menu data below. Never calculate, estimate, or invent pricing.
+- Never compute a per-person price by dividing a package price. Only state a per-person price if pricePerPerson is explicitly provided in the data.
+- When a user asks for a recommendation for N people, find the single package whose serves value is closest to N without going under. Only suggest multiple packages if no single package can serve the group.
+- Never multiply package prices. If 2x of a package is needed, state the package price and say "you would need 2 of these" — do not calculate a combined total.
+- If you are unsure about any pricing or serving detail, say so rather than guessing.
 
 Available restaurants:
 ${restaurantContext}`
