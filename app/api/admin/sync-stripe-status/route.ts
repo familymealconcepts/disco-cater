@@ -6,9 +6,9 @@ import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 // Check FM Stripe Connect status for VISIBLE restaurants and store it on
 // disco_restaurant_overrides. FM has no bulk endpoint, so we probe
 // HEAD /api/stripe/{reference} per restaurant (204 = connected, anything else =
-// not), throttled. Admin-cookie gated.
+// not). Admin-cookie gated.
 //
-// BATCHED: one POST processes a single page of `batchSize` (default 100) starting
+// BATCHED: one POST processes a single page of `batchSize` (default 25) starting
 // at `offset`, so each request stays well under the platform's function-duration
 // limit. The client loops with the returned `nextOffset` until `done` is true.
 
@@ -18,8 +18,6 @@ export const maxDuration = 300
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-
 export async function POST(req: NextRequest) {
   try { await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
 
@@ -28,7 +26,7 @@ export async function POST(req: NextRequest) {
     const startedAt = Date.now()
 
     const body = await req.json().catch(() => null)
-    const batchSize = Math.max(1, Math.min(500, Number(body?.batchSize) || 100))
+    const batchSize = Math.max(1, Math.min(500, Number(body?.batchSize) || 25))
     const offset = Math.max(0, Number(body?.offset) || 0)
 
     // Stable count + page (ORDER BY keeps the offset windows consistent run-to-run).
@@ -71,8 +69,6 @@ export async function POST(req: NextRequest) {
       `
       if (isConnected) connected++
       else notConnected++
-
-      await sleep(100) // be gentle on FM
     }
 
     const nextOffset = offset + refs.length
