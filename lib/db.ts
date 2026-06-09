@@ -1,4 +1,6 @@
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
 
 // Lazy Neon client. `neon()` throws if DATABASE_URL is unset, and it would do
 // so at *import* time — which crashes `next build`'s page-data collection on
@@ -46,4 +48,31 @@ export async function runMigrations(): Promise<void> {
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true
+
+  await runDiscoOrderMigrations()
+}
+
+// ── Disco-native order management schema ──────────────────────────────────────
+// Reads lib/migrations/001_disco_orders.sql and executes it against the Neon
+// DATABASE_URL. Idempotent (every statement is IF NOT EXISTS) and cached per
+// lambda. The Neon HTTP driver runs one statement per round-trip, so we split the
+// file on `;` and run each separately rather than sending the whole script.
+let discoMigrated = false
+export async function runDiscoOrderMigrations(): Promise<void> {
+  if (discoMigrated) return
+
+  const sqlPath = path.join(process.cwd(), 'lib', 'migrations', '001_disco_orders.sql')
+  const file = await readFile(sqlPath, 'utf8')
+
+  const statements = file
+    // Drop full-line `--` comments so they don't get sent as empty statements.
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
+  for (const s of statements) await sql.query(s)
+  discoMigrated = true
 }
