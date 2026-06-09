@@ -78,13 +78,16 @@ function PriceRow({ label, detail, value, who, highlight }: {
 }
 
 export default function BecomeAPartnerClient() {
-  // 0 = your info, 1 = partner agreement, 2 = banking + menu, 3 = success.
+  // 0 = your info, 1 = first party (1P), 2 = marketplace (3P, optional),
+  // 3 = menu + banking, 4 = success.
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormState>({
     firstName: '', lastName: '', email: '', phoneNumber: '',
     restaurantName: '', zip: '', password: '',
   })
-  const [agree, setAgree] = useState(false)
+  const [agree1P, setAgree1P] = useState(false)          // required (step 2)
+  const [agreeMarketplace, setAgreeMarketplace] = useState(false) // opt-in (step 3)
+  const [joinedMarketplace, setJoinedMarketplace] = useState(false)
   const [menuFile, setMenuFile] = useState<File | null>(null)
   const [menuSkipped, setMenuSkipped] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -137,7 +140,7 @@ export default function BecomeAPartnerClient() {
     }
   }
 
-  // ── Step 3 → finish onboarding (with or without a menu) ────────────────────
+  // ── Step 4 → finish onboarding (with or without a menu) ────────────────────
   async function completeOnboarding(skip: boolean) {
     setError('')
     setLoading(true)
@@ -145,14 +148,16 @@ export default function BecomeAPartnerClient() {
       const menuOk = skip ? true : await sendMenu()
       const res = await fetch('/api/become-a-partner/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: form.email, agreedToPricing: true, agreedToDelivery: false }),
+        // agreedToPricing = the required First Party terms. joinedMarketplace is
+        // extra context the route safely ignores (unchanged contract).
+        body: JSON.stringify({ email: form.email, agreedToPricing: true, agreedToDelivery: false, joinedMarketplace }),
       })
       const data = await res.json()
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
       if (skip || !menuFile) setMenuSkipped(true)
       // Surface a menu-upload failure but still advance — never block onboarding.
       if (!menuOk) setError('Menu upload failed — you can email your menu to concierge@discocater.com')
-      setStep(3)
+      setStep(4)
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {
@@ -210,15 +215,15 @@ export default function BecomeAPartnerClient() {
 
       {/* Top bar: back link (left) + step counter (right) */}
       <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '22px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 }}>
-        {step >= 1 && step <= 2 ? (
+        {step >= 1 && step <= 3 ? (
           <button onClick={back} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#777', fontFamily: F, fontWeight: 600, padding: 0 }}>
             ‹ Back
           </button>
         ) : (
           <Link href="/" style={{ fontSize: 14, color: '#777', textDecoration: 'none', fontWeight: 600 }}>‹ Back</Link>
         )}
-        {step <= 2 && (
-          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 3</div>
+        {step <= 3 && (
+          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 4</div>
         )}
       </div>
 
@@ -230,10 +235,10 @@ export default function BecomeAPartnerClient() {
         </Link>
       </div>
 
-      {/* Step indicator — three segments */}
-      {step <= 2 && (
+      {/* Step indicator — four segments */}
+      {step <= 3 && (
         <div style={{ maxWidth: 560, width: '100%', margin: '18px auto 0', padding: '0 24px', display: 'flex', gap: 8 }}>
-          {[0, 1, 2].map(i => (
+          {[0, 1, 2, 3].map(i => (
             <div key={i} style={{ flex: 1, height: 5, borderRadius: 999, background: i <= step ? GRADIENT : '#e8e8f0', transition: 'background 0.2s' }} />
           ))}
         </div>
@@ -269,55 +274,79 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 2 · PARTNER AGREEMENT ── */}
+          {/* ── STEP 2 · FIRST PARTY (1P) — required ── */}
           {step === 1 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Partner Agreement</h1>
-              <p style={subStyle}>Simple, transparent pricing. No monthly fees, no commitment.</p>
+              <h1 style={h1Style}>First Party (Direct Orders)</h1>
+              <p style={subStyle}>Orders placed directly through your restaurant portal. No commission — free forever.</p>
               {errorBox}
 
-              {/* Early-bird highlight */}
-              <div style={{
-                marginTop: 16, borderRadius: 14, padding: '14px 16px', color: '#fff',
-                background: GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-              }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 800 }}>🐦 Early bird special</div>
-                  <div style={{ fontSize: 12.5, opacity: 0.95, marginTop: 2 }}>Join before July 1, 2026 and pay just 5% flat on marketplace orders.</div>
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 800, whiteSpace: 'nowrap' }}>5%</div>
-              </div>
-
-              {/* Pricing summary */}
+              {/* 1P pricing */}
               <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
-                <PriceRow label="Marketplace orders" detail="15% for first-time customers, 5% for returning customers" value="15% / 5%" who="restaurant" />
-                <PriceRow label="First Party / Direct Entry" detail="Orders you enter yourself" value="0%" who="restaurant" />
+                <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0%" who="restaurant" />
                 <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3%" who="customer" />
-                <PriceRow label="Stripe processing" detail="Card-not-present transactions" value="2.90% + $0.30" who="restaurant" />
-                <PriceRow label="Third-party delivery" detail="Optional couriers, billed to the customer" value="Paid by customer" who="customer" />
+                <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" who="restaurant" />
               </div>
 
-              {/* Agreement checkbox */}
+              {/* Required agreement */}
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 6px' }}>
-                <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)}
+                <input type="checkbox" checked={agree1P} onChange={e => setAgree1P(e.target.checked)}
                   style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
-                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>I agree to the Disco Cater Partner Agreement</span>
+                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>I agree to the Disco Cater First Party Terms</span>
               </label>
               <p style={{ fontSize: 12, color: '#999', lineHeight: 1.5, margin: '0 0 18px', paddingLeft: 29 }}>
                 By checking this box you agree to our{' '}
                 <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: BLUE }}>Terms of Service</a>
-                {' '}and pricing structure above.
+                {' '}and the pricing above.
               </p>
 
-              <button onClick={() => { setError(''); setStep(2) }} disabled={!agree}
-                style={{ ...primaryBtn, opacity: agree ? 1 : 0.5, cursor: agree ? 'pointer' : 'default' }}>
+              <button onClick={() => { setError(''); setStep(2) }} disabled={!agree1P}
+                style={{ ...primaryBtn, opacity: agree1P ? 1 : 0.5, cursor: agree1P ? 'pointer' : 'default' }}>
                 Continue
               </button>
             </div>
           )}
 
-          {/* ── STEP 3 · MENU + BANKING ── */}
+          {/* ── STEP 3 · MARKETPLACE (3P) — optional ── */}
           {step === 2 && (
+            <div style={cardStyle}>
+              <h1 style={h1Style}>Marketplace (Optional)</h1>
+              <p style={{ ...subStyle, fontWeight: 700, color: DARK, margin: '0 0 6px' }}>Get discovered by new customers through the Disco Cater marketplace</p>
+              <p style={subStyle}>We send you new catering leads. You only pay when we deliver a new customer.</p>
+              {errorBox}
+
+              {/* 3P pricing */}
+              <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
+                <PriceRow label="First-time customers" detail="Of order subtotal — per new customer we bring you" value="15%" who="restaurant" />
+                <PriceRow label="Returning customers" detail="Of order subtotal — for repeat orders" value="5%" who="restaurant" />
+                <PriceRow label="Third-party delivery" detail="Optional couriers, billed to the customer" value="Paid by customer" who="customer" />
+              </div>
+
+              {/* Opt-in agreement (only required to join) */}
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 6px' }}>
+                <input type="checkbox" checked={agreeMarketplace} onChange={e => setAgreeMarketplace(e.target.checked)}
+                  style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
+                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>I agree to the Disco Cater Marketplace Terms</span>
+              </label>
+              <p style={{ fontSize: 12, color: '#999', lineHeight: 1.5, margin: '0 0 18px', paddingLeft: 29 }}>
+                Required only if you join the marketplace.
+              </p>
+
+              <button onClick={() => { setError(''); setJoinedMarketplace(true); setStep(3) }} disabled={!agreeMarketplace}
+                style={{ ...primaryBtn, opacity: agreeMarketplace ? 1 : 0.5, cursor: agreeMarketplace ? 'pointer' : 'default' }}>
+                Join Marketplace
+              </button>
+              <div style={{ textAlign: 'center', marginTop: 12 }}>
+                <button onClick={() => { setError(''); setJoinedMarketplace(false); setStep(3) }}
+                  style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: 'pointer', textDecoration: 'underline' }}>
+                  Skip for now
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 4 · MENU + BANKING ── */}
+          {step === 3 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Menu &amp; banking</h1>
               <p style={subStyle}>Two quick things and you&apos;re done.</p>
@@ -368,12 +397,17 @@ export default function BecomeAPartnerClient() {
           )}
 
           {/* ── SUCCESS ── */}
-          {step === 3 && (
+          {step === 4 && (
             <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
               <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>
               <p style={{ ...subStyle, maxWidth: 420, margin: '0 auto 8px' }}>
                 Our team will be in touch within 1 business day to complete your setup.
               </p>
+              {!joinedMarketplace && (
+                <p style={{ fontSize: 13, color: '#888', maxWidth: 420, margin: '0 auto 8px', lineHeight: 1.6 }}>
+                  You can join the marketplace later from your restaurant portal.
+                </p>
+              )}
               {menuSkipped && (
                 <p style={{ fontSize: 13, color: '#888', maxWidth: 420, margin: '0 auto 8px', lineHeight: 1.6 }}>
                   You can send your menu to concierge@discocater.com at any time.
