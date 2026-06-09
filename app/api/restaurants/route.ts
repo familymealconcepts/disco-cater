@@ -89,6 +89,23 @@ export async function GET() {
 
     const overrides = new Map(overrideRows.map((o) => [o.restaurant_reference, o]))
 
+    // TEMP DEBUG: inspect the FM field values we filter on (remove once verified).
+    console.log('[Restaurants API] Total FM restaurants fetched:', fmRows.length)
+    console.log('[Restaurants API] Sample FM restaurant fields:', JSON.stringify(
+      fmRows.slice(0, 3).map((r) => {
+        const addr = (r.address || {}) as Record<string, unknown>
+        return {
+          name: r.businessName,
+          restaurantStatus: r.restaurantStatus,
+          status: r.status,
+          type: r.type,
+          blocked: r.blocked,
+          hasLat: addr.latitude != null,
+          hasLng: addr.longitude != null,
+        }
+      }), null, 2,
+    ))
+
     // Core qualification: active marketplace restaurants only.
     const qualifying = fmRows.filter((r) => {
       const status = String((r.restaurantStatus ?? r.status) || '').toUpperCase()
