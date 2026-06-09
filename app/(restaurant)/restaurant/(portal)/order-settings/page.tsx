@@ -243,7 +243,14 @@ export default function OrderSettingsPage() {
 
   async function saveCoupon() {
     const method = coupon?.reference ? 'PUT' : 'POST'
-    const res = await fetch('/api/restaurant/coupon', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(couponForm) })
+    const url = '/api/restaurant/coupon'
+    const payload = couponForm
+    console.log('[Coupon] Payload:', JSON.stringify(payload, null, 2))
+    console.log('[Coupon] Endpoint:', url)
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    const responseBody = await res.json().catch(() => null)
+    console.log('[Coupon] Response status:', res.status)
+    console.log('[Coupon] Response body:', JSON.stringify(responseBody, null, 2))
     if (res.ok) { setCouponDirty(false); loadAll(); showToast('Coupon saved') }
   }
 
@@ -509,7 +516,7 @@ export default function OrderSettingsPage() {
             disabled={!couponDirty || saving}
             style={{ padding: '9px 18px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: couponDirty ? 'pointer' : 'not-allowed', opacity: couponDirty ? 1 : 0.5, fontFamily: F }}
           >
-            {coupon?.reference ? 'Update Coupon' : 'Create Coupon'}
+            {coupon?.reference ? 'Update Coupon' : 'Create Promo Code'}
           </button>
           {coupon?.reference && (
             <button onClick={endCoupon}
