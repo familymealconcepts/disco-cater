@@ -201,6 +201,8 @@ export default function RestaurantsOrderingPage() {
   const [syncProgress, setSyncProgress] = useState('')
   const [cacheBusy, setCacheBusy] = useState(false)
   const [importBusy, setImportBusy] = useState(false)
+  const [enrichBusy, setEnrichBusy] = useState(false)
+  const [enrichProgress, setEnrichProgress] = useState('')
 
   // One-time: pull cuisine/description/image from Sanity into the map cache.
   async function importSanityData() {
@@ -296,6 +298,53 @@ export default function RestaurantsOrderingPage() {
     }
   }
 
+  // Enrich cache rows missing cuisine/description/image via Google Places, one
+  // batch at a time, looping until the route reports done. Stops on first error.
+  async function enrichWithGoogle() {
+    if (!confirm('This will look up cuisine, descriptions, and images from Google Places for restaurants missing them. This may take several minutes. Continue?')) return
+    setEnrichBusy(true)
+    setEnrichProgress('')
+    setError('')
+    const BATCH = 25
+    let offset = 0
+    let enriched = 0
+    let notFound = 0
+    let skipped = 0
+    let processed = 0
+    let total = 0
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const res = await fetch('/api/admin/enrich-restaurants-places', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batchSize: BATCH, offset }),
+        })
+        const d = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(d?.error || 'Enrichment failed')
+
+        enriched += d.enriched || 0
+        notFound += d.notFound || 0
+        skipped += d.skipped || 0
+        processed += (d.enriched || 0) + (d.notFound || 0) + (d.skipped || 0)
+        // `total` shrinks as rows are enriched, so anchor the denominator to the
+        // largest total + processed count we've seen for a stable progress bar.
+        total = Math.max(total, (d.total || 0) + enriched)
+        setEnrichProgress(`Enriching… ${Math.min(processed, total)}/${total}`)
+
+        if (d.done) break
+        offset = d.nextOffset
+      }
+      showToast(`Enrichment complete: ${enriched} enriched, ${notFound} not found, ${skipped} skipped`)
+      await load()
+    } catch (e) {
+      setError((e as Error).message || 'Enrichment failed')
+    } finally {
+      setEnrichBusy(false)
+      setEnrichProgress('')
+    }
+  }
+
   // One-time: show every active FM restaurant on the Disco fullmap.
   async function bulkSetVisible() {
     if (!confirm('This will show all active FM restaurants on the Disco Cater map. Continue?')) return
@@ -346,6 +395,10 @@ export default function RestaurantsOrderingPage() {
           <button onClick={importSanityData} disabled={importBusy} title="Import cuisine/description/images from Sanity into the map cache"
             style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: importBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: importBusy ? 0.6 : 1 }}>
             {importBusy ? 'Importing…' : 'Import Sanity Data'}
+          </button>
+          <button onClick={enrichWithGoogle} disabled={enrichBusy} title="Look up cuisine, descriptions, and images from Google Places for restaurants missing them"
+            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: enrichBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: enrichBusy ? 0.6 : 1 }}>
+            {enrichBusy ? (enrichProgress || 'Enriching…') : 'Enrich with Google'}
           </button>
           <button onClick={() => setAddOpen(true)}
             style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
