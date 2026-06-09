@@ -44,6 +44,9 @@ export async function POST(req: NextRequest) {
     const { messages, restaurant, intake } = await req.json()
 
     const packages = resolvePackages(restaurant)
+    // Verify the shape of the menu data the chatbot reasons over (name, serves,
+    // pricePerPerson). Catches missing/renamed fields that cause bad answers.
+    console.log('[Chatbot] First menu item:', JSON.stringify(packages[0], null, 2))
     const pkgLines = packages.length > 0
       ? packages.map((p: any) => `· ${p.name} — serves ${p.serves}, ${p.pricePerPerson}`).join('\n')
       : '(no packages listed)'
@@ -57,7 +60,14 @@ Restaurant: ${restaurant?.name || 'this restaurant'} (${restaurant?.cuisine || '
 Available packages:
 ${pkgLines}
 ${contextLine}
-Recommend 2-3 specific packages from the list above that fit the event. Be precise about quantities needed for the headcount. If a single package doesn't serve enough, say "order 2x [package name]."
+Recommend 2-3 specific packages from the list above that fit the event.
+
+PRICING & SERVING RULES — follow these exactly, with no exceptions:
+- NEVER calculate or invent per-person pricing. Only use the exact pricePerPerson or total price as listed in the menu data above.
+- NEVER multiply package prices or serving sizes unless the user explicitly asks for multiple of the same package.
+- When recommending a package for N people, find the package whose "serves" value is closest to N without going under. Do not combine packages unless a single package cannot serve the group.
+- Always state the exact package name, exact price, and exact serves count exactly as provided in the data above. Never round or estimate.
+- If the menu data above does not contain enough information to answer confidently, say so rather than guessing.
 
 Do not recommend items not on the list. Do not suggest the customer contact anyone. Do not use filler language.`
 
