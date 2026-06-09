@@ -124,6 +124,9 @@ export default function AdminDashboard() {
   const [gmv, setGmv] = useState<{ date: string; gmv: number }[]>([])
   const [gmvLoading, setGmvLoading] = useState(true)
   const [gmvTruncated, setGmvTruncated] = useState(false)
+  // 3P (DISCO) vs 1P (FAMILYMEAL) gross split, computed from the same last-30-day
+  // orders loaded for the chart (the analytics endpoint isn't source-filtered).
+  const [gmvBySource, setGmvBySource] = useState<{ p3: number; p1: number }>({ p3: 0, p1: 0 })
 
   // Restaurant list (powers the picker + the "Total Restaurants" count).
   useEffect(() => {
@@ -172,7 +175,7 @@ export default function AdminDashboard() {
     const SIZE = 200
     const MAX_PAGES = 10 // cap → up to 2000 orders
     try {
-      const all: { orderDate?: string; total?: number; transactionsTotal?: number }[] = []
+      const all: { orderDate?: string; total?: number; transactionsTotal?: number; sourceoforder?: string }[] = []
       let page = 0
       let totalPages = 1
       let truncated = false
@@ -189,16 +192,25 @@ export default function AdminDashboard() {
       } while (page < totalPages)
 
       const byDay: Record<string, number> = {}
+      let p3 = 0
+      let p1 = 0
       for (const o of all) {
+        const gross = typeof o.total === 'number' ? o.total : (o.transactionsTotal ?? 0)
+        // 3P GMV = DISCO orders; 1P GMV = FAMILYMEAL orders. Other/absent
+        // sources count toward neither split (but still the daily chart total).
+        const src = (o.sourceoforder || '').toUpperCase()
+        if (src === 'DISCO') p3 += gross
+        else if (src === 'FAMILYMEAL') p1 += gross
         const iso = (o.orderDate || '').slice(0, 10)
         if (!iso) continue
-        const gross = typeof o.total === 'number' ? o.total : (o.transactionsTotal ?? 0)
         byDay[iso] = (byDay[iso] || 0) + gross
       }
       setGmv(enumerateDays(fmToIso(from), fmToIso(to)).map(iso => ({ date: dayLabel(iso), gmv: byDay[iso] || 0 })))
+      setGmvBySource({ p3, p1 })
       setGmvTruncated(truncated)
     } catch {
       setGmv([])
+      setGmvBySource({ p3: 0, p1: 0 })
     } finally {
       setGmvLoading(false)
     }
@@ -443,6 +455,16 @@ export default function AdminDashboard() {
         <SaleCard title="Avg Check" value={saleRaw.totalOrdersAvgSum} />
         <CountCard title="Total Customers" value={saleRaw.totalCustomersCount} />
       </div>
+
+      {/* 3P vs 1P GMV split — computed from the last-30-day chart orders, since
+          the analytics endpoint isn't source-filtered. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginTop: 12 }}>
+        <SaleCard title="3P GMV" value={gmvBySource.p3} accent="#6B6EF9" />
+        <SaleCard title="1P GMV" value={gmvBySource.p1} accent="#1A1028" />
+      </div>
+      <p style={{ fontSize: 11, color: '#999', margin: '6px 2px 0' }}>
+        3P = Disco marketplace (DISCO) · 1P = direct entry (FAMILYMEAL) · last 30 days{gmvTruncated ? ' · partial (order cap hit)' : ''}
+      </p>
     </div>
   )
 }
@@ -466,9 +488,10 @@ function CountCard({ title, value, decimal }: { title: string; value?: number; d
   )
 }
 
-function SaleCard({ title, value, highlight }: { title: string; value?: number; highlight?: boolean }) {
+function SaleCard({ title, value, highlight, accent }: { title: string; value?: number; highlight?: boolean; accent?: string }) {
+  const borderLeft = accent ? `3px solid ${accent}` : highlight ? `3px solid ${GOLD}` : '1px solid #eee'
   return (
-    <div style={{ ...cardSt, borderLeft: highlight ? `3px solid ${GOLD}` : '1px solid #eee' }}>
+    <div style={{ ...cardSt, borderLeft }}>
       <div style={cardTitle}>{title}</div>
       <div style={cardValue}>{fmtCurrency(value)}</div>
     </div>

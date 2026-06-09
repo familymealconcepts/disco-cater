@@ -71,7 +71,7 @@ function fmtTime(v: unknown): string {
 async function dispatchOrderEmails(orderId: number): Promise<void> {
   try {
     const orders = (await sql`
-      SELECT order_number, order_type, delivery_type, order_date, order_time, created_at,
+      SELECT order_number, order_type, delivery_type, source_of_order, order_date, order_time, created_at,
              customer_email, customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
              restaurant_name, restaurant_email, tax_exempt_id, tips
@@ -151,16 +151,58 @@ async function dispatchOrderEmails(orderId: number): Promise<void> {
     }
 
     // Restaurant notification — only when the restaurant has an email on file.
+    const sourceOfOrder = o.source_of_order ? String(o.source_of_order) : ''
     const restaurantEmail = o.restaurant_email ? String(o.restaurant_email) : ''
     if (restaurantEmail) {
       sendRestaurantOrderNotification({
         restaurantEmail,
         deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
+        sourceOfOrder,
         ...shared,
       }).catch((err) => console.error('[Webhook] restaurant notification email failed:', err))
     }
+
+    // New-order Slack ping (1P/3P labeled). Skips silently if unconfigured.
+    await sendNewOrderSlack({
+      sourceOfOrder,
+      restaurantName: shared.businessName,
+      city: o.delivery_city ? String(o.delivery_city) : '',
+      total: totalPrice,
+      orderDate: shared.orderDate,
+      orderType: shared.orderService,
+    })
   } catch (err) {
     console.error('[Webhook] dispatchOrderEmails failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+// Posts a new-order notification to the Disco Slack channel. 1P/3P labeled per
+// the order source. Never throws; skips silently when SLACK_NEW_ORDER_WEBHOOK_URL
+// is unset.
+async function sendNewOrderSlack(o: {
+  sourceOfOrder: string
+  restaurantName: string
+  city: string
+  total: number
+  orderDate: string
+  orderType: string
+}): Promise<void> {
+  const url = process.env.SLACK_NEW_ORDER_WEBHOOK_URL
+  if (!url) return
+  try {
+    const is3P = o.sourceOfOrder === 'DISCO'
+    const place = [o.restaurantName, o.city].filter(Boolean).join(', ')
+    const amount = `$${(Number.isFinite(o.total) ? o.total : 0).toFixed(2)}`
+    const text = is3P
+      ? `🪩 *New 3P Disco Order* — ${place} — ${amount} — ${o.orderDate} — ${o.orderType}`
+      : `✅ *New 1P Direct Order* — ${place} — ${amount} — ${o.orderDate} — ${o.orderType}`
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+  } catch (err) {
+    console.error('[Webhook] Slack notification failed:', err instanceof Error ? err.message : err)
   }
 }
 

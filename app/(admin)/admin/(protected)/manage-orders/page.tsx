@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -207,23 +208,6 @@ function buildTimeOptions(current?: string): string[] {
     opts.sort()
   }
   return opts
-}
-
-// 3P / 1P attribution pill. "DISCO" → 3P (Disco Blue); everything else —
-// "FAMILYMEAL", unknown, or absent — → 1P (gray), since direct/unknown orders
-// are treated as first-party. Always renders one pill. Small + subtle, no emoji.
-function SourcePill({ source }: { source?: string }) {
-  const is3P = source === 'DISCO'
-  return (
-    <span style={{
-      display: 'inline-block', padding: '1px 5px', borderRadius: 4,
-      fontSize: 9, fontWeight: 700, letterSpacing: '0.02em', verticalAlign: 'middle',
-      color: '#fff', background: is3P ? '#5B6FE8' : '#9090C8',
-    }}
-      title={is3P ? 'Third-party (marketplace)' : 'First-party (direct link)'}>
-      {is3P ? '3P' : '1P'}
-    </span>
-  )
 }
 
 // TYPE column — stacked badge chips matching the Slack notification format:
@@ -590,7 +574,7 @@ export default function AdminOrdersPage() {
                   </span>
                 </td>
                 <td style={cell}><TypeBadges order={o} /></td>
-                <td style={cell}><SourcePill source={o.sourceoforder} /></td>
+                <td style={cell}>{getOrderSourceBadge(o.sourceoforder || '')}</td>
                 <td style={cell}>
                   {promos[o.orderReference] ? (() => {
                     const p = promos[o.orderReference]

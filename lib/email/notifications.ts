@@ -99,6 +99,8 @@ export interface RestaurantOrderNotificationParams extends BaseOrderParams {
   deliveryType?: string
   deliveryId?: string
   restaurantEmail: string
+  /** FM sourceoforder: "DISCO" → 3P (marketplace), "FAMILYMEAL" → 1P (direct). */
+  sourceOfOrder?: string
 }
 
 export type CustomerOrderReminderParams = BaseOrderParams & { to: string }
@@ -224,8 +226,12 @@ export async function sendRestaurantOrderNotification(
       p.deliveryType === 'NASH_DELIVERY' || p.deliveryType === 'DLIVRD_DELIVERY' || p.deliveryType === 'THIRD_PARTY'
 
     // Order timing block — Nash/Dlivrd show pickup + dropoff, otherwise order time.
+    // Order Source helps the restaurant immediately see where the order came from.
+    const sourceLabel =
+      p.sourceOfOrder === 'DISCO' ? '3P — Disco Cater Marketplace' : '1P — Direct Entry'
     let timingHtml = ''
     if (p.orderService) timingHtml += `Order Type: <strong>${escapeHtml(p.orderService)}</strong><br/>`
+    timingHtml += `Order Source: <strong>${sourceLabel}</strong><br/>`
     if (p.orderDate) timingHtml += `Order Date: <strong>${escapeHtml(p.orderDate)}</strong><br/>`
     if (isThirdPartyDelivery) {
       if (p.orderTime) timingHtml += `Delivery Drop-off: <strong>${escapeHtml(p.orderTime)}</strong><br/>`
