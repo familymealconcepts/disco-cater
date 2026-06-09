@@ -198,6 +198,7 @@ export default function RestaurantsOrderingPage() {
   const [editRef, setEditRef] = useState<string | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
+  const [syncProgress, setSyncProgress] = useState('')
   // Per-restaurant Stripe status (keyed by reference) from Neon overrides, shown
   // as a column on each row. checkedAt === null means "never synced".
   const [stripeMap, setStripeMap] = useState<Record<string, { connected: boolean; checkedAt: string | null }>>({})
@@ -217,21 +218,45 @@ export default function RestaurantsOrderingPage() {
 
   useEffect(() => { loadStripeMap() }, [loadStripeMap])
 
-  // One-time: probe FM Stripe Connect status for every visible restaurant.
+  // Probe FM Stripe Connect status for every visible restaurant, one batch at a
+  // time (each request stays under the function-duration limit), looping until
+  // the route reports done. Stops on the first failed batch.
   async function syncStripeStatus() {
     if (!confirm('This will check Stripe Connect status for all visible restaurants. This may take several minutes. Continue?')) return
     setSyncBusy(true)
+    setSyncProgress('')
     setError('')
+    const BATCH = 100
+    let offset = 0
+    let connected = 0
+    let notConnected = 0
+    let total = 0
     try {
-      const res = await fetch('/api/admin/sync-stripe-status', { method: 'POST' })
-      const d = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(d?.error || 'Stripe status sync failed')
-      showToast(`Stripe sync: ${d.connected} connected, ${d.notConnected} not (of ${d.total}, ${Math.round((d.durationMs || 0) / 1000)}s)`)
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const res = await fetch('/api/admin/sync-stripe-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batchSize: BATCH, offset }),
+        })
+        const d = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(d?.error || 'Stripe status sync failed')
+
+        connected += d.connected || 0
+        notConnected += d.notConnected || 0
+        total = d.total || 0
+        setSyncProgress(`Syncing… ${Math.min(d.nextOffset, total)}/${total}`)
+
+        if (d.done) break
+        offset = d.nextOffset
+      }
+      showToast(`Stripe sync complete: ${connected} connected, ${notConnected} not connected (of ${total})`)
       await loadStripeMap()
     } catch (e) {
       setError((e as Error).message || 'Stripe status sync failed')
     } finally {
       setSyncBusy(false)
+      setSyncProgress('')
     }
   }
 
@@ -276,7 +301,7 @@ export default function RestaurantsOrderingPage() {
           </button>
           <button onClick={syncStripeStatus} disabled={syncBusy} title="Check Stripe Connect status for all visible restaurants"
             style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: syncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: syncBusy ? 0.6 : 1 }}>
-            {syncBusy ? 'Syncing…' : 'Sync Stripe Status'}
+            {syncBusy ? (syncProgress || 'Syncing…') : 'Sync Stripe Status'}
           </button>
           <button onClick={() => setAddOpen(true)}
             style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>

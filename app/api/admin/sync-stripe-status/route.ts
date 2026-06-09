@@ -1,12 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 
-// One-time tool: check FM Stripe Connect status for every VISIBLE restaurant and
-// store it on disco_restaurant_overrides. FM has no bulk endpoint, so we probe
+// Check FM Stripe Connect status for VISIBLE restaurants and store it on
+// disco_restaurant_overrides. FM has no bulk endpoint, so we probe
 // HEAD /api/stripe/{reference} per restaurant (204 = connected, anything else =
-// not), throttled. Admin-cookie gated. Can take several minutes for thousands.
+// not), throttled. Admin-cookie gated.
+//
+// BATCHED: one POST processes a single page of `batchSize` (default 100) starting
+// at `offset`, so each request stays well under the platform's function-duration
+// limit. The client loops with the returned `nextOffset` until `done` is true.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,15 +20,28 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try { await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
 
   try {
     await runMigrations()
     const startedAt = Date.now()
 
+    const body = await req.json().catch(() => null)
+    const batchSize = Math.max(1, Math.min(500, Number(body?.batchSize) || 100))
+    const offset = Math.max(0, Number(body?.offset) || 0)
+
+    // Stable count + page (ORDER BY keeps the offset windows consistent run-to-run).
+    const totalRows = (await sql`
+      SELECT COUNT(*)::int AS n FROM disco_restaurant_overrides WHERE visible = true
+    `) as { n: number }[]
+    const total = totalRows[0]?.n ?? 0
+
     const refs = (await sql`
-      SELECT restaurant_reference FROM disco_restaurant_overrides WHERE visible = true
+      SELECT restaurant_reference FROM disco_restaurant_overrides
+      WHERE visible = true
+      ORDER BY restaurant_reference
+      LIMIT ${batchSize} OFFSET ${offset}
     `) as { restaurant_reference: string }[]
 
     let header = await getFmServiceAuthHeader()
@@ -58,14 +75,21 @@ export async function POST() {
       await sleep(100) // be gentle on FM
     }
 
+    const nextOffset = offset + refs.length
+    // Done when this page was the last (fewer rows than asked) or we've reached total.
+    const done = refs.length < batchSize || nextOffset >= total
+
     return NextResponse.json({
-      total: refs.length,
+      total,
       connected,
       notConnected,
       durationMs: Date.now() - startedAt,
+      nextOffset,
+      done,
     })
   } catch (e) {
-    console.error('[sync-stripe-status] failed:', e instanceof Error ? e.message : e)
-    return NextResponse.json({ error: 'Stripe status sync failed' }, { status: 500 })
+    const message = e instanceof Error ? e.message : String(e)
+    console.error('[sync-stripe-status] failed:', message, e instanceof Error ? e.stack : '')
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
