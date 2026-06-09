@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
+import { useAuthContext } from '../../../context/AuthContext'
 import CheckoutDrawer from './CheckoutDrawer'
 import MenuAdvisor, { type DiscoIntake } from './MenuAdvisor'
 import { cartSubtotal } from '../../../../lib/pricing/cart'
@@ -228,10 +229,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   isFirstParty?: boolean
 }) {
   // ── UI state ──────────────────────────────────────────────────────────────
+  // Auth — used to gate the checkout action behind login (browsing/cart-building
+  // stay open). openAuthModal stores a pending action AuthModal resumes on a
+  // successful sign-in, so checkout continues automatically.
+  const { user, openAuthModal } = useAuthContext()
   const [activeMenuIdx, setActiveMenuIdx] = useState(0)
   const [headerImgError, setHeaderImgError] = useState(false)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  // Disco promo surfaced back from CheckoutDrawer so the restaurant-page order
+  // summary can show the discount line + discounted total (display-only).
+  const [summaryPromo, setSummaryPromo] = useState<{ code: string; discountAmount: number } | null>(null)
 
   // Mode 2 (menu advisor) — pick up intake context handed off from the fullmap
   // discovery flow via sessionStorage, if present.
@@ -793,9 +801,27 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     // Intentionally only re-runs on open/close toggle, not on cart edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkoutOpen])
-  const ctaLabel = cartCount > 0
-    ? `${cartCount} item${cartCount !== 1 ? 's' : ''} · ${formatPrice(clientTotal)} — Continue to Checkout`
-    : 'Browse Menu → Start Order'
+  // Subtotal/total are already shown in the order summary above the button, so
+  // the label is just the action.
+  const ctaLabel = cartCount > 0 ? 'Continue to Checkout' : 'Browse Menu → Start Order'
+
+  // Login gate: only the checkout action requires auth. Direct Entry (restaurant
+  // admin placing on behalf of a customer) is never gated. When logged out, open
+  // the auth modal with a pending action that resumes checkout after sign-in.
+  function proceedToCheckout(closeMobileCart: boolean) {
+    if (!canCheckout) return
+    cancelPreview()
+    if (closeMobileCart) setMobileCartOpen(false)
+    setCheckoutOpen(true)
+  }
+  function startCheckout(closeMobileCart: boolean) {
+    if (!canCheckout) return
+    if (!user && !isDirectEntry) {
+      openAuthModal(() => proceedToCheckout(closeMobileCart), 'login')
+      return
+    }
+    proceedToCheckout(closeMobileCart)
+  }
 
   function genLineId(): string {
     return Math.random().toString(36).slice(2) + Date.now().toString(36)
@@ -1067,6 +1093,14 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 <span style={{ color: '#555' }}>Subtotal</span>
                 <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(pricingPreview?.subtotal ?? subtotal)}</span>
               </div>
+              {/* Disco promo — display only. The FM payload + Stripe charge are
+                  unchanged; the discount is refunded via Stripe after the order. */}
+              {summaryPromo && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                  <span style={{ color: '#16A34A' }}>Promo ({summaryPromo.code})</span>
+                  <span style={{ color: '#16A34A', fontWeight: 600 }}>−{formatPrice(summaryPromo.discountAmount)}</span>
+                </div>
+              )}
               {/* Service Charge */}
               {svcAmt > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
@@ -1172,7 +1206,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   <span>Total</span>
                   {previewLoading
                     ? priceSkeleton
-                    : <span>{formatPrice(previewTotal as number)}</span>}
+                    : <span>{formatPrice(Math.max(0, (previewTotal as number) - (summaryPromo?.discountAmount ?? 0)))}</span>}
                 </div>
               )}
               {/* Below-min warning */}
@@ -1380,7 +1414,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             {/* CHECKOUT button — outside the card */}
             {fmRef && (
               <button
-                onClick={() => { if (canCheckout) { cancelPreview(); setCheckoutOpen(true) } }}
+                onClick={() => startCheckout(false)}
                 disabled={!canCheckout}
                 onMouseOver={e => { if (canCheckout) e.currentTarget.style.background = '#4A5FD4' }}
                 onMouseOut={e => { if (canCheckout) e.currentTarget.style.background = '#5B6FE8' }}
@@ -1417,7 +1451,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           {fmRef && (
             <div style={{ padding: '12px 16px', borderTop: '1px solid #f0f0f0', background: '#fff', flexShrink: 0 }}>
               <button
-                onClick={() => { if (canCheckout) { cancelPreview(); setMobileCartOpen(false); setCheckoutOpen(true) } }}
+                onClick={() => startCheckout(true)}
                 disabled={!canCheckout}
                 onMouseOver={e => { if (canCheckout) e.currentTarget.style.background = '#4A5FD4' }}
                 onMouseOut={e => { if (canCheckout) e.currentTarget.style.background = '#5B6FE8' }}
@@ -1614,6 +1648,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           isDirectEntry={isDirectEntry}
           directEntryMethod={directEntryMethod}
           onChangeAddress={() => { setCheckoutOpen(false); openMenus() }}
+          onPromoChange={setSummaryPromo}
           onClose={() => setCheckoutOpen(false)}
         />
       )}

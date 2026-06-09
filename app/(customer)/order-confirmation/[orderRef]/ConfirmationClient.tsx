@@ -20,6 +20,9 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   const [order, setOrder] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  // Disco promo for this order (Neon source of truth) — display only. The card
+  // is charged the full FM total; the discount is refunded via Stripe post-order.
+  const [promo, setPromo] = useState<{ code: string; discountApplied: number } | null>(null)
 
   // When loaded inside an iframe (e.g. the /account/orders "New order
   // from calendar" dialog), notify the parent so it can close the
@@ -43,6 +46,14 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
       .catch(() => { setError('Could not load order details.'); setLoading(false) })
   }, [orderRef])
 
+  // Look up any Disco promo applied to this order (for the breakdown line).
+  useEffect(() => {
+    fetch(`/api/promo/order-promo?orderRef=${orderRef}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.code) setPromo({ code: d.code, discountApplied: Number(d.discountApplied) || 0 }) })
+      .catch(() => {})
+  }, [orderRef])
+
   const restaurantName = order?.restaurantName || order?.restaurant?.name || order?.restaurantReference || ''
   // FM returns a short human-friendly order number on /api/userOrder/{ref}
   // (e.g. 82243405) — show that instead of the UUID. Fall back to the first
@@ -54,6 +65,9 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   const deliveryFee = order?.deliveryFee ?? 0
   const tips = order?.tips ?? 0
   const subtotal = order?.subtotal ?? order?.subTotal ?? 0
+  // FM splits tax across three fields (checkoutPricesV2); platform fee is `fee`.
+  const tax = (Number(order?.stateSalesTaxInPrice) || 0) + (Number(order?.localSalesTaxInPrice) || 0) + (Number(order?.otherSalesTaxInPrice) || 0)
+  const platformFee = Number(order?.fee ?? order?.serviceFee ?? order?.platformFee) || 0
   const orderDate = order?.orderDate || order?.localDate || ''
   const orderTime = order?.orderTime || order?.localTime || ''
   const orderType = order?.orderType || ''
@@ -157,6 +171,16 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                     <span>Subtotal</span><span>{fmt$(subtotal)}</span>
                   </div>
                 )}
+                {tax > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
+                    <span>Taxes</span><span>{fmt$(tax)}</span>
+                  </div>
+                )}
+                {platformFee > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
+                    <span>Platform fee</span><span>{fmt$(platformFee)}</span>
+                  </div>
+                )}
                 {deliveryFee > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
                     <span>Delivery fee</span><span>{fmt$(deliveryFee)}</span>
@@ -166,6 +190,14 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
                     <span>Tip</span><span>{fmt$(tips)}</span>
                   </div>
+                )}
+                {promo && promo.discountApplied > 0 && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: 13, color: '#16A34A', fontWeight: 600 }}>
+                      <span>Promo ({promo.code})</span><span>−{fmt$(promo.discountApplied)}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>Credited back to your card after the order.</div>
+                  </>
                 )}
                 {total > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee', fontSize: 17, fontWeight: 800, color: DARK }}>

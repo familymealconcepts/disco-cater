@@ -72,6 +72,10 @@ interface Props {
   // Close the drawer and reopen the order-setup modal so the diner can
   // re-validate a different delivery address. Falls back to onClose.
   onChangeAddress?: () => void
+  // Notifies the parent when a Disco promo is applied/cleared so the
+  // restaurant-page order summary can show the discount (display only). FM
+  // coupons are not surfaced — they're priced by FM, not a Disco credit.
+  onPromoChange?: (promo: { code: string; discountAmount: number } | null) => void
   onClose: () => void
 }
 
@@ -127,7 +131,7 @@ export default function CheckoutDrawer({
   fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType,
   addr, menuReference, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount,
   isFirstParty = false, isDirectEntry = false, directEntryMethod = 'payment',
-  onChangeAddress, onClose,
+  onChangeAddress, onPromoChange, onClose,
 }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -153,6 +157,16 @@ export default function CheckoutDrawer({
   const [promoLoading, setPromoLoading] = useState(false)
   const [promoError, setPromoError] = useState('')
   const [isFirstTimeUser, setIsFirstTimeUser] = useState(false)
+
+  // Surface a Disco promo to the parent (restaurant-page order summary). FM
+  // coupons are not a Disco credit, so they're reported as null. Display only —
+  // the drawer keeps its own "full charge + note" behavior unchanged.
+  useEffect(() => {
+    if (!onPromoChange) return
+    onPromoChange(appliedPromo?.type === 'disco'
+      ? { code: appliedPromo.code, discountAmount: appliedPromo.discountAmount }
+      : null)
+  }, [appliedPromo, onPromoChange])
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
   const [waitingForAuth, setWaitingForAuth] = useState(false)
