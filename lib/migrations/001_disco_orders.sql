@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS disco_orders (
   purchase_type TEXT,
   restaurant_reference UUID NOT NULL,
   restaurant_name TEXT,
+  restaurant_email TEXT,
   customer_email TEXT NOT NULL,
   customer_id BIGINT,
   customer_first_name TEXT,
@@ -130,6 +131,10 @@ CREATE TABLE IF NOT EXISTS disco_order_events (
 -- Self-heal databases created before order_reference was made nullable. Safe to
 -- run repeatedly: a no-op once the constraint is already dropped.
 ALTER TABLE disco_order_events ALTER COLUMN order_reference DROP NOT NULL;
+
+-- Self-heal databases created before restaurant_email existed. Used by the
+-- webhook to send the restaurant order notification. Safe to run repeatedly.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS restaurant_email TEXT;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_disco_orders_reference ON disco_orders(reference);
