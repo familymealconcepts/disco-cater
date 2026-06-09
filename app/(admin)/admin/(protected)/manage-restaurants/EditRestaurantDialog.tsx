@@ -116,6 +116,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   // (disco_restaurant_overrides), read by the public fullmap. Loaded/saved via
   // /api/admin/restaurant-overrides — independent of the Sanity marketplace doc.
   const [isDisco, setIsDisco] = useState(false)
+  const [visible, setVisible] = useState(false)
   const [orderUrlOverride, setOrderUrlOverride] = useState('')
   // Hero image: hidden from the form. The submit() upload branch + backend
   // marketplace-image route are kept intact; heroFile simply stays null now that
@@ -153,7 +154,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       fetch(`/api/admin/restaurants/${restaurantRef}`).then(r => r.ok ? r.json() : null),
       fetch(`/api/admin/restaurant-marketplace?fmReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`/api/admin/restaurant-overrides?restaurantReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([fm, mp, ov]: [FmRestaurant | null, SanityMarketplace | null, { isPremium?: boolean; orderUrl?: string } | null]) => {
+    ]).then(([fm, mp, ov]: [FmRestaurant | null, SanityMarketplace | null, { isPremium?: boolean; visible?: boolean; orderUrl?: string } | null]) => {
       if (cancel) return
       if (fm) {
         setExisting(fm)
@@ -179,9 +180,11 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         setLng(mp.lng != null ? String(mp.lng) : '')
         setOrderUrl(mp.orderUrl || '')
       }
-      // Premium + order-URL override come from Neon (source of truth for fullmap).
+      // Premium + map visibility + order-URL override come from Neon (source of
+      // truth for the fullmap).
       if (ov) {
         setIsDisco(!!ov.isPremium)
+        setVisible(!!ov.visible)
         setOrderUrlOverride(ov.orderUrl || '')
       }
     }).catch(() => { if (!cancel) setErr('Failed to load restaurant') })
@@ -243,9 +246,9 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       const ovRes = await fetch('/api/admin/restaurant-overrides', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantReference: restaurantRef, isPremium: isDisco, orderUrl: orderUrlOverride || undefined }),
+        body: JSON.stringify({ restaurantReference: restaurantRef, isPremium: isDisco, visible, orderUrl: orderUrlOverride || undefined }),
       })
-      if (!ovRes.ok) throw new Error('Saved restaurant, but the Premium / order-URL override failed to save')
+      if (!ovRes.ok) throw new Error('Saved restaurant, but the Premium / visibility / order-URL override failed to save')
 
       if (logoFile) {
         const fd = new FormData(); fd.append('file', logoFile)
@@ -365,6 +368,21 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
               <div style={section}>
                 <div style={sTitle}>Marketplace listing (Premium)</div>
                 <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>Controls the Disco fullmap. Saved to Disco (Neon), not Sanity.</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                  <label style={{ ...label, marginBottom: 0 }}>Show on Disco Cater map</label>
+                  {/* visible toggle — a restaurant only appears on the fullmap when this is on. */}
+                  <button type="button" onClick={() => setVisible(v => !v)} aria-pressed={visible}
+                    style={{
+                      border: 'none', borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 700,
+                      cursor: 'pointer', fontFamily: F, transition: 'opacity 0.15s',
+                      ...(visible
+                        ? { background: BLUE, color: '#fff' }
+                        : { background: '#eee', color: '#999' }),
+                    }}>
+                    {visible ? 'Visible ✓' : 'Hidden'}
+                  </button>
+                  <span style={{ fontSize: 12, color: '#aaa' }}>{visible ? 'On the map' : 'Off — tap to show'}</span>
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
                   <label style={{ ...label, marginBottom: 0 }}>Premium</label>
                   {/* isDisco toggle, shown as a Premium pill. Click toggles. */}

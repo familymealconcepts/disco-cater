@@ -17,13 +17,14 @@ export async function GET(req: NextRequest) {
   try {
     await runMigrations()
     const rows = (await sql`
-      SELECT restaurant_reference, is_premium, order_url
+      SELECT restaurant_reference, is_premium, visible, order_url
       FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
-    `) as { restaurant_reference: string; is_premium: boolean; order_url: string | null }[]
+    `) as { restaurant_reference: string; is_premium: boolean; visible: boolean; order_url: string | null }[]
     const row = rows[0]
     return NextResponse.json({
       restaurantReference: ref,
       isPremium: row?.is_premium ?? false,
+      visible: row?.visible ?? false,
       orderUrl: row?.order_url ?? '',
     })
   } catch (e) {
@@ -41,18 +42,20 @@ export async function PATCH(req: NextRequest) {
     const restaurantReference: string | undefined = body?.restaurantReference
     if (!restaurantReference) return NextResponse.json({ error: 'restaurantReference required' }, { status: 400 })
     const isPremium = body?.isPremium === true
+    const visible = body?.visible === true
     const orderUrl: string | null = body?.orderUrl ? String(body.orderUrl) : null
 
     await runMigrations()
     await sql`
-      INSERT INTO disco_restaurant_overrides (restaurant_reference, is_premium, order_url, updated_at)
-      VALUES (${restaurantReference}, ${isPremium}, ${orderUrl}, NOW())
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, is_premium, visible, order_url, updated_at)
+      VALUES (${restaurantReference}, ${isPremium}, ${visible}, ${orderUrl}, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE
         SET is_premium = EXCLUDED.is_premium,
+            visible = EXCLUDED.visible,
             order_url = EXCLUDED.order_url,
             updated_at = NOW()
     `
-    return NextResponse.json({ ok: true, restaurantReference, isPremium, orderUrl })
+    return NextResponse.json({ ok: true, restaurantReference, isPremium, visible, orderUrl })
   } catch (e) {
     console.error('[restaurant-overrides] PATCH failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to save override' }, { status: 500 })

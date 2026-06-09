@@ -51,11 +51,15 @@ export async function runMigrations(): Promise<void> {
     `CREATE TABLE IF NOT EXISTS disco_restaurant_overrides (
       restaurant_reference TEXT PRIMARY KEY,
       is_premium BOOLEAN NOT NULL DEFAULT false,
+      visible BOOLEAN NOT NULL DEFAULT false,
       order_url TEXT,
       notes TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
+    // Self-heal DBs created before `visible` existed. Drives fullmap listing:
+    // a restaurant appears only when an admin marks it visible.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS visible BOOLEAN NOT NULL DEFAULT false`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true

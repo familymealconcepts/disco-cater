@@ -4,39 +4,13 @@ import { getFmServiceAuthHeader } from '../../../lib/fm-service-auth'
 
 // Public restaurant feed for the fullmap. Bypasses Sanity entirely: pulls live
 // restaurants straight from FM (via a server service account) and layers Disco's
-// own Premium/order-URL overrides from Neon. Forced dynamic (no caching) while
-// we debug the FM field filtering; revert to `revalidate = 300` once verified.
-export const dynamic = 'force-dynamic'
+// own overrides from Neon. A restaurant appears on the map ONLY when a Disco
+// admin has marked it visible in disco_restaurant_overrides — FM's admin list
+// reports type "ORDERING" for everything, so there's no MARKETPLACE flag to key
+// off; the `visible` override is our source of truth instead. Cached 5 minutes.
+export const revalidate = 300
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
-
-// Cuisine pill vocabulary used by the fullmap filter.
-const CUISINE_PILLS = [
-  'American', 'Italian', 'Mexican', 'Japanese', 'Chinese', 'Indian', 'Mediterranean',
-  'Thai', 'Korean', 'French', 'Middle Eastern', 'Caribbean', 'BBQ', 'Vegan', 'Other',
-] as const
-
-// Map an arbitrary FM cuisine/category string onto one of our pill values.
-function mapCuisine(raw?: string): string {
-  if (!raw) return 'Other'
-  const s = raw.toLowerCase()
-  if (s.includes('american')) return 'American'
-  if (s.includes('ital')) return 'Italian'
-  if (s.includes('mex')) return 'Mexican'
-  if (s.includes('japan') || s.includes('sushi')) return 'Japanese'
-  if (s.includes('chin')) return 'Chinese'
-  if (s.includes('indian')) return 'Indian'
-  if (s.includes('medi')) return 'Mediterranean'
-  if (s.includes('thai')) return 'Thai'
-  if (s.includes('korea')) return 'Korean'
-  if (s.includes('french')) return 'French'
-  if (s.includes('middle east')) return 'Middle Eastern'
-  if (s.includes('caribb') || s.includes('jamaic')) return 'Caribbean'
-  if (s.includes('bbq') || s.includes('barbe')) return 'BBQ'
-  if (s.includes('vegan') || s.includes('vegetar') || s.includes('plant')) return 'Vegan'
-  const exact = CUISINE_PILLS.find((p) => p.toLowerCase() === s)
-  return exact || 'Other'
-}
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
@@ -85,44 +59,18 @@ export async function GET() {
 
     const fmRows = await fetchAllFmRestaurants()
     const overrideRows = (await sql`
-      SELECT restaurant_reference, is_premium, order_url FROM disco_restaurant_overrides
-    `) as { restaurant_reference: string; is_premium: boolean; order_url: string | null }[]
+      SELECT restaurant_reference, is_premium, order_url, visible FROM disco_restaurant_overrides
+    `) as { restaurant_reference: string; is_premium: boolean; order_url: string | null; visible: boolean }[]
 
     const overrides = new Map(overrideRows.map((o) => [o.restaurant_reference, o]))
 
-    // TEMP DEBUG: inspect the FM field values we filter on (remove once verified).
-    console.log('[Restaurants API] Total FM restaurants fetched:', fmRows.length)
-    console.log('[Restaurants API] Sample FM restaurant fields:', JSON.stringify(
-      fmRows.slice(0, 3).map((r) => {
-        const addr = (r.address || {}) as Record<string, unknown>
-        return {
-          name: r.businessName,
-          restaurantStatus: r.restaurantStatus,
-          status: r.status,
-          type: r.type,
-          blocked: r.blocked,
-          hasLat: addr.latitude != null,
-          hasLng: addr.longitude != null,
-        }
-      }), null, 2,
-    ))
-    console.log('[Restaurants API] Sample cuisine fields:', JSON.stringify(
-      fmRows.slice(0, 5).map((r) => ({
-        name: r.businessName,
-        cuisine: r.cuisine,
-        cuisineType: r.cuisineType,
-        category: r.category,
-        categories: r.categories,
-        restaurantType: r.restaurantType,
-      })), null, 2,
-    ))
-
-    // Core qualification: active marketplace restaurants only.
+    // Core qualification: active, non-blocked restaurants. (FM reports type
+    // "ORDERING" for all of them, so there's no MARKETPLACE filter — map
+    // visibility is driven entirely by the `visible` override below.)
     const qualifying = fmRows.filter((r) => {
-      const status = String((r.restaurantStatus ?? r.status) || '').toUpperCase()
-      const type = String(r.type || '').toUpperCase()
+      const status = String((r.status ?? r.restaurantStatus) || '').toUpperCase()
       const blocked = r.blocked === true
-      return status === 'ACCEPTED' && !blocked && type === 'MARKETPLACE'
+      return status === 'ACCEPTED' && !blocked
     })
 
     const result = qualifying
@@ -135,17 +83,20 @@ export async function GET() {
         const reference = String(r.reference ?? r.restaurantReference ?? '')
         if (!reference) return null
 
+        // Map visibility is opt-in: only restaurants a Disco admin has marked
+        // visible in disco_restaurant_overrides appear on the fullmap.
+        const ov = overrides.get(reference)
+        if (!ov?.visible) return null
+
         const businessName = String(r.businessName || '')
         const slug = r.businessNameWithoutSpaces
           ? String(r.businessNameWithoutSpaces).toLowerCase()
           : slugify(businessName)
 
-        // FM's cuisine field name is still being confirmed (see debug log above),
-        // so try the likely candidates before falling back to 'Other'.
-        const categories = Array.isArray(r.categories) ? (r.categories as string[]) : []
-        const cuisine = mapCuisine(
-          (r.cuisine as string) || (r.cuisineType as string) || (r.category as string) || categories[0],
-        )
+        // FM's admin list returns no cuisine/category data, so default to 'Other'.
+        // Real cuisine data needs a separate source (Sanity, or a future column
+        // on disco_restaurant_overrides / manual entry).
+        const cuisine = 'Other'
 
         const city = String(addr.city || '')
         const state = String(addr.state || '')
@@ -155,7 +106,6 @@ export async function GET() {
           .filter(Boolean)
           .join(', ')
 
-        const ov = overrides.get(reference)
         const orderUrl = ov?.order_url || `/restaurants/${slug}`
         const isPremium = ov?.is_premium ?? false
 
@@ -176,16 +126,11 @@ export async function GET() {
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
 
-    // TEMP: cap results while we finish the cuisine mapping + perf work.
-    const limited = result.slice(0, 500)
-    if (result.length > 500) console.log('[Restaurants API] Capped to 500 for performance')
-
-    const filteredOut = fmRows.length - result.length
     console.log(
-      `[Restaurants API] Returning ${limited.length} restaurants (${qualifying.length} MARKETPLACE+ACCEPTED, ${filteredOut} filtered out)`,
+      `[Restaurants API] Returning ${result.length} visible restaurants (of ${qualifying.length} ACCEPTED, ${fmRows.length} fetched)`,
     )
 
-    return NextResponse.json(limited)
+    return NextResponse.json(result)
   } catch (e) {
     console.error('[Restaurants API] failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to load restaurants' }, { status: 500 })
