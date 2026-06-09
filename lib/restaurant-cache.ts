@@ -53,8 +53,6 @@ interface CacheRow {
   reference: string
   name: string
   slug: string
-  description: string | null
-  imageUrl: string | null
   lat: number
   lng: number
   location: string
@@ -86,22 +84,14 @@ function normalize(r: FmRow): CacheRow | null {
     .filter(Boolean)
     .join(', ')
 
-  return {
-    reference,
-    name,
-    slug,
-    description: typeof r.description === 'string' ? r.description : null,
-    imageUrl: typeof r.locationImage === 'string' ? r.locationImage : null,
-    lat,
-    lng,
-    location,
-    address,
-  }
+  return { reference, name, slug, lat, lng, location, address }
 }
 
 /**
- * Fetches all FM restaurants, filters to active+coords, and upserts them into
- * disco_restaurant_cache. Returns counts + duration.
+ * Fetches all FM restaurants, filters to active+coords, and upserts the
+ * FM-OWNED columns into disco_restaurant_cache. cuisine/description/image_url are
+ * deliberately left alone on conflict — those are owned by the Sanity import.
+ * Returns counts + duration.
  */
 export async function refreshRestaurantCache(): Promise<{ total: number; cached: number; durationMs: number }> {
   const startedAt = Date.now()
@@ -110,21 +100,20 @@ export async function refreshRestaurantCache(): Promise<{ total: number; cached:
   const fmRows = await fetchAllFmRestaurants()
   const rows = fmRows.map(normalize).filter((x): x is CacheRow => x !== null)
 
-  // Upsert in concurrent chunks (FM cuisine is unknown → cache keeps the
-  // table default 'Other'). One round-trip per row, parallelized per chunk.
+  // Upsert in concurrent chunks. On INSERT, cuisine defaults to 'Other' and
+  // description/image_url stay null until the Sanity import fills them; on
+  // conflict we only refresh the FM-owned fields, never the Sanity ones.
   const CHUNK = 50
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK)
     await Promise.all(
       chunk.map((c) => sql`
         INSERT INTO disco_restaurant_cache
-          (restaurant_reference, name, slug, description, image_url, lat, lng, location, address, cached_at)
-        VALUES (${c.reference}, ${c.name}, ${c.slug}, ${c.description}, ${c.imageUrl}, ${c.lat}, ${c.lng}, ${c.location}, ${c.address}, NOW())
+          (restaurant_reference, name, slug, lat, lng, location, address, cached_at)
+        VALUES (${c.reference}, ${c.name}, ${c.slug}, ${c.lat}, ${c.lng}, ${c.location}, ${c.address}, NOW())
         ON CONFLICT (restaurant_reference) DO UPDATE SET
           name = EXCLUDED.name,
           slug = EXCLUDED.slug,
-          description = EXCLUDED.description,
-          image_url = EXCLUDED.image_url,
           lat = EXCLUDED.lat,
           lng = EXCLUDED.lng,
           location = EXCLUDED.location,

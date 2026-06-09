@@ -200,6 +200,24 @@ export default function RestaurantsOrderingPage() {
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncProgress, setSyncProgress] = useState('')
   const [cacheBusy, setCacheBusy] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
+
+  // One-time: pull cuisine/description/image from Sanity into the map cache.
+  async function importSanityData() {
+    if (!confirm('This will import cuisine, description and images from Sanity into the map cache. Continue?')) return
+    setImportBusy(true)
+    setError('')
+    try {
+      const res = await fetch('/api/admin/import-sanity-restaurants', { method: 'POST' })
+      const d = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(d?.error || 'Sanity import failed')
+      showToast(`Sanity import: ${d.matched} matched, ${d.inserted} inserted, ${d.skipped} skipped`)
+    } catch (e) {
+      setError((e as Error).message || 'Sanity import failed')
+    } finally {
+      setImportBusy(false)
+    }
+  }
 
   // Rebuild the public map cache (disco_restaurant_cache) from FM.
   async function refreshMapCache() {
@@ -324,6 +342,10 @@ export default function RestaurantsOrderingPage() {
           <button onClick={refreshMapCache} disabled={cacheBusy} title="Rebuild the public map cache from FM"
             style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: cacheBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: cacheBusy ? 0.6 : 1 }}>
             {cacheBusy ? 'Refreshing…' : 'Refresh Map Cache'}
+          </button>
+          <button onClick={importSanityData} disabled={importBusy} title="Import cuisine/description/images from Sanity into the map cache"
+            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: importBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: importBusy ? 0.6 : 1 }}>
+            {importBusy ? 'Importing…' : 'Import Sanity Data'}
           </button>
           <button onClick={() => setAddOpen(true)}
             style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>

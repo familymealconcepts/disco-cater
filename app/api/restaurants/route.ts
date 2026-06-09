@@ -14,16 +14,17 @@ export async function GET() {
     await runMigrations()
 
     const rows = (await sql`
-      SELECT r.restaurant_reference, r.name, r.slug, r.cuisine, r.description, r.image_url,
-             r.lat, r.lng, r.location, r.address,
-             o.is_premium, o.order_url
-      FROM disco_restaurant_cache r
-      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = r.restaurant_reference
+      SELECT c.restaurant_reference, c.name, c.slug, c.cuisine, c.description, c.image_url,
+             c.lat, c.lng, c.location, c.address,
+             o.is_premium, o.order_url, o.visible, o.stripe_connected
+      FROM disco_restaurant_cache c
+      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE o.visible = true AND o.stripe_connected = true
     `) as {
       restaurant_reference: string; name: string; slug: string | null; cuisine: string | null
       description: string | null; image_url: string | null; lat: string | null; lng: string | null
       location: string | null; address: string | null; is_premium: boolean | null; order_url: string | null
+      visible: boolean | null; stripe_connected: boolean | null
     }[]
 
     const result = rows
