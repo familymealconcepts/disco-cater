@@ -184,6 +184,28 @@ export default function RestaurantsOrderingPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const [addOpen, setAddOpen] = useState(false)
   const [editRef, setEditRef] = useState<string | null>(null)
+  const [bulkBusy, setBulkBusy] = useState(false)
+
+  // One-time: show every active FM restaurant on the Disco fullmap.
+  async function bulkSetVisible() {
+    if (!confirm('This will show all active FM restaurants on the Disco Cater map. Continue?')) return
+    setBulkBusy(true)
+    setError('')
+    try {
+      const res = await fetch('/api/admin/bulk-set-visible', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      })
+      const d = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(d?.error || 'Bulk update failed')
+      showToast(`Map updated: ${d.inserted} added, ${d.updated} already-present set visible`)
+    } catch (e) {
+      setError((e as Error).message || 'Bulk update failed')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
@@ -199,6 +221,10 @@ export default function RestaurantsOrderingPage() {
             onChange={e => setSearchInput(e.target.value)}
             style={{ ...inputSt, width: 240 }}
           />
+          <button onClick={bulkSetVisible} disabled={bulkBusy} title="Show all active FM restaurants on the Disco Cater map"
+            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: bulkBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: bulkBusy ? 0.6 : 1 }}>
+            {bulkBusy ? 'Setting…' : 'Bulk Set Visible'}
+          </button>
           <button onClick={() => setAddOpen(true)}
             style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
             + Add Restaurant
