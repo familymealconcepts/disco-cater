@@ -226,7 +226,7 @@ export default function RestaurantsOrderingPage() {
     setSyncBusy(true)
     setSyncProgress('')
     setError('')
-    const BATCH = 100
+    const BATCH = 25
     let offset = 0
     let connected = 0
     let notConnected = 0
