@@ -65,6 +65,7 @@ interface CityRestaurant {
   image?: string
   isDisco?: boolean
   description?: string
+  orderUrl?: string
 }
 
 function cityDescription(name: string): string {
@@ -98,7 +99,7 @@ async function fetchCityRestaurants(cfg: CityConfig): Promise<CityRestaurant[]> 
         "cuisine": coalesce(cuisines[0], cuisine),
         cuisines, location,
         "image": image.asset->url,
-        isDisco, description
+        isDisco, description, orderUrl
       }`,
     )
   } catch {
@@ -123,6 +124,8 @@ const CITY_FOOTER_LINKS = [
 export default async function CityLanding({ city }: { city: CityConfig }) {
   const restaurants = await fetchCityRestaurants(city)
   const description = cityDescription(city.name)
+  // Diagnostic: confirm the Sanity-resolved image URL shape for the cards.
+  console.log('[Image] src:', restaurants.find(r => r.image)?.image)
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -156,13 +159,15 @@ export default async function CityLanding({ city }: { city: CityConfig }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 20 }}>
             {restaurants.map(r => {
               const slug = r.slug?.current
-              const href = slug ? `/restaurants/${slug}` : '/fullmap'
+              // The on-site ordering page (/restaurants/[slug]) is the correct
+              // destination; fall back to the restaurant's orderUrl, then the map.
+              const href = slug ? `/restaurants/${slug}` : (r.orderUrl || '/fullmap')
               const tag = (r.cuisines && r.cuisines.length > 0 ? r.cuisines[0] : r.cuisine) || ''
               return (
                 <Link
                   key={r._id}
                   href={href}
-                  style={{ textDecoration: 'none', color: 'inherit', border: '1px solid #eee', borderRadius: 14, overflow: 'hidden', background: '#fff', display: 'block', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}
+                  style={{ textDecoration: 'none', color: 'inherit', border: '1px solid #eee', borderRadius: 14, overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}
                 >
                   <div style={{ height: 150, background: '#f4f4fb', overflow: 'hidden', position: 'relative' }}>
                     {r.image ? (
@@ -174,13 +179,19 @@ export default async function CityLanding({ city }: { city: CityConfig }) {
                       </div>
                     )}
                   </div>
-                  <div style={{ padding: '13px 15px 16px' }}>
+                  <div style={{ padding: '13px 15px 16px', display: 'flex', flexDirection: 'column', flex: 1 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 4, letterSpacing: '-0.01em' }}>
                       {r.name}{r.isDisco ? ' 🪩' : ''}
                     </div>
                     <div style={{ fontSize: 12.5, color: '#888' }}>
                       {[tag, r.location].filter(Boolean).join(' · ')}
                     </div>
+                    {/* Visible Order CTA. The whole card already navigates via the
+                        parent Link (to /restaurants/[slug] or orderUrl), so this is
+                        a styled span — not a nested anchor — to avoid invalid HTML. */}
+                    <span style={{ marginTop: 14, alignSelf: 'flex-start', background: GRAD, color: '#fff', fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 999 }}>
+                      Order Now →
+                    </span>
                   </div>
                 </Link>
               )

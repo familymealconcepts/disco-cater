@@ -216,7 +216,11 @@ function FullMapInner() {
   useEffect(() => {
     fetch('/api/restaurants')
       .then(r => r.json())
-      .then(data => { setRestaurants(data); setFiltered(data); setRestaurantsLoaded(true) })
+      .then(data => {
+        // Diagnostic: confirm the Sanity-resolved image URL shape for cards.
+        console.log('[Image] src:', Array.isArray(data) ? data.find((r: { image?: string }) => r.image)?.image : undefined)
+        setRestaurants(data); setFiltered(data); setRestaurantsLoaded(true)
+      })
   }, [])
 
   function initMapInstance() {
