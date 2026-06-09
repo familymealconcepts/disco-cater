@@ -11,8 +11,21 @@ const KEY =
   process.env.GOOGLE_PLACES_API_KEY ||
   process.env.GOOGLE_MAPS_API_KEY
 
-const TEXT_SEARCH = 'https://maps.googleapis.com/maps/api/place/textsearch/json'
-const DETAILS = 'https://maps.googleapis.com/maps/api/place/details/json'
+// Places API (New) endpoints — these return high-quality editorial/generative
+// summaries the legacy web service does not.
+const SEARCH_TEXT = 'https://places.googleapis.com/v1/places:searchText'
+const PLACE_DETAILS = 'https://places.googleapis.com/v1/places'
+
+// Places API (New) summaries are LocalizedText ({ text, languageCode }).
+// generativeSummary.overview and editorialSummary are both this shape.
+function textOf(v: unknown): string {
+  if (!v) return ''
+  if (typeof v === 'string') return v.trim()
+  if (typeof v === 'object' && v !== null && 'text' in v) {
+    return String((v as { text?: unknown }).text ?? '').trim()
+  }
+  return ''
+}
 
 export async function GET(req: NextRequest) {
   // Admin-only (same gate as other admin routes).
@@ -32,39 +45,37 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // 1. Text Search → first matching place.
-    const tsRes = await fetch(`${TEXT_SEARCH}?query=${encodeURIComponent(query)}&key=${KEY}`)
+    // 1. Text Search (New) → first matching place id.
+    const tsRes = await fetch(SEARCH_TEXT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': KEY,
+        'X-Goog-FieldMask': 'places.id,places.editorialSummary,places.generativeSummary,places.displayName',
+      },
+      body: JSON.stringify({ textQuery: query }),
+    })
     const ts = await tsRes.json().catch(() => null)
-    const placeId = ts?.results?.[0]?.place_id as string | undefined
+    const placeId = ts?.places?.[0]?.id as string | undefined
     if (!placeId) {
-      return NextResponse.json({ error: 'No description found on Google Places' }, { status: 404 })
+      return NextResponse.json({ error: 'No editorial description available on Google Places for this restaurant.' }, { status: 404 })
     }
 
-    // 2. Place Details → editorial_summary.overview (preferred) or a fallback.
-    const fields = 'editorial_summary,formatted_address,types,name'
-    const dRes = await fetch(`${DETAILS}?place_id=${placeId}&fields=${fields}&key=${KEY}`)
-    const d = await dRes.json().catch(() => null)
-    const result = d?.result || {}
+    // 2. Place Details (New) → editorial/generative summaries.
+    const fields = 'editorialSummary,generativeSummary,displayName'
+    const dRes = await fetch(`${PLACE_DETAILS}/${placeId}?fields=${fields}&key=${KEY}`)
+    const place = await dRes.json().catch(() => null)
 
-    const overview = result?.editorial_summary?.overview
-    if (overview && String(overview).trim()) {
-      return NextResponse.json({ description: String(overview).trim() })
+    // 3. Prefer the AI generative overview, then the human editorial summary.
+    const description = textOf(place?.generativeSummary?.overview) || textOf(place?.editorialSummary)
+
+    // 4. No quality summary available — tell the admin to write one manually
+    // (no low-quality types+address fallback).
+    if (!description) {
+      return NextResponse.json({ error: 'No editorial description available on Google Places for this restaurant.' }, { status: 404 })
     }
-
-    // Fallback: build a short description from formatted_address + readable types.
-    const types: string[] = Array.isArray(result?.types) ? result.types : []
-    const readableTypes = types
-      .filter(t => !['point_of_interest', 'establishment', 'food'].includes(t))
-      .map(t => t.replace(/_/g, ' '))
-      .slice(0, 4)
-    const parts: string[] = []
-    if (readableTypes.length) parts.push(readableTypes.join(', '))
-    if (result?.formatted_address) parts.push(`Located at ${result.formatted_address}`)
-    const fallback = parts.join('. ').trim()
-
-    if (fallback) return NextResponse.json({ description: fallback })
-    return NextResponse.json({ error: 'No description found on Google Places' }, { status: 404 })
+    return NextResponse.json({ description })
   } catch {
-    return NextResponse.json({ error: 'No description found on Google Places' }, { status: 502 })
+    return NextResponse.json({ error: 'No editorial description available on Google Places for this restaurant.' }, { status: 502 })
   }
 }
