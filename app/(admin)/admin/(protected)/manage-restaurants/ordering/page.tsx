@@ -199,6 +199,24 @@ export default function RestaurantsOrderingPage() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncProgress, setSyncProgress] = useState('')
+  const [cacheBusy, setCacheBusy] = useState(false)
+
+  // Rebuild the public map cache (disco_restaurant_cache) from FM.
+  async function refreshMapCache() {
+    if (!confirm('This will rebuild the map cache from FM (all active restaurants). Continue?')) return
+    setCacheBusy(true)
+    setError('')
+    try {
+      const res = await fetch('/api/admin/refresh-restaurant-cache', { method: 'POST' })
+      const d = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(d?.error || 'Cache refresh failed')
+      showToast(`Map cache refreshed: ${d.cached} cached of ${d.total} fetched (${Math.round((d.durationMs || 0) / 1000)}s)`)
+    } catch (e) {
+      setError((e as Error).message || 'Cache refresh failed')
+    } finally {
+      setCacheBusy(false)
+    }
+  }
   // Per-restaurant Stripe status (keyed by reference) from Neon overrides, shown
   // as a column on each row. checkedAt === null means "never synced".
   const [stripeMap, setStripeMap] = useState<Record<string, { connected: boolean; checkedAt: string | null }>>({})
@@ -302,6 +320,10 @@ export default function RestaurantsOrderingPage() {
           <button onClick={syncStripeStatus} disabled={syncBusy} title="Check Stripe Connect status for all visible restaurants"
             style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: syncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: syncBusy ? 0.6 : 1 }}>
             {syncBusy ? (syncProgress || 'Syncing…') : 'Sync Stripe Status'}
+          </button>
+          <button onClick={refreshMapCache} disabled={cacheBusy} title="Rebuild the public map cache from FM"
+            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: cacheBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: cacheBusy ? 0.6 : 1 }}>
+            {cacheBusy ? 'Refreshing…' : 'Refresh Map Cache'}
           </button>
           <button onClick={() => setAddOpen(true)}
             style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>

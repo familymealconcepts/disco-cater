@@ -64,6 +64,22 @@ export async function runMigrations(): Promise<void> {
     // The fullmap only lists restaurants that are visible AND stripe_connected.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_connected BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_checked_at TIMESTAMPTZ`,
+    // Snapshot of FM restaurants for fast public map loads — refreshed by
+    // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
+    // /api/restaurants reads Neon only, never FM.
+    `CREATE TABLE IF NOT EXISTS disco_restaurant_cache (
+      restaurant_reference TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT,
+      cuisine TEXT DEFAULT 'Other',
+      description TEXT,
+      image_url TEXT,
+      lat NUMERIC,
+      lng NUMERIC,
+      location TEXT,
+      address TEXT,
+      cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true

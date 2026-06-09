@@ -21,6 +21,7 @@ import { createClient } from '@sanity/client'
 import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
 import { markRestaurantSyncActive } from '../../../../lib/syncState'
 import { sql, runMigrations } from '../../../../lib/db'
+import { refreshRestaurantCache } from '../../../../lib/restaurant-cache'
 
 // Cross-run cursor: where the next run starts in the qualifying list. Persisted
 // in Neon (sync_state) so each daily run drains the NEXT CAP restaurants instead
@@ -399,7 +400,18 @@ async function handle(): Promise<NextResponse> {
     return NextResponse.json({ success: false, error: 'SANITY_TOKEN not configured on the server' }, { status: 500 })
   }
   try {
-    return NextResponse.json(await runSync())
+    const result = await runSync()
+    // Keep the public map cache (disco_restaurant_cache) fresh daily. Independent
+    // of the Sanity sync — a failure here must not fail the whole cron.
+    let cacheRefresh: unknown
+    try {
+      cacheRefresh = await refreshRestaurantCache()
+      console.log('[sync-restaurants] map cache refreshed:', JSON.stringify(cacheRefresh))
+    } catch (e) {
+      cacheRefresh = { error: e instanceof Error ? e.message : String(e) }
+      console.error('[sync-restaurants] map cache refresh failed:', cacheRefresh)
+    }
+    return NextResponse.json({ ...result, cache_refresh: cacheRefresh })
   } catch (e) {
     return NextResponse.json({ success: false, error: e instanceof Error ? e.message : 'Sync failed' }, { status: 500 })
   }
