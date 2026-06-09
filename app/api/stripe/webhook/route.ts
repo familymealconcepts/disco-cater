@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage } from '../../../../lib/email/notifications'
+import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs'
 
@@ -270,10 +271,11 @@ export async function POST(request: NextRequest) {
 
           await recordEvent(order.reference, 'PAYMENT_SUCCEEDED', event, 'STRIPE_WEBHOOK')
 
-          // Fire-and-forget order confirmation emails. NOT awaited — email
-          // latency/failure must never delay or break the 200 ack. dispatch
-          // does its own fetching and never throws.
-          void dispatchOrderEmails(order.id)
+          // Order confirmation emails. waitUntil keeps the email send alive
+          // after the 200 ack is returned, so it completes even though we don't
+          // block the response on it. dispatch does its own fetching and never
+          // throws.
+          waitUntil(dispatchOrderEmails(order.id))
         } else {
           // Payment row exists but order is missing — still log against the ref.
           console.warn('[Webhook] payment_intent.succeeded — payment found but order missing:', orderReference)
