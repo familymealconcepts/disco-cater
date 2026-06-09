@@ -4,8 +4,9 @@ import { getFmServiceAuthHeader } from '../../../lib/fm-service-auth'
 
 // Public restaurant feed for the fullmap. Bypasses Sanity entirely: pulls live
 // restaurants straight from FM (via a server service account) and layers Disco's
-// own Premium/order-URL overrides from Neon. Cached for 5 minutes.
-export const revalidate = 300
+// own Premium/order-URL overrides from Neon. Forced dynamic (no caching) while
+// we debug the FM field filtering; revert to `revalidate = 300` once verified.
+export const dynamic = 'force-dynamic'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
