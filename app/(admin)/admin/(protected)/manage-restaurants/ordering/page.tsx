@@ -68,6 +68,18 @@ function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolea
   )
 }
 
+// Stripe Connect status per row. No indicator until the status has been synced
+// (checkedAt === null). Green = connected, grey = not connected.
+function StripeStatus({ status }: { status?: { connected: boolean; checkedAt: string | null } }) {
+  if (!status || !status.checkedAt) return <span style={{ color: '#ccc', fontSize: 12 }}>—</span>
+  const dot = (color: string) => (
+    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 6, verticalAlign: 'middle' }} />
+  )
+  return status.connected
+    ? <span style={{ fontSize: 12, color: '#1D9E75', whiteSpace: 'nowrap' }}>{dot('#1D9E75')}Connected</span>
+    : <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap' }}>{dot('#bbb')}Not connected</span>
+}
+
 export default function RestaurantsOrderingPage() {
   const [rows, setRows] = useState<Restaurant[]>([])
   const [total, setTotal] = useState(0)
@@ -185,6 +197,43 @@ export default function RestaurantsOrderingPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [editRef, setEditRef] = useState<string | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
+  // Per-restaurant Stripe status (keyed by reference) from Neon overrides, shown
+  // as a column on each row. checkedAt === null means "never synced".
+  const [stripeMap, setStripeMap] = useState<Record<string, { connected: boolean; checkedAt: string | null }>>({})
+
+  const loadStripeMap = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/restaurant-overrides')
+      if (!res.ok) return
+      const d = await res.json()
+      const map: Record<string, { connected: boolean; checkedAt: string | null }> = {}
+      for (const o of (d?.overrides || []) as { restaurantReference: string; stripeConnected: boolean; stripeCheckedAt: string | null }[]) {
+        map[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt }
+      }
+      setStripeMap(map)
+    } catch { /* non-fatal: the column just won't render */ }
+  }, [])
+
+  useEffect(() => { loadStripeMap() }, [loadStripeMap])
+
+  // One-time: probe FM Stripe Connect status for every visible restaurant.
+  async function syncStripeStatus() {
+    if (!confirm('This will check Stripe Connect status for all visible restaurants. This may take several minutes. Continue?')) return
+    setSyncBusy(true)
+    setError('')
+    try {
+      const res = await fetch('/api/admin/sync-stripe-status', { method: 'POST' })
+      const d = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(d?.error || 'Stripe status sync failed')
+      showToast(`Stripe sync: ${d.connected} connected, ${d.notConnected} not (of ${d.total}, ${Math.round((d.durationMs || 0) / 1000)}s)`)
+      await loadStripeMap()
+    } catch (e) {
+      setError((e as Error).message || 'Stripe status sync failed')
+    } finally {
+      setSyncBusy(false)
+    }
+  }
 
   // One-time: show every active FM restaurant on the Disco fullmap.
   async function bulkSetVisible() {
@@ -225,6 +274,10 @@ export default function RestaurantsOrderingPage() {
             style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: bulkBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: bulkBusy ? 0.6 : 1 }}>
             {bulkBusy ? 'Setting…' : 'Bulk Set Visible'}
           </button>
+          <button onClick={syncStripeStatus} disabled={syncBusy} title="Check Stripe Connect status for all visible restaurants"
+            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: syncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: syncBusy ? 0.6 : 1 }}>
+            {syncBusy ? 'Syncing…' : 'Sync Stripe Status'}
+          </button>
           <button onClick={() => setAddOpen(true)}
             style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
             + Add Restaurant
@@ -247,6 +300,7 @@ export default function RestaurantsOrderingPage() {
               <th style={colHead}>Email</th>
               <th style={colHead}>Registration Date</th>
               <th style={colHead}>Checkout Page</th>
+              <th style={colHead}>Stripe</th>
               <th style={colHead}>Status</th>
               <th style={colHead}>Third-Party Allowed</th>
               <th style={colHead}>Hold Payments</th>
@@ -255,8 +309,8 @@ export default function RestaurantsOrderingPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={11} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={11} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
+            {loading && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
             {!loading && rows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
@@ -274,6 +328,7 @@ export default function RestaurantsOrderingPage() {
                   <td style={cell}>
                     {r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: BLUE, textDecoration: 'none' }}>open ↗</a> : '—'}
                   </td>
+                  <td style={cell}><StripeStatus status={stripeMap[r.reference]} /></td>
                   <td style={cell}>
                     <select value={r.restaurantStatus || ''} onChange={e => changeStatus(r, e.target.value)} style={smallSelect}>
                       {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}

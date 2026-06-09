@@ -12,19 +12,46 @@ export async function GET(req: NextRequest) {
   try { await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
 
   const ref = req.nextUrl.searchParams.get('restaurantReference')
-  if (!ref) return NextResponse.json({ error: 'restaurantReference required' }, { status: 400 })
 
   try {
     await runMigrations()
+
+    // No ref → return ALL overrides (used by the Ordering table to show per-row
+    // Premium / visibility / Stripe status without one call per restaurant).
+    if (!ref) {
+      const rows = (await sql`
+        SELECT restaurant_reference, is_premium, visible, stripe_connected, stripe_checked_at, order_url
+        FROM disco_restaurant_overrides
+      `) as {
+        restaurant_reference: string; is_premium: boolean; visible: boolean
+        stripe_connected: boolean; stripe_checked_at: string | null; order_url: string | null
+      }[]
+      return NextResponse.json({
+        overrides: rows.map((r) => ({
+          restaurantReference: r.restaurant_reference,
+          isPremium: r.is_premium,
+          visible: r.visible,
+          stripeConnected: r.stripe_connected,
+          stripeCheckedAt: r.stripe_checked_at,
+          orderUrl: r.order_url ?? '',
+        })),
+      })
+    }
+
     const rows = (await sql`
-      SELECT restaurant_reference, is_premium, visible, order_url
+      SELECT restaurant_reference, is_premium, visible, stripe_connected, stripe_checked_at, order_url
       FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
-    `) as { restaurant_reference: string; is_premium: boolean; visible: boolean; order_url: string | null }[]
+    `) as {
+      restaurant_reference: string; is_premium: boolean; visible: boolean
+      stripe_connected: boolean; stripe_checked_at: string | null; order_url: string | null
+    }[]
     const row = rows[0]
     return NextResponse.json({
       restaurantReference: ref,
       isPremium: row?.is_premium ?? false,
       visible: row?.visible ?? false,
+      stripeConnected: row?.stripe_connected ?? false,
+      stripeCheckedAt: row?.stripe_checked_at ?? null,
       orderUrl: row?.order_url ?? '',
     })
   } catch (e) {

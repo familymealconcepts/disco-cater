@@ -59,8 +59,8 @@ export async function GET() {
 
     const fmRows = await fetchAllFmRestaurants()
     const overrideRows = (await sql`
-      SELECT restaurant_reference, is_premium, order_url, visible FROM disco_restaurant_overrides
-    `) as { restaurant_reference: string; is_premium: boolean; order_url: string | null; visible: boolean }[]
+      SELECT restaurant_reference, is_premium, order_url, visible, stripe_connected FROM disco_restaurant_overrides
+    `) as { restaurant_reference: string; is_premium: boolean; order_url: string | null; visible: boolean; stripe_connected: boolean }[]
 
     const overrides = new Map(overrideRows.map((o) => [o.restaurant_reference, o]))
 
@@ -83,10 +83,11 @@ export async function GET() {
         const reference = String(r.reference ?? r.restaurantReference ?? '')
         if (!reference) return null
 
-        // Map visibility is opt-in: only restaurants a Disco admin has marked
-        // visible in disco_restaurant_overrides appear on the fullmap.
+        // Map listing is opt-in AND payment-ready: a restaurant appears only
+        // when a Disco admin marked it visible AND its Stripe Connect status
+        // (synced via /api/admin/sync-stripe-status) is connected.
         const ov = overrides.get(reference)
-        if (!ov?.visible) return null
+        if (!ov?.visible || !ov?.stripe_connected) return null
 
         const businessName = String(r.businessName || '')
         const slug = r.businessNameWithoutSpaces
@@ -127,7 +128,7 @@ export async function GET() {
       .filter((x): x is NonNullable<typeof x> => x !== null)
 
     console.log(
-      `[Restaurants API] Returning ${result.length} visible restaurants (of ${qualifying.length} ACCEPTED, ${fmRows.length} fetched)`,
+      `[Restaurants API] Returning ${result.length} visible+stripe-connected restaurants (of ${qualifying.length} ACCEPTED, ${fmRows.length} fetched)`,
     )
 
     return NextResponse.json(result)

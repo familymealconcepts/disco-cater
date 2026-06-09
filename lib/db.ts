@@ -60,6 +60,10 @@ export async function runMigrations(): Promise<void> {
     // Self-heal DBs created before `visible` existed. Drives fullmap listing:
     // a restaurant appears only when an admin marks it visible.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS visible BOOLEAN NOT NULL DEFAULT false`,
+    // Stripe Connect status, populated by the /api/admin/sync-stripe-status tool.
+    // The fullmap only lists restaurants that are visible AND stripe_connected.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_connected BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_checked_at TIMESTAMPTZ`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true
