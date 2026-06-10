@@ -43,6 +43,12 @@ export async function GET(request: Request) {
       page++
     }
 
+    // One-time visibility into FM's actual customer shape so we can confirm
+    // where totalOrders / lifetimeValue actually live.
+    if (all.length > 0) {
+      console.log('[Export Customers] Sample raw customer:', JSON.stringify(all[0], null, 2))
+    }
+
     const customers = all.map((c) => ({
       id: c.id ?? null,
       email: c.email ?? null,
