@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, runMigrations } from '../../../../lib/db'
+import { sql } from '../../../../lib/db'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 
 // Enrich disco_restaurant_cache rows that are missing cuisine/description/image
@@ -116,6 +116,13 @@ async function inferCuisineWithClaude(
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// True for transient Neon fetch/connection failures (the HTTP driver throws
+// these as fetch/network errors), as opposed to a genuine query/logic error.
+function isConnError(e: unknown): boolean {
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
+  return /fetch|connect|econn|network|socket|timeout|terminat|reset/.test(msg)
+}
+
 interface PlaceResult {
   cuisine: string | null   // Places type-map result (fallback if Claude fails)
   types: string[]          // raw Google Places types (fed to Claude)
@@ -125,7 +132,7 @@ interface PlaceResult {
 
 // One Places lookup for a restaurant. Returns whatever fields Google could
 // supply; nulls mean "no value, leave the existing column alone".
-async function lookupPlace(name: string, address: string | null, debug = false): Promise<PlaceResult | null> {
+async function lookupPlace(name: string, address: string | null): Promise<PlaceResult | null> {
   const textQuery = [name, address].filter(Boolean).join(' ').trim()
   if (!textQuery) return null
 
@@ -140,9 +147,6 @@ async function lookupPlace(name: string, address: string | null, debug = false):
     cache: 'no-store',
   })
   const data = await res.json().catch(() => null)
-  if (debug) {
-    console.log('[Enrich] Places response for first restaurant:', JSON.stringify(data, null, 2))
-  }
   const place = data?.places?.[0]
   if (!place) return null
 
@@ -177,7 +181,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await runMigrations()
+    // Migrations are handled on cold start by other routes — this read-only
+    // route doesn't need them, and the extra round-trips contributed to the
+    // connection issues, so they're intentionally not run here.
     const startedAt = Date.now()
 
     const body = await req.json().catch(() => null)
@@ -185,28 +191,37 @@ export async function POST(req: NextRequest) {
     const offset = Math.max(0, Number(body?.offset) || 0)
 
     // Stable count + page of restaurants still missing at least one field.
-    const totalRows = (await sql`
-      SELECT COUNT(*)::int AS n FROM disco_restaurant_cache
-      WHERE cuisine = 'Other' OR cuisine IS NULL OR image_url IS NULL OR description IS NULL
-    `) as { n: number }[]
-    const total = totalRows[0]?.n ?? 0
-
-    // cuisine/description/image_url are selected only so the debug log below can
-    // report what each candidate already has; the enrichment logic uses just
-    // restaurant_reference/name/address.
-    const restaurants = (await sql`
-      SELECT restaurant_reference, name, address, location, cuisine, description, image_url FROM disco_restaurant_cache
-      WHERE cuisine = 'Other' OR cuisine IS NULL OR image_url IS NULL OR description IS NULL
-      ORDER BY restaurant_reference
-      LIMIT ${batchSize} OFFSET ${offset}
-    `) as { restaurant_reference: string; name: string; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null }[]
-
-    console.log('[Enrich] Batch info:', {
-      offset,
-      batchSize,
-      rowsFound: restaurants.length,
-      sample: restaurants.slice(0, 2).map(r => ({ name: r.name, cuisine: r.cuisine, hasImage: !!r.image_url, hasDesc: !!r.description })),
-    })
+    // The initial SELECTs get one transient-connection retry (Neon can drop the
+    // first request after an idle period); a second connection failure → 503.
+    let total = 0
+    let restaurants: { restaurant_reference: string; name: string; address: string | null }[] = []
+    const runSelects = async () => {
+      const totalRows = (await sql`
+        SELECT COUNT(*)::int AS n FROM disco_restaurant_cache
+        WHERE cuisine = 'Other' OR cuisine IS NULL OR image_url IS NULL OR description IS NULL
+      `) as { n: number }[]
+      total = totalRows[0]?.n ?? 0
+      restaurants = (await sql`
+        SELECT restaurant_reference, name, address FROM disco_restaurant_cache
+        WHERE cuisine = 'Other' OR cuisine IS NULL OR image_url IS NULL OR description IS NULL
+        ORDER BY restaurant_reference
+        LIMIT ${batchSize} OFFSET ${offset}
+      `) as { restaurant_reference: string; name: string; address: string | null }[]
+    }
+    try {
+      await runSelects()
+    } catch (e1) {
+      if (!isConnError(e1)) throw e1
+      await sleep(2000)
+      try {
+        await runSelects()
+      } catch (e2) {
+        if (isConnError(e2)) {
+          return NextResponse.json({ error: 'Database connection failed, please try again' }, { status: 503 })
+        }
+        throw e2
+      }
+    }
 
     let enriched = 0
     let skipped = 0
@@ -216,8 +231,7 @@ export async function POST(req: NextRequest) {
       const r = restaurants[i]
       let result: PlaceResult | null = null
       try {
-        // Dump the raw Places response for the first restaurant of the batch.
-        result = await lookupPlace(r.name, r.address, i === 0)
+        result = await lookupPlace(r.name, r.address)
       } catch (err) {
         console.error(`[enrich-restaurants-places] lookup failed for ${r.restaurant_reference}:`, err instanceof Error ? err.message : err)
       }
