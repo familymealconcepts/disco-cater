@@ -322,6 +322,7 @@ export default function RestaurantsOrderingPage() {
           body: JSON.stringify({ batchSize: BATCH, offset }),
         })
         const d = await res.json().catch(() => null)
+        console.log('[Enrich] Batch result:', JSON.stringify(d))
         if (!res.ok) throw new Error(d?.error || 'Enrichment failed')
 
         enriched += d.enriched || 0
