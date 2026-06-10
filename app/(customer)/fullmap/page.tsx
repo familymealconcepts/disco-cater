@@ -75,6 +75,7 @@ type Restaurant = {
   lat: number
   lng: number
   isDisco: boolean
+  featuredOrder?: number | null
   orderUrl: string
   image?: string
   description?: string
@@ -224,7 +225,7 @@ function FullMapInner() {
         const rows: Restaurant[] = (Array.isArray(data) ? data : []).map((r: {
           reference: string; name: string; slug?: string; cuisine?: string
           description?: string; image?: string | null; lat: number; lng: number
-          location?: string; orderUrl?: string; isPremium?: boolean
+          location?: string; orderUrl?: string; isPremium?: boolean; featuredOrder?: number | null
         }) => ({
           _id: r.reference,
           name: r.name,
@@ -234,6 +235,7 @@ function FullMapInner() {
           lat: r.lat,
           lng: r.lng,
           isDisco: !!r.isPremium,
+          featuredOrder: typeof r.featuredOrder === 'number' ? r.featuredOrder : null,
           orderUrl: r.orderUrl || '',
           image: r.image || undefined,
           description: r.description || undefined,
@@ -377,11 +379,16 @@ function FullMapInner() {
       // Mobile tap re-sort — nearest-neighbor from the tapped restaurant.
       out = nearestNeighborOrder(out, sortAnchor)
     } else {
-      // Default (no location search): Premium restaurants first, then the rest,
-      // alphabetical by name within each group. (isDisco is the mapped isPremium.)
-      out = [...out].sort((a, b) =>
-        a.isDisco === b.isDisco ? a.name.localeCompare(b.name) : (a.isDisco ? -1 : 1)
-      )
+      // Default (no location search): featured (pinned 1..N) first by
+      // featured_order, then Premium alphabetical, then non-Premium alphabetical.
+      // (isDisco is the mapped isPremium.)
+      const tier = (r: Restaurant) => (r.featuredOrder != null ? 0 : r.isDisco ? 1 : 2)
+      out = [...out].sort((a, b) => {
+        const ta = tier(a), tb = tier(b)
+        if (ta !== tb) return ta - tb
+        if (ta === 0) return (a.featuredOrder as number) - (b.featuredOrder as number)
+        return a.name.localeCompare(b.name)
+      })
     }
     setFiltered(out)
     filteredRef.current = out
