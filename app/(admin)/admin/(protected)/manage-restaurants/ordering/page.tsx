@@ -368,6 +368,33 @@ export default function RestaurantsOrderingPage() {
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+      {/* CSS-only hover tooltips for the header action buttons. */}
+      <style>{`
+        .ord-btn { position: relative; }
+        .ord-tip {
+          position: absolute;
+          top: calc(100% + 6px);
+          left: 50%;
+          transform: translateX(-50%);
+          background: #1A1028;
+          color: #fff;
+          font-size: 12px;
+          font-weight: 500;
+          line-height: 1.4;
+          text-align: center;
+          border-radius: 6px;
+          padding: 6px 10px;
+          max-width: 200px;
+          width: max-content;
+          white-space: normal;
+          z-index: 100;
+          opacity: 0;
+          visibility: hidden;
+          pointer-events: none;
+          transition: opacity 0.12s ease;
+        }
+        .ord-btn:hover .ord-tip { opacity: 1; visibility: visible; }
+      `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, gap: 16, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Restaurants — Ordering</h1>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -380,28 +407,38 @@ export default function RestaurantsOrderingPage() {
             onChange={e => setSearchInput(e.target.value)}
             style={{ ...inputSt, width: 240 }}
           />
-          <button onClick={bulkSetVisible} disabled={bulkBusy} title="Show all active FM restaurants on the Disco Cater map"
-            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: bulkBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: bulkBusy ? 0.6 : 1 }}>
+          <button className="ord-btn" onClick={bulkSetVisible} disabled={bulkBusy}
+            style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: bulkBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: bulkBusy ? 0.6 : 1 }}>
             {bulkBusy ? 'Setting…' : 'Bulk Set Visible'}
+            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
+            <span className="ord-tip">Mark all active FM restaurants as visible on the Disco Cater map</span>
           </button>
-          <button onClick={syncStripeStatus} disabled={syncBusy} title="Check Stripe Connect status for all visible restaurants"
-            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: syncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: syncBusy ? 0.6 : 1 }}>
+          <button className="ord-btn" onClick={syncStripeStatus} disabled={syncBusy}
+            style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: syncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: syncBusy ? 0.6 : 1 }}>
             {syncBusy ? (syncProgress || 'Syncing…') : 'Sync Stripe Status'}
+            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
+            <span className="ord-tip">Check which restaurants have Stripe Connect set up (required to accept orders)</span>
           </button>
-          <button onClick={refreshMapCache} disabled={cacheBusy} title="Rebuild the public map cache from FM"
-            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: cacheBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: cacheBusy ? 0.6 : 1 }}>
+          <button className="ord-btn" onClick={refreshMapCache} disabled={cacheBusy}
+            style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: cacheBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: cacheBusy ? 0.6 : 1 }}>
             {cacheBusy ? 'Refreshing…' : 'Refresh Map Cache'}
+            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
+            <span className="ord-tip">Rebuild the restaurant map data from FamilyMeal (run after adding new restaurants)</span>
           </button>
-          <button onClick={importSanityData} disabled={importBusy} title="Import cuisine/description/images from Sanity into the map cache"
-            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: importBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: importBusy ? 0.6 : 1 }}>
+          <button className="ord-btn" onClick={importSanityData} disabled={importBusy}
+            style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: importBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: importBusy ? 0.6 : 1 }}>
             {importBusy ? 'Importing…' : 'Import Sanity Data'}
+            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
+            <span className="ord-tip">Pull cuisine, descriptions and images from Sanity CMS into the map cache</span>
           </button>
-          <button onClick={enrichWithGoogle} disabled={enrichBusy} title="Look up cuisine, descriptions, and images from Google Places for restaurants missing them"
-            style={{ background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: enrichBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: enrichBusy ? 0.6 : 1 }}>
+          <button className="ord-btn" onClick={enrichWithGoogle} disabled={enrichBusy}
+            style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: enrichBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: enrichBusy ? 0.6 : 1 }}>
             {enrichBusy ? (enrichProgress || 'Enriching…') : 'Enrich with Google'}
+            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
+            <span className="ord-tip">Fetch cuisine, descriptions and photos from Google Places for restaurants missing this data</span>
           </button>
           <button onClick={() => setAddOpen(true)}
-            style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
+            style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
             + Add Restaurant
           </button>
         </div>
