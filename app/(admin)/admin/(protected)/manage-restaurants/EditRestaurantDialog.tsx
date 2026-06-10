@@ -6,10 +6,12 @@ const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)'
 
-// Cuisine options for the single-select. Kept as the canonical list; the row's
-// current value is merged in below so a non-listed value (e.g. an enrichment
-// cuisine like "Tacos") is never silently dropped.
+// Cuisine options for the multi-select checklist (up to 3). Canonical list; any
+// loaded value not in it is merged in below so a non-listed value (e.g. an
+// enrichment cuisine like "Tacos") is never silently dropped. Stored as a
+// comma-separated string in disco_restaurant_cache.cuisine.
 const CUISINES = ['BBQ', 'Bagels', 'Bakery', 'Bar & Grill', 'Breakfast', 'Burgers', 'Cafe', 'Caribbean', 'Chicken', 'Deli', 'Chinese', 'French', 'Greek', 'Indian', 'Italian', 'Japanese', 'Korean', 'Latin', 'Mediterranean', 'Mexican', 'Middle Eastern', 'Pizza', 'Sandwiches', 'Seafood', 'Soul Food', 'Thai', 'Vegan', 'Vietnamese']
+const MAX_CUISINES = 3
 
 interface FmAddress { addressLine1?: string; addressLine2?: string; city?: string; state?: string; zipcode?: string; phoneNumber?: string; latitude?: number; longitude?: number }
 interface FmRestaurant {
@@ -89,7 +91,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
   const [leadGenTwo, setLeadGenTwo] = useState('5')
 
   // Map fields (Neon disco_restaurant_cache — the public fullmap reads these)
-  const [cuisine, setCuisine] = useState('')
+  const [cuisines, setCuisines] = useState<string[]>([])
   const [description, setDescription] = useState('')
   const [location, setLocation] = useState('')
   const [lat, setLat] = useState('')
@@ -157,7 +159,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
       }
       // Map fields from Neon cache.
       if (cache) {
-        setCuisine(cache.cuisine || '')
+        setCuisines((cache.cuisine || '').split(',').map(s => s.trim()).filter(Boolean))
         setDescription(cache.description || '')
         setLocation(cache.location || '')
         setLat(cache.lat != null ? String(cache.lat) : '')
@@ -200,6 +202,21 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
     } finally {
       setUploadingImage(false)
     }
+  }
+
+  // Clear the map image (× on the preview). Persistence note: the cache PATCH
+  // COALESCEs image_url, so an empty value leaves the stored image unchanged —
+  // clearing here removes it from the form/preview and stops a re-upload.
+  function clearImage() {
+    setImageUrl('')
+    setImageFile(null)
+    if (imageInputRef.current) imageInputRef.current.value = ''
+  }
+
+  function toggleCuisine(c: string) {
+    setCuisines(prev =>
+      prev.includes(c) ? prev.filter(x => x !== c) : (prev.length >= MAX_CUISINES ? prev : [...prev, c])
+    )
   }
 
   async function submit() {
@@ -259,7 +276,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurantReference: restaurantRef,
-          cuisine: cuisine || null,
+          cuisine: cuisines.length ? cuisines.join(', ') : null,
           description: description || null,
           location: location || null,
           lat: lat || null,
@@ -288,8 +305,8 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
 
   // Public slug for both ordering URLs = FM businessNameWithoutSpaces, lowercased.
   const slug = (existing?.businessNameWithoutSpaces || '').toLowerCase()
-  // Cuisine dropdown options — canonical list plus the current value if it's not in it.
-  const cuisineOptions = Array.from(new Set([...CUISINES, cuisine].filter(Boolean))).sort()
+  // Checklist options — canonical list plus any loaded values not in it, sorted.
+  const cuisineOptions = Array.from(new Set([...CUISINES, ...cuisines])).sort()
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 1100, display: 'flex', justifyContent: 'flex-end', fontFamily: F }}>
@@ -339,15 +356,9 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
               <div style={section}>
                 <div style={sTitle}>Map listing</div>
                 <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>Shown on the Disco Cater fullmap. Saved to Disco (Neon).</p>
-                <div style={grid2}>
-                  <div>
-                    <label style={label}>Cuisine</label>
-                    <select style={input} value={cuisine} onChange={e => setCuisine(e.target.value)}>
-                      <option value="">— Select cuisine —</option>
-                      {cuisineOptions.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div><label style={label}>Location / display text</label><input style={input} value={location} onChange={e => setLocation(e.target.value)} placeholder="Brooklyn, NY" /></div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={label}>Location / display text</label>
+                  <input style={input} value={location} onChange={e => setLocation(e.target.value)} placeholder="Brooklyn, NY" />
                 </div>
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
@@ -370,9 +381,15 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
                 <div>
                   <label style={label}>Image</label>
                   <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                    {imageUrl
-                      ? <img src={imageUrl} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1px solid #e0e0e0', flexShrink: 0 }} />
-                      : <div style={{ width: 64, height: 64, borderRadius: 8, border: '1px dashed #d8d8d8', background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#ccc', flexShrink: 0 }}>🖼</div>}
+                    {imageUrl ? (
+                      <div style={{ position: 'relative', width: 64, height: 64, flexShrink: 0 }}>
+                        <img src={imageUrl} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }} />
+                        <button type="button" onClick={clearImage} aria-label="Remove image"
+                          style={{ position: 'absolute', top: -7, right: -7, width: 20, height: 20, borderRadius: '50%', background: '#1A1028', color: '#fff', border: '2px solid #fff', fontSize: 12, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}>×</button>
+                      </div>
+                    ) : (
+                      <div style={{ width: 64, height: 64, borderRadius: 8, border: '1px dashed #d8d8d8', background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#ccc', flexShrink: 0 }}>🖼</div>
+                    )}
                     <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onImageSelected(e.target.files?.[0] || null)} />
                     <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage}
                       style={{ background: '#EEF0FD', border: '1.5px solid #c8cafd', color: '#3A3DB0', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: uploadingImage ? 'wait' : 'pointer', fontFamily: F, opacity: uploadingImage ? 0.6 : 1 }}>
@@ -393,24 +410,12 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
                 </div>
               </div>
 
-              {/* Disco fullmap listing — Premium + Visible (Neon overrides) */}
+              {/* Disco fullmap listing — Premium (Neon overrides). Map visibility
+                  is controlled by the Marketplace toggle in the table row, so the
+                  loaded `visible` value is round-tripped on save (not edited here). */}
               <div style={section}>
                 <div style={sTitle}>Marketplace listing (Premium)</div>
                 <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>Controls the Disco fullmap. Saved to Disco (Neon).</p>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                  <label style={{ ...label, marginBottom: 0 }}>Show on Disco Cater map</label>
-                  <button type="button" onClick={() => setVisible(v => !v)} aria-pressed={visible}
-                    style={{
-                      border: 'none', borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 700,
-                      cursor: 'pointer', fontFamily: F, transition: 'opacity 0.15s',
-                      ...(visible
-                        ? { background: BLUE, color: '#fff' }
-                        : { background: '#eee', color: '#999' }),
-                    }}>
-                    {visible ? 'Visible ✓' : 'Hidden'}
-                  </button>
-                  <span style={{ fontSize: 12, color: '#aaa' }}>{visible ? 'On the map' : 'Off — tap to show'}</span>
-                </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <label style={{ ...label, marginBottom: 0 }}>Premium</label>
                   <button type="button" onClick={() => setIsDisco(v => !v)} aria-pressed={isDisco}
@@ -424,6 +429,25 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
                     Premium 🪩
                   </button>
                   <span style={{ fontSize: 12, color: '#aaa' }}>{isDisco ? 'On' : 'Off — tap to enable'}</span>
+                </div>
+              </div>
+
+              {/* Cuisine — multi-select, up to 3, stored comma-separated in
+                  disco_restaurant_cache.cuisine. */}
+              <div style={section}>
+                <div style={sTitle}>Cuisine</div>
+                <p style={{ fontSize: 12, color: '#777', margin: '0 0 12px' }}>Pick up to 3 — shown as filter tags on the fullmap. ({cuisines.length}/{MAX_CUISINES})</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
+                  {cuisineOptions.map(c => {
+                    const checked = cuisines.includes(c)
+                    const disabled = !checked && cuisines.length >= MAX_CUISINES
+                    return (
+                      <label key={c} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: disabled ? '#bbb' : DARK, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+                        <input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggleCuisine(c)} style={{ accentColor: BLUE, cursor: disabled ? 'not-allowed' : 'pointer' }} />
+                        {c}
+                      </label>
+                    )
+                  })}
                 </div>
               </div>
 

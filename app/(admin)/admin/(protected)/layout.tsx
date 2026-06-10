@@ -151,7 +151,7 @@ export default function AdminProtectedLayout({ children }: { children: React.Rea
                   <div key={item.title}>
                     <div
                       className="admin-nav-group"
-                      onClick={() => setExpanded(isOpen && !groupActive ? null : item.title)}
+                      onClick={() => { router.push(item.path); setExpanded(item.title) }}
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         padding: '9px 16px',
