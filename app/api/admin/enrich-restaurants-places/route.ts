@@ -292,10 +292,13 @@ export async function POST(req: NextRequest) {
     // skipped/notFound rows stay in it and slide to the front. So advance the
     // cursor only past those persistent rows — advancing by the full batch size
     // would skip the unprocessed rows that took the enriched rows' place.
-    const nextOffset = offset + skipped + notFound
-    // Done when this page returned fewer rows than asked (we hit the end). The
-    // result set shrinks as rows get enriched, so this is the reliable terminator.
-    const done = restaurants.length < batchSize
+    // Enriched rows drop out of the WHERE filter on the next run, so the cursor
+    // always resets to 0. Only skipped/notFound rows persist and stay at the front.
+    // Done when nothing remains (total minus this batch's enriched hits zero) OR
+    // when we got fewer rows than asked (natural end of the result set).
+    const remaining = total - enriched
+    const done = remaining <= 0 || restaurants.length < batchSize
+    const nextOffset = done ? 0 : skipped + notFound
 
     return NextResponse.json({
       total,
