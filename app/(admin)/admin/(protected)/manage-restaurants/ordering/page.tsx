@@ -425,12 +425,8 @@ export default function RestaurantsOrderingPage() {
             <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
             <span className="ord-tip">Rebuild the restaurant map data from FamilyMeal (run after adding new restaurants)</span>
           </button>
-          <button className="ord-btn" onClick={importSanityData} disabled={importBusy}
-            style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: importBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: importBusy ? 0.6 : 1 }}>
-            {importBusy ? 'Importing…' : 'Import Sanity Data'}
-            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
-            <span className="ord-tip">Pull cuisine, descriptions and images from Sanity CMS into the map cache</span>
-          </button>
+          {/* "Import Sanity Data" button hidden per request — importSanityData()
+              and /api/admin/import-sanity-restaurants remain available. */}
           <button className="ord-btn" onClick={enrichWithGoogle} disabled={enrichBusy}
             style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: enrichBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: enrichBusy ? 0.6 : 1 }}>
             {enrichBusy ? (enrichProgress || 'Enriching…') : 'Enrich with Google'}
