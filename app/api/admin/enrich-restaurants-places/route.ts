@@ -191,20 +191,27 @@ export async function POST(req: NextRequest) {
     const offset = Math.max(0, Number(body?.offset) || 0)
 
     // Stable count + page of restaurants still missing at least one field.
+    // Only restaurants that are visible AND stripe_connected on the map are
+    // enriched — joined against disco_restaurant_overrides so we don't spend
+    // Places/Claude calls on rows that never surface publicly.
     // The initial SELECTs get one transient-connection retry (Neon can drop the
     // first request after an idle period); a second connection failure → 503.
     let total = 0
     let restaurants: { restaurant_reference: string; name: string; address: string | null }[] = []
     const runSelects = async () => {
       const totalRows = (await sql`
-        SELECT COUNT(*)::int AS n FROM disco_restaurant_cache
-        WHERE cuisine = 'Other' OR cuisine IS NULL OR image_url IS NULL OR description IS NULL
+        SELECT COUNT(*)::int AS n FROM disco_restaurant_cache c
+        JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+        WHERE o.visible = true AND o.stripe_connected = true
+          AND (c.cuisine = 'Other' OR c.cuisine IS NULL OR c.image_url IS NULL OR c.description IS NULL)
       `) as { n: number }[]
       total = totalRows[0]?.n ?? 0
       restaurants = (await sql`
-        SELECT restaurant_reference, name, address FROM disco_restaurant_cache
-        WHERE cuisine = 'Other' OR cuisine IS NULL OR image_url IS NULL OR description IS NULL
-        ORDER BY restaurant_reference
+        SELECT c.restaurant_reference, c.name, c.address FROM disco_restaurant_cache c
+        JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+        WHERE o.visible = true AND o.stripe_connected = true
+          AND (c.cuisine = 'Other' OR c.cuisine IS NULL OR c.image_url IS NULL OR c.description IS NULL)
+        ORDER BY c.restaurant_reference
         LIMIT ${batchSize} OFFSET ${offset}
       `) as { restaurant_reference: string; name: string; address: string | null }[]
     }
