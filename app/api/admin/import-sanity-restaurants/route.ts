@@ -88,8 +88,28 @@ export async function POST() {
         SET cuisine = ${cuisine}, description = ${description}, image_url = ${imageUrl}
         WHERE (${slug} <> '' AND slug = ${slug})
            OR (${name} <> '' AND name ILIKE ${name})
-        RETURNING restaurant_reference
-      `) as { restaurant_reference: string }[]
+        RETURNING restaurant_reference, slug, name
+      `) as { restaurant_reference: string; slug: string | null; name: string }[]
+
+      // Diagnostic: report which match path (if any) hit, so we can see why a
+      // Sanity doc fails to resolve to a cache row. Derived from the returned
+      // row — the WHERE matches on slug/name; fmReference is attributed when the
+      // matched reference equals the doc's fmReference.
+      const matchRow = updated[0]
+      const restaurantReference = matchRow?.restaurant_reference ?? null
+      let matchedBy: 'fmReference' | 'slug' | 'name' | null = null
+      if (matchRow) {
+        if (fmRef && matchRow.restaurant_reference === fmRef) matchedBy = 'fmReference'
+        else if (slug && matchRow.slug === slug) matchedBy = 'slug'
+        else matchedBy = 'name'
+      }
+      console.log('[Sanity Import] Match result:', {
+        sanityName: d.name,
+        sanitySlug: d.slug,
+        fmReference: d.fmReference,
+        matchFound: !!restaurantReference,
+        matchedBy,
+      })
 
       if (updated.length > 0) {
         matched++
