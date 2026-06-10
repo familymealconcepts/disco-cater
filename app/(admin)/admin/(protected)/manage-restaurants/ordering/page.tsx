@@ -463,7 +463,9 @@ export default function RestaurantsOrderingPage() {
               <th style={colHead}>Third-Party Allowed</th>
               <th style={colHead}>Hold Payments</th>
               <th style={colHead}>Shipday</th>
-              <th style={{ ...colHead, textAlign: 'right' }}>Actions</th>
+              {/* Pinned to the right edge so the action buttons stay visible
+                  (and never clip) while the wide table scrolls horizontally. */}
+              <th style={{ ...colHead, textAlign: 'right', position: 'sticky', right: 0, top: 0, zIndex: 3, minWidth: 120, borderLeft: '1px solid #f0f0f0' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -495,7 +497,7 @@ export default function RestaurantsOrderingPage() {
                   <td style={cell}><Toggle checked={!!r.nashAllowed} onChange={() => toggleNash(r)} /></td>
                   <td style={cell}><Toggle checked={r.moneyFlow !== 'DIRECT'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" /></td>
                   <td style={cell}><Toggle checked={!!r.shipdayEnabled} onChange={() => toggleShipday(r)} /></td>
-                  <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', right: 0, zIndex: 1, minWidth: 120, background: '#fff', borderLeft: '1px solid #f0f0f0' }}>
                     <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                       <button title="Refresh" onClick={() => load()} style={iconBtn}>⟳</button>
                       <button title="Edit" onClick={() => setEditRef(r.reference)} style={iconBtn}>✎</button>
