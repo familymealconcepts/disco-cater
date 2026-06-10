@@ -994,7 +994,7 @@ export default function DinovaDemo() {
           .disco-popup .mapboxgl-popup-tip { display:none; }
           .mobile-filter-scroll::-webkit-scrollbar { display:none; }
           .mobile-filter-scroll { -ms-overflow-style:none; scrollbar-width:none; }
-          @keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
+          @keyframes skeletonPulse { 0%,100% { opacity:0.6 } 50% { opacity:1 } }
         `}</style>
 
         {locModal}
@@ -1159,18 +1159,7 @@ export default function DinovaDemo() {
                 </div>
               </div>
             )}
-            {!restaurantsLoaded && (
-              Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', minHeight: 80, borderBottom: '1px solid #f5f5f5' }}>
-                  <div style={{ width: 80, height: 80, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite', flexShrink: 0 }} />
-                  <div style={{ flex: 1, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ height: 13, width: '65%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
-                    <div style={{ height: 11, width: '40%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
-                    <div style={{ height: 11, width: '25%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
-                  </div>
-                </div>
-              ))
-            )}
+            {!restaurantsLoaded && <SkeletonCards count={6} mobile />}
             {restaurantsLoaded && filtered.length === 0 && (
               <div style={{ padding: '48px 24px', textAlign: 'center', color: '#777', fontSize: 14 }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
@@ -1268,7 +1257,7 @@ export default function DinovaDemo() {
         input[type="datetime-local"]::-webkit-calendar-picker-indicator { opacity: 0.5; cursor: pointer; }
         .disco-popup .mapboxgl-popup-content { padding:0; border-radius:12px; overflow:hidden; box-shadow:none; }
         .disco-popup .mapboxgl-popup-tip { display:none; }
-        @keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }
+        @keyframes skeletonPulse { 0%,100% { opacity:0.6 } 50% { opacity:1 } }
         @keyframes dinovaPulse {
           0% { box-shadow: 0 2px 10px rgba(245,166,35,0.4), 0 0 0 0 rgba(245,166,35,0.3); }
           70% { box-shadow: 0 2px 10px rgba(245,166,35,0.4), 0 0 0 10px rgba(245,166,35,0); }
@@ -1346,18 +1335,7 @@ export default function DinovaDemo() {
               {proximityAnchor && (<><span style={{ fontSize: 10, background: TINT_CHIP, color: ORANGE_DARK, padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span><button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button></>)}
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              {!restaurantsLoaded && (
-                Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', minHeight: 74, borderBottom: '1px solid #f5f5f5' }}>
-                    <div style={{ width: 74, height: 74, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite', flexShrink: 0 }} />
-                    <div style={{ flex: 1, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ height: 12, width: '70%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
-                      <div style={{ height: 10, width: '45%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
-                      <div style={{ height: 10, width: '30%', borderRadius: 6, background: 'linear-gradient(90deg, #f0f0f0 25%, #e8e8e8 50%, #f0f0f0 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.4s infinite' }} />
-                    </div>
-                  </div>
-                ))
-              )}
+              {!restaurantsLoaded && <SkeletonCards count={8} />}
               {restaurantsLoaded && filtered.length === 0 && (
                 <div style={{ padding: '32px 22px', textAlign: 'center', color: '#777', fontSize: 13 }}>
                   {proximityAnchor ? (
@@ -1492,6 +1470,27 @@ export default function DinovaDemo() {
           </div>
         </div>
       </div>
+    </>
+  )
+}
+
+// Sidebar loading skeleton — grey placeholder cards matching real-card
+// dimensions, with a subtle opacity pulse (keyframe `skeletonPulse`). Shown
+// while /api/restaurants loads in the background so the sidebar never sits blank.
+function SkeletonCards({ count, mobile = false }: { count: number; mobile?: boolean }) {
+  const sz = mobile ? 80 : 74
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', minHeight: sz, borderBottom: '1px solid #f5f5f5', animation: 'skeletonPulse 1.5s ease-in-out infinite' }}>
+          <div style={{ width: sz, height: sz, background: '#e8e8e8', flexShrink: 0 }} />
+          <div style={{ flex: 1, padding: mobile ? '12px 14px' : '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ height: 12, width: '70%', borderRadius: 6, background: '#e8e8e8' }} />
+            <div style={{ height: 10, width: '45%', borderRadius: 6, background: '#ececec' }} />
+            <div style={{ height: 10, width: '30%', borderRadius: 6, background: '#ececec' }} />
+          </div>
+        </div>
+      ))}
     </>
   )
 }
