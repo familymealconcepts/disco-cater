@@ -28,6 +28,7 @@ interface SanityDoc {
   lng?: number
   location?: string
   fmReference?: string
+  isDisco?: boolean
 }
 
 export async function POST() {
@@ -47,13 +48,29 @@ export async function POST() {
         lat,
         lng,
         location,
-        fmReference
+        fmReference,
+        isDisco
       }
     `)) as SanityDoc[]
 
     let matched = 0
     let inserted = 0
     let skipped = 0
+    let premium = 0
+
+    // Flip is_premium = true on the override row for a Premium (isDisco) Sanity
+    // doc, keying off the resolved cache reference. ON CONFLICT only touches
+    // is_premium — visible / stripe_connected (admin-managed) are left as-is.
+    // Never sets false, so a doc with isDisco unset/false never clears a flag.
+    async function setPremium(ref: string) {
+      if (!ref) return
+      await sql`
+        INSERT INTO disco_restaurant_overrides (restaurant_reference, is_premium, visible, stripe_connected)
+        VALUES (${ref}, true, false, false)
+        ON CONFLICT (restaurant_reference) DO UPDATE SET is_premium = true, updated_at = NOW()
+      `
+      premium++
+    }
 
     for (const d of docs) {
       const slug = d.slug ? String(d.slug) : ''
@@ -74,7 +91,13 @@ export async function POST() {
         RETURNING restaurant_reference
       `) as { restaurant_reference: string }[]
 
-      if (updated.length > 0) { matched++; continue }
+      if (updated.length > 0) {
+        matched++
+        if (d.isDisco === true) {
+          for (const row of updated) await setPremium(row.restaurant_reference)
+        }
+        continue
+      }
 
       // Not in the cache yet → insert a Sanity-sourced row keyed by FM reference
       // (preferred) or slug. Coords may be absent (then it won't show until FM
@@ -92,12 +115,14 @@ export async function POST() {
         RETURNING restaurant_reference
       `) as { restaurant_reference: string }[]
 
-      if (ins.length > 0) inserted++
-      else skipped++
+      if (ins.length > 0) {
+        inserted++
+        if (d.isDisco === true) await setPremium(key)
+      } else skipped++
     }
 
-    console.log(`[import-sanity-restaurants] matched ${matched}, inserted ${inserted}, skipped ${skipped} (of ${docs.length} docs)`)
-    return NextResponse.json({ matched, inserted, skipped })
+    console.log(`[import-sanity-restaurants] matched ${matched}, inserted ${inserted}, skipped ${skipped}, premium ${premium} (of ${docs.length} docs)`)
+    return NextResponse.json({ matched, inserted, skipped, premium })
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     console.error('[import-sanity-restaurants] failed:', message, e instanceof Error ? e.stack : '')

@@ -213,7 +213,7 @@ export default function RestaurantsOrderingPage() {
       const res = await fetch('/api/admin/import-sanity-restaurants', { method: 'POST' })
       const d = await res.json().catch(() => null)
       if (!res.ok) throw new Error(d?.error || 'Sanity import failed')
-      showToast(`Sanity import: ${d.matched} matched, ${d.inserted} inserted, ${d.skipped} skipped`)
+      showToast(`Sanity import: ${d.matched} matched, ${d.inserted} inserted, ${d.skipped} skipped, ${d.premium ?? 0} marked Premium`)
     } catch (e) {
       setError((e as Error).message || 'Sanity import failed')
     } finally {
