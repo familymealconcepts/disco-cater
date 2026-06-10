@@ -15,7 +15,6 @@ import UserMenu from '../../components/UserMenu'
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
-const MANHATTAN = { lat: 40.7580, lng: -73.9855 }
 
 function trackEvent(name: string, params?: Record<string, string>) {
   if (typeof window !== 'undefined' && (window as any).gtag) {
@@ -374,9 +373,15 @@ function FullMapInner() {
         .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor.lat, proximityAnchor.lng, r.lat, r.lng) }))
         .filter(r => r._dist <= PROXIMITY_MILES)
       out = nearestNeighborOrder(nearby, proximityAnchor)
+    } else if (sortAnchor) {
+      // Mobile tap re-sort — nearest-neighbor from the tapped restaurant.
+      out = nearestNeighborOrder(out, sortAnchor)
     } else {
-      // Nearest-neighbor chain starting from tap anchor or Manhattan by default
-      out = nearestNeighborOrder(out, sortAnchor ?? MANHATTAN)
+      // Default (no location search): Premium restaurants first, then the rest,
+      // alphabetical by name within each group. (isDisco is the mapped isPremium.)
+      out = [...out].sort((a, b) =>
+        a.isDisco === b.isDisco ? a.name.localeCompare(b.name) : (a.isDisco ? -1 : 1)
+      )
     }
     setFiltered(out)
     filteredRef.current = out

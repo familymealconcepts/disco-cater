@@ -23,7 +23,6 @@ const LOGO_GREY = '#777'
 const TINT = 'rgba(245,166,35,0.07)'
 const TINT_SOFT = 'rgba(245,166,35,0.05)'
 const TINT_CHIP = '#FFF3E0'
-const MANHATTAN = { lat: 40.7580, lng: -73.9855 }
 
 function trackEvent(name: string, params?: Record<string, string>) {
   if (typeof window !== 'undefined' && (window as any).gtag) {
@@ -366,8 +365,15 @@ export default function DinovaDemo() {
         .map(r => ({ ...r, _dist: getDistanceMiles(proximityAnchor.lat, proximityAnchor.lng, r.lat, r.lng) }))
         .filter(r => r._dist <= PROXIMITY_MILES)
       out = nearestNeighborOrder(nearby, proximityAnchor)
+    } else if (sortAnchor) {
+      // Mobile tap re-sort — nearest-neighbor from the tapped restaurant.
+      out = nearestNeighborOrder(out, sortAnchor)
     } else {
-      out = nearestNeighborOrder(out, sortAnchor ?? MANHATTAN)
+      // Default (no location search): Premium restaurants first, then the rest,
+      // alphabetical by name within each group. (isDisco is the mapped isPremium.)
+      out = [...out].sort((a, b) =>
+        a.isDisco === b.isDisco ? a.name.localeCompare(b.name) : (a.isDisco ? -1 : 1)
+      )
     }
     setFiltered(out)
     filteredRef.current = out
