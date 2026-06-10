@@ -2,7 +2,7 @@
 'use client'
 import React from 'react'
 import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import Script from 'next/script'
@@ -53,7 +53,10 @@ function nearestNeighborOrder(list: Restaurant[], start: { lat: number; lng: num
 }
 
 function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false)
+  // Lazy init: SSR gets false (safe), but the client's first paint already has
+  // the correct value — avoids the false→true flip (e.g. the fullmap Sign Up
+  // button appearing then disappearing on mobile).
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
     setIsMobile(mq.matches)
@@ -1532,17 +1535,24 @@ function FullmapAuthBtn() {
   // localStorage 'disco_user' read never reflected a cookie-based modal login,
   // so the map header stayed on "Log in" after signing in elsewhere. The
   // logged-in dropdown is the shared <UserMenu /> so every header matches.
-  const { user, openAuthModal } = useAuthContext()
+  const { user, isLoading, openAuthModal } = useAuthContext()
+  const router = useRouter()
   const isMobile = useIsMobile()
+
+  // While auth resolves, reserve the buttons' footprint so the header doesn't
+  // shift when Log In/Sign Up later swaps to the UserMenu (matches GlobalHeader's
+  // isLoading gate).
+  if (isLoading) return <div aria-hidden style={{ width: 120, height: 34, flexShrink: 0 }} />
 
   if (!user) return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
       {/* Login button kept identical to GlobalHeader (the canonical header used on
           the homepage, FAQ, compare, and restaurant pages) — outlined dark pill. */}
       <button onClick={() => openAuthModal(undefined, 'login')} style={{ padding: '7px 16px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, flexShrink: 0 }}>Log In</button>
-      {/* Desktop-only filled Sign Up CTA next to Log In (matches GlobalHeader). */}
+      {/* Desktop-only filled Sign Up CTA next to Log In (matches GlobalHeader,
+          incl. router.push navigation). */}
       {!isMobile && (
-        <a href="/signup" style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>Sign Up</a>
+        <button onClick={() => router.push('/signup')} style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0 }}>Sign Up</button>
       )}
     </div>
   )
