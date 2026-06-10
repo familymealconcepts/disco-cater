@@ -11,6 +11,7 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import FavoriteHeart from '../account/components/FavoriteHeart'
 import { useAuthContext } from '../../context/AuthContext'
 import UserMenu from '../../components/UserMenu'
+import AuthModal from '../../components/AuthModal'
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
@@ -1535,7 +1536,7 @@ function FullmapAuthBtn() {
   // localStorage 'disco_user' read never reflected a cookie-based modal login,
   // so the map header stayed on "Log in" after signing in elsewhere. The
   // logged-in dropdown is the shared <UserMenu /> so every header matches.
-  const { user, isLoading, openAuthModal } = useAuthContext()
+  const { user, isLoading, openAuthModal, authModalOpen, closeAuthModal, authModalDefaultTab } = useAuthContext()
   const router = useRouter()
   const isMobile = useIsMobile()
 
@@ -1545,16 +1546,25 @@ function FullmapAuthBtn() {
   if (isLoading) return <div aria-hidden style={{ width: 120, height: 34, flexShrink: 0 }} />
 
   if (!user) return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-      {/* Login button kept identical to GlobalHeader (the canonical header used on
-          the homepage, FAQ, compare, and restaurant pages) — outlined dark pill. */}
-      <button onClick={() => openAuthModal(undefined, 'login')} style={{ padding: '7px 16px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, flexShrink: 0 }}>Log In</button>
-      {/* Desktop-only filled Sign Up CTA next to Log In (matches GlobalHeader,
-          incl. router.push navigation). */}
-      {!isMobile && (
-        <button onClick={() => router.push('/signup')} style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0 }}>Sign Up</button>
-      )}
-    </div>
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        {/* Login button kept identical to GlobalHeader (the canonical header used on
+            the homepage, FAQ, compare, and restaurant pages) — outlined dark pill. */}
+        <button onClick={() => openAuthModal(undefined, 'login')} style={{ padding: '7px 16px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, flexShrink: 0 }}>Log In</button>
+        {/* Desktop-only filled Sign Up CTA next to Log In (matches GlobalHeader,
+            incl. router.push navigation). */}
+        {!isMobile && (
+          <button onClick={() => router.push('/signup')} style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0 }}>Sign Up</button>
+        )}
+      </div>
+      {/* The fullmap doesn't use GlobalHeader, so it must render its own AuthModal
+          for the Log In button to actually open something (mirrors GlobalHeader). */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={closeAuthModal}
+        defaultTab={authModalDefaultTab}
+      />
+    </>
   )
 
   return <UserMenu />
