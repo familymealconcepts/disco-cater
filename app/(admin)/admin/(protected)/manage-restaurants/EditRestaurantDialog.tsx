@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)'
 
 // Image picker with explicit Upload / Change / Remove buttons + a sizing hint.
@@ -36,10 +35,10 @@ function ImageField({ label, currentSet, file, onChange }: {
   )
 }
 
-// Cuisine options — must match the Sanity restaurant schema `cuisines` array
-// field exactly (sanity/schema/restaurant.ts). Max 3 selections.
+// Cuisine options for the single-select. Kept as the canonical list; the row's
+// current value is merged in below so a non-listed value (e.g. an enrichment
+// cuisine like "Tacos") is never silently dropped.
 const CUISINES = ['BBQ', 'Bagels', 'Bakery', 'Bar & Grill', 'Breakfast', 'Burgers', 'Cafe', 'Caribbean', 'Chicken', 'Deli', 'Chinese', 'French', 'Greek', 'Indian', 'Italian', 'Japanese', 'Korean', 'Latin', 'Mediterranean', 'Mexican', 'Middle Eastern', 'Pizza', 'Sandwiches', 'Seafood', 'Soul Food', 'Thai', 'Vegan', 'Vietnamese']
-const MAX_CUISINES = 3
 
 interface FmAddress { addressLine1?: string; addressLine2?: string; city?: string; state?: string; zipcode?: string; phoneNumber?: string; latitude?: number; longitude?: number }
 interface FmRestaurant {
@@ -54,19 +53,15 @@ interface FmRestaurant {
   leadGenOne?: number
   leadGenTwo?: number
   image?: { reference?: string }
-  marketplaceImage?: { image?: { reference?: string } }
 }
 
-interface SanityMarketplace {
-  _id?: string
-  cuisines?: string[]
-  description?: string
-  location?: string
-  lat?: number
-  lng?: number
-  orderUrl?: string
-  isDisco?: boolean
-  image?: { asset?: { _ref?: string } }
+interface CacheRow {
+  cuisine?: string | null
+  description?: string | null
+  location?: string | null
+  lat?: string | number | null
+  lng?: string | number | null
+  image_url?: string | null
 }
 
 interface Props {
@@ -121,27 +116,25 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [leadGenOne, setLeadGenOne] = useState('15')
   const [leadGenTwo, setLeadGenTwo] = useState('5')
   const [logoFile, setLogoFile] = useState<File | null>(null)
-  const [marketImageFile, setMarketImageFile] = useState<File | null>(null)
 
-  // Marketplace (Sanity)
-  const [mpOpen, setMpOpen] = useState(false)
-  const [mpExists, setMpExists] = useState<boolean | null>(null)
-  const [cuisines, setCuisines] = useState<string[]>([])
+  // Map fields (Neon disco_restaurant_cache — the public fullmap reads these)
+  const [cuisine, setCuisine] = useState('')
   const [description, setDescription] = useState('')
   const [location, setLocation] = useState('')
   const [lat, setLat] = useState('')
   const [lng, setLng] = useState('')
-  const [orderUrl, setOrderUrl] = useState('')
-  // Premium (isDisco) + order-URL override now live in Neon
-  // (disco_restaurant_overrides), read by the public fullmap. Loaded/saved via
-  // /api/admin/restaurant-overrides — independent of the Sanity marketplace doc.
+  const [imageUrl, setImageUrl] = useState('')        // current/uploaded CDN URL
+  const [imageFile, setImageFile] = useState<File | null>(null) // new file → also pushed to FM
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+
+  // Overrides (Neon disco_restaurant_overrides)
   const [isDisco, setIsDisco] = useState(false)
   const [visible, setVisible] = useState(false)
+  // Order-URL override is no longer editable here, but we round-trip the loaded
+  // value on save so the overrides PATCH (which overwrites order_url) doesn't
+  // wipe it.
   const [orderUrlOverride, setOrderUrlOverride] = useState('')
-  // Hero image: hidden from the form. The submit() upload branch + backend
-  // marketplace-image route are kept intact; heroFile simply stays null now that
-  // the input is removed, so the branch is dormant (no setter to avoid lint).
-  const [heroFile] = useState<File | null>(null)
 
   // Google Places description fetch.
   const [fetchingDesc, setFetchingDesc] = useState(false)
@@ -172,9 +165,9 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
     setLoading(true); setErr('')
     Promise.all([
       fetch(`/api/admin/restaurants/${restaurantRef}`).then(r => r.ok ? r.json() : null),
-      fetch(`/api/admin/restaurant-marketplace?fmReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/admin/restaurant-cache?restaurantReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`/api/admin/restaurant-overrides?restaurantReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([fm, mp, ov]: [FmRestaurant | null, SanityMarketplace | null, { isPremium?: boolean; visible?: boolean; orderUrl?: string } | null]) => {
+    ]).then(([fm, cache, ov]: [FmRestaurant | null, CacheRow | null, { isPremium?: boolean; visible?: boolean; orderUrl?: string } | null]) => {
       if (cancel) return
       if (fm) {
         setExisting(fm)
@@ -191,17 +184,16 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         setLeadGenOne(fm.leadGenOne != null ? String(fm.leadGenOne) : '15')
         setLeadGenTwo(fm.leadGenTwo != null ? String(fm.leadGenTwo) : '5')
       }
-      setMpExists(!!mp)
-      if (mp) {
-        setCuisines(mp.cuisines || [])
-        setDescription(mp.description || '')
-        setLocation(mp.location || '')
-        setLat(mp.lat != null ? String(mp.lat) : '')
-        setLng(mp.lng != null ? String(mp.lng) : '')
-        setOrderUrl(mp.orderUrl || '')
+      // Map fields from Neon cache.
+      if (cache) {
+        setCuisine(cache.cuisine || '')
+        setDescription(cache.description || '')
+        setLocation(cache.location || '')
+        setLat(cache.lat != null ? String(cache.lat) : '')
+        setLng(cache.lng != null ? String(cache.lng) : '')
+        setImageUrl(cache.image_url || '')
       }
-      // Premium + map visibility + order-URL override come from Neon (source of
-      // truth for the fullmap).
+      // Premium + map visibility + order-URL override come from Neon overrides.
       if (ov) {
         setIsDisco(!!ov.isPremium)
         setVisible(!!ov.visible)
@@ -218,10 +210,25 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
     return () => { document.body.style.overflow = prev }
   }, [])
 
-  // Multi-select cuisines, capped at MAX_CUISINES (mirrors the Sanity
-  // validation Rule.max(3) on the cuisines array).
-  function toggleCuisine(c: string) {
-    setCuisines(s => s.includes(c) ? s.filter(x => x !== c) : (s.length >= MAX_CUISINES ? s : [...s, c]))
+  // New map image: upload to the asset CDN immediately so we have a URL to
+  // preview + save; keep the raw file to also push to FM's marketplace logo.
+  async function onImageSelected(f: File | null) {
+    setImageFile(f)
+    if (!f) return
+    setUploadingImage(true); setErr('')
+    try {
+      const fd = new FormData(); fd.append('file', f)
+      const res = await fetch('/api/admin/upload-asset', { method: 'POST', body: fd })
+      const d = await res.json().catch(() => null)
+      if (!res.ok || !d?.url) throw new Error(d?.error || 'Image upload failed')
+      setImageUrl(d.url)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Image upload failed')
+      setImageFile(null)
+      if (imageInputRef.current) imageInputRef.current.value = ''
+    } finally {
+      setUploadingImage(false)
+    }
   }
 
   async function submit() {
@@ -233,9 +240,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
 
     setSaving(true)
     try {
-      // Preserve FM fields the dialog doesn't edit (categories, fulfillment,
-      // timezone, lat/lng) so the PUT doesn't clear them. Mirrors FM's
-      // add-restaurant payload shape (admin/restaurant/update/add-restaurant).
+      // 1) FM core fields.
       const payload = {
         address: {
           addressLine1: addr1.trim(),
@@ -262,54 +267,47 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       })
       if (!putRes.ok) throw new Error('Failed to save restaurant')
 
-      // Premium flag + order-URL override → Neon (drives the public fullmap).
+      // 2) Premium + visibility → Neon overrides (order_url round-tripped, not edited here).
       const ovRes = await fetch('/api/admin/restaurant-overrides', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restaurantReference: restaurantRef, isPremium: isDisco, visible, orderUrl: orderUrlOverride || undefined }),
       })
-      if (!ovRes.ok) throw new Error('Saved restaurant, but the Premium / visibility / order-URL override failed to save')
+      if (!ovRes.ok) throw new Error('Saved restaurant, but the Premium / visibility override failed to save')
 
+      // 3) FM logo.
       if (logoFile) {
         const fd = new FormData(); fd.append('file', logoFile)
         await fetch(`/api/admin/restaurants/${restaurantRef}/logo`, { method: 'POST', body: fd })
       }
-      if (marketImageFile) {
-        const fd = new FormData(); fd.append('file', marketImageFile)
+      // 4) Push the new map image to FM's marketplace logo too (FM side still needs it).
+      if (imageFile) {
+        const fd = new FormData(); fd.append('file', imageFile)
         await fetch(`/api/admin/restaurants/${restaurantRef}/marketplace-image`, { method: 'POST', body: fd })
       }
 
-      // Marketplace (Sanity). Only write when the section was opened/touched.
-      if (mpOpen) {
-        let imageField: unknown = undefined
-        if (heroFile) {
-          const fd = new FormData(); fd.append('file', heroFile)
-          const imgRes = await fetch('/api/admin/restaurant-marketplace/image', { method: 'POST', body: fd })
-          if (imgRes.ok) { const d = await imgRes.json(); imageField = d.image }
-        }
-        const mpBody: Record<string, unknown> = {
-          fmReference: restaurantRef,
-          name: restaurantName.trim(),
-          cuisines,
-          description: description || undefined,
-          location: location || undefined,
-          lat: lat === '' ? undefined : Number(lat),
-          lng: lng === '' ? undefined : Number(lng),
-          orderUrl: orderUrl || undefined,
-        }
-        if (imageField) mpBody.image = imageField
-        const mpRes = await fetch('/api/admin/restaurant-marketplace', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mpBody),
-        })
-        if (!mpRes.ok) {
-          const d = await mpRes.json().catch(() => null)
-          throw new Error(d?.error || 'Saved restaurant data, but the Marketplace (Sanity) write failed')
-        }
+      // 5) Map fields → Neon disco_restaurant_cache (source of truth for the fullmap).
+      const cacheRes = await fetch('/api/admin/restaurant-cache', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantReference: restaurantRef,
+          cuisine: cuisine || null,
+          description: description || null,
+          location: location || null,
+          lat: lat || null,
+          lng: lng || null,
+          image_url: imageUrl || null,
+        }),
+      })
+      if (!cacheRes.ok) {
+        const d = await cacheRes.json().catch(() => null)
+        throw new Error(d?.error || 'Saved restaurant, but the map fields failed to save')
       }
 
       onSaved('Restaurant updated')
     } catch (e) {
-      setErr((e as Error).message || 'Unable to save')
+      setErr(e instanceof Error ? e.message : 'Unable to save')
     } finally {
       setSaving(false)
     }
@@ -323,6 +321,8 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
 
   // Public slug for both ordering URLs = FM businessNameWithoutSpaces, lowercased.
   const slug = (existing?.businessNameWithoutSpaces || '').toLowerCase()
+  // Cuisine dropdown options — canonical list plus the current value if it's not in it.
+  const cuisineOptions = Array.from(new Set([...CUISINES, cuisine].filter(Boolean))).sort()
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 1100, display: 'flex', justifyContent: 'flex-end', fontFamily: F }}>
@@ -368,13 +368,58 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                 </div>
               </div>
 
-              {/* Images */}
+              {/* Map listing (Neon disco_restaurant_cache) */}
               <div style={section}>
-                <div style={sTitle}>Images</div>
+                <div style={sTitle}>Map listing</div>
+                <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>Shown on the Disco Cater fullmap. Saved to Disco (Neon).</p>
                 <div style={grid2}>
-                  <ImageField label="Restaurant logo" currentSet={!!existing?.image?.reference} file={logoFile} onChange={setLogoFile} />
-                  <ImageField label="Marketplace image" currentSet={!!existing?.marketplaceImage?.image?.reference} file={marketImageFile} onChange={setMarketImageFile} />
+                  <div>
+                    <label style={label}>Cuisine</label>
+                    <select style={input} value={cuisine} onChange={e => setCuisine(e.target.value)}>
+                      <option value="">— Select cuisine —</option>
+                      {cuisineOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div><label style={label}>Location / display text</label><input style={input} value={location} onChange={e => setLocation(e.target.value)} placeholder="Brooklyn, NY" /></div>
                 </div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                    <label style={{ ...label, marginBottom: 0 }}>Description</label>
+                    <button type="button" onClick={fetchGoogleDescription} disabled={fetchingDesc || !restaurantName.trim()}
+                      style={{ background: '#EEF0FD', border: '1.5px solid #c8cafd', color: '#3A3DB0', borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: (fetchingDesc || !restaurantName.trim()) ? 'default' : 'pointer', fontFamily: F, opacity: (fetchingDesc || !restaurantName.trim()) ? 0.6 : 1 }}>
+                      {fetchingDesc ? 'Fetching…' : 'Fetch from Google 🔍'}
+                    </button>
+                  </div>
+                  <textarea style={{ ...input, minHeight: 70, resize: 'vertical' }} maxLength={500} value={description} onChange={e => setDescription(e.target.value)} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 11, color: '#DC2626' }}>{descError}</span>
+                    <span style={{ fontSize: 11, color: '#aaa' }}>{description.length}/500</span>
+                  </div>
+                </div>
+                <div style={grid2}>
+                  <div><label style={label}>Latitude</label><input style={input} type="number" step="any" value={lat} onChange={e => setLat(e.target.value)} /></div>
+                  <div><label style={label}>Longitude</label><input style={input} type="number" step="any" value={lng} onChange={e => setLng(e.target.value)} /></div>
+                </div>
+                <div>
+                  <label style={label}>Image</label>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {imageUrl
+                      ? <img src={imageUrl} alt="" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8, border: '1px solid #e0e0e0', flexShrink: 0 }} />
+                      : <div style={{ width: 64, height: 64, borderRadius: 8, border: '1px dashed #d8d8d8', background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: '#ccc', flexShrink: 0 }}>🖼</div>}
+                    <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onImageSelected(e.target.files?.[0] || null)} />
+                    <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage}
+                      style={{ background: '#EEF0FD', border: '1.5px solid #c8cafd', color: '#3A3DB0', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: uploadingImage ? 'wait' : 'pointer', fontFamily: F, opacity: uploadingImage ? 0.6 : 1 }}>
+                      {uploadingImage ? 'Uploading…' : (imageUrl ? 'Upload new image' : 'Upload image')}
+                    </button>
+                  </div>
+                  <p style={{ fontSize: 11, color: '#aaa', margin: '6px 0 0' }}>Shown on the map card. Recommended: landscape, min 800px wide.</p>
+                </div>
+              </div>
+
+              {/* FM logo */}
+              <div style={section}>
+                <div style={sTitle}>Restaurant logo</div>
+                <ImageField label="Logo (FamilyMeal)" currentSet={!!existing?.image?.reference} file={logoFile} onChange={setLogoFile} />
               </div>
 
               {/* Lead gen */}
@@ -387,13 +432,12 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                 </div>
               </div>
 
-              {/* Disco fullmap listing — Premium flag + order-URL override (Neon) */}
+              {/* Disco fullmap listing — Premium + Visible (Neon overrides) */}
               <div style={section}>
                 <div style={sTitle}>Marketplace listing (Premium)</div>
-                <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>Controls the Disco fullmap. Saved to Disco (Neon), not Sanity.</p>
+                <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>Controls the Disco fullmap. Saved to Disco (Neon).</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
                   <label style={{ ...label, marginBottom: 0 }}>Show on Disco Cater map</label>
-                  {/* visible toggle — a restaurant only appears on the fullmap when this is on. */}
                   <button type="button" onClick={() => setVisible(v => !v)} aria-pressed={visible}
                     style={{
                       border: 'none', borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 700,
@@ -406,9 +450,8 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                   </button>
                   <span style={{ fontSize: 12, color: '#aaa' }}>{visible ? 'On the map' : 'Off — tap to show'}</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <label style={{ ...label, marginBottom: 0 }}>Premium</label>
-                  {/* isDisco toggle, shown as a Premium pill. Click toggles. */}
                   <button type="button" onClick={() => setIsDisco(v => !v)} aria-pressed={isDisco}
                     style={{
                       border: 'none', borderRadius: 999, padding: '6px 14px', fontSize: 13, fontWeight: 700,
@@ -421,17 +464,10 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                   </button>
                   <span style={{ fontSize: 12, color: '#aaa' }}>{isDisco ? 'On' : 'Off — tap to enable'}</span>
                 </div>
-                <div>
-                  <label style={label}>Order URL override</label>
-                  <input style={input} value={orderUrlOverride} onChange={e => setOrderUrlOverride(e.target.value)}
-                    placeholder="Leave blank to use /restaurants/<slug>" />
-                </div>
               </div>
 
-              {/* Order URLs — read-only. The 3P marketplace link sends
-                  sourceoforder DISCO (lead-gen fee); the 1P direct link
-                  (/order/<slug>) sends FAMILYMEAL (no fee). Slug = FM
-                  businessNameWithoutSpaces lowercased. */}
+              {/* Order URLs — read-only. 3P marketplace link sends sourceoforder
+                  DISCO (lead-gen fee); 1P direct (/order/<slug>) sends FAMILYMEAL. */}
               {slug && (
                 <div style={section}>
                   <div style={sTitle}>Order URLs</div>
@@ -440,65 +476,13 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                   <CopyRow label="1P Direct (no marketplace fee)" url={`https://www.discocater.com/order/${slug}`} />
                 </div>
               )}
-
-              {/* Marketplace (Sanity) — collapsible */}
-              <div style={section}>
-                <button type="button" onClick={() => setMpOpen(o => !o)}
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: F }}>
-                  <span style={{ ...sTitle, marginBottom: 0 }}>Marketplace (Sanity){mpExists === false ? ' — no record' : ''}</span>
-                  <span style={{ fontSize: 16, color: '#888' }}>{mpOpen ? '▾' : '▸'}</span>
-                </button>
-                {mpOpen && (
-                  <div style={{ marginTop: 16 }}>
-                    {mpExists === false && (
-                      <div style={{ background: '#FFF8E6', border: '1px solid #F0D58A', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#8A6D1A' }}>
-                        No Sanity record for this restaurant yet. Saving will create one (fmReference={restaurantRef}).
-                      </div>
-                    )}
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={label}>Cuisines (max {MAX_CUISINES}) — {cuisines.length}/{MAX_CUISINES}</label>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {CUISINES.map(c => {
-                          const on = cuisines.includes(c)
-                          const atMax = !on && cuisines.length >= MAX_CUISINES
-                          return (
-                            <label key={c} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1.5px solid ' + (on ? INDIGO : '#e0e0e0'), background: on ? 'rgba(107,110,249,0.08)' : '#fff', cursor: atMax ? 'not-allowed' : 'pointer', fontSize: 12, color: on ? INDIGO : (atMax ? '#bbb' : '#555') }}>
-                              <input type="checkbox" checked={on} disabled={atMax} onChange={() => toggleCuisine(c)} style={{ accentColor: INDIGO }} />{c}
-                            </label>
-                          )
-                        })}
-                      </div>
-                    </div>
-                    <div style={{ marginBottom: 12 }}><label style={label}>Location / display text</label><input style={input} value={location} onChange={e => setLocation(e.target.value)} placeholder="Brooklyn, NY" /></div>
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-                        <label style={{ ...label, marginBottom: 0 }}>Description</label>
-                        <button type="button" onClick={fetchGoogleDescription} disabled={fetchingDesc || !restaurantName.trim()}
-                          style={{ background: '#EEF0FD', border: '1.5px solid #c8cafd', color: '#3A3DB0', borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: (fetchingDesc || !restaurantName.trim()) ? 'default' : 'pointer', fontFamily: F, opacity: (fetchingDesc || !restaurantName.trim()) ? 0.6 : 1 }}>
-                          {fetchingDesc ? 'Fetching…' : 'Fetch from Google 🔍'}
-                        </button>
-                      </div>
-                      <textarea style={{ ...input, minHeight: 70, resize: 'vertical' }} maxLength={500} value={description} onChange={e => setDescription(e.target.value)} />
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 11, color: '#DC2626' }}>{descError}</span>
-                        <span style={{ fontSize: 11, color: '#aaa' }}>{description.length}/500</span>
-                      </div>
-                    </div>
-                    <div style={grid2}>
-                      <div><label style={label}>Latitude</label><input style={input} type="number" step="any" value={lat} onChange={e => setLat(e.target.value)} /></div>
-                      <div><label style={label}>Longitude</label><input style={input} type="number" step="any" value={lng} onChange={e => setLng(e.target.value)} /></div>
-                    </div>
-                    <div style={{ marginBottom: 12 }}><label style={label}>Order URL</label><input style={input} value={orderUrl} onChange={e => setOrderUrl(e.target.value)} placeholder="https://www.familymeal.com/disco/…/catering" /></div>
-                  </div>
-                )}
-              </div>
             </>
           )}
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 22px', borderTop: '1px solid #ececf2', background: '#fff', flexShrink: 0 }}>
           <button onClick={onClose} disabled={saving} style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, color: '#555' }}>Cancel</button>
-          <button onClick={submit} disabled={saving || loading} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: (saving || loading) ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Submit'}</button>
+          <button onClick={submit} disabled={saving || loading || uploadingImage} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: (saving || loading || uploadingImage) ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Submit'}</button>
         </div>
       </div>
     </div>
