@@ -50,7 +50,13 @@ export async function PATCH(req: NextRequest) {
     const location: string | null = body?.location ? String(body.location) : null
     const lat = body?.lat === '' || body?.lat == null ? null : Number(body.lat)
     const lng = body?.lng === '' || body?.lng == null ? null : Number(body.lng)
-    const imageUrl: string | null = body?.image_url ? String(body.image_url) : null
+
+    // Three-way image_url handling:
+    //  - omitted/undefined → keep existing (the CASE falls through to image_url)
+    //  - "" (explicit clear) → set NULL
+    //  - non-empty string    → set that URL
+    const imageProvided = body?.image_url !== undefined
+    const imageUrl: string | null = body?.image_url === '' ? null : (body?.image_url != null ? String(body.image_url) : null)
 
     await sql`
       UPDATE disco_restaurant_cache
@@ -59,7 +65,7 @@ export async function PATCH(req: NextRequest) {
           location = ${location},
           lat = ${Number.isFinite(lat as number) ? lat : null},
           lng = ${Number.isFinite(lng as number) ? lng : null},
-          image_url = COALESCE(${imageUrl}, image_url),
+          image_url = CASE WHEN ${imageProvided}::boolean THEN ${imageUrl}::text ELSE image_url END,
           cached_at = NOW()
       WHERE restaurant_reference = ${ref}
     `

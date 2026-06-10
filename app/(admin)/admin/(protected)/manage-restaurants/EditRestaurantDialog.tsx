@@ -281,7 +281,9 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
           location: location || null,
           lat: lat || null,
           lng: lng || null,
-          image_url: imageUrl || null,
+          // Send the raw value: "" (after ×) explicitly clears it server-side;
+          // a URL sets it. (Route treats "" → NULL, undefined → keep.)
+          image_url: imageUrl,
         }),
       })
       if (!cacheRes.ok) {
