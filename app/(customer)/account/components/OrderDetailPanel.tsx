@@ -1,7 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import SubscriptionSetupModal from './SubscriptionSetupModal'
 import RecurringOrderSetupModal from './RecurringOrderSetupModal'
 import FavoriteHeart from './FavoriteHeart'
 import { lineQty, modifierQty, lineModifiers, formatCurrency } from '../../../../lib/pricing/lineItem'
@@ -130,7 +129,6 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
   const [detail, setDetail] = useState<FmOrderDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [setupOpen, setSetupOpen] = useState(false)
   const [discoSetupOpen, setDiscoSetupOpen] = useState(false)
 
   useEffect(() => {
@@ -363,15 +361,11 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
             reorder buttons as the History detail view. */}
         {detail && !loading && !error && (
           <div style={{ padding: '14px 18px', borderTop: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {/* Subscription upsell is the primary action; single-shot reorder
-                drops to secondary. */}
-            <button onClick={() => setSetupOpen(true)}
+            {/* Disco-managed recurring setup is the primary action; single-shot
+                reorder drops to secondary. */}
+            <button onClick={() => setDiscoSetupOpen(true)}
               style={{ width: '100%', padding: '12px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
               🔄 Make this a recurring order
-            </button>
-            <button onClick={() => setDiscoSetupOpen(true)}
-              style={{ width: '100%', padding: '11px 14px', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-              🔄 Set up with Disco Cater
             </button>
             <button onClick={handleReorder}
               style={{ width: '100%', padding: '10px 14px', background: '#fff', color: DARK, border: '1px solid #e0e0e0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
@@ -380,16 +374,6 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
           </div>
         )}
       </aside>
-
-      {/* Subscription setup wizard (pre-seeded with this order's restaurant) */}
-      {setupOpen && (
-        <SubscriptionSetupModal
-          restaurantName={detail?.restaurant?.businessName}
-          restaurantSlug={detail?.restaurant?.businessNameWithoutSpaces}
-          sourceOrderRef={orderRef}
-          onClose={() => setSetupOpen(false)}
-        />
-      )}
 
       {/* Disco-managed recurring order setup (separate from the FM flow) */}
       {detail && (
