@@ -104,6 +104,10 @@ function FullMapInner() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [filtered, setFiltered] = useState<Restaurant[]>([])
   const [restaurantsLoaded, setRestaurantsLoaded] = useState(false)
+  // True only once the data has loaded AND the sort effect has produced the
+  // final order — gates the sidebar so it never paints the raw (unsorted) list
+  // and then visibly reorders into the featured/alphabetical order.
+  const [listReady, setListReady] = useState(false)
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState<'all' | 'disco'>('all')
   const [cuisineFilter, setCuisineFilter] = useState('all')
@@ -392,6 +396,10 @@ function FullMapInner() {
     }
     setFiltered(out)
     filteredRef.current = out
+    // The final sorted order is now applied. Once the data has actually loaded,
+    // reveal the real list (this and setFiltered batch into one render, so the
+    // first list paint is already in featured/alphabetical order — no flash).
+    if (restaurantsLoaded) setListReady(true)
 
     // After a tap-triggered re-sort, scroll slider to the active card using fresh data
     if (tapResortPendingRef.current && isMobileRef.current && mobileSliderRef.current) {
@@ -406,7 +414,7 @@ function FullMapInner() {
         }, 0)
       }
     }
-  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor, sortAnchor]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor, sortAnchor, restaurantsLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function closeAllPopups() {
     Object.values(popupsRef.current).forEach(p => { if (p.isOpen()) p.remove() })
@@ -1206,8 +1214,8 @@ function FullMapInner() {
                 </div>
               </div>
             )}
-            {!restaurantsLoaded && <SkeletonCards count={6} mobile />}
-            {restaurantsLoaded && filtered.length === 0 && (
+            {!listReady && <SkeletonCards count={6} mobile />}
+            {listReady && filtered.length === 0 && (
               <div style={{ padding: '48px 24px', textAlign: 'center', color: '#777', fontSize: 14 }}>
                 <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
                 {proximityAnchor ? (
@@ -1223,7 +1231,7 @@ function FullMapInner() {
                 ) : 'No restaurants match.'}
               </div>
             )}
-            {filtered.map((r, i) => (
+            {listReady && filtered.map((r, i) => (
                 <div
                   key={r._id}
                   onClick={() => {
@@ -1382,8 +1390,8 @@ function FullMapInner() {
               {proximityAnchor && (<><span style={{ fontSize: 10, background: '#f0f0ff', color: '#6B6EF9', padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span><button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button></>)}
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              {!restaurantsLoaded && <SkeletonCards count={8} />}
-              {restaurantsLoaded && filtered.length === 0 && (
+              {!listReady && <SkeletonCards count={8} />}
+              {listReady && filtered.length === 0 && (
                 <div style={{ padding: '32px 22px', textAlign: 'center', color: '#777', fontSize: 13 }}>
                   {proximityAnchor ? (
                     <>
@@ -1398,7 +1406,7 @@ function FullMapInner() {
                   ) : 'No restaurants match.'}
                 </div>
               )}
-              {filtered.map((r, i) => (
+              {listReady && filtered.map((r, i) => (
                 <div key={r._id} onClick={() => handleSidebarClick(r)} onDoubleClick={() => { if (r.orderUrl) window.open(r.slug?.current ? `/restaurants/${r.slug.current}` : r.orderUrl, '_blank', 'noopener,noreferrer') }} onMouseEnter={() => setHoveredId(r._id)} onMouseLeave={() => setHoveredId(null)} style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', minHeight: 74, borderLeft: `3px solid ${activeId === r._id || hoveredId === r._id ? '#6B6EF9' : 'transparent'}`, borderBottom: i < filtered.length - 1 ? '1px solid #f0f0f0' : 'none', background: activeId === r._id ? 'rgba(107,110,249,0.07)' : hoveredId === r._id ? 'rgba(107,110,249,0.05)' : '#fff', transition: 'background 0.18s, border-color 0.18s', position: 'relative' }}>
                   <FavoriteHeart
                     authGate
