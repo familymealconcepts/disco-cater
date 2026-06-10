@@ -291,7 +291,8 @@ export default function RestaurantsOrderingPage() {
       showToast(`Stripe sync complete: ${connected} connected, ${notConnected} not connected (of ${total})`)
       await loadStripeMap()
     } catch (e) {
-      setError((e as Error).message || 'Stripe status sync failed')
+      const msg = e instanceof Error ? e.message : ((e as { error?: string })?.error || String(e))
+      setError(msg || 'Stripe status sync failed')
     } finally {
       setSyncBusy(false)
       setSyncProgress('')
@@ -338,7 +339,8 @@ export default function RestaurantsOrderingPage() {
       showToast(`Enrichment complete: ${enriched} enriched, ${notFound} not found, ${skipped} skipped`)
       await load()
     } catch (e) {
-      setError((e as Error).message || 'Enrichment failed')
+      const msg = e instanceof Error ? e.message : ((e as { error?: string })?.error || String(e))
+      setError(msg || 'Enrichment failed')
     } finally {
       setEnrichBusy(false)
       setEnrichProgress('')
