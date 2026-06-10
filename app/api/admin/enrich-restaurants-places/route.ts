@@ -58,10 +58,67 @@ function mapCuisine(types: unknown): string | null {
   return null
 }
 
+// Allowed cuisine vocabulary Claude must pick from (mirrors TYPE_TO_CUISINE values).
+const ALLOWED_CUISINES = [
+  'American', 'Italian', 'Mexican', 'Japanese', 'Chinese', 'Indian',
+  'Mediterranean', 'Thai', 'Korean', 'French', 'Middle Eastern', 'Caribbean',
+  'BBQ', 'Vegan', 'Sandwiches', 'Bagels', 'Pizza', 'Deli', 'Chicken', 'Breakfast',
+]
+
+// Validate Claude's reply against the allowed list (tolerant of trailing
+// punctuation / case), returning the canonical value or null if unrecognised.
+function normalizeCuisine(text: unknown): string | null {
+  if (typeof text !== 'string') return null
+  const cleaned = text.trim().replace(/[.\s]+$/, '').trim().toLowerCase()
+  return ALLOWED_CUISINES.find((c) => c.toLowerCase() === cleaned) ?? null
+}
+
+// Infer cuisine with Claude (Haiku) — far more accurate for restaurant names
+// than the Places type map. Pass the Google `types` + description when Places
+// returned a match; pass neither to infer from the name alone (Places miss).
+// Returns a validated cuisine or null (caller falls back to the type map / Other).
+async function inferCuisineWithClaude(
+  name: string,
+  types: string[] | null,
+  description: string | null,
+): Promise<string | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) return null
+
+  const values = ALLOWED_CUISINES.join(', ')
+  const content = (types && types.length)
+    ? `What cuisine type best describes this restaurant? Restaurant name: ${name}. Google Places types: ${types.join(', ')}. Description: ${description || 'N/A'}. Reply with ONLY one of these exact values: ${values}. No other text.`
+    : `What cuisine type best describes this restaurant based on its name alone? Restaurant name: ${name}. Reply with ONLY one of these exact values: ${values}. No other text.`
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 50,
+        messages: [{ role: 'user', content }],
+      }),
+      cache: 'no-store',
+    })
+    if (!res.ok) return null
+    const data = await res.json().catch(() => null)
+    const text = (Array.isArray(data?.content) ? data.content.find((b: { type?: string }) => b?.type === 'text') : null)?.text
+    return normalizeCuisine(text)
+  } catch {
+    return null
+  }
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 interface PlaceResult {
-  cuisine: string | null
+  cuisine: string | null   // Places type-map result (fallback if Claude fails)
+  types: string[]          // raw Google Places types (fed to Claude)
   description: string | null
   imageUrl: string | null
 }
@@ -90,6 +147,7 @@ async function lookupPlace(name: string, address: string | null, debug = false):
   if (!place) return null
 
   const cuisine = mapCuisine(place.types)
+  const types: string[] = Array.isArray(place.types) ? place.types.map(String) : []
 
   const summary = place.editorialSummary?.text
   const description = typeof summary === 'string' && summary.trim() ? summary.trim() : null
@@ -108,7 +166,7 @@ async function lookupPlace(name: string, address: string | null, debug = false):
     }
   }
 
-  return { cuisine, description, imageUrl }
+  return { cuisine, types, description, imageUrl }
 }
 
 export async function POST(req: NextRequest) {
@@ -165,10 +223,29 @@ export async function POST(req: NextRequest) {
       }
 
       if (!result) {
+        // No Google match — still infer cuisine from the name alone (Claude can
+        // read "El Gallo Taqueria" → Mexican) so the row never stays "Other".
+        // Only cuisine is written; description/image are left untouched.
+        const cuisine = (await inferCuisineWithClaude(r.name, null, null)) || 'Other'
+        await sql`
+          UPDATE disco_restaurant_cache
+          SET cuisine = COALESCE(${cuisine}, cuisine),
+              description = COALESCE(${null}, description),
+              image_url = COALESCE(${null}, image_url),
+              cached_at = NOW()
+          WHERE restaurant_reference = ${r.restaurant_reference}
+        `
         notFound++
         await sleep(200)
         continue
       }
+
+      // Infer cuisine with Claude (more accurate than the Places type map),
+      // falling back to the Places type mapping, then "Other".
+      result.cuisine =
+        (await inferCuisineWithClaude(r.name, result.types, result.description))
+        || result.cuisine
+        || 'Other'
 
       // Only update fields Google actually returned; leave the rest untouched.
       // COALESCE keeps the existing value when the parameter is null.
