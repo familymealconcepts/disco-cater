@@ -6,35 +6,6 @@ const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)'
 
-// Image picker with explicit Upload / Change / Remove buttons + a sizing hint.
-function ImageField({ label, currentSet, file, onChange }: {
-  label: string; currentSet?: boolean; file: File | null; onChange: (f: File | null) => void
-}) {
-  const ref = useRef<HTMLInputElement>(null)
-  const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }
-  const btn: React.CSSProperties = { background: '#EEF0FD', border: '1.5px solid #c8cafd', color: '#3A3DB0', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F }
-  const ghost: React.CSSProperties = { background: '#fff', border: '1.5px solid #e0e0e0', color: '#777', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F }
-  return (
-    <div>
-      <label style={lbl}>{label}{currentSet ? ' (current set)' : ''}</label>
-      <input ref={ref} type="file" accept="image/*" style={{ display: 'none' }}
-        onChange={e => onChange(e.target.files?.[0] || null)} />
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" onClick={() => ref.current?.click()} style={btn}>
-          {file ? 'Change image' : 'Upload image'}
-        </button>
-        {file && (
-          <button type="button" onClick={() => { onChange(null); if (ref.current) ref.current.value = '' }} style={ghost}>
-            Remove image
-          </button>
-        )}
-        {file && <span style={{ fontSize: 12, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{file.name}</span>}
-      </div>
-      <p style={{ fontSize: 11, color: '#aaa', margin: '6px 0 0' }}>Recommended: square image, min 400×400px</p>
-    </div>
-  )
-}
-
 // Cuisine options for the single-select. Kept as the canonical list; the row's
 // current value is merged in below so a non-listed value (e.g. an enrichment
 // cuisine like "Tacos") is never silently dropped.
@@ -96,10 +67,11 @@ function CopyRow({ label, url }: { label: string; url: string }) {
   )
 }
 
-export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }: Props) {
+export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  const [savedOk, setSavedOk] = useState(false)
   const [existing, setExisting] = useState<FmRestaurant | null>(null)
 
   // FM fields
@@ -115,7 +87,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [zipcode, setZipcode] = useState('')
   const [leadGenOne, setLeadGenOne] = useState('15')
   const [leadGenTwo, setLeadGenTwo] = useState('5')
-  const [logoFile, setLogoFile] = useState<File | null>(null)
 
   // Map fields (Neon disco_restaurant_cache — the public fullmap reads these)
   const [cuisine, setCuisine] = useState('')
@@ -233,6 +204,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
 
   async function submit() {
     setErr('')
+    setSavedOk(false)
     if (!firstName.trim() || !lastName.trim()) return setErr('First and last name are required')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setErr('Valid email is required')
     if (!phone.trim()) return setErr('Phone is required')
@@ -275,18 +247,13 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       })
       if (!ovRes.ok) throw new Error('Saved restaurant, but the Premium / visibility override failed to save')
 
-      // 3) FM logo.
-      if (logoFile) {
-        const fd = new FormData(); fd.append('file', logoFile)
-        await fetch(`/api/admin/restaurants/${restaurantRef}/logo`, { method: 'POST', body: fd })
-      }
-      // 4) Push the new map image to FM's marketplace logo too (FM side still needs it).
+      // 3) Push the new map image to FM's marketplace logo too (FM side still needs it).
       if (imageFile) {
         const fd = new FormData(); fd.append('file', imageFile)
         await fetch(`/api/admin/restaurants/${restaurantRef}/marketplace-image`, { method: 'POST', body: fd })
       }
 
-      // 5) Map fields → Neon disco_restaurant_cache (source of truth for the fullmap).
+      // 4) Map fields → Neon disco_restaurant_cache (source of truth for the fullmap).
       const cacheRes = await fetch('/api/admin/restaurant-cache', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -305,7 +272,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         throw new Error(d?.error || 'Saved restaurant, but the map fields failed to save')
       }
 
-      onSaved('Restaurant updated')
+      setSavedOk(true)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Unable to save')
     } finally {
@@ -416,12 +383,6 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                 </div>
               </div>
 
-              {/* FM logo */}
-              <div style={section}>
-                <div style={sTitle}>Restaurant logo</div>
-                <ImageField label="Logo (FamilyMeal)" currentSet={!!existing?.image?.reference} file={logoFile} onChange={setLogoFile} />
-              </div>
-
               {/* Lead gen */}
               <div style={section}>
                 <div style={sTitle}>Lead generation</div>
@@ -480,7 +441,10 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
           )}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 22px', borderTop: '1px solid #ececf2', background: '#fff', flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, padding: '14px 22px', borderTop: '1px solid #ececf2', background: '#fff', flexShrink: 0 }}>
+          {savedOk && (
+            <span style={{ marginRight: 'auto', fontSize: 13, fontWeight: 600, color: '#16A34A' }}>✓ Changes saved successfully.</span>
+          )}
           <button onClick={onClose} disabled={saving} style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, color: '#555' }}>Cancel</button>
           <button onClick={submit} disabled={saving || loading || uploadingImage} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: (saving || loading || uploadingImage) ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Submit'}</button>
         </div>
