@@ -1292,6 +1292,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 {tags.map(t => <span key={t} style={{ background: '#f0f0f0', color: '#555', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
                 {restaurant.tags?.map(t => <span key={t} style={{ background: '#EEEDFE', color: '#3C3489', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
               </div>
+              {/* 1P-only cue: confirms the restaurant is on the commission-free
+                  direct link (sourceoforder FAMILYMEAL). Hidden on the 3P page. */}
+              {isFirstParty && (
+                <div style={{ marginTop: 8, fontSize: 11, color: '#999', fontWeight: 500 }}>
+                  Direct order — no marketplace fees
+                </div>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', overflowX: 'auto', borderTop: '1px solid #f0f0f0' }}>

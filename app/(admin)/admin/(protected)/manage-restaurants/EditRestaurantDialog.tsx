@@ -81,6 +81,26 @@ function pctOrDefault(raw: string, fallback: number): number {
   return Math.min(100, Math.max(0, n))
 }
 
+// Read-only URL row with a clipboard copy button (used by the Order URLs
+// section). Manages its own transient "Copied ✓" state.
+function CopyRow({ label, url }: { label: string; url: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 5 }}>{label}</label>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input readOnly value={url} onFocus={e => e.currentTarget.select()}
+          style={{ flex: 1, padding: '9px 12px', border: '1.5px solid #e0e0e0', borderRadius: 8, fontSize: 12.5, fontFamily: F, color: '#555', background: '#fafafa', outline: 'none', boxSizing: 'border-box' }} />
+        <button type="button"
+          onClick={async () => { try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {} }}
+          style={{ background: '#EEF0FD', border: '1.5px solid #c8cafd', color: '#3A3DB0', borderRadius: 8, padding: '9px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {copied ? 'Copied ✓' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -301,6 +321,9 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const sTitle: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: DARK, marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.04em' }
   const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }
 
+  // Public slug for both ordering URLs = FM businessNameWithoutSpaces, lowercased.
+  const slug = (existing?.businessNameWithoutSpaces || '').toLowerCase()
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 1100, display: 'flex', justifyContent: 'flex-end', fontFamily: F }}>
       <div style={{ width: '100%', maxWidth: 640, background: '#f7f7fb', height: '100vh', display: 'flex', flexDirection: 'column', boxShadow: '-8px 0 28px rgba(0,0,0,0.16)' }}>
@@ -404,6 +427,19 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                     placeholder="Leave blank to use /restaurants/<slug>" />
                 </div>
               </div>
+
+              {/* Order URLs — read-only. The 3P marketplace link sends
+                  sourceoforder DISCO (lead-gen fee); the 1P direct link
+                  (/order/<slug>) sends FAMILYMEAL (no fee). Slug = FM
+                  businessNameWithoutSpaces lowercased. */}
+              {slug && (
+                <div style={section}>
+                  <div style={sTitle}>Order URLs</div>
+                  <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>Read-only. Share the 1P Direct link with the restaurant for commission-free orders.</p>
+                  <CopyRow label="3P Marketplace (lead-gen fee)" url={`https://www.discocater.com/restaurants/${slug}`} />
+                  <CopyRow label="1P Direct (no marketplace fee)" url={`https://www.discocater.com/order/${slug}`} />
+                </div>
+              )}
 
               {/* Marketplace (Sanity) — collapsible */}
               <div style={section}>
