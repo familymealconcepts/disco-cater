@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { validateApiKey } from '../../../../lib/api-key-auth'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
+import { sql } from '../../../../lib/db'
 
 // Read-only customer export for CRM sync. API-key protected. Pages through FM's
 // platform-wide customer list, then joins the platform-wide order list (same
@@ -84,6 +85,51 @@ interface OrderStats {
   maxTs: number | null
 }
 
+// Accumulate one (email, subtotal, date) order row into the stats map.
+function accumulate(stats: Map<string, OrderStats>, email: string | null, subtotalRaw: unknown, dateRaw: unknown): void {
+  if (!email) return
+  const subtotal = num(subtotalRaw) ?? 0
+  const ts = dateRaw != null ? Date.parse(String(dateRaw)) : NaN
+  const s = stats.get(email) ?? { count: 0, lifetime: 0, minTs: null, maxTs: null }
+  s.count += 1
+  s.lifetime += subtotal
+  if (Number.isFinite(ts)) {
+    if (s.minTs === null || ts < s.minTs) s.minTs = ts
+    if (s.maxTs === null || ts > s.maxTs) s.maxTs = ts
+  }
+  stats.set(email, s)
+}
+
+// Primary source: Disco-native orders in Neon. subtotal lives on the ORIGINAL
+// sale transaction (disco_orders has no subtotal column), so LEFT JOIN it.
+async function statsFromNeon(): Promise<Map<string, OrderStats>> {
+  const rows = (await sql`
+    SELECT o.customer_email, o.order_date, t.subtotal
+    FROM disco_orders o
+    LEFT JOIN disco_sale_transactions t
+      ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
+    WHERE o.created_at > NOW() - INTERVAL '365 days'
+      AND o.customer_email IS NOT NULL
+      AND o.is_deleted = false
+  `) as FmRow[]
+  const stats = new Map<string, OrderStats>()
+  for (const r of rows) accumulate(stats, normEmail(r.customer_email), r.subtotal, r.order_date)
+  return stats
+}
+
+// Fallback source: FM's platform-wide order list (same window/precedence as
+// /api/export/orders). Used only if the Neon query fails.
+async function statsFromFm(headerRef: { h: Record<string, string> }): Promise<Map<string, OrderStats>> {
+  const fromDate = fromDate365()
+  const ordersRaw = await fetchAllFmPages(
+    (page, size) => `${FM}/api/admin/userOrders?${new URLSearchParams({ page: String(page), size: String(size), fromDate })}`,
+    headerRef,
+  )
+  const stats = new Map<string, OrderStats>()
+  for (const o of ordersRaw) accumulate(stats, orderEmail(o), o.subtotal, o.orderDate)
+  return stats
+}
+
 export async function GET(request: Request) {
   if (!validateApiKey(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -98,29 +144,14 @@ export async function GET(request: Request) {
       headerRef,
     )
 
-    // 2) All orders in the same 365-day window /api/export/orders uses.
-    const fromDate = fromDate365()
-    const ordersRaw = await fetchAllFmPages(
-      (page, size) => `${FM}/api/admin/userOrders?${new URLSearchParams({ page: String(page), size: String(size), fromDate })}`,
-      headerRef,
-    )
-
-    // 3) Aggregate orders by customer email.
-    const stats = new Map<string, OrderStats>()
-    for (const o of ordersRaw) {
-      const email = orderEmail(o)
-      if (!email) continue
-      const subtotal = num(o.subtotal) ?? 0
-      const ts = o.orderDate != null ? Date.parse(String(o.orderDate)) : NaN
-
-      const s = stats.get(email) ?? { count: 0, lifetime: 0, minTs: null, maxTs: null }
-      s.count += 1
-      s.lifetime += subtotal
-      if (Number.isFinite(ts)) {
-        if (s.minTs === null || ts < s.minTs) s.minTs = ts
-        if (s.maxTs === null || ts > s.maxTs) s.maxTs = ts
-      }
-      stats.set(email, s)
+    // 2+3) Aggregate orders by customer email. Prefer Neon (disco_orders);
+    // fall back to the FM order list if the query fails so this never breaks.
+    let stats: Map<string, OrderStats>
+    try {
+      stats = await statsFromNeon()
+    } catch (e) {
+      console.error('[export/customers] Neon orders query failed, falling back to FM:', e instanceof Error ? e.message : e)
+      stats = await statsFromFm(headerRef)
     }
 
     // 4) Join onto each customer and compute the derived fields.
