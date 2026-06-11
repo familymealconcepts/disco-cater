@@ -55,6 +55,16 @@ type AnyRec = Record<string, unknown>
 function num(v: unknown): number { return typeof v === 'number' ? v : 0 }
 function str(v: unknown): string { return typeof v === 'string' ? v : '' }
 
+// FM dates arrive as DD.MM.YYYY or YYYY-MM-DD; normalize to the YYYY-MM-DD that
+// <input type="date"> requires (empty string if unparseable). buildCheckoutPayload's
+// toFmDate then converts back to DD.MM.YYYY for FM.
+function toIsoDateInput(d: string): string {
+  const dmy = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(d || '')
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(d || '')
+  return ymd ? `${ymd[1]}-${ymd[2]}-${ymd[3]}` : ''
+}
+
 // Pull canonical money fields out of an FM re-price / order response. FM may
 // nest them under checkoutPublicResponseDto or return them flat.
 function extractFmMoney(resp: AnyRec | null) {
@@ -90,6 +100,13 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const [origSource, setOrigSource] = useState('')
   const [origMoney, setOrigMoney] = useState({ subtotal: 0, tax: 0, delivery: 0, tips: 0, fee: 0, discount: 0, total: 0 })
   const [taxExempt, setTaxExempt] = useState(false)
+  const [orderNumber, setOrderNumber] = useState('')
+
+  // ─── Reschedule (date/time) modal ─────────────────────────────────────────
+  const [rescheduleOpen, setRescheduleOpen] = useState(false)
+  const [draftDate, setDraftDate] = useState('')   // YYYY-MM-DD
+  const [draftTime, setDraftTime] = useState('')   // HH:mm
+  const origDt = useRef({ date: '', time: '' })     // normalized loaded date/time
 
   // The order ref to PUT/commit against. FM may clone the order into an edit
   // draft (editOrderRef); if so we target that, else the original ref.
@@ -216,6 +233,8 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         setOrderType(str(o.orderType) === 'DELIVERY' || str(o.deliveryType).includes('DELIVERY') ? 'DELIVERY' : 'PICKUP')
         setOrderDate(str(o.orderDate))
         setOrderTime(str(o.orderTime))
+        setOrderNumber(o.orderNumber != null && o.orderNumber !== '' ? String(o.orderNumber) : '')
+        origDt.current = { date: toIsoDateInput(str(o.orderDate)), time: str(o.orderTime).slice(0, 5) }
         setTaxExempt(o.taxExempt === true)
 
         const da = o.deliveryAddress as AnyRec | undefined
@@ -314,10 +333,14 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
 
   // ─── Cart math / diff ─────────────────────────────────────────────────────
   const activeLines = useMemo(() => cart.filter(l => !l.removed), [cart])
-  const changed = useMemo(
+  const cartChanged = useMemo(
     () => cart.some(l => l.origin === 'new' || l.removed || l.quantity !== l.originalQuantity),
     [cart]
   )
+  // Date/time differs from what we loaded → also counts as a change (drives the
+  // "changed" UI and triggers a re-price).
+  const rescheduled = toIsoDateInput(orderDate) !== origDt.current.date || (orderTime || '').slice(0, 5) !== origDt.current.time
+  const changed = cartChanged || rescheduled
 
   // Build the FM checkout payload for the current (non-removed) cart.
   const buildPayload = useCallback(() => {
@@ -369,7 +392,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
     }, 600)
     return () => { if (repriceTimer.current) clearTimeout(repriceTimer.current) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, changed, loading, lockExpired, committed])
+  }, [cart, changed, orderDate, orderTime, loading, lockExpired, committed])
 
   // ─── Totals (prefer server re-price, fall back to estimate) ───────────────
   const newSubtotal = serverMoney?.subtotal ?? cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns })))
@@ -393,15 +416,14 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       return [{ ...l, quantity: q }]
     }))
   }
+  // Removing an original line keeps it tracked as removed (excluded from the
+  // payload via activeLines) but hidden from the cart; new lines just vanish.
   function removeLine(lineId: string) {
     setCart(prev => prev.flatMap(l => {
       if (l.lineId !== lineId) return [l]
       if (l.origin === 'new') return []
       return [{ ...l, removed: true }]
     }))
-  }
-  function restoreLine(lineId: string) {
-    setCart(prev => prev.map(l => l.lineId === lineId ? { ...l, removed: false } : l))
   }
 
   // ─── Add-to-cart (from modifier modal) ────────────────────────────────────
@@ -552,7 +574,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap',
         gap: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600,
       }}>
-        <span>✏️ Editing Order #{orderRef} — changes are not saved until you click Commit Edit.</span>
+        <span>✏️ Editing Order #{orderNumber || orderRef.slice(0, 8)} — changes are not saved until you click Commit Edit.</span>
         <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
           Edit lock expires in {mm}:{ss}
         </span>
@@ -615,9 +637,9 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         {/* CENTER — cart */}
         <div className="eo-cart" style={{ flex: 1, minWidth: 0 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, color: DARK, margin: '0 0 14px' }}>Order Items</h2>
-          {cart.length === 0 && <p style={{ color: '#999', fontSize: 14 }}>No items.</p>}
+          {activeLines.length === 0 && <p style={{ color: '#999', fontSize: 14 }}>No items.</p>}
           <div style={{ display: 'grid', gap: 10 }}>
-            {cart.map(line => <CartRow key={line.lineId} line={line} onInc={() => changeQty(line.lineId, 1)} onDec={() => changeQty(line.lineId, -1)} onRemove={() => removeLine(line.lineId)} onRestore={() => restoreLine(line.lineId)} />)}
+            {activeLines.map(line => <CartRow key={line.lineId} line={line} onInc={() => changeQty(line.lineId, 1)} onDec={() => changeQty(line.lineId, -1)} onRemove={() => removeLine(line.lineId)} />)}
           </div>
         </div>
 
@@ -626,6 +648,26 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
           <div style={{ position: 'sticky', top: 64, background: '#fff', border: '1px solid #eee', borderRadius: 14, padding: '18px 18px 20px' }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 14 }}>
               Order Summary — <span style={{ color: BLUE }}>EDIT MODE</span>
+            </div>
+
+            {/* Schedule + reschedule */}
+            <div style={{ marginBottom: 14, padding: '10px 12px', border: `1px solid ${rescheduled ? BLUE : '#eee'}`, borderRadius: 10, background: rescheduled ? 'rgba(91,111,232,0.06)' : '#fafafc' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: '#999', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    {orderType === 'DELIVERY' ? 'Delivery' : 'Pickup'}
+                    {rescheduled && <span style={{ marginLeft: 6, color: BLUE, fontWeight: 700 }}>• Changed</span>}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginTop: 2 }}>
+                    {toIsoDateInput(orderDate) || '—'} · {(orderTime || '').slice(0, 5) || '—'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setDraftDate(toIsoDateInput(orderDate)); setDraftTime((orderTime || '').slice(0, 5)); setRescheduleOpen(true) }}
+                  style={{ background: 'none', border: `1px solid ${BLUE}`, color: BLUE, borderRadius: 999, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
+                  Reschedule
+                </button>
+              </div>
             </div>
 
             <Row label="Original Total" value={formatCurrency(origTotal)} muted strike={changed} />
@@ -692,6 +734,39 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         </Overlay>
       )}
 
+      {/* Reschedule modal — plain date + time pickers (any future slot). */}
+      {rescheduleOpen && (
+        <Overlay onClose={() => setRescheduleOpen(false)}>
+          <div style={modalCard()} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: DARK }}>Reschedule order</div>
+              <button onClick={() => setRescheduleOpen(false)} style={{ background: 'none', border: 'none', fontSize: 22, color: '#999', cursor: 'pointer' }}>×</button>
+            </div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#777', marginBottom: 6 }}>Date</label>
+            <input type="date" value={draftDate} min={new Date().toISOString().slice(0, 10)} onChange={e => setDraftDate(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: 10, fontSize: 14, fontFamily: F, marginBottom: 14, outline: 'none', boxSizing: 'border-box' }} />
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#777', marginBottom: 6 }}>Time</label>
+            <input type="time" value={draftTime} onChange={e => setDraftTime(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: 10, fontSize: 14, fontFamily: F, marginBottom: 20, outline: 'none', boxSizing: 'border-box' }} />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setRescheduleOpen(false)} style={pillBtnOutline('#666')}>Cancel</button>
+              <button
+                disabled={!draftDate || !draftTime}
+                onClick={() => {
+                  setOrderDate(draftDate)
+                  setOrderTime(draftTime.length === 5 ? `${draftTime}:00` : draftTime)
+                  // Drop the stale server total so the re-price effect refetches.
+                  setServerMoney(null)
+                  setRescheduleOpen(false)
+                }}
+                style={{ ...pillBtn(BLUE), opacity: (!draftDate || !draftTime) ? 0.5 : 1, cursor: (!draftDate || !draftTime) ? 'default' : 'pointer' }}>
+                Update date &amp; time
+              </button>
+            </div>
+          </div>
+        </Overlay>
+      )}
+
       {/* Lock-expired modal */}
       {lockExpired && !committed && (
         <Overlay>
@@ -713,7 +788,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
                 <button onClick={() => setMobileCartOpen(false)} style={{ background: 'none', border: 'none', fontSize: 22, color: '#999', cursor: 'pointer' }}>×</button>
               </div>
               <div style={{ display: 'grid', gap: 10 }}>
-                {cart.map(line => <CartRow key={line.lineId} line={line} onInc={() => changeQty(line.lineId, 1)} onDec={() => changeQty(line.lineId, -1)} onRemove={() => removeLine(line.lineId)} onRestore={() => restoreLine(line.lineId)} />)}
+                {activeLines.map(line => <CartRow key={line.lineId} line={line} onInc={() => changeQty(line.lineId, 1)} onDec={() => changeQty(line.lineId, -1)} onRemove={() => removeLine(line.lineId)} />)}
               </div>
             </div>
           </Overlay>
@@ -751,47 +826,33 @@ function Row({ label, value, bold, muted, strike }: { label: string; value: stri
   )
 }
 
-function CartRow({ line, onInc, onDec, onRemove, onRestore }: { line: EditCartLine; onInc: () => void; onDec: () => void; onRemove: () => void; onRestore: () => void }) {
-  const isNew = line.origin === 'new'
-  const qtyChanged = line.origin === 'original' && !line.removed && line.quantity !== line.originalQuantity
-  const borderColor = line.removed ? RED : isNew ? GREEN : '#eee'
+// Clean current-items row — no diff styling. Removed originals are filtered out
+// upstream (activeLines), so a row here is always an active item.
+function CartRow({ line, onInc, onDec, onRemove }: { line: EditCartLine; onInc: () => void; onDec: () => void; onRemove: () => void }) {
   const lineTotal = lineUnitPrice({ price: line.price, addOns: line.addOns }) * line.quantity
   return (
-    <div style={{ border: '1px solid #eee', borderLeft: `3px solid ${borderColor}`, borderRadius: 10, padding: '12px 14px', background: '#fff', opacity: line.removed ? 0.7 : 1 }}>
+    <div style={{ border: '1px solid #eee', borderRadius: 10, padding: '12px 14px', background: '#fff' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: DARK, textDecoration: line.removed ? 'line-through' : 'none' }}>
-            {line.name}
-            {isNew && <Badge color={GREEN}>NEW</Badge>}
-            {line.removed && <Badge color={RED}>REMOVED</Badge>}
-          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{line.name}</div>
           {line.serves != null && line.serves !== '' && <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>Serves {line.serves}</div>}
           {line.addOns.filter(a => a.count > 0).map((a, i) => (
             <div key={i} style={{ fontSize: 12, color: '#888', marginTop: 2 }}>({a.count}) {a.name}{a.price > 0 ? ` (+${formatCurrency(a.price)} each)` : ''}</div>
           ))}
           {line.note && <div style={{ fontSize: 12, color: '#aaa', fontStyle: 'italic', marginTop: 4 }}>{line.note}</div>}
-          {qtyChanged && <div style={{ fontSize: 12, fontWeight: 700, color: BLUE, marginTop: 4 }}>Qty: {line.originalQuantity} → {line.quantity}</div>}
         </div>
         <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: DARK, textDecoration: line.removed ? 'line-through' : 'none' }}>{formatCurrency(lineTotal)}</div>
-          {line.removed ? (
-            <button onClick={onRestore} style={{ marginTop: 8, background: 'none', border: 'none', color: BLUE, fontSize: 12, cursor: 'pointer', fontFamily: F, fontWeight: 600 }}>Undo</button>
-          ) : (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-              <button onClick={onDec} style={stepBtn}>−</button>
-              <span style={{ fontSize: 13, fontWeight: 600, minWidth: 16, textAlign: 'center' }}>{line.quantity}</span>
-              <button onClick={onInc} style={stepBtn}>+</button>
-              <button onClick={onRemove} title="Remove" style={{ marginLeft: 4, background: 'none', border: 'none', color: '#bbb', fontSize: 16, cursor: 'pointer' }}>🗑</button>
-            </div>
-          )}
+          <div style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{formatCurrency(lineTotal)}</div>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+            <button onClick={onDec} style={stepBtn}>−</button>
+            <span style={{ fontSize: 13, fontWeight: 600, minWidth: 16, textAlign: 'center' }}>{line.quantity}</span>
+            <button onClick={onInc} style={stepBtn}>+</button>
+            <button onClick={onRemove} title="Remove" aria-label="Remove" style={{ marginLeft: 4, background: 'none', border: 'none', color: '#bbb', fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
+          </div>
         </div>
       </div>
     </div>
   )
-}
-
-function Badge({ color, children }: { color: string; children: ReactNode }) {
-  return <span style={{ marginLeft: 6, background: color, color: '#fff', borderRadius: 4, padding: '1px 6px', fontSize: 9, fontWeight: 700, letterSpacing: '0.03em', verticalAlign: 'middle' }}>{children}</span>
 }
 
 function ModifierModal({ pkg, onClose, onAdd }: { pkg: FmPackage; onClose: () => void; onAdd: (pkg: FmPackage, qty: number, addOns: EditAddOn[], note?: string) => void }) {
