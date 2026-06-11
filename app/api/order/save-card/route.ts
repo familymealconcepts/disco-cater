@@ -18,8 +18,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false }, { status: 200 })
     }
 
-    const { paymentMethodId } = await req.json().catch(() => ({}))
-    if (!paymentMethodId) return NextResponse.json({ success: false }, { status: 200 })
+    const { paymentIntentId } = await req.json().catch(() => ({}))
+    if (!paymentIntentId) return NextResponse.json({ success: false }, { status: 200 })
 
     // Identify the customer from the FM auth cookie (same self-fetch pattern as
     // the recurring-orders route). Gives us email + reference + name.
@@ -37,6 +37,16 @@ export async function POST(req: NextRequest) {
     const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim()
 
     const stripe = new Stripe(stripeKey, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
+
+    // Resolve the PaymentMethod off the just-confirmed PaymentIntent — its
+    // payment_method is a fresh, reusable reference (createPaymentMethod from a
+    // single-use token can't be re-attached, but the PI's PM can).
+    const pi = await stripe.paymentIntents.retrieve(paymentIntentId)
+    const paymentMethodId = typeof pi.payment_method === 'string' ? pi.payment_method : pi.payment_method?.id
+    if (!paymentMethodId) {
+      console.warn('[save-card] PaymentIntent has no payment_method:', paymentIntentId)
+      return NextResponse.json({ success: false }, { status: 200 })
+    }
 
     // 1. Find or create the Stripe customer for this email.
     const existing = await stripe.customers.list({ email, limit: 1 })

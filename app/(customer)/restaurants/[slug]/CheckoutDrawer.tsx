@@ -777,13 +777,17 @@ export default function CheckoutDrawer({
         directEntryRetry.current = null
 
         // Best-effort: persist the just-charged card as the customer's default
-        // source so it's offered next time. Never blocks the confirmation flow.
-        if (saveCardForNext && !usingSavedCard && !isDirectEntry && paymentMethodId) {
+        // source so it's offered next time. We pass the PaymentIntent id (from
+        // the confirm response) — the server resolves the PaymentMethod off it,
+        // since the just-confirmed PI holds a fresh, reusable reference. Never
+        // blocks the confirmation flow.
+        const savedPaymentIntentId = (confData.data?.stripePaymentIntentDto ?? confData.stripePaymentIntentDto)?.paymentIntentId ?? paymentIntentId
+        if (saveCardForNext && !usingSavedCard && !isDirectEntry && savedPaymentIntentId) {
           try {
             await fetch('/api/order/save-card', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ paymentMethodId }),
+              body: JSON.stringify({ paymentIntentId: savedPaymentIntentId }),
             })
           } catch { /* swallow — saving the card must not affect the order */ }
         }
