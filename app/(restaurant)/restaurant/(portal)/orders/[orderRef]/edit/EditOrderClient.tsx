@@ -79,6 +79,18 @@ function extractFmMoney(resp: AnyRec | null) {
   return { subtotal, tax, delivery, tips, fee, discount, total }
 }
 
+// Gather the order's line items from an FM order-details payload. The /details
+// endpoint may key them differently than the orders list (orderMealPackages /
+// orderClassics) — fall back to the ICheckoutPreview shapes (items / mealPackages).
+function collectOrderItems(rec: AnyRec): AnyRec[] {
+  const mp = Array.isArray(rec.orderMealPackages) ? rec.orderMealPackages as AnyRec[] : []
+  const cl = Array.isArray(rec.orderClassics) ? rec.orderClassics as AnyRec[] : []
+  if (mp.length || cl.length) return [...mp, ...cl]
+  if (Array.isArray(rec.items) && rec.items.length) return rec.items as AnyRec[]
+  if (Array.isArray(rec.mealPackages) && rec.mealPackages.length) return rec.mealPackages as AnyRec[]
+  return []
+}
+
 export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const router = useRouter()
 
@@ -140,24 +152,31 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
 
   // ─── Build cart line from an FM order meal-package ────────────────────────
   const orderLineToCart = useCallback((mp: AnyRec): EditCartLine => {
+    // The /details endpoint may nest the package under `mealPackage` and use
+    // alternate field names — read defensively across known shapes.
+    const nested = (mp.mealPackage as AnyRec | undefined) ?? undefined
     const qty = num(mp.count) || num(mp.quantity) || 1
-    const addOnsRaw = (Array.isArray(mp.orderAddOns) ? mp.orderAddOns : (Array.isArray(mp.extraItems) ? mp.extraItems : [])) as AnyRec[]
+    const addOnsRaw = (
+      Array.isArray(mp.orderAddOns) ? mp.orderAddOns :
+      Array.isArray(mp.extraItems) ? mp.extraItems :
+      Array.isArray(mp.addOns) ? mp.addOns : []
+    ) as AnyRec[]
     const addOns: EditAddOn[] = addOnsRaw.map(a => ({
       reference: str(a.reference) || str(a.addOnReference),
-      name: str(a.name),
+      name: str(a.name) || str(a.addOnName),
       price: num(a.price),
       count: num(a.count) || num(a.quantity) || 1,
       extraItemsGroupReference: str(a.extraItemsGroupReference) || undefined,
     }))
     return {
       lineId: newLineId(),
-      reference: str(mp.reference) || str(mp.mealPackageReference),
-      name: str(mp.name),
-      price: num(mp.price),
+      reference: str(mp.reference) || str(mp.mealPackageReference) || str(nested?.reference),
+      name: str(mp.name) || str(mp.mealPackageName) || str(nested?.name),
+      price: num(mp.price) || num(mp.mealPackagePrice) || num(nested?.price),
       quantity: qty,
       addOns,
       note: str(mp.comment) || str(mp.specialInstructions) || undefined,
-      serves: (mp.serves as string | number | null) ?? null,
+      serves: (mp.serves as string | number | null) ?? (nested?.serves as string | number | null) ?? null,
       origin: 'original',
       originalQuantity: qty,
       removed: false,
@@ -224,10 +243,12 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         console.log('[edit-client] restaurantRef resolved', { fromStorage, fromDetails, used: rr })
         if (rr) setRestaurantRef(rr)
 
-        const mps = [
-          ...(Array.isArray(o.orderMealPackages) ? o.orderMealPackages : []),
-          ...(Array.isArray(o.orderClassics) ? o.orderClassics : []),
-        ] as AnyRec[]
+        // Pre-fill the cart with the order's existing items. Check the top level
+        // first, then the checkoutPublicResponseDto wrapper FM sometimes uses.
+        const dto = (o.checkoutPublicResponseDto as AnyRec) ?? null
+        let mps = collectOrderItems(o)
+        if (mps.length === 0 && dto) mps = collectOrderItems(dto)
+        console.log('[edit-client] cart items resolved', { count: mps.length })
         setCart(mps.map(orderLineToCart))
 
         setOrderType(str(o.orderType) === 'DELIVERY' || str(o.deliveryType).includes('DELIVERY') ? 'DELIVERY' : 'PICKUP')
@@ -574,7 +595,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap',
         gap: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600,
       }}>
-        <span>✏️ Editing Order #{orderNumber || orderRef.slice(0, 8)} — changes are not saved until you click Commit Edit.</span>
+        <span>✏️ Editing Order #{orderNumber || orderRef.slice(0, 8)} — changes are not saved until you click Update Order.</span>
         <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
           Edit lock expires in {mm}:{ss}
         </span>
@@ -647,7 +668,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         <div className="eo-summary" style={{ width: 320, flexShrink: 0 }}>
           <div style={{ position: 'sticky', top: 64, background: '#fff', border: '1px solid #eee', borderRadius: 14, padding: '18px 18px 20px' }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 14 }}>
-              Order Summary — <span style={{ color: BLUE }}>EDIT MODE</span>
+              Order Summary
             </div>
 
             {/* Schedule + reschedule */}
@@ -702,11 +723,11 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
 
             <button onClick={commit} disabled={committing || committed || lockExpired}
               style={{ ...pillBtn(BLUE), width: '100%', marginTop: 16, opacity: (committing || committed || lockExpired) ? 0.6 : 1, cursor: (committing || committed || lockExpired) ? 'default' : 'pointer' }}>
-              {committing ? 'Saving changes…' : 'Commit Edit'}
+              {committing ? 'Saving changes…' : 'Update Order'}
             </button>
             <button onClick={() => setDiscardOpen(true)} disabled={committing || committed}
               style={{ ...pillBtnOutline('#666'), width: '100%', marginTop: 10 }}>
-              Discard Changes
+              Cancel
             </button>
           </div>
         </div>
