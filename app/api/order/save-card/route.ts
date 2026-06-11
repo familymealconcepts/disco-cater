@@ -25,6 +25,11 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({ cardToken }),
     })
 
+    const raw = await res.text().catch(() => '')
+    let body: unknown = raw
+    try { body = raw ? JSON.parse(raw) : null } catch { /* keep raw text */ }
+    console.log('[save-card] FM response:', res.status, JSON.stringify(body))
+
     return NextResponse.json({ success: res.ok }, { status: 200 })
   } catch {
     return NextResponse.json({ success: false }, { status: 200 })
