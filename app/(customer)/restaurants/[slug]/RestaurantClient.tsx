@@ -1260,7 +1260,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           </header>
           <AuthModal isOpen={authModalOpen} onClose={closeAuthModal} defaultTab={authModalDefaultTab} />
           {/* Subtle attribution badge — 1P pages only. No link, no hover. */}
-          <div style={{ position: 'fixed', bottom: 16, right: 16, zIndex: 300, background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.12)', borderRadius: 20, padding: '6px 12px', fontSize: 11, color: '#999', fontFamily: F }}>
+          <div style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 300, background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.12)', borderRadius: 20, padding: '6px 12px', fontSize: 11, color: '#999', fontFamily: F }}>
             Powered by Disco Cater
           </div>
         </>
