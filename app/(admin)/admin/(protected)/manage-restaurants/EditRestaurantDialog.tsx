@@ -10,7 +10,7 @@ const GRADIENT = 'linear-gradient(90deg, #6B6EF9, #C044C8, #F0468A)'
 // loaded value not in it is merged in below so a non-listed value (e.g. an
 // enrichment cuisine like "Tacos") is never silently dropped. Stored as a
 // comma-separated string in disco_restaurant_cache.cuisine.
-const CUISINES = ['BBQ', 'Bagels', 'Bakery', 'Bar & Grill', 'Breakfast', 'Burgers', 'Cafe', 'Caribbean', 'Chicken', 'Deli', 'Chinese', 'French', 'Greek', 'Indian', 'Italian', 'Japanese', 'Korean', 'Latin', 'Mediterranean', 'Mexican', 'Middle Eastern', 'Pizza', 'Sandwiches', 'Seafood', 'Soul Food', 'Thai', 'Vegan', 'Vietnamese']
+const CUISINES = ['BBQ', 'Bagels', 'Bakery', 'Bar & Grill', 'Bowls', 'Boxed Lunches', 'Breakfast', 'Burgers', 'Burritos', 'Cafe', 'Caribbean', 'Chicken', 'Deli', 'Chinese', 'French', 'Greek', 'Indian', 'Italian', 'Japanese', 'Korean', 'Latin', 'Mediterranean', 'Mexican', 'Middle Eastern', 'Pizza', 'Sandwiches', 'Seafood', 'Soul Food', 'Sushi', 'Tacos', 'Thai', 'Vegan', 'Vietnamese']
 const MAX_CUISINES = 3
 
 interface FmAddress { addressLine1?: string; addressLine2?: string; city?: string; state?: string; zipcode?: string; phoneNumber?: string; latitude?: number; longitude?: number }

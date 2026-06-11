@@ -370,7 +370,7 @@ export default function RestaurantsOrderingPage() {
   }
 
   return (
-    <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+    <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, height: '100vh', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* CSS-only hover tooltips for the header action buttons. */}
       <style>{`
         .ord-btn { position: relative; }
@@ -445,10 +445,11 @@ export default function RestaurantsOrderingPage() {
 
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
 
-      {/* Scroll the rows inside this container (max-height) so the sticky
-          header has a scrolling ancestor to pin against. No overflow:hidden
-          ancestor here, so sticky works without z-index hacks. */}
-      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'auto', maxHeight: 'calc(100vh - 240px)' }}>
+      {/* Grow to fill the remaining viewport height (flex:1) and scroll the rows
+          inside this container so the sticky header has a scrolling ancestor to
+          pin against. minHeight:0 lets the flex child shrink so its own overflow
+          scrolls instead of the page. */}
+      <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'auto', flex: 1, minHeight: 0 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
           <thead>
             <tr>
