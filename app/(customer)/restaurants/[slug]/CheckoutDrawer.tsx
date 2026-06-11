@@ -180,9 +180,6 @@ export default function CheckoutDrawer({
   const [stripeKey, setStripeKey] = useState('')
   const [savedCard, setSavedCard] = useState<any>(null)
   const [useNewCard, setUseNewCard] = useState(false)
-  // When entering a new card, offer to persist it as the customer's default
-  // source for next time (customer flow only — never direct entry).
-  const [saveCardForNext, setSaveCardForNext] = useState(false)
   // Bumped to force a destroy+remount of the Stripe Elements. After a declined
   // card in direct-entry payment, returning to the payment step would otherwise
   // leave the fields detached/unusable (the elements survive the placing step by
@@ -775,22 +772,6 @@ export default function CheckoutDrawer({
         }
         // Confirmed — clear any retry context.
         directEntryRetry.current = null
-
-        // Best-effort: persist the just-charged card as the customer's default
-        // source so it's offered next time. We pass the PaymentIntent id (from
-        // the confirm response) — the server resolves the PaymentMethod off it,
-        // since the just-confirmed PI holds a fresh, reusable reference. Never
-        // blocks the confirmation flow.
-        const savedPaymentIntentId = (confData.data?.stripePaymentIntentDto ?? confData.stripePaymentIntentDto)?.paymentIntentId ?? paymentIntentId
-        if (saveCardForNext && !usingSavedCard && !isDirectEntry && savedPaymentIntentId) {
-          try {
-            await fetch('/api/order/save-card', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ paymentIntentId: savedPaymentIntentId }),
-            })
-          } catch { /* swallow — saving the card must not affect the order */ }
-        }
       }
 
       // Disco-side promo redemption — the charge succeeded, so issue the discount
@@ -1132,13 +1113,6 @@ export default function CheckoutDrawer({
                     <div ref={cvcRef} style={fieldBox} />
                   </div>
                 </div>
-                {/* Save-card opt-in — customer flow only, never direct entry. */}
-                {!isDirectEntry && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, cursor: 'pointer', fontSize: 13, color: DARK }}>
-                    <input type="checkbox" checked={saveCardForNext} onChange={e => setSaveCardForNext(e.target.checked)} style={{ accentColor: BLUE, width: 15, height: 15, flexShrink: 0 }} />
-                    Save card for next time
-                  </label>
-                )}
               </>
             ) : <div style={{ fontSize: 13, color: '#aaa', padding: '8px 0' }}>Loading secure payment form…</div>
 
