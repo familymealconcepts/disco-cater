@@ -79,15 +79,16 @@ function extractFmMoney(resp: AnyRec | null) {
   return { subtotal, tax, delivery, tips, fee, discount, total }
 }
 
-// Gather the order's line items from an FM order-details payload. The /details
-// endpoint may key them differently than the orders list (orderMealPackages /
-// orderClassics) — fall back to the ICheckoutPreview shapes (items / mealPackages).
+// Gather the order's line items from an FM /details payload. Items live under
+// data.order.orderMealPackages (fall back to order.* and the root). Also tolerate
+// orderClassics and the ICheckoutPreview shapes (items / mealPackages).
 function collectOrderItems(rec: AnyRec): AnyRec[] {
-  const mp = Array.isArray(rec.orderMealPackages) ? rec.orderMealPackages as AnyRec[] : []
-  const cl = Array.isArray(rec.orderClassics) ? rec.orderClassics as AnyRec[] : []
+  const order = ((rec?.data as AnyRec)?.order as AnyRec) ?? (rec?.order as AnyRec) ?? rec
+  const mp = Array.isArray(order.orderMealPackages) ? order.orderMealPackages as AnyRec[] : []
+  const cl = Array.isArray(order.orderClassics) ? order.orderClassics as AnyRec[] : []
   if (mp.length || cl.length) return [...mp, ...cl]
-  if (Array.isArray(rec.items) && rec.items.length) return rec.items as AnyRec[]
-  if (Array.isArray(rec.mealPackages) && rec.mealPackages.length) return rec.mealPackages as AnyRec[]
+  if (Array.isArray(order.items) && order.items.length) return order.items as AnyRec[]
+  if (Array.isArray(order.mealPackages) && order.mealPackages.length) return order.mealPackages as AnyRec[]
   return []
 }
 
@@ -156,18 +157,24 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
     // alternate field names — read defensively across known shapes.
     const nested = (mp.mealPackage as AnyRec | undefined) ?? undefined
     const qty = num(mp.count) || num(mp.quantity) || 1
-    const addOnsRaw = (
-      Array.isArray(mp.orderAddOns) ? mp.orderAddOns :
-      Array.isArray(mp.extraItems) ? mp.extraItems :
-      Array.isArray(mp.addOns) ? mp.addOns : []
-    ) as AnyRec[]
-    const addOns: EditAddOn[] = addOnsRaw.map(a => ({
+    const toAddOn = (a: AnyRec, groupRef?: string, defaultCount = 1): EditAddOn => ({
       reference: str(a.reference) || str(a.addOnReference),
       name: str(a.name) || str(a.addOnName),
       price: num(a.price),
-      count: num(a.count) || num(a.quantity) || 1,
-      extraItemsGroupReference: str(a.extraItemsGroupReference) || undefined,
-    }))
+      count: num(a.count) || num(a.quantity) || defaultCount,
+      extraItemsGroupReference: groupRef || str(a.extraItemsGroupReference) || undefined,
+    })
+    // Add-ons may be a flat list (orderAddOns/extraItems/addOns) or nested under
+    // extraItemsGroups[].addOns — flatten the grouped shape and keep only selected.
+    const flat = Array.isArray(mp.orderAddOns) ? mp.orderAddOns
+      : Array.isArray(mp.extraItems) ? mp.extraItems
+      : Array.isArray(mp.addOns) ? mp.addOns : null
+    const addOns: EditAddOn[] = flat
+      ? (flat as AnyRec[]).map(a => toAddOn(a))
+      : (Array.isArray(mp.extraItemsGroups) ? mp.extraItemsGroups as AnyRec[] : [])
+          .flatMap(g => (Array.isArray(g.addOns) ? g.addOns as AnyRec[] : [])
+            .map(a => toAddOn(a, str(g.reference) || undefined, 0))
+            .filter(a => a.count > 0))
     return {
       lineId: newLineId(),
       reference: str(mp.reference) || str(mp.mealPackageReference) || str(nested?.reference),
@@ -228,37 +235,37 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         }
         const o = (await res.json()) as AnyRec
         if (cancelled) return
+        // FM /details nests the order under data.order (fall back to order / root).
+        const order = ((o?.data as AnyRec)?.order as AnyRec) ?? (o?.order as AnyRec) ?? o
         console.log('[edit-client] details loaded', {
           orderRef,
-          mealPackages: Array.isArray(o.orderMealPackages) ? o.orderMealPackages.length : 0,
-          classics: Array.isArray(o.orderClassics) ? o.orderClassics.length : 0,
-          orderType: o.orderType, orderDate: o.orderDate, orderTime: o.orderTime,
+          orderNumber: order.orderNumber,
+          mealPackages: Array.isArray(order.orderMealPackages) ? order.orderMealPackages.length : 0,
+          classics: Array.isArray(order.orderClassics) ? order.orderClassics.length : 0,
+          orderType: order.orderType, orderDate: order.orderDate, orderTime: order.orderTime,
         })
 
         // Resolve the restaurant ref client-side: prefer the portal's selected
         // location, fall back to whatever the order details carry.
         const fromStorage = typeof window !== 'undefined' ? (localStorage.getItem('selectedRestaurant') || '') : ''
-        const fromDetails = str(o.restaurantReference) || str((o.restaurant as AnyRec | undefined)?.reference)
+        const fromDetails = str(order.restaurantReference) || str((order.restaurant as AnyRec | undefined)?.reference)
         const rr = fromStorage || fromDetails
         console.log('[edit-client] restaurantRef resolved', { fromStorage, fromDetails, used: rr })
         if (rr) setRestaurantRef(rr)
 
-        // Pre-fill the cart with the order's existing items. Check the top level
-        // first, then the checkoutPublicResponseDto wrapper FM sometimes uses.
-        const dto = (o.checkoutPublicResponseDto as AnyRec) ?? null
-        let mps = collectOrderItems(o)
-        if (mps.length === 0 && dto) mps = collectOrderItems(dto)
+        // Pre-fill the cart with the order's existing items (data.order.orderMealPackages).
+        const mps = collectOrderItems(o)
         console.log('[edit-client] cart items resolved', { count: mps.length })
         setCart(mps.map(orderLineToCart))
 
-        setOrderType(str(o.orderType) === 'DELIVERY' || str(o.deliveryType).includes('DELIVERY') ? 'DELIVERY' : 'PICKUP')
-        setOrderDate(str(o.orderDate))
-        setOrderTime(str(o.orderTime))
-        setOrderNumber(o.orderNumber != null && o.orderNumber !== '' ? String(o.orderNumber) : '')
-        origDt.current = { date: toIsoDateInput(str(o.orderDate)), time: str(o.orderTime).slice(0, 5) }
-        setTaxExempt(o.taxExempt === true)
+        setOrderType(str(order.orderType) === 'DELIVERY' || str(order.deliveryType).includes('DELIVERY') ? 'DELIVERY' : 'PICKUP')
+        setOrderDate(str(order.orderDate))
+        setOrderTime(str(order.orderTime))
+        setOrderNumber(order.orderNumber != null && order.orderNumber !== '' ? String(order.orderNumber) : '')
+        origDt.current = { date: toIsoDateInput(str(order.orderDate)), time: str(order.orderTime).slice(0, 5) }
+        setTaxExempt(order.taxExempt === true)
 
-        const da = o.deliveryAddress as AnyRec | undefined
+        const da = order.deliveryAddress as AnyRec | undefined
         if (da && str(da.addressLine1)) {
           setDeliveryAddress({
             addressLine1: str(da.addressLine1),
@@ -272,13 +279,13 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
           })
         }
 
-        const money = extractFmMoney(o)
+        const money = extractFmMoney(order)
         setOrigMoney({
           subtotal: money.subtotal ?? 0, tax: money.tax, delivery: money.delivery,
           tips: money.tips, fee: money.fee, discount: money.discount, total: money.total ?? 0,
         })
-        setOrigTotal(money.total ?? num(o.transactionsTotal))
-        setOrigSource(str(o.sourceoforder) || str((o as AnyRec).sourceOfOrder) || '')
+        setOrigTotal(money.total ?? num(order.transactionsTotal))
+        setOrigSource(str(order.sourceoforder) || str((order as AnyRec).sourceOfOrder) || '')
 
         // Acquire the edit lock.
         const lockRes = await fetch(`/api/restaurant/orders/${orderRef}/edit-start`, { method: 'POST' })
