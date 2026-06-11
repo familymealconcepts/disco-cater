@@ -3,6 +3,8 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
+import UserMenu from '../../../components/UserMenu'
+import AuthModal from '../../../components/AuthModal'
 import { useAuthContext } from '../../../context/AuthContext'
 import CheckoutDrawer from './CheckoutDrawer'
 import MenuAdvisor, { type DiscoIntake } from './MenuAdvisor'
@@ -232,7 +234,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // Auth — used to gate the checkout action behind login (browsing/cart-building
   // stay open). openAuthModal stores a pending action AuthModal resumes on a
   // successful sign-in, so checkout continues automatically.
-  const { user, openAuthModal } = useAuthContext()
+  const { user, isLoading: authLoading, openAuthModal, authModalOpen, closeAuthModal, authModalDefaultTab } = useAuthContext()
   const [activeMenuIdx, setActiveMenuIdx] = useState(0)
   const [headerImgError, setHeaderImgError] = useState(false)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
@@ -1242,7 +1244,22 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           </span>
         </div>
       )}
-      {!embedded && <GlobalHeader />}
+      {!embedded && (isFirstParty ? (
+        <>
+          {/* 1P direct-order header: a clean bar with NO logo and NO
+              marketplace/discovery navigation (restaurants embed this link on
+              their own site). Auth is kept so the checkout login flow works —
+              CheckoutDrawer calls openAuthModal, which needs this AuthModal
+              rendered. */}
+          <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, padding: '9px 18px', minHeight: 34, boxSizing: 'border-box', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', position: 'sticky', top: 0, zIndex: 200 }}>
+            {!authLoading && (user
+              ? <UserMenu />
+              : <button onClick={() => openAuthModal(undefined, 'login')} style={{ padding: '7px 16px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>Log In</button>
+            )}
+          </header>
+          <AuthModal isOpen={authModalOpen} onClose={closeAuthModal} defaultTab={authModalDefaultTab} />
+        </>
+      ) : <GlobalHeader />)}
 
       {/* Date/time/pickup sticky bar — hidden in embed mode because the
           enclosing NewOrderDialog already shows the date in its top bar
@@ -1273,9 +1290,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
       <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
         <div style={{ maxWidth: 1140, margin: '0 auto', padding: '20px 24px 0' }}>
-          <Link href="/fullmap" style={{ fontSize: 12, color: '#888', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 16 }}>
-            ← Back to Catering Map
-          </Link>
+          {/* Discovery back-link — 3P marketplace only; hidden on the 1P direct page. */}
+          {!isFirstParty && (
+            <Link href="/fullmap" style={{ fontSize: 12, color: '#888', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 16 }}>
+              ← Back to Catering Map
+            </Link>
+          )}
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 18 }}>
             <div style={{ width: 80, height: 80, borderRadius: 14, overflow: 'hidden', flexShrink: 0, background: (headerImg && !headerImgError) ? '#f0f0f0' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {headerImg && !headerImgError
