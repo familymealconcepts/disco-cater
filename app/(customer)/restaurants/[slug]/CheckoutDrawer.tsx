@@ -660,6 +660,11 @@ export default function CheckoutDrawer({
       // charged in the confirm step; placing the order alone does NOT charge it.
       const usingSavedCard = savedCard && !useNewCard
       let paymentMethodId: string | null = null
+      // Capture the Stripe card token (tok_…) so we can persist the card to FM
+      // after confirmation. The token is minted below but block-scoped; hoist it
+      // here so it survives to the save-card call. FM's defaultSource POST expects
+      // a cardToken (matching /api/fm-payment-source), not a paymentMethodId.
+      let cardTokenToSave: string | null = null
       if (!isInvoice && !usingSavedCard) {
         if (!stripeRef.current || !numberElRef.current) {
           setError('Payment form not ready. Please wait and try again.')
@@ -670,6 +675,7 @@ export default function CheckoutDrawer({
         // then turn the token into a PaymentMethod, exactly as FM does.
         const tok = await stripeRef.current.createToken(numberElRef.current)
         if (tok.error) { trackPaymentFailed('card_token_error'); setError(tok.error.message || 'Card error.'); setStep('payment'); return }
+        cardTokenToSave = tok.token.id
         const pm = await stripeRef.current.createPaymentMethod({ type: 'card', card: { token: tok.token.id } })
         if (pm.error) { trackPaymentFailed('card_method_error'); setError(pm.error.message || 'Card error.'); setStep('payment'); return }
         paymentMethodId = pm.paymentMethod?.id ?? null
@@ -769,12 +775,12 @@ export default function CheckoutDrawer({
 
         // Best-effort: persist the just-charged card as the customer's default
         // source so it's offered next time. Never blocks the confirmation flow.
-        if (saveCardForNext && !usingSavedCard && !isDirectEntry && paymentMethodId) {
+        if (saveCardForNext && !usingSavedCard && !isDirectEntry && cardTokenToSave) {
           try {
             await fetch('/api/order/save-card', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ paymentMethodId }),
+              body: JSON.stringify({ cardToken: cardTokenToSave }),
             })
           } catch { /* swallow — saving the card must not affect the order */ }
         }

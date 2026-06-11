@@ -12,8 +12,8 @@ export async function POST(req: NextRequest) {
     const token = getToken(req)
     if (!token) return NextResponse.json({ success: false }, { status: 200 })
 
-    const { paymentMethodId } = await req.json().catch(() => ({}))
-    if (!paymentMethodId) return NextResponse.json({ success: false }, { status: 200 })
+    const { cardToken } = await req.json().catch(() => ({}))
+    if (!cardToken) return NextResponse.json({ success: false }, { status: 200 })
 
     const res = await fetch(`${FM}/api/users/payment/defaultSource`, {
       method: 'POST',
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
         Accept: 'application/json',
         Authorization: token,
       },
-      body: JSON.stringify({ paymentMethodId }),
+      body: JSON.stringify({ cardToken }),
     })
 
     return NextResponse.json({ success: res.ok }, { status: 200 })
