@@ -213,11 +213,27 @@ function statusColor(status: string, orderDate: string, orderTime: string) {
 // tz — matching statusColor — so this is approximate near the boundary; the
 // real edit page in Session 2 should re-validate server-side.)
 const NON_EDITABLE_STATUSES = new Set(['COMPLETED', 'EXPIRED', 'CANCELED', 'CANCELLED'])
+const MAX_EDITS = 3
+
+// Per-order edit counter, persisted in localStorage as disco_edit_counts:
+// { [orderReference]: number }. Incremented on the edit page after a successful
+// commit; read here to cap edits at MAX_EDITS.
+function getEditCount(orderRef: string): number {
+  if (typeof window === 'undefined' || !orderRef) return 0
+  try {
+    const map = JSON.parse(window.localStorage.getItem('disco_edit_counts') || '{}') as Record<string, number>
+    return Number(map[orderRef]) || 0
+  } catch { return 0 }
+}
+
 function isEditEligible(order: Order): boolean {
   const status = (order.orderStatus || '').toUpperCase()
   if (NON_EDITABLE_STATUSES.has(status)) return false
   if (!order.orderDate || !order.orderTime) return false
-  const ts = new Date(`${order.orderDate}T${order.orderTime}`).getTime()
+  if (getEditCount(order.orderReference) >= MAX_EDITS) return false
+  // FM returns orderDate as DD.MM.YYYY — normalize to YYYY-MM-DD before Date().
+  const iso = order.orderDate.includes('.') ? order.orderDate.split('.').reverse().join('-') : order.orderDate
+  const ts = new Date(`${iso}T${order.orderTime}`).getTime()
   if (Number.isNaN(ts)) return false
   return ts > Date.now() + 24 * 60 * 60 * 1000
 }

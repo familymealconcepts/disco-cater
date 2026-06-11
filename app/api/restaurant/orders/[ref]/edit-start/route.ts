@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../../lib/restaurant-auth'
 
-const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FAMILYMEAL_API_BASE || 'https://api.familymeal.com'
+const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Starts an edit session: creates the edit draft and acquires the edit lock.
 // FM: POST /public-api/v2/restaurants/{restaurantRef}/orders/{orderRef}/slotselected?editOrder=true

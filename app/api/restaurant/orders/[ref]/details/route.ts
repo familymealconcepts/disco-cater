@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 
-const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FAMILYMEAL_API_BASE || 'https://api.familymeal.com'
+const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Loads the full order details used to pre-populate the edit page.
 // FM (per Revyrie spec): GET /public-api/v2/orders/{orderRef}/details

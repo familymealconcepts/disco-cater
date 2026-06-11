@@ -85,6 +85,40 @@ async function mirrorOrderToNeon(args: {
   }
 }
 
+// Posts an "Order Updated" notification to the Disco Slack channel when an edit
+// is committed. 1P/3P labeled per the order source. Looks the restaurant name up
+// from the cache (best-effort). Never throws; skips when the webhook is unset.
+async function sendOrderUpdatedSlack(o: {
+  orderRef: string
+  restaurantRef: string
+  originalTotal: number
+  newTotal: number
+  sourceOfOrder: string
+}): Promise<void> {
+  const url = process.env.SLACK_NEW_ORDER_WEBHOOK_URL
+  if (!url) return
+  try {
+    let restaurantName = ''
+    try {
+      const rows = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${o.restaurantRef} LIMIT 1`) as Record<string, unknown>[]
+      restaurantName = rows[0]?.name ? String(rows[0].name) : ''
+    } catch { /* name is optional */ }
+
+    const is3P = o.sourceOfOrder === 'DISCO'
+    const label = is3P ? '3P Update' : '1P Update'
+    const orig = Number.isFinite(o.originalTotal) ? o.originalTotal : 0
+    const next = Number.isFinite(o.newTotal) ? o.newTotal : 0
+    const delta = next - orig
+    const deltaStr = `${delta >= 0 ? '+' : '-'}$${Math.abs(delta).toFixed(2)}`
+    const place = restaurantName || o.restaurantRef
+    const text = `✏️ *Order Updated* (${label}) — ${place} — #${o.orderRef} — $${orig.toFixed(2)} → $${next.toFixed(2)} (${deltaStr})`
+
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
+  } catch (err) {
+    console.error('[restaurant/orders/place] Slack update notification failed:', err instanceof Error ? err.message : err)
+  }
+}
+
 // Restaurant-portal "Create Order" (Direct Entry) place endpoint.
 // Same FM endpoint as the customer place flow (POST /api/v2/restaurants/{ref}/
 // orders/{orderRef}) — FM's own admin Create Order uses this exact endpoint
@@ -100,7 +134,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { restaurantRef, orderRef, ...placeBody } = body
+    // editSlack is a Disco-only marker for the edit-commit flow — pull it out so
+    // it's never forwarded to FM, and so its presence gates the "Order Updated"
+    // Slack ping (the new-order direct-entry flow never sends it).
+    const { restaurantRef, orderRef, editSlack, ...placeBody } = body
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
@@ -120,6 +157,17 @@ export async function POST(req: NextRequest) {
     // waitUntil — non-blocking and never affects the response below.
     if (res.ok) {
       waitUntil(mirrorOrderToNeon({ restaurantRef, orderRef, placeBody, fmData: data }))
+      // Edit commits carry editSlack → fire the "Order Updated" Slack ping.
+      if (editSlack) {
+        const es = editSlack as Record<string, unknown>
+        waitUntil(sendOrderUpdatedSlack({
+          orderRef: String(es.orderRef ?? orderRef),
+          restaurantRef,
+          originalTotal: Number(es.originalTotal) || 0,
+          newTotal: Number(es.newTotal) || 0,
+          sourceOfOrder: String(es.sourceoforder ?? ''),
+        }))
+      }
     }
 
     return NextResponse.json(data, { status: res.status })

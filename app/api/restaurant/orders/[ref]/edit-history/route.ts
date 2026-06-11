@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 
-const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FAMILYMEAL_API_BASE || 'https://api.familymeal.com'
+const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Returns the edit history for an order. FM doesn't (yet) expose a dedicated
 // edit-history endpoint, so we pull the full order details and surface any

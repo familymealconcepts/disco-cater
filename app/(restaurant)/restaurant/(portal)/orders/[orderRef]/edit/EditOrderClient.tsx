@@ -87,6 +87,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const [orderTime, setOrderTime] = useState('')   // HH:mm:ss
   const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddr | null>(null)
   const [origTotal, setOrigTotal] = useState(0)
+  const [origSource, setOrigSource] = useState('')
   const [origMoney, setOrigMoney] = useState({ subtotal: 0, tax: 0, delivery: 0, tips: 0, fee: 0, discount: 0, total: 0 })
   const [taxExempt, setTaxExempt] = useState(false)
 
@@ -237,6 +238,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
           tips: money.tips, fee: money.fee, discount: money.discount, total: money.total ?? 0,
         })
         setOrigTotal(money.total ?? num(o.transactionsTotal))
+        setOrigSource(str(o.sourceoforder) || str((o as AnyRec).sourceOfOrder) || '')
 
         // Acquire the edit lock.
         const lockRes = await fetch(`/api/restaurant/orders/${orderRef}/edit-start`, { method: 'POST' })
@@ -456,17 +458,29 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         const e = (await putRes.json().catch(() => ({}))) as AnyRec
         throw new Error(str(e.error) || str(e.message) || 'Could not save the updated cart.')
       }
-      // 2) Commit / place the edit.
+      // 2) Commit / place the edit. editSlack flags this place call as an EDIT
+      // (the shared route also handles new direct-entry orders) and carries the
+      // before/after totals for the "Order Updated" Slack ping.
       const postRes = await fetch('/api/restaurant/orders/place', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, orderRef: editRefRef.current }),
+        body: JSON.stringify({
+          ...payload,
+          orderRef: editRefRef.current,
+          editSlack: { orderRef, originalTotal: origTotal, newTotal, sourceoforder: origSource },
+        }),
       })
       if (!postRes.ok) {
         const e = (await postRes.json().catch(() => ({}))) as AnyRec
         throw new Error(str(e.error) || str(e.message) || 'Could not commit the edit.')
       }
       setCommitted(true)
+      // Bump the per-order edit counter (capped at 3 in the orders list).
+      try {
+        const map = JSON.parse(localStorage.getItem('disco_edit_counts') || '{}') as Record<string, number>
+        map[orderRef] = (Number(map[orderRef]) || 0) + 1
+        localStorage.setItem('disco_edit_counts', JSON.stringify(map))
+      } catch { /* ignore — counter is best-effort */ }
       await releaseLock()
       setTimeout(() => router.push('/restaurant/orders'), 2000)
     } catch (err) {
@@ -547,7 +561,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       {/* ── Success banner ── */}
       {committed && (
         <div style={{ background: GREEN, color: '#fff', padding: '10px 18px', fontSize: 14, fontWeight: 600 }}>
-          Order #{orderRef} updated successfully. Returning to orders…
+          Order has been updated. Returning to orders…
         </div>
       )}
 
