@@ -46,12 +46,16 @@ async function mirrorOrderToNeon(args: {
 
     const str = (v: unknown): string | null => (v == null || v === '' ? null : String(v))
 
+    // CheckoutDrawer nests the priced DTO (orderDate/orderTime/orderType) under
+    // checkoutDetails — read from there, not the top level of the place body.
+    const checkoutDetails = (placeBody.checkoutDetails ?? {}) as Record<string, unknown>
+
     const reference = str(fmInner.orderReference) || str(fm.orderReference) || str(orderRef) || randomUUID()
     const orderNumber = str(fmInner.orderNumber) || str(fm.orderNumber) // BIGINT, NOT NULL UNIQUE
     const customerEmail = str(customer.email)
-    const orderDate = toIsoDate(placeBody.orderDate)
-    const orderTime = str(placeBody.orderTime)
-    const orderType = placeBody.orderType === 'DELIVERY' || placeBody.deliveryAddress ? 'DELIVERY' : 'PICKUP'
+    const orderDate = toIsoDate(checkoutDetails.orderDate)
+    const orderTime = str(checkoutDetails.orderTime)
+    const orderType = checkoutDetails.orderType === 'DELIVERY' || placeBody.deliveryAddress ? 'DELIVERY' : 'PICKUP'
     const statusRaw = String(fmInner.orderStatus ?? fm.orderStatus ?? fmInner.status ?? '').toUpperCase()
     const orderStatus = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
 
