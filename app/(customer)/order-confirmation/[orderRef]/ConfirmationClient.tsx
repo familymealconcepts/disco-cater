@@ -72,7 +72,6 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   const orderTime = order?.orderTime || order?.localTime || ''
   const orderType = order?.orderType || ''
   const addr = order?.deliveryAddress
-  const status = order?.status || order?.orderStatus || ''
 
   return (
     <div style={{ minHeight: '100svh', background: '#f8f8fc', fontFamily: F }}>
@@ -101,7 +100,6 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
               <h1 style={{ fontSize: 28, fontWeight: 800, color: DARK, margin: '0 0 8px', letterSpacing: '-0.02em' }}>Order Confirmed!</h1>
               {restaurantName && <p style={{ fontSize: 16, color: '#666', margin: '0 0 6px' }}>Your catering from <strong>{restaurantName}</strong> is confirmed.</p>}
               <p style={{ fontSize: 13, color: '#aaa' }}>Order #{displayId}</p>
-              {status && <span style={{ display: 'inline-block', marginTop: 8, padding: '4px 12px', borderRadius: 20, background: '#ECFDF5', color: '#166534', fontSize: 12, fontWeight: 700 }}>{status}</span>}
             </div>
 
             {/* Order details */}
