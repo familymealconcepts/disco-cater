@@ -8,6 +8,7 @@ import AuthModal from '../../../components/AuthModal'
 import { useAuthContext } from '../../../context/AuthContext'
 import CheckoutDrawer from './CheckoutDrawer'
 import MenuAdvisor, { type DiscoIntake } from './MenuAdvisor'
+import FavoriteHeart from '../../account/components/FavoriteHeart'
 import { cartSubtotal } from '../../../../lib/pricing/cart'
 import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
@@ -1300,7 +1301,22 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               ← Back to Catering Map
             </Link>
           )}
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 18 }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 18, position: 'relative' }}>
+            <FavoriteHeart
+              authGate
+              size={22}
+              background="rgba(255,255,255,0.92)"
+              style={{ position: 'absolute', top: 0, right: 0, zIndex: 2, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}
+              restaurant={{
+                key: slug || fmRef || restaurant.name,
+                reference: fmRef ?? undefined,
+                slug,
+                name: restaurant.name,
+                image: headerImg ?? undefined,
+                cuisine: restaurant.cuisines?.[0] || restaurant.cuisine,
+                location: restaurant.location || restaurant.address,
+              }}
+            />
             <div style={{ width: 80, height: 80, borderRadius: 14, overflow: 'hidden', flexShrink: 0, background: (headerImg && !headerImgError) ? '#f0f0f0' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {headerImg && !headerImgError
                 ? <img src={headerImg} alt={restaurant.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={() => setHeaderImgError(true)} />
