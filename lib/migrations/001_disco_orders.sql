@@ -136,6 +136,26 @@ ALTER TABLE disco_order_events ALTER COLUMN order_reference DROP NOT NULL;
 -- webhook to send the restaurant order notification. Safe to run repeatedly.
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS restaurant_email TEXT;
 
+-- Disco-native saved card vault. Replaces FM's defaultSource as the source of
+-- truth for a customer's default payment method: the card is attached to a
+-- Stripe customer (created/looked up by email) and the display + Stripe ids are
+-- cached here, keyed one-per-customer-email.
+CREATE TABLE IF NOT EXISTS disco_customer_payment_methods (
+  id SERIAL PRIMARY KEY,
+  customer_email TEXT NOT NULL,
+  fm_user_reference TEXT,
+  stripe_customer_id TEXT NOT NULL,
+  stripe_payment_method_id TEXT NOT NULL,
+  card_brand TEXT,
+  card_last4 TEXT,
+  card_exp_month INTEGER,
+  card_exp_year INTEGER,
+  is_default BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(customer_email)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_disco_orders_reference ON disco_orders(reference);
 CREATE INDEX IF NOT EXISTS idx_disco_orders_status ON disco_orders(order_status);
