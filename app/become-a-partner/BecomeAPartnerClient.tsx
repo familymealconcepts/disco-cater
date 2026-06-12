@@ -1,5 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 // ── Brand ────────────────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@ function PriceRow({ label, detail, value, who, highlight }: {
 }
 
 export default function BecomeAPartnerClient() {
+  const router = useRouter()
   // 0 = your info, 1 = first party (1P), 2 = marketplace (3P, optional),
   // 3 = menu + banking, 4 = success.
   const [step, setStep] = useState(0)
@@ -90,10 +92,32 @@ export default function BecomeAPartnerClient() {
   const [joinedMarketplace, setJoinedMarketplace] = useState(false)
   const [menuFile, setMenuFile] = useState<File | null>(null)
   const [menuSkipped, setMenuSkipped] = useState(false)
+  const [stripeConnected, setStripeConnected] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
+
+  // Handle the Stripe Connect return. The redirect to Stripe full-page-reloads
+  // this component (state is lost), so we restore the in-progress onboarding
+  // snapshot saved before the redirect, mark Stripe connected, land back on the
+  // Menu & Banking step, and strip the ?stripe=success param from the URL.
+  useEffect(() => {
+    let params: URLSearchParams
+    try { params = new URLSearchParams(window.location.search) } catch { return }
+    if (params.get('stripe') !== 'success') return
+    try {
+      const saved = JSON.parse(localStorage.getItem('partner_onboarding') || '{}')
+      if (saved.form) setForm(f => ({ ...f, ...saved.form }))
+      if (typeof saved.joinedMarketplace === 'boolean') setJoinedMarketplace(saved.joinedMarketplace)
+    } catch { /* snapshot optional */ }
+    setStripeConnected(true)
+    setStep(3)
+    params.delete('stripe')
+    const qs = params.toString()
+    router.replace(qs ? `/become-a-partner?${qs}` : '/become-a-partner')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const infoValid = !!form.firstName && !!form.lastName && !!form.email
     && !!form.phoneNumber && !!form.restaurantName && !!form.zip && !!form.password
@@ -148,9 +172,18 @@ export default function BecomeAPartnerClient() {
       const menuOk = skip ? true : await sendMenu()
       const res = await fetch('/api/become-a-partner/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // agreedToPricing = the required First Party terms. joinedMarketplace is
-        // extra context the route safely ignores (unchanged contract).
-        body: JSON.stringify({ email: form.email, agreedToPricing: true, agreedToDelivery: false, joinedMarketplace }),
+        // Full context for the team notification email. agreedToPricing = the
+        // required First Party terms.
+        body: JSON.stringify({
+          restaurantName: form.restaurantName,
+          email: form.email,
+          phone: form.phoneNumber,
+          zip: form.zip,
+          joinedMarketplace,
+          stripeConnected,
+          agreedToPricing: true,
+          agreedToDelivery: false,
+        }),
       })
       const data = await res.json()
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
@@ -193,6 +226,8 @@ export default function BecomeAPartnerClient() {
         setError(data.error || 'Could not initiate Stripe Connect. Please contact concierge@discocater.com.')
         return
       }
+      // Persist progress — the Stripe redirect reloads the page on return.
+      try { localStorage.setItem('partner_onboarding', JSON.stringify({ form, joinedMarketplace })) } catch {}
       window.location.href = data.stripeConnectUrl
     } catch {
       setError('Could not initiate Stripe Connect. Please contact concierge@discocater.com.')
@@ -375,10 +410,17 @@ export default function BecomeAPartnerClient() {
               <div style={{ borderTop: '1px solid #eee', paddingTop: 22, marginTop: 24 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>Then, connect your bank account to receive payouts</div>
                 <p style={{ ...subStyle, fontSize: 13 }}>Powered by Stripe. You can complete this now or anytime from your dashboard.</p>
-                <button onClick={connectStripe} disabled={loading}
-                  style={{ ...primaryBtn, marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                  {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
-                </button>
+                {stripeConnected ? (
+                  <button disabled
+                    style={{ ...primaryBtn, marginTop: 6, background: '#2E9E5B', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    ✓ Stripe connected
+                  </button>
+                ) : (
+                  <button onClick={connectStripe} disabled={loading}
+                    style={{ ...primaryBtn, marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                    {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
+                  </button>
+                )}
               </div>
 
               {/* Finish */}
@@ -418,9 +460,9 @@ export default function BecomeAPartnerClient() {
                   {error}
                 </div>
               )}
-              <a href="https://www.familymeal.com"
+              <a href="https://www.discocater.com/restaurant"
                 style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
-                Go to your dashboard →
+                Go to your Disco Cater dashboard →
               </a>
             </div>
           )}
