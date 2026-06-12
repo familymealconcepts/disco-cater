@@ -82,6 +82,18 @@ async function testOnboarding(origin: string): Promise<TestResult> {
   } catch (e) { /* reported below */ void e }
   steps.push({ name: 'Account exists in Neon', status: neonFound ? 'passed' : 'failed', detail: neonFound ? 'found in disco_restaurant_accounts' : 'not found' })
 
+  // Finish onboarding so the partner Slack + team-email notification fires via the
+  // same path/format as a real signup. /complete is best-effort, so it returns
+  // success even when notifications aren't configured.
+  const cp = await call('POST', `${origin}/api/become-a-partner/complete`, {
+    body: {
+      restaurantName: name, email, phone: '5551234567', zip: '10001',
+      joinedMarketplace: false, deliveryEnabled: false, stripeConnected: false,
+      restaurantReference: ref, agreedToPricing: true, agreedToDelivery: false,
+    },
+  })
+  steps.push({ name: 'Complete onboarding (Slack + team email)', status: cp.ok ? 'passed' : 'failed', detail: cp.ok ? 'partner-signup notification fired' : errOf(cp) })
+
   return { steps, testData: { createdRecords: created } }
 }
 
@@ -149,26 +161,26 @@ async function testOrderMirror(): Promise<TestResult> {
 }
 
 // ── test-5: Email Configuration ─────────────────────────────────────────────
-async function testEmailConfig(adminEmail: string): Promise<TestResult> {
+async function testEmailConfig(): Promise<TestResult> {
   const steps: Step[] = []
   const key = process.env.MAILGUN_API_KEY
   const domain = process.env.MAILGUN_DOMAIN
   const configured = !!(key && domain)
   steps.push({ name: 'MAILGUN_API_KEY + MAILGUN_DOMAIN set', status: configured ? 'passed' : 'failed', detail: configured ? 'configured' : 'missing env vars' })
   if (!configured) return { steps, testData: { createdRecords: [] } }
-  if (!adminEmail) {
-    steps.push({ name: 'Send test email', status: 'skipped', detail: 'could not determine admin email' })
-    return { steps, testData: { createdRecords: [] } }
-  }
+  // Send to a Disco-owned address. Mailgun's sending domain (mg.discocater.com)
+  // can't deliver to external domains like familymeal.com, which 401s — so we
+  // hardcode a discocater.com recipient instead of the admin's own email.
+  const to = 'concierge@discocater.com'
   // Reuse the proven transactional sender (same from-address + Mailgun setup as
   // order confirmations) so the result reflects whether real emails will send.
   const result = await sendEmail({
-    to: adminEmail,
+    to,
     subject: `${TEST_PREFIX} Disco Cater Email Configuration Test`,
     html: '<p>This is a test email from the Disco Cater testing dashboard. If you received this, email is configured correctly.</p>',
   })
   steps.push({
-    name: `Send test email to ${adminEmail}`,
+    name: `Send test email to ${to}`,
     status: result.success ? 'passed' : 'failed',
     detail: result.success ? 'sent via lib/email/send' : (result.error || 'send failed'),
   })
@@ -250,7 +262,7 @@ const RUNNERS: Record<string, (origin: string, adminEmail: string) => Promise<Te
   'test-2': () => testCustomerCreate(),
   'test-3': () => testPlaceOrder(),
   'test-4': () => testOrderMirror(),
-  'test-5': (_o, a) => testEmailConfig(a),
+  'test-5': () => testEmailConfig(),
   'test-6': () => testStripeWebhook(),
   'test-7': (o) => testMapVisibility(o),
   'test-8': (o) => testExportApi(o),
