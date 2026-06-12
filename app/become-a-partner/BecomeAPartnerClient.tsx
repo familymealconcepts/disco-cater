@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
 // ── Brand ────────────────────────────────────────────────────────────────────
@@ -92,39 +92,43 @@ export default function BecomeAPartnerClient() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [emailInUse, setEmailInUse] = useState(false)   // FM 400-027: admin email already exists
+  // The restaurant is created ONCE, at the end of setup (see completeOnboarding).
+  // alreadyCreated guards against creating it twice (e.g. re-running the wizard).
+  const [alreadyCreated, setAlreadyCreated] = useState(false)
+  const [restaurantRef, setRestaurantRef] = useState('')
 
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
+
+  // If this browser already finished setup, don't create the restaurant again —
+  // restore the flag + reference so a repeat run skips creation.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('partner_setup_complete') === 'true') {
+        setAlreadyCreated(true)
+        const ref = localStorage.getItem('partner_restaurant_ref') || ''
+        if (ref) setRestaurantRef(ref)
+      }
+    } catch { /* localStorage unavailable */ }
+  }, [])
 
   const infoValid = !!form.firstName && !!form.lastName && !!form.email
     && !!form.phoneNumber && !!form.restaurantName && !!form.zip && !!form.password
 
-  // ── Step 1 → create the restaurant (FM creates the ADMIN account), then
-  // auto-login as that admin. We do NOT register a separate FM USER account —
-  // FM keeps USER and restaurant-ADMIN accounts distinct and the USER never gets
-  // restaurant access, so the only account a partner needs is the ADMIN one that
-  // create-restaurant provisions. ──
-  async function registerAccount() {
+  // ── Step 1 → just validate and advance. The restaurant (and its ADMIN account)
+  // is NOT created here — creation is deferred to completeOnboarding so partial
+  // signups never provision FM accounts or trigger Slack/email notifications. ──
+  function registerAccount() {
     setError(''); setEmailInUse(false)
     if (!infoValid) { setError('Please complete all fields.'); return }
-    setLoading(true)
-    try {
-      const created = await createRestaurant()
-      if (!created) return // createRestaurant set the right error (incl. email-in-use)
-      // Auto-login as the new ADMIN using the credentials they just chose.
-      await autoLoginRestaurant()
-      setStep(1)
-    } catch {
-      setError('Unable to connect. Please try again.')
-    } finally {
-      setLoading(false)
-    }
+    if (form.password.length < 8) { setError('Password must be at least 8 characters'); return }
+    setStep(1)
   }
 
   // Create the restaurant. FM provisions the ADMIN account from `admin` (email +
-  // the password the partner just set) using our SUPER_ADMIN service account.
-  // Returns true on success; on failure it sets the appropriate error and the
-  // caller stops.
-  async function createRestaurant(): Promise<boolean> {
+  // the password the partner set) using our SUPER_ADMIN service account. Returns
+  // the new restaurant reference on success, or null on failure (and sets the
+  // appropriate error). Persists a flag so a repeat run won't create a duplicate.
+  async function createRestaurant(): Promise<string | null> {
     try {
       const res = await fetch('/api/become-a-partner/create-restaurant', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -137,14 +141,25 @@ export default function BecomeAPartnerClient() {
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.restaurantReference) {
         // FM 400-027 → a restaurant admin with this email already exists.
-        if (data?.code === '400-027') { setEmailInUse(true); return false }
+        if (data?.code === '400-027') {
+          setEmailInUse(true)
+          setError('An account with this email already exists. Please log in to your restaurant portal at discocater.com/restaurant/login.')
+          return null
+        }
         setError(data?.error || 'Could not create your restaurant. Please try again or contact concierge@discocater.com.')
-        return false
+        return null
       }
-      return true
+      const ref = String(data.restaurantReference)
+      setRestaurantRef(ref)
+      setAlreadyCreated(true)
+      try {
+        localStorage.setItem('partner_setup_complete', 'true')
+        localStorage.setItem('partner_restaurant_ref', ref)
+      } catch { /* localStorage unavailable */ }
+      return ref
     } catch {
       setError('Unable to connect. Please try again.')
-      return false
+      return null
     }
   }
 
@@ -178,17 +193,33 @@ export default function BecomeAPartnerClient() {
       fd.append('email', form.email)
       const res = await fetch('/api/become-a-partner/menu-upload', { method: 'POST', body: fd })
       const data = await res.json().catch(() => null)
-      return !!(res.ok && data?.success)
-    } catch {
+      if (!res.ok || !data?.success) {
+        // Surface the route's error (e.g. Mailgun not configured) for debugging.
+        console.error('[become-a-partner] menu upload failed:', res.status, data?.error || data)
+        return false
+      }
+      return true
+    } catch (err) {
+      console.error('[become-a-partner] menu upload request failed:', err)
       return false
     }
   }
 
-  // ── Step 4 → finish onboarding (with or without a menu) ────────────────────
+  // ── Final step → create the restaurant (deferred from step 0), then send the
+  // optional menu and the team notification. This is the ONLY place we touch FM,
+  // so partial signups never create accounts or fire notifications. ──
   async function completeOnboarding(skip: boolean) {
     setError('')
     setLoading(true)
     try {
+      // Create the FM restaurant + ADMIN now, unless this browser already did.
+      let ref = restaurantRef
+      if (!alreadyCreated) {
+        const created = await createRestaurant()
+        if (!created) return // createRestaurant set the error (incl. email-in-use)
+        ref = created
+        await autoLoginRestaurant() // best-effort
+      }
       const menuOk = skip ? true : await sendMenu()
       const res = await fetch('/api/become-a-partner/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -200,6 +231,7 @@ export default function BecomeAPartnerClient() {
           phone: form.phoneNumber,
           zip: form.zip,
           joinedMarketplace,
+          restaurantReference: ref,
           stripeConnected: false, // bank connect moved to the portal post-onboarding
           agreedToPricing: true,
           agreedToDelivery: false,
@@ -208,7 +240,7 @@ export default function BecomeAPartnerClient() {
       const data = await res.json()
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
       // Surface a menu-upload failure but still advance — never block onboarding.
-      if (!menuOk) setError('Menu upload failed — you can email your menu to concierge@discocater.com')
+      if (!menuOk) setError('Menu upload failed. Please email your menu PDF to concierge@discocater.com and we’ll set it up for you.')
       setStep(4)
     } catch {
       setError('Unable to connect. Please try again.')
@@ -268,7 +300,7 @@ export default function BecomeAPartnerClient() {
           {step === 0 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Let&apos;s get you set up</h1>
-              <p style={subStyle}>Tell us about you and your restaurant. Signing up is fast, free, and month-to-month — no contract.</p>
+              <p style={subStyle}>Tell us about you and your restaurant. Signing up is fast and risk free.</p>
               {emailInUse ? (
                 <div style={{ background: '#fff8ec', border: '1px solid #f5e2b8', color: '#8a6d2f', borderRadius: 12, padding: '12px 14px', fontSize: 13, lineHeight: 1.5, margin: '0 0 14px' }}>
                   An account with this email already exists. Please{' '}
@@ -288,10 +320,11 @@ export default function BecomeAPartnerClient() {
                 </div>
                 <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
                 <Field label="Create a password" value={form.password} onChange={v => set('password', v)} type="password" autoComplete="new-password" />
+                <div style={{ fontSize: 12, color: '#999', margin: '-6px 0 0', paddingLeft: 4 }}>Minimum 8 characters</div>
               </div>
-              <button onClick={registerAccount} disabled={!infoValid || loading}
-                style={{ ...primaryBtn, marginTop: 8, opacity: (infoValid && !loading) ? 1 : 0.5, cursor: (infoValid && !loading) ? 'pointer' : 'default' }}>
-                {loading ? 'Creating your account…' : 'Continue'}
+              <button onClick={registerAccount} disabled={!infoValid}
+                style={{ ...primaryBtn, marginTop: 8, opacity: infoValid ? 1 : 0.5, cursor: infoValid ? 'pointer' : 'default' }}>
+                Continue
               </button>
             </div>
           )}
@@ -299,19 +332,20 @@ export default function BecomeAPartnerClient() {
           {/* ── STEP 2 · FIRST PARTY (1P) — required ── */}
           {step === 1 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>First Party (Direct Orders)</h1>
-              <p style={subStyle}>Orders placed directly through your restaurant portal. No commission — free forever.</p>
+              <h1 style={h1Style}>First-Party Ordering Pricing</h1>
+              <p style={subStyle}>Orders placed through your First-Party URL (website, social and other native links) incur the following fee structure.</p>
               {errorBox}
 
               {/* 1P pricing */}
               <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
-                <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0%" who="restaurant" />
-                <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3%" who="customer" />
+                <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" who="restaurant" />
+                <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" who="customer" />
                 <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" who="restaurant" />
+                <PriceRow label="Third-party delivery" detail="Optional couriers, billed to the customer" value="Paid by customer" who="customer" />
               </div>
 
               {/* Required agreement */}
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 6px' }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 18px' }}>
                 <input type="checkbox" checked={agree1P} onChange={e => setAgree1P(e.target.checked)}
                   style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
                 <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>
@@ -321,11 +355,6 @@ export default function BecomeAPartnerClient() {
                   <a href="/privacy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#5B6FE8' }}>Privacy Policy</a>
                 </span>
               </label>
-              <p style={{ fontSize: 12, color: '#999', lineHeight: 1.5, margin: '0 0 18px', paddingLeft: 29 }}>
-                By checking this box you agree to our{' '}
-                <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: BLUE }}>Terms of Service</a>
-                {' '}and the pricing above.
-              </p>
 
               <button onClick={() => { setError(''); setStep(2) }} disabled={!agree1P}
                 style={{ ...primaryBtn, opacity: agree1P ? 1 : 0.5, cursor: agree1P ? 'pointer' : 'default' }}>
@@ -337,27 +366,24 @@ export default function BecomeAPartnerClient() {
           {/* ── STEP 3 · MARKETPLACE (3P) — optional ── */}
           {step === 2 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Marketplace (Optional)</h1>
+              <h1 style={h1Style}>Third-Party Marketplace Pricing (Optional)</h1>
               <p style={{ ...subStyle, fontWeight: 700, color: DARK, margin: '0 0 6px' }}>Get discovered by new customers through the Disco Cater marketplace</p>
-              <p style={subStyle}>We send you new catering leads. You only pay when we deliver a new customer.</p>
+              <p style={subStyle}>We send you new catering orders. You only pay when we deliver.</p>
               {errorBox}
 
               {/* 3P pricing */}
               <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
-                <PriceRow label="First-time customers" detail="Of order subtotal — per new customer we bring you" value="15%" who="restaurant" />
-                <PriceRow label="Returning customers" detail="Of order subtotal — for repeat orders" value="5%" who="restaurant" />
-                <PriceRow label="Third-party delivery" detail="Optional couriers, billed to the customer" value="Paid by customer" who="customer" />
+                <PriceRow label="First-time customers" detail="Of order subtotal — the first time a new customer orders from a unique location" value="15.00%" who="restaurant" />
+                <PriceRow label="Returning customers" detail="Of order subtotal — that customer's subsequent orders from that location" value="5.00%" who="restaurant" />
+                <PriceRow label="Third-party delivery" detail="Optional couriers, billed to the customer" value="Paid by customer" />
               </div>
 
               {/* Opt-in agreement (only required to join) */}
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 6px' }}>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 18px' }}>
                 <input type="checkbox" checked={agreeMarketplace} onChange={e => setAgreeMarketplace(e.target.checked)}
                   style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
                 <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>I agree to the Disco Cater Marketplace Terms</span>
               </label>
-              <p style={{ fontSize: 12, color: '#999', lineHeight: 1.5, margin: '0 0 18px', paddingLeft: 29 }}>
-                Required only if you join the marketplace.
-              </p>
 
               <button onClick={() => { setError(''); setJoinedMarketplace(true); setStep(3) }} disabled={!agreeMarketplace}
                 style={{ ...primaryBtn, opacity: agreeMarketplace ? 1 : 0.5, cursor: agreeMarketplace ? 'pointer' : 'default' }}>
@@ -376,7 +402,7 @@ export default function BecomeAPartnerClient() {
           {step === 3 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Upload your menu</h1>
-              <p style={subStyle}>Upload a PDF of your current catering menu. Our team will set it up in your portal within 1 business day.</p>
+              <p style={subStyle}>Upload a PDF of your current catering menu and our team will set it up in your portal.</p>
               {errorBox}
 
               {/* Menu upload */}
@@ -415,7 +441,7 @@ export default function BecomeAPartnerClient() {
             <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
               <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>
               <p style={{ ...subStyle, maxWidth: 420, margin: '0 auto 8px' }}>
-                Our team will be in touch within 1 business day to complete your setup.
+                Your account has been created. Log in to your restaurant dashboard to get started.
               </p>
               {error && (
                 <div style={{ background: '#fff3f3', border: '1px solid #ffd6d6', color: '#c0392b', borderRadius: 12, padding: '10px 14px', fontSize: 13, maxWidth: 420, margin: '14px auto 0', textAlign: 'left' }}>
@@ -423,23 +449,10 @@ export default function BecomeAPartnerClient() {
                 </div>
               )}
 
-              {/* FM provisions the ADMIN with a temporary password (emailed), not the
-                  one entered here — so we can't auto-login. Two explicit steps: set a
-                  password from the email, then sign in to the portal. */}
-              <p style={{ ...subStyle, maxWidth: 440, margin: '18px auto 24px' }}>
-                Your account has been created. First, check your email and use the temporary password to set a new one. Then log in to your restaurant dashboard.
-              </p>
-
-              <div style={{ maxWidth: 320, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <a href={`/reset-password?email=${encodeURIComponent(form.email)}`}
-                  style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-                  Set your password →
-                </a>
-                <a href="/restaurant/login"
-                  style={{ ...primaryBtn, background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-                  Then log in to your dashboard
-                </a>
-              </div>
+              <a href="/restaurant/login"
+                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
+                Get started
+              </a>
 
               <p style={{ fontSize: 12, color: '#999', maxWidth: 420, margin: '18px auto 0', lineHeight: 1.6 }}>
                 You can connect your bank account from your dashboard after logging in.
