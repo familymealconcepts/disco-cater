@@ -30,10 +30,9 @@ export async function POST(req: NextRequest) {
     await runDiscoOrderMigrations()
 
     const account = await getDiscoRestaurantAccount(email)
-    if (!account) return NextResponse.json(INVALID, { status: 401 })
-
-    const ok = await verifyPassword(password, String(account.password_hash))
-    if (!ok) return NextResponse.json(INVALID, { status: 401 })
+    const passwordValid = account ? await verifyPassword(password, String(account.password_hash)) : false
+    console.log('[disco-login] account found:', !!account, 'password valid:', passwordValid)
+    if (!account || !passwordValid) return NextResponse.json(INVALID, { status: 401 })
 
     const restaurantReference = String(account.restaurant_reference)
     const token = await createDiscoRestaurantSession(restaurantReference, email)

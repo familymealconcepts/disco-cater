@@ -111,6 +111,10 @@ export default function BecomeAPartnerClient() {
     try {
       if (localStorage.getItem('partner_setup_complete') === 'true') {
         setAlreadyCreated(true)
+        // Setup already completed in this browser → the Disco account+session was
+        // created, so restore the logged-in flag (lost on the Stripe round-trip
+        // page reload) for the success-screen dashboard link.
+        setAutoLoggedIn(true)
         const ref = localStorage.getItem('partner_restaurant_ref') || ''
         if (ref) setRestaurantRef(ref)
       }
@@ -128,6 +132,11 @@ export default function BecomeAPartnerClient() {
       }
     } catch { /* snapshot optional */ }
   }, [])
+
+  // Confirm the auto-login state once the success screen renders.
+  useEffect(() => {
+    if (step === 6) console.log('[become-a-partner] success screen autoLoggedIn:', autoLoggedIn)
+  }, [step, autoLoggedIn])
 
   // After returning from Stripe we briefly show "✓ Stripe connected" on the
   // Stripe step, then advance to the menu step automatically.
@@ -428,6 +437,9 @@ export default function BecomeAPartnerClient() {
               <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
                 <PriceRow label="First-Party orders" value="0.00%" who="restaurant" />
                 <PriceRow label="Third-party delivery (optional)" detail="Optional delivery service." value="15.00% (capped at $85.00)" who="customers" />
+                <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" who="restaurant" />
+                <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" who="customers" />
+                <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" who="restaurant" />
               </div>
 
               {/* Required agreement */}
@@ -461,6 +473,9 @@ export default function BecomeAPartnerClient() {
                 <PriceRow label="First-time customers" detail="Of order subtotal — the first time a new customer orders from a unique location" value="15.00%" who="restaurant" />
                 <PriceRow label="Returning customers" detail="Of order subtotal — that customer's subsequent orders from that location" value="5.00%" who="restaurant" />
                 <PriceRow label="Third-party delivery (optional)" detail="Optional delivery service." value="15.00% (capped at $85.00)" who="customers" />
+                <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" who="restaurant" />
+                <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" who="customers" />
+                <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" who="restaurant" />
               </div>
 
               {/* Opt-in agreement (only required to join) */}
