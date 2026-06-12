@@ -96,6 +96,7 @@ export default function BecomeAPartnerClient() {
   const [restaurantSlug, setRestaurantSlug] = useState('')    // businessNameWithoutSpaces (snapshot only)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [emailInUse, setEmailInUse] = useState(false)   // FM 400-027: admin email already exists
 
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
 
@@ -138,25 +139,20 @@ export default function BecomeAPartnerClient() {
   const infoValid = !!form.firstName && !!form.lastName && !!form.email
     && !!form.phoneNumber && !!form.restaurantName && !!form.zip && !!form.password
 
-  // ── Step 1 → create the FM account (POST /registration), unchanged wiring ──
+  // ── Step 1 → create the restaurant (FM creates the ADMIN account), then
+  // auto-login as that admin. We do NOT register a separate FM USER account —
+  // FM keeps USER and restaurant-ADMIN accounts distinct and the USER never gets
+  // restaurant access, so the only account a partner needs is the ADMIN one that
+  // create-restaurant provisions. ──
   async function registerAccount() {
-    setError('')
+    setError(''); setEmailInUse(false)
     if (!infoValid) { setError('Please complete all fields.'); return }
     setLoading(true)
     try {
-      const res = await fetch('/api/become-a-partner/register', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firstName: form.firstName, lastName: form.lastName, email: form.email,
-          password: form.password, phoneNumber: form.phoneNumber,
-        }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Registration failed.'); return }
-      try { localStorage.setItem('currentUser', JSON.stringify(data)) } catch {}
-      // Create the FM restaurant via the SUPER_ADMIN service account. Best-effort:
-      // a failure here must NOT block onboarding — an admin can create it manually.
-      await createRestaurant()
+      const created = await createRestaurant()
+      if (!created) return // createRestaurant set the right error (incl. email-in-use)
+      // Auto-login as the new ADMIN using the credentials they just chose.
+      await autoLoginRestaurant()
       setStep(1)
     } catch {
       setError('Unable to connect. Please try again.')
@@ -165,31 +161,54 @@ export default function BecomeAPartnerClient() {
     }
   }
 
-  // Create the restaurant right after the account exists. Stores the FM
-  // reference (for Stripe Connect) and the 1P slug (for the success URL).
-  async function createRestaurant() {
+  // Create the restaurant. FM provisions the ADMIN account from `admin` (email +
+  // the password the partner just set) using our SUPER_ADMIN service account.
+  // Returns true on success; on failure it sets the appropriate error and the
+  // caller stops. Stores the FM reference for the Stripe Connect step.
+  async function createRestaurant(): Promise<boolean> {
     try {
       const res = await fetch('/api/become-a-partner/create-restaurant', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurantName: form.restaurantName, email: form.email,
           phoneNumber: form.phoneNumber, firstName: form.firstName,
-          lastName: form.lastName, zipcode: form.zip,
+          lastName: form.lastName, zipcode: form.zip, password: form.password,
         }),
       })
       const data = await res.json().catch(() => null)
       if (!res.ok || !data?.restaurantReference) {
-        // Don't block — log and continue; admin can create the restaurant manually.
-        console.error('[become-a-partner] create-restaurant failed:', data?.error || res.status)
-        return
+        // FM 400-027 → a restaurant admin with this email already exists.
+        if (data?.code === '400-027') { setEmailInUse(true); return false }
+        setError(data?.error || 'Could not create your restaurant. Please try again or contact concierge@discocater.com.')
+        return false
       }
       setRestaurantRef(data.restaurantReference)
       const slug = data.businessNameWithoutSpaces || form.restaurantName.toLowerCase().replace(/[^a-z0-9]/g, '')
       setRestaurantSlug(slug)
       try { localStorage.setItem('partner_restaurant_ref', data.restaurantReference) } catch {}
-    } catch (err) {
-      console.error('[become-a-partner] create-restaurant request failed:', err)
+      return true
+    } catch {
+      setError('Unable to connect. Please try again.')
+      return false
     }
+  }
+
+  // Auto-login the new partner as restaurant ADMIN with the credentials they just
+  // set. Best-effort: /api/restaurant-auth sets the httpOnly session cookie and
+  // returns the user payload (no raw token). A failure must NOT block onboarding —
+  // the success screen still offers a manual login.
+  async function autoLoginRestaurant() {
+    try {
+      const res = await fetch('/api/restaurant-auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: form.email, password: form.password }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data) {
+        try { localStorage.setItem('restaurant_user', JSON.stringify(data)) } catch {}
+      }
+    } catch { /* ignore — manual login fallback on the success screen */ }
   }
 
   // Send the optional menu PDF to the team for manual import. Best-effort —
@@ -246,14 +265,12 @@ export default function BecomeAPartnerClient() {
   // ── Stripe Connect — wiring unchanged ──────────────────────────────────────
   async function connectStripe() {
     setError('')
-    // The restaurant reference comes from the create-restaurant step — NOT from
-    // currentUser, which is a plain USER account with no restaurantReference.
+    // The restaurant reference comes from the create-restaurant step. Auth is the
+    // ADMIN session set by auto-login (httpOnly fm_restaurant_token cookie), sent
+    // via credentials:'include' — no client-readable token to pass.
     let ref = restaurantRef
-    let token = ''
     try {
       if (!ref) ref = localStorage.getItem('partner_restaurant_ref') || ''
-      const cu = JSON.parse(localStorage.getItem('currentUser') || '{}')
-      token = cu.authorization || ''
     } catch {}
     if (!ref) {
       setError('We couldn’t find your restaurant reference. Please contact concierge@discocater.com to finish Stripe setup.')
@@ -263,7 +280,8 @@ export default function BecomeAPartnerClient() {
     try {
       const res = await fetch('/api/become-a-partner/stripe-connect', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: token } : {}) },
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ restaurantReference: ref }),
       })
       const data = await res.json()
@@ -333,7 +351,13 @@ export default function BecomeAPartnerClient() {
             <div style={cardStyle}>
               <h1 style={h1Style}>Let&apos;s get you set up</h1>
               <p style={subStyle}>Tell us about you and your restaurant. Signing up is fast, free, and month-to-month — no contract.</p>
-              {errorBox}
+              {emailInUse ? (
+                <div style={{ background: '#fff8ec', border: '1px solid #f5e2b8', color: '#8a6d2f', borderRadius: 12, padding: '12px 14px', fontSize: 13, lineHeight: 1.5, margin: '0 0 14px' }}>
+                  An account with this email already exists. Please{' '}
+                  <a href="/restaurant/login" style={{ color: '#5B6FE8', fontWeight: 700 }}>log in to your restaurant portal</a>
+                  {' '}instead.
+                </div>
+              ) : errorBox}
               <div style={{ marginTop: 18 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <Field label="First name" value={form.firstName} onChange={v => set('firstName', v)} autoComplete="given-name" />
@@ -510,12 +534,12 @@ export default function BecomeAPartnerClient() {
                 </div>
               )}
 
-              {/* Dashboard login. NOTE: target is /restaurant/login, not bare
-                  /restaurant (no index route — it would 404). Once auto-login is
-                  wired (deferred), point this at the role's landing page. */}
-              <a href="/restaurant/login"
+              {/* Auto-login (step 0) set the ADMIN session, so this lands straight
+                  in the portal. If that login failed, middleware redirects
+                  /restaurant/dashboard → /restaurant/login for a manual sign-in. */}
+              <a href="/restaurant/dashboard"
                 style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
-                Log in to dashboard →
+                Go to your dashboard →
               </a>
             </div>
           )}

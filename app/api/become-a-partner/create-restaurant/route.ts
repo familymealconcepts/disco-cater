@@ -54,7 +54,15 @@ export async function POST(req: NextRequest) {
     phoneNumber: String(body?.phoneNumber || ''),
     categories: ['EVENT', 'OFFICE', 'HOLIDAY'],
     fulfillmentOptions: ['PICKUP', 'DELIVERY'],
-    admin: { email, firstName: String(body?.firstName || ''), lastName: String(body?.lastName || '') },
+    // FM provisions the restaurant ADMIN account from this block. Include the
+    // password the partner chose so it becomes their portal login credential —
+    // there is no separate USER registration in this flow.
+    admin: {
+      email,
+      firstName: String(body?.firstName || ''),
+      lastName: String(body?.lastName || ''),
+      password: String(body?.password || ''),
+    },
     address: {
       addressLine1: String(body?.addressLine1 || 'TBD'),
       city: String(body?.city || 'TBD'),
@@ -89,7 +97,16 @@ export async function POST(req: NextRequest) {
 
     const data = await res.json().catch(() => null)
     if (!res.ok || !data?.reference) {
-      console.error(`[create-restaurant] FM ${res.status}:`, JSON.stringify(data)?.slice(0, 400))
+      const raw = JSON.stringify(data) || ''
+      console.error(`[create-restaurant] FM ${res.status}:`, raw.slice(0, 400))
+      // FM 400-027 = an admin with this email already exists. Surface the code so
+      // the client can route the partner to the restaurant login instead.
+      if (data?.code === '400-027' || raw.includes('400-027')) {
+        return NextResponse.json(
+          { error: 'An account with this email already exists.', code: '400-027' },
+          { status: 409 }
+        )
+      }
       return NextResponse.json(
         { error: 'Could not create the restaurant. Please contact concierge@discocater.com.' },
         { status: res.ok ? 502 : res.status }

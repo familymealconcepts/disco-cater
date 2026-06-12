@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getToken } from '../../../../lib/auth'
+import { getRestaurantToken } from '../../../../lib/restaurant-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-// Initiates Stripe Connect onboarding for a restaurant. getToken reads the
-// disco_token cookie (same as other auth routes); it also accepts an
-// Authorization header — the become-a-partner flow keeps the JWT in localStorage
-// (currentUser.authorization), not a cookie, so the client passes it as a header.
+// Initiates Stripe Connect onboarding for a restaurant. The become-a-partner flow
+// auto-logs the new partner in as a restaurant ADMIN, so the credential is the
+// httpOnly fm_restaurant_token cookie (getRestaurantToken). We still accept
+// getToken (disco_token cookie / Authorization header) as a fallback.
 export async function POST(req: NextRequest) {
-  const token = getToken(req)
+  const token = getToken(req) || (await getRestaurantToken())
   if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
   let restaurantReference = ''
