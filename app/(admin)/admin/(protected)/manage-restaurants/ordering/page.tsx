@@ -1,7 +1,14 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import AddRestaurantDialog from './AddRestaurantDialog'
 import EditRestaurantDialog from '../EditRestaurantDialog'
+
+const SORT_BLUE = '#5B6FE8'
+type SortKey = 'restaurant' | 'admin' | 'email' | 'createdDate' | 'status' | 'stripe'
+const SORT_LABELS: Record<SortKey, string> = {
+  restaurant: 'Restaurant', admin: 'Admin', email: 'Email',
+  createdDate: 'Registration Date', status: 'Status', stripe: 'Stripe',
+}
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -55,6 +62,13 @@ function fmtDate(d?: string) {
   } catch { return d }
 }
 
+function adminNameOf(r: Restaurant): string {
+  return r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
+}
+function adminEmailOf(r: Restaurant): string {
+  return r.adminEmail || r.admin?.email || ''
+}
+
 function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolean; onChange: () => void; disabled?: boolean; color?: string }) {
   return (
     <button
@@ -101,6 +115,29 @@ export default function RestaurantsOrderingPage() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [error, setError] = useState('')
+  // Client-side sort of the loaded page. Default: newest registrations first.
+  const [sortKey, setSortKey] = useState<SortKey>('createdDate')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  // A clickable, sort-aware column header. ↑/↓ when active (Disco blue), ⇅ idle.
+  function sortTh(key: SortKey) {
+    const active = sortKey === key
+    const arrow = active ? (sortDir === 'asc' ? '↑' : '↓') : '⇅'
+    return (
+      <th onClick={() => toggleSort(key)} title={`Sort by ${SORT_LABELS[key]}`}
+        style={{ ...colHead, cursor: 'pointer', userSelect: 'none' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          {SORT_LABELS[key]}
+          <span style={{ fontSize: 12, fontWeight: 700, color: active ? SORT_BLUE : '#c2c2cc' }}>{arrow}</span>
+        </span>
+      </th>
+    )
+  }
 
   // Debounce search
   useEffect(() => {
@@ -272,6 +309,33 @@ export default function RestaurantsOrderingPage() {
   const [stripeMap, setStripeMap] = useState<Record<string, { connected: boolean; checkedAt: string | null }>>({})
   // Disco overrides (visibility / Premium / menu) per reference, from the same fetch.
   const [overrideMap, setOverrideMap] = useState<Record<string, OverrideMeta>>({})
+
+  // Client-side sort of the currently-loaded page (no extra API calls).
+  const sortedRows = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    const stripeRank = (r: Restaurant) => {
+      const s = stripeMap[r.reference]
+      if (!s || !s.checkedAt) return -1 // never-synced ranks lowest
+      return s.connected ? 1 : 0
+    }
+    const val = (r: Restaurant): string | number => {
+      switch (sortKey) {
+        case 'restaurant': return r.businessName || ''
+        case 'admin': return adminNameOf(r)
+        case 'email': return adminEmailOf(r)
+        case 'createdDate': { const t = r.createdDate ? new Date(r.createdDate).getTime() : 0; return Number.isFinite(t) ? t : 0 }
+        case 'status': return r.restaurantStatus || ''
+        case 'stripe': return stripeRank(r)
+      }
+    }
+    return [...rows].sort((a, b) => {
+      const va = val(a), vb = val(b)
+      const cmp = typeof va === 'number' && typeof vb === 'number'
+        ? va - vb
+        : String(va).localeCompare(String(vb), undefined, { sensitivity: 'base' })
+      return cmp * dir
+    })
+  }, [rows, sortKey, sortDir, stripeMap])
 
   const loadStripeMap = useCallback(async () => {
     try {
@@ -496,14 +560,14 @@ export default function RestaurantsOrderingPage() {
             <tr>
               <th style={colHead}>Marketplace</th>
               <th style={colHead}>Disco Map</th>
-              <th style={colHead}>Restaurant</th>
-              <th style={colHead}>Admin</th>
-              <th style={colHead}>Email</th>
-              <th style={colHead}>Registration Date</th>
+              {sortTh('restaurant')}
+              {sortTh('admin')}
+              {sortTh('email')}
+              {sortTh('createdDate')}
               <th style={colHead}>Checkout Page</th>
               <th style={colHead}>Menu</th>
-              <th style={colHead}>Stripe</th>
-              <th style={colHead}>Status</th>
+              {sortTh('stripe')}
+              {sortTh('status')}
               <th style={colHead}>Third-Party Allowed</th>
               <th style={colHead}>Hold Payments</th>
               <th style={colHead}>Shipday</th>
@@ -515,7 +579,7 @@ export default function RestaurantsOrderingPage() {
           <tbody>
             {loading && <tr><td colSpan={14} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
             {!loading && !rows.length && <tr><td colSpan={14} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
-            {!loading && rows.map(r => {
+            {!loading && sortedRows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
               return (
