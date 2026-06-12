@@ -81,7 +81,7 @@ function PriceRow({ label, detail, value, who, highlight }: {
 export default function BecomeAPartnerClient() {
   const router = useRouter()
   // 0 = your info, 1 = first party (1P), 2 = marketplace (3P, optional),
-  // 3 = menu + banking, 4 = success.
+  // 3 = connect bank (Stripe), 4 = upload menu, 5 = success.
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormState>({
     firstName: '', lastName: '', email: '', phoneNumber: '',
@@ -100,6 +100,18 @@ export default function BecomeAPartnerClient() {
   const [error, setError] = useState('')
 
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
+
+  // Recover the restaurant reference on every step change. createRestaurant()
+  // stores it in localStorage; React state is lost on a full page refresh, so if
+  // state is empty we re-read it here — keeps Stripe Connect working even if the
+  // partner reloads the tab between steps.
+  useEffect(() => {
+    if (restaurantRef) return
+    try {
+      const ref = localStorage.getItem('partner_restaurant_ref') || ''
+      if (ref) setRestaurantRef(ref)
+    } catch { /* localStorage may be unavailable */ }
+  }, [step, restaurantRef])
 
   // Handle the Stripe Connect return. The redirect to Stripe full-page-reloads
   // this component (state is lost), so we restore the in-progress onboarding
@@ -226,7 +238,7 @@ export default function BecomeAPartnerClient() {
       if (skip || !menuFile) setMenuSkipped(true)
       // Surface a menu-upload failure but still advance — never block onboarding.
       if (!menuOk) setError('Menu upload failed — you can email your menu to concierge@discocater.com')
-      setStep(4)
+      setStep(5)
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {
@@ -299,15 +311,15 @@ export default function BecomeAPartnerClient() {
 
       {/* Top bar: back link (left) + step counter (right) */}
       <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '22px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 }}>
-        {step >= 1 && step <= 3 ? (
+        {step >= 1 && step <= 4 ? (
           <button onClick={back} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#777', fontFamily: F, fontWeight: 600, padding: 0 }}>
             ‹ Back
           </button>
         ) : (
           <Link href="/" style={{ fontSize: 14, color: '#777', textDecoration: 'none', fontWeight: 600 }}>‹ Back</Link>
         )}
-        {step <= 3 && (
-          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 4</div>
+        {step <= 4 && (
+          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 5</div>
         )}
       </div>
 
@@ -319,10 +331,10 @@ export default function BecomeAPartnerClient() {
         </Link>
       </div>
 
-      {/* Step indicator — four segments */}
-      {step <= 3 && (
+      {/* Step indicator — five segments */}
+      {step <= 4 && (
         <div style={{ maxWidth: 560, width: '100%', margin: '18px auto 0', padding: '0 24px', display: 'flex', gap: 8 }}>
-          {[0, 1, 2, 3].map(i => (
+          {[0, 1, 2, 3, 4].map(i => (
             <div key={i} style={{ flex: 1, height: 5, borderRadius: 999, background: i <= step ? GRADIENT : '#e8e8f0', transition: 'background 0.2s' }} />
           ))}
         </div>
@@ -429,20 +441,46 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 4 · MENU + BANKING ── */}
+          {/* ── STEP 4 · CONNECT YOUR BANK (Stripe) ── */}
           {step === 3 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Menu &amp; banking</h1>
-              <p style={subStyle}>Two quick things and you&apos;re done.</p>
+              <h1 style={h1Style}>Connect your bank</h1>
+              <p style={subStyle}>Connect your bank account with Stripe to receive payouts. You can do this now or anytime from your dashboard.</p>
+              {errorBox}
+
+              <div style={{ marginTop: 18 }}>
+                {stripeConnected ? (
+                  <button disabled
+                    style={{ ...primaryBtn, background: '#2E9E5B', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    ✓ Stripe connected
+                  </button>
+                ) : (
+                  <button onClick={connectStripe} disabled={loading}
+                    style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                    {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
+                  </button>
+                )}
+              </div>
+
+              {/* Continue — banking is optional, so this is always enabled */}
+              <button onClick={() => { setError(''); setStep(4) }} disabled={loading}
+                style={{ ...primaryBtn, marginTop: 14, background: stripeConnected ? BLUE : '#fff', color: stripeConnected ? '#fff' : BLUE, border: stripeConnected ? 'none' : `1.5px solid ${BLUE}`, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                {stripeConnected ? 'Continue' : 'Skip for now'}
+              </button>
+            </div>
+          )}
+
+          {/* ── STEP 5 · UPLOAD YOUR MENU ── */}
+          {step === 4 && (
+            <div style={cardStyle}>
+              <h1 style={h1Style}>Upload your menu</h1>
+              <p style={subStyle}>Upload a PDF of your current catering menu. Our team will set it up in your portal within 1 business day.</p>
               {errorBox}
 
               {/* Menu upload */}
               <div style={{ marginTop: 18 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>First, upload your catering menu</div>
-                <p style={{ ...subStyle, fontSize: 13 }}>Upload a PDF of your current catering menu. Our team will set it up in your portal within 1 business day.</p>
-
                 <label style={{
-                  display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, padding: '14px 16px',
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px',
                   border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe',
                 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>Choose PDF</span>
@@ -453,23 +491,6 @@ export default function BecomeAPartnerClient() {
                     onChange={e => setMenuFile(e.target.files?.[0] || null)}
                     style={{ display: 'none' }} />
                 </label>
-              </div>
-
-              {/* Banking */}
-              <div style={{ borderTop: '1px solid #eee', paddingTop: 22, marginTop: 24 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: DARK, marginBottom: 4 }}>Then, connect your bank account to receive payouts</div>
-                <p style={{ ...subStyle, fontSize: 13 }}>Powered by Stripe. You can complete this now or anytime from your dashboard.</p>
-                {stripeConnected ? (
-                  <button disabled
-                    style={{ ...primaryBtn, marginTop: 6, background: '#2E9E5B', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                    ✓ Stripe connected
-                  </button>
-                ) : (
-                  <button onClick={connectStripe} disabled={loading}
-                    style={{ ...primaryBtn, marginTop: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                    {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
-                  </button>
-                )}
               </div>
 
               {/* Finish */}
@@ -488,7 +509,7 @@ export default function BecomeAPartnerClient() {
           )}
 
           {/* ── SUCCESS ── */}
-          {step === 4 && (
+          {step === 5 && (
             <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
               <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>
               <p style={{ ...subStyle, maxWidth: 420, margin: '0 auto 8px' }}>
@@ -525,9 +546,14 @@ export default function BecomeAPartnerClient() {
                 </div>
               </div>
 
-              <a href="https://www.discocater.com/restaurant"
-                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
-                Go to your Disco Cater dashboard →
+              {/* Dashboard login — the new partner is a plain USER account and must
+                  log into the restaurant portal with the credentials they just made. */}
+              <p style={{ fontSize: 13, color: '#888', maxWidth: 420, margin: '24px auto 0', lineHeight: 1.6 }}>
+                Log in to your restaurant dashboard with the email and password you just created.
+              </p>
+              <a href="/restaurant/login"
+                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 14 }}>
+                Log in to dashboard →
               </a>
             </div>
           )}
