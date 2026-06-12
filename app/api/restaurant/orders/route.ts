@@ -1,10 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRole, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext, getFmHeaderForRestaurant, usesServiceAccount } from '../../../../lib/restaurant-auth-context'
 import { cookies } from 'next/headers'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export async function GET(req: NextRequest) {
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  // Disco-only users (no FM token) → SUPER_ADMIN "orders by restaurant" endpoint
+  // scoped to their restaurantReference. FM users fall through to the original
+  // role/cookie-scoped logic below, unchanged.
+  if (usesServiceAccount(ctx)) {
+    const sp = req.nextUrl.searchParams
+    const params = new URLSearchParams()
+    params.set('page', sp.get('page') || '0')
+    params.set('size', sp.get('size') || '25')
+    sp.getAll('sort').forEach(s => params.append('sort', s))
+    try {
+      const headers = await getFmHeaderForRestaurant(ctx)
+      const res = await fetch(`${FM}/api/admin/restaurants/${ctx.restaurantReference}/orders?${params}`, { headers })
+      if (!res.ok) {
+        const err = await res.text()
+        return NextResponse.json({ error: 'Failed to fetch orders', raw: err }, { status: res.status })
+      }
+      return NextResponse.json(await res.json())
+    } catch (err) {
+      console.error('restaurant/orders GET (disco) error:', err)
+      return NextResponse.json({ error: 'Unable to fetch orders' }, { status: 500 })
+    }
+  }
+
   let authHeaders: Record<string, string>
   try { authHeaders = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

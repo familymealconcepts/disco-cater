@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext, getFmHeaderForRestaurant, usesServiceAccount } from '../../../../lib/restaurant-auth-context'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-async function auth() { return getRestaurantAuthHeader() }
-
 export async function GET(req: NextRequest) {
-  let h: Record<string, string>
-  try { h = await auth() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const h = await getFmHeaderForRestaurant(ctx)
   try {
     const sp = req.nextUrl.searchParams
     const params = new URLSearchParams()
@@ -15,18 +14,31 @@ export async function GET(req: NextRequest) {
     params.set('page', sp.get('page') || '0')
     params.set('size', sp.get('size') || '25')
     if (sp.get('sort')) params.set('sort', sp.get('sort')!)
-    const res = await fetch(`${FM}/api/menu?${params}`, { headers: h })
+
+    // Disco-only users → SUPER_ADMIN menus scoped by restaurantReference.
+    let url = `${FM}/api/menu?${params}`
+    if (usesServiceAccount(ctx)) {
+      params.set('restaurantReference', ctx.restaurantReference)
+      url = `${FM}/api/admin/menu?${params}`
+    }
+
+    const res = await fetch(url, { headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
     return NextResponse.json(await res.json())
   } catch { return NextResponse.json({ error: 'Unable to fetch' }, { status: 500 }) }
 }
 
 export async function POST(req: NextRequest) {
-  let h: Record<string, string>
-  try { h = await auth() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const h = await getFmHeaderForRestaurant(ctx)
   try {
     const body = await req.json()
-    const res = await fetch(`${FM}/api/menu`, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    // Disco-only users → SUPER_ADMIN create-menu (restaurantReference query param).
+    const url = usesServiceAccount(ctx)
+      ? `${FM}/api/admin/menu?restaurantReference=${encodeURIComponent(ctx.restaurantReference)}`
+      : `${FM}/api/menu`
+    const res = await fetch(url, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
     const text = await res.text()
     return NextResponse.json(text ? JSON.parse(text) : { ok: true })
