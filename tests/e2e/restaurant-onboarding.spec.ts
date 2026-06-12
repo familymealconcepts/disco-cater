@@ -1,13 +1,14 @@
+// Test accounts use playwright+*@discocater.com — safe to delete from disco_restaurant_accounts
 import { test, expect } from '@playwright/test'
 
-const TEST_EMAIL = `test+onboarding+${Date.now()}@discocater.com`
+const TEST_EMAIL = `playwright+${Date.now()}@discocater.com`
 const TEST_PASSWORD = 'TestPassword123!'
 const TEST_RESTAURANT = `Test Restaurant ${Date.now()}`
 
 test.describe('Restaurant Onboarding', () => {
   test('completes full onboarding flow without Stripe', async ({ page }) => {
     // Step 1 — Your Info
-    await page.goto('https://www.discocater.com/become-a-partner')
+    await page.goto('/become-a-partner')
     await expect(page.getByText("Let's get you set up")).toBeVisible()
 
     await page.getByLabel('First name').fill('Test')
@@ -58,7 +59,7 @@ test.describe('Restaurant Onboarding', () => {
   test('can log in after onboarding with chosen password', async ({ page }) => {
     // This test depends on the onboarding test having run first
     // In CI, run these in sequence or use a fixed test email
-    await page.goto('https://www.discocater.com/restaurant/login')
+    await page.goto('/restaurant/login')
     await page.getByLabel('Email').fill(TEST_EMAIL)
     await page.getByLabel('Password').fill(TEST_PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()

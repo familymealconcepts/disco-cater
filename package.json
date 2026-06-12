@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:preview": "BASE_URL=https://disco-cater-git-main-peter-discocaters-projects.vercel.app playwright test",
+    "test:e2e:local": "BASE_URL=http://localhost:3000 playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
