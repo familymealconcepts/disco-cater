@@ -252,7 +252,9 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 14 }}>📬</div>
               <div style={{ fontSize: 14, color: '#444', lineHeight: 1.55, marginBottom: 22 }}>
-                Check your email — we&apos;ve sent a password reset link to <strong style={{ color: DARK }}>{forgotEmail}</strong>.
+                Check your email for a temporary password, then visit{' '}
+                <a href="/reset-password" style={{ color: BLUE, fontWeight: 600 }}>discocater.com/reset-password</a>{' '}
+                to set a new one.
               </div>
               <button
                 type="button"
