@@ -188,17 +188,28 @@ async function testEmailConfig(): Promise<TestResult> {
 }
 
 // ── test-6: Stripe Webhook ──────────────────────────────────────────────────
-async function testStripeWebhook(): Promise<TestResult> {
+async function testStripeWebhook(origin: string): Promise<TestResult> {
   const steps: Step[] = []
   const secretSet = !!process.env.STRIPE_WEBHOOK_SECRET
   steps.push({ name: 'STRIPE_WEBHOOK_SECRET set', status: secretSet ? 'passed' : 'failed', detail: secretSet ? 'configured' : 'missing' })
-  try {
-    await runDiscoOrderMigrations()
-    const rows = (await sql`SELECT 1 FROM disco_stripe_payments LIMIT 1`) as unknown[]
-    steps.push({ name: 'disco_stripe_payments has records', status: rows.length >= 1 ? 'passed' : 'failed', detail: rows.length >= 1 ? 'at least one payment record' : 'no records' })
-  } catch (e) {
-    steps.push({ name: 'Query disco_stripe_payments', status: 'failed', detail: e instanceof Error ? e.message : 'query failed' })
+
+  // POST an unsigned, empty request — a correctly-secured endpoint must reject it
+  // (400). A 200 means it's not verifying signatures; 404/500 means unreachable.
+  const res = await call('POST', `${origin}/api/stripe/webhook`)
+  let status: StepStatus
+  let detail: string
+  if (res.status === 400) {
+    status = 'passed'
+    detail = 'Webhook endpoint active — correctly rejecting unsigned requests'
+  } else if (res.status === 200) {
+    status = 'failed'
+    detail = 'Webhook endpoint not verifying signatures'
+  } else {
+    status = 'failed'
+    detail = `Webhook endpoint not reachable (HTTP ${res.status})`
   }
+  steps.push({ name: 'Webhook rejects unsigned requests', status, detail })
+
   return { steps, testData: { createdRecords: [] } }
 }
 
@@ -291,7 +302,7 @@ const RUNNERS: Record<string, (origin: string, adminEmail: string) => Promise<Te
   'test-3': () => testPlaceOrder(),
   'test-4': () => testOrderMirror(),
   'test-5': () => testEmailConfig(),
-  'test-6': () => testStripeWebhook(),
+  'test-6': (o) => testStripeWebhook(o),
   'test-7': (o) => testMapVisibility(o),
   'test-8': (o) => testExportApi(o),
   'test-9': () => testSlack(),
