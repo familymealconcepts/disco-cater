@@ -93,6 +93,9 @@ export default function BecomeAPartnerClient() {
   const [menuFile, setMenuFile] = useState<File | null>(null)
   const [menuSkipped, setMenuSkipped] = useState(false)
   const [stripeConnected, setStripeConnected] = useState(false)
+  const [restaurantRef, setRestaurantRef] = useState('')      // FM ref from create-restaurant
+  const [restaurantSlug, setRestaurantSlug] = useState('')    // businessNameWithoutSpaces (1P URL)
+  const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -110,6 +113,9 @@ export default function BecomeAPartnerClient() {
       const saved = JSON.parse(localStorage.getItem('partner_onboarding') || '{}')
       if (saved.form) setForm(f => ({ ...f, ...saved.form }))
       if (typeof saved.joinedMarketplace === 'boolean') setJoinedMarketplace(saved.joinedMarketplace)
+      if (saved.restaurantSlug) setRestaurantSlug(saved.restaurantSlug)
+      const ref = localStorage.getItem('partner_restaurant_ref') || saved.restaurantRef || ''
+      if (ref) setRestaurantRef(ref)
     } catch { /* snapshot optional */ }
     setStripeConnected(true)
     setStep(3)
@@ -138,11 +144,41 @@ export default function BecomeAPartnerClient() {
       const data = await res.json()
       if (!res.ok) { setError(data.error || 'Registration failed.'); return }
       try { localStorage.setItem('currentUser', JSON.stringify(data)) } catch {}
+      // Create the FM restaurant via the SUPER_ADMIN service account. Best-effort:
+      // a failure here must NOT block onboarding — an admin can create it manually.
+      await createRestaurant()
       setStep(1)
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Create the restaurant right after the account exists. Stores the FM
+  // reference (for Stripe Connect) and the 1P slug (for the success URL).
+  async function createRestaurant() {
+    try {
+      const res = await fetch('/api/become-a-partner/create-restaurant', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantName: form.restaurantName, email: form.email,
+          phoneNumber: form.phoneNumber, firstName: form.firstName,
+          lastName: form.lastName, zipcode: form.zip,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.restaurantReference) {
+        // Don't block — log and continue; admin can create the restaurant manually.
+        console.error('[become-a-partner] create-restaurant failed:', data?.error || res.status)
+        return
+      }
+      setRestaurantRef(data.restaurantReference)
+      const slug = data.businessNameWithoutSpaces || form.restaurantName.toLowerCase().replace(/[^a-z0-9]/g, '')
+      setRestaurantSlug(slug)
+      try { localStorage.setItem('partner_restaurant_ref', data.restaurantReference) } catch {}
+    } catch (err) {
+      console.error('[become-a-partner] create-restaurant request failed:', err)
     }
   }
 
@@ -201,13 +237,13 @@ export default function BecomeAPartnerClient() {
   // ── Stripe Connect — wiring unchanged ──────────────────────────────────────
   async function connectStripe() {
     setError('')
-    let ref = ''
+    // The restaurant reference comes from the create-restaurant step — NOT from
+    // currentUser, which is a plain USER account with no restaurantReference.
+    let ref = restaurantRef
     let token = ''
     try {
+      if (!ref) ref = localStorage.getItem('partner_restaurant_ref') || ''
       const cu = JSON.parse(localStorage.getItem('currentUser') || '{}')
-      // FM /registration returns the new account's `reference`; accept the other
-      // likely field names too in case the response differs.
-      ref = cu.restaurantReference || cu.reference || cu.locationReference || ''
       token = cu.authorization || ''
     } catch {}
     if (!ref) {
@@ -227,7 +263,7 @@ export default function BecomeAPartnerClient() {
         return
       }
       // Persist progress — the Stripe redirect reloads the page on return.
-      try { localStorage.setItem('partner_onboarding', JSON.stringify({ form, joinedMarketplace })) } catch {}
+      try { localStorage.setItem('partner_onboarding', JSON.stringify({ form, joinedMarketplace, restaurantRef: ref, restaurantSlug })) } catch {}
       window.location.href = data.stripeConnectUrl
     } catch {
       setError('Could not initiate Stripe Connect. Please contact concierge@discocater.com.')
@@ -237,6 +273,19 @@ export default function BecomeAPartnerClient() {
   }
 
   function back() { setError(''); setStep(s => Math.max(0, s - 1)) }
+
+  // 1P ordering slug — prefer the server-confirmed value, else derive it the same
+  // way the API does so the link is right even if create-restaurant didn't return.
+  const orderSlug = restaurantSlug || form.restaurantName.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const orderUrl = `discocater.com/order/${orderSlug}`
+
+  async function copyOrderUrl() {
+    try {
+      await navigator.clipboard.writeText(`https://${orderUrl}`)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch { /* clipboard may be unavailable — the link is still visible */ }
+  }
 
   const errorBox = error ? (
     <div style={{ background: '#fff3f3', border: '1px solid #ffd6d6', color: '#c0392b', borderRadius: 12, padding: '10px 14px', fontSize: 13, margin: '0 0 14px' }}>
@@ -460,6 +509,22 @@ export default function BecomeAPartnerClient() {
                   {error}
                 </div>
               )}
+
+              {/* 1P ordering page — the partner's direct-order link */}
+              <div style={{ maxWidth: 460, margin: '24px auto 0', padding: '16px 18px', border: '1px solid #ececf4', borderRadius: 16, background: '#fbfbfe', textAlign: 'left' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#777', marginBottom: 8 }}>Your ordering page</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <a href={`https://${orderUrl}`} target="_blank" rel="noopener noreferrer"
+                    style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: BLUE, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {orderUrl}
+                  </a>
+                  <button onClick={copyOrderUrl}
+                    style={{ flexShrink: 0, height: 34, padding: '0 14px', borderRadius: 999, border: '1.5px solid #e6e6ee', background: '#fff', color: copied ? '#2E9E5B' : DARK, fontSize: 12.5, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>
+                    {copied ? '✓ Copied' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
               <a href="https://www.discocater.com/restaurant"
                 style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
                 Go to your Disco Cater dashboard →

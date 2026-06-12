@@ -18,8 +18,11 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid request.' }, { status: 400 })
   }
+  // New USER accounts have no restaurantReference on currentUser — it comes from
+  // the create-restaurant step (stored as partner_restaurant_ref). If it's
+  // missing, the restaurant wasn't created yet; say so plainly.
   if (!restaurantReference) {
-    return NextResponse.json({ error: 'Restaurant reference is required' }, { status: 400 })
+    return NextResponse.json({ error: 'Restaurant not yet created' }, { status: 400 })
   }
 
   try {
