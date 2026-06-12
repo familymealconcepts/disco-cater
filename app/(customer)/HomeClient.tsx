@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import NavAuthButton from '../components/NavAuthButton'
+import { useAuthContext } from '../context/AuthContext'
 
 const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
 
@@ -18,11 +19,27 @@ declare global {
 
 export default function HomeClient() {
   const router = useRouter()
+  const { openAuthModal } = useAuthContext()
   const [address, setAddress] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   const autocompleteRef = useRef<any>(null)
+
+  // Auto-open the login modal when arriving with ?login=true (or login=1), e.g.
+  // from the reset-password "Log In" button or an auth-gated redirect. Strip the
+  // param via replace so it doesn't linger in history / re-trigger.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const login = params.get('login')
+    if (login === 'true' || login === '1') {
+      openAuthModal(undefined, 'login')
+      params.delete('login')
+      const qs = params.toString()
+      router.replace(qs ? `/?${qs}` : '/')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (!document.getElementById('google-maps-script')) {
