@@ -1,6 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 import Link from 'next/link'
 
 // ── Brand ────────────────────────────────────────────────────────────────────
@@ -79,9 +78,8 @@ function PriceRow({ label, detail, value, who, highlight }: {
 }
 
 export default function BecomeAPartnerClient() {
-  const router = useRouter()
   // 0 = your info, 1 = first party (1P), 2 = marketplace (3P, optional),
-  // 3 = connect bank (Stripe), 4 = upload menu, 5 = success.
+  // 3 = upload menu, 4 = success. (Bank/Stripe Connect moved to the portal.)
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormState>({
     firstName: '', lastName: '', email: '', phoneNumber: '',
@@ -91,50 +89,11 @@ export default function BecomeAPartnerClient() {
   const [agreeMarketplace, setAgreeMarketplace] = useState(false) // opt-in (step 3)
   const [joinedMarketplace, setJoinedMarketplace] = useState(false)
   const [menuFile, setMenuFile] = useState<File | null>(null)
-  const [stripeConnected, setStripeConnected] = useState(false)
-  const [restaurantRef, setRestaurantRef] = useState('')      // FM ref from create-restaurant
-  const [restaurantSlug, setRestaurantSlug] = useState('')    // businessNameWithoutSpaces (snapshot only)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [emailInUse, setEmailInUse] = useState(false)   // FM 400-027: admin email already exists
 
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
-
-  // Recover the restaurant reference on every step change. createRestaurant()
-  // stores it in localStorage; React state is lost on a full page refresh, so if
-  // state is empty we re-read it here — keeps Stripe Connect working even if the
-  // partner reloads the tab between steps.
-  useEffect(() => {
-    if (restaurantRef) return
-    try {
-      const ref = localStorage.getItem('partner_restaurant_ref') || ''
-      if (ref) setRestaurantRef(ref)
-    } catch { /* localStorage may be unavailable */ }
-  }, [step, restaurantRef])
-
-  // Handle the Stripe Connect return. The redirect to Stripe full-page-reloads
-  // this component (state is lost), so we restore the in-progress onboarding
-  // snapshot saved before the redirect, mark Stripe connected, land back on the
-  // Menu & Banking step, and strip the ?stripe=success param from the URL.
-  useEffect(() => {
-    let params: URLSearchParams
-    try { params = new URLSearchParams(window.location.search) } catch { return }
-    if (params.get('stripe') !== 'success') return
-    try {
-      const saved = JSON.parse(localStorage.getItem('partner_onboarding') || '{}')
-      if (saved.form) setForm(f => ({ ...f, ...saved.form }))
-      if (typeof saved.joinedMarketplace === 'boolean') setJoinedMarketplace(saved.joinedMarketplace)
-      if (saved.restaurantSlug) setRestaurantSlug(saved.restaurantSlug)
-      const ref = localStorage.getItem('partner_restaurant_ref') || saved.restaurantRef || ''
-      if (ref) setRestaurantRef(ref)
-    } catch { /* snapshot optional */ }
-    setStripeConnected(true)
-    setStep(3)
-    params.delete('stripe')
-    const qs = params.toString()
-    router.replace(qs ? `/become-a-partner?${qs}` : '/become-a-partner')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const infoValid = !!form.firstName && !!form.lastName && !!form.email
     && !!form.phoneNumber && !!form.restaurantName && !!form.zip && !!form.password
@@ -164,7 +123,7 @@ export default function BecomeAPartnerClient() {
   // Create the restaurant. FM provisions the ADMIN account from `admin` (email +
   // the password the partner just set) using our SUPER_ADMIN service account.
   // Returns true on success; on failure it sets the appropriate error and the
-  // caller stops. Stores the FM reference for the Stripe Connect step.
+  // caller stops.
   async function createRestaurant(): Promise<boolean> {
     try {
       const res = await fetch('/api/become-a-partner/create-restaurant', {
@@ -182,10 +141,6 @@ export default function BecomeAPartnerClient() {
         setError(data?.error || 'Could not create your restaurant. Please try again or contact concierge@discocater.com.')
         return false
       }
-      setRestaurantRef(data.restaurantReference)
-      const slug = data.businessNameWithoutSpaces || form.restaurantName.toLowerCase().replace(/[^a-z0-9]/g, '')
-      setRestaurantSlug(slug)
-      try { localStorage.setItem('partner_restaurant_ref', data.restaurantReference) } catch {}
       return true
     } catch {
       setError('Unable to connect. Please try again.')
@@ -245,7 +200,7 @@ export default function BecomeAPartnerClient() {
           phone: form.phoneNumber,
           zip: form.zip,
           joinedMarketplace,
-          stripeConnected,
+          stripeConnected: false, // bank connect moved to the portal post-onboarding
           agreedToPricing: true,
           agreedToDelivery: false,
         }),
@@ -254,46 +209,9 @@ export default function BecomeAPartnerClient() {
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
       // Surface a menu-upload failure but still advance — never block onboarding.
       if (!menuOk) setError('Menu upload failed — you can email your menu to concierge@discocater.com')
-      setStep(5)
+      setStep(4)
     } catch {
       setError('Unable to connect. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ── Stripe Connect — wiring unchanged ──────────────────────────────────────
-  async function connectStripe() {
-    setError('')
-    // The restaurant reference comes from the create-restaurant step. Auth is the
-    // ADMIN session set by auto-login (httpOnly fm_restaurant_token cookie), sent
-    // via credentials:'include' — no client-readable token to pass.
-    let ref = restaurantRef
-    try {
-      if (!ref) ref = localStorage.getItem('partner_restaurant_ref') || ''
-    } catch {}
-    if (!ref) {
-      setError('We couldn’t find your restaurant reference. Please contact concierge@discocater.com to finish Stripe setup.')
-      return
-    }
-    setLoading(true)
-    try {
-      const res = await fetch('/api/become-a-partner/stripe-connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ restaurantReference: ref }),
-      })
-      const data = await res.json()
-      if (!res.ok || !data.stripeConnectUrl) {
-        setError(data.error || 'Could not initiate Stripe Connect. Please contact concierge@discocater.com.')
-        return
-      }
-      // Persist progress — the Stripe redirect reloads the page on return.
-      try { localStorage.setItem('partner_onboarding', JSON.stringify({ form, joinedMarketplace, restaurantRef: ref, restaurantSlug })) } catch {}
-      window.location.href = data.stripeConnectUrl
-    } catch {
-      setError('Could not initiate Stripe Connect. Please contact concierge@discocater.com.')
     } finally {
       setLoading(false)
     }
@@ -313,15 +231,15 @@ export default function BecomeAPartnerClient() {
 
       {/* Top bar: back link (left) + step counter (right) */}
       <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '22px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 }}>
-        {step >= 1 && step <= 4 ? (
+        {step >= 1 && step <= 3 ? (
           <button onClick={back} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#777', fontFamily: F, fontWeight: 600, padding: 0 }}>
             ‹ Back
           </button>
         ) : (
           <Link href="/" style={{ fontSize: 14, color: '#777', textDecoration: 'none', fontWeight: 600 }}>‹ Back</Link>
         )}
-        {step <= 4 && (
-          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 5</div>
+        {step <= 3 && (
+          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 4</div>
         )}
       </div>
 
@@ -333,10 +251,10 @@ export default function BecomeAPartnerClient() {
         </Link>
       </div>
 
-      {/* Step indicator — five segments */}
-      {step <= 4 && (
+      {/* Step indicator — four segments */}
+      {step <= 3 && (
         <div style={{ maxWidth: 560, width: '100%', margin: '18px auto 0', padding: '0 24px', display: 'flex', gap: 8 }}>
-          {[0, 1, 2, 3, 4].map(i => (
+          {[0, 1, 2, 3].map(i => (
             <div key={i} style={{ flex: 1, height: 5, borderRadius: 999, background: i <= step ? GRADIENT : '#e8e8f0', transition: 'background 0.2s' }} />
           ))}
         </div>
@@ -454,37 +372,8 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 4 · CONNECT YOUR BANK (Stripe) ── */}
+          {/* ── STEP 4 · UPLOAD YOUR MENU ── */}
           {step === 3 && (
-            <div style={cardStyle}>
-              <h1 style={h1Style}>Connect your bank</h1>
-              <p style={subStyle}>Connect your bank account with Stripe to receive payouts. You can do this now or anytime from your dashboard.</p>
-              {errorBox}
-
-              <div style={{ marginTop: 18 }}>
-                {stripeConnected ? (
-                  <button disabled
-                    style={{ ...primaryBtn, background: '#2E9E5B', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                    ✓ Stripe connected
-                  </button>
-                ) : (
-                  <button onClick={connectStripe} disabled={loading}
-                    style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                    {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
-                  </button>
-                )}
-              </div>
-
-              {/* Continue — banking is optional, so this is always enabled */}
-              <button onClick={() => { setError(''); setStep(4) }} disabled={loading}
-                style={{ ...primaryBtn, marginTop: 14, background: stripeConnected ? BLUE : '#fff', color: stripeConnected ? '#fff' : BLUE, border: stripeConnected ? 'none' : `1.5px solid ${BLUE}`, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                {stripeConnected ? 'Continue' : 'Skip for now'}
-              </button>
-            </div>
-          )}
-
-          {/* ── STEP 5 · UPLOAD YOUR MENU ── */}
-          {step === 4 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Upload your menu</h1>
               <p style={subStyle}>Upload a PDF of your current catering menu. Our team will set it up in your portal within 1 business day.</p>
@@ -522,7 +411,7 @@ export default function BecomeAPartnerClient() {
           )}
 
           {/* ── SUCCESS ── */}
-          {step === 5 && (
+          {step === 4 && (
             <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
               <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>
               <p style={{ ...subStyle, maxWidth: 420, margin: '0 auto 8px' }}>
@@ -551,6 +440,10 @@ export default function BecomeAPartnerClient() {
                   Then log in to your dashboard
                 </a>
               </div>
+
+              <p style={{ fontSize: 12, color: '#999', maxWidth: 420, margin: '18px auto 0', lineHeight: 1.6 }}>
+                You can connect your bank account from your dashboard after logging in.
+              </p>
             </div>
           )}
 

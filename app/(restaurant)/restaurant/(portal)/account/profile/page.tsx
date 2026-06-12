@@ -236,6 +236,32 @@ export default function ProfilePage() {
 
   const [loading, setLoading] = useState(true)
 
+  // Stripe Connect status — drives the "connect your bank" warning banner.
+  // null = unknown/loading; false = not connected (show banner).
+  const [stripeConnected, setStripeConnected] = useState<boolean | null>(null)
+  const [connectingStripe, setConnectingStripe] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/restaurant/stripe-status')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled) setStripeConnected(!!d?.connected) })
+      .catch(() => { if (!cancelled) setStripeConnected(null) })
+    return () => { cancelled = true }
+  }, [])
+
+  // Start Stripe Connect onboarding (same route the Banking page uses) and
+  // redirect to the returned hosted URL.
+  async function connectStripe() {
+    setConnectingStripe(true)
+    try {
+      const res = await fetch('/api/restaurant/stripe/connect', { method: 'POST' })
+      const d = await res.json().catch(() => null)
+      if (res.ok && d?.stripeConnectUrl) { window.location.href = d.stripeConnectUrl; return }
+    } catch { /* fall through to re-enable the button */ }
+    setConnectingStripe(false)
+  }
+
   useEffect(() => {
     Promise.all([
       fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : null),
@@ -458,6 +484,26 @@ export default function ProfilePage() {
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+      {/* Stripe-not-connected warning — only shown once we know it's disconnected */}
+      {stripeConnected === false && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+          background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 12,
+          padding: '14px 18px', marginBottom: 20,
+        }}>
+          <div style={{ flex: 1, minWidth: 220, fontSize: 14, fontWeight: 600, color: '#9A3412' }}>
+            ⚠️ Connect your bank account to start receiving payments.
+          </div>
+          <button onClick={connectStripe} disabled={connectingStripe}
+            style={{
+              padding: '9px 18px', background: '#EA580C', color: '#fff', border: 'none',
+              borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: F, whiteSpace: 'nowrap',
+              cursor: connectingStripe ? 'default' : 'pointer', opacity: connectingStripe ? 0.7 : 1,
+            }}>
+            {connectingStripe ? 'Connecting…' : 'Connect to Stripe →'}
+          </button>
+        </div>
+      )}
       <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 24px' }}>Profile</h1>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(440px, 1fr))', gap: 20, alignItems: 'start' }}>

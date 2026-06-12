@@ -76,6 +76,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const [user, setUser] = useState<RestaurantUser | null>(null)
   const [orderBadge, setOrderBadge] = useState(0)
+  const [stripeConnected, setStripeConnected] = useState<boolean | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const { ref: selectedRestaurant, name: selectedRestaurantName, viewMode, setViewMode, clearRestaurant } = useSelectedRestaurant()
 
@@ -136,6 +137,18 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     const id = setInterval(refreshBadge, 60000)
     return () => clearInterval(id)
   }, [refreshBadge])
+
+  // Stripe Connect status for the Account nav badge — only relevant in the
+  // restaurant-user view (the only mode with an Account item).
+  useEffect(() => {
+    if (!inRestaurantUserView) { setStripeConnected(null); return }
+    let cancelled = false
+    fetch('/api/restaurant/stripe-status')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled) setStripeConnected(!!d?.connected) })
+      .catch(() => { if (!cancelled) setStripeConnected(null) })
+    return () => { cancelled = true }
+  }, [inRestaurantUserView, selectedRestaurant])
 
   async function handleLogout() {
     await fetch('/api/restaurant-auth', { method: 'DELETE' })
@@ -268,7 +281,15 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
                         transition: 'background 0.15s',
                       }}
                     >
-                      <span>{item.title}</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        {item.title}
+                        {item.title === 'Account' && stripeConnected === false && (
+                          <span
+                            title="Connect your bank account to receive payments"
+                            style={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B', display: 'inline-block', flexShrink: 0 }}
+                          />
+                        )}
+                      </span>
                       <span style={{ fontSize: 9, opacity: 0.6 }}>{isOpen ? '▲' : '▼'}</span>
                     </div>
                     {isOpen && (
