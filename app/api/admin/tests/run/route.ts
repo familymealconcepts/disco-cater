@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminRole } from '../../../../../lib/admin-auth'
 import { sql, runMigrations, runDiscoOrderMigrations } from '../../../../../lib/db'
+import { sendEmail } from '../../../../../lib/email/send'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -159,21 +160,18 @@ async function testEmailConfig(adminEmail: string): Promise<TestResult> {
     steps.push({ name: 'Send test email', status: 'skipped', detail: 'could not determine admin email' })
     return { steps, testData: { createdRecords: [] } }
   }
-  try {
-    const mg = new FormData()
-    mg.append('from', `Disco Cater Testing <onboarding@${domain}>`)
-    mg.append('to', adminEmail)
-    mg.append('subject', `${TEST_PREFIX} Disco Cater testing dashboard`)
-    mg.append('text', 'This is a test email sent from the Disco Cater super-admin testing dashboard.')
-    const res = await fetch(`https://api.mailgun.net/v3/${domain}/messages`, {
-      method: 'POST',
-      headers: { Authorization: 'Basic ' + Buffer.from(`api:${key}`).toString('base64') },
-      body: mg,
-    })
-    steps.push({ name: `Send test email to ${adminEmail}`, status: res.ok ? 'passed' : 'failed', detail: res.ok ? 'Mailgun accepted (200)' : `Mailgun HTTP ${res.status}` })
-  } catch (e) {
-    steps.push({ name: 'Send test email', status: 'failed', detail: e instanceof Error ? e.message : 'send failed' })
-  }
+  // Reuse the proven transactional sender (same from-address + Mailgun setup as
+  // order confirmations) so the result reflects whether real emails will send.
+  const result = await sendEmail({
+    to: adminEmail,
+    subject: `${TEST_PREFIX} Disco Cater Email Configuration Test`,
+    html: '<p>This is a test email from the Disco Cater testing dashboard. If you received this, email is configured correctly.</p>',
+  })
+  steps.push({
+    name: `Send test email to ${adminEmail}`,
+    status: result.success ? 'passed' : 'failed',
+    detail: result.success ? 'sent via lib/email/send' : (result.error || 'send failed'),
+  })
   return { steps, testData: { createdRecords: [] } }
 }
 
