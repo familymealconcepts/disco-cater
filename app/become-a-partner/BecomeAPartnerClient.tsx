@@ -534,13 +534,23 @@ export default function BecomeAPartnerClient() {
                 </div>
               )}
 
-              {/* Auto-login (step 0) set the ADMIN session, so this lands straight
-                  in the portal. If that login failed, middleware redirects
-                  /restaurant/dashboard → /restaurant/login for a manual sign-in. */}
-              <a href="/restaurant/dashboard"
-                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
-                Go to your dashboard →
-              </a>
+              {/* FM provisions the ADMIN with a temporary password (emailed), not the
+                  one entered here — so we can't auto-login. Two explicit steps: set a
+                  password from the email, then sign in to the portal. */}
+              <p style={{ ...subStyle, maxWidth: 440, margin: '18px auto 24px' }}>
+                Your account has been created. First, check your email and use the temporary password to set a new one. Then log in to your restaurant dashboard.
+              </p>
+
+              <div style={{ maxWidth: 320, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <a href={`/reset-password?email=${encodeURIComponent(form.email)}`}
+                  style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+                  Set your password →
+                </a>
+                <a href="/restaurant/login"
+                  style={{ ...primaryBtn, background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+                  Then log in to your dashboard
+                </a>
+              </div>
             </div>
           )}
 
