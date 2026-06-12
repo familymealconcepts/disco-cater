@@ -33,6 +33,7 @@ const NAV: NavItem[] = [
   },
   { title: 'Menus', path: '/admin/manage-menus' },
   { title: 'Promo Codes', path: '/admin/promo-codes' },
+  { title: 'Testing', path: '/admin/testing' },
 ]
 
 interface AdminUser {
