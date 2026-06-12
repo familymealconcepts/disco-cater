@@ -5,6 +5,23 @@ import { cookies } from 'next/headers'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
+// FM's SUPER_ADMIN "orders by restaurant" endpoint returns OrderPublicResponseDto,
+// which names a few list fields differently than the OrderInfoResponseDto the
+// portal orders table/chart expect. Map the differing keys (passing the rest
+// through). Only used in the Disco branch — the FM path is untouched.
+function normalizeAdminOrder(o: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...o,
+    orderReference: o.reference ?? o.orderReference,
+    transactionsTotal: o.total ?? o.transactionsTotal,
+    orderSeenByAdmin: o.seenByAdmin ?? o.orderSeenByAdmin,
+    orderCreatedDate: o.createdDate ?? o.orderCreatedDate,
+    // Not present on the admin DTO; the status-change UI lives in the detail
+    // route, so an empty list is correct for the list view.
+    orderStatusesToChange: Array.isArray(o.orderStatusesToChange) ? o.orderStatusesToChange : [],
+  }
+}
+
 export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -25,7 +42,9 @@ export async function GET(req: NextRequest) {
         const err = await res.text()
         return NextResponse.json({ error: 'Failed to fetch orders', raw: err }, { status: res.status })
       }
-      return NextResponse.json(await res.json())
+      const data = await res.json()
+      const content = Array.isArray(data?.content) ? data.content.map(normalizeAdminOrder) : []
+      return NextResponse.json({ ...data, content })
     } catch (err) {
       console.error('restaurant/orders GET (disco) error:', err)
       return NextResponse.json({ error: 'Unable to fetch orders' }, { status: 500 })

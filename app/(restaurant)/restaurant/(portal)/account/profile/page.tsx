@@ -338,7 +338,9 @@ export default function ProfilePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (!res.ok) {
+      if (res.status === 501) {
+        setProfileError('Profile editing will be available soon.')
+      } else if (!res.ok) {
         setProfileError('Failed to save profile. Please try again.')
       } else {
         setProfileSuccess('Profile updated.')
@@ -411,7 +413,9 @@ export default function ProfilePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (!res.ok) {
+      if (res.status === 501) {
+        setAddrError('Profile editing will be available soon.')
+      } else if (!res.ok) {
         setAddrError('Failed to save address. Please try again.')
       } else {
         setAddrSuccess('Address updated.')
@@ -434,7 +438,9 @@ export default function ProfilePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (!res.ok) {
+      if (res.status === 501) {
+        setDdError('Profile editing will be available soon.')
+      } else if (!res.ok) {
         setDdError('Failed to save. Please try again.')
       } else {
         setDdSuccess('DoorDash settings updated.')

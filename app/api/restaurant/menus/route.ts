@@ -3,6 +3,19 @@ import { getRestaurantAuthContext, getFmHeaderForRestaurant, usesServiceAccount 
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
+// FM's SUPER_ADMIN menus endpoint returns MenuAdminResponseDto (`type`,
+// `scheduleOption`) whereas the menus page reads `menuType` + top-level
+// `startDate`/`endDate`. Alias those, pass the rest through. Disco branch only.
+function normalizeAdminMenu(m: Record<string, unknown>): Record<string, unknown> {
+  const sched = (m.scheduleOption ?? {}) as Record<string, unknown>
+  return {
+    ...m,
+    menuType: m.menuType ?? m.type,
+    startDate: m.startDate ?? sched.startDate,
+    endDate: m.endDate ?? sched.endDate,
+  }
+}
+
 export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -24,7 +37,11 @@ export async function GET(req: NextRequest) {
 
     const res = await fetch(url, { headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
-    return NextResponse.json(await res.json())
+    const data = await res.json()
+    if (usesServiceAccount(ctx) && Array.isArray(data?.content)) {
+      return NextResponse.json({ ...data, content: data.content.map(normalizeAdminMenu) })
+    }
+    return NextResponse.json(data)
   } catch { return NextResponse.json({ error: 'Unable to fetch' }, { status: 500 }) }
 }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRole, getRestaurantRef } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext, getFmHeaderForRestaurant, usesServiceAccount } from '../../../../../lib/restaurant-auth-context'
 import { cookies } from 'next/headers'
 import { SELECTED_RESTAURANT_COOKIE } from '../../../../../lib/restaurant-auth'
 
@@ -16,6 +17,31 @@ function toFmDate(iso: string | null): string | null {
 }
 
 export async function GET(req: NextRequest) {
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  // Disco-only users → SUPER_ADMIN sale stats scoped by restaurantReference. The
+  // DashboardSaleStatisticsResponseDto field names already match the page's
+  // SaleStats shape, so no remapping is needed — just the FM date format.
+  if (usesServiceAccount(ctx)) {
+    const sp = req.nextUrl.searchParams
+    const p = new URLSearchParams()
+    const from = toFmDate(sp.get('fromDate'))
+    const to = toFmDate(sp.get('toDate'))
+    if (from) p.set('fromDate', from)
+    if (to) p.set('toDate', to)
+    if (sp.get('dateType')) p.set('dateType', sp.get('dateType')!)
+    p.set('restaurantReference', ctx.restaurantReference)
+    try {
+      const headers = await getFmHeaderForRestaurant(ctx)
+      const res = await fetch(`${FM}/api/admin/dashboard/sale/stats?${p}`, { headers })
+      if (!res.ok) return NextResponse.json({ error: 'Failed', fmStatus: res.status }, { status: res.status })
+      return NextResponse.json(await res.json())
+    } catch {
+      return NextResponse.json({ error: 'Unable to fetch sale stats' }, { status: 500 })
+    }
+  }
+
   let authHeaders: Record<string, string>
   try { authHeaders = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
