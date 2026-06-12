@@ -9,7 +9,10 @@ export const runtime = 'nodejs'
 // { success: true }. Set SLACK_WEBHOOK_URL to enable the Slack message.
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN
-const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL
+// Prefer a dedicated partner webhook; otherwise reuse the new-order webhook so
+// signups still reach Slack (with a distinct message so they're not mistaken
+// for orders).
+const SLACK_WEBHOOK_URL = process.env.SLACK_PARTNER_WEBHOOK_URL || process.env.SLACK_NEW_ORDER_WEBHOOK_URL
 const TEAM_EMAIL = 'concierge@discocater.com'
 
 export async function POST(req: NextRequest) {
@@ -56,13 +59,24 @@ export async function POST(req: NextRequest) {
       menuFileName ? `Menu file: ${menuFileName}` : '',
     ].filter(Boolean).join('\n')
 
-    // Slack (optional — only when SLACK_WEBHOOK_URL is configured).
+    // Slack (optional). Distinct "New Partner Signup" format so it's never
+    // confused with a new-order notification on the shared webhook.
     if (SLACK_WEBHOOK_URL) {
       try {
         await fetch(SLACK_WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: `:tada: *New Partner Onboarding Complete — ${restaurantName}*\n${lines}` }),
+          body: JSON.stringify({
+            text: [
+              `🎉 *New Partner Signup* — ${restaurantName}`,
+              `Email: ${email || 'Not provided'}`,
+              `Phone: ${phone || 'Not provided'}`,
+              `Zip: ${zip || 'Not provided'}`,
+              `Marketplace: ${yn(joinedMarketplace)}`,
+              `Delivery: ${yn(deliveryEnabled)}`,
+              `Stripe: ${yn(stripeConnected)}`,
+            ].join('\n'),
+          }),
         })
       } catch (err) {
         console.error('[complete] Slack notify failed:', err instanceof Error ? err.message : err)

@@ -34,6 +34,16 @@ interface Restaurant {
   admin?: { firstName?: string; lastName?: string; email?: string }
 }
 
+// Disco-owned per-restaurant overrides (Neon), keyed by reference. Carries the
+// fields we render (visible, menuUploadUrl) plus isPremium/orderUrl so a
+// visibility toggle can preserve them on the upsert PATCH.
+interface OverrideMeta {
+  visible: boolean
+  isPremium: boolean
+  orderUrl: string
+  menuUploadUrl: string | null
+}
+
 function fmtDate(d?: string) {
   if (!d) return ''
   try {
@@ -144,6 +154,26 @@ export default function RestaurantsOrderingPage() {
     }
   }
 
+  // "Disco Map" — disco_restaurant_overrides.visible (fullmap discovery). We send
+  // the row's current isPremium/orderUrl alongside the new visible so the upsert
+  // PATCH doesn't reset them.
+  async function toggleVisible(r: Restaurant) {
+    const cur = overrideMap[r.reference] || { visible: false, isPremium: false, orderUrl: '', menuUploadUrl: null }
+    const next = !cur.visible
+    setOverrideMap(prev => ({ ...prev, [r.reference]: { ...cur, visible: next } }))
+    const res = await fetch('/api/admin/restaurant-overrides', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restaurantReference: r.reference, visible: next, isPremium: cur.isPremium, orderUrl: cur.orderUrl || undefined }),
+    })
+    if (!res.ok) {
+      setOverrideMap(prev => ({ ...prev, [r.reference]: cur }))
+      showToast('Could not update Disco Map visibility')
+    } else {
+      showToast(`${r.businessName} ${next ? 'shown on' : 'hidden from'} Disco Map`)
+    }
+  }
+
   async function toggleNash(r: Restaurant) {
     const next = !r.nashAllowed
     setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, nashAllowed: next } : x))
@@ -240,18 +270,29 @@ export default function RestaurantsOrderingPage() {
   // Per-restaurant Stripe status (keyed by reference) from Neon overrides, shown
   // as a column on each row. checkedAt === null means "never synced".
   const [stripeMap, setStripeMap] = useState<Record<string, { connected: boolean; checkedAt: string | null }>>({})
+  // Disco overrides (visibility / Premium / menu) per reference, from the same fetch.
+  const [overrideMap, setOverrideMap] = useState<Record<string, OverrideMeta>>({})
 
   const loadStripeMap = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/restaurant-overrides')
       if (!res.ok) return
       const d = await res.json()
-      const map: Record<string, { connected: boolean; checkedAt: string | null }> = {}
-      for (const o of (d?.overrides || []) as { restaurantReference: string; stripeConnected: boolean; stripeCheckedAt: string | null }[]) {
-        map[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt }
+      const sMap: Record<string, { connected: boolean; checkedAt: string | null }> = {}
+      const oMap: Record<string, OverrideMeta> = {}
+      for (const o of (d?.overrides || []) as {
+        restaurantReference: string; stripeConnected: boolean; stripeCheckedAt: string | null
+        visible?: boolean; isPremium?: boolean; orderUrl?: string; menuUploadUrl?: string | null
+      }[]) {
+        sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt }
+        oMap[o.restaurantReference] = {
+          visible: !!o.visible, isPremium: !!o.isPremium,
+          orderUrl: o.orderUrl || '', menuUploadUrl: o.menuUploadUrl ?? null,
+        }
       }
-      setStripeMap(map)
-    } catch { /* non-fatal: the column just won't render */ }
+      setStripeMap(sMap)
+      setOverrideMap(oMap)
+    } catch { /* non-fatal: the columns just won't render */ }
   }, [])
 
   useEffect(() => { loadStripeMap() }, [loadStripeMap])
@@ -454,11 +495,13 @@ export default function RestaurantsOrderingPage() {
           <thead>
             <tr>
               <th style={colHead}>Marketplace</th>
+              <th style={colHead}>Disco Map</th>
               <th style={colHead}>Restaurant</th>
               <th style={colHead}>Admin</th>
               <th style={colHead}>Email</th>
               <th style={colHead}>Registration Date</th>
               <th style={colHead}>Checkout Page</th>
+              <th style={colHead}>Menu</th>
               <th style={colHead}>Stripe</th>
               <th style={colHead}>Status</th>
               <th style={colHead}>Third-Party Allowed</th>
@@ -470,8 +513,8 @@ export default function RestaurantsOrderingPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
+            {loading && <tr><td colSpan={14} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={14} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
             {!loading && rows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
@@ -482,12 +525,21 @@ export default function RestaurantsOrderingPage() {
                   <td style={cell}>
                     <Toggle checked={!r.blocked} onChange={() => toggleBlock(r)} color="#1D9E75" />
                   </td>
+                  {/* Disco Map: disco_restaurant_overrides.visible (fullmap discovery). */}
+                  <td style={cell}>
+                    <Toggle checked={!!overrideMap[r.reference]?.visible} onChange={() => toggleVisible(r)} color="#1D9E75" />
+                  </td>
                   <td style={{ ...cell, fontWeight: 600 }}>{r.businessName}</td>
                   <td style={{ ...cell, color: '#555' }}>{adminName || '—'}</td>
                   <td style={{ ...cell, color: '#555' }}>{adminEmail}</td>
                   <td style={{ ...cell, color: '#666' }}>{fmtDate(r.createdDate)}</td>
                   <td style={cell}>
                     {r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: BLUE, textDecoration: 'none' }}>open ↗</a> : '—'}
+                  </td>
+                  {/* Menu: filename of an uploaded menu PDF (disco_restaurant_cache.menu_upload_url). */}
+                  <td style={{ ...cell, color: '#555', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={overrideMap[r.reference]?.menuUploadUrl || ''}>
+                    {overrideMap[r.reference]?.menuUploadUrl || '—'}
                   </td>
                   <td style={cell}><StripeStatus status={stripeMap[r.reference]} /></td>
                   <td style={cell}>

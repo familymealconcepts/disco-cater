@@ -20,11 +20,14 @@ export async function GET(req: NextRequest) {
     // Premium / visibility / Stripe status without one call per restaurant).
     if (!ref) {
       const rows = (await sql`
-        SELECT restaurant_reference, is_premium, visible, stripe_connected, stripe_checked_at, order_url
-        FROM disco_restaurant_overrides
+        SELECT o.restaurant_reference, o.is_premium, o.visible, o.stripe_connected,
+               o.stripe_checked_at, o.order_url, c.menu_upload_url
+        FROM disco_restaurant_overrides o
+        LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
       `) as {
         restaurant_reference: string; is_premium: boolean; visible: boolean
-        stripe_connected: boolean; stripe_checked_at: string | null; order_url: string | null
+        stripe_connected: boolean; stripe_checked_at: string | null
+        order_url: string | null; menu_upload_url: string | null
       }[]
       return NextResponse.json({
         overrides: rows.map((r) => ({
@@ -34,6 +37,7 @@ export async function GET(req: NextRequest) {
           stripeConnected: r.stripe_connected,
           stripeCheckedAt: r.stripe_checked_at,
           orderUrl: r.order_url ?? '',
+          menuUploadUrl: r.menu_upload_url ?? null,
         })),
       })
     }
