@@ -115,6 +115,7 @@ function slugValidationError(s: string): string | null {
 export default function OrderSettingsPage() {
   const [restaurant, setRestaurant] = useState<{ reference?: string; onlineOrderingAllowed?: boolean; businessNameWithoutSpaces?: string } | null>(null)
   const [stripeConnected, setStripeConnected] = useState(false)
+  const [marketplaceVisible, setMarketplaceVisible] = useState(false)
   const [notifications, setNotifications] = useState<Notifications | null>(null)
   const [feesAndTips, setFeesAndTips] = useState<FeesAndTips | null>(null)
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
@@ -166,6 +167,10 @@ export default function OrderSettingsPage() {
         .then(r => r.ok ? r.json() : { connected: false })
         .then(d => setStripeConnected(d.connected))
     }
+    fetch('/api/restaurant/marketplace-visibility')
+      .then(r => r.ok ? r.json() : { visible: false })
+      .then(d => setMarketplaceVisible(!!d.visible))
+      .catch(() => {})
     setLoading(false)
   }, [])
 
@@ -191,6 +196,22 @@ export default function OrderSettingsPage() {
     await fetch(`/api/restaurant/online-ordering?onlineOrderingAllowed=${val}`, { method: 'PATCH' })
     setRestaurant(prev => prev ? { ...prev, onlineOrderingAllowed: val } : prev)
     showToast('Saved')
+  }
+
+  // Disco Cater Marketplace visibility → disco_restaurant_overrides.visible
+  // (drives whether the restaurant appears on the public fullmap discovery map).
+  async function toggleMarketplace(val: boolean) {
+    setMarketplaceVisible(val)
+    try {
+      const res = await fetch('/api/restaurant/marketplace-visibility', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visible: val }),
+      })
+      if (!res.ok) { setMarketplaceVisible(!val); showToast('Could not update marketplace visibility.'); return }
+      showToast('Saved')
+    } catch {
+      setMarketplaceVisible(!val); showToast('Could not update marketplace visibility.')
+    }
   }
 
   function addEmail() {
@@ -284,6 +305,13 @@ export default function OrderSettingsPage() {
         {!stripeConnected && (
           <p style={{ fontSize: 12, color: '#E76F51', margin: 0 }}>Stripe must be connected in Banking to enable online ordering.</p>
         )}
+      </Section>
+
+      {/* Disco Cater Marketplace */}
+      <Section title="Disco Cater Marketplace">
+        <Row label="Show your restaurant on the Disco Cater discovery map">
+          <Toggle checked={marketplaceVisible} onChange={toggleMarketplace} />
+        </Row>
       </Section>
 
       {/* Public Page URL — primary Disco Cater URL with secondary FM ref */}

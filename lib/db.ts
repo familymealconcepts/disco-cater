@@ -83,6 +83,9 @@ export async function runMigrations(): Promise<void> {
       address TEXT,
       cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
+    // Reference (URL or filename) of a menu PDF a partner uploaded during
+    // onboarding — recorded by /api/become-a-partner/complete.
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS menu_upload_url TEXT`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true

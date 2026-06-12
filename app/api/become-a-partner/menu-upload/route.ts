@@ -11,6 +11,7 @@ export async function POST(req: NextRequest) {
   let menuUrl = ''
   let restaurantName = ''
   let email = ''
+  let restaurantReference = ''
   let menuFile: File | null = null
 
   const ct = req.headers.get('content-type') || ''
@@ -20,6 +21,7 @@ export async function POST(req: NextRequest) {
       menuUrl = String(fd.get('menuUrl') || '').trim()
       restaurantName = String(fd.get('restaurantName') || '').trim()
       email = String(fd.get('email') || '').trim()
+      restaurantReference = String(fd.get('restaurantReference') || '').trim()
       const f = fd.get('menuFile')
       if (f && f instanceof Blob && (f as File).size > 0) menuFile = f as File
     } else {
@@ -27,6 +29,7 @@ export async function POST(req: NextRequest) {
       menuUrl = String(body?.menuUrl || '').trim()
       restaurantName = String(body?.restaurantName || '').trim()
       email = String(body?.email || '').trim()
+      restaurantReference = String(body?.restaurantReference || '').trim()
     }
   } catch {
     return NextResponse.json({ error: 'Invalid request.' }, { status: 400 })
@@ -48,6 +51,7 @@ export async function POST(req: NextRequest) {
 
 Restaurant: ${safeName}
 Email: ${email || 'Not provided'}
+Restaurant ref: ${restaurantReference || 'Not provided'}
 
 Menu URL: ${menuUrl || 'Not provided'}
 Menu File: ${menuFile?.name || 'Not provided'}
