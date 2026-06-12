@@ -13,6 +13,12 @@
 # testing
 /coverage
 
+# playwright — keep the test files in tests/e2e/, ignore generated output
+test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
 # next.js
 /.next/
 /out/
