@@ -81,10 +81,29 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const { ref: selectedRestaurant, name: selectedRestaurantName, viewMode, setViewMode, clearRestaurant } = useSelectedRestaurant()
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('restaurant_user')
-      if (raw) setUser(JSON.parse(raw))
-    } catch {}
+    let cached: string | null = null
+    try { cached = localStorage.getItem('restaurant_user') } catch {}
+    if (cached) {
+      try { setUser(JSON.parse(cached)); return } catch {}
+    }
+    // No cached identity (e.g. a brand-new Disco partner arriving straight from
+    // onboarding) → resolve the header display from the Disco session.
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/disco-restaurant-auth/me', { credentials: 'include' })
+        if (!res.ok || cancelled) return
+        const s = await res.json()
+        const u: RestaurantUser = {
+          email: s.email || '', firstName: s.firstName || '', lastName: s.lastName || '',
+          role: 'ADMIN', reference: s.restaurantReference || '', businessName: s.restaurantName || '',
+        }
+        if (cancelled) return
+        setUser(u)
+        try { localStorage.setItem('restaurant_user', JSON.stringify(u)) } catch {}
+      } catch { /* not a Disco session — nothing to show */ }
+    })()
+    return () => { cancelled = true }
   }, [])
 
   // Proactive refresh-on-load: silently rotates the token when it's expired or

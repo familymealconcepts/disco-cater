@@ -22,10 +22,10 @@ export async function getRestaurantAuthContext(): Promise<RestaurantAuthContext 
   if (discoToken) {
     const session = await validateDiscoRestaurantSession(discoToken)
     if (session) {
-      // A Disco user MAY also carry an FM token (if they logged into FM before);
-      // when present we prefer it so FM calls stay session-scoped.
-      const fmToken = cookieStore.get('fm_restaurant_token')?.value ?? null
-      return { ...session, authType: 'disco', fmToken }
+      // Disco session always uses the service account scoped to its own
+      // restaurantReference — never defer to a stale FM token left in the browser
+      // (that's how a new partner ended up seeing a prior FM restaurant).
+      return { ...session, authType: 'disco', fmToken: null }
     }
   }
 

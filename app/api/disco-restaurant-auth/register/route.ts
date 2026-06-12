@@ -59,9 +59,14 @@ export async function POST(req: NextRequest) {
       success: true,
       email,
       firstName: body?.firstName ? String(body.firstName) : null,
+      restaurantName: body?.restaurantName ? String(body.restaurantName) : null,
       restaurantReference,
     })
     res.cookies.set(DISCO_RESTAURANT_COOKIE, token, DISCO_RESTAURANT_COOKIE_OPTS)
+    // Clear any stale FM restaurant session so the portal can't resolve the new
+    // partner to a previously logged-in FM restaurant.
+    res.cookies.delete('fm_restaurant_token')
+    res.cookies.delete('fm_restaurant_refresh')
     return res
   } catch (err) {
     console.error('[disco-restaurant-auth/register] failed:', err instanceof Error ? err.message : err)

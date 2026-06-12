@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 // ── Brand ────────────────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@ function PriceRow({ label, detail, value, who, highlight }: {
 }
 
 export default function BecomeAPartnerClient() {
+  const router = useRouter()
   // Steps: 0 your info · 1 first-party pricing · 2 marketplace (opt) ·
   // 3 third-party delivery (opt) · 4 connect bank/Stripe (opt) · 5 upload menu ·
   // 6 success.
@@ -217,29 +219,22 @@ export default function BecomeAPartnerClient() {
           restaurantReference: ref, fmUserReference: fmUserReference || undefined,
         }),
       })
-      if (res.ok) setAutoLoggedIn(true)
-      else console.error('[become-a-partner] disco register failed:', res.status)
+      if (res.ok) {
+        setAutoLoggedIn(true)
+        // Drop any stale FM restaurant identity so the portal header + data scope
+        // to the new Disco restaurant, not a previously logged-in FM one. The
+        // portal layout repopulates from /api/disco-restaurant-auth/me.
+        try {
+          localStorage.removeItem('restaurant_user')
+          localStorage.removeItem('selectedRestaurant')
+          localStorage.removeItem('selectedRestaurantName')
+        } catch {}
+      } else {
+        console.error('[become-a-partner] disco register failed:', res.status)
+      }
     } catch (err) {
       console.error('[become-a-partner] disco register request failed:', err)
     }
-  }
-
-  // Auto-login the new partner as restaurant ADMIN with the credentials they just
-  // set. Best-effort: /api/restaurant-auth sets the httpOnly session cookie and
-  // returns the user payload (no raw token). A failure must NOT block onboarding —
-  // the success screen still offers a manual login.
-  async function autoLoginRestaurant() {
-    try {
-      const res = await fetch('/api/restaurant-auth', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ email: form.email, password: form.password }),
-      })
-      const data = await res.json().catch(() => null)
-      if (res.ok && data) {
-        try { localStorage.setItem('restaurant_user', JSON.stringify(data)) } catch {}
-      }
-    } catch { /* ignore — manual login fallback on the success screen */ }
   }
 
   // Stripe step → ensure the restaurant exists (create it now if needed), then
@@ -254,7 +249,6 @@ export default function BecomeAPartnerClient() {
         const created = await createRestaurant()
         if (!created) { setLoading(false); return }
         ref = created
-        await autoLoginRestaurant() // best-effort
       }
       try { localStorage.setItem('partner_onboarding', JSON.stringify({ form, joinedMarketplace, deliveryEnabled })) } catch {}
       const res = await fetch('/api/become-a-partner/stripe-connect', {
@@ -313,7 +307,6 @@ export default function BecomeAPartnerClient() {
         const created = await createRestaurant()
         if (!created) return // createRestaurant set the error (incl. email-in-use)
         ref = created
-        await autoLoginRestaurant() // best-effort
       }
       const menuOk = skip ? true : await sendMenu(ref)
       const res = await fetch('/api/become-a-partner/complete', {
@@ -604,12 +597,20 @@ export default function BecomeAPartnerClient() {
                 Your account has been created. To activate online ordering, go to your account and connect to our payment processor, Stripe.
               </p>
 
-              {/* Auto-logged-in via disco_restaurant_token → straight to the
-                  dashboard; otherwise send them to the login page. */}
-              <a href={autoLoggedIn ? '/restaurant/dashboard' : '/restaurant/login'}
-                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
+              {/* Clear any stale FM identity, then navigate. Auto-logged-in via
+                  disco_restaurant_token → dashboard; otherwise the login page. */}
+              <button
+                onClick={() => {
+                  try {
+                    localStorage.removeItem('restaurant_user')
+                    localStorage.removeItem('selectedRestaurant')
+                    localStorage.removeItem('selectedRestaurantName')
+                  } catch {}
+                  router.push(autoLoggedIn ? '/restaurant/dashboard' : '/restaurant/login')
+                }}
+                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', marginTop: 24, cursor: 'pointer' }}>
                 Get started
-              </a>
+              </button>
 
               <p style={{ fontSize: 12, color: '#999', maxWidth: 420, margin: '18px auto 0', lineHeight: 1.6 }}>
                 Questions? Feel free to email our team any time at concierge@discocater.com
