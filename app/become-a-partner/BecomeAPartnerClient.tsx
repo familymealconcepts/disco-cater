@@ -91,11 +91,9 @@ export default function BecomeAPartnerClient() {
   const [agreeMarketplace, setAgreeMarketplace] = useState(false) // opt-in (step 3)
   const [joinedMarketplace, setJoinedMarketplace] = useState(false)
   const [menuFile, setMenuFile] = useState<File | null>(null)
-  const [menuSkipped, setMenuSkipped] = useState(false)
   const [stripeConnected, setStripeConnected] = useState(false)
   const [restaurantRef, setRestaurantRef] = useState('')      // FM ref from create-restaurant
-  const [restaurantSlug, setRestaurantSlug] = useState('')    // businessNameWithoutSpaces (1P URL)
-  const [copied, setCopied] = useState(false)
+  const [restaurantSlug, setRestaurantSlug] = useState('')    // businessNameWithoutSpaces (snapshot only)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -235,7 +233,6 @@ export default function BecomeAPartnerClient() {
       })
       const data = await res.json()
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
-      if (skip || !menuFile) setMenuSkipped(true)
       // Surface a menu-upload failure but still advance — never block onboarding.
       if (!menuOk) setError('Menu upload failed — you can email your menu to concierge@discocater.com')
       setStep(5)
@@ -285,19 +282,6 @@ export default function BecomeAPartnerClient() {
   }
 
   function back() { setError(''); setStep(s => Math.max(0, s - 1)) }
-
-  // 1P ordering slug — prefer the server-confirmed value, else derive it the same
-  // way the API does so the link is right even if create-restaurant didn't return.
-  const orderSlug = restaurantSlug || form.restaurantName.toLowerCase().replace(/[^a-z0-9]/g, '')
-  const orderUrl = `discocater.com/order/${orderSlug}`
-
-  async function copyOrderUrl() {
-    try {
-      await navigator.clipboard.writeText(`https://${orderUrl}`)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
-    } catch { /* clipboard may be unavailable — the link is still visible */ }
-  }
 
   const errorBox = error ? (
     <div style={{ background: '#fff3f3', border: '1px solid #ffd6d6', color: '#c0392b', borderRadius: 12, padding: '10px 14px', fontSize: 13, margin: '0 0 14px' }}>
@@ -388,7 +372,12 @@ export default function BecomeAPartnerClient() {
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 6px' }}>
                 <input type="checkbox" checked={agree1P} onChange={e => setAgree1P(e.target.checked)}
                   style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
-                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>I agree to the Disco Cater First Party Terms</span>
+                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>
+                  I agree to the{' '}
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#5B6FE8' }}>Disco Cater Terms of Service</a>
+                  {' '}and{' '}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#5B6FE8' }}>Privacy Policy</a>
+                </span>
               </label>
               <p style={{ fontSize: 12, color: '#999', lineHeight: 1.5, margin: '0 0 18px', paddingLeft: 29 }}>
                 By checking this box you agree to our{' '}
@@ -515,44 +504,17 @@ export default function BecomeAPartnerClient() {
               <p style={{ ...subStyle, maxWidth: 420, margin: '0 auto 8px' }}>
                 Our team will be in touch within 1 business day to complete your setup.
               </p>
-              {!joinedMarketplace && (
-                <p style={{ fontSize: 13, color: '#888', maxWidth: 420, margin: '0 auto 8px', lineHeight: 1.6 }}>
-                  You can join the marketplace later from your restaurant portal.
-                </p>
-              )}
-              {menuSkipped && (
-                <p style={{ fontSize: 13, color: '#888', maxWidth: 420, margin: '0 auto 8px', lineHeight: 1.6 }}>
-                  You can send your menu to concierge@discocater.com at any time.
-                </p>
-              )}
               {error && (
                 <div style={{ background: '#fff3f3', border: '1px solid #ffd6d6', color: '#c0392b', borderRadius: 12, padding: '10px 14px', fontSize: 13, maxWidth: 420, margin: '14px auto 0', textAlign: 'left' }}>
                   {error}
                 </div>
               )}
 
-              {/* 1P ordering page — the partner's direct-order link */}
-              <div style={{ maxWidth: 460, margin: '24px auto 0', padding: '16px 18px', border: '1px solid #ececf4', borderRadius: 16, background: '#fbfbfe', textAlign: 'left' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#777', marginBottom: 8 }}>Your ordering page</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <a href={`https://${orderUrl}`} target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: BLUE, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {orderUrl}
-                  </a>
-                  <button onClick={copyOrderUrl}
-                    style={{ flexShrink: 0, height: 34, padding: '0 14px', borderRadius: 999, border: '1.5px solid #e6e6ee', background: '#fff', color: copied ? '#2E9E5B' : DARK, fontSize: 12.5, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>
-                    {copied ? '✓ Copied' : 'Copy'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Dashboard login — the new partner is a plain USER account and must
-                  log into the restaurant portal with the credentials they just made. */}
-              <p style={{ fontSize: 13, color: '#888', maxWidth: 420, margin: '24px auto 0', lineHeight: 1.6 }}>
-                Log in to your restaurant dashboard with the email and password you just created.
-              </p>
+              {/* Dashboard login. NOTE: target is /restaurant/login, not bare
+                  /restaurant (no index route — it would 404). Once auto-login is
+                  wired (deferred), point this at the role's landing page. */}
               <a href="/restaurant/login"
-                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 14 }}>
+                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
                 Log in to dashboard →
               </a>
             </div>
