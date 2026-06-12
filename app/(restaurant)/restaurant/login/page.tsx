@@ -1,7 +1,18 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+
+// Map a Disco-native session/login payload to the restaurant_user shape the
+// portal layout reads (name display + ADMIN-role nav).
+function storeDiscoUser(d: { email?: string; firstName?: string | null; lastName?: string | null; restaurantReference?: string; restaurantName?: string | null }) {
+  try {
+    localStorage.setItem('restaurant_user', JSON.stringify({
+      email: d.email || '', firstName: d.firstName || '', lastName: d.lastName || '',
+      role: 'ADMIN', reference: d.restaurantReference || '', businessName: d.restaurantName || '',
+    }))
+  } catch { /* localStorage unavailable */ }
+}
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -15,11 +26,39 @@ export default function RestaurantLoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Already signed in with a Disco-native session? Skip the form.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/disco-restaurant-auth/me', { credentials: 'include' })
+        if (!res.ok || cancelled) return
+        const s = await res.json()
+        storeDiscoUser(s)
+        router.replace('/restaurant/dashboard')
+      } catch { /* not logged in — show the form */ }
+    })()
+    return () => { cancelled = true }
+  }, [router])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
+      // Try Disco-native auth first; fall back to FM for legacy restaurant users.
+      try {
+        const dres = await fetch('/api/disco-restaurant-auth/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', body: JSON.stringify({ email, password }),
+        })
+        if (dres.ok) {
+          storeDiscoUser(await dres.json())
+          router.push('/restaurant/dashboard')
+          return
+        }
+      } catch { /* fall through to FM login */ }
+
       const res = await fetch('/api/restaurant-auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

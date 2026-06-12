@@ -12,8 +12,14 @@ function decodeTokenRole(token: string): string | null {
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Restaurant portal — uses separate fm_restaurant_token cookie
+  // Restaurant portal — accepts a Disco-native session OR a legacy FM token.
   if (pathname.startsWith('/restaurant/') && pathname !== '/restaurant/login') {
+    // Disco-native session is an opaque UUID, not a JWT, so presence is enough
+    // at the edge (next/headers + Neon aren't available here). Full validation
+    // happens in /api/disco-restaurant-auth/me.
+    const discoToken = req.cookies.get('disco_restaurant_token')?.value
+    if (discoToken) return NextResponse.next()
+
     const restaurantToken = req.cookies.get('fm_restaurant_token')?.value
     if (!restaurantToken) {
       const url = req.nextUrl.clone()

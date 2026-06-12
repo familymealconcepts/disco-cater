@@ -95,6 +95,7 @@ export default function BecomeAPartnerClient() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [emailInUse, setEmailInUse] = useState(false)   // FM 400-027: admin email already exists
+  const [autoLoggedIn, setAutoLoggedIn] = useState(false) // Disco-native session created
   // The restaurant is created ONCE — at the Stripe step if the partner connects,
   // otherwise at completion. alreadyCreated guards against creating it twice.
   const [alreadyCreated, setAlreadyCreated] = useState(false)
@@ -182,10 +183,35 @@ export default function BecomeAPartnerClient() {
         localStorage.setItem('partner_setup_complete', 'true')
         localStorage.setItem('partner_restaurant_ref', ref)
       } catch { /* localStorage unavailable */ }
+      // Create the Disco-native account + session (sets disco_restaurant_token)
+      // so the partner is logged into the portal immediately.
+      await registerDiscoAccount(ref, data?.adminReference ?? null)
       return ref
     } catch {
       setError('Unable to connect. Please try again.')
       return null
+    }
+  }
+
+  // Create a Disco-native restaurant account + session right after the FM
+  // restaurant exists. Sets the httpOnly disco_restaurant_token cookie. Runs
+  // exactly once (inside createRestaurant) and is best-effort — never blocks.
+  async function registerDiscoAccount(ref: string, fmUserReference: string | null) {
+    try {
+      const res = await fetch('/api/disco-restaurant-auth/register', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          email: form.email, password: form.password,
+          firstName: form.firstName, lastName: form.lastName,
+          phone: form.phoneNumber, restaurantName: form.restaurantName,
+          restaurantReference: ref, fmUserReference: fmUserReference || undefined,
+        }),
+      })
+      if (res.ok) setAutoLoggedIn(true)
+      else console.error('[become-a-partner] disco register failed:', res.status)
+    } catch (err) {
+      console.error('[become-a-partner] disco register request failed:', err)
     }
   }
 
@@ -563,7 +589,9 @@ export default function BecomeAPartnerClient() {
                 Your account has been created. To activate online ordering, go to your account and connect to our payment processor, Stripe.
               </p>
 
-              <a href="/restaurant/login"
+              {/* Auto-logged-in via disco_restaurant_token → straight to the
+                  dashboard; otherwise send them to the login page. */}
+              <a href={autoLoggedIn ? '/restaurant/dashboard' : '/restaurant/login'}
                 style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', textDecoration: 'none', marginTop: 24 }}>
                 Get started
               </a>

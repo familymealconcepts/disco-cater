@@ -169,3 +169,32 @@ CREATE INDEX IF NOT EXISTS idx_disco_stripe_payments_intent ON disco_stripe_paym
 CREATE INDEX IF NOT EXISTS idx_disco_stripe_payments_order ON disco_stripe_payments(order_reference);
 CREATE INDEX IF NOT EXISTS idx_disco_order_items_order ON disco_order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_disco_order_events_reference ON disco_order_events(order_reference);
+
+-- ── Disco-native restaurant authentication ───────────────────────────────────
+-- Disco-owned credentials + sessions for new restaurant partners, replacing FM
+-- token auth. Passwords are bcrypt-hashed; sessions are opaque UUID tokens.
+CREATE TABLE IF NOT EXISTS disco_restaurant_accounts (
+  id SERIAL PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  restaurant_reference TEXT NOT NULL,
+  fm_user_reference TEXT,
+  first_name TEXT,
+  last_name TEXT,
+  phone TEXT,
+  restaurant_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS disco_restaurant_sessions (
+  id SERIAL PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  restaurant_reference TEXT NOT NULL,
+  email TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_disco_restaurant_sessions_token ON disco_restaurant_sessions(token);
+CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_email ON disco_restaurant_accounts(email);
