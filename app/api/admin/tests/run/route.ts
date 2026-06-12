@@ -230,10 +230,38 @@ async function testExportApi(origin: string): Promise<TestResult> {
     return { steps, testData: { createdRecords: [] } }
   }
   for (const ep of ['customers', 'orders']) {
-    const res = await fetch(`${origin}/api/export/${ep}`, { headers: { 'x-api-key': key }, cache: 'no-store' }).catch(() => null)
-    let hasData = false
-    try { const j = await res?.json(); hasData = Array.isArray(j) ? j.length > 0 : !!j } catch { /* ignore */ }
-    steps.push({ name: `GET /api/export/${ep}`, status: res?.ok ? 'passed' : 'failed', detail: res?.ok ? (hasData ? '200 with data' : '200 (empty)') : `HTTP ${res?.status ?? 'error'}` })
+    try {
+      // These endpoints aggregate the full dataset (no real server-side limiting),
+      // so cap the wait at 30s and inspect only the first chunk of the body —
+      // enough to confirm it's a non-empty JSON array — without buffering/parsing
+      // the entire export payload. (limit/page/size are sent in case they help.)
+      const res = await fetch(`${origin}/api/export/${ep}?limit=1&page=0&size=1`, {
+        headers: { 'x-api-key': key },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(30000),
+      })
+      let head = ''
+      const reader = res.body?.getReader()
+      if (reader) {
+        const { value } = await reader.read()
+        head = value ? new TextDecoder().decode(value).slice(0, 64) : ''
+        await reader.cancel()
+      }
+      const trimmed = head.replace(/^﻿/, '').trimStart()
+      const isArray = trimmed.startsWith('[')
+      const nonEmpty = isArray && !/^\[\s*\]/.test(trimmed)
+      const ok = res.status === 200 && isArray
+      steps.push({
+        name: `GET /api/export/${ep}`,
+        status: ok ? 'passed' : 'failed',
+        detail: ok ? (nonEmpty ? '200, JSON array with data' : '200, empty array')
+          : (res.status === 200 ? '200 but not a JSON array' : `HTTP ${res.status}`),
+      })
+    } catch (e) {
+      const msg = e instanceof Error && e.name === 'TimeoutError' ? 'timed out after 30s'
+        : (e instanceof Error ? e.message : 'request failed')
+      steps.push({ name: `GET /api/export/${ep}`, status: 'failed', detail: msg })
+    }
   }
   return { steps, testData: { createdRecords: [] } }
 }
