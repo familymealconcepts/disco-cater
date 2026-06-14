@@ -38,6 +38,33 @@ function fmtDateLong(d?: string) {
   try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return d }
 }
 function fmtMoney(n?: number) { return `$${(n || 0).toFixed(2)}` }
+function fmtDayMonth(d?: string) {
+  if (!d) return '—'
+  try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) } catch { return d }
+}
+
+// The 7-column calendar grid is unreadable on phones, so we swap it for a
+// month-grouped agenda list below this breakpoint.
+function useIsMobile() {
+  const [m, setM] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    const fn = () => setM(mq.matches)
+    fn()
+    mq.addEventListener('change', fn)
+    return () => mq.removeEventListener('change', fn)
+  }, [])
+  return m
+}
+
+function statusPill(status?: string): { label: string; bg: string; color: string } {
+  const s = (status || '').toUpperCase()
+  if (s === 'COMPLETED' || s === 'PAID') return { label: 'Paid', bg: '#E1F5EE', color: '#085041' }
+  if (s === 'UNPAID') return { label: 'Unpaid', bg: '#FAEEDA', color: '#633806' }
+  if (s === 'PAUSED') return { label: 'Paused', bg: '#FAEEDA', color: '#633806' }
+  if (s) return { label: s.charAt(0) + s.slice(1).toLowerCase(), bg: '#EEEDFE', color: '#3C3489' }
+  return { label: 'Upcoming', bg: '#EEEDFE', color: '#3C3489' }
+}
 
 // ── Calendar ─────────────────────────────────────────────────────────────────
 
@@ -170,6 +197,62 @@ function OrderListRow({ o, onClick }: { o: ApiOrder; onClick: () => void }) {
   )
 }
 
+// ── Mobile agenda (month-grouped list) ───────────────────────────────────────
+
+function MonthAgenda({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder: (ref: string) => void }) {
+  const groups = useMemo(() => {
+    const map = new Map<string, { key: string; sort: number; items: { o: ApiOrder; t: number }[] }>()
+    for (const o of orders) {
+      const ref = (o.reference || o.id || '') as string
+      if (!ref) continue
+      const dateStr = o.orderDate || o.deliveryDate || o.date || o.createdAt || ''
+      const d = dateStr ? new Date(dateStr) : null
+      const valid = !!d && !isNaN(d.getTime())
+      const key = valid ? `${MONTHS[d!.getMonth()]} ${d!.getFullYear()}` : 'Other'
+      const sort = valid ? d!.getFullYear() * 12 + d!.getMonth() : -1
+      if (!map.has(key)) map.set(key, { key, sort, items: [] })
+      map.get(key)!.items.push({ o, t: valid ? d!.getTime() : 0 })
+    }
+    const arr = [...map.values()]
+    arr.sort((a, b) => b.sort - a.sort)           // newest month first
+    arr.forEach(g => g.items.sort((a, b) => b.t - a.t)) // newest order first within month
+    return arr
+  }, [orders])
+
+  return (
+    <div>
+      {groups.map(g => (
+        <div key={g.key} style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px 2px' }}>{g.key}</div>
+          <div style={{ border: '1px solid #ebebeb', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+            {g.items.map(({ o }, i) => {
+              const ref = (o.reference || o.id || '') as string
+              const name = o.restaurantName || o.restaurant?.name || 'Order'
+              const dateStr = o.orderDate || o.deliveryDate || o.date || o.createdAt
+              const p = statusPill(o.status || o.orderStatus)
+              return (
+                <div key={ref || i}
+                  onClick={() => ref && onOpenOrder(ref)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', borderBottom: i < g.items.length - 1 ? '1px solid #f5f5f5' : 'none', cursor: 'pointer' }}
+                >
+                  <div style={{ width: 46, flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#111', textAlign: 'center', lineHeight: 1.3 }}>{fmtDayMonth(dateStr)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}{getOrderSourceBadge(o.sourceoforder || '')}</div>
+                    <div style={{ marginTop: 4 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: p.bg, color: p.color }}>{p.label}</span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#111', flexShrink: 0 }}>{fmtMoney(o.total || o.totalAmount)}</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function OrdersPage() {
@@ -180,6 +263,7 @@ export default function OrdersPage() {
   // YYYY-MM-DD of an empty calendar cell the user clicked. Drives the
   // NewOrderDialog (favorites picker + embedded restaurant page).
   const [newOrderDate, setNewOrderDate] = useState<string | null>(null)
+  const isMobile = useIsMobile()
 
   const fetchOrders = useCallback(() => {
     setLoading(true)
@@ -263,7 +347,9 @@ export default function OrdersPage() {
           </Link>
         </div>
       ) : view === 'cal' ? (
-        <Calendar orders={orders} onOpenOrder={openOrder} onEmptyDateClick={setNewOrderDate} />
+        isMobile
+          ? <MonthAgenda orders={orders} onOpenOrder={openOrder} />
+          : <Calendar orders={orders} onOpenOrder={openOrder} onEmptyDateClick={setNewOrderDate} />
       ) : (
         <div style={{ border: '1px solid #ebebeb', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
           {orders.map((o, i) => (

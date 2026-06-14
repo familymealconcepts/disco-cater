@@ -1169,8 +1169,22 @@ function FullMapInner() {
                         <div key={r._id} style={{ flexShrink: 0, width: 'calc(100% - 64px)', scrollSnapAlign: 'start', marginLeft: i === 0 ? 16 : 0, paddingTop: 12 }}>
                           <div
                             onClick={() => handleSidebarClick(r)}
-                            style={{ background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.18)', cursor: 'pointer', border: `2.5px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, transition: 'border-color 0.15s' }}
+                            style={{ position: 'relative', background: '#fff', borderRadius: 14, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.18)', cursor: 'pointer', border: `2.5px solid ${activeId === r._id ? '#6B6EF9' : 'transparent'}`, transition: 'border-color 0.15s' }}
                           >
+                            <FavoriteHeart
+                              authGate
+                              size={16}
+                              background="rgba(255,255,255,0.92)"
+                              style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
+                              restaurant={{
+                                key: r.slug?.current || r._id,
+                                slug: r.slug?.current,
+                                name: r.name,
+                                image: r.image,
+                                cuisine: r.cuisine,
+                                location: r.location,
+                              }}
+                            />
                             {r.image
                               ? <img src={r.image} alt={r.name} style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
                               : <div style={{ height: 96, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>✦</div>
