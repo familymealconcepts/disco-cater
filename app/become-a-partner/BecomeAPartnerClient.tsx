@@ -1,6 +1,5 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 // ── Brand ────────────────────────────────────────────────────────────────────
@@ -106,7 +105,6 @@ function PriceRow({ label, detail, value, who, highlight }: {
 }
 
 export default function BecomeAPartnerClient() {
-  const router = useRouter()
   // Steps: 0 your info · 1 first-party pricing · 2 marketplace (opt) ·
   // 3 third-party delivery (opt) · 4 connect bank/Stripe (opt) · 5 upload menu ·
   // 6 success.
@@ -653,7 +651,10 @@ export default function BecomeAPartnerClient() {
                     localStorage.removeItem('selectedRestaurant')
                     localStorage.removeItem('selectedRestaurantName')
                   } catch {}
-                  router.push(autoLoggedIn ? '/restaurant/dashboard' : '/restaurant/login')
+                  // Full-page navigation (not router.push) so the browser sends
+                  // the disco_restaurant_token cookie set by the register
+                  // response — a client-side transition may race the cookie.
+                  window.location.href = autoLoggedIn ? '/restaurant/dashboard' : '/restaurant/login'
                 }}
                 style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', marginTop: 24, cursor: 'pointer' }}>
                 Get started
