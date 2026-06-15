@@ -86,34 +86,60 @@ async function mirrorOrderToNeon(args: {
 }
 
 // Posts an "Order Updated" notification to the Disco Slack channel when an edit
-// is committed. 1P/3P labeled per the order source. Looks the restaurant name up
-// from the cache (best-effort). Never throws; skips when the webhook is unset.
+// is committed. Distinct from the green new-order ping: an orange (#FF9900)
+// attachment, the "update, …" line format, and a trailing (DE) marker. Looks the
+// restaurant name + city/state up from the cache (best-effort). Never throws;
+// skips when the webhook is unset.
 async function sendOrderUpdatedSlack(o: {
   orderRef: string
   restaurantRef: string
   originalTotal: number
   newTotal: number
   sourceOfOrder: string
+  serviceType: string // 'P' (pickup) | 'D' (delivery)
+  oldDate?: string
+  oldTime?: string
+  newDate?: string
+  newTime?: string
 }): Promise<void> {
   const url = process.env.SLACK_NEW_ORDER_WEBHOOK_URL
   if (!url) return
   try {
     let restaurantName = ''
+    let city = ''
+    let state = ''
     try {
-      const rows = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${o.restaurantRef} LIMIT 1`) as Record<string, unknown>[]
+      const rows = (await sql`SELECT name, location FROM disco_restaurant_cache WHERE restaurant_reference = ${o.restaurantRef} LIMIT 1`) as Record<string, unknown>[]
       restaurantName = rows[0]?.name ? String(rows[0].name) : ''
-    } catch { /* name is optional */ }
+      // cache.location is "City, State" (restaurant-cache.ts).
+      const parts = (rows[0]?.location ? String(rows[0].location) : '').split(',').map(s => s.trim()).filter(Boolean)
+      city = parts[0] || ''
+      state = parts[1] || ''
+    } catch { /* name/location are optional */ }
 
-    const is3P = o.sourceOfOrder === 'DISCO'
-    const label = is3P ? '3P Update' : '1P Update'
     const orig = Number.isFinite(o.originalTotal) ? o.originalTotal : 0
     const next = Number.isFinite(o.newTotal) ? o.newTotal : 0
     const delta = next - orig
     const deltaStr = `${delta >= 0 ? '+' : '-'}$${Math.abs(delta).toFixed(2)}`
     const place = restaurantName || o.restaurantRef
-    const text = `✏️ *Order Updated* (${label}) — ${place} — #${o.orderRef} — $${orig.toFixed(2)} → $${next.toFixed(2)} (${deltaStr})`
 
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
+    const oldDate = o.oldDate || ''
+    const oldTime = o.oldTime || ''
+    const newDate = o.newDate || ''
+    const newTime = o.newTime || ''
+    const dateChanged = !!(oldDate && newDate) && (oldDate !== newDate || oldTime !== newTime)
+    const when = dateChanged
+      ? `${oldDate} ${oldTime} → ${newDate} ${newTime}`
+      : `${newDate} ${newTime}`.trim()
+
+    // update, {restaurantName}, {city}, {state}, ({delta} from $orig to $new), {when} - ({P|D})(DE)
+    const text = `update, ${place}, ${city}, ${state}, (${deltaStr} from $${orig.toFixed(2)} to $${next.toFixed(2)}), ${when} - (${o.serviceType})(DE)`
+
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attachments: [{ color: '#FF9900', text, fallback: text }] }),
+    })
   } catch (err) {
     console.error('[restaurant/orders/place] Slack update notification failed:', err instanceof Error ? err.message : err)
   }
@@ -160,12 +186,21 @@ export async function POST(req: NextRequest) {
       // Edit commits carry editSlack → fire the "Order Updated" Slack ping.
       if (editSlack) {
         const es = editSlack as Record<string, unknown>
+        // Service type for the (P|D) marker — same derivation as the Neon mirror.
+        const checkoutDetails = (placeBody.checkoutDetails ?? {}) as Record<string, unknown>
+        const isDelivery = checkoutDetails.orderType === 'DELIVERY' || !!placeBody.deliveryAddress
+        const optStr = (v: unknown) => (v == null || v === '' ? undefined : String(v))
         waitUntil(sendOrderUpdatedSlack({
           orderRef: String(es.orderRef ?? orderRef),
           restaurantRef,
           originalTotal: Number(es.originalTotal) || 0,
           newTotal: Number(es.newTotal) || 0,
           sourceOfOrder: String(es.sourceoforder ?? ''),
+          serviceType: isDelivery ? 'D' : 'P',
+          oldDate: optStr(es.oldDate),
+          oldTime: optStr(es.oldTime),
+          newDate: optStr(es.newDate),
+          newTime: optStr(es.newTime),
         }))
       }
     }
