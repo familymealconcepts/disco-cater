@@ -26,6 +26,8 @@ export async function POST(req: NextRequest) {
   const password = String(body?.password || '')
   const restaurantReference = String(body?.restaurantReference || '').trim()
 
+  console.log('[disco-register] starting for:', email)
+
   if (!email || !password || !restaurantReference) {
     return NextResponse.json({ error: 'Email, password, and restaurant are required.' }, { status: 400 })
   }
@@ -67,9 +69,10 @@ export async function POST(req: NextRequest) {
     // partner to a previously logged-in FM restaurant.
     res.cookies.delete('fm_restaurant_token')
     res.cookies.delete('fm_restaurant_refresh')
+    console.log('[disco-register] success for:', email)
     return res
   } catch (err) {
-    console.error('[disco-restaurant-auth/register] failed:', err instanceof Error ? err.message : err)
+    console.error('[disco-register] failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Could not create your account.' }, { status: 500 })
   }
 }

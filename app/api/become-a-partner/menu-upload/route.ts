@@ -63,7 +63,11 @@ https://www.discocater.com/admin/manage-restaurants/menu-import
 
   try {
     const mg = new FormData()
-    mg.append('from', `Disco Cater Onboarding <onboarding@${MAILGUN_DOMAIN}>`)
+    // Use the verified envelope sender (same as lib/email/send.ts) rather than
+    // deriving it from MAILGUN_DOMAIN, which Mailgun can reject as an
+    // unauthorized sender. sendEmail() can't be used here — it has no attachment
+    // support and we need to attach the menu PDF.
+    mg.append('from', 'Disco Cater <orders@discocater.com>')
     mg.append('to', TEAM_EMAIL)
     mg.append('subject', subject)
     mg.append('text', text)
