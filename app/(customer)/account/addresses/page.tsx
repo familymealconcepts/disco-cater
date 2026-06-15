@@ -95,10 +95,17 @@ export default function AddressesPage() {
           credentials: 'include',
         }),
       ])
-      if (!addrRes.ok || !userRes.ok) throw new Error('Failed to save')
+      if (!addrRes.ok || !userRes.ok) {
+        // Pull the real reason out of whichever call failed so the toast (and
+        // the console) shows what FM actually rejected, not a generic message.
+        const failed = !addrRes.ok ? addrRes : userRes
+        const data = await failed.json().catch(() => null)
+        console.error('[addresses] save failed:', failed.status, data)
+        throw new Error(data?.error || 'Failed to save')
+      }
       showToast('Address saved')
-    } catch {
-      showToast('Failed to save address', 'error')
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to save address', 'error')
     } finally {
       setSaving(false)
     }

@@ -39,7 +39,7 @@ const labelStyle: React.CSSProperties = {
 }
 
 export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Props) {
-  const { login, pendingAction, closeAuthModal } = useAuthContext()
+  const { login, register, pendingAction, closeAuthModal } = useAuthContext()
   const router = useRouter()
   const pathname = usePathname()
   const [tab, setTab] = useState<'login' | 'signup'>(defaultTab)
@@ -52,6 +52,16 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
   const [loginShowPw, setLoginShowPw] = useState(false)
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginError, setLoginError] = useState('')
+
+  // Signup form state
+  const [signupFirst, setSignupFirst] = useState('')
+  const [signupLast, setSignupLast] = useState('')
+  const [signupEmail, setSignupEmail] = useState('')
+  const [signupPhone, setSignupPhone] = useState('')
+  const [signupPassword, setSignupPassword] = useState('')
+  const [signupShowPw, setSignupShowPw] = useState(false)
+  const [signupLoading, setSignupLoading] = useState(false)
+  const [signupError, setSignupError] = useState('')
 
   // Forgot-password view state
   const [forgotEmail, setForgotEmail] = useState('')
@@ -80,9 +90,40 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
   function handleClose() {
     setLoginError('')
     setLoginEmail(''); setLoginPassword('')
+    setSignupError(''); setSignupFirst(''); setSignupLast(''); setSignupEmail(''); setSignupPhone(''); setSignupPassword('')
     setMode('login')
     setForgotEmail(''); setForgotError(''); setForgotSent(false); setForgotLoading(false)
     onClose()
+  }
+
+  async function handleSignup(e: React.FormEvent) {
+    e.preventDefault()
+    if (!signupFirst || !signupLast || !signupEmail || !signupPassword) {
+      setSignupError('Please fill in your name, email and password.'); return
+    }
+    if (signupPassword.length < 8) { setSignupError('Password must be at least 8 characters.'); return }
+    setSignupLoading(true); setSignupError('')
+    try {
+      await register({
+        email: signupEmail, password: signupPassword,
+        firstName: signupFirst, lastName: signupLast,
+        phoneNumber: signupPhone || undefined,
+      })
+      closeAuthModal()
+      handleClose()
+      if (pendingAction) {
+        // Finishing an interrupted action (e.g. checkout) — stay put and run it.
+        pendingAction()
+      } else if (!pathname?.startsWith('/restaurants/')) {
+        // A new account is always a diner — mirror the login landing.
+        router.push('/account/orders')
+      }
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+    } catch (err: any) {
+      setSignupError(err.message || 'Could not create your account.')
+    } finally {
+      setSignupLoading(false)
+    }
   }
 
   function backToLogin() {
@@ -196,6 +237,28 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
           )}
         </div>
 
+        {/* LOGIN / SIGN UP tab switcher (hidden on the forgot-password view) */}
+        {mode === 'login' && (
+          <div style={{ display: 'flex', gap: 6, marginBottom: 20, background: '#f4f4f8', padding: 4, borderRadius: 10 }}>
+            <button
+              type="button"
+              className="auth-tab-btn"
+              onClick={() => { setTab('login'); setLoginError(''); setSignupError('') }}
+              style={{ background: tab === 'login' ? '#fff' : 'transparent', color: tab === 'login' ? DARK : '#888', fontWeight: tab === 'login' ? 700 : 600, boxShadow: tab === 'login' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}
+            >
+              Log In
+            </button>
+            <button
+              type="button"
+              className="auth-tab-btn"
+              onClick={() => { setTab('signup'); setLoginError(''); setSignupError('') }}
+              style={{ background: tab === 'signup' ? '#fff' : 'transparent', color: tab === 'signup' ? DARK : '#888', fontWeight: tab === 'signup' ? 700 : 600, boxShadow: tab === 'signup' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}
+            >
+              Sign Up
+            </button>
+          </div>
+        )}
+
         {/* LOGIN FORM */}
         {mode === 'login' && tab === 'login' && (
           <form onSubmit={handleLogin}>
@@ -242,6 +305,90 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               style={{ width: '100%', padding: '13px', fontSize: 14, fontWeight: 700, color: '#fff', background: loginLoading ? '#ccc' : DARK, border: 'none', borderRadius: 10, cursor: loginLoading ? 'not-allowed' : 'pointer', fontFamily: F, marginTop: 8 }}
             >
               {loginLoading ? 'Signing in…' : 'Log In'}
+            </button>
+          </form>
+        )}
+
+        {/* SIGN UP FORM */}
+        {mode === 'login' && tab === 'signup' && (
+          <form onSubmit={handleSignup}>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>First name</label>
+                <input
+                  className="auth-modal-input"
+                  type="text"
+                  value={signupFirst}
+                  onChange={e => setSignupFirst(e.target.value)}
+                  placeholder="Jane"
+                  autoFocus
+                  autoComplete="given-name"
+                  style={inputStyle}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={labelStyle}>Last name</label>
+                <input
+                  className="auth-modal-input"
+                  type="text"
+                  value={signupLast}
+                  onChange={e => setSignupLast(e.target.value)}
+                  placeholder="Doe"
+                  autoComplete="family-name"
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Email address</label>
+              <input
+                className="auth-modal-input"
+                type="email"
+                value={signupEmail}
+                onChange={e => setSignupEmail(e.target.value)}
+                placeholder="you@company.com"
+                autoComplete="email"
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Phone <span style={{ color: '#aaa', fontWeight: 400 }}>(optional)</span></label>
+              <input
+                className="auth-modal-input"
+                type="tel"
+                value={signupPhone}
+                onChange={e => setSignupPhone(e.target.value)}
+                placeholder="(555) 123-4567"
+                autoComplete="tel"
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <label style={labelStyle}>Password</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  className="auth-modal-input"
+                  type={signupShowPw ? 'text' : 'password'}
+                  value={signupPassword}
+                  onChange={e => setSignupPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  autoComplete="new-password"
+                  style={{ ...inputStyle, paddingRight: 42 }}
+                />
+                <button type="button" onClick={() => setSignupShowPw(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 14, padding: 0 }}>
+                  {signupShowPw ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+            {signupError && (
+              <div style={{ fontSize: 12, color: '#E24B4A', marginBottom: 14, padding: '9px 12px', background: '#FFF0F3', borderRadius: 8 }}>{signupError}</div>
+            )}
+            <button
+              type="submit"
+              disabled={signupLoading}
+              style={{ width: '100%', padding: '13px', fontSize: 14, fontWeight: 700, color: '#fff', background: signupLoading ? '#ccc' : DARK, border: 'none', borderRadius: 10, cursor: signupLoading ? 'not-allowed' : 'pointer', fontFamily: F, marginTop: 8 }}
+            >
+              {signupLoading ? 'Creating account…' : 'Create Account'}
             </button>
           </form>
         )}

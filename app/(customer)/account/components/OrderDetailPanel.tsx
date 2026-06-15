@@ -312,7 +312,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                       {(detail.subtotal || 0) > 0 && <PriceRow label="Subtotal" value={fmtMoney(detail.subtotal)} />}
                       {feesTotal > 0 && <PriceRow label="Taxes & Fees" value={fmtMoney(feesTotal)} />}
                       {deliveryFee > 0 && <PriceRow label="Delivery fee" value={fmtMoney(deliveryFee)} />}
-                      {tip > 0 && <PriceRow label="Tip" value={fmtMoney(tip)} />}
+                      <PriceRow label="Tip" value={fmtMoney(tip)} />
                       {discount > 0 && <PriceRow label="Discount" value={`−${fmtMoney(discount)}`} />}
                       <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee', fontSize: 14, fontWeight: 800, color: DARK }}>
                         <span>Total</span><span>{fmtMoney(detail.total)}</span>

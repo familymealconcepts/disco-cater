@@ -12,7 +12,9 @@ export async function PUT(req: NextRequest) {
 
     const body = await req.json()
 
-    const res = await fetch(`${FM_API}/api/users/addresses`, {
+    const url = `${FM_API}/api/users/addresses`
+    console.log('[fm-user-addresses] PUT', url, 'fields:', Object.keys(body || {}))
+    const res = await fetch(url, {
       method: 'PUT',
       headers: {
         'Authorization': token,
@@ -27,14 +29,23 @@ export async function PUT(req: NextRequest) {
     }
 
     if (!res.ok) {
-      return NextResponse.json({ error: 'Failed to update address' }, { status: res.status })
+      // Surface FM's actual error instead of swallowing it — otherwise a
+      // validation failure is invisible to both the client and the logs.
+      const raw = await res.text().catch(() => '')
+      console.error('[fm-user-addresses] FM error:', res.status, raw.slice(0, 500))
+      let parsed: { message?: string; error?: string } | null = null
+      try { parsed = JSON.parse(raw) } catch { /* non-JSON body */ }
+      return NextResponse.json(
+        { error: parsed?.message || parsed?.error || 'Failed to update address', detail: raw.slice(0, 300) || undefined },
+        { status: res.status },
+      )
     }
 
     const data = await res.json().catch(() => ({ ok: true }))
     return NextResponse.json(data)
 
   } catch (err) {
-    console.error('fm-user-addresses error:', err)
+    console.error('[fm-user-addresses] error:', err)
     return NextResponse.json({ error: 'Unable to update address' }, { status: 500 })
   }
 }
