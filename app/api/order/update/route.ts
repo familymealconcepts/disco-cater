@@ -22,11 +22,14 @@ export async function PUT(req: NextRequest) {
     // "DELIVERY" becomes "PICKUP" so a missing/blank value can never 500 FM.
     updateBody.orderType = updateBody.orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
 
-    const res = await fetch(`${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`, {
+    const url = `${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`
+    console.log('[order/update] FM request:', { restaurantRef, orderRef, url })
+    const res = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(updateBody),
     })
+    if (!res.ok) console.error('[order/update] FM error:', res.status, await res.clone().text())
     const data = await res.json()
     return NextResponse.json(data, { status: res.status })
   } catch {
