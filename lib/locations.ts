@@ -24,6 +24,8 @@ export interface LocationItem {
   restaurantReference: string
   businessName: string
   address: string
+  /** State the FM group endpoint filed this location under — used to sort/group. */
+  state: string
   /** Sanity slug.current → /restaurants/[slug]; null when no Sanity doc exists. */
   slug: string | null
 }
@@ -82,8 +84,14 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
   const groups = (await res.json().catch(() => null)) as FmStateGroup[] | null
   if (!Array.isArray(groups)) return null
 
-  const flat: FmGroupRestaurant[] = []
-  for (const g of groups) if (Array.isArray(g?.restaurants)) flat.push(...g.restaurants)
+  // Keep the state each restaurant was grouped under (the group's `state`, or
+  // the restaurant's own address.state as a fallback) so the page can sort by it.
+  const flat: (FmGroupRestaurant & { _state?: string })[] = []
+  for (const g of groups) {
+    if (Array.isArray(g?.restaurants)) {
+      for (const r of g.restaurants) flat.push({ ...r, _state: g.state || r.address?.state })
+    }
+  }
   if (flat.length === 0) return null
 
   // Resolve each FM restaurant to its Sanity slug. Primary key is the backfilled
@@ -113,6 +121,7 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
       restaurantReference: ref,
       businessName: r.businessName || 'Restaurant',
       address: formatAddress(r.address),
+      state: r._state || r.address?.state || '',
       slug: doc?.slug || null,
     }
   })

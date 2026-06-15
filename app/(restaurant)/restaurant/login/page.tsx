@@ -188,17 +188,16 @@ export default function RestaurantLoginPage() {
                   required
                   autoComplete="current-password"
                 />
+                <div style={{ textAlign: 'right', marginTop: 8 }}>
+                  <Link href="/reset-password" style={{ fontSize: 12, color: INDIGO, fontWeight: 600, textDecoration: 'none' }}>
+                    Forgot password?
+                  </Link>
+                </div>
               </div>
               <button type="submit" className="r-btn" disabled={loading}>
                 {loading ? 'Signing in…' : 'Sign in'}
               </button>
             </form>
-          </div>
-
-          <div style={{ textAlign: 'center', marginTop: 20 }}>
-            <Link href="/" style={{ fontSize: 13, color: '#888', textDecoration: 'none' }}>
-              ← Back to Disco Cater
-            </Link>
           </div>
         </div>
       </div>
