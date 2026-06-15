@@ -23,91 +23,174 @@ function Toast({ msg, type = 'success' }: { msg: string; type?: 'success' | 'err
   )
 }
 
-interface FmAddress {
-  addressLine1?: string
-  city?: string
-  state?: string
-  zipcode?: string
+interface SavedAddress {
+  id: string
+  address_line1: string
+  address_line2: string | null
+  city: string
+  state: string
+  zipcode: string
+  latitude: number | null
+  longitude: number | null
+  delivery_instructions: string | null
+  is_default: boolean
+}
+
+interface AddrParts {
+  addressLine1: string; city: string; state: string; zipcode: string
+  latitude: number | null; longitude: number | null
+}
+
+// Parse a Google Places result into our address fields.
+function extractPlace(place: any): AddrParts {
+  const c = place.address_components ?? []
+  const get = (type: string, short = false) => {
+    const comp = c.find((x: any) => x.types?.includes(type))
+    return comp ? (short ? comp.short_name : comp.long_name) : ''
+  }
+  const streetNum = get('street_number')
+  const route = get('route')
+  const city = get('locality') || get('sublocality') || get('postal_town') || get('administrative_area_level_2')
+  const state = get('administrative_area_level_1', true)
+  const zipcode = get('postal_code')
+  const lat = place.geometry?.location?.lat?.() ?? null
+  const lng = place.geometry?.location?.lng?.() ?? null
+  return { addressLine1: [streetNum, route].filter(Boolean).join(' '), city, state, zipcode, latitude: lat, longitude: lng }
 }
 
 export default function AddressesPage() {
-  const [line1, setLine1] = useState('')
-  const [city, setCity] = useState('')
-  const [state, setState] = useState('')
-  const [zip, setZip] = useState('')
-  const [deliveryInstructions, setDeliveryInstructions] = useState('')
-  const [saving, setSaving] = useState(false)
+  const [addresses, setAddresses] = useState<SavedAddress[]>([])
+  const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
-  // The current user's editable profile fields — captured on load so saving
-  // delivery instructions (PUT /api/users) doesn't clobber name/email/phone.
-  const userInfo = useRef<{ firstName?: string; lastName?: string; email?: string; phoneNumber?: string }>({})
+  const [adding, setAdding] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  // AuthContext's `user.address` typing is a stale single-string remnant —
-  // FM actually returns a structured { addressLine1, city, state, zipcode }
-  // off /api/fm-user. Pull it directly so all four fields pre-fill.
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/fm-user', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (cancelled || !d) return
-        const addr: FmAddress | null = d?.address || null
-        if (addr) {
-          if (addr.addressLine1) setLine1(addr.addressLine1)
-          if (addr.city) setCity(addr.city)
-          if (addr.state) setState(addr.state)
-          if (addr.zipcode) setZip(addr.zipcode)
-        } else if (typeof d?.address === 'string') {
-          // Some FM payloads still flatten address into a single string.
-          setLine1(d.address)
-        }
-        if (d.deliveryInstructions) setDeliveryInstructions(d.deliveryInstructions)
-        userInfo.current = { firstName: d.firstName, lastName: d.lastName, email: d.email, phoneNumber: d.phoneNumber }
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [])
+  // New-address form state
+  const [parts, setParts] = useState<AddrParts | null>(null)
+  const [line1Text, setLine1Text] = useState('')
+  const [line2, setLine2] = useState('')
+  const [instructions, setInstructions] = useState('')
+  const [formErr, setFormErr] = useState('')
+
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [placesLoaded, setPlacesLoaded] = useState(false)
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3000)
   }
 
-  async function save(e: React.FormEvent) {
+  async function load() {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/customer-addresses', { credentials: 'include' })
+      if (res.ok) {
+        const d = await res.json()
+        setAddresses(Array.isArray(d.addresses) ? d.addresses : [])
+      }
+    } catch { /* surfaced via empty state */ } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => { load() }, [])
+
+  // Load Google Places once, lazily — only needed for the add form.
+  useEffect(() => {
+    if (!adding) return
+    if ((window as any).google?.maps?.places) { setPlacesLoaded(true); return }
+    const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!key) return
+    const existing = document.querySelector('script[data-google-places]')
+    if (existing) { existing.addEventListener('load', () => setPlacesLoaded(true)); return }
+    const script = document.createElement('script')
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`
+    script.async = true
+    script.setAttribute('data-google-places', 'true')
+    script.onload = () => setPlacesLoaded(true)
+    document.head.appendChild(script)
+  }, [adding])
+
+  // Wire the autocomplete to the address input when the form is open.
+  useEffect(() => {
+    if (!adding || !placesLoaded || !inputRef.current) return
+    const google = (window as any).google
+    if (!google?.maps?.places) return
+    const ac = new google.maps.places.Autocomplete(inputRef.current, {
+      types: ['address'],
+      componentRestrictions: { country: 'us' },
+      fields: ['address_components', 'geometry', 'formatted_address'],
+    })
+    const listener = ac.addListener('place_changed', () => {
+      const place = ac.getPlace()
+      if (!place?.address_components) return
+      setParts(extractPlace(place))
+      setLine1Text(place.formatted_address ?? '')
+      setFormErr('')
+    })
+    return () => { google.maps.event.removeListener(listener) }
+  }, [adding, placesLoaded])
+
+  function resetForm() {
+    setParts(null); setLine1Text(''); setLine2(''); setInstructions(''); setFormErr('')
+  }
+
+  async function saveAddress(e: React.FormEvent) {
     e.preventDefault()
+    if (!parts || !parts.addressLine1 || !parts.city || !parts.state || !parts.zipcode) {
+      setFormErr('Please pick an address from the suggestions so we can verify it.')
+      return
+    }
     setSaving(true)
     try {
-      // Save the address and the delivery instructions in parallel. Delivery
-      // instructions live on the user record (PUT /api/users) — same save
-      // behavior they had on the Profile page; we merge them into the captured
-      // profile fields so name/email/phone aren't wiped.
-      const [addrRes, userRes] = await Promise.all([
-        fetch('/api/fm-user-addresses', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ addressLine1: line1, city, state, zipcode: zip }),
-          credentials: 'include',
+      const res = await fetch('/api/customer-addresses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          addressLine1: parts.addressLine1, addressLine2: line2,
+          city: parts.city, state: parts.state, zipcode: parts.zipcode,
+          latitude: parts.latitude, longitude: parts.longitude,
+          deliveryInstructions: instructions,
         }),
-        fetch('/api/fm-user', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...userInfo.current, deliveryInstructions }),
-          credentials: 'include',
-        }),
-      ])
-      if (!addrRes.ok || !userRes.ok) {
-        // Pull the real reason out of whichever call failed so the toast (and
-        // the console) shows what FM actually rejected, not a generic message.
-        const failed = !addrRes.ok ? addrRes : userRes
-        const data = await failed.json().catch(() => null)
-        console.error('[addresses] save failed:', failed.status, data)
-        throw new Error(data?.error || 'Failed to save')
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => null)
+        throw new Error(d?.error || 'Failed to save')
       }
-      showToast('Address saved')
+      showToast('Address added')
+      resetForm(); setAdding(false)
+      await load()
     } catch (err: any) {
-      showToast(err?.message || 'Failed to save address', 'error')
+      setFormErr(err?.message || 'Failed to save address')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function setDefault(id: string) {
+    // Optimistic — flip the default locally, then persist.
+    setAddresses(prev => prev.map(a => ({ ...a, is_default: a.id === id })))
+    try {
+      const res = await fetch(`/api/customer-addresses/${id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', body: JSON.stringify({ isDefault: true }),
+      })
+      if (!res.ok) throw new Error()
+      showToast('Default address updated')
+    } catch {
+      showToast('Could not update default', 'error')
+      load()
+    }
+  }
+
+  async function remove(id: string) {
+    try {
+      const res = await fetch(`/api/customer-addresses/${id}`, { method: 'DELETE', credentials: 'include' })
+      if (!res.ok) throw new Error()
+      showToast('Address removed')
+      await load()
+    } catch {
+      showToast('Could not remove address', 'error')
     }
   }
 
@@ -117,49 +200,106 @@ export default function AddressesPage() {
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
         .acct-input:focus { border-color: ${INDIGO} !important; box-shadow: 0 0 0 3px rgba(107,110,249,0.1) !important; }
+        .pac-container { z-index: 1100 !important; font-family: ${F}; }
       `}</style>
-      <form onSubmit={save} style={{ maxWidth: 480, fontFamily: F }}>
+      <div style={{ maxWidth: 560, fontFamily: F }}>
         <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 8, marginTop: 0 }}>Addresses</h1>
         <p style={{ fontSize: 13, color: '#888', margin: '0 0 24px', lineHeight: 1.5 }}>
-          This is your default delivery address and will be pre-filled at checkout.
+          Save delivery addresses and pick a default — it&apos;ll be pre-selected at checkout.
         </p>
-        <div style={{ marginBottom: 14 }}>
-          <label style={labelSt}>Street address</label>
-          <input className="acct-input" value={line1} onChange={e => setLine1(e.target.value)} placeholder="123 Main St" style={inputSt} />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12, marginBottom: 24 }}>
-          <div>
-            <label style={labelSt}>City</label>
-            <input className="acct-input" value={city} onChange={e => setCity(e.target.value)} placeholder="New York" style={inputSt} />
-          </div>
-          <div>
-            <label style={labelSt}>State</label>
-            <input className="acct-input" value={state} onChange={e => setState(e.target.value)} placeholder="NY" style={inputSt} />
-          </div>
-          <div>
-            <label style={labelSt}>Zip</label>
-            <input className="acct-input" value={zip} onChange={e => setZip(e.target.value)} placeholder="10001" style={inputSt} />
-          </div>
-        </div>
-        <div style={{ marginBottom: 24 }}>
-          <label style={labelSt}>Delivery instructions</label>
-          <textarea
-            className="acct-input"
-            value={deliveryInstructions}
-            onChange={e => setDeliveryInstructions(e.target.value)}
-            placeholder="e.g. Leave at front desk, call on arrival…"
-            rows={3}
-            style={{ ...inputSt, resize: 'vertical' }}
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={saving}
-          style={{ background: saving ? '#ccc' : BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: F }}
-        >
-          {saving ? 'Saving…' : 'Save address'}
-        </button>
-      </form>
+
+        {loading ? (
+          <div style={{ color: '#aaa', fontSize: 13 }}>Loading…</div>
+        ) : (
+          <>
+            {addresses.length === 0 && !adding && (
+              <div style={{ border: '1px dashed #ddd', borderRadius: 12, padding: '28px 20px', textAlign: 'center', color: '#999', fontSize: 13, marginBottom: 16 }}>
+                You don&apos;t have any saved addresses yet.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
+              {addresses.map(a => (
+                <div key={a.id} style={{ border: `1.5px solid ${a.is_default ? INDIGO : '#ececec'}`, borderRadius: 12, padding: '14px 16px', display: 'flex', gap: 12, alignItems: 'flex-start', background: a.is_default ? 'rgba(107,110,249,0.04)' : '#fff' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', paddingTop: 2 }}>
+                    <input
+                      type="radio"
+                      name="default-address"
+                      checked={a.is_default}
+                      onChange={() => setDefault(a.id)}
+                      style={{ accentColor: INDIGO, width: 16, height: 16, cursor: 'pointer' }}
+                    />
+                  </label>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>
+                      {a.address_line1}{a.address_line2 ? `, ${a.address_line2}` : ''}
+                      {a.is_default && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: INDIGO, background: 'rgba(107,110,249,0.12)', padding: '2px 8px', borderRadius: 999 }}>Default</span>}
+                    </div>
+                    <div style={{ fontSize: 13, color: '#888', marginTop: 2 }}>
+                      {[a.city, a.state].filter(Boolean).join(', ')} {a.zipcode}
+                    </div>
+                    {a.delivery_instructions && (
+                      <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>📝 {a.delivery_instructions}</div>
+                    )}
+                    <div style={{ marginTop: 8, display: 'flex', gap: 14 }}>
+                      {!a.is_default && (
+                        <button onClick={() => setDefault(a.id)} style={{ background: 'none', border: 'none', color: INDIGO, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: F }}>Set as default</button>
+                      )}
+                      <button onClick={() => remove(a.id)} style={{ background: 'none', border: 'none', color: '#C0392B', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: F }}>Remove</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {adding ? (
+              <form onSubmit={saveAddress} style={{ border: '1px solid #ececec', borderRadius: 12, padding: 18 }}>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelSt}>Street address</label>
+                  <input
+                    ref={inputRef}
+                    className="acct-input"
+                    value={line1Text}
+                    onChange={e => { setLine1Text(e.target.value); setParts(null) }}
+                    placeholder="Start typing your address…"
+                    style={inputSt}
+                    autoComplete="off"
+                  />
+                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 5 }}>Pick a suggestion so we can verify and geocode the address.</div>
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelSt}>Apt, suite, floor (optional)</label>
+                  <input className="acct-input" value={line2} onChange={e => setLine2(e.target.value)} style={inputSt} />
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={labelSt}>Delivery instructions (optional)</label>
+                  <textarea
+                    className="acct-input"
+                    value={instructions}
+                    onChange={e => setInstructions(e.target.value)}
+                    placeholder="e.g. Leave at front desk, call on arrival…"
+                    rows={2}
+                    style={{ ...inputSt, resize: 'vertical' }}
+                  />
+                </div>
+                {formErr && <div style={{ fontSize: 12, color: '#E24B4A', marginBottom: 14 }}>{formErr}</div>}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button type="submit" disabled={saving} style={{ background: saving ? '#ccc' : BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: F }}>
+                    {saving ? 'Saving…' : 'Save address'}
+                  </button>
+                  <button type="button" onClick={() => { setAdding(false); resetForm() }} style={{ background: 'none', color: '#888', border: '1px solid #e0e0e0', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button onClick={() => setAdding(true)} style={{ background: 'none', color: INDIGO, border: `1.5px dashed ${INDIGO}`, borderRadius: 10, padding: '11px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, width: '100%' }}>
+                + Add address
+              </button>
+            )}
+          </>
+        )}
+      </div>
       {toast && <Toast msg={toast.msg} type={toast.type} />}
     </>
   )

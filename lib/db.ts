@@ -93,6 +93,36 @@ export async function runMigrations(): Promise<void> {
   await runDiscoOrderMigrations()
 }
 
+// ── Customer saved-addresses schema ───────────────────────────────────────────
+// Disco-native multi-address book per customer (FM only stores ONE address).
+// Idempotent + cached per lambda; each address API route calls this at the top.
+let customerAddressMigrated = false
+export async function runCustomerAddressMigrations(): Promise<void> {
+  if (customerAddressMigrated) return
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS customer_addresses (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_fm_reference TEXT NOT NULL,
+      customer_email TEXT,
+      label TEXT,
+      address_line1 TEXT NOT NULL,
+      address_line2 TEXT,
+      city TEXT NOT NULL,
+      state TEXT NOT NULL,
+      zipcode TEXT NOT NULL,
+      latitude NUMERIC,
+      longitude NUMERIC,
+      delivery_instructions TEXT,
+      is_default BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_customer_addresses_customer ON customer_addresses(customer_fm_reference)`,
+  ]
+  for (const s of statements) await sql.query(s)
+  customerAddressMigrated = true
+}
+
 // ── Disco-native order management schema ──────────────────────────────────────
 // Reads lib/migrations/001_disco_orders.sql and executes it against the Neon
 // DATABASE_URL. Idempotent (every statement is IF NOT EXISTS) and cached per

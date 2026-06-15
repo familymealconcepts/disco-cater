@@ -450,6 +450,49 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── Prefill delivery from the customer's saved default address ─────────────
+  // Runs once. Pulls the Disco address book and seeds the delivery fields with
+  // the default (or first) address so it's pre-selected at checkout. Leaves the
+  // fields blank for guests / customers with no saved address.
+  const addrPrefilledRef = useRef(false)
+  useEffect(() => {
+    if (addrPrefilledRef.current) return
+    if (deliveryAddrDetails || deliveryAddrLine) return
+    addrPrefilledRef.current = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/customer-addresses', { credentials: 'include' })
+        if (!res.ok) return
+        const d = await res.json()
+        const list: any[] = Array.isArray(d.addresses) ? d.addresses : []
+        const def = list.find(a => a.is_default) || list[0]
+        if (!def) return
+        setDeliveryAddrLine([def.address_line1, def.city, def.state, def.zipcode].filter(Boolean).join(', '))
+        if (def.address_line2) setDeliveryAddr2(def.address_line2)
+        if (def.delivery_instructions) setDeliveryInstr(def.delivery_instructions)
+        const lat = def.latitude != null ? Number(def.latitude) : null
+        const lng = def.longitude != null ? Number(def.longitude) : null
+        if (lat != null && lng != null && !Number.isNaN(lat) && !Number.isNaN(lng)) {
+          setDeliveryAddrDetails({ addressLine1: def.address_line1, city: def.city, state: def.state, zipcode: def.zipcode, latitude: lat, longitude: lng })
+        }
+      } catch { /* not logged in / no saved address — leave blank */ }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Once the delivery modal is open and we have a prefilled default with
+  // coordinates, validate it for this restaurant so the fee + ✓ show without
+  // the customer re-entering anything. Fires at most once.
+  const autoValidatedRef = useRef(false)
+  useEffect(() => {
+    if (autoValidatedRef.current) return
+    if (!menusOpen || tempType !== 'DELIVERY') return
+    if (!deliveryAddrDetails || addrValidated || addrValidating || !fmRef) return
+    autoValidatedRef.current = true
+    validateDeliveryAddr(deliveryAddrDetails)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menusOpen, tempType, deliveryAddrDetails, fmRef])
+
   // ── Address validation ────────────────────────────────────────────────────
   async function validateDeliveryAddr(details: AddrDetails) {
     if (!fmRef) return
