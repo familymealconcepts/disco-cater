@@ -322,12 +322,11 @@ export default function HomeClient() {
           {/* Browse by City — plain crawlable links so Google finds the city
               landing pages from the homepage. */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, color: '#bbb' }}>Browse by City</span>
+            <span style={{ fontSize: 13, color: '#bbb' }}>Search by city:</span>
             {[
               { slug: 'new-york', name: 'New York' },
               { slug: 'new-jersey', name: 'New Jersey' },
               { slug: 'los-angeles', name: 'Los Angeles' },
-              { slug: 'chicago', name: 'Chicago' },
             ].map((c, i) => (
               <span key={c.slug} style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                 {i > 0 && <span style={{ fontSize: 13, color: '#ddd' }}>·</span>}
