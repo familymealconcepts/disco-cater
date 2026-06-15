@@ -33,6 +33,33 @@ interface FormState {
   restaurantName: string; zip: string; password: string
 }
 
+// ── Per-email onboarding cache ────────────────────────────────────────────────
+// These keys persist the "this browser already created the restaurant" state so
+// we never provision twice across the Stripe round-trip reload. They MUST be
+// scoped to the email — an unscoped key on a shared browser would let the next
+// person's onboarding reuse the previous person's restaurantRef.
+const PARTNER_KEY_PREFIXES = ['partner_setup_complete', 'partner_restaurant_ref', 'partner_restaurant_slug']
+const emailKey = (email: string) => email.trim().toLowerCase()
+const setupCompleteKey = (email: string) => `partner_setup_complete_${emailKey(email)}`
+const restaurantRefKey = (email: string) => `partner_restaurant_ref_${emailKey(email)}`
+
+// Remove every partner setup key (legacy unscoped + any email-scoped variant)
+// that doesn't belong to keepEmail. Pass '' to purge them all. The separate
+// `partner_onboarding` snapshot is intentionally left untouched.
+function purgeStalePartnerKeys(keepEmail: string) {
+  const keep = keepEmail ? PARTNER_KEY_PREFIXES.map(p => `${p}_${emailKey(keepEmail)}`) : []
+  try {
+    const toRemove: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key) continue
+      const isPartnerSetupKey = PARTNER_KEY_PREFIXES.some(p => key === p || key.startsWith(`${p}_`))
+      if (isPartnerSetupKey && !keep.includes(key)) toRemove.push(key)
+    }
+    toRemove.forEach(k => localStorage.removeItem(k))
+  } catch { /* localStorage unavailable */ }
+}
+
 // Small field helper — pill input with a label.
 function Field({ label, value, onChange, type = 'text', placeholder, autoComplete }: {
   label: string; value: string; onChange: (v: string) => void
@@ -105,26 +132,19 @@ export default function BecomeAPartnerClient() {
 
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
 
-  // On mount: (1) if this browser already created the restaurant, restore the
-  // flag + reference so we never create twice; (2) handle the Stripe Connect
-  // return (?stripe=success) — restore the pre-redirect snapshot, mark Stripe
-  // connected, and land on the Stripe step (which then auto-advances).
+  // On mount: never trust a persisted "already created" flag — the form email
+  // isn't known yet, so we can't tell whose cache it is. Default alreadyCreated
+  // OFF; it's only set after the form email is confirmed during the flow. The
+  // ONE exception is the Stripe Connect return (?stripe=success), where the
+  // snapshot tells us the session email and we restore that email's state.
   useEffect(() => {
-    try {
-      if (localStorage.getItem('partner_setup_complete') === 'true') {
-        setAlreadyCreated(true)
-        // Setup already completed in this browser → the Disco account+session was
-        // created, so restore the logged-in flag (lost on the Stripe round-trip
-        // page reload) for the success-screen dashboard link.
-        setAutoLoggedIn(true)
-        const ref = localStorage.getItem('partner_restaurant_ref') || ''
-        if (ref) setRestaurantRef(ref)
-      }
-    } catch { /* localStorage unavailable */ }
+    setAlreadyCreated(false)
+    let sessionEmail = ''
     try {
       const params = new URLSearchParams(window.location.search)
       if (params.get('stripe') === 'success') {
         const saved = JSON.parse(localStorage.getItem('partner_onboarding') || '{}')
+        sessionEmail = String(saved?.form?.email || '')
         if (saved.form) setForm(f => ({ ...f, ...saved.form }))
         if (typeof saved.joinedMarketplace === 'boolean') setJoinedMarketplace(saved.joinedMarketplace)
         if (typeof saved.deliveryEnabled === 'boolean') setDeliveryEnabled(saved.deliveryEnabled)
@@ -133,6 +153,22 @@ export default function BecomeAPartnerClient() {
         window.history.replaceState({}, '', '/become-a-partner')
       }
     } catch { /* snapshot optional */ }
+
+    // Purge any partner setup keys not belonging to this session (everything on
+    // a fresh visit) so a shared browser never reuses a prior user's restaurant.
+    purgeStalePartnerKeys(sessionEmail)
+
+    // Stripe round-trip only: the create step ran before the redirect, so the
+    // Disco account+session already exist for this email — restore that state
+    // (lost on the reload) for the success-screen dashboard link.
+    try {
+      if (sessionEmail && localStorage.getItem(setupCompleteKey(sessionEmail)) === 'true') {
+        setAlreadyCreated(true)
+        setAutoLoggedIn(true)
+        const ref = localStorage.getItem(restaurantRefKey(sessionEmail)) || ''
+        if (ref) setRestaurantRef(ref)
+      }
+    } catch { /* localStorage unavailable */ }
   }, [])
 
   // Confirm the auto-login state once the success screen renders.
@@ -193,8 +229,10 @@ export default function BecomeAPartnerClient() {
       setRestaurantRef(ref)
       setAlreadyCreated(true)
       try {
-        localStorage.setItem('partner_setup_complete', 'true')
-        localStorage.setItem('partner_restaurant_ref', ref)
+        // Scope the cache to this email so a shared browser can't reuse this
+        // restaurantRef for the next person's onboarding.
+        localStorage.setItem(setupCompleteKey(form.email), 'true')
+        localStorage.setItem(restaurantRefKey(form.email), ref)
       } catch { /* localStorage unavailable */ }
       // Create the Disco-native account + session (sets disco_restaurant_token)
       // so the partner is logged into the portal immediately.
