@@ -34,6 +34,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
 // Create a session token (30 day expiry)
 export async function createDiscoRestaurantSession(restaurantReference: string, email: string): Promise<string> {
+  console.log('[disco-session] creating session for:', email)
   const token = randomUUID()
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
   await sql`
@@ -68,6 +69,14 @@ export async function validateDiscoRestaurantSession(token: string): Promise<Dis
 // Delete a session (logout)
 export async function deleteDiscoRestaurantSession(token: string): Promise<void> {
   await sql`DELETE FROM disco_restaurant_sessions WHERE token = ${token}`
+}
+
+// Whether the email currently has at least one non-expired session.
+export async function hasValidDiscoRestaurantSession(email: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM disco_restaurant_sessions WHERE email = ${email} AND expires_at > NOW() LIMIT 1
+  `) as unknown[]
+  return rows.length > 0
 }
 
 // Get account by email
