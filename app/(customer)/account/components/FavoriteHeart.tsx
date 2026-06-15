@@ -23,18 +23,22 @@ export default function FavoriteHeart({
   className, style, stopPropagation = true,
 }: Props) {
   const { isFavorited, toggleFavorite } = useFavorites()
-  const { user } = useAuthContext()
+  const { isAuthenticated, isLoading, openAuthModal } = useAuthContext()
 
-  // Auth gate: hide for guests. Prefer the AuthContext user (cookie auth,
-  // the live source) and only fall back to legacy localStorage if the
-  // context hasn't resolved yet — otherwise cookie-only logged-in users
-  // would lose the heart entirely.
-  if (authGate && !user) {
-    if (typeof window === 'undefined') return null
-    try {
-      if (!window.localStorage.getItem('disco_user') && !window.localStorage.getItem('disco_favorites_scope')) return null
-    } catch { return null }
+  // Logged-in = AuthContext cookie user (live source) OR the legacy
+  // localStorage 'disco_user' (fullmap header / restaurant / admin paths).
+  // We deliberately do NOT treat the cached 'disco_favorites_scope' as
+  // logged-in — it lingers after a cookie expires and was making the heart
+  // appear (and silently guest-save) for users who are no longer signed in.
+  let isAuthed = isAuthenticated
+  if (!isAuthed && typeof window !== 'undefined') {
+    try { isAuthed = !!window.localStorage.getItem('disco_user') } catch { isAuthed = false }
   }
+
+  // Auth gate: hide for guests once auth has resolved. While the context is
+  // still loading we keep the heart rendered so a logged-in cookie user
+  // (no localStorage shadow) doesn't see it flash out.
+  if (authGate && !isAuthed && !isLoading) return null
 
   const fav = isFavorited(restaurant.key)
   const label = fav ? 'Remove from favorites' : 'Add to favorites'
@@ -46,6 +50,8 @@ export default function FavoriteHeart({
       title={label}
       onClick={e => {
         if (stopPropagation) { e.stopPropagation(); e.preventDefault() }
+        // Guests must sign in — never silently persist to the guest bucket.
+        if (!isAuthed) { openAuthModal(undefined, 'login'); return }
         toggleFavorite(restaurant)
       }}
       className={className}

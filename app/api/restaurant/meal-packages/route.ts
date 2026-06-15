@@ -45,8 +45,18 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify(body),
       }
     )
-    if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
+    if (!res.ok) {
+      // Surface FM's actual rejection instead of a bare "Failed".
+      const raw = await res.text().catch(() => '')
+      console.error('[meal-packages POST] FM error:', res.status, `menu=${menuRef}`, raw.slice(0, 500))
+      let parsed: { message?: string; error?: string } | null = null
+      try { parsed = JSON.parse(raw) } catch { /* non-JSON body */ }
+      return NextResponse.json({ error: parsed?.message || parsed?.error || 'Failed to save item', detail: raw.slice(0, 300) || undefined }, { status: res.status })
+    }
     const text = await res.text()
     return NextResponse.json(text ? JSON.parse(text) : { ok: true })
-  } catch { return NextResponse.json({ error: 'Unable to create meal package' }, { status: 500 }) }
+  } catch (err) {
+    console.error('[meal-packages POST] error:', err)
+    return NextResponse.json({ error: 'Unable to create meal package' }, { status: 500 })
+  }
 }

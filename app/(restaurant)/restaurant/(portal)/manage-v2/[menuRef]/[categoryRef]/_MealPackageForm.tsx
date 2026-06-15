@@ -539,9 +539,9 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
           </label>
         </div>
 
-        {/* ── Section 3: Dietary & Options ── */}
+        {/* ── Section 3: Dietary Info ── */}
         <div style={sectionStyle}>
-          <h2 style={sectionTitleStyle}>Dietary & Options</h2>
+          <h2 style={sectionTitleStyle}>Dietary Info</h2>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <label style={checkStyle}>

@@ -615,7 +615,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                   style={{ width: '100%', border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: F, background: '#fff', outline: 'none' }}
                 >
                   <option value="">Select new status…</option>
-                  {order.orderStatusesToChange.map(s => (
+                  {[...new Set(order.orderStatusesToChange)].map(s => (
                     <option key={s} value={s}>{STATUS_LABEL[s] || s}</option>
                   ))}
                 </select>
@@ -1265,7 +1265,9 @@ function OrdersContent() {
                             style={{ border: '1px solid #e0e0e0', borderRadius: 6, padding: '4px 8px', fontSize: 12, fontFamily: F, background: '#fff', color: DARK, outline: 'none', cursor: 'pointer' }}
                           >
                             <option value={order.orderStatus}>{STATUS_LABEL[order.orderStatus] || order.orderStatus}</option>
-                            {order.orderStatusesToChange?.map(s => (
+                            {/* FM's orderStatusesToChange includes the current status — dedupe
+                                and drop it so it isn't listed twice (e.g. a doubled "Due"). */}
+                            {[...new Set(order.orderStatusesToChange || [])].filter(s => s !== order.orderStatus).map(s => (
                               <option key={s} value={s}>{STATUS_LABEL[s] || s}</option>
                             ))}
                           </select>
