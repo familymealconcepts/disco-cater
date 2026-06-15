@@ -123,6 +123,22 @@ export async function runCustomerAddressMigrations(): Promise<void> {
   customerAddressMigrated = true
 }
 
+// ── Customer card vault migration ─────────────────────────────────────────────
+// The disco_customer_payment_methods table ships (in 001_disco_orders.sql) with
+// UNIQUE(customer_email) — one card per customer. The multi-card vault needs many
+// rows per email, so drop that constraint. Idempotent + cached per lambda.
+let cardVaultMigrated = false
+export async function runCustomerPaymentMethodMigrations(): Promise<void> {
+  if (cardVaultMigrated) return
+  try { await runDiscoOrderMigrations() } catch (e) { console.error('[card-vault] base migration warning:', e) }
+  try {
+    await sql`ALTER TABLE disco_customer_payment_methods DROP CONSTRAINT IF EXISTS disco_customer_payment_methods_customer_email_key`
+  } catch (e) {
+    console.error('[card-vault] drop-unique warning (non-fatal):', e)
+  }
+  cardVaultMigrated = true
+}
+
 // ── Disco-native order management schema ──────────────────────────────────────
 // Reads lib/migrations/001_disco_orders.sql and executes it against the Neon
 // DATABASE_URL. Idempotent (every statement is IF NOT EXISTS) and cached per

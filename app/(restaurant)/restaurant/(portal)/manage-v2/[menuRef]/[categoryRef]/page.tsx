@@ -187,6 +187,37 @@ export default function CategoryDetailPage() {
     await loadPackages()
   }
 
+  // ── Drag-to-reorder ──────────────────────────────────────────────────────
+  // HTML5 DnD; on drop we optimistically reorder, persist the moved item's new
+  // index via FM's /position endpoint (FM reindexes the rest), then reload to
+  // reconcile with server truth.
+  const [dragCat, setDragCat] = useState<number | null>(null)
+  const [dragPkg, setDragPkg] = useState<number | null>(null)
+
+  async function reorderCategories(from: number, to: number) {
+    if (from === to || from < 0 || to < 0) return
+    const next = [...categories]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    setCategories(next)
+    try {
+      await fetch(`/api/restaurant/categories/${moved.reference}/position?position=${to}`, { method: 'PUT' })
+    } catch {}
+    await loadCategories()
+  }
+
+  async function reorderPackages(from: number, to: number) {
+    if (from === to || from < 0 || to < 0) return
+    const next = [...packages]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    setPackages(next)
+    try {
+      await fetch(`/api/restaurant/meal-packages/${moved.reference}/position?position=${to}`, { method: 'PUT' })
+    } catch {}
+    await loadPackages()
+  }
+
   const thStyle: React.CSSProperties = {
     textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#888',
     padding: '10px 12px', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap',
@@ -237,16 +268,21 @@ export default function CategoryDetailPage() {
               ) : categories.length === 0 ? (
                 <div style={{ padding: '12px 16px', color: '#aaa', fontSize: 12 }}>No categories.</div>
               ) : (
-                categories.map(cat => (
+                categories.map((cat, ci) => (
                   <div
                     key={cat.reference}
                     className="cat-item"
+                    draggable
+                    onDragStart={() => setDragCat(ci)}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); if (dragCat !== null) reorderCategories(dragCat, ci); setDragCat(null) }}
+                    onDragEnd={() => setDragCat(null)}
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: '9px 12px 9px 16px',
                       background: cat.reference === categoryRef ? `${BLUE}18` : 'transparent',
                       borderLeft: cat.reference === categoryRef ? `3px solid ${BLUE}` : '3px solid transparent',
-                      cursor: 'pointer',
+                      cursor: 'pointer', opacity: dragCat === ci ? 0.45 : 1,
                     }}
                     onClick={() => router.push(`/restaurant/manage-v2/${menuRef}/${cat.reference}`)}
                   >
@@ -341,7 +377,12 @@ export default function CategoryDetailPage() {
                       <tr
                         key={pkg.reference}
                         className="pkg-row"
-                        style={{ borderTop: i > 0 ? '1px solid #f5f5f5' : undefined, cursor: 'pointer' }}
+                        draggable
+                        onDragStart={() => setDragPkg(i)}
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={e => { e.preventDefault(); if (dragPkg !== null) reorderPackages(dragPkg, i); setDragPkg(null) }}
+                        onDragEnd={() => setDragPkg(null)}
+                        style={{ borderTop: i > 0 ? '1px solid #f5f5f5' : undefined, cursor: 'pointer', opacity: dragPkg === i ? 0.45 : 1 }}
                         onClick={() => router.push(`/restaurant/manage-v2/${menuRef}/${categoryRef}/${pkg.reference}`)}
                       >
                         <td style={tdStyle}>
