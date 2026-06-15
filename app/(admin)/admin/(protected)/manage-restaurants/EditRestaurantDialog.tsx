@@ -222,9 +222,9 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
   async function submit() {
     setErr('')
     setSavedOk(false)
-    if (!firstName.trim() || !lastName.trim()) return setErr('First and last name are required')
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setErr('Valid email is required')
-    if (!phone.trim()) return setErr('Phone is required')
+    // Admin fields are optional. FM only requires an email when a name is
+    // provided (INVALID_ADMIN_EMAIL_IF_NAME_PROVIDED) — mirror that here.
+    if ((firstName.trim() || lastName.trim()) && !email.trim()) return setErr('Email is required when a name is provided')
     if (!addr1.trim()) return setErr('Address line 1 is required')
 
     setSaving(true)
@@ -332,13 +332,13 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
               <div style={section}>
                 <div style={sTitle}>Restaurant &amp; admin</div>
                 <div style={grid2}>
-                  <div><label style={label}>First name *</label><input style={input} value={firstName} onChange={e => setFirstName(e.target.value)} /></div>
-                  <div><label style={label}>Last name *</label><input style={input} value={lastName} onChange={e => setLastName(e.target.value)} /></div>
+                  <div><label style={label}>First name</label><input style={input} value={firstName} onChange={e => setFirstName(e.target.value)} /></div>
+                  <div><label style={label}>Last name</label><input style={input} value={lastName} onChange={e => setLastName(e.target.value)} /></div>
                 </div>
                 <div style={{ marginBottom: 12 }}><label style={label}>Restaurant name</label><input style={input} value={restaurantName} onChange={e => setRestaurantName(e.target.value)} /></div>
                 <div style={grid2}>
-                  <div><label style={label}>Email *</label><input style={input} value={email} onChange={e => setEmail(e.target.value)} /></div>
-                  <div><label style={label}>Phone *</label><input style={input} value={phone} onChange={e => setPhone(e.target.value)} /></div>
+                  <div><label style={label}>Email</label><input style={input} value={email} onChange={e => setEmail(e.target.value)} /></div>
+                  <div><label style={label}>Phone</label><input style={input} value={phone} onChange={e => setPhone(e.target.value)} /></div>
                 </div>
               </div>
 
