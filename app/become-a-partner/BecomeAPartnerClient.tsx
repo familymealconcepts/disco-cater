@@ -167,6 +167,7 @@ export default function BecomeAPartnerClient() {
   // the new restaurant reference on success, or null on failure (and sets the
   // appropriate error). Persists a flag so a repeat run won't create a duplicate.
   async function createRestaurant(): Promise<string | null> {
+    console.log('[onboarding] createRestaurant called for:', form.restaurantName, form.email)
     try {
       const res = await fetch('/api/become-a-partner/create-restaurant', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -177,6 +178,7 @@ export default function BecomeAPartnerClient() {
         }),
       })
       const data = await res.json().catch(() => null)
+      console.log('[onboarding] create-restaurant response:', res.status, data)
       if (!res.ok || !data?.restaurantReference) {
         // FM 400-027 → a restaurant admin with this email already exists.
         if (data?.code === '400-027') {
@@ -196,7 +198,9 @@ export default function BecomeAPartnerClient() {
       } catch { /* localStorage unavailable */ }
       // Create the Disco-native account + session (sets disco_restaurant_token)
       // so the partner is logged into the portal immediately.
-      await registerDiscoAccount(ref, data?.adminReference ?? null)
+      console.log('[onboarding] calling registerDiscoAccount for ref:', ref)
+      const registered = await registerDiscoAccount(ref, data?.adminReference ?? null)
+      console.log('[onboarding] registerDiscoAccount result:', registered, 'autoLoggedIn:', autoLoggedIn)
       return ref
     } catch {
       setError('Unable to connect. Please try again.')
@@ -207,7 +211,7 @@ export default function BecomeAPartnerClient() {
   // Create a Disco-native restaurant account + session right after the FM
   // restaurant exists. Sets the httpOnly disco_restaurant_token cookie. Runs
   // exactly once (inside createRestaurant) and is best-effort — never blocks.
-  async function registerDiscoAccount(ref: string, fmUserReference: string | null) {
+  async function registerDiscoAccount(ref: string, fmUserReference: string | null): Promise<boolean> {
     try {
       const res = await fetch('/api/disco-restaurant-auth/register', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -229,11 +233,14 @@ export default function BecomeAPartnerClient() {
           localStorage.removeItem('selectedRestaurant')
           localStorage.removeItem('selectedRestaurantName')
         } catch {}
+        return true
       } else {
         console.error('[become-a-partner] disco register failed:', res.status)
+        return false
       }
     } catch (err) {
       console.error('[become-a-partner] disco register request failed:', err)
+      return false
     }
   }
 
@@ -297,6 +304,7 @@ export default function BecomeAPartnerClient() {
   // optional menu and the team notification. This is the ONLY place we touch FM,
   // so partial signups never create accounts or fire notifications. ──
   async function completeOnboarding(skip: boolean) {
+    console.log('[onboarding] completeOnboarding called, restaurantRef:', restaurantRef, 'alreadyCreated:', alreadyCreated)
     setError('')
     setLoading(true)
     try {
@@ -592,6 +600,7 @@ export default function BecomeAPartnerClient() {
           {/* ── SUCCESS ── */}
           {step === 6 && (
             <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
+              {void console.log('[onboarding] success screen, autoLoggedIn:', autoLoggedIn, 'restaurantRef:', restaurantRef)}
               <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>
               <p style={{ ...subStyle, maxWidth: 440, margin: '0 auto 8px' }}>
                 Your account has been created. To activate online ordering, go to your account and connect to our payment processor, Stripe.
