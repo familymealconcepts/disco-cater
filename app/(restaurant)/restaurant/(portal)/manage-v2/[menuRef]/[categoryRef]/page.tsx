@@ -229,14 +229,6 @@ export default function CategoryDetailPage() {
               <div style={{ fontSize: 13, fontWeight: 700, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {menuName || 'Menu'}
               </div>
-              <div style={{ marginTop: 6 }}>
-                <Link
-                  href={`/restaurant/manage-v2/${menuRef}/settings`}
-                  style={{ fontSize: 11, color: BLUE, textDecoration: 'none' }}
-                >
-                  Edit settings
-                </Link>
-              </div>
             </div>
 
             <div style={{ padding: '8px 0' }}>
