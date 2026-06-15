@@ -26,6 +26,11 @@ const cardStyle: React.CSSProperties = {
   background: '#fff', border: '1px solid #ececf4', borderRadius: 20,
   boxShadow: '0 10px 40px rgba(26,16,40,0.06)', padding: '28px 26px',
 }
+// Section header inside a pricing card ("Paid by Restaurant" / "Paid by Customer").
+const priceSectionTitle: React.CSSProperties = {
+  fontSize: 11, fontWeight: 700, color: '#5B6FE8', textTransform: 'uppercase',
+  letterSpacing: 0.5, padding: '12px 0 2px',
+}
 
 interface FormState {
   firstName: string; lastName: string; email: string; phoneNumber: string
@@ -443,6 +448,7 @@ export default function BecomeAPartnerClient() {
                 </div>
               ) : errorBox}
               <div style={{ marginTop: 18 }}>
+                <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <Field label="First name" value={form.firstName} onChange={v => set('firstName', v)} autoComplete="given-name" />
                   <Field label="Last name" value={form.lastName} onChange={v => set('lastName', v)} autoComplete="family-name" />
@@ -452,7 +458,6 @@ export default function BecomeAPartnerClient() {
                   <Field label="Phone" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
                   <Field label="Zip code" value={form.zip} onChange={v => set('zip', v)} autoComplete="postal-code" />
                 </div>
-                <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
                 <Field label="Create a password" value={form.password} onChange={v => set('password', v)} type="password" autoComplete="new-password" />
                 <div style={{ fontSize: 12, color: '#999', margin: '-6px 0 0', paddingLeft: 4 }}>Minimum 8 characters</div>
               </div>
@@ -467,16 +472,17 @@ export default function BecomeAPartnerClient() {
           {step === 1 && (
             <div style={cardStyle}>
               <h1 style={h1Style}><span style={{ color: '#5B6FE8' }}>Pricing:</span> First-Party Ordering</h1>
-              <p style={subStyle}>Orders placed through your First-Party URL (website, social and other native links).</p>
+              <p style={subStyle}>Orders placed through your website, social and other native links.</p>
               {errorBox}
 
-              {/* 1P pricing */}
+              {/* 1P pricing — grouped by who pays */}
               <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
-                <PriceRow label="First-Party orders" value="0.00%" who="restaurant" />
-                <PriceRow label="Third-party delivery (optional)" detail="Optional delivery service." value="15.00% (capped at $85.00)" who="customers" />
-                <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" who="restaurant" />
-                <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" who="customers" />
-                <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" who="restaurant" />
+                <div style={priceSectionTitle}>Paid by Restaurant</div>
+                <PriceRow label="First-Party orders" value="0.00%" />
+                <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" />
+                <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" />
+                <div style={{ ...priceSectionTitle, marginTop: 14 }}>Paid by Customer</div>
+                <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" />
               </div>
 
               {/* Required agreement */}
@@ -505,14 +511,13 @@ export default function BecomeAPartnerClient() {
               <p style={subStyle}>We send you new catering orders through the Disco Cater network of corporate and social customers. Fees only apply when we are the source of the order.</p>
               {errorBox}
 
-              {/* 3P pricing */}
+              {/* 3P pricing — lead-gen fees only; all the First-Party fees still apply. */}
               <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
                 <PriceRow label="First-time customers" detail="Of order subtotal — the first time a new customer orders from a unique location" value="15.00%" who="restaurant" />
                 <PriceRow label="Returning customers" detail="Of order subtotal — that customer's subsequent orders from that location" value="5.00%" who="restaurant" />
-                <PriceRow label="Third-party delivery (optional)" detail="Optional delivery service." value="15.00% (capped at $85.00)" who="customers" />
-                <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" who="restaurant" />
-                <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" who="customers" />
-                <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" who="restaurant" />
+              </div>
+              <div style={{ fontSize: 12, color: '#999', margin: '10px 2px 0', lineHeight: 1.5 }}>
+                All First-Party ordering fees apply. See above.
               </div>
 
               {/* Opt-in agreement (only required to join) */}
@@ -566,8 +571,8 @@ export default function BecomeAPartnerClient() {
           {/* ── STEP 5 · CONNECT BANK / STRIPE — optional ── */}
           {step === 4 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Connect your bank account (Optional)</h1>
-              <p style={subStyle}>Connect your bank account to receive payouts from catering orders. You can also complete this from your dashboard after setup.</p>
+              <h1 style={h1Style}>Payout Setup (Optional)</h1>
+              <p style={subStyle}>Connect your bank account to receive payouts from catering orders. You can also complete this from your Account tab any time.</p>
               {errorBox}
 
               <div style={{ marginTop: 18 }}>
@@ -639,7 +644,9 @@ export default function BecomeAPartnerClient() {
               {void console.log('[onboarding] success screen, autoLoggedIn:', autoLoggedIn, 'restaurantRef:', restaurantRef)}
               <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>
               <p style={{ ...subStyle, maxWidth: 440, margin: '0 auto 8px' }}>
-                Your account has been created. To activate online ordering, go to your account and connect to our payment processor, Stripe.
+                Your account has been created.
+                <br />
+                To activate online ordering, connect to our payment processor, Stripe, from your Account tab.
               </p>
 
               {/* Clear any stale FM identity, then navigate. Auto-logged-in via
@@ -661,7 +668,7 @@ export default function BecomeAPartnerClient() {
               </button>
 
               <p style={{ fontSize: 12, color: '#999', maxWidth: 420, margin: '18px auto 0', lineHeight: 1.6 }}>
-                Questions? Feel free to email our team any time at concierge@discocater.com
+                Questions? Feel free to email our team at concierge@discocater.com
               </p>
             </div>
           )}

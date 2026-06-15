@@ -36,6 +36,9 @@ interface FmSettings {
   deliveryType?: string; pickupOrderMinimum?: number; deliveryOrderMinimum?: number
   menuAvailability?: string[]; serviceCharge?: number | null; serviceChargeName?: string | null
   tipOption?: { tipsType: string; tipsPrice: number }
+  // Restaurant's "Enable Menu Search" toggle (order-settings → FM feesAndTips).
+  // When true the ordering page shows a search box that filters menu items.
+  enableMenuSearch?: boolean
 }
 interface FmMenu { reference: string; name: string; scheduleOption?: FmSchedule; settings?: FmSettings }
 interface FmAddOn { reference: string; name: string; price: number; visible?: boolean; position?: number }
@@ -335,6 +338,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const activeMenu = menuData[activeMenuIdx]?.menu
   const sched = activeMenu?.scheduleOption
   const settings = activeMenu?.settings
+  // Menu search — only shown when the restaurant enabled it (FM feesAndTips).
+  const [menuSearch, setMenuSearch] = useState('')
+  const menuSearchEnabled = !!settings?.enableMenuSearch
+  const menuQuery = menuSearchEnabled ? menuSearch.trim().toLowerCase() : ''
   const menuAvail = settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
   const defaultTip = settings?.tipOption?.tipsPrice ?? 15
   // In "Other" mode a blank input means $0 (tipPct null → 0), never the menu
@@ -1418,7 +1425,26 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               )}
             </div>
           ) : (
-            activeSection?.categories.map(cat => (
+            <>
+            {menuSearchEnabled && (
+              <div style={{ position: 'relative', marginBottom: 24 }}>
+                <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 14, pointerEvents: 'none' }}>🔍</span>
+                <input
+                  type="text"
+                  value={menuSearch}
+                  onChange={e => setMenuSearch(e.target.value)}
+                  placeholder="Search menu items…"
+                  style={{ width: '100%', height: 44, paddingLeft: 38, paddingRight: 14, border: '1.5px solid #e8e8e8', borderRadius: 10, fontSize: 14, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+            )}
+            {(activeSection?.categories || []).map(cat => {
+              const visiblePkgs = cat.mealPackages
+                .filter(p => p.available !== false)
+                .filter(p => !menuQuery || `${p.name || ''} ${p.description || ''}`.toLowerCase().includes(menuQuery))
+              // Hide categories with no matching items while searching.
+              if (menuQuery && visiblePkgs.length === 0) return null
+              return (
               <div key={cat.reference} style={{ marginBottom: 40 }}>
                 {!embedded && (activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
                   // Plain block, not sticky. The parent column at line ~892
@@ -1434,7 +1460,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   </div>
                 )}
                 <div className="pkg-grid">
-                  {cat.mealPackages.filter(p => p.available !== false).map(pkg => {
+                  {visiblePkgs.map(pkg => {
                     const qty = cartQty(pkg.reference)
                     const imgUrl = pkg.image?.reference ? pkgImg(pkg.image.reference, 300) : null
                     const inventory = pkg.inventoryBalanceCountperTime
@@ -1484,7 +1510,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   })}
                 </div>
               </div>
-            ))
+              )
+            })}
+            </>
           )}
         </div>
 

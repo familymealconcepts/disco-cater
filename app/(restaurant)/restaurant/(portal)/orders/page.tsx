@@ -649,6 +649,17 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             {order.deliveryAddress?.deliveryInstructions && (
               <DetailRow label="Instructions" value={order.deliveryAddress.deliveryInstructions} />
             )}
+            {/* Live courier tracking — present once the 3rd-party delivery dispatches. */}
+            {order.nashDeliveryPublicTrackingUrl && (
+              <a
+                href={order.nashDeliveryPublicTrackingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: '#5B6FE8', textDecoration: 'none', margin: '8px 0 4px' }}
+              >
+                🚗 Track your delivery →
+              </a>
+            )}
 
             {/* Line items */}
             {((order.orderMealPackages?.length || 0) + (order.orderClassics?.length || 0)) > 0 && (
@@ -1274,7 +1285,10 @@ function OrdersContent() {
                         )}
                       </td>
                       <td data-row-actions style={{ padding: '12px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {isEditEligible(order) && (
+                        {/* Hide edit in the all-locations (aggregated) view: editing
+                            needs the order's specific location selected first, so a
+                            SYSTEM_ADMIN/SUPER_ADMIN must navigate into a location. */}
+                        {!aggregating && isEditEligible(order) && (
                           <button
                             title="Edit order"
                             aria-label="Edit order"

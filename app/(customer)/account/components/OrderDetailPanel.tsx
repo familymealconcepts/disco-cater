@@ -69,6 +69,8 @@ export interface FmOrderDetail {
   orderClassics?: OrderClassic[]
   orderSubscription?: OrderSubscription | null
   note?: string
+  // Nash (3rd-party courier) public tracking page — present once a delivery is dispatched.
+  nashDeliveryPublicTrackingUrl?: string | null
 }
 
 interface Props {
@@ -342,6 +344,18 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                       .join(', ')}
                   </div>
                 </>
+              )}
+
+              {/* Live courier tracking — only once the 3rd-party delivery is dispatched. */}
+              {detail.nashDeliveryPublicTrackingUrl && (
+                <a
+                  href={detail.nashDeliveryPublicTrackingUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: BLUE, textDecoration: 'none', marginBottom: 18 }}
+                >
+                  🚗 Track your delivery →
+                </a>
               )}
 
               {detail.note && (
