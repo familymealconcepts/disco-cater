@@ -1,27 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../../lib/restaurant-auth'
+import { getRestaurantRef } from '../../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
 
 const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Starts an edit session: creates the edit draft and acquires the edit lock.
 // FM: POST /public-api/v2/restaurants/{restaurantRef}/orders/{orderRef}/slotselected?editOrder=true
-// Returns the lock duration and (if FM clones the order) the draft edit ref.
+// Auth: the SUPER_ADMIN service JWT (raw, no "Bearer" prefix) — a restaurant
+// user's own token isn't authorized for this edit endpoint, and Disco-native
+// users have no FM token at all.
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
-  let authHeaders: Record<string, string>
-  try { authHeaders = await getRestaurantAuthHeader() } catch {
+
+  // Gate: require an authenticated restaurant user (Disco-native OR legacy FM).
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
-  const restaurantRef = await getRestaurantRef()
+  // Restaurant ref: Disco sessions carry it; FM users resolve it from the token.
+  const restaurantRef = ctx.restaurantReference || (await getRestaurantRef())
   if (!restaurantRef) {
     return NextResponse.json({ error: 'No restaurant reference' }, { status: 401 })
   }
+
+  let auth: Record<string, string>
+  try {
+    auth = await getFmServiceAuthHeader()
+  } catch (err) {
+    console.error('[orders/edit-start] service auth failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'Service auth unavailable' }, { status: 500 })
+  }
+
   try {
     const res = await fetch(
       `${FM_BASE}/public-api/v2/restaurants/${restaurantRef}/orders/${ref}/slotselected?editOrder=true`,
       {
         method: 'POST',
-        headers: { ...authHeaders, 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers: { ...auth, 'Content-Type': 'application/json', Accept: 'application/json' },
       }
     )
     const data = await res.json().catch(() => ({}))

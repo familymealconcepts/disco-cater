@@ -1,35 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
 
 const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Loads the full order details used to pre-populate the edit page.
 // FM (per Revyrie spec): GET /public-api/v2/orders/{orderRef}/details
-// Auth: raw JWT in Authorization (no "Bearer" prefix) — getRestaurantAuthHeader.
-// NOTE: the endpoint is keyed only by orderRef; restaurantRef is NOT part of
-// the path or headers here.
+// Auth: the SUPER_ADMIN service JWT (raw, no "Bearer" prefix) — Disco-native
+// users have no FM token, and a restaurant user's own token isn't authorized
+// here. The endpoint is keyed only by orderRef.
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
-  let authHeaders: Record<string, string>
-  try { authHeaders = await getRestaurantAuthHeader() } catch {
-    console.error('[orders/details] not authenticated — no restaurant token cookie')
+
+  // Gate: require an authenticated restaurant user (Disco-native OR legacy FM).
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) {
+    console.error('[orders/details] not authenticated — no restaurant session')
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
+  let auth: Record<string, string>
+  try {
+    auth = await getFmServiceAuthHeader()
+  } catch (err) {
+    console.error('[orders/details] service auth failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'Service auth unavailable' }, { status: 500 })
+  }
+
   const url = `${FM_BASE}/public-api/v2/orders/${ref}/details`
-  const token = authHeaders.Authorization || ''
-  console.error('[orders/details] FM request', {
-    orderRef: ref,
-    url,
-    hasAuth: !!token,
-    authPrefix: token.slice(0, 12),
-    authLooksLikeBearer: /^Bearer\s/i.test(token),
-  })
 
   try {
     const res = await fetch(url, {
-      // Raw JWT only (no X-RESTAURANT-UUID — this endpoint is keyed by orderRef).
-      headers: { ...authHeaders, Accept: 'application/json' },
+      // Raw service JWT (no X-RESTAURANT-UUID — this endpoint is keyed by orderRef).
+      headers: { ...auth, Accept: 'application/json' },
     })
 
     const text = await res.text()
