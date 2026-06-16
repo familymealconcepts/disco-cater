@@ -178,19 +178,6 @@ export default function AdminProtectedLayout({ children }: { children: React.Rea
             })}
           </nav>
 
-          {/* Hidden Dinova-branded demo (opens in a new tab). */}
-          <div style={{ padding: '8px 16px 4px' }}>
-            <a href="/dinova-demo" target="_blank" rel="noopener noreferrer"
-              style={{
-                display: 'block', padding: '7px 12px', borderRadius: 7,
-                border: '1px dashed rgba(245,166,35,0.5)', color: '#F5A623',
-                fontSize: 12, fontWeight: 600, textDecoration: 'none', fontFamily: F,
-              }}
-            >
-              Dinova Demo →
-            </a>
-          </div>
-
           {/* User / Logout */}
           <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
             {user && (

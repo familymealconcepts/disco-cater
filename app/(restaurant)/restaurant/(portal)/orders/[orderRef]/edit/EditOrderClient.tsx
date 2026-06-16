@@ -65,6 +65,42 @@ function toIsoDateInput(d: string): string {
   return ymd ? `${ymd[1]}-${ymd[2]}-${ymd[3]}` : ''
 }
 
+// "HH:mm" / "HH:mm:ss" → "9:00 AM". Empty string when unparseable.
+function fmt12h(t: string): string {
+  const m = /^(\d{1,2}):(\d{2})/.exec(t || '')
+  if (!m) return ''
+  let h = Number(m[1])
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  h = h % 12 || 12
+  return `${h}:${m[2]} ${ampm}`
+}
+
+// "2026-06-30" (ISO) → "Jun 30, 2026". Falls back to a dash.
+function fmtSummaryDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '')
+  if (!m) return '—'
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+}
+
+// "2026-06-30" (ISO) → "Mon, Jun 30" for the picker label.
+function fmtWeekdayDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '')
+  if (!m) return ''
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+// 30-minute pickup/delivery slots, 7:00 AM → 9:00 PM (mirrors customer checkout).
+const TIME_SLOTS: { value: string; label: string }[] = (() => {
+  const out: { value: string; label: string }[] = []
+  for (let mins = 7 * 60; mins <= 21 * 60; mins += 30) {
+    const value = `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
+    out.push({ value, label: fmt12h(value) })
+  }
+  return out
+})()
+
 // Pull canonical money fields out of an FM re-price / order response. FM may
 // nest them under checkoutPublicResponseDto or return them flat.
 function extractFmMoney(resp: AnyRec | null) {
@@ -425,10 +461,23 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       deliveryAddress: orderType === 'DELIVERY' && deliveryAddress ? deliveryAddress : undefined,
     })
     // Preserve the existing order's tip and tax-exempt status — item edits
-    // shouldn't silently zero them. (Tip is order data, not payment handling.)
-    payload.tips = origMoney.tips
-    payload.tipsType = 'AMOUNT'
+    // shouldn't silently zero them. FM's tipsType enum only accepts CUSTOM or
+    // PERCENTAGE (never AMOUNT/DOLLAR): a positive tip is a CUSTOM dollar amount;
+    // a $0 tip is PERCENTAGE 0. Sending an invalid tipsType 500s the FM PUT.
+    const tipAmount = origMoney.tips || 0
+    if (tipAmount > 0) {
+      payload.tips = tipAmount
+      payload.tipsType = 'CUSTOM'
+    } else {
+      payload.tips = 0
+      payload.tipsType = 'PERCENTAGE'
+    }
     payload.taxExempt = taxExempt
+    // FM's order-edit PUT reads the cart from `mealPackages` as a simple
+    // [{ reference, count }] list (not the full item objects). Populate it
+    // alongside `items` so the reprice/commit work on existing orders.
+    ;(payload as unknown as { mealPackages: { reference: string; count: number }[] }).mealPackages =
+      activeLines.map(l => ({ reference: l.reference, count: l.quantity }))
     return payload
   }, [activeLines, restaurantRef, orderType, orderDate, orderTime, deliveryAddress, origMoney.tips, taxExempt])
 
@@ -785,7 +834,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
                     {rescheduled && <span style={{ marginLeft: 6, color: BLUE, fontWeight: 700 }}>• Changed</span>}
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginTop: 2 }}>
-                    {toIsoDateInput(orderDate) || '—'} · {(orderTime || '').slice(0, 5) || '—'}
+                    {fmtSummaryDate(toIsoDateInput(orderDate))} · {fmt12h(orderTime) || '—'}
                   </div>
                 </div>
                 <button
@@ -869,12 +918,17 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
               <div style={{ fontSize: 16, fontWeight: 700, color: DARK }}>Reschedule order</div>
               <button onClick={() => setRescheduleOpen(false)} style={{ background: 'none', border: 'none', fontSize: 22, color: '#999', cursor: 'pointer' }}>×</button>
             </div>
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#777', marginBottom: 6 }}>Date</label>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#777', marginBottom: 6 }}>
+              Date{draftDate ? ` · ${fmtWeekdayDate(draftDate)}` : ''}
+            </label>
             <input type="date" value={draftDate} min={new Date().toISOString().slice(0, 10)} onChange={e => setDraftDate(e.target.value)}
               style={{ width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: 10, fontSize: 14, fontFamily: F, marginBottom: 14, outline: 'none', boxSizing: 'border-box' }} />
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#777', marginBottom: 6 }}>Time</label>
-            <input type="time" value={draftTime} onChange={e => setDraftTime(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: 10, fontSize: 14, fontFamily: F, marginBottom: 20, outline: 'none', boxSizing: 'border-box' }} />
+            <select value={draftTime} onChange={e => setDraftTime(e.target.value)}
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: 10, fontSize: 14, fontFamily: F, marginBottom: 20, outline: 'none', boxSizing: 'border-box', background: '#fff', color: DARK }}>
+              <option value="">Select a time…</option>
+              {TIME_SLOTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setRescheduleOpen(false)} style={pillBtnOutline('#666')}>Cancel</button>
               <button

@@ -25,19 +25,26 @@ export async function POST(req: NextRequest) {
     }
 
     const url = `${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`
-    const res = await fetch(url, {
+    const fmResponse = await fetch(url, {
       method: 'PUT',
       headers: { ...auth, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(payload ?? {}),
     })
 
-    const text = await res.text()
-    if (!res.ok) console.error('[order/edit-reprice] FM error:', res.status, text.slice(0, 500))
-    // Pass FM's body straight back (JSON when parseable, else raw).
+    if (!fmResponse.ok) {
+      // Surface FM's exact rejection so the failing field is visible in the
+      // Network tab + server logs (it's otherwise opaque on a 500).
+      const errorText = await fmResponse.text()
+      console.error('[edit-reprice] FM error', fmResponse.status, errorText)
+      return NextResponse.json({ error: errorText }, { status: fmResponse.status })
+    }
+
+    // OK — pass FM's checkoutPublicResponseDto straight back.
+    const text = await fmResponse.text()
     try {
-      return NextResponse.json(text ? JSON.parse(text) : {}, { status: res.status })
+      return NextResponse.json(text ? JSON.parse(text) : {}, { status: 200 })
     } catch {
-      return new NextResponse(text, { status: res.status, headers: { 'Content-Type': 'application/json' } })
+      return new NextResponse(text, { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
   } catch (err) {
     console.error('[order/edit-reprice] error:', err)
