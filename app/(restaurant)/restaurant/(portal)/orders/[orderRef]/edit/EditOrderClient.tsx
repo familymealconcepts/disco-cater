@@ -414,7 +414,9 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         })
         if (res.ok) {
           const data = (await res.json().catch(() => null)) as AnyRec | null
-          setServerMoney(extractFmMoney(data))
+          const money = extractFmMoney(data)
+          setServerMoney(money)
+          console.log('[edit-reprice] serverMoney:', JSON.stringify(money), 'activeLines:', activeLines.length)
         }
       } catch { /* keep client estimate */ } finally { setRepricing(false) }
     }, 600)
@@ -423,6 +425,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   }, [cart, changed, orderDate, orderTime, loading, lockExpired, committed])
 
   // ─── Totals (prefer server re-price, fall back to estimate) ───────────────
+  console.log('[edit-display] serverMoney:', serverMoney, 'origMoney:', origMoney, 'taxesFees:', serverMoney ? (serverMoney.tax + serverMoney.fee) : (origMoney.tax + origMoney.fee))
   const newSubtotal = serverMoney?.subtotal ?? cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns })))
   const taxesFees = serverMoney ? (serverMoney.tax + serverMoney.fee) : (origMoney.tax + origMoney.fee)
   const delivery = serverMoney ? serverMoney.delivery : origMoney.delivery
