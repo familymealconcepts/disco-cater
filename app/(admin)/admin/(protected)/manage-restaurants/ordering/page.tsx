@@ -69,19 +69,8 @@ function adminEmailOf(r: Restaurant): string {
   return r.adminEmail || r.admin?.email || ''
 }
 
-// Online ordering is on when FM reports either 'ACTIVE' (existing restaurants)
-// or 'ACCEPTED' (newer ones). Writes still use ACCEPTED (enable) / PENDING.
-// TEMP DIAGNOSTIC: log any other restaurantStatus value we see (once each) so we
-// can discover values FM may use (e.g. 'APPROVED', 'ENABLED'). Behavior unchanged.
-const _seenUnknownStatuses = new Set<string>()
-function isOnline(r: Restaurant): boolean {
-  const s = r.restaurantStatus
-  if (s && s !== 'ACCEPTED' && s !== 'ACTIVE' && !_seenUnknownStatuses.has(s)) {
-    _seenUnknownStatuses.add(s)
-    console.log('[restaurant-status-diag] unknown restaurantStatus value:', s, '—', r.businessName)
-  }
-  return s === 'ACCEPTED' || s === 'ACTIVE'
-}
+// Online ordering is controlled by FM's onlineOrderingAllowed boolean.
+const isOnline = (r: Restaurant) => r.onlineOrderingAllowed === true
 
 function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolean; onChange: () => void; disabled?: boolean; color?: string }) {
   return (
@@ -177,8 +166,6 @@ export default function RestaurantsOrderingPage() {
         ...r,
         _rowId: `${r.reference ?? 'noref'}#${i}`,
       }))
-      // TEMP DIAGNOSTIC: see exactly what restaurantStatus FM returns.
-      console.log('[restaurant-status-diag] first 10:', content.slice(0, 10).map(r => ({ name: r.businessName, restaurantStatus: r.restaurantStatus })))
       setRows(content)
       setTotal(d.totalElements || 0)
     } else {
@@ -198,22 +185,32 @@ export default function RestaurantsOrderingPage() {
 
   // "Disco Cater Marketplace" — the single Disco-native map/marketplace visibility
   // toggle (disco_restaurant_overrides.visible, what the fullmap filter reads). It
-  // does NOT touch any FM field. We send the row's current isPremium/orderUrl
-  // alongside the new visible so the upsert PATCH doesn't reset them.
-  async function toggleVisible(r: Restaurant) {
+  // does NOT touch any FM field. Toggling opens a confirmation modal; the PATCH
+  // (preserving the row's current isPremium/orderUrl) only fires on confirm.
+  function requestVisibleToggle(r: Restaurant) {
+    setMarketplaceConfirm({ r, next: !(overrideMap[r.reference]?.visible) })
+  }
+
+  async function confirmVisible() {
+    if (!marketplaceConfirm) return
+    const { r, next } = marketplaceConfirm
     const cur = overrideMap[r.reference] || { visible: false, isPremium: false, orderUrl: '', menuUploadUrl: null }
-    const next = !cur.visible
+    setMarketplaceBusy(true)
     setOverrideMap(prev => ({ ...prev, [r.reference]: { ...cur, visible: next } }))
-    const res = await fetch('/api/admin/restaurant-overrides', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ restaurantReference: r.reference, visible: next, isPremium: cur.isPremium, orderUrl: cur.orderUrl || undefined }),
-    })
-    if (!res.ok) {
+    try {
+      const res = await fetch('/api/admin/restaurant-overrides', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantReference: r.reference, visible: next, isPremium: cur.isPremium, orderUrl: cur.orderUrl || undefined }),
+      })
+      if (!res.ok) throw new Error()
+      showToast(`${r.businessName} ${next ? 'shown on' : 'hidden from'} the Disco Cater map & marketplace`)
+      setMarketplaceConfirm(null)
+    } catch {
       setOverrideMap(prev => ({ ...prev, [r.reference]: cur }))
       showToast('Could not update map & marketplace visibility')
-    } else {
-      showToast(`${r.businessName} ${next ? 'shown on' : 'hidden from'} the Disco Cater map & marketplace`)
+    } finally {
+      setMarketplaceBusy(false)
     }
   }
 
@@ -252,12 +249,11 @@ export default function RestaurantsOrderingPage() {
     else showToast('Delete failed')
   }
 
-  // Online Ordering = FM restaurantStatus "ACCEPTED" (on) vs "PENDING" (off).
-  // Toggling opens a confirmation modal; confirming routes through the
-  // GET→merge→PUT restaurant endpoint so only restaurantStatus changes.
+  // Online Ordering = FM onlineOrderingAllowed boolean. Toggling opens a
+  // confirmation modal; confirming routes through the GET→merge→PUT restaurant
+  // endpoint so ONLY onlineOrderingAllowed changes (status/blocked untouched).
   function requestOnlineOrderingToggle(r: Restaurant) {
-    const next: 'ACCEPTED' | 'PENDING' = isOnline(r) ? 'PENDING' : 'ACCEPTED'
-    setOrderingConfirm({ r, next })
+    setOrderingConfirm({ r, next: !isOnline(r) })
   }
 
   async function confirmOnlineOrdering() {
@@ -268,11 +264,11 @@ export default function RestaurantsOrderingPage() {
       const res = await fetch(`/api/admin/restaurants/${r.reference}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantStatus: next }),
+        body: JSON.stringify({ onlineOrderingAllowed: next }),
       })
       if (!res.ok) throw new Error()
-      setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, restaurantStatus: next } : x))
-      showToast(`${r.businessName}: online ordering ${next === 'ACCEPTED' ? 'enabled' : 'disabled'}`)
+      setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, onlineOrderingAllowed: next } : x))
+      showToast(`${r.businessName}: online ordering ${next ? 'enabled' : 'disabled'}`)
       setOrderingConfirm(null)
     } catch {
       showToast('Could not update online ordering')
@@ -290,9 +286,12 @@ export default function RestaurantsOrderingPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const [addOpen, setAddOpen] = useState(false)
   const [editRef, setEditRef] = useState<string | null>(null)
-  // Online-ordering confirmation modal (FM restaurantStatus ACCEPTED ↔ PENDING).
-  const [orderingConfirm, setOrderingConfirm] = useState<{ r: Restaurant; next: 'ACCEPTED' | 'PENDING' } | null>(null)
+  // Online-ordering confirmation modal (FM onlineOrderingAllowed). next = target on/off.
+  const [orderingConfirm, setOrderingConfirm] = useState<{ r: Restaurant; next: boolean } | null>(null)
   const [orderingBusy, setOrderingBusy] = useState(false)
+  // Map/marketplace visibility confirmation modal (Neon visible). next = target on/off.
+  const [marketplaceConfirm, setMarketplaceConfirm] = useState<{ r: Restaurant; next: boolean } | null>(null)
+  const [marketplaceBusy, setMarketplaceBusy] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncProgress, setSyncProgress] = useState('')
@@ -354,7 +353,7 @@ export default function RestaurantsOrderingPage() {
         case 'admin': return adminNameOf(r)
         case 'email': return adminEmailOf(r)
         case 'createdDate': { const t = r.createdDate ? new Date(r.createdDate).getTime() : 0; return Number.isFinite(t) ? t : 0 }
-        case 'status': return r.restaurantStatus || ''
+        case 'status': return r.onlineOrderingAllowed ? 1 : 0
         case 'stripe': return stripeRank(r)
       }
     }
@@ -616,7 +615,7 @@ export default function RestaurantsOrderingPage() {
                   {/* Disco Cater Marketplace: the single Disco-native map/marketplace
                       visibility toggle (disco_restaurant_overrides.visible). */}
                   <td style={cell}>
-                    <Toggle checked={!!overrideMap[r.reference]?.visible} onChange={() => toggleVisible(r)} color="#1D9E75" />
+                    <Toggle checked={!!overrideMap[r.reference]?.visible} onChange={() => requestVisibleToggle(r)} color="#1D9E75" />
                   </td>
                   <td style={{ ...cell, fontWeight: 600 }}>{r.businessName}</td>
                   <td style={{ ...cell, color: '#555' }}>{adminName || '—'}</td>
@@ -631,7 +630,7 @@ export default function RestaurantsOrderingPage() {
                     {overrideMap[r.reference]?.menuUploadUrl || '—'}
                   </td>
                   <td style={cell}><StripeStatus status={stripeMap[r.reference]} /></td>
-                  {/* Online Ordering: FM restaurantStatus ACCEPTED (on) vs other (off). */}
+                  {/* Online Ordering: FM onlineOrderingAllowed boolean. */}
                   <td style={cell}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                       <Toggle checked={isOnline(r)} onChange={() => requestOnlineOrderingToggle(r)} color="#1D9E75" />
@@ -705,11 +704,12 @@ export default function RestaurantsOrderingPage() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>
           <div style={{ background: '#fff', borderRadius: 14, padding: '24px 26px', maxWidth: 440, width: '90%', boxShadow: '0 12px 40px rgba(0,0,0,0.2)' }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 10 }}>
-              {orderingConfirm.next === 'ACCEPTED' ? 'Enable' : 'Disable'} online ordering?
+              {orderingConfirm.next ? 'Turn on' : 'Turn off'} online ordering?
             </div>
             <p style={{ fontSize: 13.5, color: '#555', lineHeight: 1.55, margin: '0 0 22px' }}>
-              Are you sure you want to {orderingConfirm.next === 'ACCEPTED' ? 'enable' : 'disable'} online ordering for{' '}
-              <strong>{orderingConfirm.r.businessName}</strong>? This will affect their ability to receive orders on FamilyMeal.
+              {orderingConfirm.next
+                ? <>Turn on online ordering for <strong>{orderingConfirm.r.businessName}</strong>? Customers will be able to place orders.</>
+                : <>Turn off online ordering for <strong>{orderingConfirm.r.businessName}</strong>? This will prevent customers from placing new orders.</>}
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
               <button onClick={() => setOrderingConfirm(null)} disabled={orderingBusy}
@@ -717,8 +717,33 @@ export default function RestaurantsOrderingPage() {
                 Cancel
               </button>
               <button onClick={confirmOnlineOrdering} disabled={orderingBusy}
-                style={{ background: orderingConfirm.next === 'ACCEPTED' ? '#1D9E75' : '#E53935', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: orderingBusy ? 'wait' : 'pointer', fontFamily: F, opacity: orderingBusy ? 0.7 : 1 }}>
+                style={{ background: orderingConfirm.next ? '#1D9E75' : '#E53935', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: orderingBusy ? 'wait' : 'pointer', fontFamily: F, opacity: orderingBusy ? 0.7 : 1 }}>
                 {orderingBusy ? 'Saving…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {marketplaceConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: '24px 26px', maxWidth: 440, width: '90%', boxShadow: '0 12px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 10 }}>
+              {marketplaceConfirm.next ? 'Show on' : 'Hide from'} the Disco Cater map &amp; marketplace?
+            </div>
+            <p style={{ fontSize: 13.5, color: '#555', lineHeight: 1.55, margin: '0 0 22px' }}>
+              {marketplaceConfirm.next
+                ? <>Show <strong>{marketplaceConfirm.r.businessName}</strong> on the Disco Cater map and marketplace?</>
+                : <>Hide <strong>{marketplaceConfirm.r.businessName}</strong> from the Disco Cater map and marketplace? They will no longer appear in search results.</>}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setMarketplaceConfirm(null)} disabled={marketplaceBusy}
+                style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: marketplaceBusy ? 'default' : 'pointer', fontFamily: F, color: '#555' }}>
+                Cancel
+              </button>
+              <button onClick={confirmVisible} disabled={marketplaceBusy}
+                style={{ background: marketplaceConfirm.next ? '#1D9E75' : '#E53935', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: marketplaceBusy ? 'wait' : 'pointer', fontFamily: F, opacity: marketplaceBusy ? 0.7 : 1 }}>
+                {marketplaceBusy ? 'Saving…' : 'Confirm'}
               </button>
             </div>
           </div>
