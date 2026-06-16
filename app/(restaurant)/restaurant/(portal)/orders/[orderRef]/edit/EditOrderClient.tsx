@@ -107,12 +107,30 @@ function extractFmMoney(resp: AnyRec | null) {
   const d = ((resp?.checkoutPublicResponseDto as AnyRec) ?? resp ?? {}) as AnyRec
   const tax = num(d.stateSalesTaxInPrice) + num(d.localSalesTaxInPrice) + num(d.otherSalesTaxInPrice)
   const delivery = num(d.ownDeliveryFee) + num(d.doordashDeliveryFee) + num(d.thirdPartyDeliveryFee) || num(d.deliveryFee)
-  const tips = num(d.tipsInPrice) + num(d.thirdPartyDeliveryTipsInPrice) || num(d.tips)
+  // FM's tip fields: tipsInPrice = the already-priced DOLLAR tip; tips = the raw
+  // input (a percentage integer when tipsType==='PERCENTAGE', else a dollar
+  // amount); tipsType disambiguates. We keep all three so the loader can derive
+  // the true dollar tip (computeDollarTip).
+  const tipsInPrice = num(d.tipsInPrice) + num(d.thirdPartyDeliveryTipsInPrice)
+  const tipsRaw = num(d.tips)
+  const tipsType = typeof d.tipsType === 'string' ? d.tipsType : ''
+  // Combined value preserved for the commit payload's tip encoding (buildPayload).
+  const tips = tipsInPrice || tipsRaw
   const fee = num(d.fee) || num(d.fees)
   const discount = num(d.discount)
   const subtotal = typeof d.subtotal === 'number' ? d.subtotal : null
   const total = typeof d.total === 'number' ? d.total : (typeof d.transactionsTotal === 'number' ? d.transactionsTotal : null)
-  return { subtotal, tax, delivery, tips, fee, discount, total }
+  return { subtotal, tax, delivery, tips, tipsType, tipsRaw, tipsInPrice, fee, discount, total }
+}
+
+// Resolve the actual DOLLAR tip from FM's fields. FM's priced tipsInPrice wins
+// when present; otherwise derive from tipsType + the raw tips value:
+//   PERCENTAGE → subtotal * (tips / 100) · CUSTOM → tips · 0 → 0.
+function computeDollarTip(tipsType: string, tipsRaw: number, tipsInPrice: number, subtotal: number): number {
+  if (tipsInPrice > 0) return tipsInPrice
+  if (tipsRaw <= 0) return 0
+  if (tipsType === 'PERCENTAGE') return subtotal * (tipsRaw / 100)
+  return tipsRaw // CUSTOM or unspecified → already a dollar amount
 }
 
 // Gather the order's line items from an FM /details payload. Items live under
@@ -147,7 +165,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddr | null>(null)
   const [origTotal, setOrigTotal] = useState(0)
   const [origSource, setOrigSource] = useState('')
-  const [origMoney, setOrigMoney] = useState({ subtotal: 0, tax: 0, delivery: 0, tips: 0, fee: 0, discount: 0, total: 0 })
+  const [origMoney, setOrigMoney] = useState({ subtotal: 0, tax: 0, delivery: 0, tips: 0, dollarTip: 0, fee: 0, discount: 0, total: 0 })
   const [taxExempt, setTaxExempt] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
 
@@ -310,9 +328,12 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         }
 
         const money = extractFmMoney(order)
+        // The real dollar tip — NOT the raw tips field (a percentage integer for
+        // PERCENTAGE tips). Used for the tax-rate/total math + the Tip display.
+        const dollarTip = computeDollarTip(money.tipsType, money.tipsRaw, money.tipsInPrice, money.subtotal ?? 0)
         setOrigMoney({
           subtotal: money.subtotal ?? 0, tax: money.tax, delivery: money.delivery,
-          tips: money.tips, fee: money.fee, discount: money.discount, total: money.total ?? 0,
+          tips: money.tips, dollarTip, fee: money.fee, discount: money.discount, total: money.total ?? 0,
         })
         setOrigTotal(money.total ?? num(order.transactionsTotal))
         setOrigSource(str(order.sourceoforder) || str((order as AnyRec).sourceOfOrder) || '')
@@ -472,9 +493,11 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   // Display only — FM settles the real payment delta server-side on commit.
   const cartEmpty = activeLines.length === 0
 
-  // Original order baseline (from the /details fetch).
+  // Original order baseline (from the /details fetch). Tip is the real DOLLAR
+  // tip (origMoney.dollarTip), not the raw percentage integer — otherwise the
+  // tax/fee back-out and the displayed Tip would be wrong on percentage tips.
   const origSubtotal = origMoney.subtotal
-  const origTip = origMoney.tips
+  const origTip = origMoney.dollarTip
   const origDeliveryFee = origMoney.delivery
   // Everything between subtotal and total that isn't tip/delivery → tax + fees.
   const origTaxAndFee = origTotal - origSubtotal - origTip - origDeliveryFee
