@@ -421,24 +421,33 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       orderTime,
       deliveryAddress: orderType === 'DELIVERY' && deliveryAddress ? deliveryAddress : undefined,
     })
-    // Preserve the existing order's tip and tax-exempt status — item edits
-    // shouldn't silently zero them. FM's tipsType enum only accepts CUSTOM or
-    // PERCENTAGE (never AMOUNT/DOLLAR): a positive tip is a CUSTOM dollar amount;
-    // a $0 tip is PERCENTAGE 0. Sending an invalid tipsType 500s the FM PUT.
-    const tipAmount = origMoney.tips || 0
-    if (tipAmount > 0) {
-      payload.tips = tipAmount
-      payload.tipsType = 'CUSTOM'
-    } else {
-      payload.tips = 0
+    // Preserve the existing order's tip + tax-exempt status. FM's tipsType enum
+    // is CUSTOM (a dollar amount) or PERCENTAGE (percentage points) — never a raw
+    // decimal fraction. The loaded tip can arrive as a fraction (0.15 = 15%) or
+    // a dollar amount, so disambiguate by magnitude:
+    //   0 < tip < 1 → decimal percentage → PERCENTAGE, round(tip*100)
+    //   tip >= 1     → dollar amount      → CUSTOM, tip
+    //   tip === 0    → PERCENTAGE 0
+    const origTip = origMoney.tips || 0
+    if (origTip > 0 && origTip < 1) {
       payload.tipsType = 'PERCENTAGE'
+      payload.tips = Math.round(origTip * 100)
+    } else if (origTip >= 1) {
+      payload.tipsType = 'CUSTOM'
+      payload.tips = origTip
+    } else {
+      payload.tipsType = 'PERCENTAGE'
+      payload.tips = 0
     }
     payload.taxExempt = taxExempt
-    // FM's order-edit PUT reads the cart from `mealPackages` as a simple
-    // [{ reference, count }] list (not the full item objects). Populate it
-    // alongside `items` so the reprice/commit work on existing orders.
-    ;(payload as unknown as { mealPackages: { reference: string; count: number }[] }).mealPackages =
-      activeLines.map(l => ({ reference: l.reference, count: l.quantity }))
+    // FM's order-edit commit reads the cart ONLY from `mealPackages`
+    // [{ reference, count }] — the full items/extraItems objects 500 the edit
+    // endpoint. This buildPayload is edit-commit-only (the customer checkout
+    // builds its own payload via buildCheckoutPayload), so strip items here.
+    const editBody = payload as unknown as Record<string, unknown>
+    editBody.mealPackages = activeLines.map(l => ({ reference: l.reference, count: l.quantity }))
+    delete editBody.items
+    delete editBody.extraItems
     return payload
   }, [activeLines, restaurantRef, orderType, orderDate, orderTime, deliveryAddress, origMoney.tips, taxExempt])
 
