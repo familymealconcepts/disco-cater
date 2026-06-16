@@ -69,6 +69,12 @@ function adminEmailOf(r: Restaurant): string {
   return r.adminEmail || r.admin?.email || ''
 }
 
+// Online ordering is on when FM reports either 'ACTIVE' (existing restaurants)
+// or 'ACCEPTED' (newer ones). Writes still use ACCEPTED (enable) / PENDING.
+function isOnline(r: Restaurant): boolean {
+  return r.restaurantStatus === 'ACCEPTED' || r.restaurantStatus === 'ACTIVE'
+}
+
 function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolean; onChange: () => void; disabled?: boolean; color?: string }) {
   return (
     <button
@@ -240,7 +246,7 @@ export default function RestaurantsOrderingPage() {
   // Toggling opens a confirmation modal; confirming routes through the
   // GET→merge→PUT restaurant endpoint so only restaurantStatus changes.
   function requestOnlineOrderingToggle(r: Restaurant) {
-    const next: 'ACCEPTED' | 'PENDING' = r.restaurantStatus === 'ACCEPTED' ? 'PENDING' : 'ACCEPTED'
+    const next: 'ACCEPTED' | 'PENDING' = isOnline(r) ? 'PENDING' : 'ACCEPTED'
     setOrderingConfirm({ r, next })
   }
 
@@ -618,9 +624,9 @@ export default function RestaurantsOrderingPage() {
                   {/* Online Ordering: FM restaurantStatus ACCEPTED (on) vs other (off). */}
                   <td style={cell}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <Toggle checked={r.restaurantStatus === 'ACCEPTED'} onChange={() => requestOnlineOrderingToggle(r)} color="#1D9E75" />
-                      <span style={{ fontSize: 12, color: r.restaurantStatus === 'ACCEPTED' ? '#1D9E75' : '#999', fontWeight: 600 }}>
-                        {r.restaurantStatus === 'ACCEPTED' ? 'On' : 'Off'}
+                      <Toggle checked={isOnline(r)} onChange={() => requestOnlineOrderingToggle(r)} color="#1D9E75" />
+                      <span style={{ fontSize: 12, color: isOnline(r) ? '#1D9E75' : '#999', fontWeight: 600 }}>
+                        {isOnline(r) ? 'On' : 'Off'}
                       </span>
                     </div>
                   </td>
