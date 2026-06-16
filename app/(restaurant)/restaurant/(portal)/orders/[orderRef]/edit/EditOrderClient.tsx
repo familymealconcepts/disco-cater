@@ -142,7 +142,6 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const [commitError, setCommitError] = useState<string | null>(null)
   const [committed, setCommitted] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
-  const [mobileCartOpen, setMobileCartOpen] = useState(false)
 
   // ─── Menu browse UI ───────────────────────────────────────────────────────
   const [activeMenuIdx, setActiveMenuIdx] = useState(0)
@@ -414,9 +413,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         })
         if (res.ok) {
           const data = (await res.json().catch(() => null)) as AnyRec | null
-          const money = extractFmMoney(data)
-          setServerMoney(money)
-          console.log('[edit-reprice] serverMoney:', JSON.stringify(money), 'activeLines:', activeLines.length)
+          setServerMoney(extractFmMoney(data))
         }
       } catch { /* keep client estimate */ } finally { setRepricing(false) }
     }, 600)
@@ -425,13 +422,23 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   }, [cart, changed, orderDate, orderTime, loading, lockExpired, committed])
 
   // ─── Totals (prefer server re-price, fall back to estimate) ───────────────
-  console.log('[edit-display] serverMoney:', serverMoney, 'origMoney:', origMoney, 'taxesFees:', serverMoney ? (serverMoney.tax + serverMoney.fee) : (origMoney.tax + origMoney.fee))
-  const newSubtotal = serverMoney?.subtotal ?? cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns })))
-  const taxesFees = serverMoney ? (serverMoney.tax + serverMoney.fee) : (origMoney.tax + origMoney.fee)
-  const delivery = serverMoney ? serverMoney.delivery : origMoney.delivery
-  const tip = serverMoney ? serverMoney.tips : origMoney.tips
-  const discount = serverMoney ? serverMoney.discount : origMoney.discount
-  const newTotal = serverMoney?.total ?? (newSubtotal + taxesFees + delivery + tip - discount)
+  const rawSubtotal = serverMoney?.subtotal ?? cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns })))
+  const rawTaxesFees = serverMoney ? (serverMoney.tax + serverMoney.fee) : (origMoney.tax + origMoney.fee)
+  const rawDelivery = serverMoney ? serverMoney.delivery : origMoney.delivery
+  const rawTip = serverMoney ? serverMoney.tips : origMoney.tips
+  const rawDiscount = serverMoney ? serverMoney.discount : origMoney.discount
+  const rawTotal = serverMoney?.total ?? (rawSubtotal + rawTaxesFees + rawDelivery + rawTip - rawDiscount)
+
+  // FIX: an emptied cart (0 items / $0 subtotal) must read $0 across the board.
+  // FM still echoes residual tax/fee on an empty order, so override the display
+  // to $0 and let the refund delta reflect the entire original total.
+  const cartEmpty = activeLines.length === 0 || rawSubtotal <= 0.005
+  const newSubtotal = cartEmpty ? 0 : rawSubtotal
+  const taxesFees = cartEmpty ? 0 : rawTaxesFees
+  const delivery = cartEmpty ? 0 : rawDelivery
+  const tip = cartEmpty ? 0 : rawTip
+  const discount = cartEmpty ? 0 : rawDiscount
+  const newTotal = cartEmpty ? 0 : rawTotal
   const delta = newTotal - origTotal
 
   // ─── Cart mutations ───────────────────────────────────────────────────────
@@ -485,13 +492,33 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       }]
     })
     setModalPkg(null)
-    setMobileCartOpen(true)
   }
 
-  function handleItemClick(pkg: FmPackage) {
-    const hasGroups = Array.isArray(pkg.extraItemsGroups) && pkg.extraItemsGroups.some(g => g.visible !== false && (g.addOns?.length ?? 0) > 0)
-    if (hasGroups || pkg.allowedSpecialInstructions) setModalPkg(pkg)
+  // Does this package need the modifier modal (has add-on groups or allows notes)?
+  function pkgHasModifiers(pkg: FmPackage) {
+    return (Array.isArray(pkg.extraItemsGroups) && pkg.extraItemsGroups.some(g => g.visible !== false && (g.addOns?.length ?? 0) > 0)) || !!pkg.allowedSpecialInstructions
+  }
+
+  // ─── Inline menu-row stepper helpers ──────────────────────────────────────
+  // Aggregate qty for a package across all of its active cart lines.
+  const cartQtyForPkg = (ref: string) => activeLines.filter(l => l.reference === ref).reduce((s, l) => s + l.quantity, 0)
+  // The plain (no add-ons / no note) line for a package — what the inline
+  // stepper drives. Modifier configs are managed from the cart panel / modal.
+  const simpleLineFor = (ref: string) => cart.find(l => !l.removed && l.reference === ref && l.addOns.length === 0 && !l.note)
+
+  function incPkg(pkg: FmPackage) {
+    // Items with modifiers can't be blindly +1'd — open the modal to configure.
+    if (pkgHasModifiers(pkg)) { setModalPkg(pkg); return }
+    const line = simpleLineFor(pkg.reference)
+    if (line) changeQty(line.lineId, 1)
     else addToCart(pkg, 1, [])
+  }
+  function decPkg(pkg: FmPackage) {
+    const line = simpleLineFor(pkg.reference)
+    if (line) { changeQty(line.lineId, -1); return }
+    // No plain line (only modifier lines) — step down the first matching line.
+    const any = activeLines.find(l => l.reference === pkg.reference)
+    if (any) changeQty(any.lineId, -1)
   }
 
   // ─── Commit ───────────────────────────────────────────────────────────────
@@ -618,11 +645,11 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         </div>
       )}
 
-      {/* ── Three columns ── */}
+      {/* ── Two columns: menu (left ~60%) + cart & summary (right ~40%) ── */}
       <div className="eo-grid" style={{ display: 'flex', gap: 20, padding: '20px', alignItems: 'flex-start' }}>
 
         {/* LEFT — menu browser */}
-        <div className="eo-menu" style={{ flex: 1, minWidth: 0 }}>
+        <div className="eo-menu" style={{ flex: '1 1 60%', minWidth: 0 }}>
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
@@ -647,39 +674,50 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
             <div key={cat.reference} style={{ marginBottom: 28 }}>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: DARK, margin: '0 0 12px' }}>{cat.name}</h3>
               <div style={{ display: 'grid', gap: 10 }}>
-                {cat.mealPackages.filter(p => p.available !== false).map(pkg => (
-                  <div key={pkg.reference} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, border: '1px solid #eee', borderRadius: 12, padding: '12px 14px', background: '#fff' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{pkg.name}</div>
-                      {pkg.serves != null && pkg.serves !== '' && <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>Serves {pkg.serves}</div>}
-                      {pkg.description && <div style={{ fontSize: 12, color: '#888', marginTop: 4, lineHeight: 1.4 }}>{pkg.description}</div>}
+                {cat.mealPackages.filter(p => p.available !== false).map(pkg => {
+                  const qty = cartQtyForPkg(pkg.reference)
+                  return (
+                    <div key={pkg.reference} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, border: `1px solid ${qty > 0 ? BLUE : '#eee'}`, borderRadius: 12, padding: '12px 14px', background: '#fff' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{pkg.name}</div>
+                        {pkg.serves != null && pkg.serves !== '' && <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>Serves {pkg.serves}</div>}
+                        {pkg.description && <div style={{ fontSize: 12, color: '#888', marginTop: 4, lineHeight: 1.4 }}>{pkg.description}</div>}
+                      </div>
+                      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 6 }}>{formatCurrency(pkg.price)}</div>
+                        {qty > 0 ? (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <button onClick={() => decPkg(pkg)} style={stepBtn} aria-label="Decrease">−</button>
+                            <span style={{ fontSize: 13, fontWeight: 700, minWidth: 16, textAlign: 'center' }}>{qty}</span>
+                            <button onClick={() => incPkg(pkg)} style={stepBtn} aria-label="Increase">+</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => incPkg(pkg)} style={{ ...pillBtn(BLUE), padding: '6px 16px', fontSize: 13 }}>Add</button>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 6 }}>{formatCurrency(pkg.price)}</div>
-                      <button onClick={() => handleItemClick(pkg)} style={{ ...pillBtn(BLUE), padding: '6px 14px', fontSize: 13 }}>Add</button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           ))}
         </div>
 
-        {/* CENTER — cart */}
-        <div className="eo-cart" style={{ flex: 1, minWidth: 0 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: DARK, margin: '0 0 14px' }}>Order Items</h2>
-          {activeLines.length === 0 && <p style={{ color: '#999', fontSize: 14 }}>No items.</p>}
-          <div style={{ display: 'grid', gap: 10 }}>
-            {activeLines.map(line => <CartRow key={line.lineId} line={line} onInc={() => changeQty(line.lineId, 1)} onDec={() => changeQty(line.lineId, -1)} onRemove={() => removeLine(line.lineId)} />)}
-          </div>
-        </div>
+        {/* RIGHT — cart + order summary (sticky, scrolls internally) */}
+        <div className="eo-summary" style={{ flex: '1 1 40%', maxWidth: 420, minWidth: 300 }}>
+          <div className="eo-summary-card" style={{ position: 'sticky', top: 64, maxHeight: 'calc(100vh - 84px)', overflowY: 'auto', background: '#fff', border: '1px solid #eee', borderRadius: 14, padding: '18px 18px 20px' }}>
 
-        {/* RIGHT — order summary */}
-        <div className="eo-summary" style={{ width: 320, flexShrink: 0 }}>
-          <div style={{ position: 'sticky', top: 64, background: '#fff', border: '1px solid #eee', borderRadius: 14, padding: '18px 18px 20px' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 14 }}>
-              Order Summary
-            </div>
+            {/* Cart items */}
+            <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 12 }}>Order Items</div>
+            {activeLines.length === 0
+              ? <p style={{ color: '#999', fontSize: 14, margin: '0 0 4px' }}>No items.</p>
+              : (
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {activeLines.map(line => <CartRow key={line.lineId} line={line} onInc={() => changeQty(line.lineId, 1)} onDec={() => changeQty(line.lineId, -1)} onRemove={() => removeLine(line.lineId)} />)}
+                </div>
+              )}
+
+            <div style={{ height: 1, background: '#eee', margin: '14px 0' }} />
 
             {/* Schedule + reschedule */}
             <div style={{ marginBottom: 14, padding: '10px 12px', border: `1px solid ${rescheduled ? BLUE : '#eee'}`, borderRadius: 10, background: rescheduled ? 'rgba(91,111,232,0.06)' : '#fafafc' }}>
@@ -743,12 +781,6 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         </div>
       </div>
 
-      {/* Mobile "View Cart" floating button */}
-      <button className="eo-fab" onClick={() => setMobileCartOpen(true)}
-        style={{ display: 'none', position: 'fixed', bottom: 20, right: 20, zIndex: 60, ...pillBtn(BLUE), padding: '12px 20px', boxShadow: '0 6px 20px rgba(0,0,0,0.2)' }}>
-        View Cart ({activeLines.reduce((s, l) => s + l.quantity, 0)})
-      </button>
-
       {/* Modifier modal */}
       {modalPkg && <ModifierModal pkg={modalPkg} onClose={() => setModalPkg(null)} onAdd={addToCart} />}
 
@@ -809,29 +841,12 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         </Overlay>
       )}
 
-      {/* Mobile cart drawer */}
-      {mobileCartOpen && (
-        <div className="eo-mobile-cart">
-          <Overlay onClose={() => setMobileCartOpen(false)}>
-            <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxHeight: '80vh', overflowY: 'auto', background: '#fff', borderRadius: '16px 16px 0 0', padding: 20, fontFamily: F }} onClick={e => e.stopPropagation()}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <h2 style={{ fontSize: 16, fontWeight: 700, color: DARK, margin: 0 }}>Order Items</h2>
-                <button onClick={() => setMobileCartOpen(false)} style={{ background: 'none', border: 'none', fontSize: 22, color: '#999', cursor: 'pointer' }}>×</button>
-              </div>
-              <div style={{ display: 'grid', gap: 10 }}>
-                {activeLines.map(line => <CartRow key={line.lineId} line={line} onInc={() => changeQty(line.lineId, 1)} onDec={() => changeQty(line.lineId, -1)} onRemove={() => removeLine(line.lineId)} />)}
-              </div>
-            </div>
-          </Overlay>
-        </div>
-      )}
 
       <style>{`
         @media (max-width: 900px) {
           .eo-grid { flex-direction: column; }
-          .eo-summary { width: 100% !important; }
-          .eo-cart { display: none; }
-          .eo-fab { display: inline-block !important; }
+          .eo-menu, .eo-summary { flex: 1 1 100% !important; max-width: 100% !important; min-width: 0 !important; }
+          .eo-summary-card { position: static !important; max-height: none !important; }
         }
       `}</style>
     </div>
