@@ -506,8 +506,14 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       })
       if (res.ok) {
         const data = (await res.json().catch(() => null)) as AnyRec | null
-        const est = extractEstimate(data)
-        if (est) setLiveEstimate(est) // keep last good if the body can't be parsed
+        // The route always hands back a flat { checkoutPublicResponseDto }.
+        const dto = (data as { checkoutPublicResponseDto?: AnyRec } | null)?.checkoutPublicResponseDto
+        if (dto) {
+          const est = extractEstimate(dto)
+          if (est) setLiveEstimate(est) // keep last good if the dto can't be parsed
+        } else {
+          console.warn('[repriceCart] unexpected response shape', data)
+        }
       } else {
         console.error('[edit-reprice] FM reprice failed:', res.status)
       }
@@ -544,7 +550,9 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   // FIX: an emptied cart (0 items / $0 subtotal) must read $0 across the board.
   // FM still echoes residual tax/fee on an empty order, so override the display
   // to $0 and let the refund delta reflect the entire original total.
-  const cartEmpty = activeLines.length === 0 || rawSubtotal <= 0.005
+  // Only a literally empty cart forces the $0 override — NOT a zero/late
+  // liveEstimate (that was masking real totals while the reprice resolved).
+  const cartEmpty = activeLines.length === 0
   const newSubtotal = cartEmpty ? 0 : rawSubtotal
   const taxesFees = cartEmpty ? 0 : rawTaxesFees
   const delivery = cartEmpty ? 0 : rawDelivery

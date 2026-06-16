@@ -46,13 +46,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: errorText }, { status: fmResponse.status })
     }
 
-    // OK — pass FM's checkoutPublicResponseDto straight back.
+    // OK — FM nests the totals (and may wrap under `data`), so unpack the
+    // checkoutPublicResponseDto from whichever shape FM returns and always hand
+    // the client a flat { checkoutPublicResponseDto }.
     const text = await fmResponse.text()
+    let body: Record<string, unknown> = {}
     try {
-      return NextResponse.json(text ? JSON.parse(text) : {}, { status: 200 })
+      body = text ? JSON.parse(text) : {}
     } catch {
-      return new NextResponse(text, { status: 200, headers: { 'Content-Type': 'application/json' } })
+      console.error('[edit-reprice] FM body was not valid JSON')
     }
+    console.log('[edit-reprice] FM response body:', JSON.stringify(body).slice(0, 500))
+
+    const b = body as {
+      data?: { checkoutPublicResponseDto?: unknown }
+      checkoutPublicResponseDto?: unknown
+      subtotal?: unknown
+    }
+    let dto: unknown
+    if (b.data?.checkoutPublicResponseDto !== undefined) dto = b.data.checkoutPublicResponseDto
+    else if (b.checkoutPublicResponseDto !== undefined) dto = b.checkoutPublicResponseDto
+    else if (b.subtotal !== undefined) dto = body
+    else {
+      console.warn('[edit-reprice] unrecognized FM response shape — returning body as-is')
+      dto = body
+    }
+
+    return NextResponse.json({ checkoutPublicResponseDto: dto })
   } catch (err) {
     console.error('[order/edit-reprice] error:', err)
     return NextResponse.json({ error: 'Failed to reprice order' }, { status: 500 })
