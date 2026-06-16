@@ -24,11 +24,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Service auth unavailable' }, { status: 500 })
     }
 
+    // FM's edit PUT only wants the cart as mealPackages [{reference,count}]; the
+    // full `items`/`extraItems` objects 500 it. Strip them here too so this
+    // endpoint can never forward them (the regular /api/order/update is untouched).
+    const fmPayload: Record<string, unknown> = { ...(payload ?? {}) }
+    delete fmPayload.items
+    delete fmPayload.extraItems
+
     const url = `${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`
     const fmResponse = await fetch(url, {
       method: 'PUT',
       headers: { ...auth, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(payload ?? {}),
+      body: JSON.stringify(fmPayload),
     })
 
     if (!fmResponse.ok) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 
-const EDIT_FM_BASE = process.env.FAMILYMEAL_EDIT_API_BASE || process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Loads the full order details used to pre-populate the edit page.
 // FM (per Revyrie spec): GET /public-api/v2/orders/{orderRef}/details
@@ -16,7 +16,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
-  const url = `${EDIT_FM_BASE}/public-api/v2/orders/${ref}/details`
+  const url = `${FM_BASE}/public-api/v2/orders/${ref}/details`
   const token = authHeaders.Authorization || ''
   console.error('[orders/details] FM request', {
     orderRef: ref,

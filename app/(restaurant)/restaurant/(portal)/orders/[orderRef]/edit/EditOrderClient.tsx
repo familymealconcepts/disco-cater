@@ -490,13 +490,19 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
     if (activeLines.length === 0) return // empty cart → FIX 1 forces $0; no call
     setRepricing(true)
     try {
-      const payload = buildPayload()
+      // FM's edit PUT wants the cart ONLY as mealPackages [{reference,count}];
+      // the full `items`/`extraItems` objects trigger UNKNOWN_SERVER_ERROR. Strip
+      // them for the reprice call only — the commit flow (/api/order/update +
+      // place) keeps `items` unchanged.
+      const editPayload: Record<string, unknown> = { ...buildPayload() }
+      delete editPayload.items
+      delete editPayload.extraItems
       // Authenticated SUPER_ADMIN proxy (PUT to FM's order-update endpoint) so
       // FM returns authoritative tax/fees/delivery in checkoutPublicResponseDto.
       const res = await fetch('/api/order/edit-reprice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantRef, orderRef: editRefRef.current, payload }),
+        body: JSON.stringify({ restaurantRef, orderRef: editRefRef.current, payload: editPayload }),
       })
       if (res.ok) {
         const data = (await res.json().catch(() => null)) as AnyRec | null
