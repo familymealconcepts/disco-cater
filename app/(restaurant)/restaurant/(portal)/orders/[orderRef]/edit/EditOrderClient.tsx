@@ -442,23 +442,28 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
     setRepricing(true)
     try {
       const payload = buildPayload()
-      const res = await fetch('/api/order/update', {
-        method: 'PUT',
+      // Authenticated SUPER_ADMIN proxy (PUT to FM's order-update endpoint) so
+      // FM returns authoritative tax/fees/delivery in checkoutPublicResponseDto.
+      const res = await fetch('/api/order/edit-reprice', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, orderRef: editRefRef.current }),
+        body: JSON.stringify({ restaurantRef, orderRef: editRefRef.current, payload }),
       })
       if (res.ok) {
         const data = (await res.json().catch(() => null)) as AnyRec | null
         const est = extractEstimate(data)
         if (est) setLiveEstimate(est) // keep last good if the body can't be parsed
+      } else {
+        console.error('[edit-reprice] FM reprice failed:', res.status)
       }
       // non-ok → keep last good estimate
-    } catch {
+    } catch (err) {
+      console.error('[edit-reprice] reprice request failed:', err)
       // network / FM error → keep last good estimate
     } finally {
       setRepricing(false)
     }
-  }, [activeLines.length, buildPayload])
+  }, [activeLines.length, buildPayload, restaurantRef])
 
   // Debounce repriceCart 400ms after any cart or schedule change.
   useEffect(() => {
@@ -475,7 +480,9 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const rawSubtotal = liveEstimate ? liveEstimate.subtotal : (origMoney.subtotal || cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns }))))
   const rawTaxesFees = liveEstimate ? liveEstimate.fee : (origMoney.tax + origMoney.fee)
   const rawDelivery = liveEstimate ? liveEstimate.deliveryFee : origMoney.delivery
-  const rawTip = origMoney.tips
+  // Tip is display-only during edit. FM echoes back the original tip we send in
+  // the payload, so prefer its value; fall back to the loaded order's tip.
+  const rawTip = liveEstimate ? liveEstimate.tips : origMoney.tips
   const rawDiscount = liveEstimate ? liveEstimate.discount : origMoney.discount
   const rawTotal = liveEstimate ? liveEstimate.total : (rawSubtotal + rawTaxesFees + rawDelivery + rawTip - rawDiscount)
 
@@ -814,7 +821,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
               </span>
               <span style={{ fontSize: 13, fontWeight: 500, color: DARK, opacity: repricing ? 0.4 : 1, transition: 'opacity 0.15s' }}>{formatCurrency(taxesFees)}</span>
             </div>
-            {orderType === 'DELIVERY' && <Row label="Delivery" value={formatCurrency(delivery)} pending={repricing} />}
+            {delivery > 0 && <Row label="Delivery" value={formatCurrency(delivery)} pending={repricing} />}
             <Row label="Tip" value={formatCurrency(tip)} />
             {discount > 0 && <Row label="Discount" value={`-${formatCurrency(discount)}`} />}
             <div style={{ height: 1, background: '#eee', margin: '14px 0' }} />
