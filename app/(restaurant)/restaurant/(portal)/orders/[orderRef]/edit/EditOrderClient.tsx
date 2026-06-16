@@ -79,6 +79,38 @@ function extractFmMoney(resp: AnyRec | null) {
   return { subtotal, tax, delivery, tips, fee, discount, total }
 }
 
+// FM's checkoutPublicResponseDto, returned by /orders/init and the /orders/{ref}
+// PUT re-price. The live summary reads these fields DIRECTLY — `fee` is the
+// combined Taxes & Fees, `total` is FM's authoritative grand total.
+interface LiveEstimate {
+  subtotal: number
+  total: number
+  fee: number          // Taxes & Fees
+  deliveryFee: number
+  tips: number
+  discount: number
+  couponCode?: string
+}
+
+function extractEstimate(resp: AnyRec | null): LiveEstimate | null {
+  const d = ((resp?.checkoutPublicResponseDto as AnyRec) ?? resp) as AnyRec | null
+  if (!d || typeof d !== 'object') return null
+  const total = typeof d.total === 'number' ? d.total
+    : (typeof d.transactionsTotal === 'number' ? d.transactionsTotal : 0)
+  // Prefer FM's flat deliveryFee; fall back to the split delivery fields.
+  const deliveryFee = num(d.deliveryFee) || (num(d.ownDeliveryFee) + num(d.doordashDeliveryFee) + num(d.thirdPartyDeliveryFee))
+  const tips = typeof d.tips === 'number' ? d.tips : (num(d.tipsInPrice) + num(d.thirdPartyDeliveryTipsInPrice))
+  return {
+    subtotal: num(d.subtotal),
+    total,
+    fee: num(d.fee) || num(d.fees),
+    deliveryFee,
+    tips,
+    discount: num(d.discount),
+    couponCode: str(d.couponCode) || undefined,
+  }
+}
+
 // Gather the order's line items from an FM /details payload. Items live under
 // data.order.orderMealPackages (fall back to order.* and the root). Also tolerate
 // orderClassics and the ICheckoutPreview shapes (items / mealPackages).
@@ -132,8 +164,10 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const [secondsLeft, setSecondsLeft] = useState(DEFAULT_LOCK_SECONDS)
   const [lockExpired, setLockExpired] = useState(false)
 
-  // ─── Re-price (server totals) ─────────────────────────────────────────────
-  const [serverMoney, setServerMoney] = useState<ReturnType<typeof extractFmMoney> | null>(null)
+  // ─── Live re-price (FM server totals) ─────────────────────────────────────
+  // Holds FM's checkoutPublicResponseDto from the most recent successful PUT.
+  // Kept on failure (last known good) so the panel never falls back to $0.
+  const [liveEstimate, setLiveEstimate] = useState<LiveEstimate | null>(null)
   const [repricing, setRepricing] = useState(false)
   const repriceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -398,36 +432,52 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
     return payload
   }, [activeLines, restaurantRef, orderType, orderDate, orderTime, deliveryAddress, origMoney.tips, taxExempt])
 
-  // ─── Debounced re-price against the edit draft ────────────────────────────
-  useEffect(() => {
-    if (loading || lockExpired || committed || !changed) return
-    if (repriceTimer.current) clearTimeout(repriceTimer.current)
-    repriceTimer.current = setTimeout(async () => {
-      setRepricing(true)
-      try {
-        const payload = buildPayload()
-        const res = await fetch('/api/order/update', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...payload, orderRef: editRefRef.current }),
-        })
-        if (res.ok) {
-          const data = (await res.json().catch(() => null)) as AnyRec | null
-          setServerMoney(extractFmMoney(data))
-        }
-      } catch { /* keep client estimate */ } finally { setRepricing(false) }
-    }, 600)
-    return () => { if (repriceTimer.current) clearTimeout(repriceTimer.current) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, changed, orderDate, orderTime, loading, lockExpired, committed])
+  // ─── Live re-price: PUT the current cart to FM and read its totals ─────────
+  // Mirrors the checkout drawer: every cart/schedule change re-prices against
+  // FM so the summary always shows FM's authoritative numbers. Repricing only;
+  // the final commit is unchanged. On any failure we keep the last good
+  // estimate rather than zeroing the panel.
+  const repriceCart = useCallback(async () => {
+    if (activeLines.length === 0) return // empty cart → FIX 1 forces $0; no call
+    setRepricing(true)
+    try {
+      const payload = buildPayload()
+      const res = await fetch('/api/order/update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payload, orderRef: editRefRef.current }),
+      })
+      if (res.ok) {
+        const data = (await res.json().catch(() => null)) as AnyRec | null
+        const est = extractEstimate(data)
+        if (est) setLiveEstimate(est) // keep last good if the body can't be parsed
+      }
+      // non-ok → keep last good estimate
+    } catch {
+      // network / FM error → keep last good estimate
+    } finally {
+      setRepricing(false)
+    }
+  }, [activeLines.length, buildPayload])
 
-  // ─── Totals (prefer server re-price, fall back to estimate) ───────────────
-  const rawSubtotal = serverMoney?.subtotal ?? cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns })))
-  const rawTaxesFees = serverMoney ? (serverMoney.tax + serverMoney.fee) : (origMoney.tax + origMoney.fee)
-  const rawDelivery = serverMoney ? serverMoney.delivery : origMoney.delivery
-  const rawTip = serverMoney ? serverMoney.tips : origMoney.tips
-  const rawDiscount = serverMoney ? serverMoney.discount : origMoney.discount
-  const rawTotal = serverMoney?.total ?? (rawSubtotal + rawTaxesFees + rawDelivery + rawTip - rawDiscount)
+  // Debounce repriceCart 400ms after any cart or schedule change.
+  useEffect(() => {
+    if (loading || lockExpired || committed) return
+    if (activeLines.length === 0) return // zero override — don't fire
+    if (repriceTimer.current) clearTimeout(repriceTimer.current)
+    repriceTimer.current = setTimeout(() => { repriceCart() }, 400)
+    return () => { if (repriceTimer.current) clearTimeout(repriceTimer.current) }
+  }, [repriceCart, loading, lockExpired, committed, activeLines.length])
+
+  // ─── Totals: prefer FM's live re-price; fall back to the loaded order ──────
+  // From liveEstimate we read subtotal, fee (Taxes & Fees), deliveryFee, total
+  // directly. Tip stays the preserved original tip (we force it in the payload).
+  const rawSubtotal = liveEstimate ? liveEstimate.subtotal : (origMoney.subtotal || cartSubtotal(activeLines.map(l => ({ price: l.price, count: l.quantity, addOns: l.addOns }))))
+  const rawTaxesFees = liveEstimate ? liveEstimate.fee : (origMoney.tax + origMoney.fee)
+  const rawDelivery = liveEstimate ? liveEstimate.deliveryFee : origMoney.delivery
+  const rawTip = origMoney.tips
+  const rawDiscount = liveEstimate ? liveEstimate.discount : origMoney.discount
+  const rawTotal = liveEstimate ? liveEstimate.total : (rawSubtotal + rawTaxesFees + rawDelivery + rawTip - rawDiscount)
 
   // FIX: an emptied cart (0 items / $0 subtotal) must read $0 across the board.
   // FM still echoes residual tax/fee on an empty order, so override the display
@@ -740,7 +790,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
             </div>
 
             <Row label="Original Total" value={formatCurrency(origTotal)} muted strike={changed} />
-            <Row label="New Total" value={repricing ? '…' : formatCurrency(newTotal)} bold />
+            <Row label="New Total" value={formatCurrency(newTotal)} bold pending={repricing} />
 
             {changed && Math.abs(delta) >= 0.005 && (
               <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: delta < 0 ? 'rgba(46,158,91,0.08)' : 'rgba(231,111,81,0.08)' }}>
@@ -755,13 +805,20 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
 
             <div style={{ height: 1, background: '#eee', margin: '14px 0' }} />
 
-            <Row label="Subtotal" value={formatCurrency(newSubtotal)} />
-            <Row label="Taxes & Fees" value={formatCurrency(taxesFees)} />
-            {orderType === 'DELIVERY' && <Row label="Delivery" value={formatCurrency(delivery)} />}
+            <Row label="Subtotal" value={formatCurrency(newSubtotal)} pending={repricing} />
+            {/* Taxes & Fees — FM's `fee`, with a subtle spinner while repricing. */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' }}>
+              <span style={{ fontSize: 13, color: '#555', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                Taxes &amp; Fees
+                {repricing && <span style={{ width: 10, height: 10, border: '2px solid #eee', borderTopColor: BLUE, borderRadius: '50%', display: 'inline-block', animation: 'eoSpin 0.7s linear infinite' }} />}
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: DARK, opacity: repricing ? 0.4 : 1, transition: 'opacity 0.15s' }}>{formatCurrency(taxesFees)}</span>
+            </div>
+            {orderType === 'DELIVERY' && <Row label="Delivery" value={formatCurrency(delivery)} pending={repricing} />}
             <Row label="Tip" value={formatCurrency(tip)} />
             {discount > 0 && <Row label="Discount" value={`-${formatCurrency(discount)}`} />}
             <div style={{ height: 1, background: '#eee', margin: '14px 0' }} />
-            <Row label="Total" value={repricing ? '…' : formatCurrency(newTotal)} bold />
+            <Row label="Total" value={formatCurrency(newTotal)} bold pending={repricing} />
 
             {commitError && (
               <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(231,111,81,0.1)', color: RED, fontSize: 12, lineHeight: 1.4 }}>
@@ -818,8 +875,8 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
                 onClick={() => {
                   setOrderDate(draftDate)
                   setOrderTime(draftTime.length === 5 ? `${draftTime}:00` : draftTime)
-                  // Drop the stale server total so the re-price effect refetches.
-                  setServerMoney(null)
+                  // The date/time change re-triggers repriceCart automatically;
+                  // the last good estimate stays visible until it returns.
                   setRescheduleOpen(false)
                 }}
                 style={{ ...pillBtn(BLUE), opacity: (!draftDate || !draftTime) ? 0.5 : 1, cursor: (!draftDate || !draftTime) ? 'default' : 'pointer' }}>
@@ -863,11 +920,11 @@ function ErrLine({ label, value }: { label: string; value: string }) {
   )
 }
 
-function Row({ label, value, bold, muted, strike }: { label: string; value: string; bold?: boolean; muted?: boolean; strike?: boolean }) {
+function Row({ label, value, bold, muted, strike, pending }: { label: string; value: string; bold?: boolean; muted?: boolean; strike?: boolean; pending?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '3px 0' }}>
       <span style={{ fontSize: bold ? 14 : 13, color: muted ? '#999' : (bold ? DARK : '#555'), fontWeight: bold ? 700 : 400 }}>{label}</span>
-      <span style={{ fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 500, color: muted ? '#999' : DARK, textDecoration: strike ? 'line-through' : 'none' }}>{value}</span>
+      <span style={{ fontSize: bold ? 15 : 13, fontWeight: bold ? 700 : 500, color: muted ? '#999' : DARK, textDecoration: strike ? 'line-through' : 'none', opacity: pending ? 0.4 : 1, transition: 'opacity 0.15s' }}>{value}</span>
     </div>
   )
 }
