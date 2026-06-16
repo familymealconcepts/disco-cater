@@ -71,8 +71,16 @@ function adminEmailOf(r: Restaurant): string {
 
 // Online ordering is on when FM reports either 'ACTIVE' (existing restaurants)
 // or 'ACCEPTED' (newer ones). Writes still use ACCEPTED (enable) / PENDING.
+// TEMP DIAGNOSTIC: log any other restaurantStatus value we see (once each) so we
+// can discover values FM may use (e.g. 'APPROVED', 'ENABLED'). Behavior unchanged.
+const _seenUnknownStatuses = new Set<string>()
 function isOnline(r: Restaurant): boolean {
-  return r.restaurantStatus === 'ACCEPTED' || r.restaurantStatus === 'ACTIVE'
+  const s = r.restaurantStatus
+  if (s && s !== 'ACCEPTED' && s !== 'ACTIVE' && !_seenUnknownStatuses.has(s)) {
+    _seenUnknownStatuses.add(s)
+    console.log('[restaurant-status-diag] unknown restaurantStatus value:', s, '—', r.businessName)
+  }
+  return s === 'ACCEPTED' || s === 'ACTIVE'
 }
 
 function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolean; onChange: () => void; disabled?: boolean; color?: string }) {
@@ -169,6 +177,8 @@ export default function RestaurantsOrderingPage() {
         ...r,
         _rowId: `${r.reference ?? 'noref'}#${i}`,
       }))
+      // TEMP DIAGNOSTIC: see exactly what restaurantStatus FM returns.
+      console.log('[restaurant-status-diag] first 10:', content.slice(0, 10).map(r => ({ name: r.businessName, restaurantStatus: r.restaurantStatus })))
       setRows(content)
       setTotal(d.totalElements || 0)
     } else {
