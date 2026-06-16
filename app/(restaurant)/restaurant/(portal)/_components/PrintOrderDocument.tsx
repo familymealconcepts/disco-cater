@@ -90,6 +90,7 @@ export interface PrintableOrder {
   thirdPartyDeliveryTipsInPrice?: number
   orderMealPackages?: OrderLineItem[]
   orderClassics?: OrderLineItem[]
+  note?: string
 }
 
 // ── Formatters ──────────────────────────────────────────────────────────────
@@ -98,20 +99,30 @@ function fmtMoney(n?: number): string {
   return `$${(n || 0).toFixed(2)}`
 }
 
-function fmtShortDate(d?: string): string {
-  if (!d) return ''
-  try {
-    const dt = new Date(`${d}T12:00:00`)
-    return `${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getDate()).padStart(2, '0')}/${dt.getFullYear()}`
-  } catch { return d }
+// Robust order-date parser. FM hands back either YYYY-MM-DD or DD.MM.YYYY; both
+// must produce a valid Date (the old `new Date(`${d}T12:00:00`)` returned Invalid
+// Date for the dotted form). Returns null when unparseable.
+function parseOrderDate(d?: string): Date | null {
+  if (!d) return null
+  const dmy = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(d)
+  if (dmy) return new Date(`${dmy[3]}-${dmy[2]}-${dmy[1]}T12:00:00`)
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(d)
+  if (ymd) return new Date(`${ymd[1]}-${ymd[2]}-${ymd[3]}T12:00:00`)
+  const dt = new Date(d)
+  return isNaN(dt.getTime()) ? null : dt
 }
 
+function fmtShortDate(d?: string): string {
+  const dt = parseOrderDate(d)
+  if (!dt) return ''
+  return `${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getDate()).padStart(2, '0')}/${dt.getFullYear()}`
+}
+
+// "Day MM/DD/YYYY" (e.g. "Mon 06/30/2026").
 function fmtLongDate(d?: string): string {
-  if (!d) return ''
-  try {
-    const dt = new Date(`${d}T12:00:00`)
-    return dt.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' + fmtShortDate(d)
-  } catch { return d }
+  const dt = parseOrderDate(d)
+  if (!dt) return ''
+  return `${dt.toLocaleDateString('en-US', { weekday: 'short' })} ${fmtShortDate(d)}`
 }
 
 function fmtTime12(t?: string): string {
@@ -148,20 +159,23 @@ function fmtTimeRange(t: string | undefined, windowKey: string | undefined): str
   return start
 }
 
+// Guard against Invalid Date: an unparseable ISO string used to render the
+// literal "Invalid Date" (a truthy string), which broke the `||` fallback to
+// the order's own date/time. Now it returns '' so the fallback fires.
 function fmtIsoTime(iso?: string): string {
   if (!iso) return ''
-  try {
-    const dt = new Date(iso)
-    return dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
-  } catch { return '' }
+  const dt = new Date(iso)
+  if (isNaN(dt.getTime())) return ''
+  return dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
 }
 
-function fmtIsoDateShort(iso?: string): string {
+// "Day MM/DD/YYYY" from an ISO timestamp; '' when unparseable.
+function fmtIsoLongDate(iso?: string): string {
   if (!iso) return ''
-  try {
-    const dt = new Date(iso)
-    return `${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getDate()).padStart(2, '0')}/${dt.getFullYear()}`
-  } catch { return '' }
+  const dt = new Date(iso)
+  if (isNaN(dt.getTime())) return ''
+  const mmddyyyy = `${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getDate()).padStart(2, '0')}/${dt.getFullYear()}`
+  return `${dt.toLocaleDateString('en-US', { weekday: 'short' })} ${mmddyyyy}`
 }
 
 function fmtReceived(iso?: string): string {
@@ -211,7 +225,11 @@ export function buildPrintHtml(order: PrintableOrder): string {
   const discount = order.discount ?? 0
   const refund = order.refund ?? 0
   const employeeBenefit = order.employeeBenefit ?? 0
-  const serviceLabel = order.restaurant?.feeCategories?.[0]?.displayFeeCategoriesName || 'Service Charge'
+  // FM shows this line as "Service Charges" between Subtotal and Taxes.
+  const serviceLabel = order.restaurant?.feeCategories?.[0]?.displayFeeCategoriesName || 'Service Charges'
+  // FM may carry the surcharge under serviceCharge OR fee; prefer the dedicated
+  // field, fall back to fee so the row isn't silently dropped.
+  const serviceCharges = serviceCharge > 0 ? serviceCharge : fee
 
   const isDelivery = (order.orderType || '').toUpperCase() === 'DELIVERY'
   const timeRange = fmtTimeRange(order.orderTime, order.restaurant?.deliveryOrderTimeWindows)
@@ -269,9 +287,10 @@ export function buildPrintHtml(order: PrintableOrder): string {
   const totalRowsHtml = [
     totalRow('Subtotal', subtotal),
     employeeBenefit > 0 ? totalRow('For The Staff', employeeBenefit) : '',
-    serviceCharge > 0 ? totalRow(serviceLabel, serviceCharge) : '',
+    serviceCharges > 0 ? totalRow(serviceLabel, serviceCharges) : '',
     tax > 0 ? totalRow('Taxes', tax) : '',
-    fee > 0 ? totalRow('Fees', fee) : '',
+    // Only a separate "Fees" line when fee isn't already the service charge.
+    fee > 0 && serviceCharge > 0 ? totalRow('Fees', fee) : '',
     delivery > 0 ? totalRow('Delivery Fee', delivery) : '',
     tips > 0 ? totalRow('Tips', tips) : '',
     discount > 0 ? totalRow('Promo', -discount) : '',
@@ -382,6 +401,13 @@ export function buildPrintHtml(order: PrintableOrder): string {
       font-size: 13px;
       padding-top: 6px;
     }
+    .notes {
+      border: 1px solid #000;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+    .notes .lbl { font-weight: 700; margin-right: 4px; }
     .footer {
       font-size: 10px;
       color: #000;
@@ -401,7 +427,7 @@ export function buildPrintHtml(order: PrintableOrder): string {
   <table class="cols" cellspacing="0" cellpadding="0">
     <tr>
       <td class="head">ORDER DETAILS</td>
-      <td class="head">${isDelivery ? 'DELIVERY' : 'PICK-UP TIME'}</td>
+      <td class="head">${isDelivery ? 'DELIVERY' : 'PICKUP TIME'}</td>
     </tr>
     <tr>
       <td>
@@ -412,7 +438,7 @@ export function buildPrintHtml(order: PrintableOrder): string {
         ${order.restaurant?.address?.phoneNumber ? `<div class="line">${esc(order.restaurant.address.phoneNumber)}</div>` : ''}
       </td>
       <td>
-        <div class="line"><span class="lbl">Date:</span>${esc(fmtIsoDateShort(order.orderDropOffTime) || fmtShortDate(order.orderDate))}</div>
+        <div class="line"><span class="lbl">Date:</span>${esc(fmtIsoLongDate(order.orderDropOffTime) || fmtLongDate(order.orderDate))}</div>
         <div class="line"><span class="lbl">Time:</span>${esc(fmtIsoTime(order.orderDropOffTime) || fmtTime12(order.orderTime))}</div>
         ${customerName ? `<div class="line" style="margin-top:6px"><span class="lbl">Customer:</span>${esc(customerName)}</div>` : ''}
         ${customerAddrLines.map(l => `<div class="line">${esc(l)}</div>`).join('')}
@@ -422,6 +448,12 @@ export function buildPrintHtml(order: PrintableOrder): string {
       </td>
     </tr>
   </table>
+
+  ${order.note ? `
+  <div class="notes">
+    <span class="lbl">Order Notes:</span> ${esc(order.note)}
+  </div>
+  ` : ''}
 
   ${items.length > 0 ? `
   <table class="items" cellspacing="0" cellpadding="0">
@@ -452,6 +484,9 @@ export function buildPrintHtml(order: PrintableOrder): string {
 // was blocked so the caller can surface an error to the user.
 export function printOrder(order: PrintableOrder): boolean {
   if (typeof window === 'undefined') return false
+  // Temporary: surface the full order shape so we can confirm the real field
+  // names (pickup time, service charge, note) against FM.
+  console.log('[printOrder] order object:', order)
   const html = buildPrintHtml(order)
   const w = window.open('', '_blank', 'width=820,height=900')
   if (!w) return false

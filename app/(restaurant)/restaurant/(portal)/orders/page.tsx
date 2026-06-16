@@ -682,6 +682,14 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               </>
             )}
 
+            {/* Order Notes — between the items and totals (matches FM). */}
+            {order.note && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 4 }}>Order Notes:</div>
+                <div style={{ fontSize: 13, color: '#444', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{order.note}</div>
+              </div>
+            )}
+
             {/* Totals breakdown — mirrors FM template lines 395-540 */}
             <div style={{ borderTop: '1px solid #eee', paddingTop: 12, marginTop: 8 }}>
               <TotalRow label="Subtotal" value={totals.subtotal} />
@@ -728,12 +736,6 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                 )
               })()}
             </div>
-
-            {order.note && (
-              <div style={{ background: '#FFF9E6', border: '1px solid #FFE9A0', borderRadius: 8, padding: '10px 14px', marginTop: 16, fontSize: 13, color: '#7A6020' }}>
-                <strong>Note:</strong> {order.note}
-              </div>
-            )}
 
             {/* Action Buttons — hidden when printing */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 18 }} className="order-drawer-chrome">
