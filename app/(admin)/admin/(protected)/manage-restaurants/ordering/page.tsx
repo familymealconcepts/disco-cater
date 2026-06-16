@@ -308,6 +308,7 @@ export default function RestaurantsOrderingPage() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncProgress, setSyncProgress] = useState('')
+  const [fullSyncBusy, setFullSyncBusy] = useState(false)
   const [cacheBusy, setCacheBusy] = useState(false)
   const [importBusy, setImportBusy] = useState(false)
   const [enrichBusy, setEnrichBusy] = useState(false)
@@ -446,6 +447,24 @@ export default function RestaurantsOrderingPage() {
     }
   }
 
+  // Full Stripe Connect sync across EVERY FM restaurant (all pages) in one call.
+  async function fullSyncStripe() {
+    if (!confirm('Run a FULL Stripe Connect sync across ALL restaurants? This may take a couple of minutes.')) return
+    setFullSyncBusy(true)
+    setError('')
+    try {
+      const res = await fetch('/api/admin/sync-stripe-status/full', { method: 'POST' })
+      const d = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(d?.error || 'Full sync failed')
+      showToast(`Synced ${d.total} restaurants. ${d.connected} connected.`)
+      await loadStripeMap()
+    } catch (e) {
+      setError((e as Error).message || 'Full sync failed')
+    } finally {
+      setFullSyncBusy(false)
+    }
+  }
+
   // Enrich cache rows missing cuisine/description/image via Google Places, one
   // batch at a time, looping until the route reports done. Stops on first error.
   async function enrichWithGoogle() {
@@ -568,6 +587,12 @@ export default function RestaurantsOrderingPage() {
             {syncBusy ? (syncProgress || 'Syncing…') : 'Sync Stripe Status'}
             <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
             <span className="ord-tip">Check which restaurants have Stripe Connect set up (required to accept orders)</span>
+          </button>
+          <button className="ord-btn" onClick={fullSyncStripe} disabled={fullSyncBusy}
+            style={{ display: 'inline-flex', alignItems: 'center', background: BLUE, color: '#fff', border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: fullSyncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: fullSyncBusy ? 0.6 : 1 }}>
+            {fullSyncBusy ? 'Full syncing…' : 'Full Sync'}
+            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
+            <span className="ord-tip">Check Stripe Connect for EVERY restaurant (all pages) and update the table</span>
           </button>
           <button className="ord-btn" onClick={refreshMapCache} disabled={cacheBusy}
             style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: cacheBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: cacheBusy ? 0.6 : 1 }}>
