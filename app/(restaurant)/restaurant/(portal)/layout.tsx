@@ -43,6 +43,9 @@ const SYSTEM_ADMIN_NAV: NavItem[] = [
 // SYSTEM_ADMINs viewing a single location ("View as Restaurant User").
 const RESTAURANT_USER_NAV: NavItem[] = [
   { title: 'Orders', path: '/restaurant/orders', badge: true },
+  // Reports = the Reporting dashboard (charts + scheduled reports). Restaurant
+  // users land in the portal post-onboarding and need a way to reach it.
+  { title: 'Reports', path: '/restaurant/dashboard' },
   {
     title: 'Manage Menus', path: '/restaurant/manage-v2/menus',
     children: [

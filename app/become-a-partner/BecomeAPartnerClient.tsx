@@ -475,14 +475,19 @@ export default function BecomeAPartnerClient() {
               <p style={subStyle}>Orders placed through your website, social and other native links.</p>
               {errorBox}
 
-              {/* 1P pricing — grouped by who pays */}
-              <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
-                <div style={priceSectionTitle}>Paid by Restaurant</div>
-                <PriceRow label="First-Party orders" value="0.00%" />
-                <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" />
-                <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" />
-                <div style={{ ...priceSectionTitle, marginTop: 14 }}>Paid by Customer</div>
-                <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" />
+              {/* 1P pricing — a separate bubble per "who pays" group */}
+              <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
+                  <div style={priceSectionTitle}>Paid by Restaurant</div>
+                  <PriceRow label="First-Party orders" value="0.00%" />
+                  <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" />
+                  <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" />
+                  <PriceRow label="Third-party delivery" detail="Per order, when customer selects delivery" value="15% (max $85)" />
+                </div>
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
+                  <div style={priceSectionTitle}>Paid by Customer</div>
+                  <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" />
+                </div>
               </div>
 
               {/* Required agreement */}
@@ -646,7 +651,7 @@ export default function BecomeAPartnerClient() {
               <p style={{ ...subStyle, maxWidth: 440, margin: '0 auto 8px' }}>
                 Your account has been created.
                 <br />
-                To activate online ordering, connect to our payment processor, Stripe, from your Account tab.
+                Before activating online ordering, make sure your menu, ordering settings and Stripe connection are complete.
               </p>
 
               {/* Clear any stale FM identity, then navigate. Auto-logged-in via
