@@ -4,10 +4,11 @@ import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-// Saves an order note. Auth: the SUPER_ADMIN service JWT (raw, no "Bearer"
+// Saves an order note. FM: PUT /api/orders/{ref}/note (the public-api/v2 variant
+// 404s — it doesn't exist). Auth: the SUPER_ADMIN service JWT (raw, no "Bearer"
 // prefix) — Disco-native users have no FM token and a restaurant user's own
-// token isn't authorized here. Matches the public-api/v2 order endpoints used
-// by the order details / edit routes (keyed by orderRef).
+// token isn't authorized here. X-RESTAURANT-UUID carries the restaurant ref
+// resolved from the auth context.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
 
@@ -27,9 +28,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
   try {
     const body = await req.json()
-    const res = await fetch(`${FM}/public-api/v2/orders/${ref}/note`, {
-      method: 'POST',
-      headers: { ...auth, 'Content-Type': 'application/json', Accept: 'application/json' },
+    const res = await fetch(`${FM}/api/orders/${ref}/note`, {
+      method: 'PUT',
+      headers: {
+        ...auth,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-RESTAURANT-UUID': ctx.restaurantReference,
+      },
       body: JSON.stringify(body),
     })
     if (!res.ok) {
