@@ -7,7 +7,7 @@ const SORT_BLUE = '#5B6FE8'
 type SortKey = 'restaurant' | 'admin' | 'email' | 'createdDate' | 'status' | 'stripe'
 const SORT_LABELS: Record<SortKey, string> = {
   restaurant: 'Restaurant', admin: 'Admin', email: 'Email',
-  createdDate: 'Registration Date', status: 'Status', stripe: 'Stripe',
+  createdDate: 'Registration Date', status: 'Online Ordering', stripe: 'Stripe',
 }
 
 const F = "'DM Sans', sans-serif"
@@ -180,20 +180,10 @@ export default function RestaurantsOrderingPage() {
     setTimeout(() => setToast(''), 2500)
   }
 
-  async function toggleBlock(r: Restaurant) {
-    const next = !r.blocked
-    setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, blocked: next } : x))
-    const res = await fetch(`/api/admin/restaurants/${r.reference}/block?block=${next}`, { method: 'POST' })
-    if (!res.ok) {
-      setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, blocked: !next } : x))
-    } else {
-      showToast(`${r.businessName} ${next ? 'blocked' : 'unblocked'}`)
-    }
-  }
-
-  // "Disco Map" — disco_restaurant_overrides.visible (fullmap discovery). We send
-  // the row's current isPremium/orderUrl alongside the new visible so the upsert
-  // PATCH doesn't reset them.
+  // "Disco Cater Marketplace" — the single Disco-native map/marketplace visibility
+  // toggle (disco_restaurant_overrides.visible, what the fullmap filter reads). It
+  // does NOT touch any FM field. We send the row's current isPremium/orderUrl
+  // alongside the new visible so the upsert PATCH doesn't reset them.
   async function toggleVisible(r: Restaurant) {
     const cur = overrideMap[r.reference] || { visible: false, isPremium: false, orderUrl: '', menuUploadUrl: null }
     const next = !cur.visible
@@ -205,9 +195,9 @@ export default function RestaurantsOrderingPage() {
     })
     if (!res.ok) {
       setOverrideMap(prev => ({ ...prev, [r.reference]: cur }))
-      showToast('Could not update Disco Map visibility')
+      showToast('Could not update map & marketplace visibility')
     } else {
-      showToast(`${r.businessName} ${next ? 'shown on' : 'hidden from'} Disco Map`)
+      showToast(`${r.businessName} ${next ? 'shown on' : 'hidden from'} the Disco Cater map & marketplace`)
     }
   }
 
@@ -246,12 +236,33 @@ export default function RestaurantsOrderingPage() {
     else showToast('Delete failed')
   }
 
-  async function changeStatus(r: Restaurant, status: string) {
-    if (status === r.restaurantStatus) return
-    setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, restaurantStatus: status } : x))
-    const res = await fetch(`/api/admin/restaurants/${r.reference}/status?status=${status}`, { method: 'POST' })
-    if (res.ok) showToast(`${r.businessName} → ${status}`)
-    else load() // revert by reload
+  // Online Ordering = FM restaurantStatus "ACCEPTED" (on) vs "PENDING" (off).
+  // Toggling opens a confirmation modal; confirming routes through the
+  // GET→merge→PUT restaurant endpoint so only restaurantStatus changes.
+  function requestOnlineOrderingToggle(r: Restaurant) {
+    const next: 'ACCEPTED' | 'PENDING' = r.restaurantStatus === 'ACCEPTED' ? 'PENDING' : 'ACCEPTED'
+    setOrderingConfirm({ r, next })
+  }
+
+  async function confirmOnlineOrdering() {
+    if (!orderingConfirm) return
+    const { r, next } = orderingConfirm
+    setOrderingBusy(true)
+    try {
+      const res = await fetch(`/api/admin/restaurants/${r.reference}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantStatus: next }),
+      })
+      if (!res.ok) throw new Error()
+      setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, restaurantStatus: next } : x))
+      showToast(`${r.businessName}: online ordering ${next === 'ACCEPTED' ? 'enabled' : 'disabled'}`)
+      setOrderingConfirm(null)
+    } catch {
+      showToast('Could not update online ordering')
+    } finally {
+      setOrderingBusy(false)
+    }
   }
 
   async function resetPassword(r: Restaurant) {
@@ -263,6 +274,9 @@ export default function RestaurantsOrderingPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const [addOpen, setAddOpen] = useState(false)
   const [editRef, setEditRef] = useState<string | null>(null)
+  // Online-ordering confirmation modal (FM restaurantStatus ACCEPTED ↔ PENDING).
+  const [orderingConfirm, setOrderingConfirm] = useState<{ r: Restaurant; next: 'ACCEPTED' | 'PENDING' } | null>(null)
+  const [orderingBusy, setOrderingBusy] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncProgress, setSyncProgress] = useState('')
@@ -558,8 +572,7 @@ export default function RestaurantsOrderingPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
           <thead>
             <tr>
-              <th style={colHead}>Marketplace</th>
-              <th style={colHead}>Disco Map</th>
+              <th style={colHead} title="Show on Disco Cater map and marketplace">Disco Cater Marketplace</th>
               {sortTh('restaurant')}
               {sortTh('admin')}
               {sortTh('email')}
@@ -577,19 +590,15 @@ export default function RestaurantsOrderingPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={14} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={14} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
+            {loading && <tr><td colSpan={13} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={13} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
             {!loading && sortedRows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
               return (
                 <tr key={r._rowId}>
-                  {/* Marketplace: ON = visible (NOT blocked), mirroring FM's
-                      [checked]="!element.blocked". */}
-                  <td style={cell}>
-                    <Toggle checked={!r.blocked} onChange={() => toggleBlock(r)} color="#1D9E75" />
-                  </td>
-                  {/* Disco Map: disco_restaurant_overrides.visible (fullmap discovery). */}
+                  {/* Disco Cater Marketplace: the single Disco-native map/marketplace
+                      visibility toggle (disco_restaurant_overrides.visible). */}
                   <td style={cell}>
                     <Toggle checked={!!overrideMap[r.reference]?.visible} onChange={() => toggleVisible(r)} color="#1D9E75" />
                   </td>
@@ -606,10 +615,14 @@ export default function RestaurantsOrderingPage() {
                     {overrideMap[r.reference]?.menuUploadUrl || '—'}
                   </td>
                   <td style={cell}><StripeStatus status={stripeMap[r.reference]} /></td>
+                  {/* Online Ordering: FM restaurantStatus ACCEPTED (on) vs other (off). */}
                   <td style={cell}>
-                    <select value={r.restaurantStatus || ''} onChange={e => changeStatus(r, e.target.value)} style={smallSelect}>
-                      {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <Toggle checked={r.restaurantStatus === 'ACCEPTED'} onChange={() => requestOnlineOrderingToggle(r)} color="#1D9E75" />
+                      <span style={{ fontSize: 12, color: r.restaurantStatus === 'ACCEPTED' ? '#1D9E75' : '#999', fontWeight: 600 }}>
+                        {r.restaurantStatus === 'ACCEPTED' ? 'On' : 'Off'}
+                      </span>
+                    </div>
                   </td>
                   <td style={cell}><Toggle checked={!!r.nashAllowed} onChange={() => toggleNash(r)} /></td>
                   <td style={cell}><Toggle checked={r.moneyFlow !== 'DIRECT'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" /></td>
@@ -670,6 +683,30 @@ export default function RestaurantsOrderingPage() {
           onClose={() => setEditRef(null)}
           onSaved={(msg) => { setEditRef(null); showToast(msg); load() }}
         />
+      )}
+
+      {orderingConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: '24px 26px', maxWidth: 440, width: '90%', boxShadow: '0 12px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 10 }}>
+              {orderingConfirm.next === 'ACCEPTED' ? 'Enable' : 'Disable'} online ordering?
+            </div>
+            <p style={{ fontSize: 13.5, color: '#555', lineHeight: 1.55, margin: '0 0 22px' }}>
+              Are you sure you want to {orderingConfirm.next === 'ACCEPTED' ? 'enable' : 'disable'} online ordering for{' '}
+              <strong>{orderingConfirm.r.businessName}</strong>? This will affect their ability to receive orders on FamilyMeal.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setOrderingConfirm(null)} disabled={orderingBusy}
+                style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: orderingBusy ? 'default' : 'pointer', fontFamily: F, color: '#555' }}>
+                Cancel
+              </button>
+              <button onClick={confirmOnlineOrdering} disabled={orderingBusy}
+                style={{ background: orderingConfirm.next === 'ACCEPTED' ? '#1D9E75' : '#E53935', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: orderingBusy ? 'wait' : 'pointer', fontFamily: F, opacity: orderingBusy ? 0.7 : 1 }}>
+                {orderingBusy ? 'Saving…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
