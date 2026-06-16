@@ -406,14 +406,17 @@ function EditHistoryPanel({ orderRef, onClose }: { orderRef: string; onClose: ()
   )
 }
 
-function NoteModal({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
+function NoteModal({ order, orderRef, onClose, onSaved }: { order: Order; orderRef: string; onClose: () => void; onSaved: () => void }) {
   const [note, setNote] = useState(order.note || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   async function save() {
     setSaving(true); setErr('')
     try {
-      const res = await fetch(`/api/restaurant/orders/${order.orderReference}/note`, {
+      // Use the drawer's orderRef (the ref the order was loaded with) — the FM
+      // detail object exposes `reference`, NOT `orderReference`, so reading the
+      // latter off `order` was undefined → /orders/undefined/note.
+      const res = await fetch(`/api/restaurant/orders/${orderRef}/note`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }),
       })
       if (!res.ok) {
@@ -447,7 +450,7 @@ function NoteModal({ order, onClose, onSaved }: { order: Order; onClose: () => v
   )
 }
 
-function RefundModal({ order, isVoid, onClose, onSaved }: { order: Order; isVoid?: boolean; onClose: () => void; onSaved: () => void }) {
+function RefundModal({ order, orderRef, isVoid, onClose, onSaved }: { order: Order; orderRef: string; isVoid?: boolean; onClose: () => void; onSaved: () => void }) {
   const maxAmt = isVoid ? order.transactionsTotal : (order.maxAllowedRefundAmount || order.transactionsTotal)
   const [amount, setAmount] = useState(String(maxAmt || ''))
   const [useFullAmt, setUseFullAmt] = useState(true)
@@ -455,7 +458,7 @@ function RefundModal({ order, isVoid, onClose, onSaved }: { order: Order; isVoid
   useEffect(() => { if (useFullAmt) setAmount(String(maxAmt || '')) }, [useFullAmt, maxAmt])
   async function save() {
     setSaving(true)
-    await fetch(`/api/restaurant/orders/${order.orderReference}/refund`, {
+    await fetch(`/api/restaurant/orders/${orderRef}/refund`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: parseFloat(amount) }),
     })
     setSaving(false)
@@ -488,13 +491,13 @@ function RefundModal({ order, isVoid, onClose, onSaved }: { order: Order; isVoid
   )
 }
 
-function ReopenModal({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
+function ReopenModal({ order, orderRef, onClose, onSaved }: { order: Order; orderRef: string; onClose: () => void; onSaved: () => void }) {
   const [orderDate, setOrderDate] = useState(order.orderDate || '')
   const [orderTime, setOrderTime] = useState(order.orderTime?.slice(0, 5) || '')
   const [saving, setSaving] = useState(false)
   async function save() {
     setSaving(true)
-    await fetch(`/api/restaurant/orders/${order.orderReference}/reopen`, {
+    await fetch(`/api/restaurant/orders/${orderRef}/reopen`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderDate, orderTime: orderTime + ':00' }),
     })
     setSaving(false)
@@ -788,10 +791,10 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
         )}
       </div>
 
-      {modal === 'refund' && order && <RefundModal order={order} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
-      {modal === 'void' && order && <RefundModal order={order} isVoid onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
-      {modal === 'reopen' && order && <ReopenModal order={order} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
-      {modal === 'note' && order && <NoteModal order={order} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
+      {modal === 'refund' && order && <RefundModal order={order} orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
+      {modal === 'void' && order && <RefundModal order={order} orderRef={orderRef} isVoid onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
+      {modal === 'reopen' && order && <ReopenModal order={order} orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
+      {modal === 'note' && order && <NoteModal order={order} orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
       {confirm && <ConfirmDialog message={confirm.msg} onConfirm={() => { confirm.action(); setConfirm(null) }} onCancel={() => setConfirm(null)} />}
     </div>
   )
