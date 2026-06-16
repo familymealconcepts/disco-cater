@@ -409,14 +409,25 @@ function EditHistoryPanel({ orderRef, onClose }: { orderRef: string; onClose: ()
 function NoteModal({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
   const [note, setNote] = useState(order.note || '')
   const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
   async function save() {
-    setSaving(true)
-    await fetch(`/api/restaurant/orders/${order.orderReference}/note`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }),
-    })
-    setSaving(false)
-    onSaved()
-    onClose()
+    setSaving(true); setErr('')
+    try {
+      const res = await fetch(`/api/restaurant/orders/${order.orderReference}/note`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => null)
+        throw new Error(d?.error || 'Could not save the note.')
+      }
+      // Only refresh + close on a real save so the note shows immediately.
+      onSaved()
+      onClose()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not save the note.')
+    } finally {
+      setSaving(false)
+    }
   }
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -426,6 +437,7 @@ function NoteModal({ order, onClose, onSaved }: { order: Order; onClose: () => v
           value={note} onChange={e => setNote(e.target.value)} required
           style={{ width: '100%', minHeight: 100, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '10px 12px', fontSize: 13, fontFamily: F, resize: 'vertical', outline: 'none' }}
         />
+        {err && <div style={{ marginTop: 10, fontSize: 12, color: '#DC2626' }}>{err}</div>}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
           <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
           <button onClick={save} disabled={saving || !note.trim()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: BLUE, color: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F, fontWeight: 600 }}>Save</button>
