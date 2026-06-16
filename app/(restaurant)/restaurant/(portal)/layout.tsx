@@ -173,10 +173,19 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   }, [inRestaurantUserView, selectedRestaurant])
 
   async function handleLogout() {
-    await fetch('/api/restaurant-auth', { method: 'DELETE' })
+    // One endpoint clears BOTH auth paths: it deletes the Disco Neon session +
+    // disco_restaurant_token cookie AND the legacy fm_restaurant_token cookies.
+    // (The old call only hit /api/restaurant-auth DELETE, which left a
+    // disco_restaurant_token in place — so Disco-native users stayed logged in
+    // and were bounced straight back to the dashboard.)
+    try {
+      await fetch('/api/disco-restaurant-auth/logout', { method: 'POST', credentials: 'include' })
+    } catch { /* still clear local state + redirect below */ }
     await clearRestaurant()
-    localStorage.removeItem('restaurant_user')
-    router.push('/restaurant/login')
+    try { localStorage.removeItem('restaurant_user') } catch {}
+    // Hard navigation so middleware + the login page re-read the now-cleared
+    // cookies (a client transition can keep stale auth in memory).
+    window.location.href = '/restaurant/login'
   }
 
   // "← View as System Admin" — clears the picked restaurant (cookie +
