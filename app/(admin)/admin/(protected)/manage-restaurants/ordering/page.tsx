@@ -249,10 +249,21 @@ export default function RestaurantsOrderingPage() {
     else showToast('Delete failed')
   }
 
+  // Stripe must be connected before online ordering can be toggled — a
+  // restaurant can't accept orders without a payout account.
+  const isStripeConnected = (r: Restaurant) => stripeMap[r.reference]?.connected === true
+
   // Online Ordering = FM onlineOrderingAllowed boolean. Toggling opens a
   // confirmation modal; confirming routes through the GET→merge→PUT restaurant
   // endpoint so ONLY onlineOrderingAllowed changes (status/blocked untouched).
   function requestOnlineOrderingToggle(r: Restaurant) {
+    // Guard: no Stripe → show an inline warning instead of the confirm modal.
+    if (!isStripeConnected(r)) {
+      setOrderingWarning(r._rowId)
+      setTimeout(() => setOrderingWarning(w => (w === r._rowId ? null : w)), 4000)
+      return
+    }
+    setOrderingWarning(null)
     setOrderingConfirm({ r, next: !isOnline(r) })
   }
 
@@ -289,6 +300,8 @@ export default function RestaurantsOrderingPage() {
   // Online-ordering confirmation modal (FM onlineOrderingAllowed). next = target on/off.
   const [orderingConfirm, setOrderingConfirm] = useState<{ r: Restaurant; next: boolean } | null>(null)
   const [orderingBusy, setOrderingBusy] = useState(false)
+  // _rowId of a row showing the "connect Stripe first" inline warning (auto-clears).
+  const [orderingWarning, setOrderingWarning] = useState<string | null>(null)
   // Map/marketplace visibility confirmation modal (Neon visible). next = target on/off.
   const [marketplaceConfirm, setMarketplaceConfirm] = useState<{ r: Restaurant; next: boolean } | null>(null)
   const [marketplaceBusy, setMarketplaceBusy] = useState(false)
@@ -630,14 +643,31 @@ export default function RestaurantsOrderingPage() {
                     {overrideMap[r.reference]?.menuUploadUrl || '—'}
                   </td>
                   <td style={cell}><StripeStatus status={stripeMap[r.reference]} /></td>
-                  {/* Online Ordering: FM onlineOrderingAllowed boolean. */}
+                  {/* Online Ordering: FM onlineOrderingAllowed boolean. Disabled
+                      until Stripe is connected (can't accept orders without payouts). */}
                   <td style={cell}>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <Toggle checked={isOnline(r)} onChange={() => requestOnlineOrderingToggle(r)} color="#1D9E75" />
-                      <span style={{ fontSize: 12, color: isOnline(r) ? '#1D9E75' : '#999', fontWeight: 600 }}>
-                        {isOnline(r) ? 'On' : 'Off'}
-                      </span>
-                    </div>
+                    {(() => {
+                      const stripeOk = isStripeConnected(r)
+                      return (
+                        <>
+                          <div
+                            title={stripeOk ? undefined : 'Stripe must be connected before enabling online ordering'}
+                            onClick={stripeOk ? undefined : () => requestOnlineOrderingToggle(r)}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, opacity: stripeOk ? 1 : 0.4, cursor: stripeOk ? 'default' : 'not-allowed' }}
+                          >
+                            <Toggle checked={isOnline(r)} onChange={() => requestOnlineOrderingToggle(r)} disabled={!stripeOk} color="#1D9E75" />
+                            <span style={{ fontSize: 12, color: isOnline(r) ? '#1D9E75' : '#999', fontWeight: 600 }}>
+                              {isOnline(r) ? 'On' : 'Off'}
+                            </span>
+                          </div>
+                          {orderingWarning === r._rowId && (
+                            <div style={{ fontSize: 11, color: '#E53935', marginTop: 4, maxWidth: 220, lineHeight: 1.4 }}>
+                              This restaurant must connect Stripe before online ordering can be enabled.
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()}
                   </td>
                   <td style={cell}><Toggle checked={!!r.nashAllowed} onChange={() => toggleNash(r)} /></td>
                   <td style={cell}><Toggle checked={r.moneyFlow !== 'DIRECT'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" /></td>
