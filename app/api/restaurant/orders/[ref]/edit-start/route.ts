@@ -41,16 +41,24 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
       }
     )
     const data = await res.json().catch(() => ({}))
+    // Log the raw FM slotselected payload so the edit-draft ref field is visible.
+    console.log('[orders/edit-start] FM slotselected response:', res.status, JSON.stringify(data).slice(0, 1200))
     if (!res.ok) {
       return NextResponse.json({ error: data?.message || 'Could not start edit session' }, { status: res.status })
     }
-    // Surface the lock duration (seconds) and any returned edit-draft ref under
-    // a stable shape, while passing the raw payload through for anything else
-    // the client needs.
+    // Surface the lock duration (seconds) and the edit-draft ref under a stable
+    // shape, while passing the raw payload through for anything else the client
+    // needs. FM may nest the cloned edit order under data/order, so check both
+    // levels and several field names.
+    const inner = data?.data ?? data?.order ?? data
     const lockDuration =
-      data?.lockDuration ?? data?.editLockDuration ?? data?.lockDurationSeconds ?? data?.lockTtl ?? null
+      data?.lockDuration ?? data?.editLockDuration ?? data?.lockDurationSeconds ?? data?.lockTtl ??
+      inner?.lockDuration ?? inner?.editLockDuration ?? null
     const editOrderRef =
-      data?.editOrderRef ?? data?.editOrderReference ?? data?.orderReference ?? data?.reference ?? null
+      data?.editOrderRef ?? data?.editOrderReference ?? data?.editOrderId ?? data?.editReference ??
+      data?.draftOrderReference ?? data?.draftReference ??
+      inner?.editOrderRef ?? inner?.editOrderReference ?? inner?.orderReference ?? inner?.reference ??
+      data?.orderReference ?? data?.reference ?? null
     return NextResponse.json({ lockDuration, editOrderRef, restaurantRef, ...data })
   } catch {
     return NextResponse.json({ error: 'Could not start edit session' }, { status: 500 })

@@ -321,9 +321,24 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         const lockRes = await fetch(`/api/restaurant/orders/${orderRef}/edit-start`, { method: 'POST' })
         const lockData = (await lockRes.json().catch(() => ({}))) as AnyRec
         if (cancelled) return
+        console.log('[edit-start] response:', JSON.stringify(lockData))
         if (lockRes.ok) {
-          const editRef = str(lockData.editOrderRef)
+          // Resolve the FM edit-draft ref the commit must target. Prefer the
+          // route's normalized editOrderRef, then fall back to the raw FM keys it
+          // spreads through (edit-specific first; nested under data/order; generic
+          // order ref last). If none resolve, editRefRef stays the original ref.
+          const inner = (lockData.data ?? lockData.order ?? {}) as AnyRec
+          const editRef =
+            str(lockData.editOrderRef) ||
+            str(lockData.editOrderReference) ||
+            str(lockData.editOrderId) ||
+            str(inner.editOrderReference) ||
+            str(inner.orderReference) ||
+            str(inner.reference) ||
+            str(lockData.orderReference) ||
+            str(lockData.reference)
           if (editRef) editRefRef.current = editRef
+          console.log('[edit-start] editRefRef resolved:', editRefRef.current, '| original orderRef:', orderRef)
           const raw = lockData.lockDuration
           let secs = DEFAULT_LOCK_SECONDS
           if (typeof raw === 'number' && raw > 0) secs = raw <= 60 ? raw * 60 : raw
