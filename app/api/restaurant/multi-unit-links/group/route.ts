@@ -60,6 +60,9 @@ export async function PUT(req: NextRequest) {
     try {
       const restaurantReference = await getRestaurantRef()
       const full = await fetchFullLink(h, url)
+      // TEMP: inspect what the follow-up GET vs FM's thin PUT response carry.
+      console.log('[group PUT] fetchFullLink result:', JSON.stringify(full).slice(0, 500))
+      console.log('[group PUT] fmData:', JSON.stringify(fmData).slice(0, 500))
       const row = buildLinkRow(request, full || fmData, restaurantReference)
       if (url) row.slug = url // the group's slug is the query param, not the body
       await upsertLocationLink(row)
