@@ -59,10 +59,9 @@ export async function PUT(req: NextRequest) {
     // from the listing to recover the uploaded image; fall back to fmData if not.
     try {
       const restaurantReference = await getRestaurantRef()
+      // The links listing is scoped to the logged-in restaurant user, so this
+      // must use their own token (h = getRestaurantAuthHeader), not a service JWT.
       const full = await fetchFullLink(h, url)
-      // TEMP: inspect what the follow-up GET vs FM's thin PUT response carry.
-      console.log('[group PUT] fetchFullLink result:', JSON.stringify(full).slice(0, 500))
-      console.log('[group PUT] fmData:', JSON.stringify(fmData).slice(0, 500))
       const row = buildLinkRow(request, full || fmData, restaurantReference)
       if (url) row.slug = url // the group's slug is the query param, not the body
       await upsertLocationLink(row)
