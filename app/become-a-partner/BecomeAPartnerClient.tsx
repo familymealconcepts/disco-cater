@@ -537,11 +537,11 @@ export default function BecomeAPartnerClient() {
                   <PriceRow label="First-Party orders" value="0.00%" />
                   <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" />
                   <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" />
-                  <PriceRow label="Third-party delivery" value="Paid by customer" />
                 </div>
                 <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
                   <div style={priceSectionTitle}>Paid by Customer</div>
                   <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" />
+                  <PriceRow label="Third-party delivery" value="Paid by customer" />
                 </div>
               </div>
 
