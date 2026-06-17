@@ -537,7 +537,7 @@ export default function BecomeAPartnerClient() {
                   <PriceRow label="First-Party orders" value="0.00%" />
                   <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" />
                   <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" />
-                  <PriceRow label="Third-party delivery" detail="Per order, when customer selects delivery" value="15% (max $85)" />
+                  <PriceRow label="Third-party delivery" value="Paid by customer" />
                 </div>
                 <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
                   <div style={priceSectionTitle}>Paid by Customer</div>
@@ -664,7 +664,7 @@ export default function BecomeAPartnerClient() {
           {step === 5 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Add your menu</h1>
-              <p style={subStyle}>Upload a PDF or paste a link to your menu — our AI reads it and sets up your catering items automatically.</p>
+              <p style={subStyle}>Upload a PDF or paste a link to your menu.</p>
               {errorBox}
 
               {/* While the AI is reading the menu */}
@@ -709,7 +709,7 @@ export default function BecomeAPartnerClient() {
                   <div style={{ background: '#f4f6ff', border: '1px solid #dfe4ff', borderRadius: 14, padding: '18px 18px' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>We&apos;ll set up your menu for you</div>
                     <p style={{ fontSize: 13.5, color: '#585786', lineHeight: 1.6, margin: '6px 0 0' }}>
-                      Our team will be in touch within 24 hours to finish setting up your catering menu.
+                      Our team will be in touch to help finish setting up your catering menu.
                     </p>
                   </div>
                   <button onClick={completeOnboarding} disabled={loading}
@@ -760,7 +760,6 @@ export default function BecomeAPartnerClient() {
                         onBlur={e => { e.currentTarget.style.borderColor = '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
                         style={pillInput}
                       />
-                      <div style={{ fontSize: 12, color: '#999', margin: '8px 0 0', paddingLeft: 4 }}>ezCater, Toast, your own website — any menu link works.</div>
                     </div>
                   )}
 
@@ -772,7 +771,7 @@ export default function BecomeAPartnerClient() {
                   <div style={{ textAlign: 'center', marginTop: 12 }}>
                     <button onClick={skipMenu} disabled={loading}
                       style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: loading ? 'default' : 'pointer', textDecoration: 'underline' }}>
-                      Skip for now — I&apos;ll add my menu later
+                      Skip for now
                     </button>
                   </div>
                 </>
