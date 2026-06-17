@@ -39,7 +39,7 @@ export async function PUT(req: NextRequest) {
   }
   const url = req.nextUrl.searchParams.get('url') || ''
   try {
-    const fd = await buildForwardForm(req)
+    const { form: fd } = await buildForwardForm(req)
     const res = await fetch(`${FM}/api/system-admin/groups?url=${encodeURIComponent(url)}`, {
       method: 'PUT', headers: h, body: fd,
     })

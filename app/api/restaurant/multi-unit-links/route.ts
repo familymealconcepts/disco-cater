@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader, getRestaurantUserRef } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantUserRef, getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../lib/multi-link-forward'
+import { upsertLocationLink, buildLinkRow } from '../../../../lib/location-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -42,15 +43,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   try {
-    const fd = await buildForwardForm(req)
+    const { form, request } = await buildForwardForm(req)
     const res = await fetch(`${FM}/api/system-admin/restaurants/links`, {
-      method: 'POST', headers: h, body: fd,
+      method: 'POST', headers: h, body: form,
     })
     if (!res.ok) {
       const raw = await res.text().catch(() => '')
       return NextResponse.json({ error: 'Failed', raw }, { status: res.status })
     }
     const text = await res.text()
-    return NextResponse.json(text ? JSON.parse(text) : { ok: true })
+    let fmData: Record<string, unknown> = {}
+    if (text) { try { fmData = JSON.parse(text) } catch { fmData = {} } }
+
+    // Mirror the link into Neon for the public /locations/[slug] header. Best
+    // effort — the FM write already succeeded, so a Neon failure must not fail
+    // the save (the create-table migration also lives here, idempotent).
+    try {
+      const restaurantReference = await getRestaurantRef()
+      await upsertLocationLink(buildLinkRow(request, fmData, restaurantReference))
+    } catch (e) {
+      console.error('[multi-unit-links] Neon mirror failed (create):', e instanceof Error ? e.message : e)
+    }
+
+    return NextResponse.json(text ? fmData : { ok: true })
   } catch { return NextResponse.json({ error: 'Unable to create' }, { status: 500 }) }
 }

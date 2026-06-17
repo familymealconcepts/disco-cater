@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../../lib/multi-link-forward'
+import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -14,16 +15,28 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   }
   const { ref } = await params
   try {
-    const fd = await buildForwardForm(req)
+    const { form, request } = await buildForwardForm(req)
     const res = await fetch(`${FM}/api/system-admin/restaurants/links/${ref}`, {
-      method: 'PUT', headers: h, body: fd,
+      method: 'PUT', headers: h, body: form,
     })
     if (!res.ok) {
       const raw = await res.text().catch(() => '')
       return NextResponse.json({ error: 'Failed', raw }, { status: res.status })
     }
     const text = await res.text()
-    return NextResponse.json(text ? JSON.parse(text) : { ok: true })
+    let fmData: Record<string, unknown> = {}
+    if (text) { try { fmData = JSON.parse(text) } catch { fmData = {} } }
+
+    // Mirror the updated link into Neon for the public /locations/[slug] header.
+    // Best effort — the FM update already succeeded.
+    try {
+      const restaurantReference = await getRestaurantRef()
+      await upsertLocationLink(buildLinkRow(request, fmData, restaurantReference))
+    } catch (e) {
+      console.error('[multi-unit-links] Neon mirror failed (update):', e instanceof Error ? e.message : e)
+    }
+
+    return NextResponse.json(text ? fmData : { ok: true })
   } catch { return NextResponse.json({ error: 'Unable to update' }, { status: 500 }) }
 }
 
