@@ -37,6 +37,11 @@ interface FormState {
   restaurantName: string; zip: string; password: string
 }
 
+// One parsed menu item returned by the AI menu-import route (high confidence).
+interface MenuItem {
+  name: string; description: string; price: number; serves: string; category: string
+}
+
 // ── Per-email onboarding cache ────────────────────────────────────────────────
 // These keys persist the "this browser already created the restaurant" state so
 // we never provision twice across the Stripe round-trip reload. They MUST be
@@ -123,7 +128,14 @@ export default function BecomeAPartnerClient() {
   const [joinedMarketplace, setJoinedMarketplace] = useState(false)
   const [deliveryEnabled, setDeliveryEnabled] = useState(false)   // step 4 (3P delivery)
   const [stripeConnected, setStripeConnected] = useState(false)   // step 5 (Stripe Connect)
+  // Menu step (step 5): AI import with graceful concierge fallback.
+  const [menuTab, setMenuTab] = useState<'pdf' | 'url'>('pdf')
   const [menuFile, setMenuFile] = useState<File | null>(null)
+  const [menuUrl, setMenuUrl] = useState('')
+  const [menuProcessing, setMenuProcessing] = useState(false)
+  // null = not processed yet. 'high' shows the parsed preview; 'low' shows the
+  // concierge-handoff message. Either way the partner continues to success.
+  const [menuResult, setMenuResult] = useState<null | { confidence: 'high' | 'low'; items: MenuItem[] }>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [emailInUse, setEmailInUse] = useState(false)   // FM 400-027: admin email already exists
@@ -316,35 +328,81 @@ export default function BecomeAPartnerClient() {
     }
   }
 
-  // Send the optional menu PDF to the team for manual import. Best-effort —
-  // returns true on success/skip, false on failure (must NOT block onboarding).
-  // Same /menu-upload route + Mailgun email to concierge@discocater.com.
-  async function sendMenu(ref: string): Promise<boolean> {
-    if (!menuFile) return true
+  // Read a File into a base64 string (no data: prefix) for the JSON menu-upload.
+  function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || '').split(',').pop() || '')
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+  }
+
+  // AI menu import. Sends the PDF (base64) or URL to /menu-upload, which parses
+  // it with Claude. HIGH confidence → preview the parsed items; LOW confidence
+  // (or any error) → the route has already emailed the concierge team, and we
+  // show the "we'll set it up for you" handoff. Either way onboarding continues —
+  // the partner never sees a failure.
+  async function processMenu() {
+    setError('')
+    if (menuTab === 'pdf' && !menuFile) { setError('Please choose a PDF first.'); return }
+    if (menuTab === 'url' && !menuUrl.trim()) { setError('Please paste a menu URL first.'); return }
+    setMenuProcessing(true)
     try {
-      const fd = new FormData()
-      fd.append('menuFile', menuFile)
-      fd.append('restaurantName', form.restaurantName)
-      fd.append('email', form.email)
-      if (ref) fd.append('restaurantReference', ref)
-      const res = await fetch('/api/become-a-partner/menu-upload', { method: 'POST', body: fd })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.success) {
-        // Surface the route's error (e.g. Mailgun not configured) for debugging.
-        console.error('[become-a-partner] menu upload failed:', res.status, data?.error || data)
-        return false
+      const payload: Record<string, unknown> = {
+        source: menuTab,
+        restaurantName: form.restaurantName,
+        restaurantEmail: form.email,
+        restaurantReference: restaurantRef || '',
       }
-      return true
+      if (menuTab === 'pdf' && menuFile) payload.fileBase64 = await fileToBase64(menuFile)
+      if (menuTab === 'url') payload.url = menuUrl.trim()
+
+      const res = await fetch('/api/become-a-partner/menu-upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.confidence === 'high' && Array.isArray(data.items)) {
+        setMenuResult({ confidence: 'high', items: data.items as MenuItem[] })
+      } else {
+        // Low confidence, a non-OK response, or a parse error — all resolve to the
+        // graceful concierge handoff. The route emails the team server-side.
+        setMenuResult({ confidence: 'low', items: [] })
+      }
     } catch (err) {
-      console.error('[become-a-partner] menu upload request failed:', err)
-      return false
+      // Network failure reaching our own route — still hand off gracefully.
+      console.error('[become-a-partner] menu processing request failed:', err)
+      setMenuResult({ confidence: 'low', items: [] })
+    } finally {
+      setMenuProcessing(false)
     }
   }
 
-  // ── Final step → create the restaurant (deferred from step 0), then send the
-  // optional menu and the team notification. This is the ONLY place we touch FM,
-  // so partial signups never create accounts or fire notifications. ──
-  async function completeOnboarding(skip: boolean) {
+  // Tell the team the partner skipped the menu step, then finish onboarding.
+  // Best-effort — a failed note must never block completion.
+  async function skipMenu() {
+    try {
+      await fetch('/api/become-a-partner/menu-upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'skip',
+          restaurantName: form.restaurantName,
+          restaurantEmail: form.email,
+          restaurantReference: restaurantRef || '',
+        }),
+      })
+    } catch (err) {
+      console.error('[become-a-partner] menu skip note failed:', err)
+    }
+    await completeOnboarding()
+  }
+
+  // ── Final step → create the restaurant (deferred from step 0), then fire the
+  // team notification and show success. The menu was already handled (parsed or
+  // handed to concierge) on the menu step, so it isn't touched here. This is the
+  // ONLY place that provisions FM, so partial signups never create accounts. ──
+  async function completeOnboarding() {
     console.log('[onboarding] completeOnboarding called, restaurantRef:', restaurantRef, 'alreadyCreated:', alreadyCreated)
     setError('')
     setLoading(true)
@@ -357,7 +415,6 @@ export default function BecomeAPartnerClient() {
         if (!created) return // createRestaurant set the error (incl. email-in-use)
         ref = created
       }
-      const menuOk = skip ? true : await sendMenu(ref)
       const res = await fetch('/api/become-a-partner/complete', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         // Full context for the team notification (email + Slack). agreedToPricing
@@ -371,15 +428,13 @@ export default function BecomeAPartnerClient() {
           deliveryEnabled,
           stripeConnected,
           restaurantReference: ref,
-          menuFileName: menuFile?.name || '',
+          menuFileName: menuTab === 'pdf' ? (menuFile?.name || '') : (menuUrl.trim() || ''),
           agreedToPricing: true,
           agreedToDelivery: deliveryEnabled,
         }),
       })
       const data = await res.json()
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
-      // Menu-upload failures are logged (sendMenu) but not surfaced on success.
-      void menuOk
       setStep(6)
     } catch {
       setError('Unable to connect. Please try again.')
@@ -605,41 +660,123 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 6 · UPLOAD YOUR MENU ── */}
+          {/* ── STEP 6 · ADD YOUR MENU (AI import) ── */}
           {step === 5 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Upload your menu</h1>
-              <p style={subStyle}>Upload a PDF of your current catering menu and our team will set it up in your portal.</p>
+              <h1 style={h1Style}>Add your menu</h1>
+              <p style={subStyle}>Upload a PDF or paste a link to your menu — our AI reads it and sets up your catering items automatically.</p>
               {errorBox}
 
-              {/* Menu upload */}
-              <div style={{ marginTop: 18 }}>
-                <label style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px',
-                  border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe',
-                }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>Choose PDF</span>
-                  <span style={{ fontSize: 13, color: menuFile ? DARK : '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {menuFile ? menuFile.name : 'No file selected'}
-                  </span>
-                  <input type="file" accept=".pdf,application/pdf"
-                    onChange={e => setMenuFile(e.target.files?.[0] || null)}
-                    style={{ display: 'none' }} />
-                </label>
-              </div>
+              {/* While the AI is reading the menu */}
+              {menuProcessing ? (
+                <div style={{ marginTop: 24, textAlign: 'center', padding: '28px 10px' }}>
+                  <div style={{
+                    width: 36, height: 36, margin: '0 auto 16px', borderRadius: '50%',
+                    border: '3px solid #ececf4', borderTopColor: BLUE, animation: 'discospin 0.8s linear infinite',
+                  }} />
+                  <style>{`@keyframes discospin { to { transform: rotate(360deg) } }`}</style>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Our AI is reading your menu…</div>
+                  <div style={{ fontSize: 13, color: '#888', marginTop: 6 }}>This usually takes 10–30 seconds.</div>
+                </div>
 
-              {/* Finish */}
-              <button onClick={() => completeOnboarding(false)} disabled={loading}
-                style={{ ...primaryBtn, marginTop: 24, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                {loading ? (menuFile ? 'Uploading menu…' : 'Finishing up…') : 'Complete setup'}
-              </button>
+              ) : menuResult?.confidence === 'high' ? (
+                /* HIGH confidence → preview the parsed items */
+                <div style={{ marginTop: 18 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#2E9E5B', marginBottom: 10 }}>
+                    ✓ We found {menuResult.items.length} item{menuResult.items.length === 1 ? '' : 's'} on your menu
+                  </div>
+                  <div style={{ border: '1px solid #ececf4', borderRadius: 14, overflow: 'hidden', maxHeight: 280, overflowY: 'auto' }}>
+                    {menuResult.items.map((it, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderTop: i === 0 ? 'none' : '1px solid #f1f1f6' }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
+                          {it.serves && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Serves {it.serves}</div>}
+                        </div>
+                        {it.price > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: BLUE, whiteSpace: 'nowrap', flexShrink: 0 }}>${it.price.toFixed(2)}</div>}
+                      </div>
+                    ))}
+                  </div>
+                  <p style={{ ...subStyle, margin: '14px 0 0' }}>Looks good! We&apos;ll finish setting up your menu.</p>
+                  <button onClick={completeOnboarding} disabled={loading}
+                    style={{ ...primaryBtn, marginTop: 18, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                    {loading ? 'Finishing up…' : 'Continue'}
+                  </button>
+                </div>
 
-              <div style={{ textAlign: 'center', marginTop: 12 }}>
-                <button onClick={() => completeOnboarding(true)} disabled={loading}
-                  style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: loading ? 'default' : 'pointer', textDecoration: 'underline' }}>
-                  Skip for now
-                </button>
-              </div>
+              ) : menuResult?.confidence === 'low' ? (
+                /* LOW confidence → graceful concierge handoff (failure hidden) */
+                <div style={{ marginTop: 18 }}>
+                  <div style={{ background: '#f4f6ff', border: '1px solid #dfe4ff', borderRadius: 14, padding: '18px 18px' }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>We&apos;ll set up your menu for you</div>
+                    <p style={{ fontSize: 13.5, color: '#585786', lineHeight: 1.6, margin: '6px 0 0' }}>
+                      Our team will be in touch within 24 hours to finish setting up your catering menu.
+                    </p>
+                  </div>
+                  <button onClick={completeOnboarding} disabled={loading}
+                    style={{ ...primaryBtn, marginTop: 18, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                    {loading ? 'Finishing up…' : 'Continue'}
+                  </button>
+                </div>
+
+              ) : (
+                /* Initial input: PDF / URL tabs + Process Menu */
+                <>
+                  <div style={{ marginTop: 18, display: 'flex', gap: 8, background: '#f4f4fa', borderRadius: 999, padding: 4 }}>
+                    {([['pdf', 'Upload PDF'], ['url', 'Paste a URL']] as const).map(([key, label]) => (
+                      <button key={key} onClick={() => { setError(''); setMenuTab(key) }}
+                        style={{
+                          flex: 1, height: 38, borderRadius: 999, border: 'none', cursor: 'pointer',
+                          fontFamily: F, fontSize: 13.5, fontWeight: 700,
+                          background: menuTab === key ? '#fff' : 'transparent',
+                          color: menuTab === key ? DARK : '#888',
+                          boxShadow: menuTab === key ? '0 1px 4px rgba(26,16,40,0.1)' : 'none',
+                        }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {menuTab === 'pdf' ? (
+                    <div style={{ marginTop: 16 }}>
+                      <label style={{
+                        display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px',
+                        border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe',
+                      }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>Choose PDF</span>
+                        <span style={{ fontSize: 13, color: menuFile ? DARK : '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {menuFile ? menuFile.name : 'No file selected'}
+                        </span>
+                        <input type="file" accept=".pdf,application/pdf"
+                          onChange={e => setMenuFile(e.target.files?.[0] || null)}
+                          style={{ display: 'none' }} />
+                      </label>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 16 }}>
+                      <input
+                        type="url" value={menuUrl} placeholder="https://www.ezcater.com/…  or your menu page"
+                        onChange={e => setMenuUrl(e.target.value)}
+                        onFocus={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(91,111,232,0.12)' }}
+                        onBlur={e => { e.currentTarget.style.borderColor = '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
+                        style={pillInput}
+                      />
+                      <div style={{ fontSize: 12, color: '#999', margin: '8px 0 0', paddingLeft: 4 }}>ezCater, Toast, your own website — any menu link works.</div>
+                    </div>
+                  )}
+
+                  <button onClick={processMenu}
+                    style={{ ...primaryBtn, marginTop: 24 }}>
+                    Process Menu
+                  </button>
+
+                  <div style={{ textAlign: 'center', marginTop: 12 }}>
+                    <button onClick={skipMenu} disabled={loading}
+                      style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: loading ? 'default' : 'pointer', textDecoration: 'underline' }}>
+                      Skip for now — I&apos;ll add my menu later
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
