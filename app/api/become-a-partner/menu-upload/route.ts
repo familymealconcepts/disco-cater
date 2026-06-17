@@ -35,7 +35,7 @@ const MAX_HTML_CHARS = 400_000 // cap the HTML we send to Claude (large menu pag
 const URL_FETCH_TIMEOUT_MS = 15_000
 const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
-const SYSTEM_PROMPT = `You are a menu parser. Extract all catering menu items from the provided content. For each item return: name, description (optional), price (number, 0 if not found), serves (string e.g. '10-15'), category (e.g. 'Entrees', 'Sides', 'Beverages'). Return JSON only: { items: [...], confidence: 'high' | 'low' }. Set confidence to 'high' if you found at least 3 items with clear names and prices. Set confidence to 'low' if the content is unclear, blocked, or yields fewer than 3 priced items.`
+const SYSTEM_PROMPT = `You are a menu parser. Extract all catering menu items from the provided content. For each item return: name, description (optional), price (number, 0 if not found), serves (string e.g. '10-15'), category (e.g. 'Entrees', 'Sides', 'Beverages'). Price is optional — set to 0 if not listed. Do not lower confidence just because prices are missing. Return JSON only: { items: [...], confidence: 'high' | 'low' }. Set confidence to 'high' if you found at least 3 items with clear names. Set confidence to 'low' only if the content is unclear, blocked, or yields fewer than 3 named items.`
 
 interface MenuItem {
   name: string
@@ -60,6 +60,43 @@ async function runAnthropic(apiKey: string, content: unknown[]): Promise<string>
   return Array.isArray((data as any)?.content)
     ? (data as any).content.filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('\n')
     : ''
+}
+
+// Rasterize the first few PDF pages to base64 images for Claude vision. Many
+// catering PDFs are design-heavy with text baked into images, which the raw
+// document mode can miss — rendering each page to a flat image fixes that.
+// Pure-WASM (mupdf) + sharp; no native binaries, so it runs on Vercel. Throws
+// on any failure so the caller can fall back to raw-document mode.
+const PDF_RENDER_PAGES = 3
+const PDF_RENDER_SCALE = 2.0 // 72dpi × 2 ≈ 144dpi — enough for OCR
+const PDF_MAX_EDGE = 1568    // Anthropic downsizes beyond this anyway
+
+async function pdfToImages(pdfBuffer: Buffer): Promise<{ media_type: string; data: string }[]> {
+  const mupdf = await import('mupdf')
+  const sharp = (await import('sharp')).default
+  const doc = mupdf.Document.openDocument(new Uint8Array(pdfBuffer), 'application/pdf')
+  const pageCount = Math.min(doc.countPages(), PDF_RENDER_PAGES)
+  if (pageCount < 1) throw new Error('PDF has no pages')
+
+  const images: { media_type: string; data: string }[] = []
+  for (let i = 0; i < pageCount; i++) {
+    const page = doc.loadPage(i)
+    const pix = page.toPixmap(mupdf.Matrix.scale(PDF_RENDER_SCALE, PDF_RENDER_SCALE), mupdf.ColorSpace.DeviceRGB, false)
+    const png = Buffer.from(pix.asPNG())
+    try {
+      // Recompress to a size-capped JPEG so the request stays lean.
+      const jpeg = await sharp(png)
+        .resize({ width: PDF_MAX_EDGE, height: PDF_MAX_EDGE, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer()
+      images.push({ media_type: 'image/jpeg', data: jpeg.toString('base64') })
+    } catch {
+      // sharp failed — send the raw PNG page instead.
+      images.push({ media_type: 'image/png', data: png.toString('base64') })
+    }
+  }
+  if (!images.length) throw new Error('No pages rendered')
+  return images
 }
 
 // Pull the { items, confidence } object out of the model output, tolerating
@@ -232,13 +269,29 @@ export async function POST(req: NextRequest) {
   try {
     if (source === 'pdf') {
       if (!fileBase64) return NextResponse.json({ error: 'A PDF file is required.' }, { status: 400 })
-      let bytes: number
-      try { bytes = Buffer.from(fileBase64, 'base64').length } catch { bytes = 0 }
-      if (bytes > MAX_PDF_BYTES) return NextResponse.json({ error: 'PDF is too large (max 10MB).' }, { status: 400 })
-      const text = await runAnthropic(apiKey, [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } },
-        { type: 'text', text: 'Extract the catering menu items from this menu.' },
-      ])
+      let pdfBuffer: Buffer
+      try { pdfBuffer = Buffer.from(fileBase64, 'base64') } catch { pdfBuffer = Buffer.alloc(0) }
+      if (pdfBuffer.length > MAX_PDF_BYTES) return NextResponse.json({ error: 'PDF is too large (max 10MB).' }, { status: 400 })
+
+      // Preferred: rasterize the first pages and send them as vision images
+      // (catches text baked into images). If rendering fails for any reason,
+      // fall back to sending the raw PDF as a document (the prior behavior).
+      let content: unknown[]
+      try {
+        const images = await pdfToImages(pdfBuffer)
+        content = [
+          ...images.map(img => ({ type: 'image', source: { type: 'base64', media_type: img.media_type, data: img.data } })),
+          { type: 'text', text: 'These are page images of a catering menu. Extract the menu items.' },
+        ]
+        console.log(`[menu-upload] ${safeName}: sent ${images.length} rendered page image(s) to Claude.`)
+      } catch (err) {
+        console.warn('[menu-upload] PDF→image render failed, using raw document mode:', err instanceof Error ? err.message : err)
+        content = [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: fileBase64 } },
+          { type: 'text', text: 'Extract the catering menu items from this menu.' },
+        ]
+      }
+      const text = await runAnthropic(apiKey, content)
       parsed = extractResult(text)
     } else {
       if (!url) return NextResponse.json({ error: 'A menu URL is required.' }, { status: 400 })
@@ -270,13 +323,14 @@ export async function POST(req: NextRequest) {
     return fallback(`Parsing failed: ${err instanceof Error ? err.message : 'unknown error'}`)
   }
 
-  // 2) Decide confidence. Trust HIGH only when we actually have ≥3 items that
-  //    carry both a name and a price — independent of the model's self-report.
+  // 2) Decide confidence. Trust HIGH only when we actually have ≥3 named items —
+  //    independent of the model's self-report. Price is optional (many public
+  //    menus omit prices), so it does NOT factor into the threshold.
   const items = parsed?.items ?? []
-  const pricedItems = items.filter(i => i.name && i.price > 0)
-  const isHigh = parsed?.confidence === 'high' && pricedItems.length >= 3
+  const namedItems = items.filter(i => i.name)
+  const isHigh = parsed?.confidence === 'high' && namedItems.length >= 3
 
-  if (!isHigh) return fallback(`Low confidence (${pricedItems.length} priced item(s) found).`)
+  if (!isHigh) return fallback(`Low confidence (${namedItems.length} named item(s) found).`)
 
   // 3) HIGH confidence → create FM meal packages if the restaurant exists yet.
   //    If there's no ref yet (Stripe Connect blocker) or some creates fail, send
