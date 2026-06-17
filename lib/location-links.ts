@@ -1,14 +1,14 @@
 import { sql } from './db'
 
-const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
-const FM_IMG_BASE = `${FM}/public-api/images`
-
-// Build a public image-CDN URL from an FM image reference (size 1200 for the
-// /locations/[slug] header). Returns null when no reference is given.
+// Build the image URL for an FM image reference (size 1200 for the
+// /locations/[slug] header). Returns null when no reference is given. Points at
+// our own /api/public/fm-image proxy so the image is served from discocater.com
+// with FM service auth applied server-side (FM's image CDN needs that auth).
 export function imageUrlFromRef(imageRef: string | null | undefined): string | null {
   const ref = (imageRef || '').trim()
   if (!ref) return null
-  return ref.startsWith('http') ? ref : `${FM_IMG_BASE}/${ref}/download?size=1200`
+  if (ref.startsWith('http')) return ref
+  return `/api/public/fm-image?ref=${encodeURIComponent(ref)}&size=1200`
 }
 
 // Neon mirror of the FM multi-unit "Links" so the PUBLIC /locations/[slug] page
