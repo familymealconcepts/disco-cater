@@ -27,9 +27,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     let fmData: Record<string, unknown> = {}
     if (text) { try { fmData = JSON.parse(text) } catch { fmData = {} } }
 
-    // TEMP: inspect FM's PUT response shape (does it echo the image reference?).
-    console.log('[multi-unit-links PUT] FM response:', JSON.stringify(fmData).slice(0, 1000))
-
     // Mirror the updated link into Neon for the public /locations/[slug] header.
     // Best effort — the FM update already succeeded.
     try {
