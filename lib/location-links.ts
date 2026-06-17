@@ -13,20 +13,24 @@ export async function fetchFullLink(
 ): Promise<Record<string, unknown> | null> {
   if (!slug) return null
   try {
-    const params = new URLSearchParams({ dashboardUrl: slug, size: '1', page: '0' })
+    const params = new URLSearchParams({ size: '100', page: '0' })
     const res = await fetch(`${FM}/api/system-admin/restaurants/links/listing?${params}`, {
       headers: { ...authHeader, Accept: 'application/json' },
       cache: 'no-store',
     })
     if (!res.ok) return null
     const data = (await res.json().catch(() => null)) as unknown
+    // TEMP: inspect the raw listing shape while diagnosing image-ref recovery.
+    console.log('[fetchFullLink] FM response:', JSON.stringify(data).slice(0, 800))
     const items: Record<string, unknown>[] = Array.isArray(data)
       ? (data as Record<string, unknown>[])
       : ((data as { content?: Record<string, unknown>[]; data?: Record<string, unknown>[] })?.content
         || (data as { data?: Record<string, unknown>[] })?.data
         || [])
     const target = slug.toLowerCase()
-    const match = items.find(l => String(l?.url || '').toLowerCase() === target)
+    const match = items.find(l =>
+      String(l?.url || '').toLowerCase() === target
+      || String(l?.dashboardUrl || '').toLowerCase() === target)
     return match || null
   } catch {
     return null
