@@ -3,38 +3,12 @@ import { sql } from './db'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const FM_IMG_BASE = `${FM}/public-api/images`
 
-// FM's create/update responses are thin and omit the uploaded image reference,
-// so after a save we re-fetch the full link object from the listing to recover
-// it. Match is exact on the link url (slug). Returns the matched link object, or
-// null on any failure / no match — callers then fall back to the thin response.
-export async function fetchFullLink(
-  authHeader: Record<string, string>,
-  slug: string,
-): Promise<Record<string, unknown> | null> {
-  if (!slug) return null
-  try {
-    const params = new URLSearchParams({ size: '100', page: '0' })
-    const res = await fetch(`${FM}/api/system-admin/restaurants/links/listing?${params}`, {
-      headers: { ...authHeader, Accept: 'application/json' },
-      cache: 'no-store',
-    })
-    if (!res.ok) return null
-    const data = (await res.json().catch(() => null)) as unknown
-    // TEMP: inspect the raw listing shape while diagnosing image-ref recovery.
-    console.log('[fetchFullLink] FM response:', JSON.stringify(data).slice(0, 800))
-    const items: Record<string, unknown>[] = Array.isArray(data)
-      ? (data as Record<string, unknown>[])
-      : ((data as { content?: Record<string, unknown>[]; data?: Record<string, unknown>[] })?.content
-        || (data as { data?: Record<string, unknown>[] })?.data
-        || [])
-    const target = slug.toLowerCase()
-    const match = items.find(l =>
-      String(l?.url || '').toLowerCase() === target
-      || String(l?.dashboardUrl || '').toLowerCase() === target)
-    return match || null
-  } catch {
-    return null
-  }
+// Build a public image-CDN URL from an FM image reference (size 1200 for the
+// /locations/[slug] header). Returns null when no reference is given.
+export function imageUrlFromRef(imageRef: string | null | undefined): string | null {
+  const ref = (imageRef || '').trim()
+  if (!ref) return null
+  return ref.startsWith('http') ? ref : `${FM_IMG_BASE}/${ref}/download?size=1200`
 }
 
 // Neon mirror of the FM multi-unit "Links" so the PUBLIC /locations/[slug] page
@@ -67,10 +41,7 @@ export function buildLinkRow(
   const titleRaw = f.header ?? r.header
   const title = titleRaw != null && String(titleRaw).trim() ? String(titleRaw).trim() : null
   const ref = (f.image && f.image.reference) || f.locationImage || ''
-  const imageUrl = ref
-    ? (String(ref).startsWith('http') ? String(ref) : `${FM_IMG_BASE}/${ref}/download?size=1200`)
-    : null
-  return { slug, title, imageUrl, restaurantReference: restaurantReference || null }
+  return { slug, title, imageUrl: imageUrlFromRef(String(ref)), restaurantReference: restaurantReference || null }
 }
 
 // CREATE TABLE IF NOT EXISTS, cached per-lambda. The Neon HTTP driver runs one
@@ -103,6 +74,22 @@ export async function upsertLocationLink(row: LocationLinkRow): Promise<void> {
       title = EXCLUDED.title,
       image_url = EXCLUDED.image_url,
       restaurant_reference = EXCLUDED.restaurant_reference,
+      updated_at = NOW()
+  `
+}
+
+// Update ONLY the image_url for a slug (leaves title/restaurant_reference as-is).
+// Used by the PATCH .../[ref]/image endpoint: the portal client recovers the
+// uploaded image reference from FM's links listing after a save and sends it
+// here, since FM's save responses omit it. Idempotent.
+export async function upsertLocationLinkImage(slug: string, imageUrl: string | null): Promise<void> {
+  if (!slug) return
+  await ensureTable()
+  await sql`
+    INSERT INTO disco_location_links (slug, image_url, updated_at)
+    VALUES (${slug}, ${imageUrl}, NOW())
+    ON CONFLICT (slug) DO UPDATE SET
+      image_url = EXCLUDED.image_url,
       updated_at = NOW()
   `
 }

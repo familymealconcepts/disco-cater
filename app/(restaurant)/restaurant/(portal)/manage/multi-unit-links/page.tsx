@@ -200,11 +200,43 @@ export default function MultiUnitLinksPage() {
     setImageUpdated(true) // signal the backend to clear the existing image
   }
 
+  // FM's link save responses omit the uploaded image reference, but the links
+  // LISTING carries it (it's what renders the table thumbnail). So after a save,
+  // re-fetch the list, find the saved link, and push its image reference to the
+  // Neon mirror (image_url) via PATCH so the public /locations/[slug] header can
+  // show it. Best effort — never blocks the save.
+  async function patchLinkImage(slug: string, reference: string) {
+    if (!slug) return
+    try {
+      const params = new URLSearchParams({ page: '0', size: '100' })
+      if (dashboardGroup?.url) params.set('dashboardUrl', dashboardGroup.url)
+      const res = await fetch(`/api/restaurant/multi-unit-links?${params}`)
+      if (!res.ok) return
+      const data = await res.json()
+      const items: MultiLink[] = Array.isArray(data) ? data : (data.content || data.data || [])
+      const target = slug.toLowerCase()
+      const match = items.find(l => (l.url || '').toLowerCase() === target)
+      const imageRef = match?.image?.reference || match?.locationImage || ''
+      if (!imageRef) return // no image on this link — nothing to mirror
+      const ref = reference || match?.reference || 'by-slug' // [ref] is routing-only
+      await fetch(`/api/restaurant/multi-unit-links/${encodeURIComponent(ref)}/image`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, imageRef }),
+      })
+    } catch (e) {
+      console.error('[multi-unit-links] image patch failed:', e)
+    }
+  }
+
   async function saveLink() {
     if (!editing || !editing.url || !editing.header) return
     if (!(editing.restaurantReferences || []).length) return // FM requires ≥1 location
     setSaving(true)
     setUrlError('')
+    // Capture before closeDialog() nulls `editing`.
+    const savedSlug = editing.url || ''
+    const savedRef = editing.reference || ''
     const isDashboard = editing.urlFrom === 'Dashboard'
     const isEdit = !!editing.reference
 
@@ -243,6 +275,8 @@ export default function MultiUnitLinksPage() {
         setUrlError(desc || `Save failed (HTTP ${res.status})`)
       } else {
         closeDialog()
+        // Mirror the uploaded image into Neon (best effort), then refresh.
+        await patchLinkImage(savedSlug, savedRef)
         load()
       }
     } finally { setSaving(false) }

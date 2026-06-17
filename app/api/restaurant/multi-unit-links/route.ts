@@ -55,9 +55,6 @@ export async function POST(req: NextRequest) {
     let fmData: Record<string, unknown> = {}
     if (text) { try { fmData = JSON.parse(text) } catch { fmData = {} } }
 
-    // TEMP: inspect FM's POST response shape (does it echo the image reference?).
-    console.log('[multi-unit-links POST] FM response:', JSON.stringify(fmData).slice(0, 800))
-
     // Mirror the link into Neon for the public /locations/[slug] header. Best
     // effort — the FM write already succeeded, so a Neon failure must not fail
     // the save (the create-table migration also lives here, idempotent).
