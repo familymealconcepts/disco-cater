@@ -1,6 +1,37 @@
 import { sql } from './db'
 
-const FM_IMG_BASE = `${process.env.FM_API_BASE_URL || 'https://api.familymeal.com'}/public-api/images`
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const FM_IMG_BASE = `${FM}/public-api/images`
+
+// FM's create/update responses are thin and omit the uploaded image reference,
+// so after a save we re-fetch the full link object from the listing to recover
+// it. Match is exact on the link url (slug). Returns the matched link object, or
+// null on any failure / no match — callers then fall back to the thin response.
+export async function fetchFullLink(
+  authHeader: Record<string, string>,
+  slug: string,
+): Promise<Record<string, unknown> | null> {
+  if (!slug) return null
+  try {
+    const params = new URLSearchParams({ dashboardUrl: slug, size: '1', page: '0' })
+    const res = await fetch(`${FM}/api/system-admin/restaurants/links/listing?${params}`, {
+      headers: { ...authHeader, Accept: 'application/json' },
+      cache: 'no-store',
+    })
+    if (!res.ok) return null
+    const data = (await res.json().catch(() => null)) as unknown
+    const items: Record<string, unknown>[] = Array.isArray(data)
+      ? (data as Record<string, unknown>[])
+      : ((data as { content?: Record<string, unknown>[]; data?: Record<string, unknown>[] })?.content
+        || (data as { data?: Record<string, unknown>[] })?.data
+        || [])
+    const target = slug.toLowerCase()
+    const match = items.find(l => String(l?.url || '').toLowerCase() === target)
+    return match || null
+  } catch {
+    return null
+  }
+}
 
 // Neon mirror of the FM multi-unit "Links" so the PUBLIC /locations/[slug] page
 // can resolve a link's uploaded banner image + title with a single fast query —

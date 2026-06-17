@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../../lib/multi-link-forward'
-import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
+import { upsertLocationLink, buildLinkRow, fetchFullLink } from '../../../../../lib/location-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -28,10 +28,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     if (text) { try { fmData = JSON.parse(text) } catch { fmData = {} } }
 
     // Mirror the updated link into Neon for the public /locations/[slug] header.
-    // Best effort — the FM update already succeeded.
+    // Best effort — the FM update already succeeded. FM's PUT response is thin
+    // (no image ref), so re-fetch the full link object from the listing to
+    // recover the uploaded image; fall back to fmData if not found.
     try {
       const restaurantReference = await getRestaurantRef()
-      await upsertLocationLink(buildLinkRow(request, fmData, restaurantReference))
+      const slug = String((fmData as { url?: unknown })?.url || (request as { url?: unknown })?.url || '').trim()
+      const full = await fetchFullLink(h, slug)
+      await upsertLocationLink(buildLinkRow(request, full || fmData, restaurantReference))
     } catch (e) {
       console.error('[multi-unit-links] Neon mirror failed (update):', e instanceof Error ? e.message : e)
     }

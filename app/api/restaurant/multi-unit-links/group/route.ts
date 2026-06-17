@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../../lib/multi-link-forward'
-import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
+import { upsertLocationLink, buildLinkRow, fetchFullLink } from '../../../../../lib/location-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -55,9 +55,12 @@ export async function PUT(req: NextRequest) {
     // Mirror the Dashboard link into Neon for the public /locations/[slug] header
     // (same as the regular link PUT). Slug is the ?url query param. Best effort —
     // the FM update already succeeded, so a Neon failure must not fail the save.
+    // FM's PUT response is thin (no image ref), so re-fetch the full link object
+    // from the listing to recover the uploaded image; fall back to fmData if not.
     try {
       const restaurantReference = await getRestaurantRef()
-      const row = buildLinkRow(request, fmData, restaurantReference)
+      const full = await fetchFullLink(h, url)
+      const row = buildLinkRow(request, full || fmData, restaurantReference)
       if (url) row.slug = url // the group's slug is the query param, not the body
       await upsertLocationLink(row)
     } catch (e) {
