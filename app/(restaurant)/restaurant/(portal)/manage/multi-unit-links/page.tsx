@@ -341,7 +341,9 @@ export default function MultiUnitLinksPage() {
                       <span style={{ marginLeft: 6, fontSize: 10, padding: '2px 6px', borderRadius: 10, background: '#EEF0FD', color: INDIGO, fontWeight: 700 }}>Dashboard</span>
                     )}
                   </td>
-                  <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>{l.numberOfLocations ?? l.restaurantReferences?.length ?? 0}</td>
+                  {/* Count the actual selected locations array — FM's cached
+                      numberOfLocations can lag the real selection. */}
+                  <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>{l.restaurantReferences ? l.restaurantReferences.length : (l.numberOfLocations ?? 0)}</td>
                   <td style={{ ...cell, textAlign: 'center' }}>
                     <a href={discoUrl} target="_blank" rel="noreferrer" title="Open" style={{ color: INDIGO, textDecoration: 'none', fontSize: 16 }}>↗</a>
                   </td>
