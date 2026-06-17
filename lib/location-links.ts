@@ -1,14 +1,15 @@
 import { sql } from './db'
 
-// Build the image URL for an FM image reference (size 1200 for the
-// /locations/[slug] header). Returns null when no reference is given. Points at
-// our own /api/public/fm-image proxy so the image is served from discocater.com
-// with FM service auth applied server-side (FM's image CDN needs that auth).
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+// Resolve an image value to a storable URL. Link images now live in Vercel Blob,
+// so callers pass a full blob URL — returned as-is. A bare value is treated as a
+// legacy FM image reference and expanded to FM's CDN URL. Null when empty.
 export function imageUrlFromRef(imageRef: string | null | undefined): string | null {
   const ref = (imageRef || '').trim()
   if (!ref) return null
-  if (ref.startsWith('http')) return ref
-  return `/api/public/fm-image?ref=${encodeURIComponent(ref)}&size=1200`
+  if (ref.startsWith('http')) return ref // full URL (e.g. Vercel Blob)
+  return `${FM}/public-api/images/${ref}/download?size=1200` // legacy FM ref
 }
 
 // Neon mirror of the FM multi-unit "Links" so the PUBLIC /locations/[slug] page
@@ -61,9 +62,12 @@ async function ensureTable(): Promise<void> {
   ensured = true
 }
 
-// Upsert a link row keyed by slug. Idempotent; safe to call on both create and
-// update. Throws on a DB error — callers treat it as best-effort (the FM write
-// is the source of truth, so a Neon hiccup must not fail the portal save).
+// Upsert a link row keyed by slug (slug/title/restaurant_reference). Idempotent.
+// NOTE: image_url is deliberately NOT updated on conflict — link images are owned
+// by Vercel Blob and written separately by upsertLocationLinkImage (via the PATCH
+// .../[ref]/image endpoint). Updating it here would wipe the blob URL on every
+// re-save, since FM's save response carries no image. Throws on a DB error —
+// callers treat it as best-effort.
 export async function upsertLocationLink(row: LocationLinkRow): Promise<void> {
   if (!row.slug) return
   await ensureTable()
@@ -72,7 +76,6 @@ export async function upsertLocationLink(row: LocationLinkRow): Promise<void> {
     VALUES (${row.slug}, ${row.title}, ${row.imageUrl}, ${row.restaurantReference}, NOW())
     ON CONFLICT (slug) DO UPDATE SET
       title = EXCLUDED.title,
-      image_url = EXCLUDED.image_url,
       restaurant_reference = EXCLUDED.restaurant_reference,
       updated_at = NOW()
   `

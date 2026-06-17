@@ -200,29 +200,31 @@ export default function MultiUnitLinksPage() {
     setImageUpdated(true) // signal the backend to clear the existing image
   }
 
-  // FM's link save responses omit the uploaded image reference, but the links
-  // LISTING carries it (it's what renders the table thumbnail). So after a save,
-  // re-fetch the list, find the saved link, and push its image reference to the
-  // Neon mirror (image_url) via PATCH so the public /locations/[slug] header can
-  // show it. Best effort — never blocks the save.
-  async function patchLinkImage(slug: string, reference: string) {
+  // Upload the selected image to Vercel Blob and return its public URL (or null).
+  async function uploadLinkImage(file: File): Promise<string | null> {
+    try {
+      const fd = new FormData()
+      fd.append('image', file)
+      const res = await fetch('/api/restaurant/multi-unit-links/upload-image', { method: 'POST', body: fd })
+      if (!res.ok) { console.error('[multi-unit-links] blob upload failed:', res.status); return null }
+      const d = await res.json().catch(() => null)
+      return d?.url || null
+    } catch (e) {
+      console.error('[multi-unit-links] blob upload request failed:', e)
+      return null
+    }
+  }
+
+  // Store the link's image_url (a Vercel Blob URL) in the Neon mirror so the
+  // public /locations/[slug] header can show it. Pass '' to clear. Best effort.
+  async function patchLinkImage(slug: string, reference: string, imageUrl: string) {
     if (!slug) return
     try {
-      const params = new URLSearchParams({ page: '0', size: '100' })
-      if (dashboardGroup?.url) params.set('dashboardUrl', dashboardGroup.url)
-      const res = await fetch(`/api/restaurant/multi-unit-links?${params}`)
-      if (!res.ok) return
-      const data = await res.json()
-      const items: MultiLink[] = Array.isArray(data) ? data : (data.content || data.data || [])
-      const target = slug.toLowerCase()
-      const match = items.find(l => (l.url || '').toLowerCase() === target)
-      const imageRef = match?.image?.reference || match?.locationImage || ''
-      if (!imageRef) return // no image on this link — nothing to mirror
-      const ref = reference || match?.reference || 'by-slug' // [ref] is routing-only
+      const ref = reference || 'by-slug' // [ref] is routing-only; row is keyed by slug
       await fetch(`/api/restaurant/multi-unit-links/${encodeURIComponent(ref)}/image`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug, imageRef }),
+        body: JSON.stringify({ slug, imageUrl }),
       })
     } catch (e) {
       console.error('[multi-unit-links] image patch failed:', e)
@@ -237,6 +239,13 @@ export default function MultiUnitLinksPage() {
     // Capture before closeDialog() nulls `editing`.
     const savedSlug = editing.url || ''
     const savedRef = editing.reference || ''
+    const imageWasChanged = imageUpdated
+    const fileToUpload = imageFile
+
+    // Upload the image to Vercel Blob BEFORE the FM call (it's the source of
+    // truth for display). FM still gets a copy below for its own compatibility.
+    let blobUrl: string | null = null
+    if (fileToUpload) blobUrl = await uploadLinkImage(fileToUpload)
     const isDashboard = editing.urlFrom === 'Dashboard'
     const isEdit = !!editing.reference
 
@@ -275,8 +284,10 @@ export default function MultiUnitLinksPage() {
         setUrlError(desc || `Save failed (HTTP ${res.status})`)
       } else {
         closeDialog()
-        // Mirror the uploaded image into Neon (best effort), then refresh.
-        await patchLinkImage(savedSlug, savedRef)
+        // Mirror the image into Neon (best effort): the new blob URL if one was
+        // uploaded, or '' to clear it if the image was removed.
+        if (blobUrl) await patchLinkImage(savedSlug, savedRef, blobUrl)
+        else if (imageWasChanged && !fileToUpload) await patchLinkImage(savedSlug, savedRef, '')
         load()
       }
     } finally { setSaving(false) }
