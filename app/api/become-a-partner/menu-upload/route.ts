@@ -24,7 +24,7 @@ export const maxDuration = 60
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-sonnet-4-20250514'
+const MODEL = 'claude-sonnet-4-6'
 
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN

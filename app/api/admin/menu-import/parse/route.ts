@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-sonnet-4-20250514'
+const MODEL = 'claude-sonnet-4-6'
 const MAX_PDF_BYTES = 10 * 1024 * 1024 // 10MB
 // ezCater pages are large; strip script/style noise and cap the HTML we send so
 // the Anthropic request stays within limits.
