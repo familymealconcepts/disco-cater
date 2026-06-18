@@ -42,7 +42,12 @@ async function call(method: string, url: string, opts: { body?: unknown; cookie?
 
 function errOf(r: CallResult): string {
   const j = r.json as Record<string, unknown> | null
-  return `HTTP ${r.status}${j?.error ? ` — ${String(j.error)}` : ''}`
+  const parts = [`HTTP ${r.status}`]
+  if (j?.error) parts.push(String(j.error))
+  // Surface FM's actual error body when a proxy forwards it as `raw` — otherwise
+  // failures read as a useless "HTTP 400 — Failed to create restaurant".
+  if (j?.raw) parts.push(typeof j.raw === 'string' ? j.raw.slice(0, 600) : JSON.stringify(j.raw).slice(0, 600))
+  return parts.join(' — ')
 }
 
 // ── test-1: Restaurant Onboarding ───────────────────────────────────────────
@@ -493,12 +498,20 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   created.push(custEmail)
   ok(`${custEmail} registered (FM-side; no Neon diner table)`)
 
-  // STEP 2 — restaurant via FM SUPER_ADMIN (reuse caller's admin cookie).
+  // STEP 2 — restaurant via FM SUPER_ADMIN (reuse caller's admin cookie). FM's
+  // create endpoint is strict: this payload mirrors the working become-a-partner
+  // create-restaurant flow (businessNameWithoutSpaces, top-level email/phone,
+  // categories, fulfillmentOptions, and an `admin` block WITH a password).
+  const slug = rName.toLowerCase().replace(/[^a-z0-9]/g, '')
   const cr = await adminCall('POST', '/api/admin/restaurants', {
     businessName: rName,
-    address: { addressLine1: '1 Wall St', city: 'New York', state: 'NY', zipcode: '10005', phoneNumber: '2125551234' },
-    admin: { firstName: 'E2E', lastName: 'Owner', email: rEmail },
-    timezone: 'America/New_York',
+    businessNameWithoutSpaces: slug,
+    email: rEmail,
+    phoneNumber: '2125551234',
+    categories: ['EVENT', 'OFFICE', 'HOLIDAY'],
+    fulfillmentOptions: ['PICKUP', 'DELIVERY'],
+    admin: { email: rEmail, firstName: 'E2E', lastName: 'Owner', password },
+    address: { addressLine1: '1 Wall St', city: 'New York', state: 'NY', zipcode: '10005' },
   })
   const crJson = (cr.json || {}) as Record<string, unknown>
   const restaurantRef = String(crJson.reference || crJson.restaurantReference || '')
