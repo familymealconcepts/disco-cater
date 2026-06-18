@@ -147,7 +147,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
       const res = await fetch('/api/restaurant/orders/statistics')
       if (res.ok) {
         const d = await res.json()
-        const count = d.unseenByAdmin || 0
+        const count = d.newOrdersCount ?? d.unseenByAdmin ?? 0
         setOrderBadge(count)
         localStorage.setItem('newOrdersCount', String(count))
       }

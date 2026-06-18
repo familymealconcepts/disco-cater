@@ -206,8 +206,9 @@ export default function MultiUnitLinksPage() {
       const fd = new FormData()
       fd.append('image', file)
       const res = await fetch('/api/restaurant/multi-unit-links/upload-image', { method: 'POST', body: fd })
-      if (!res.ok) { console.error('[multi-unit-links] blob upload failed:', res.status); return null }
       const d = await res.json().catch(() => null)
+      console.log('[patchLinkImage] blob upload result:', res.status, d?.url || d?.error || d)
+      if (!res.ok) { console.error('[multi-unit-links] blob upload failed:', res.status, d?.error); return null }
       return d?.url || null
     } catch (e) {
       console.error('[multi-unit-links] blob upload request failed:', e)
@@ -219,13 +220,16 @@ export default function MultiUnitLinksPage() {
   // public /locations/[slug] header can show it. Pass '' to clear. Best effort.
   async function patchLinkImage(slug: string, reference: string, imageUrl: string) {
     if (!slug) return
+    console.log('[patchLinkImage] slug:', slug, 'imageUrl to store:', imageUrl)
     try {
       const ref = reference || 'by-slug' // [ref] is routing-only; row is keyed by slug
-      await fetch(`/api/restaurant/multi-unit-links/${encodeURIComponent(ref)}/image`, {
+      const res = await fetch(`/api/restaurant/multi-unit-links/${encodeURIComponent(ref)}/image`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug, imageUrl }),
       })
+      console.log('[patchLinkImage] PATCH response status:', res.status)
+      if (!res.ok) console.error('[multi-unit-links] image patch failed:', res.status, await res.text().catch(() => ''))
     } catch (e) {
       console.error('[multi-unit-links] image patch failed:', e)
     }

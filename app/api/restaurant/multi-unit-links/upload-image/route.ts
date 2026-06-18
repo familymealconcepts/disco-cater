@@ -34,12 +34,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Image is too large (max 5MB).' }, { status: 400 })
   }
 
+  // Without a Blob token, put() would throw deep inside the SDK — surface it as a
+  // clear, actionable error instead of a silent 500. The token is provisioned
+  // automatically when a Vercel Blob store is linked to the project.
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    console.error('[multi-unit-links upload-image] BLOB_READ_WRITE_TOKEN is not set — connect a Vercel Blob store / pull env.')
+    return NextResponse.json({ error: 'Image storage is not configured (missing BLOB_READ_WRITE_TOKEN).' }, { status: 500 })
+  }
+
   const restaurantRef = ctx.restaurantReference || 'unknown'
   const safeName = (file.name || 'image').replace(/[^a-zA-Z0-9._-]/g, '_')
   const path = `link-images/${restaurantRef}/${Date.now()}-${safeName}`
 
   try {
     const blob = await put(path, file, { access: 'public', contentType: file.type || undefined })
+    console.log('[multi-unit-links upload-image] uploaded:', blob.url)
     return NextResponse.json({ url: blob.url })
   } catch (e) {
     console.error('[multi-unit-links upload-image] blob put failed:', e instanceof Error ? e.message : e)
