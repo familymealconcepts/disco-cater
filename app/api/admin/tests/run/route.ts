@@ -466,7 +466,7 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   const ts = Date.now()
   const STEP_NAMES = [
     '1. Create test customer (FM registration)',
-    '2. Create test restaurant (FM SUPER_ADMIN)',
+    '2. Verify test restaurant (Test Kitchen — no FM creation needed)',
     '3. Create menu item',
     '4. Initialize checkout (PENDING: native checkout not yet built)',
     '5. Stripe test payment method (4242)',
@@ -487,9 +487,10 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   const stripeTest = testKey ? new Stripe(testKey, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1]) : null
 
   const custEmail = `e2e-test-${ts}@discocater.com`
-  const rEmail = `e2e-restaurant-${ts}@discocater.com`
-  const rName = `[E2E] Test Restaurant ${ts}`
   const password = 'TestPassword123!'
+  // Test Kitchen — an existing FM restaurant we control. Reused instead of
+  // creating a throwaway FM restaurant on every run.
+  const restaurantRef = 'c8322ff4-32dd-47bc-8515-3f0cffc34bbf'
   const adminCall = (method: string, path: string, body?: unknown) => call(method, `${origin}${path}`, { body, cookie: adminCookie })
 
   // STEP 1 — customer (FM /registration; diners are FM-side).
@@ -498,26 +499,16 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   created.push(custEmail)
   ok(`${custEmail} registered (FM-side; no Neon diner table)`)
 
-  // STEP 2 — restaurant via FM SUPER_ADMIN (reuse caller's admin cookie). FM's
-  // create endpoint is strict: this payload mirrors the working become-a-partner
-  // create-restaurant flow (businessNameWithoutSpaces, top-level email/phone,
-  // categories, fulfillmentOptions, and an `admin` block WITH a password).
-  const slug = rName.toLowerCase().replace(/[^a-z0-9]/g, '')
-  const cr = await adminCall('POST', '/api/admin/restaurants', {
-    businessName: rName,
-    businessNameWithoutSpaces: slug,
-    email: rEmail,
-    phoneNumber: '2125551234',
-    categories: ['EVENT', 'OFFICE', 'HOLIDAY'],
-    fulfillmentOptions: ['PICKUP', 'DELIVERY'],
-    admin: { email: rEmail, firstName: 'E2E', lastName: 'Owner', password },
-    address: { addressLine1: '1 Wall St', city: 'New York', state: 'NY', zipcode: '10005' },
-  })
-  const crJson = (cr.json || {}) as Record<string, unknown>
-  const restaurantRef = String(crJson.reference || crJson.restaurantReference || '')
-  if (!cr.ok || !restaurantRef) return bail(errOf(cr))
-  created.push(`Restaurant: ${rName}`)
-  ok(`reference ${restaurantRef}`)
+  // STEP 2 — verify Test Kitchen (no FM creation). Present in Neon overrides and
+  // active (online ordering on) in FM.
+  const ovRows = (await sql`SELECT 1 FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`.catch(() => [])) as unknown[]
+  if (!ovRows.length) return bail('Test Kitchen not found in disco_restaurant_overrides')
+  const rget = await adminCall('GET', `/api/admin/restaurants/${restaurantRef}`)
+  const rgJson = (rget.json || {}) as Record<string, unknown>
+  if (!rget.ok || !rgJson) return bail(errOf(rget))
+  if (rgJson.onlineOrderingAllowed !== true) return bail(`onlineOrderingAllowed is ${rgJson.onlineOrderingAllowed} (expected true)`)
+  created.push(`Restaurant: Test Kitchen (${restaurantRef})`)
+  ok(`Test Kitchen ${restaurantRef} active (onlineOrderingAllowed=true)`)
 
   // STEP 3 — Disco-native menu item (Neon). The menu route is restaurant-scoped,
   // so mint a Disco restaurant session for the new restaurant first.
@@ -528,6 +519,7 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   })
   const miJson = (mi.json || {}) as Record<string, unknown>
   const itemRef = String(miJson.reference || '')
+  const categoryRef = miJson.category_reference != null ? String(miJson.category_reference) : ''
   const itemPrice = Number(miJson.price) > 0 ? Number(miJson.price) : 1.0
   if (!mi.ok || !itemRef) return bail(errOf(mi))
   created.push(`Menu item: ${itemRef}`)
@@ -615,23 +607,26 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
     return bail(`refund failed: ${e instanceof Error ? e.message : e}`)
   }
 
-  // STEP 9 — cleanup: drop the synthetic order + its rows, block the test
-  // restaurant, and remove the Disco menu created for it.
+  // STEP 9 — cleanup: drop the synthetic order + its rows and the Disco menu
+  // created for the test. Test Kitchen is a real restaurant we keep — it is NOT
+  // touched (no override blocking).
   try {
     await runMigrations()
     await sql`DELETE FROM disco_order_edits WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
     await sql`DELETE FROM disco_stripe_payments WHERE order_reference = ${orderRef}::uuid`.catch(() => {})
     await sql`DELETE FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
-    await sql`DELETE FROM disco_menu_items WHERE restaurant_reference = ${restaurantRef}::uuid`.catch(() => {})
-    await sql`DELETE FROM disco_menu_categories WHERE restaurant_reference = ${restaurantRef}::uuid`.catch(() => {})
-    await sql`
-      INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, updated_at)
-      VALUES (${restaurantRef}, false, NOW())
-      ON CONFLICT (restaurant_reference) DO UPDATE SET visible = false, updated_at = NOW()
-    `.catch(() => {})
+    // Only the item we created — Test Kitchen is real, never wipe its whole menu.
+    await sql`DELETE FROM disco_menu_items WHERE reference = ${itemRef}::uuid`.catch(() => {})
+    if (categoryRef) {
+      await sql`
+        DELETE FROM disco_menu_categories c
+        WHERE c.reference = ${categoryRef}::uuid
+          AND NOT EXISTS (SELECT 1 FROM disco_menu_items i WHERE i.category_reference = c.reference)
+      `.catch(() => {})
+    }
   } catch { /* best-effort */ }
   created.push(`Charged: $${charged.toFixed(2)}`, `Refunded: $${refunded.toFixed(2)}`)
-  ok('synthetic order + menu removed, test restaurant blocked — E2E complete, all 9 steps passed')
+  ok('synthetic order + menu removed (Test Kitchen left intact) — E2E complete, all 9 steps passed')
 
   return { steps, testData: { createdRecords: created } }
 }
