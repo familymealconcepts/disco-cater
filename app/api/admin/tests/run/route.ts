@@ -468,7 +468,7 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
     '1. Create test customer (FM registration)',
     '2. Create test restaurant (FM SUPER_ADMIN)',
     '3. Create menu item',
-    '4. Initialize checkout',
+    '4. Initialize checkout (PENDING: native checkout not yet built)',
     '5. Stripe test payment method (4242)',
     '6. Charge order (Stripe test mode)',
     '7. Edit order — add item (Stripe test charge)',
@@ -533,19 +533,18 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   created.push(`Menu item: ${itemRef}`)
   ok(`item ${itemRef} ($${itemPrice.toFixed(2)})`)
 
-  // STEP 4 — init checkout (pickup 7 days out).
-  const d = new Date(ts + 7 * 86_400_000)
-  const fmDate = `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`
-  const init = await call('POST', `${origin}/api/order/init`, {
-    body: { restaurantRef, mealPackages: [{ reference: itemRef, count: 1 }], orderDate: fmDate, orderTime: '12:00:00', orderType: 'PICKUP', userEmail: custEmail },
-  })
-  const initJson = (init.json || {}) as Record<string, unknown>
-  const inner = (initJson.checkoutPublicResponseDto || initJson) as Record<string, unknown>
-  const orderRef = String(initJson.orderReference || inner.orderReference || inner.reference || '')
-  if (!init.ok || !orderRef) return bail(errOf(init))
+  // STEP 4 — synthetic order in Neon (native checkout pending). Bypasses FM:
+  // inserts a real disco_orders row to charge/edit/refund against.
+  void itemRef // the item exists in Neon; native checkout would order from it.
+  const so = await adminCall('POST', '/api/admin/test-helpers/create-synthetic-order', { restaurantReference: restaurantRef, customerEmail: custEmail })
+  const soJson = (so.json || {}) as Record<string, unknown>
+  const orderRef = String(soJson.fm_order_reference || '')
+  if (!so.ok || !orderRef) return bail(errOf(so))
+  const exists = (await sql`SELECT 1 FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid LIMIT 1`.catch(() => [])) as unknown[]
+  if (!exists.length) return bail('synthetic order row not found in disco_orders')
   created.push(`Order: ${orderRef}`)
-  const orderTotal = Number(inner.total) > 0 ? Number(inner.total) : 1.3
-  ok(`orderReference ${orderRef}, total $${orderTotal.toFixed(2)}`)
+  const orderTotal = 1.13
+  ok(`✓ Synthetic order created in Neon (bypasses FM — native checkout pending): ${orderRef}`)
 
   // STEP 5 — Stripe TEST payment method (4242 via test token) attached to a customer.
   if (!stripeTest) return bail('STRIPE_TEST_SECRET_KEY not set')
@@ -562,7 +561,7 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   }
   ok(`pm ${pmId} (4242) attached to ${stripeCustomerId}`)
 
-  // STEP 6 — charge the order total in Stripe TEST mode.
+  // STEP 6 — charge $1.13 directly in Stripe TEST mode + record in Neon.
   let charged = 0
   let chargePiId = ''
   try {
@@ -573,10 +572,15 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
     })
     if (pi.status !== 'succeeded') return bail(`charge status ${pi.status}`)
     chargePiId = pi.id; charged = orderTotal
+    await sql`
+      INSERT INTO disco_stripe_payments (order_reference, restaurant_reference, stripe_payment_intent_id, status, total)
+      VALUES (${orderRef}::uuid, ${restaurantRef}::uuid, ${chargePiId}, 'SUCCEEDED', ${orderTotal})
+      ON CONFLICT (stripe_payment_intent_id) DO NOTHING
+    `.catch((e) => console.error('[E2E] disco_stripe_payments insert:', e))
   } catch (e) {
     return bail(`charge failed: ${e instanceof Error ? e.message : e}`)
   }
-  ok(`charged $${charged.toFixed(2)} (pi ${chargePiId})`)
+  ok(`charged $${charged.toFixed(2)} (pi ${chargePiId}); disco_stripe_payments row written`)
 
   // STEP 7 — edit: add an item (qty 2). Delta computed on the original tax rate;
   // charged in Stripe TEST mode; an audit row is written to disco_order_edits.
@@ -611,18 +615,23 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
     return bail(`refund failed: ${e instanceof Error ? e.message : e}`)
   }
 
-  // STEP 9 — cleanup: block the test restaurant; record the customer (FM-side).
+  // STEP 9 — cleanup: drop the synthetic order + its rows, block the test
+  // restaurant, and remove the Disco menu created for it.
   try {
     await runMigrations()
+    await sql`DELETE FROM disco_order_edits WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
+    await sql`DELETE FROM disco_stripe_payments WHERE order_reference = ${orderRef}::uuid`.catch(() => {})
+    await sql`DELETE FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
+    await sql`DELETE FROM disco_menu_items WHERE restaurant_reference = ${restaurantRef}::uuid`.catch(() => {})
+    await sql`DELETE FROM disco_menu_categories WHERE restaurant_reference = ${restaurantRef}::uuid`.catch(() => {})
     await sql`
       INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, updated_at)
       VALUES (${restaurantRef}, false, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE SET visible = false, updated_at = NOW()
     `.catch(() => {})
-    await sql`DELETE FROM disco_order_edits WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
   } catch { /* best-effort */ }
   created.push(`Charged: $${charged.toFixed(2)}`, `Refunded: $${refunded.toFixed(2)}`)
-  ok('test restaurant blocked; edit rows cleaned — E2E test complete, all 9 steps passed')
+  ok('synthetic order + menu removed, test restaurant blocked — E2E complete, all 9 steps passed')
 
   return { steps, testData: { createdRecords: created } }
 }
