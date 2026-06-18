@@ -79,17 +79,43 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     if (!getRes.ok) {
       return NextResponse.json({ error: 'Failed to load restaurant before save' }, { status: getRes.status })
     }
-    const current = (await getRes.json().catch(() => ({}))) as Record<string, unknown>
+    const existing = (await getRes.json().catch(() => ({}))) as Record<string, unknown>
 
     // Flag any online-ordering change away from ACCEPTED so it's easy to catch.
     if (incoming.restaurantStatus !== undefined && incoming.restaurantStatus !== 'ACCEPTED') {
       console.warn('[admin/restaurants PUT] restaurantStatus changing to non-ACCEPTED', {
-        ref, from: current.restaurantStatus, to: incoming.restaurantStatus,
+        ref, from: existing.restaurantStatus, to: incoming.restaurantStatus,
       })
     }
 
     // 2) Merge only the changed fields onto the current object.
-    const merged = deepMerge(current, incoming)
+    const merged = deepMerge(existing, incoming) as Record<string, unknown>
+
+    // Hard guard: these operational flags must NEVER change unless the edit body
+    // explicitly sends them. Toggling online ordering, blocking, money flow, etc.
+    // each go through their own dedicated request that DOES send the field; a
+    // general restaurant edit must leave them exactly as they were in FM.
+    const PROTECTED_FIELDS = [
+      'onlineOrderingAllowed', 'restaurantStatus', 'blocked', 'moneyFlow',
+      'leadGenOne', 'leadGenTwo', 'nashAllowed', 'shipdayEnabled',
+    ]
+    for (const f of PROTECTED_FIELDS) {
+      if (!(f in incoming)) merged[f] = existing[f] // preserve the GET value
+    }
+
+    console.log('[restaurant edit] onlineOrderingAllowed before:', existing.onlineOrderingAllowed, 'after merge:', merged.onlineOrderingAllowed)
+
+    // Safety net: a non-explicit edit (one that didn't send onlineOrderingAllowed)
+    // must never end up turning it off. If FM had it on and the merged object lost
+    // it, force it back. The dedicated toggle DOES send the field, so it's exempt.
+    if (
+      !('onlineOrderingAllowed' in incoming)
+      && existing.onlineOrderingAllowed === true
+      && merged.onlineOrderingAllowed !== true
+    ) {
+      console.error('[restaurant edit] onlineOrderingAllowed would have been turned off by a non-explicit edit — forcing it back on', { ref })
+      merged.onlineOrderingAllowed = existing.onlineOrderingAllowed
+    }
 
     // 3) PUT the complete merged object back to FM.
     const fd = new FormData()
