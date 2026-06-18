@@ -989,18 +989,24 @@ function OrdersContent() {
   // orders), not a "pick a location" prompt. `aggregating` drives the
   // Restaurant column + the info banner.
   const [aggregating, setAggregating] = useState(false)
+  // User role drives the edit-history icon rule: ADMIN / SYSTEM_ADMIN only see it
+  // on orders that actually have edits; SUPER_ADMIN is unaffected (always shown).
+  const [role, setRole] = useState('')
   useEffect(() => {
     try {
       const raw = localStorage.getItem('restaurant_user')
-      const role = raw ? (JSON.parse(raw).role || '') : ''
+      const r = raw ? (JSON.parse(raw).role || '') : ''
+      setRole(r)
       const sel = localStorage.getItem('selectedRestaurant')
-      const isMulti = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'
+      const isMulti = r === 'SYSTEM_ADMIN' || r === 'SUPER_ADMIN'
       setAggregating(isMulti && !sel)
     } catch {}
   }, [])
 
   const tab = (searchParams.get('tab') || 'active') as 'active' | 'history' | 'counts'
   const [orders, setOrders] = useState<Order[]>([])
+  // orderReference → number of disco_order_edits rows (drives the edit-history icon).
+  const [editCounts, setEditCounts] = useState<Record<string, number>>({})
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [size] = useState(25)
@@ -1075,6 +1081,23 @@ function OrdersContent() {
   useEffect(() => {
     loadOrders()
   }, [loadOrders])
+
+  // Fetch the edit-history count for the loaded page of orders so the table only
+  // shows the edit-history icon on orders that actually have edits. Best-effort.
+  useEffect(() => {
+    const refs = orders.map(o => o.orderReference).filter(Boolean)
+    if (!refs.length) { setEditCounts({}); return }
+    let cancelled = false
+    fetch('/api/restaurant/orders/edit-counts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderRefs: refs }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d?.counts) setEditCounts(d.counts) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [orders])
 
   // Polling for active tab
   useEffect(() => {
@@ -1318,19 +1341,22 @@ function OrdersContent() {
                             ✏️
                           </button>
                         )}
-                        {/* No edit-tracking field exists on the order list shape
-                            yet, so the history button is shown on every order. */}
-                        <button
-                          title="View edit history"
-                          aria-label="View edit history"
-                          onClick={e => {
-                            e.stopPropagation()
-                            setHistoryRef(order.orderReference)
-                          }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#5B6FE8', padding: '2px 6px', lineHeight: 1 }}
-                        >
-                          🔄
-                        </button>
+                        {/* Edit-history icon: SUPER_ADMIN always sees it;
+                            ADMIN / SYSTEM_ADMIN only when the order has edits
+                            (disco_order_edits count > 0). */}
+                        {(role === 'SUPER_ADMIN' || (editCounts[order.orderReference] || 0) > 0) && (
+                          <button
+                            title="View edit history"
+                            aria-label="View edit history"
+                            onClick={e => {
+                              e.stopPropagation()
+                              setHistoryRef(order.orderReference)
+                            }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#5B6FE8', padding: '2px 6px', lineHeight: 1 }}
+                          >
+                            🔄
+                          </button>
+                        )}
                       </td>
                     </tr>
                   )
