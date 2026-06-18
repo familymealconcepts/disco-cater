@@ -83,6 +83,8 @@ export default function MultiUnitLinksPage() {
   const [dashboardGroup, setDashboardGroup] = useState<GroupInfo | null>(null)
   // slug → Vercel Blob image URL (from the Neon mirror) for table thumbnails.
   const [imageMap, setImageMap] = useState<Record<string, string>>({})
+  // slug → number of locations FM serves publicly (what /locations/[slug] shows).
+  const [liveCounts, setLiveCounts] = useState<Record<string, number>>({})
 
   // Dialog-scoped state
   const [urlError, setUrlError] = useState('')
@@ -142,6 +144,21 @@ export default function MultiUnitLinksPage() {
               setImageMap(imgData?.images || {})
             }
           } catch { /* thumbnails fall back to the FM ref */ }
+
+          // Live count: how many locations FM actually serves for each slug
+          // (what /locations/[slug] renders). Fired in parallel, best-effort.
+          Promise.all(slugs.map(async slug => {
+            try {
+              const r = await fetch(`/api/restaurant/multi-unit-links/live-count?slug=${encodeURIComponent(slug)}`)
+              if (!r.ok) return [slug, undefined] as const
+              const d = await r.json().catch(() => null)
+              return [slug, typeof d?.liveCount === 'number' ? d.liveCount : undefined] as const
+            } catch { return [slug, undefined] as const }
+          })).then(entries => {
+            const map: Record<string, number> = {}
+            for (const [slug, count] of entries) if (typeof count === 'number') map[slug] = count
+            setLiveCounts(map)
+          }).catch(() => {})
         }
       }
     } catch {
@@ -460,9 +477,23 @@ export default function MultiUnitLinksPage() {
                       <span style={{ marginLeft: 6, fontSize: 10, padding: '2px 6px', borderRadius: 10, background: '#EEF0FD', color: INDIGO, fontWeight: 700 }}>Dashboard</span>
                     )}
                   </td>
-                  {/* Count the actual selected locations array — FM's cached
-                      numberOfLocations can lag the real selection. */}
-                  <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>{l.restaurantReferences ? l.restaurantReferences.length : (l.numberOfLocations ?? 0)}</td>
+                  {/* Configured (restaurantReferences) vs live (what FM serves
+                      publicly for the slug). Green = match, amber = fewer live,
+                      red = none live. */}
+                  <td style={{ ...cell, textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    {(() => {
+                      const configured = l.restaurantReferences ? l.restaurantReferences.length : (l.numberOfLocations ?? 0)
+                      const live = liveCounts[l.url]
+                      if (live === undefined) return <span style={{ color: '#777' }}>{configured}</span>
+                      if (live === configured) return <span style={{ color: '#16A34A' }}>{configured}</span>
+                      const liveColor = live === 0 ? '#E53935' : '#D98A00'
+                      return (
+                        <span>
+                          {configured} configured <span style={{ color: '#bbb' }}>·</span> <span style={{ color: liveColor }}>{live} live</span>
+                        </span>
+                      )
+                    })()}
+                  </td>
                   <td style={{ ...cell, textAlign: 'center' }}>
                     <a href={discoUrl} target="_blank" rel="noreferrer" title="Open" style={{ color: INDIGO, textDecoration: 'none', fontSize: 16 }}>↗</a>
                   </td>
