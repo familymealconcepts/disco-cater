@@ -69,7 +69,7 @@ function CopyRow({ label, url }: { label: string; url: string }) {
   )
 }
 
-export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) {
+export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
@@ -292,6 +292,9 @@ export default function EditRestaurantDialog({ restaurantRef, onClose }: Props) 
       }
 
       setSavedOk(true)
+      // Close the dialog immediately on success. The parent's onSaved handler
+      // dismisses it (setEditRef(null)), shows a toast, and reloads the list.
+      onSaved('Restaurant updated')
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Unable to save')
     } finally {
