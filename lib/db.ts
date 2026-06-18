@@ -163,3 +163,25 @@ export async function runDiscoOrderMigrations(): Promise<void> {
   for (const s of statements) await sql.query(s)
   discoMigrated = true
 }
+
+// ── Disco-native menu schema ──────────────────────────────────────────────────
+// Reads lib/migrations/002_disco_menus.sql (categories + items). Same idempotent,
+// split-on-`;`, cached-per-lambda approach as runDiscoOrderMigrations.
+let discoMenuMigrated = false
+export async function runDiscoMenuMigrations(): Promise<void> {
+  if (discoMenuMigrated) return
+
+  const sqlPath = path.join(process.cwd(), 'lib', 'migrations', '002_disco_menus.sql')
+  const file = await readFile(sqlPath, 'utf8')
+
+  const statements = file
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
+  for (const s of statements) await sql.query(s)
+  discoMenuMigrated = true
+}

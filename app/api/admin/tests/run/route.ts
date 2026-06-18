@@ -519,11 +519,19 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   created.push(`Restaurant: ${rName}`)
   ok(`reference ${restaurantRef}`)
 
-  // STEP 3 — menu item.
-  const mi = await adminCall('POST', `/api/admin/restaurants/${restaurantRef}/menu-items`, { name: 'E2E Test Item', price: 1.0, serves: '1', category: 'Entrees' })
-  const itemRef = String(((mi.json || {}) as Record<string, unknown>).itemReference || '')
+  // STEP 3 — Disco-native menu item (Neon). The menu route is restaurant-scoped,
+  // so mint a Disco restaurant session for the new restaurant first.
+  const rCookie = await testRestaurantCookie(origin, restaurantRef)
+  const mi = await call('POST', `${origin}/api/restaurant/menu`, {
+    cookie: rCookie,
+    body: { restaurantReference: restaurantRef, categoryName: 'Entrees', name: 'E2E Test Item', description: 'Test item for E2E', price: 1.0, serves: '1-2' },
+  })
+  const miJson = (mi.json || {}) as Record<string, unknown>
+  const itemRef = String(miJson.reference || '')
+  const itemPrice = Number(miJson.price) > 0 ? Number(miJson.price) : 1.0
   if (!mi.ok || !itemRef) return bail(errOf(mi))
-  ok(`itemReference ${itemRef}`)
+  created.push(`Menu item: ${itemRef}`)
+  ok(`item ${itemRef} ($${itemPrice.toFixed(2)})`)
 
   // STEP 4 — init checkout (pickup 7 days out).
   const d = new Date(ts + 7 * 86_400_000)
@@ -572,7 +580,7 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
 
   // STEP 7 — edit: add an item (qty 2). Delta computed on the original tax rate;
   // charged in Stripe TEST mode; an audit row is written to disco_order_edits.
-  const { delta } = computeNewTotals([{ price: 1.0, quantity: 2 }], { subtotal: 1.0, total: orderTotal, tip: 0, delivery: 0, taxRate: (orderTotal - 1) / 1 })
+  const { delta } = computeNewTotals([{ price: itemPrice, quantity: 2 }], { subtotal: itemPrice, total: orderTotal, tip: 0, delivery: 0, taxRate: itemPrice > 0 ? (orderTotal - itemPrice) / itemPrice : 0 })
   if (!(delta > 0)) return bail(`expected positive delta, got ${delta}`)
   let editChargeId = ''
   try {
