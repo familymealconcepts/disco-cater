@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { buildCheckoutPayload, type CheckoutCartLine } from '../../../../../../../lib/pricing/checkout'
 import { cartSubtotal, lineUnitPrice } from '../../../../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../../../../lib/pricing/lineItem'
 
@@ -164,7 +163,6 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const [orderTime, setOrderTime] = useState('')   // HH:mm:ss
   const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddr | null>(null)
   const [origTotal, setOrigTotal] = useState(0)
-  const [origSource, setOrigSource] = useState('')
   const [origMoney, setOrigMoney] = useState({ subtotal: 0, tax: 0, delivery: 0, tips: 0, dollarTip: 0, fee: 0, discount: 0, total: 0 })
   const [taxExempt, setTaxExempt] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
@@ -175,21 +173,18 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const [draftTime, setDraftTime] = useState('')   // HH:mm
   const origDt = useRef({ date: '', time: '' })     // normalized loaded date/time
 
-  // The order ref to PUT/commit against. FM may clone the order into an edit
-  // draft (editOrderRef); if so we target that, else the original ref.
-  const editRefRef = useRef(orderRef)
   const lineCounter = useRef(0)
 
-  // ─── Lock timer ───────────────────────────────────────────────────────────
-  const DEFAULT_LOCK_SECONDS = 600
-  const lockTotalRef = useRef(DEFAULT_LOCK_SECONDS)
-  const [secondsLeft, setSecondsLeft] = useState(DEFAULT_LOCK_SECONDS)
-  const [lockExpired, setLockExpired] = useState(false)
+  // ─── Edit eligibility (Disco-native — no FM lock) ─────────────────────────
+  const [editCount, setEditCount] = useState(0)
+  const [canEdit, setCanEdit] = useState(true)
+  const [editReason, setEditReason] = useState('')
 
   // ─── Commit / discard / UI ────────────────────────────────────────────────
   const [committing, setCommitting] = useState(false)
   const [commitError, setCommitError] = useState<string | null>(null)
   const [committed, setCommitted] = useState(false)
+  const [pendingPayment, setPendingPayment] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
 
   // ─── Menu browse UI ───────────────────────────────────────────────────────
@@ -336,38 +331,18 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
           tips: money.tips, dollarTip, fee: money.fee, discount: money.discount, total: money.total ?? 0,
         })
         setOrigTotal(money.total ?? num(order.transactionsTotal))
-        setOrigSource(str(order.sourceoforder) || str((order as AnyRec).sourceOfOrder) || '')
 
-        // Acquire the edit lock.
-        const lockRes = await fetch(`/api/restaurant/orders/${orderRef}/edit-start`, { method: 'POST' })
-        const lockData = (await lockRes.json().catch(() => ({}))) as AnyRec
+        // Check edit eligibility (Disco-native — pickup >24hrs, <3 edits, status).
+        try {
+          const esRes = await fetch(`/api/restaurant/orders/${orderRef}/edit-status`)
+          if (esRes.ok && !cancelled) {
+            const es = (await esRes.json()) as AnyRec
+            setEditCount(num(es.editCount))
+            setCanEdit(es.canEdit !== false)
+            setEditReason(str(es.reason))
+          }
+        } catch { /* best-effort — default to editable */ }
         if (cancelled) return
-        console.log('[edit-start] response:', JSON.stringify(lockData))
-        if (lockRes.ok) {
-          // Resolve the FM edit-draft ref the commit must target. Prefer the
-          // route's normalized editOrderRef, then fall back to the raw FM keys it
-          // spreads through (edit-specific first; nested under data/order; generic
-          // order ref last). If none resolve, editRefRef stays the original ref.
-          const inner = (lockData.data ?? lockData.order ?? {}) as AnyRec
-          const editRef =
-            str(lockData.editOrderRef) ||
-            str(lockData.editOrderReference) ||
-            str(lockData.editOrderId) ||
-            str(inner.editOrderReference) ||
-            str(inner.orderReference) ||
-            str(inner.reference) ||
-            str(lockData.orderReference) ||
-            str(lockData.reference)
-          if (editRef) editRefRef.current = editRef
-          console.log('[edit-start] editRefRef resolved:', editRefRef.current, '| original orderRef:', orderRef)
-          const raw = lockData.lockDuration
-          let secs = DEFAULT_LOCK_SECONDS
-          if (typeof raw === 'number' && raw > 0) secs = raw <= 60 ? raw * 60 : raw
-          lockTotalRef.current = secs
-          setSecondsLeft(secs)
-        }
-        // If the lock call fails we still let them view/edit; commit will surface
-        // any server-side lock error.
         setLoading(false)
 
         // Load the menu (non-blocking — the editor is usable without it).
@@ -384,46 +359,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderRef])
 
-  // ─── Lock countdown ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (loading || lockExpired || committed) return
-    const id = setInterval(() => {
-      setSecondsLeft(s => {
-        if (s <= 1) { clearInterval(id); setLockExpired(true); releaseLock(); return 0 }
-        return s - 1
-      })
-    }, 1000)
-    return () => clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, lockExpired, committed])
-
-  // ─── Silent re-acquire every 8 minutes ────────────────────────────────────
-  useEffect(() => {
-    if (loading || lockExpired || committed) return
-    const id = setInterval(async () => {
-      try {
-        const r = await fetch(`/api/restaurant/orders/${orderRef}/edit-start`, { method: 'POST' })
-        if (r.ok) setSecondsLeft(lockTotalRef.current)
-      } catch { /* best effort */ }
-    }, 8 * 60 * 1000)
-    return () => clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, lockExpired, committed, orderRef])
-
-  // ─── Release lock on tab close / navigate away (best effort) ──────────────
-  useEffect(() => {
-    const handler = () => {
-      try {
-        fetch(`/api/restaurant/orders/${orderRef}/edit-lock`, { method: 'DELETE', keepalive: true })
-      } catch { /* noop */ }
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [orderRef])
-
-  function releaseLock() {
-    return fetch(`/api/restaurant/orders/${orderRef}/edit-lock`, { method: 'DELETE', keepalive: true }).catch(() => {})
-  }
+  // (No FM edit lock — the Disco-native edit flow has no lock/timer/refresh.)
 
   // ─── Cart math / diff ─────────────────────────────────────────────────────
   const activeLines = useMemo(() => cart.filter(l => !l.removed), [cart])
@@ -436,56 +372,8 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const rescheduled = toIsoDateInput(orderDate) !== origDt.current.date || (orderTime || '').slice(0, 5) !== origDt.current.time
   const changed = cartChanged || rescheduled
 
-  // Build the FM checkout payload for the current (non-removed) cart.
-  const buildPayload = useCallback(() => {
-    const lines: CheckoutCartLine[] = activeLines.map(l => ({
-      reference: l.reference,
-      name: l.name,
-      price: l.price,
-      count: l.quantity,
-      note: l.note,
-      addOns: l.addOns.map(a => ({
-        reference: a.reference, name: a.name, price: a.price, count: a.count,
-        extraItemsGroupReference: a.extraItemsGroupReference,
-      })),
-    }))
-    const payload = buildCheckoutPayload({
-      restaurantRef,
-      cart: lines,
-      orderType,
-      orderDate,
-      orderTime,
-      deliveryAddress: orderType === 'DELIVERY' && deliveryAddress ? deliveryAddress : undefined,
-    })
-    // Preserve the existing order's tip + tax-exempt status. FM's tipsType enum
-    // is CUSTOM (a dollar amount) or PERCENTAGE (percentage points) — never a raw
-    // decimal fraction. The loaded tip can arrive as a fraction (0.15 = 15%) or
-    // a dollar amount, so disambiguate by magnitude:
-    //   0 < tip < 1 → decimal percentage → PERCENTAGE, round(tip*100)
-    //   tip >= 1     → dollar amount      → CUSTOM, tip
-    //   tip === 0    → PERCENTAGE 0
-    const origTip = origMoney.tips || 0
-    if (origTip > 0 && origTip < 1) {
-      payload.tipsType = 'PERCENTAGE'
-      payload.tips = Math.round(origTip * 100)
-    } else if (origTip >= 1) {
-      payload.tipsType = 'CUSTOM'
-      payload.tips = origTip
-    } else {
-      payload.tipsType = 'PERCENTAGE'
-      payload.tips = 0
-    }
-    payload.taxExempt = taxExempt
-    // FM's order-edit commit reads the cart ONLY from `mealPackages`
-    // [{ reference, count }] — the full items/extraItems objects 500 the edit
-    // endpoint. This buildPayload is edit-commit-only (the customer checkout
-    // builds its own payload via buildCheckoutPayload), so strip items here.
-    const editBody = payload as unknown as Record<string, unknown>
-    editBody.mealPackages = activeLines.map(l => ({ reference: l.reference, count: l.quantity }))
-    delete editBody.items
-    delete editBody.extraItems
-    return payload
-  }, [activeLines, restaurantRef, orderType, orderDate, orderTime, deliveryAddress, origMoney.tips, taxExempt])
+  // (The Disco-native edit POST sends activeLines/date/time directly — no FM
+  // checkout payload is built client-side anymore.)
 
   // ─── Totals: client-side estimate ─────────────────────────────────────────
   // No live FM re-price (it caused 404s + wrong initial totals). We derive a
@@ -591,47 +479,34 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
     if (any) changeQty(any.lineId, -1)
   }
 
-  // ─── Commit ───────────────────────────────────────────────────────────────
+  // ─── Commit (Disco-native edit API) ───────────────────────────────────────
   async function commit() {
-    if (committing || lockExpired) return
+    if (committing || !canEdit) return
     setCommitError(null)
     setCommitting(true)
     try {
-      const payload = buildPayload()
-      // 1) Update the draft cart.
-      const putRes = await fetch('/api/order/update', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, orderRef: editRefRef.current }),
-      })
-      if (!putRes.ok) {
-        const e = (await putRes.json().catch(() => ({}))) as AnyRec
-        throw new Error(str(e.error) || str(e.message) || 'Could not save the updated cart.')
-      }
-      // 2) Commit / place the edit. editSlack flags this place call as an EDIT
-      // (the shared route also handles new direct-entry orders) and carries the
-      // before/after totals for the "Order Updated" Slack ping.
-      const postRes = await fetch('/api/restaurant/orders/place', {
+      let editorEmail = ''
+      try { editorEmail = JSON.parse(localStorage.getItem('restaurant_user') || '{}')?.email || '' } catch { /* ignore */ }
+      const res = await fetch(`/api/restaurant/orders/${orderRef}/edit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...payload,
-          orderRef: editRefRef.current,
-          editSlack: { orderRef, originalTotal: origTotal, newTotal, sourceoforder: origSource },
+          activeLines: activeLines.map(l => ({ reference: l.reference, name: l.name, price: l.price, quantity: l.quantity, serves: l.serves ?? null })),
+          orderDate: toIsoDateInput(orderDate),
+          orderTime,
+          editorEmail,
         }),
       })
-      if (!postRes.ok) {
-        const e = (await postRes.json().catch(() => ({}))) as AnyRec
-        throw new Error(str(e.error) || str(e.message) || 'Could not commit the edit.')
+      const data = (await res.json().catch(() => ({}))) as AnyRec
+      if (!res.ok) throw new Error(str(data.error) || 'Could not commit the edit.')
+
+      if (str(data.status) === 'pending_payment') {
+        setPendingPayment(true)
+        setCommitting(false)
+        return
       }
+      // confirmed
       setCommitted(true)
-      // Bump the per-order edit counter (capped at 3 in the orders list).
-      try {
-        const map = JSON.parse(localStorage.getItem('disco_edit_counts') || '{}') as Record<string, number>
-        map[orderRef] = (Number(map[orderRef]) || 0) + 1
-        localStorage.setItem('disco_edit_counts', JSON.stringify(map))
-      } catch { /* ignore — counter is best-effort */ }
-      await releaseLock()
       setTimeout(() => router.push('/restaurant/orders'), 2000)
     } catch (err) {
       setCommitError(err instanceof Error ? err.message : 'Something went wrong committing the edit.')
@@ -640,14 +515,9 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   }
 
   // ─── Discard ──────────────────────────────────────────────────────────────
-  async function discard() {
-    await releaseLock()
+  function discard() {
     router.push('/restaurant/orders')
   }
-
-  // ─── Render helpers ───────────────────────────────────────────────────────
-  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0')
-  const ss = String(secondsLeft % 60).padStart(2, '0')
 
   const filteredSection = useMemo(() => {
     const section = menuData[activeMenuIdx]
@@ -696,27 +566,43 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
     <div style={{ fontFamily: F, paddingBottom: 40 }}>
       <style>{`@keyframes eoSpin{to{transform:rotate(360deg)}}`}</style>
 
-      {/* ── Sticky edit banner ── */}
+      {/* ── Sticky edit info bar (blue) + edit-count ── */}
       <div style={{
-        position: 'sticky', top: 0, zIndex: 50, background: GOLD, color: DARK,
+        position: 'sticky', top: 0, zIndex: 50, background: '#EEF0FD', color: DARK,
+        borderBottom: '1px solid #dfe3fb',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap',
         gap: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600,
       }}>
-        <span>✏️ Editing Order #{orderNumber || orderRef.slice(0, 8)} — changes are not saved until you click Update Order.</span>
-        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
-          Edit lock expires in {mm}:{ss}
+        <span>Editing Order #{orderNumber || orderRef.slice(0, 8)} — changes are not saved until you click Update Order.</span>
+        <span style={{ fontWeight: 700, color: editCount >= 2 ? GOLD : BLUE }}>
+          {editCount >= 2 ? 'Last edit remaining' : `Edit ${editCount + 1} of 3`}
         </span>
       </div>
+
+      {/* ── Read-only notice (ineligible) ── */}
+      {!canEdit && (
+        <div style={{ background: '#fff3f3', color: '#c0392b', borderBottom: '1px solid #ffd6d6', padding: '10px 18px', fontSize: 14, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>This order can no longer be edited{editReason ? ` — ${editReason}.` : '.'}</span>
+          <button onClick={() => router.push('/restaurant/orders')} style={{ background: '#fff', border: '1px solid #f0bdbd', color: '#c0392b', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>Return to Orders</button>
+        </div>
+      )}
+
+      {/* ── Pending-payment banner (amber) ── */}
+      {pendingPayment && (
+        <div style={{ background: GOLD, color: DARK, padding: '10px 18px', fontSize: 14, fontWeight: 600 }}>
+          Order saved — awaiting customer payment. The customer has been sent an invoice for the difference.
+        </div>
+      )}
 
       {/* ── Success banner ── */}
       {committed && (
         <div style={{ background: GREEN, color: '#fff', padding: '10px 18px', fontSize: 14, fontWeight: 600 }}>
-          Order has been updated. Returning to orders…
+          Order updated successfully. Returning to orders…
         </div>
       )}
 
       {/* ── Two columns: menu (left ~60%) + cart & summary (right ~40%) ── */}
-      <div className="eo-grid" style={{ display: 'flex', gap: 20, padding: '20px', alignItems: 'flex-start' }}>
+      <div className="eo-grid" style={{ display: 'flex', gap: 20, padding: '20px', alignItems: 'flex-start', pointerEvents: canEdit ? undefined : 'none', opacity: canEdit ? 1 : 0.55 }}>
 
         {/* LEFT — menu browser */}
         <div className="eo-menu" style={{ flex: '1 1 60%', minWidth: 0 }}>
@@ -838,8 +724,8 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
               </div>
             )}
 
-            <button onClick={commit} disabled={committing || committed || lockExpired}
-              style={{ ...pillBtn(BLUE), width: '100%', marginTop: 16, opacity: (committing || committed || lockExpired) ? 0.6 : 1, cursor: (committing || committed || lockExpired) ? 'default' : 'pointer' }}>
+            <button onClick={commit} disabled={committing || committed || pendingPayment || !canEdit}
+              style={{ ...pillBtn(BLUE), width: '100%', marginTop: 16, opacity: (committing || committed || pendingPayment || !canEdit) ? 0.6 : 1, cursor: (committing || committed || pendingPayment || !canEdit) ? 'default' : 'pointer' }}>
               {committing ? 'Saving changes…' : 'Update Order'}
             </button>
             <button onClick={() => setDiscardOpen(true)} disabled={committing || committed}
@@ -901,18 +787,6 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
           </div>
         </Overlay>
       )}
-
-      {/* Lock-expired modal */}
-      {lockExpired && !committed && (
-        <Overlay>
-          <div style={modalCard()}>
-            <p style={{ fontSize: 15, fontWeight: 600, color: DARK, margin: '0 0 8px' }}>Your edit session has expired.</p>
-            <p style={{ fontSize: 13, color: '#888', margin: '0 0 20px' }}>Changes were not saved.</p>
-            <button onClick={() => router.push('/restaurant/orders')} style={{ ...pillBtn(BLUE), width: '100%' }}>Return to Orders</button>
-          </div>
-        </Overlay>
-      )}
-
 
       <style>{`
         @media (max-width: 900px) {

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
-import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage } from '../../../../lib/email/notifications'
+import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, sendOrderEditPaymentConfirmed, sendOrderEditPaymentFailed, type OrderMealPackage } from '../../../../lib/email/notifications'
+import { applyFmOrderUpdate } from '../../../../lib/order-edit'
 import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs'
@@ -383,9 +384,75 @@ export async function POST(request: NextRequest) {
         break
       }
 
+      // ── invoice.paid — Disco-native order EDIT confirmation ──
+      // A pending edit was invoiced for the additional amount; the customer just
+      // paid. Apply the proposed edit to FM + Neon and confirm.
+      case 'invoice.paid': {
+        const invoice = event.data.object as Stripe.Invoice
+        console.log('[Webhook] invoice.paid:', invoice.id)
+
+        const orders = (await sql`
+          SELECT id, reference, pending_edit_data FROM disco_orders
+          WHERE pending_stripe_invoice_id = ${invoice.id} LIMIT 1
+        `) as { id: number; reference: string; pending_edit_data: Record<string, unknown> | null }[]
+
+        if (orders.length === 0) {
+          // Not a pending-edit invoice — the invoice.payment_succeeded branch (or
+          // FM's own webhook) handles original-order invoices.
+          console.log('[Webhook] invoice.paid — no pending edit for invoice, skipping:', invoice.id)
+          break
+        }
+
+        const order = orders[0]
+        const p = (order.pending_edit_data || {}) as Record<string, unknown>
+        const lines = Array.isArray(p.activeLines) ? (p.activeLines as { reference: string; quantity: number }[]) : []
+        const orderDateIso = String(p.orderDateIso || '')
+        const orderTime = String(p.orderTime || '')
+
+        // Apply to FM (best-effort).
+        if (p.restaurantRef && lines.length) {
+          await applyFmOrderUpdate({
+            fmRef: String(p.fmRef || order.reference), restaurantRef: String(p.restaurantRef),
+            activeLines: lines.map(l => ({ reference: l.reference, quantity: l.quantity })),
+            orderDateIso, orderTime, orderType: String(p.orderType || 'PICKUP'),
+            tips: Number(p.tips) || 0, tipsType: String(p.tipsType || 'PERCENTAGE'),
+          })
+        }
+
+        // Confirm in Neon: bump edit_count, clear the pending state.
+        await sql`
+          UPDATE disco_orders
+          SET edit_count = COALESCE(edit_count,0) + 1,
+              order_date = COALESCE(${orderDateIso || null}::date, order_date),
+              order_time = COALESCE(${orderTime || null}::time, order_time),
+              edit_status = NULL, pending_edit_data = NULL, pending_edit_delta = NULL,
+              pending_stripe_invoice_id = NULL, updated_at = NOW()
+          WHERE id = ${order.id}
+        `
+        await sql`UPDATE disco_order_edits SET payment_status = 'succeeded' WHERE stripe_invoice_id = ${invoice.id}`
+        await recordEvent(order.reference, 'ORDER_EDIT_CONFIRMED', { invoiceId: invoice.id, delta: p.delta }, 'STRIPE_WEBHOOK')
+
+        const customerEmail = String(p.customerEmail || '')
+        if (customerEmail) {
+          sendOrderEditPaymentConfirmed({
+            to: customerEmail, firstName: String(p.firstName || ''),
+            orderNumber: String(p.orderNumber || ''), businessName: String(p.businessName || 'the restaurant'),
+            orderDate: fmtDate(orderDateIso), orderTime: fmtTime(orderTime),
+            items: Array.isArray(p.newItems) ? (p.newItems as { count: number; name: string; price: number }[]) : undefined,
+            newTotal: typeof p.newTotal === 'number' ? p.newTotal : undefined,
+          }).catch((err) => console.error('[Webhook] edit confirmed email failed:', err))
+        }
+        break
+      }
+
       // ── invoice.payment_succeeded ──
       case 'invoice.payment_succeeded': {
         const invoice = event.data.object as Stripe.Invoice
+        // Order-edit invoices are confirmed by the invoice.paid branch above.
+        if (invoice.metadata?.kind === 'order_edit') {
+          console.log('[Webhook] invoice.payment_succeeded — order_edit invoice, handled by invoice.paid:', invoice.id)
+          break
+        }
         const piId = (invoice as unknown as { payment_intent?: string | { id: string } | null }).payment_intent
         const orderReference = invoice.metadata?.orderReference
         console.log('[Webhook] invoice.payment_succeeded:', invoice.id, piId, orderReference)
@@ -422,6 +489,28 @@ export async function POST(request: NextRequest) {
         const invoice = event.data.object as Stripe.Invoice
         const orderReference = invoice.metadata?.orderReference
         console.log('[Webhook] invoice.payment_failed:', invoice.id, orderReference)
+
+        // Pending order-edit invoice: keep edit_status = 'pending_payment' and
+        // prompt the customer to update their payment method.
+        const pendingEdits = (await sql`
+          SELECT id, reference, pending_edit_data FROM disco_orders
+          WHERE pending_stripe_invoice_id = ${invoice.id} LIMIT 1
+        `) as { id: number; reference: string; pending_edit_data: Record<string, unknown> | null }[]
+        if (pendingEdits.length > 0) {
+          const p = (pendingEdits[0].pending_edit_data || {}) as Record<string, unknown>
+          await sql`UPDATE disco_order_edits SET payment_status = 'failed' WHERE stripe_invoice_id = ${invoice.id}`
+          await recordEvent(pendingEdits[0].reference, 'ORDER_EDIT_PAYMENT_FAILED', { invoiceId: invoice.id }, 'STRIPE_WEBHOOK')
+          const customerEmail = String(p.customerEmail || '')
+          if (customerEmail) {
+            sendOrderEditPaymentFailed({
+              to: customerEmail, firstName: String(p.firstName || ''),
+              orderNumber: String(p.orderNumber || ''), businessName: String(p.businessName || 'the restaurant'),
+              amountDue: Number(p.delta) || 0,
+              updatePaymentUrl: (invoice.hosted_invoice_url as string) || undefined,
+            }).catch((err) => console.error('[Webhook] edit payment-failed email failed:', err))
+          }
+          break
+        }
 
         if (!orderReference) {
           console.log('[Webhook] invoice.payment_failed — no orderReference metadata, skipping:', invoice.id)

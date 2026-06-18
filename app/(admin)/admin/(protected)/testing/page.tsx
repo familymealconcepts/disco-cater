@@ -32,6 +32,10 @@ const TESTS: TestDef[] = [
   { id: 'test-8', num: 8, name: 'Export API', description: 'Customers + orders export endpoints return data.' },
   { id: 'test-9', num: 9, name: 'Slack Notifications', description: 'New-order + partner Slack webhooks configured.' },
   { id: 'test-10', num: 10, name: 'Password Reset Flow', description: 'forgot-password returns 200 (anti-enumeration).' },
+  { id: 'test-11', num: 11, name: 'Edit Eligibility Check', description: 'Future order → /edit-status returns { canEdit: true, editCount: 0 }.' },
+  { id: 'test-12', num: 12, name: 'Edit — No Payment Delta', description: 'Same items → delta 0, no charge; disco_order_edits audit row written.' },
+  { id: 'test-13', num: 13, name: 'Edit Count Enforcement', description: 'Order with edit_count = 3 → POST /edit returns 400 "Maximum edits reached".' },
+  { id: 'test-14', num: 14, name: '24-Hour Rule Enforcement', description: 'Pickup < 24hrs → POST /edit returns 400 "within 24 hours of pickup".' },
 ]
 
 function deriveStatus(steps: Step[]): Status {

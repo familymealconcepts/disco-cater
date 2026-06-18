@@ -198,3 +198,38 @@ CREATE TABLE IF NOT EXISTS disco_restaurant_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_sessions_token ON disco_restaurant_sessions(token);
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_email ON disco_restaurant_accounts(email);
+
+-- ── Disco-native order editing ───────────────────────────────────────────────
+-- Edit lifecycle on the order row + an audit log of every committed edit. The
+-- pending_* columns hold a proposed edit while we await customer payment on an
+-- invoice (resolved by the Stripe invoice.paid webhook).
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS edit_count INTEGER DEFAULT 0;
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS edit_status VARCHAR(50);
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS pending_edit_data JSONB;
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS pending_edit_delta NUMERIC;
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS pending_stripe_invoice_id VARCHAR(255);
+
+CREATE TABLE IF NOT EXISTS disco_order_edits (
+  id SERIAL PRIMARY KEY,
+  fm_order_reference UUID NOT NULL,
+  edit_number INTEGER NOT NULL,
+  editor_email VARCHAR(255),
+  original_items JSONB,
+  new_items JSONB,
+  original_total NUMERIC,
+  new_total NUMERIC,
+  delta NUMERIC,
+  original_date DATE,
+  new_date DATE,
+  original_time TIME,
+  new_time TIME,
+  payment_action VARCHAR(50),
+  payment_status VARCHAR(50),
+  stripe_payment_intent_id VARCHAR(255),
+  stripe_invoice_id VARCHAR(255),
+  stripe_refund_id VARCHAR(255),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_disco_order_edits_fm_ref ON disco_order_edits(fm_order_reference);
+CREATE INDEX IF NOT EXISTS idx_disco_orders_pending_invoice ON disco_orders(pending_stripe_invoice_id);

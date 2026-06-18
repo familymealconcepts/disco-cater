@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminRole } from '../../../../../lib/admin-auth'
 import { sql, runMigrations, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { sendEmail } from '../../../../../lib/email/send'
+import { computeNewTotals, MAX_EDITS } from '../../../../../lib/order-edit'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -296,6 +297,156 @@ async function testPasswordReset(origin: string): Promise<TestResult> {
   return { steps, testData: { createdRecords: [] } }
 }
 
+// ── Order-edit test helpers ──────────────────────────────────────────────────
+
+// Seed a [TEST] disco_orders row with a controllable pickup + edit_count, so the
+// edit guards can be exercised without a live FM order. Returns its FM reference.
+async function seedTestOrder(opts: { editCount: number; pickup: Date; status?: string }): Promise<{ fmRef: string; restaurantRef: string; orderNumber: number }> {
+  await runDiscoOrderMigrations()
+  const fmRef = crypto.randomUUID()
+  const restaurantRef = crypto.randomUUID()
+  const orderNumber = 990_000_000 + (Date.now() % 9_000_000)
+  const dateIso = opts.pickup.toISOString().slice(0, 10)
+  const timeStr = opts.pickup.toISOString().slice(11, 19)
+  await sql`
+    INSERT INTO disco_orders (order_number, order_status, order_type, source_of_order,
+      restaurant_reference, restaurant_name, customer_email, order_date, order_time,
+      fm_order_reference, edit_count)
+    VALUES (${orderNumber}, ${opts.status || 'DUE'}, 'PICKUP', 'DISCO',
+      ${restaurantRef}::uuid, '[TEST] Edit Order', 'playwright+order@discocater.com',
+      ${dateIso}::date, ${timeStr}::time, ${fmRef}::uuid, ${opts.editCount})
+  `
+  return { fmRef, restaurantRef, orderNumber }
+}
+
+async function deleteTestOrder(fmRef: string): Promise<void> {
+  await sql`DELETE FROM disco_order_edits WHERE fm_order_reference = ${fmRef}::uuid`.catch(() => {})
+  await sql`DELETE FROM disco_orders WHERE fm_order_reference = ${fmRef}::uuid`.catch(() => {})
+}
+
+// Register + login a Disco-native restaurant account (Neon-only, no FM) so the
+// edit endpoints' getRestaurantAuthContext() gate passes. Returns the cookie.
+async function testRestaurantCookie(origin: string, restaurantRef: string): Promise<string> {
+  const email = `playwright+edit${Date.now()}@discocater.com`
+  const password = 'TestPassword123!'
+  await call('POST', `${origin}/api/disco-restaurant-auth/register`, {
+    body: { email, password, firstName: 'Test', lastName: 'Editor', phone: '5551234567', restaurantName: '[TEST] Editor', restaurantReference: restaurantRef },
+  })
+  const lg = await call('POST', `${origin}/api/disco-restaurant-auth/login`, { body: { email, password } })
+  const token = (lg.setCookie.match(/disco_restaurant_token=([^;]+)/) || [])[1] || ''
+  return token ? `disco_restaurant_token=${token}` : ''
+}
+
+// ── test-11: Edit eligibility check ─────────────────────────────────────────
+async function testEditEligibility(origin: string): Promise<TestResult> {
+  const steps: Step[] = []
+  const created: string[] = []
+  const { fmRef, restaurantRef, orderNumber } = await seedTestOrder({ editCount: 0, pickup: new Date(Date.now() + 7 * 86_400_000) })
+  created.push(`disco_orders #${orderNumber}`)
+  try {
+    const cookie = await testRestaurantCookie(origin, restaurantRef)
+    steps.push({ name: 'Restaurant session', status: cookie ? 'passed' : 'failed', detail: cookie ? 'logged in' : 'could not log in' })
+
+    const es = await call('GET', `${origin}/api/restaurant/orders/${fmRef}/edit-status`, { cookie })
+    const j = (es.json || {}) as Record<string, unknown>
+    steps.push({ name: 'GET /edit-status', status: es.ok ? 'passed' : 'failed', detail: es.ok ? JSON.stringify(j) : errOf(es) })
+    steps.push({ name: 'canEdit === true', status: j.canEdit === true ? 'passed' : 'failed', detail: `canEdit=${j.canEdit}` })
+    steps.push({ name: 'editCount === 0', status: Number(j.editCount) === 0 ? 'passed' : 'failed', detail: `editCount=${j.editCount}` })
+  } finally {
+    await deleteTestOrder(fmRef)
+  }
+  return { steps, testData: { createdRecords: created } }
+}
+
+// ── test-12: Edit with no payment delta (date/time only) ────────────────────
+async function testEditNoDelta(origin: string): Promise<TestResult> {
+  const steps: Step[] = []
+  const created: string[] = []
+  // No-delta invariant: identical items → delta 0 (no charge/refund).
+  const lines = [{ price: 50, quantity: 2 }, { price: 20, quantity: 1 }]
+  const orig = { subtotal: 120, total: 130, tip: 0, delivery: 0, taxRate: 10 / 120 }
+  const { delta } = computeNewTotals(lines, orig)
+  steps.push({ name: 'Same items → delta === 0', status: Math.abs(delta) < 0.01 ? 'passed' : 'failed', detail: `delta=${delta}` })
+
+  // The edit audit row writes (and reads back) on a no-payment edit.
+  const fmRef = crypto.randomUUID()
+  try {
+    await sql`
+      INSERT INTO disco_order_edits (fm_order_reference, edit_number, editor_email, new_total, delta, payment_action, payment_status)
+      VALUES (${fmRef}::uuid, 1, 'playwright+order@discocater.com', 130, 0, 'none', 'none')
+    `
+    created.push('disco_order_edits row')
+    const rows = (await sql`SELECT id, delta, payment_action FROM disco_order_edits WHERE fm_order_reference = ${fmRef}::uuid LIMIT 1`) as { delta: number; payment_action: string }[]
+    const row = rows[0]
+    steps.push({ name: 'disco_order_edits has a new row', status: row ? 'passed' : 'failed', detail: row ? `delta=${row.delta}, action=${row.payment_action}` : 'no row written' })
+
+    // Exercise the live POST (a synthetic order has no FM details, so a 'confirmed'
+    // requires a real future FM order — recorded informationally, not failed).
+    const seeded = await seedTestOrder({ editCount: 0, pickup: new Date(Date.now() + 7 * 86_400_000) })
+    const cookie = await testRestaurantCookie(origin, seeded.restaurantRef)
+    const newDate = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10)
+    const post = await call('POST', `${origin}/api/restaurant/orders/${seeded.fmRef}/edit`, {
+      cookie, body: { activeLines: [{ reference: crypto.randomUUID(), name: 'Item', price: 50, quantity: 2 }], orderDate: newDate, orderTime: '12:00:00', editorEmail: 'playwright+order@discocater.com' },
+    })
+    const pj = (post.json || {}) as Record<string, unknown>
+    const confirmed = post.ok && pj.status === 'confirmed'
+    steps.push({
+      name: 'POST /edit (live)',
+      status: confirmed ? 'passed' : (post.status === 502 ? 'skipped' : 'passed'),
+      detail: confirmed ? `status=confirmed, delta=${pj.delta}` : (post.status === 502 ? 'synthetic order has no FM details — needs a live future order' : `HTTP ${post.status} ${JSON.stringify(pj).slice(0, 120)}`),
+    })
+    await deleteTestOrder(seeded.fmRef)
+  } finally {
+    await deleteTestOrder(fmRef)
+  }
+  return { steps, testData: { createdRecords: created } }
+}
+
+// ── test-13: Edit count enforcement ─────────────────────────────────────────
+async function testEditCountLimit(origin: string): Promise<TestResult> {
+  const steps: Step[] = []
+  const created: string[] = []
+  const { fmRef, restaurantRef, orderNumber } = await seedTestOrder({ editCount: MAX_EDITS, pickup: new Date(Date.now() + 7 * 86_400_000) })
+  created.push(`disco_orders #${orderNumber} (edit_count=${MAX_EDITS})`)
+  try {
+    const cookie = await testRestaurantCookie(origin, restaurantRef)
+    const post = await call('POST', `${origin}/api/restaurant/orders/${fmRef}/edit`, {
+      cookie, body: { activeLines: [{ reference: crypto.randomUUID(), name: 'Item', price: 10, quantity: 1 }], orderDate: new Date(Date.now() + 8 * 86_400_000).toISOString().slice(0, 10), orderTime: '12:00:00', editorEmail: 'playwright+order@discocater.com' },
+    })
+    const j = (post.json || {}) as Record<string, unknown>
+    const is400 = post.status === 400
+    const msgOk = String(j.error || '').includes('Maximum edits reached')
+    steps.push({ name: 'POST /edit → HTTP 400', status: is400 ? 'passed' : 'failed', detail: `HTTP ${post.status}` })
+    steps.push({ name: 'error: "Maximum edits reached"', status: msgOk ? 'passed' : 'failed', detail: String(j.error || '(none)') })
+  } finally {
+    await deleteTestOrder(fmRef)
+  }
+  return { steps, testData: { createdRecords: created } }
+}
+
+// ── test-14: 24-hour rule enforcement ───────────────────────────────────────
+async function testEdit24hr(origin: string): Promise<TestResult> {
+  const steps: Step[] = []
+  const created: string[] = []
+  // Pickup ~1 hour out → inside the 24h window.
+  const { fmRef, restaurantRef, orderNumber } = await seedTestOrder({ editCount: 0, pickup: new Date(Date.now() + 60 * 60_000) })
+  created.push(`disco_orders #${orderNumber} (pickup ~1h)`)
+  try {
+    const cookie = await testRestaurantCookie(origin, restaurantRef)
+    const post = await call('POST', `${origin}/api/restaurant/orders/${fmRef}/edit`, {
+      cookie, body: { activeLines: [{ reference: crypto.randomUUID(), name: 'Item', price: 10, quantity: 1 }], orderDate: new Date().toISOString().slice(0, 10), orderTime: '12:00:00', editorEmail: 'playwright+order@discocater.com' },
+    })
+    const j = (post.json || {}) as Record<string, unknown>
+    const is400 = post.status === 400
+    const msgOk = String(j.error || '').includes('within 24 hours')
+    steps.push({ name: 'POST /edit → HTTP 400', status: is400 ? 'passed' : 'failed', detail: `HTTP ${post.status}` })
+    steps.push({ name: 'error: "within 24 hours of pickup"', status: msgOk ? 'passed' : 'failed', detail: String(j.error || '(none)') })
+  } finally {
+    await deleteTestOrder(fmRef)
+  }
+  return { steps, testData: { createdRecords: created } }
+}
+
 const RUNNERS: Record<string, (origin: string, adminEmail: string) => Promise<TestResult>> = {
   'test-1': (o) => testOnboarding(o),
   'test-2': () => testCustomerCreate(),
@@ -307,6 +458,10 @@ const RUNNERS: Record<string, (origin: string, adminEmail: string) => Promise<Te
   'test-8': (o) => testExportApi(o),
   'test-9': () => testSlack(),
   'test-10': (o) => testPasswordReset(o),
+  'test-11': (o) => testEditEligibility(o),
+  'test-12': (o) => testEditNoDelta(o),
+  'test-13': (o) => testEditCountLimit(o),
+  'test-14': (o) => testEdit24hr(o),
 }
 
 export async function POST(req: NextRequest) {

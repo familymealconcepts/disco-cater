@@ -421,3 +421,168 @@ export async function sendCustomerRefundNotification(params: {
     return { success: false }
   }
 }
+
+// ── Order editing (Disco-native edit flow) ───────────────────────────────────
+
+export interface EditItem { count: number; name: string; price: number }
+
+// "(qty) name — $total" rows for an edit's new item list.
+function renderEditItems(items: EditItem[]): string {
+  return renderLineItems((items || []).map(i => ({ count: i.count, name: i.name, price: i.price })))
+}
+
+// One-line payment summary for an edit's delta.
+function paymentSummary(delta: number): string {
+  if (delta > 0.005) return `<strong>${money(delta)} charged</strong> for the difference.`
+  if (delta < -0.005) return `<strong>${money(Math.abs(delta))} refunded</strong> for the difference.`
+  return 'No change to your total.'
+}
+
+function dateTimeLine(orderDate?: string, orderTime?: string): string {
+  if (!orderDate && !orderTime) return ''
+  return `<p style="margin:0;"><strong>New pickup:</strong> ${escapeHtml(orderDate || '')}${orderTime ? ` at ${escapeHtml(orderTime)}` : ''}</p>`
+}
+
+// 1. order-updated (customer)
+export async function sendOrderUpdated(params: {
+  to: string; firstName?: string; orderNumber: string | number; businessName: string
+  orderDate?: string; orderTime?: string; items: EditItem[]; newTotal: number; delta: number
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">${p.firstName ? `Hi ${escapeHtml(p.firstName)},` : 'Hi,'}</p>
+<p style="margin:0 0 12px 0;">Your order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)} has been updated.</p>
+${dateTimeLine(p.orderDate, p.orderTime)}
+${HR}
+${renderEditItems(p.items)}
+${HR}
+<p style="margin:0;"><strong>New total: ${money(p.newTotal)}</strong></p>
+<p style="margin:6px 0 0 0;">${paymentSummary(p.delta)}</p>
+`
+    return await sendEmail({ to: p.to, subject: 'Your order has been updated | Disco Cater', html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendOrderUpdated failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
+// 2. order-edit-payment-required (customer)
+export async function sendOrderEditPaymentRequired(params: {
+  to: string; firstName?: string; orderNumber: string | number; businessName: string
+  amountDue: number; invoiceUrl?: string
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">${p.firstName ? `Hi ${escapeHtml(p.firstName)},` : 'Hi,'}</p>
+<p style="margin:0 0 12px 0;">Your update to order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)} needs a payment of <strong>${money(p.amountDue)}</strong> to be confirmed.</p>
+<p style="margin:0;">Please pay the invoice below — your order changes are saved and will be confirmed as soon as payment is received.</p>
+${p.invoiceUrl ? button('Pay invoice', p.invoiceUrl) : ''}
+`
+    return await sendEmail({ to: p.to, subject: 'Payment required for your order update | Disco Cater', html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendOrderEditPaymentRequired failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
+// 3. order-edit-payment-confirmed (customer)
+export async function sendOrderEditPaymentConfirmed(params: {
+  to: string; firstName?: string; orderNumber: string | number; businessName: string
+  orderDate?: string; orderTime?: string; items?: EditItem[]; newTotal?: number
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">${p.firstName ? `Hi ${escapeHtml(p.firstName)},` : 'Hi,'}</p>
+<p style="margin:0 0 12px 0;">Payment received — your update to order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)} is now confirmed.</p>
+${dateTimeLine(p.orderDate, p.orderTime)}
+${p.items && p.items.length ? `${HR}${renderEditItems(p.items)}` : ''}
+${p.newTotal != null ? `${HR}<p style="margin:0;"><strong>Total: ${money(p.newTotal)}</strong></p>` : ''}
+`
+    return await sendEmail({ to: p.to, subject: 'Order update confirmed | Disco Cater', html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendOrderEditPaymentConfirmed failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
+// 4. order-edit-refund-issued (customer)
+export async function sendOrderEditRefundIssued(params: {
+  to: string; firstName?: string; orderNumber: string | number; businessName: string; refundAmount: number
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">${p.firstName ? `Hi ${escapeHtml(p.firstName)},` : 'Hi,'}</p>
+<p style="margin:0 0 12px 0;">A refund of <strong>${money(p.refundAmount)}</strong> has been issued for your update to order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)}.</p>
+<p style="margin:0;">Please allow 5-10 business days for the credit to appear on your statement.</p>
+`
+    return await sendEmail({ to: p.to, subject: 'Refund issued for your order | Disco Cater', html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendOrderEditRefundIssued failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
+// 5. order-edit-payment-failed (customer)
+export async function sendOrderEditPaymentFailed(params: {
+  to: string; firstName?: string; orderNumber: string | number; businessName: string
+  amountDue: number; updatePaymentUrl?: string
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">${p.firstName ? `Hi ${escapeHtml(p.firstName)},` : 'Hi,'}</p>
+<p style="margin:0 0 12px 0;">We couldn't collect the <strong>${money(p.amountDue)}</strong> due for your update to order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)}.</p>
+<p style="margin:0;">Please update your payment method to confirm the change.</p>
+${p.updatePaymentUrl ? button('Update payment method', p.updatePaymentUrl) : ''}
+`
+    return await sendEmail({ to: p.to, subject: 'Action required: payment failed for order update | Disco Cater', html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendOrderEditPaymentFailed failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
+// 6. order-updated-restaurant
+export async function sendOrderUpdatedRestaurant(params: {
+  to: string; orderNumber: string | number; businessName: string
+  orderDate?: string; orderTime?: string; items: EditItem[]; newTotal: number; delta: number; changeSummary?: string
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">Order <strong>#${escapeHtml(p.orderNumber)}</strong> has been updated.</p>
+${p.changeSummary ? `<p style="margin:0 0 12px 0;">${escapeHtml(p.changeSummary)}</p>` : ''}
+${dateTimeLine(p.orderDate, p.orderTime)}
+${HR}
+${renderEditItems(p.items)}
+${HR}
+<p style="margin:0;"><strong>New total: ${money(p.newTotal)}</strong></p>
+<p style="margin:6px 0 0 0;">${paymentSummary(p.delta)}</p>
+`
+    return await sendEmail({ to: p.to, subject: `Order #${p.orderNumber} has been updated | Disco Cater`, html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendOrderUpdatedRestaurant failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
+// 7. order-edit-pending-restaurant
+export async function sendOrderEditPendingRestaurant(params: {
+  to: string; orderNumber: string | number; businessName: string; amountDue: number
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">An edit to order <strong>#${escapeHtml(p.orderNumber)}</strong> is pending customer payment.</p>
+<p style="margin:0;">The customer has been sent an invoice for <strong>${money(p.amountDue)}</strong>. The order will be confirmed automatically once they pay — no action is needed on your end.</p>
+`
+    return await sendEmail({ to: p.to, subject: `Order #${p.orderNumber} edit pending customer payment | Disco Cater`, html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendOrderEditPendingRestaurant failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
