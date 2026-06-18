@@ -89,6 +89,7 @@ export interface FmOrderMoney {
   total: number
   tip: number
   delivery: number
+  tax: number
   taxAndFee: number
   taxRate: number
   tipsRaw: number
@@ -148,7 +149,7 @@ export function parseFmOrder(details: Record<string, unknown>): FmOrderMoney {
   const user = (order.user as Record<string, unknown>) ?? {}
   return {
     order,
-    subtotal, total, tip, delivery, taxAndFee, taxRate, tipsRaw, tipsType,
+    subtotal, total, tip, delivery, tax, taxAndFee, taxRate, tipsRaw, tipsType,
     status: s(order.orderStatus) || s(order.status),
     orderType: s(order.orderType) || (s(order.deliveryType).includes('DELIVERY') ? 'DELIVERY' : 'PICKUP'),
     orderDateIso: fmDateToIso(s(order.orderDate)),

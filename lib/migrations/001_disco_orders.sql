@@ -233,3 +233,17 @@ CREATE TABLE IF NOT EXISTS disco_order_edits (
 
 CREATE INDEX IF NOT EXISTS idx_disco_order_edits_fm_ref ON disco_order_edits(fm_order_reference);
 CREATE INDEX IF NOT EXISTS idx_disco_orders_pending_invoice ON disco_orders(pending_stripe_invoice_id);
+
+-- Order money columns on disco_orders (the edit flow recalculates + stores these
+-- on item changes). FM keeps the canonical money on disco_sale_transactions, but
+-- disco_orders carries a denormalized snapshot for the native edit path.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS subtotal NUMERIC(10,2);
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS total NUMERIC(10,2);
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS fee NUMERIC(10,2);
+
+-- Native-edit audit columns on disco_order_edits (in addition to the original
+-- editor_email/original_*/delta columns the webhook also uses).
+ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS edited_by VARCHAR(255);
+ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS edit_type VARCHAR(20);
+ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_total NUMERIC;
+ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_date DATE;
