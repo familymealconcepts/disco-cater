@@ -35,6 +35,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-easy-crop": "^5.5.7",
+    "react-image-crop": "^11.0.10",
     "react-quill-new": "^3.8.3",
     "recharts": "^3.8.1",
     "stripe": "^22.2.0"

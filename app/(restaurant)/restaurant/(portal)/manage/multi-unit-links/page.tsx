@@ -1,5 +1,10 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import ReactCrop, { centerCrop, makeAspectCrop, type Crop, type PixelCrop } from 'react-image-crop'
+import 'react-image-crop/dist/ReactCrop.css'
+
+// Link images render in a 16:9 header on /locations/[slug], so crop to match.
+const CROP_ASPECT = 16 / 9
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -83,6 +88,12 @@ export default function MultiUnitLinksPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [imageUpdated, setImageUpdated] = useState(false)
   const [imageError, setImageError] = useState('')
+  // Inline 16:9 cropper state — set when a file is picked, cleared on crop/cancel.
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
+  const [crop, setCrop] = useState<Crop>()
+  const [completedCrop, setCompletedCrop] = useState<PixelCrop>()
+  const [cropFileName, setCropFileName] = useState('image')
+  const cropImgRef = useRef<HTMLImageElement | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -178,8 +189,11 @@ export default function MultiUnitLinksPage() {
   function closeDialog() {
     if (imageFile && imagePreview) URL.revokeObjectURL(imagePreview)
     setEditing(null); setImageFile(null); setImagePreview(null); setUrlError(''); setImageError('')
+    setCropSrc(null); setCrop(undefined); setCompletedCrop(undefined)
   }
 
+  // Pick a file → load it into the inline cropper (no upload yet). The cropped
+  // result becomes imageFile on "Crop & Save".
   function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
     e.target.value = ''
@@ -187,16 +201,56 @@ export default function MultiUnitLinksPage() {
     if (!/image\/(jpeg|png)/.test(f.type)) { setImageError('Please choose a .jpg or .png'); return }
     if (f.size > 5 * 1024 * 1024) { setImageError('Image must be 5MB or less'); return }
     setImageError('')
+    setCropFileName((f.name || 'image').replace(/\.[^.]+$/, ''))
+    setCrop(undefined); setCompletedCrop(undefined)
+    const reader = new FileReader()
+    reader.onload = () => setCropSrc(String(reader.result || ''))
+    reader.readAsDataURL(f)
+  }
+
+  // Seed a centered 16:9 crop once the image is laid out in the cropper.
+  function onCropImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
+    const { width, height } = e.currentTarget
+    setCrop(centerCrop(makeAspectCrop({ unit: '%', width: 90 }, CROP_ASPECT, width, height), width, height))
+  }
+
+  // Draw the selected crop region to a canvas → JPEG blob → File, and adopt it as
+  // the image to upload.
+  async function cropAndSave() {
+    const image = cropImgRef.current
+    const c = completedCrop
+    if (!image || !c || !c.width || !c.height) { setImageError('Please select a crop area.'); return }
+    const scaleX = image.naturalWidth / image.width
+    const scaleY = image.naturalHeight / image.height
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.floor(c.width * scaleX))
+    canvas.height = Math.max(1, Math.floor(c.height * scaleY))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(
+      image,
+      c.x * scaleX, c.y * scaleY, c.width * scaleX, c.height * scaleY,
+      0, 0, canvas.width, canvas.height,
+    )
+    const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/jpeg', 0.9))
+    if (!blob) { setImageError('Could not crop the image. Please try again.'); return }
+    const file = new File([blob], `${cropFileName}.jpg`, { type: 'image/jpeg' })
     if (imageFile && imagePreview) URL.revokeObjectURL(imagePreview)
-    setImageFile(f)
-    setImagePreview(URL.createObjectURL(f))
-    setImageUpdated(true) // V1: no client-side crop; FM crops to 12:5 before upload.
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+    setImageUpdated(true)
+    setCropSrc(null); setCrop(undefined); setCompletedCrop(undefined)
+  }
+
+  function cancelCrop() {
+    setCropSrc(null); setCrop(undefined); setCompletedCrop(undefined); setImageError('')
   }
 
   function removeImage() {
     if (imageFile && imagePreview) URL.revokeObjectURL(imagePreview)
     setImageFile(null)
     setImagePreview(null)
+    setCropSrc(null); setCrop(undefined); setCompletedCrop(undefined)
     setImageUpdated(true) // signal the backend to clear the existing image
   }
 
@@ -469,13 +523,34 @@ export default function MultiUnitLinksPage() {
               </div>
               <div>
                 <label style={lbl}>Link Image</label>
-                {/* V1: no client-side cropper — FM crops to a 12:5 banner before
-                    upload. We send the chosen file as-is; revisit with a canvas
-                    cropper to match FM's 12:5 ratio exactly. */}
-                <p style={{ fontSize: 11, color: '#999', margin: '0 0 8px' }}>Upload a .jpg or .png up to 5MB.</p>
-                {imagePreview ? (
+                <p style={{ fontSize: 11, color: '#999', margin: '0 0 8px' }}>Upload a .jpg or .png up to 5MB. You&apos;ll crop it to a 16:9 banner.</p>
+                {cropSrc ? (
+                  // Inline 16:9 crop UI — clean white card matching the dialog.
+                  <div style={{ background: '#fff', padding: 16, borderRadius: 8, border: '1px solid #e6e6ee' }}>
+                    <ReactCrop
+                      crop={crop}
+                      onChange={(_px, percent) => setCrop(percent)}
+                      onComplete={c => setCompletedCrop(c)}
+                      aspect={CROP_ASPECT}
+                      keepSelection
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img ref={cropImgRef} src={cropSrc} alt="Crop preview" onLoad={onCropImageLoad} style={{ maxHeight: 320, maxWidth: '100%', display: 'block' }} />
+                    </ReactCrop>
+                    <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                      <button type="button" onClick={cropAndSave}
+                        style={{ padding: '9px 18px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                        Crop &amp; Save
+                      </button>
+                      <button type="button" onClick={cancelCrop}
+                        style={{ padding: '9px 18px', background: '#fff', color: '#555', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : imagePreview ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                    <div style={{ width: 120, height: 50, borderRadius: 8, border: '1px solid #eee', backgroundImage: `url(${imagePreview})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+                    <div style={{ width: 120, height: 67.5, borderRadius: 8, border: '1px solid #eee', backgroundImage: `url(${imagePreview})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
                     <button type="button" onClick={removeImage} style={{ ...btnLink, color: '#E76F51', marginLeft: 0 }}>Remove</button>
                   </div>
                 ) : (

@@ -69,14 +69,14 @@ function Landing({ link }: { link: LocationLink }) {
       <header
         style={{
           position: 'relative',
-          minHeight: 200,
+          minHeight: 240, // +20% (was 200)
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          textAlign: 'center', padding: '40px 20px',
+          textAlign: 'center', padding: '48px 20px', // +20% vertical (was 40px)
           // Uploaded Link Image (image_url from Neon via resolveLinkBanner) as the
           // header background — cover/center, under a dark overlay so the title
           // stays readable. Falls back to the brand gradient when null/empty.
           background: link.image
-            ? `linear-gradient(rgba(0,0,0,0.4),rgba(0,0,0,0.4)), url('${link.image}') center/cover no-repeat`
+            ? `linear-gradient(rgba(0,0,0,0.55),rgba(0,0,0,0.55)), url('${link.image}') center/cover no-repeat`
             : HERO_GRADIENT,
         }}
       >
