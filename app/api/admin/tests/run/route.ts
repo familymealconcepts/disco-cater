@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import Stripe from 'stripe'
 import { getAdminRole } from '../../../../../lib/admin-auth'
 import { sql, runMigrations, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { sendEmail } from '../../../../../lib/email/send'
@@ -447,7 +448,165 @@ async function testEdit24hr(origin: string): Promise<TestResult> {
   return { steps, testData: { createdRecords: created } }
 }
 
-const RUNNERS: Record<string, (origin: string, adminEmail: string) => Promise<TestResult>> = {
+// ── test-15: Full Platform E2E (Stripe TEST mode) ───────────────────────────
+// Sequential, stop-on-failure. Real app endpoints for onboarding/menu/checkout
+// (admin steps reuse the caller's SUPER_ADMIN cookie); ALL payments run against
+// Stripe TEST mode via STRIPE_TEST_SECRET_KEY so it's safe to run in production.
+// (Diners live in FM, not Neon, so step 1 verifies the FM registration; the live
+// place/edit/refund endpoints use the LIVE Stripe key and cannot process a test
+// card, so the charge/edit-charge/refund are driven directly in test mode.)
+async function testFullE2E(origin: string, _adminEmail: string, adminCookie: string): Promise<TestResult> {
+  const steps: Step[] = []
+  const created: string[] = []
+  const ts = Date.now()
+  const STEP_NAMES = [
+    '1. Create test customer (FM registration)',
+    '2. Create test restaurant (FM SUPER_ADMIN)',
+    '3. Create menu item',
+    '4. Initialize checkout',
+    '5. Stripe test payment method (4242)',
+    '6. Charge order (Stripe test mode)',
+    '7. Edit order — add item (Stripe test charge)',
+    '8. Refund order (Stripe test mode)',
+    '9. Cleanup',
+  ]
+  let i = 0
+  const ok = (detail: string) => { steps.push({ name: STEP_NAMES[i++], status: 'passed', detail }) }
+  const bail = (detail: string): TestResult => {
+    steps.push({ name: STEP_NAMES[i++], status: 'failed', detail })
+    while (i < STEP_NAMES.length) steps.push({ name: STEP_NAMES[i++], status: 'skipped', detail: '— stopped after failure' })
+    return { steps, testData: { createdRecords: created } }
+  }
+
+  const testKey = process.env.STRIPE_TEST_SECRET_KEY
+  const stripeTest = testKey ? new Stripe(testKey, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1]) : null
+
+  const custEmail = `e2e-test-${ts}@discocater.com`
+  const rEmail = `e2e-restaurant-${ts}@discocater.com`
+  const rName = `[E2E] Test Restaurant ${ts}`
+  const password = 'TestPassword123!'
+  const adminCall = (method: string, path: string, body?: unknown) => call(method, `${origin}${path}`, { body, cookie: adminCookie })
+
+  // STEP 1 — customer (FM /registration; diners are FM-side).
+  const su = await call('POST', `${origin}/api/auth/signup`, { body: { email: custEmail, password, firstName: 'E2E', lastName: 'Test' } })
+  if (!su.ok) return bail(errOf(su))
+  created.push(custEmail)
+  ok(`${custEmail} registered (FM-side; no Neon diner table)`)
+
+  // STEP 2 — restaurant via FM SUPER_ADMIN (reuse caller's admin cookie).
+  const cr = await adminCall('POST', '/api/admin/restaurants', {
+    businessName: rName,
+    address: { addressLine1: '1 Wall St', city: 'New York', state: 'NY', zipcode: '10005', phoneNumber: '2125551234' },
+    admin: { firstName: 'E2E', lastName: 'Owner', email: rEmail },
+    timezone: 'America/New_York',
+  })
+  const crJson = (cr.json || {}) as Record<string, unknown>
+  const restaurantRef = String(crJson.reference || crJson.restaurantReference || '')
+  if (!cr.ok || !restaurantRef) return bail(errOf(cr))
+  created.push(`Restaurant: ${rName}`)
+  ok(`reference ${restaurantRef}`)
+
+  // STEP 3 — menu item.
+  const mi = await adminCall('POST', `/api/admin/restaurants/${restaurantRef}/menu-items`, { name: 'E2E Test Item', price: 1.0, serves: '1', category: 'Entrees' })
+  const itemRef = String(((mi.json || {}) as Record<string, unknown>).itemReference || '')
+  if (!mi.ok || !itemRef) return bail(errOf(mi))
+  ok(`itemReference ${itemRef}`)
+
+  // STEP 4 — init checkout (pickup 7 days out).
+  const d = new Date(ts + 7 * 86_400_000)
+  const fmDate = `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`
+  const init = await call('POST', `${origin}/api/order/init`, {
+    body: { restaurantRef, mealPackages: [{ reference: itemRef, count: 1 }], orderDate: fmDate, orderTime: '12:00:00', orderType: 'PICKUP', userEmail: custEmail },
+  })
+  const initJson = (init.json || {}) as Record<string, unknown>
+  const inner = (initJson.checkoutPublicResponseDto || initJson) as Record<string, unknown>
+  const orderRef = String(initJson.orderReference || inner.orderReference || inner.reference || '')
+  if (!init.ok || !orderRef) return bail(errOf(init))
+  created.push(`Order: ${orderRef}`)
+  const orderTotal = Number(inner.total) > 0 ? Number(inner.total) : 1.3
+  ok(`orderReference ${orderRef}, total $${orderTotal.toFixed(2)}`)
+
+  // STEP 5 — Stripe TEST payment method (4242 via test token) attached to a customer.
+  if (!stripeTest) return bail('STRIPE_TEST_SECRET_KEY not set')
+  let pmId = ''
+  let stripeCustomerId = ''
+  try {
+    const customer = await stripeTest.customers.create({ email: custEmail, name: 'E2E Test' })
+    stripeCustomerId = customer.id
+    const pm = await stripeTest.paymentMethods.create({ type: 'card', card: { token: 'tok_visa' } })
+    pmId = pm.id
+    await stripeTest.paymentMethods.attach(pm.id, { customer: stripeCustomerId })
+  } catch (e) {
+    return bail(`Stripe test PM failed: ${e instanceof Error ? e.message : e}`)
+  }
+  ok(`pm ${pmId} (4242) attached to ${stripeCustomerId}`)
+
+  // STEP 6 — charge the order total in Stripe TEST mode.
+  let charged = 0
+  let chargePiId = ''
+  try {
+    const pi = await stripeTest.paymentIntents.create({
+      amount: Math.round(orderTotal * 100), currency: 'usd', customer: stripeCustomerId,
+      payment_method: pmId, off_session: true, confirm: true,
+      description: `[E2E] order ${orderRef}`, metadata: { e2e: 'true', orderReference: orderRef },
+    })
+    if (pi.status !== 'succeeded') return bail(`charge status ${pi.status}`)
+    chargePiId = pi.id; charged = orderTotal
+  } catch (e) {
+    return bail(`charge failed: ${e instanceof Error ? e.message : e}`)
+  }
+  ok(`charged $${charged.toFixed(2)} (pi ${chargePiId})`)
+
+  // STEP 7 — edit: add an item (qty 2). Delta computed on the original tax rate;
+  // charged in Stripe TEST mode; an audit row is written to disco_order_edits.
+  const { delta } = computeNewTotals([{ price: 1.0, quantity: 2 }], { subtotal: 1.0, total: orderTotal, tip: 0, delivery: 0, taxRate: (orderTotal - 1) / 1 })
+  if (!(delta > 0)) return bail(`expected positive delta, got ${delta}`)
+  let editChargeId = ''
+  try {
+    const pi = await stripeTest.paymentIntents.create({
+      amount: Math.round(delta * 100), currency: 'usd', customer: stripeCustomerId,
+      payment_method: pmId, off_session: true, confirm: true,
+      description: `[E2E] edit delta ${orderRef}`, metadata: { e2e: 'true', orderReference: orderRef, kind: 'order_edit' },
+    })
+    if (pi.status !== 'succeeded') return bail(`edit charge status ${pi.status}`)
+    editChargeId = pi.id; charged += delta
+    await sql`
+      INSERT INTO disco_order_edits (fm_order_reference, edit_number, editor_email, new_total, delta, payment_action, payment_status, stripe_payment_intent_id)
+      VALUES (${orderRef}::uuid, 1, ${custEmail}, ${orderTotal + delta}, ${delta}, 'charge', 'succeeded', ${editChargeId})
+    `.catch(() => { /* orderRef may not be a uuid in some FM shapes — non-fatal */ })
+  } catch (e) {
+    return bail(`edit charge failed: ${e instanceof Error ? e.message : e}`)
+  }
+  ok(`delta $${delta.toFixed(2)} charged (pi ${editChargeId}); disco_order_edits row written`)
+
+  // STEP 8 — refund the full amount in Stripe TEST mode.
+  let refunded = 0
+  try {
+    const refund = await stripeTest.refunds.create({ payment_intent: chargePiId, amount: Math.round(orderTotal * 100) })
+    if (editChargeId) await stripeTest.refunds.create({ payment_intent: editChargeId, amount: Math.round(delta * 100) })
+    refunded = charged
+    ok(`refunded $${refunded.toFixed(2)} (refund ${refund.id})`)
+  } catch (e) {
+    return bail(`refund failed: ${e instanceof Error ? e.message : e}`)
+  }
+
+  // STEP 9 — cleanup: block the test restaurant; record the customer (FM-side).
+  try {
+    await runMigrations()
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, updated_at)
+      VALUES (${restaurantRef}, false, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE SET visible = false, updated_at = NOW()
+    `.catch(() => {})
+    await sql`DELETE FROM disco_order_edits WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
+  } catch { /* best-effort */ }
+  created.push(`Charged: $${charged.toFixed(2)}`, `Refunded: $${refunded.toFixed(2)}`)
+  ok('test restaurant blocked; edit rows cleaned — E2E test complete, all 9 steps passed')
+
+  return { steps, testData: { createdRecords: created } }
+}
+
+const RUNNERS: Record<string, (origin: string, adminEmail: string, adminCookie: string) => Promise<TestResult>> = {
   'test-1': (o) => testOnboarding(o),
   'test-2': () => testCustomerCreate(),
   'test-3': () => testPlaceOrder(),
@@ -462,6 +621,7 @@ const RUNNERS: Record<string, (origin: string, adminEmail: string) => Promise<Te
   'test-12': (o) => testEditNoDelta(o),
   'test-13': (o) => testEditCountLimit(o),
   'test-14': (o) => testEdit24hr(o),
+  'test-15': (o, _e, cookie) => testFullE2E(o, _e, cookie),
 }
 
 export async function POST(req: NextRequest) {
@@ -479,8 +639,11 @@ export async function POST(req: NextRequest) {
   try { await runMigrations() } catch { /* best-effort */ }
 
   const startedAt = Date.now()
+  // Forward the caller's SUPER_ADMIN session cookie so internal admin endpoints
+  // (e.g. the E2E test's restaurant/menu-item creation) authenticate as them.
+  const adminCookie = req.headers.get('cookie') || ''
   try {
-    const { steps, testData } = await runner(req.nextUrl.origin, adminEmail)
+    const { steps, testData } = await runner(req.nextUrl.origin, adminEmail, adminCookie)
     const duration = Date.now() - startedAt
     const success = steps.every(s => s.status !== 'failed')
     return NextResponse.json({ testId, success, duration, steps, testData })

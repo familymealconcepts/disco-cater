@@ -36,6 +36,7 @@ const TESTS: TestDef[] = [
   { id: 'test-12', num: 12, name: 'Edit — No Payment Delta', description: 'Same items → delta 0, no charge; disco_order_edits audit row written.' },
   { id: 'test-13', num: 13, name: 'Edit Count Enforcement', description: 'Order with edit_count = 3 → POST /edit returns 400 "Maximum edits reached".' },
   { id: 'test-14', num: 14, name: '24-Hour Rule Enforcement', description: 'Pickup < 24hrs → POST /edit returns 400 "within 24 hours of pickup".' },
+  { id: 'test-15', num: 15, name: 'Full Platform E2E: Onboard → Order → Edit → Refund', description: 'Sequential 9-step flow: customer + restaurant + menu + checkout, then charge → edit-charge → refund. All payments run in Stripe TEST mode.' },
 ]
 
 function deriveStatus(steps: Step[]): Status {
@@ -190,6 +191,18 @@ export default function TestingDashboardPage() {
                 </div>
                 <StatusBadge status={r.status} />
               </div>
+
+              {/* E2E test-mode warning + requirements note */}
+              {t.id === 'test-15' && (
+                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', background: 'rgba(229,57,53,0.1)', color: RED, border: `1px solid ${RED}`, fontSize: 11.5, fontWeight: 800, padding: '4px 10px', borderRadius: 6, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                    ⚠ E2E Test — Uses Stripe Test Mode
+                  </div>
+                  <div style={{ background: 'rgba(239,184,74,0.12)', border: '1px solid rgba(239,184,74,0.4)', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#7a6020', lineHeight: 1.5 }}>
+                    Requires <code style={{ background: '#fff', padding: '1px 5px', borderRadius: 4, border: '1px solid #eee' }}>STRIPE_TEST_SECRET_KEY</code> env var. Safe to run in production — uses Stripe test mode for all payments.
+                  </div>
+                </div>
+              )}
 
               {/* Created data pills */}
               {r.testData?.createdRecords && r.testData.createdRecords.length > 0 && (
