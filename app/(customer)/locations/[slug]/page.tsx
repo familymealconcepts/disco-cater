@@ -80,10 +80,10 @@ function Landing({ link }: { link: LocationLink }) {
             : HERO_GRADIENT,
         }}
       >
-        <h1 style={{ fontSize: 30, fontWeight: 800, color: '#fff', margin: '0 0 8px', letterSpacing: '-0.01em', textShadow: '0 2px 12px rgba(0,0,0,0.18)' }}>
+        <h1 style={{ fontSize: 'clamp(2rem, 5vw, 4rem)', fontWeight: 800, color: '#fff', margin: '0 0 8px', letterSpacing: '-0.02em', textShadow: '0 2px 8px rgba(0,0,0,0.4)', lineHeight: 1.1 }}>
           {link.title}
         </h1>
-        <p style={{ color: 'rgba(255,255,255,0.92)', fontSize: 15, margin: 0, fontWeight: 500 }}>
+        <p style={{ color: '#fff', opacity: 0.9, fontSize: '1.1rem', margin: 0, fontWeight: 500 }}>
           Choose a location to start your catering order.
         </p>
       </header>
