@@ -81,6 +81,25 @@ export async function upsertLocationLink(row: LocationLinkRow): Promise<void> {
   `
 }
 
+// Map of slug → image_url (Vercel Blob) for the given slugs, for rendering the
+// portal links table thumbnails from the source-of-truth blob URLs rather than
+// stale FM image references. Best effort — returns {} on any error.
+export async function getLinkImages(slugs: string[]): Promise<Record<string, string>> {
+  const clean = slugs.filter(Boolean)
+  if (!clean.length) return {}
+  try {
+    const rows = (await sql`
+      SELECT slug, image_url FROM disco_location_links
+      WHERE slug = ANY(${clean}::text[]) AND image_url IS NOT NULL AND image_url <> ''
+    `) as { slug: string; image_url: string }[]
+    const out: Record<string, string> = {}
+    for (const r of rows) out[r.slug] = r.image_url
+    return out
+  } catch {
+    return {}
+  }
+}
+
 // Update ONLY the image_url for a slug (leaves title/restaurant_reference as-is).
 // Used by the PATCH .../[ref]/image endpoint: the portal client recovers the
 // uploaded image reference from FM's links listing after a save and sends it

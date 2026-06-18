@@ -81,6 +81,8 @@ export default function MultiUnitLinksPage() {
   const [locations, setLocations] = useState<LocationOption[]>([])
   const [copied, setCopied] = useState<string | null>(null)
   const [dashboardGroup, setDashboardGroup] = useState<GroupInfo | null>(null)
+  // slug → Vercel Blob image URL (from the Neon mirror) for table thumbnails.
+  const [imageMap, setImageMap] = useState<Record<string, string>>({})
 
   // Dialog-scoped state
   const [urlError, setUrlError] = useState('')
@@ -128,6 +130,19 @@ export default function MultiUnitLinksPage() {
         }
         const { rows, total: pinnedTotal } = pinDashboardRow(items, group, tot)
         setLinks(rows); setTotal(pinnedTotal)
+
+        // Pull the source-of-truth blob image URLs (Neon mirror) for these
+        // links so the table thumbnails don't rely on stale FM image refs.
+        const slugs = rows.map(r => r.url).filter(Boolean)
+        if (slugs.length) {
+          try {
+            const imgRes = await fetch(`/api/restaurant/multi-unit-links/images?slugs=${encodeURIComponent(slugs.join(','))}`)
+            if (imgRes.ok) {
+              const imgData = await imgRes.json().catch(() => null)
+              setImageMap(imgData?.images || {})
+            }
+          } catch { /* thumbnails fall back to the FM ref */ }
+        }
       }
     } catch {
       setError('Unable to reach server')
@@ -412,7 +427,8 @@ export default function MultiUnitLinksPage() {
             {loading && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999', padding: '32px 14px' }}>Loading…</td></tr>}
             {!loading && !links.length && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999', padding: '32px 14px' }}>No links yet.</td></tr>}
             {!loading && links.map(l => {
-              const img = imageUrl(l)
+              // Prefer the Neon blob URL (source of truth); fall back to the FM ref.
+              const img = imageMap[l.url] || imageUrl(l)
               const discoUrl = `${DISCO_BASE}${l.url}`
               const protectedRow = l.urlFrom === 'Dashboard'
               return (
