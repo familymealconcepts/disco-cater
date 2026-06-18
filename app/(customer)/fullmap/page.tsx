@@ -1336,6 +1336,10 @@ function FullMapInner() {
           70% { box-shadow: 0 2px 10px rgba(239,184,74,0.4), 0 0 0 10px rgba(239,184,74,0); }
           100% { box-shadow: 0 2px 10px rgba(239,184,74,0.4), 0 0 0 0 rgba(239,184,74,0); }
         }
+        /* Mobile (<768px): Disco AI button shows the icon only (no text label). */
+        @media (max-width: 767px) {
+          .disco-ai-label { display: none; }
+        }
       `}</style>
 
       {locModal}
@@ -1491,7 +1495,7 @@ function FullMapInner() {
                   animation: 'discoPulse 2.5s ease-out infinite',
                 }}
               >
-                🤖 Disco AI
+                🤖<span className="disco-ai-label">&nbsp;Disco AI</span>
               </button>
               {/* Concierge — white pill, same height (mailto to concierge). */}
               <button
