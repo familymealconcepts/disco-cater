@@ -209,6 +209,9 @@ export default function HomeClient() {
           .btn-arrow { display: none !important; }
           .search-wrap { width: calc(100vw - 32px) !important; }
           .home-footer { padding-left: 16px !important; padding-right: 16px !important; gap: 14px !important; }
+          /* Mobile: keep only the "For Restaurants" link in the footer. */
+          .home-footer-city { display: none !important; }
+          .home-footer-secondary { display: none !important; }
         }
         @media (min-width: 769px) {
           .btn-short { display: none; }
@@ -321,7 +324,7 @@ export default function HomeClient() {
         }}>
           {/* Browse by City — plain crawlable links so Google finds the city
               landing pages from the homepage. */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div className="home-footer-city" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, color: '#bbb' }}>Search by city:</span>
             {[
               { slug: 'new-york', name: 'New York' },
@@ -335,35 +338,38 @@ export default function HomeClient() {
             ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
-            <a href="/become-a-partner"
+            <a href="/for-restaurants"
               style={{ fontSize: 13, color: '#6B6EF9', textDecoration: 'none', transition: 'color 0.15s' }}
               onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
               onMouseOut={e => (e.currentTarget.style.color = '#6B6EF9')}>
               For Restaurants
             </a>
-            <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-            <a href="/privacy"
-              style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
-              onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-              onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
-              Privacy Policy
-            </a>
-            <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-            <a href="/terms"
-              style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
-              onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-              onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
-              Terms
-            </a>
-            <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-            <a href="mailto:concierge@discocater.com"
-              style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
-              onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-              onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
-              Contact
-            </a>
-            <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-            <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 Disco Cater</span>
+            {/* Hidden on mobile — only "For Restaurants" remains in the footer. */}
+            <span className="home-footer-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
+              <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+              <a href="/privacy"
+                style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+                onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
+                onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+                Privacy Policy
+              </a>
+              <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+              <a href="/terms"
+                style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+                onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
+                onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+                Terms
+              </a>
+              <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+              <a href="mailto:concierge@discocater.com"
+                style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
+                onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
+                onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+                Contact
+              </a>
+              <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+              <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 Disco Cater</span>
+            </span>
           </div>
         </footer>
 
