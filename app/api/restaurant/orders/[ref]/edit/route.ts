@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
 import {
   getDiscoOrder, loadFmOrderDetails, parseFmOrder, applyFmOrderUpdate,
   hoursUntil, isEditableStatus, MAX_EDITS, type FmOrderItem,
@@ -58,13 +59,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const editorEmail = String(body.editorEmail || '')
   if (!activeLines.length) return NextResponse.json({ error: 'At least one item is required.' }, { status: 400 })
 
+  // SUPER_ADMIN bypasses the 24-hour pickup-proximity restriction (only). All
+  // other eligibility — edit-count cap, order status — applies to every role.
+  const isSuperAdmin = (await getRestaurantRole()) === 'SUPER_ADMIN'
+
   // ── 1. VALIDATION + edit_count gate ─────────────────────────────────────────
   const discoOrder = await getDiscoOrder(ref)
   const editCount = discoOrder?.edit_count ?? 0
   if (editCount >= MAX_EDITS) {
     return NextResponse.json({ error: 'Maximum edits reached. Contact the customer directly.' }, { status: 400 })
   }
-  if (discoOrder && hoursUntil(String(discoOrder.order_date).slice(0, 10), discoOrder.order_time) < 24) {
+  if (!isSuperAdmin && discoOrder && hoursUntil(String(discoOrder.order_date).slice(0, 10), discoOrder.order_time) < 24) {
     return NextResponse.json({ error: 'Order cannot be edited within 24 hours of pickup.' }, { status: 400 })
   }
   if (discoOrder && !isEditableStatus(discoOrder.order_status)) {
@@ -92,8 +97,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const dateChanged = (!!orderDate && orderDate !== fm.orderDateIso) || (!!orderTime && orderTime.slice(0, 5) !== (fm.orderTime || '').slice(0, 5))
   const editType: 'RESCHEDULE' | 'ITEMS' | 'BOTH' = itemsChanged && dateChanged ? 'BOTH' : itemsChanged ? 'ITEMS' : 'RESCHEDULE'
 
-  // RESCHEDULE rule: the NEW pickup must be ≥24h away.
-  if (dateChanged && hoursUntil(effDate, effTime) < 24) {
+  // RESCHEDULE rule: the NEW pickup must be ≥24h away (SUPER_ADMIN exempt).
+  if (!isSuperAdmin && dateChanged && hoursUntil(effDate, effTime) < 24) {
     return NextResponse.json({ error: 'New pickup must be at least 24 hours from now.' }, { status: 400 })
   }
 

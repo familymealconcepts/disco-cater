@@ -226,11 +226,23 @@ function getEditCount(orderRef: string): number {
   } catch { return 0 }
 }
 
+// SUPER_ADMIN (read from the restaurant_user session) bypasses the 24-hour rule.
+function isSuperAdmin(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const raw = window.localStorage.getItem('restaurant_user')
+    return raw ? JSON.parse(raw).role === 'SUPER_ADMIN' : false
+  } catch { return false }
+}
+
 function isEditEligible(order: Order): boolean {
   const status = (order.orderStatus || '').toUpperCase()
   if (NON_EDITABLE_STATUSES.has(status)) return false
   if (!order.orderDate || !order.orderTime) return false
   if (getEditCount(order.orderReference) >= MAX_EDITS) return false
+  // SUPER_ADMIN can edit regardless of how close pickup is — status + edit-count
+  // checks above still apply to them.
+  if (isSuperAdmin()) return true
   // FM returns orderDate as DD.MM.YYYY — normalize to YYYY-MM-DD before Date().
   const iso = order.orderDate.includes('.') ? order.orderDate.split('.').reverse().join('-') : order.orderDate
   const ts = new Date(`${iso}T${order.orderTime}`).getTime()

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
 import { runDiscoOrderMigrations } from '../../../../../../lib/db'
 import {
   getDiscoOrder, loadFmOrderDetails, parseFmOrder, hoursUntil, isEditableStatus, MAX_EDITS,
@@ -36,11 +37,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     }
   }
 
+  // SUPER_ADMIN bypasses the 24-hour pickup-proximity restriction (only).
+  const isSuperAdmin = (await getRestaurantRole()) === 'SUPER_ADMIN'
+
   const hrs = hoursUntil(pickupDate, pickupTime)
   let canEdit = true
   let reason = ''
   if (editCount >= MAX_EDITS) { canEdit = false; reason = 'Maximum edits reached' }
-  else if (hrs < 24) { canEdit = false; reason = 'Order cannot be edited within 24 hours of pickup' }
+  else if (!isSuperAdmin && hrs < 24) { canEdit = false; reason = 'Order cannot be edited within 24 hours of pickup' }
   else if (status && !isEditableStatus(status)) { canEdit = false; reason = `This order is ${status.toLowerCase()} and can no longer be edited` }
 
   return NextResponse.json({ editCount, canEdit, reason })
