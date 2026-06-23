@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
-import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, sendOrderEditPaymentConfirmed, sendOrderEditPaymentFailed, type OrderMealPackage } from '../../../../lib/email/notifications'
-import { applyFmOrderUpdate } from '../../../../lib/order-edit'
+import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, sendOrderEditPaymentFailed, type OrderMealPackage } from '../../../../lib/email/notifications'
+import { applyPendingEdit } from '../../../../lib/order-edit'
 import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs'
@@ -412,77 +412,17 @@ export async function POST(request: NextRequest) {
         }
 
         const order = orders[0]
-        const p = (order.pending_edit_data || {}) as Record<string, unknown>
-        const lines = Array.isArray(p.activeLines)
-          ? (p.activeLines as { reference: string; quantity: number; name?: string; price?: number }[])
-          : []
-        const orderDateIso = String(p.orderDateIso || '')
-        const orderTime = String(p.orderTime || '')
-        const restaurantRef = String(p.restaurantRef || '')
-        const newTotal = typeof p.newTotal === 'number' ? p.newTotal : null
-
-        // 7) Apply date/items to FM (best-effort).
-        if (restaurantRef && lines.length) {
-          await applyFmOrderUpdate({
-            fmRef: String(p.fmRef || order.reference), restaurantRef,
-            activeLines: lines.map(l => ({ reference: l.reference, quantity: l.quantity })),
-            orderDateIso, orderTime, orderType: String(p.orderType || 'PICKUP'),
-            tips: Number(p.tips) || 0, tipsType: String(p.tipsType || 'PERCENTAGE'),
-          })
-        }
-
-        // 3) Apply the edit to disco_orders: new total/date/time, bump edit_count,
-        //    clear the pending state.
-        await sql`
-          UPDATE disco_orders
-          SET total = COALESCE(${newTotal}, total),
-              order_date = COALESCE(${orderDateIso || null}::date, order_date),
-              order_time = COALESCE(${orderTime || null}::time, order_time),
-              edit_count = COALESCE(edit_count,0) + 1,
-              edit_status = NULL, pending_edit_data = NULL, pending_edit_delta = NULL,
-              pending_stripe_invoice_id = NULL, updated_at = NOW()
-          WHERE id = ${order.id}
-        `
-
-        // 4) Replace disco_order_items from the edited lines (best-effort).
-        if (lines.length) {
-          await sql`DELETE FROM disco_order_items WHERE order_id = ${order.id}`.catch((e) => console.error('[Webhook] edit items delete failed:', e))
-          for (const l of lines) {
-            const unit = num(l.price)
-            const qty = Math.max(1, Math.trunc(num(l.quantity) || 1))
-            await sql`
-              INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
-              VALUES (${order.id}, ${l.reference || null}, ${String(l.name || l.reference || 'Item')}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100})
-            `.catch((e) => console.error('[Webhook] edit item insert failed:', e))
-          }
-        }
-
-        // 5) Mark the pending edit row succeeded (inserted as 'pending' by the edit route).
-        await sql`UPDATE disco_order_edits SET payment_status = 'succeeded' WHERE stripe_invoice_id = ${invoice.id}`
-
-        // 6) Record the invoice payment in disco_stripe_payments (best-effort).
+        // Apply the proposed edit (Neon money/date/items + edit row + payment row
+        // + FM sync + confirmation email) — shared with the edit-status route.
         const invPi = (invoice as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
         const editPiId = typeof invPi === 'string' ? invPi : (invPi?.id ?? null)
-        if (restaurantRef) {
-          await sql`
-            INSERT INTO disco_stripe_payments (order_reference, restaurant_reference, stripe_payment_intent_id, status, total, created_at)
-            VALUES (${order.reference}::uuid, ${restaurantRef}::uuid, ${editPiId || invoice.id}, 'SUCCEEDED', ${newTotal}, NOW())
-            ON CONFLICT (stripe_payment_intent_id) DO NOTHING
-          `.catch((e) => console.error('[Webhook] edit stripe_payment insert failed:', e))
-        }
-
-        await recordEvent(order.reference, 'ORDER_EDIT_CONFIRMED', { invoiceId: invoice.id, delta: p.delta, newTotal }, 'STRIPE_WEBHOOK')
-
-        const customerEmail = String(p.customerEmail || '')
-        if (customerEmail) {
-          sendOrderEditPaymentConfirmed({
-            to: customerEmail, firstName: String(p.firstName || ''),
-            orderNumber: String(p.orderNumber || ''), businessName: String(p.businessName || 'the restaurant'),
-            orderDate: fmtDate(orderDateIso), orderTime: fmtTime(orderTime),
-            items: Array.isArray(p.newItems) ? (p.newItems as { count: number; name: string; price: number }[]) : undefined,
-            newTotal: typeof p.newTotal === 'number' ? p.newTotal : undefined,
-          }).catch((err) => console.error('[Webhook] edit confirmed email failed:', err))
-        }
+        await applyPendingEdit({
+          orderId: order.id,
+          orderReference: order.reference,
+          pending: order.pending_edit_data || {},
+          invoiceId: invoice.id,
+          paymentIntentId: editPiId,
+        })
         break
       }
 

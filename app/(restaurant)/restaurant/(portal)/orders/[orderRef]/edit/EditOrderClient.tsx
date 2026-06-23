@@ -340,6 +340,10 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
             setEditCount(num(es.editCount))
             setCanEdit(es.canEdit !== false)
             setEditReason(str(es.reason))
+            // Amber "awaiting payment" only when a pending invoice is still open.
+            // A clean order (edit_status null) never shows it. If the invoice was
+            // already paid, edit-status applied the edit, so this is false.
+            setPendingPayment(es.pendingPayment === true)
           }
         } catch { /* best-effort — default to editable */ }
         if (cancelled) return
@@ -505,9 +509,12 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
         setCommitting(false)
         return
       }
-      // confirmed
+      // confirmed → briefly show success, then return to the orders list with a
+      // success flag the orders page turns into a dismissible green banner.
       setCommitted(true)
-      setTimeout(() => router.push('/restaurant/orders'), 2000)
+      const qp = new URLSearchParams({ editSuccess: 'true' })
+      if (orderNumber) qp.set('orderNumber', orderNumber)
+      setTimeout(() => router.push(`/restaurant/orders?${qp.toString()}`), 1500)
     } catch (err) {
       setCommitError(err instanceof Error ? err.message : 'Something went wrong committing the edit.')
       setCommitting(false)

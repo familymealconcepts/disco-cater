@@ -4,6 +4,7 @@
 
 import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
+import { sendOrderEditPaymentConfirmed } from './email/notifications'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -226,4 +227,100 @@ export function computeNewTotals(
   const newTotal = Math.round((newSubtotal + newTaxAndFee + orig.delivery + orig.tip) * 100) / 100
   const delta = Math.round((newTotal - orig.total) * 100) / 100
   return { newSubtotal, newTaxAndFee, newTotal, delta }
+}
+
+// ── Apply a PAID pending edit (shared by the Stripe webhook invoice.paid handler
+// and the edit-status route, which applies on page load if the invoice is paid).
+// Mirrors the proposal stored in disco_orders.pending_edit_data: updates the
+// order money/date/items, marks the edit succeeded, records the payment, syncs
+// FM (best-effort), and emails the customer a confirmation. Callers must only
+// invoke this when the invoice is paid. Sub-writes are best-effort.
+function fmtDateHuman(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '')
+  if (!m) return iso || ''
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+}
+function fmtTimeHuman(t: string): string {
+  const m = /^(\d{1,2}):(\d{2})/.exec(t || '')
+  if (!m) return t || ''
+  let h = +m[1]; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12
+  return `${h}:${m[2]} ${ap}`
+}
+
+export async function applyPendingEdit(args: {
+  orderId: number
+  orderReference: string
+  pending: Record<string, unknown>
+  invoiceId: string
+  paymentIntentId?: string | null
+}): Promise<void> {
+  const { orderId, orderReference, invoiceId } = args
+  const p = args.pending || {}
+  const lines = Array.isArray(p.activeLines)
+    ? (p.activeLines as { reference: string; quantity: number; name?: string; price?: number }[])
+    : []
+  const orderDateIso = String(p.orderDateIso || '')
+  const orderTime = String(p.orderTime || '')
+  const restaurantRef = String(p.restaurantRef || '')
+  const newTotal = typeof p.newTotal === 'number' ? p.newTotal : null
+
+  // Sync date/items to FM (best-effort).
+  if (restaurantRef && lines.length) {
+    await applyFmOrderUpdate({
+      fmRef: String(p.fmRef || orderReference), restaurantRef,
+      activeLines: lines.map(l => ({ reference: l.reference, quantity: l.quantity })),
+      orderDateIso, orderTime, orderType: String(p.orderType || 'PICKUP'),
+      tips: n(p.tips), tipsType: String(p.tipsType || 'PERCENTAGE'),
+    })
+  }
+
+  // Apply the edit to disco_orders: new total/date/time, bump edit_count, clear pending.
+  await sql`
+    UPDATE disco_orders
+    SET total = COALESCE(${newTotal}, total),
+        order_date = COALESCE(${orderDateIso || null}::date, order_date),
+        order_time = COALESCE(${orderTime || null}::time, order_time),
+        edit_count = COALESCE(edit_count,0) + 1,
+        edit_status = NULL, pending_edit_data = NULL, pending_edit_delta = NULL,
+        pending_stripe_invoice_id = NULL, updated_at = NOW()
+    WHERE id = ${orderId}
+  `
+
+  // Replace disco_order_items from the edited lines (best-effort).
+  if (lines.length) {
+    await sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`.catch(e => console.error('[applyPendingEdit] items delete:', e))
+    for (const l of lines) {
+      const unit = n(l.price); const qty = Math.max(1, Math.trunc(n(l.quantity) || 1))
+      await sql`
+        INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
+        VALUES (${orderId}, ${l.reference || null}, ${String(l.name || l.reference || 'Item')}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100})
+      `.catch(e => console.error('[applyPendingEdit] item insert:', e))
+    }
+  }
+
+  // Mark the pending edit row succeeded; record the invoice payment.
+  await sql`UPDATE disco_order_edits SET payment_status = 'succeeded' WHERE stripe_invoice_id = ${invoiceId}`.catch(e => console.error('[applyPendingEdit] edit row:', e))
+  if (restaurantRef) {
+    await sql`
+      INSERT INTO disco_stripe_payments (order_reference, restaurant_reference, stripe_payment_intent_id, status, total, created_at)
+      VALUES (${orderReference}::uuid, ${restaurantRef}::uuid, ${args.paymentIntentId || invoiceId}, 'SUCCEEDED', ${newTotal}, NOW())
+      ON CONFLICT (stripe_payment_intent_id) DO NOTHING
+    `.catch(e => console.error('[applyPendingEdit] stripe_payment:', e))
+  }
+  await sql`
+    INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+    VALUES (${orderReference}::uuid, 'ORDER_EDIT_CONFIRMED', ${JSON.stringify({ invoiceId, delta: p.delta, newTotal })}::jsonb, 'EDIT_APPLY')
+  `.catch(e => console.error('[applyPendingEdit] event:', e))
+
+  // Confirmation email (best-effort).
+  const customerEmail = String(p.customerEmail || '')
+  if (customerEmail) {
+    sendOrderEditPaymentConfirmed({
+      to: customerEmail, firstName: String(p.firstName || ''),
+      orderNumber: String(p.orderNumber || ''), businessName: String(p.businessName || 'the restaurant'),
+      orderDate: fmtDateHuman(orderDateIso), orderTime: fmtTimeHuman(orderTime),
+      items: Array.isArray(p.newItems) ? (p.newItems as { count: number; name: string; price: number }[]) : undefined,
+      newTotal: typeof p.newTotal === 'number' ? p.newTotal : undefined,
+    }).catch(err => console.error('[applyPendingEdit] email:', err))
+  }
 }
