@@ -2,13 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-// Forwards the order update/re-price to FM, including the optional
-// taxExempt / taxExemptId / taxExemptState fields. FM zeroes tax server-side
-// when taxExempt=true (checkout-sidebar-preview.component.ts:320-325).
-// TODO(tax-exempt verification): the exempt ID is currently accepted as-entered
-// (no external check, per product decision). Future verification against a
-// tax-authority API can be added HERE in the proxy with no UI change — validate
-// before forwarding and reject/flag invalid IDs.
+// Forwards the order re-price to FM. NOTE: FM rejects taxExempt / taxExemptId /
+// taxExemptState on the order-update DTO (UNKNOWN_SERVER_ERROR) — tax exemption
+// is a customer-account concern in FM, not per-order — so we strip them here.
+// Tax-exempt totals are reflected client-side in the checkout UI instead.
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json()
@@ -16,6 +13,11 @@ export async function PUT(req: NextRequest) {
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
+
+    // FM does NOT accept these on the update DTO — sending them 500s the PUT.
+    delete updateBody.taxExempt
+    delete updateBody.taxExemptId
+    delete updateBody.taxExemptState
 
     // FM requires orderType as "PICKUP" or "DELIVERY" — empty string causes 500.
     // Normalize here as a server-side backstop: anything that isn't exactly

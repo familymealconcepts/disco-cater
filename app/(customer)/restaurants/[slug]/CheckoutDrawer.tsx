@@ -350,8 +350,9 @@ export default function CheckoutDrawer({
   // ── Computed ───────────────────────────────────────────────────────────────
   const fm = useMemo(() => extractFmMoney(fmTotals), [fmTotals])
   const displayDeliveryFee = fm?.deliveryFee ?? null
-  // Tax exempt → always $0 (FM also zeroes it server-side, but show 0 locally
-  // so the line reads "$0.00" the instant Apply is clicked).
+  // Tax exempt → show $0 for the sales-tax portion. FM is NOT told about the
+  // exemption (we strip taxExempt from the update so it doesn't 500), so it still
+  // returns tax — we zero it here and remove it from the total (fmTotalEffective).
   const displayTax = taxExemptApplied ? 0 : (fm?.tax ?? null)
   const displayTips = fm?.tips ?? tipAmt
   const displaySvc = fm?.serviceCharge ?? svcAmt        // per-menu service charge
@@ -361,10 +362,16 @@ export default function CheckoutDrawer({
   const taxesAndFees = (displayFee !== null || displayTax !== null)
     ? (displayFee ?? 0) + (displayTax ?? 0)
     : null
+  // When tax-exempt, FM still returns the sales tax inside its `total` (we strip
+  // the taxExempt flag from the FM update so FM never zeroes it server-side), so
+  // subtract the FM-reported tax client-side to reflect the exemption in the total.
+  const fmTotalEffective = fm?.total != null
+    ? (taxExemptApplied ? Math.max(0, Math.round((fm.total - (fm.tax ?? 0)) * 100) / 100) : fm.total)
+    : null
   // Best-known order total for analytics — mirrors PaymentStep's payTotal
   // (FM's canonical total, else the client estimate). Kept in a ref so the
-  // Stripe focus handler reads the freshest value. Display logic is unchanged.
-  const trackingTotal = fm?.total ?? (
+  // Stripe focus handler reads the freshest value.
+  const trackingTotal = fmTotalEffective ?? (
     subtotal + (displayTips || 0) + (displaySvc || 0)
       + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0)
       - (fm?.discount ?? 0)
@@ -849,7 +856,9 @@ export default function CheckoutDrawer({
     // nested under data.* so the direct lookup missed it and silently fell
     // through to subtotal+tip+svc, dropping tax/fees from the displayed total.
     const fmSubtotal = fm?.subtotal ?? subtotal
-    const payTotal = fm?.total ?? (
+    // fmTotalEffective already removes FM's tax when tax-exempt (see above), so
+    // the customer is charged the exemption-adjusted total.
+    const payTotal = fmTotalEffective ?? (
       subtotal + (displayTips || 0) + (displaySvc || 0)
         + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0)
         - (fm?.discount ?? 0)
