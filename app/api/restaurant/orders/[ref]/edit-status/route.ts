@@ -47,8 +47,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         if (inv.status === 'paid') {
           const invPi = (inv as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
           const piId = typeof invPi === 'string' ? invPi : (invPi?.id ?? null)
-          await applyPendingEdit({ orderId: order.id, orderReference: order.reference, pending, invoiceId, paymentIntentId: piId })
+          // The customer has paid — apply the edit and, no matter what, clear the
+          // pending state so the page opens clean (no amber banner). If the apply
+          // itself fails, still clear edit_status so the order isn't stuck.
+          try {
+            await applyPendingEdit({ orderId: order.id, orderReference: order.reference, pending, invoiceId, paymentIntentId: piId })
+          } catch (applyErr) {
+            console.error('[edit-status] applyPendingEdit failed after paid invoice — clearing pending:', applyErr instanceof Error ? applyErr.message : applyErr)
+            await sql`
+              UPDATE disco_orders
+              SET edit_status = NULL, pending_edit_data = NULL, pending_edit_delta = NULL,
+                  pending_stripe_invoice_id = NULL, updated_at = NOW()
+              WHERE id = ${order.id}
+            `.catch(() => {})
+          }
           editStatus = null
+          pendingPayment = false
           order = await getDiscoOrder(ref) // re-read the now-applied state
         } else {
           pendingPayment = true // 'open' / unpaid → read-only

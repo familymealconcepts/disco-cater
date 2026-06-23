@@ -1032,16 +1032,19 @@ function OrdersContent() {
   }, [])
 
   // After a successful order edit the edit page redirects here with
-  // ?editSuccess=true&orderNumber=XXXXX. Capture it into a dismissible banner,
-  // then strip the params from the URL (preserving any others, e.g. tab) so a
-  // refresh doesn't re-show it.
+  // ?editSuccess=true&orderNumber=XXXXX&editOutcome=success|invoiced. Capture it
+  // into a dismissible banner, then strip the params from the URL (preserving any
+  // others, e.g. tab) so a refresh doesn't re-show it.
   const [editSuccessBanner, setEditSuccessBanner] = useState<string | null>(null)
+  const [editOutcome, setEditOutcome] = useState<string>('success')
   useEffect(() => {
     if (searchParams.get('editSuccess') !== 'true') return
     setEditSuccessBanner(searchParams.get('orderNumber') || '')
+    setEditOutcome(searchParams.get('editOutcome') || 'success')
     const p = new URLSearchParams(searchParams.toString())
     p.delete('editSuccess')
     p.delete('orderNumber')
+    p.delete('editOutcome')
     const qs = p.toString()
     router.replace(qs ? `${pathname}?${qs}` : pathname)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1193,15 +1196,19 @@ function OrdersContent() {
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F }}>
-      {editSuccessBanner !== null && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', marginBottom: 16, background: '#ECFDF3', border: '1px solid #ABEFC6', borderRadius: 8 }}>
-          <span style={{ fontSize: 13, color: '#067647', fontWeight: 600 }}>
-            {editSuccessBanner ? `Order #${editSuccessBanner} has been updated successfully.` : 'Order has been updated successfully.'}
-          </span>
-          <button onClick={() => setEditSuccessBanner(null)} aria-label="Dismiss"
-            style={{ background: 'none', border: 'none', color: '#067647', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: 4 }}>×</button>
-        </div>
-      )}
+      {editSuccessBanner !== null && (() => {
+        const tag = editSuccessBanner ? `Order #${editSuccessBanner}` : 'Order'
+        const message = editOutcome === 'invoiced'
+          ? `${tag} has been updated. The customer has been sent an invoice for the difference.`
+          : `${tag} has been updated successfully.`
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', marginBottom: 16, background: '#ECFDF3', border: '1px solid #ABEFC6', borderRadius: 8 }}>
+            <span style={{ fontSize: 13, color: '#067647', fontWeight: 600 }}>{message}</span>
+            <button onClick={() => setEditSuccessBanner(null)} aria-label="Dismiss"
+              style={{ background: 'none', border: 'none', color: '#067647', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: 4 }}>×</button>
+          </div>
+        )
+      })()}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 20px', gap: 16 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Orders</h1>
         <button onClick={() => router.push('/restaurant/orders/create')}

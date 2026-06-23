@@ -363,7 +363,10 @@ export async function applyPendingEdit(args: {
   const lines = Array.isArray(p.activeLines)
     ? (p.activeLines as { reference: string; quantity: number; name?: string; price?: number }[])
     : []
-  const orderDateIso = String(p.orderDateIso || '')
+  // Normalize the stored date — legacy pending_edit_data may hold a corrupted
+  // "Thu Jul 02"-style string that would fail the ::date cast below and throw the
+  // whole apply (leaving the order stuck in pending_payment).
+  const orderDateIso = toIsoDateStr(p.orderDateIso)
   const orderTime = String(p.orderTime || '')
   const restaurantRef = String(p.restaurantRef || '')
   const newTotal = typeof p.newTotal === 'number' ? p.newTotal : null

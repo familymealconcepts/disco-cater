@@ -184,6 +184,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
   const [committing, setCommitting] = useState(false)
   const [commitError, setCommitError] = useState<string | null>(null)
   const [committed, setCommitted] = useState(false)
+  const [invoicedNotice, setInvoicedNotice] = useState(false)
   const [pendingPayment, setPendingPayment] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
 
@@ -504,15 +505,13 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       const data = (await res.json().catch(() => ({}))) as AnyRec
       if (!res.ok) throw new Error(str(data.error) || 'Could not commit the edit.')
 
-      if (str(data.status) === 'pending_payment') {
-        setPendingPayment(true)
-        setCommitting(false)
-        return
-      }
-      // confirmed → briefly show success, then return to the orders list with a
-      // success flag the orders page turns into a dismissible green banner.
+      // Every successful outcome returns to the orders list with a green banner.
+      // The invoice path (pending_payment) shows an "invoice sent" message; a
+      // direct charge or a no-delta reschedule shows the plain success message.
+      const invoiced = str(data.status) === 'pending_payment'
+      setInvoicedNotice(invoiced)
       setCommitted(true)
-      const qp = new URLSearchParams({ editSuccess: 'true' })
+      const qp = new URLSearchParams({ editSuccess: 'true', editOutcome: invoiced ? 'invoiced' : 'success' })
       if (orderNumber) qp.set('orderNumber', orderNumber)
       setTimeout(() => router.push(`/restaurant/orders?${qp.toString()}`), 1500)
     } catch (err) {
@@ -604,7 +603,9 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       {/* ── Success banner ── */}
       {committed && (
         <div style={{ background: GREEN, color: '#fff', padding: '10px 18px', fontSize: 14, fontWeight: 600 }}>
-          Order updated successfully. Returning to orders…
+          {invoicedNotice
+            ? 'Order updated — an invoice for the difference was sent to the customer. Returning to orders…'
+            : 'Order updated successfully. Returning to orders…'}
         </div>
       )}
 
