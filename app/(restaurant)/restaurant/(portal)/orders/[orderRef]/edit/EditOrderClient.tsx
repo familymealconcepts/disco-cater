@@ -486,7 +486,11 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
 
   // ─── Commit (Disco-native edit API) ───────────────────────────────────────
   async function commit() {
-    if (committing || !canEdit) return
+    if (committing) return
+    // 3-edit cap applies to every role (incl. SUPER_ADMIN). Block + message
+    // client-side; the server enforces the same limit.
+    if (editCount >= 3) { setCommitError('Maximum edits reached for this order.'); return }
+    if (!canEdit) return
     setCommitError(null)
     setCommitting(true)
     try {
@@ -732,8 +736,8 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
               </div>
             )}
 
-            <button onClick={commit} disabled={committing || committed || pendingPayment || !canEdit}
-              style={{ ...pillBtn(BLUE), width: '100%', marginTop: 16, opacity: (committing || committed || pendingPayment || !canEdit) ? 0.6 : 1, cursor: (committing || committed || pendingPayment || !canEdit) ? 'default' : 'pointer' }}>
+            <button onClick={commit} disabled={committing || committed || pendingPayment || !canEdit || editCount >= 3}
+              style={{ ...pillBtn(BLUE), width: '100%', marginTop: 16, opacity: (committing || committed || pendingPayment || !canEdit || editCount >= 3) ? 0.6 : 1, cursor: (committing || committed || pendingPayment || !canEdit || editCount >= 3) ? 'default' : 'pointer' }}>
               {committing ? 'Saving changes…' : 'Update Order'}
             </button>
             <button onClick={() => setDiscardOpen(true)} disabled={committing || committed}

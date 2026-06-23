@@ -70,6 +70,11 @@ interface Order {
   // never show the raw value.
   sourceoforder?: string
 
+  // Disco-native edit state, returned directly from Neon (disco_orders) by the
+  // orders list API. editCount caps edits at 3 for ALL roles (incl. SUPER_ADMIN).
+  editCount?: number
+  editStatus?: string | null
+
   // Recurring-order indicators. FM surfaces "this order is part of a recurring
   // series" under different keys depending on deployment, so any truthy one of
   // these marks the order as recurring (see isRecurringOrder).
@@ -231,17 +236,6 @@ function statusColor(status: string, orderDate: string, orderTime: string) {
 const NON_EDITABLE_STATUSES = new Set(['COMPLETED', 'EXPIRED', 'CANCELED', 'CANCELLED'])
 const MAX_EDITS = 3
 
-// Per-order edit counter, persisted in localStorage as disco_edit_counts:
-// { [orderReference]: number }. Incremented on the edit page after a successful
-// commit; read here to cap edits at MAX_EDITS.
-function getEditCount(orderRef: string): number {
-  if (typeof window === 'undefined' || !orderRef) return 0
-  try {
-    const map = JSON.parse(window.localStorage.getItem('disco_edit_counts') || '{}') as Record<string, number>
-    return Number(map[orderRef]) || 0
-  } catch { return 0 }
-}
-
 // SUPER_ADMIN (read from the restaurant_user session) bypasses the 24-hour rule.
 function isSuperAdmin(): boolean {
   if (typeof window === 'undefined') return false
@@ -255,7 +249,9 @@ function isEditEligible(order: Order): boolean {
   const status = (order.orderStatus || '').toUpperCase()
   if (NON_EDITABLE_STATUSES.has(status)) return false
   if (!order.orderDate || !order.orderTime) return false
-  if (getEditCount(order.orderReference) >= MAX_EDITS) return false
+  // Edit-count cap from Neon (disco_orders.edit_count). Applies to EVERY role —
+  // SUPER_ADMIN only bypasses the 24-hour rule below, never the 3-edit limit.
+  if ((order.editCount ?? 0) >= MAX_EDITS) return false
   // SUPER_ADMIN can edit regardless of how close pickup is — status + edit-count
   // checks above still apply to them.
   if (isSuperAdmin()) return true

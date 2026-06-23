@@ -67,7 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const discoOrder = await getDiscoOrder(ref)
   const editCount = discoOrder?.edit_count ?? 0
   if (editCount >= MAX_EDITS) {
-    return NextResponse.json({ error: 'Maximum edits reached. Contact the customer directly.' }, { status: 400 })
+    return NextResponse.json({ error: 'Maximum edits reached for this order.' }, { status: 400 })
   }
   if (!isSuperAdmin && discoOrder && hoursUntil(String(discoOrder.order_date).slice(0, 10), discoOrder.order_time) < 24) {
     return NextResponse.json({ error: 'Order cannot be edited within 24 hours of pickup.' }, { status: 400 })
