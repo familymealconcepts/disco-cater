@@ -75,7 +75,7 @@ async function dispatchOrderEmails(orderId: number): Promise<void> {
       SELECT order_number, order_type, delivery_type, source_of_order, order_date, order_time, created_at,
              customer_email, customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-             restaurant_name, restaurant_email, tax_exempt_id, tips
+             restaurant_reference, restaurant_name, restaurant_email, tax_exempt_id, tips
       FROM disco_orders WHERE id = ${orderId} LIMIT 1
     `) as Record<string, unknown>[]
     if (orders.length === 0) return
@@ -163,13 +163,26 @@ async function dispatchOrderEmails(orderId: number): Promise<void> {
       }).catch((err) => console.error('[Webhook] restaurant notification email failed:', err))
     }
 
-    // New-order Slack ping (1P/3P labeled). Skips silently if unconfigured.
+    // New-order Slack ping (the single canonical notification). City/State come
+    // from the restaurant cache ("City, State"), matching the required format.
+    let rCity = ''
+    let rState = ''
+    try {
+      const rc = (await sql`
+        SELECT location FROM disco_restaurant_cache WHERE restaurant_reference = ${String(o.restaurant_reference ?? '')} LIMIT 1
+      `) as { location: string | null }[]
+      const parts = (rc[0]?.location || '').split(',').map((s) => s.trim()).filter(Boolean)
+      rCity = parts[0] || ''
+      rState = parts[1] || ''
+    } catch { /* location is best-effort */ }
+
     await sendNewOrderSlack({
       sourceOfOrder,
       restaurantName: shared.businessName,
-      city: o.delivery_city ? String(o.delivery_city) : '',
+      city: rCity,
+      state: rState,
       total: totalPrice,
-      orderDate: shared.orderDate,
+      orderDateIso: normDateStr(o.order_date),
       orderType: shared.orderService,
     })
   } catch (err) {
@@ -177,26 +190,35 @@ async function dispatchOrderEmails(orderId: number): Promise<void> {
   }
 }
 
-// Posts a new-order notification to the Disco Slack channel. 1P/3P labeled per
-// the order source. Never throws; skips silently when SLACK_NEW_ORDER_WEBHOOK_URL
-// is unset.
+// Date as M/DD/YY (no leading zero on the month) for the Slack line.
+function fmtSlackDate(iso: string): string {
+  const [y, m, d] = String(iso || '').split('-').map(Number)
+  if (!y || !m || !d) return String(iso || '')
+  return `${m}/${String(d).padStart(2, '0')}/${String(y).slice(-2)}`
+}
+
+// Posts THE single new-order notification to the Disco Slack channel, in the
+// canonical format:
+//   [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - ([P|D])
+// 1P = FAMILYMEAL, 3P = DISCO · P = PICKUP, D = DELIVERY. Never throws; skips
+// silently when SLACK_NEW_ORDER_WEBHOOK_URL is unset.
 async function sendNewOrderSlack(o: {
   sourceOfOrder: string
   restaurantName: string
   city: string
+  state: string
   total: number
-  orderDate: string
+  orderDateIso: string
   orderType: string
 }): Promise<void> {
   const url = process.env.SLACK_NEW_ORDER_WEBHOOK_URL
   if (!url) return
   try {
-    const is3P = o.sourceOfOrder === 'DISCO'
-    const place = [o.restaurantName, o.city].filter(Boolean).join(', ')
+    const tag = o.sourceOfOrder === 'DISCO' ? '3P' : '1P'
+    const svc = String(o.orderType).toUpperCase() === 'DELIVERY' ? 'D' : 'P'
     const amount = `$${(Number.isFinite(o.total) ? o.total : 0).toFixed(2)}`
-    const text = is3P
-      ? `🪩 *New 3P Disco Order* — ${place} — ${amount} — ${o.orderDate} — ${o.orderType}`
-      : `✅ *New 1P Direct Order* — ${place} — ${amount} — ${o.orderDate} — ${o.orderType}`
+    const loc = [o.city, o.state].filter(Boolean).join(', ')
+    const text = `${o.restaurantName}, ${loc}, (${amount}), ${tag}, ${fmtSlackDate(o.orderDateIso)} - (${svc})`
     await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

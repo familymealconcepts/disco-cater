@@ -57,6 +57,7 @@ async function mirrorOrderToNeon(args: {
     const orderType = checkoutDetails.orderType === 'DELIVERY' || placeBody.deliveryAddress ? 'DELIVERY' : 'PICKUP'
     const statusRaw = String(fmInner.orderStatus ?? fm.orderStatus ?? fmInner.status ?? '').toUpperCase()
     const orderStatus = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
+    const taxExemptId = str(checkoutDetails.taxExemptId)
 
     // Bail (no row) if any NOT-NULL-without-default column is missing — better
     // than a guaranteed constraint error. Logged so gaps are visible.
@@ -72,11 +73,11 @@ async function mirrorOrderToNeon(args: {
       INSERT INTO disco_orders (
         reference, order_number, order_status, order_type, source_of_order,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
-        order_date, order_time, fm_order_reference, created_at, updated_at
+        order_date, order_time, tax_exempt_id, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, 'FAMILYMEAL',
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
-        ${orderDate}::date, ${orderTime}::time, ${str(orderRef)}::uuid, NOW(), NOW()
+        ${orderDate}::date, ${orderTime}::time, ${taxExemptId}, ${str(orderRef)}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO NOTHING
     `

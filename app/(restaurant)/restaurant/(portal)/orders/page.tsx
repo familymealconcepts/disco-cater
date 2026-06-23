@@ -99,6 +99,8 @@ interface Order {
   stateSalesTaxInPrice?: number
   localSalesTaxInPrice?: number
   otherSalesTaxInPrice?: number
+  taxExempt?: boolean
+  taxExemptId?: string
   discount?: number
   refund?: number
   orderDropOffTime?: string
@@ -597,6 +599,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   // FM totals derivation (shared/order-details mappingOrderDetails lines 78-93)
   const totals = order ? deriveTotals(order) : null
   const customerFull = order ? `${order.firstName || ''} ${order.lastName || ''}`.trim() : ''
+  const isTaxExempt = !!order && (order.taxExempt === true || !!order.taxExemptId)
 
   function printDrawer() {
     if (!order) return
@@ -668,6 +671,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             {order.restaurant?.businessName && <DetailRow label="Store" value={order.restaurant.businessName} />}
             {order.restaurant?.address?.addressLine1 && <DetailRow label="Store address" value={[order.restaurant.address.addressLine1, order.restaurant.address.city, order.restaurant.address.state, order.restaurant.address.zipcode].filter(Boolean).join(', ')} />}
             {order.restaurant?.address?.phoneNumber && <DetailRow label="Store phone" value={order.restaurant.address.phoneNumber} />}
+            {isTaxExempt && <DetailRow label="Tax Exempt ID" value={order.taxExemptId || '—'} />}
 
             {/* DELIVERY / PICKUP TIME — customer info */}
             <SectionHeader>{order.orderType === 'DELIVERY' ? 'Delivery Pick-up Time' : 'Pickup Time'}</SectionHeader>
@@ -738,7 +742,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                   value={order.serviceCharge ?? 0}
                 />
               )}
-              <TotalRow label="Taxes" value={totals.tax} />
+              <TotalRow label={isTaxExempt ? 'Taxes (Tax Exempt)' : 'Taxes'} value={isTaxExempt ? 0 : totals.tax} />
               {(order.fee ?? order.fees ?? 0) > 0 && <TotalRow label="Fees" value={order.fee ?? order.fees ?? 0} />}
               {totals.tips > 0 && <TotalRow label="Tips" value={totals.tips} />}
               {totals.delivery > 0 && <TotalRow label="Delivery Fee" value={totals.delivery} />}

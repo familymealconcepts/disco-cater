@@ -91,6 +91,8 @@ export interface PrintableOrder {
   orderMealPackages?: OrderLineItem[]
   orderClassics?: OrderLineItem[]
   note?: string
+  taxExempt?: boolean
+  taxExemptId?: string
 }
 
 // ── Formatters ──────────────────────────────────────────────────────────────
@@ -284,11 +286,16 @@ export function buildPrintHtml(order: PrintableOrder): string {
     const cls = opts?.bold ? 'class="total-row"' : ''
     return `<tr ${cls}><td class="tlbl">${esc(label)}:</td><td class="tval">${esc(fmtMoney(value))}</td></tr>`
   }
+  // Tax-exempt orders: taxes are $0.00 and the exempt id is noted under the row.
+  const isTaxExempt = order.taxExempt === true || !!order.taxExemptId
+  const taxRows = isTaxExempt
+    ? totalRow('Taxes', 0) + `<tr><td class="tlbl" colspan="2" style="font-weight:normal;color:#333;padding-top:0;">Tax Exempt ID: ${esc(order.taxExemptId || '—')}</td></tr>`
+    : (tax > 0 ? totalRow('Taxes', tax) : '')
   const totalRowsHtml = [
     totalRow('Subtotal', subtotal),
     employeeBenefit > 0 ? totalRow('For The Staff', employeeBenefit) : '',
     serviceCharges > 0 ? totalRow(serviceLabel, serviceCharges) : '',
-    tax > 0 ? totalRow('Taxes', tax) : '',
+    taxRows,
     // Only a separate "Fees" line when fee isn't already the service charge.
     fee > 0 && serviceCharge > 0 ? totalRow('Fees', fee) : '',
     delivery > 0 ? totalRow('Delivery Fee', delivery) : '',

@@ -72,6 +72,10 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   const orderTime = order?.orderTime || order?.localTime || ''
   const orderType = order?.orderType || ''
   const addr = order?.deliveryAddress
+  // Tax-exempt orders: FM (or the Neon fallback in /api/order/status) returns
+  // taxExempt + taxExemptId. When present, taxes are $0.00 and we surface the id.
+  const taxExemptId: string = order?.taxExemptId || order?.tax_exempt_id || ''
+  const isTaxExempt = order?.taxExempt === true || !!taxExemptId
 
   return (
     <div style={{ minHeight: '100svh', background: '#f8f8fc', fontFamily: F }}>
@@ -149,6 +153,13 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 </div>
               )}
 
+              {isTaxExempt && (
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
+                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tax Exempt</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>Tax Exempt ID: {taxExemptId || '—'}</div>
+                </div>
+              )}
+
               {/* Items */}
               {items.length > 0 && (
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
@@ -169,9 +180,10 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                     <span>Subtotal</span><span>{fmt$(subtotal)}</span>
                   </div>
                 )}
-                {tax > 0 && (
+                {(tax > 0 || isTaxExempt) && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                    <span>Taxes</span><span>{fmt$(tax)}</span>
+                    <span>Taxes{isTaxExempt && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: '#16A34A' }}>Tax Exempt</span>}</span>
+                    <span>{fmt$(isTaxExempt ? 0 : tax)}</span>
                   </div>
                 )}
                 {platformFee > 0 && (

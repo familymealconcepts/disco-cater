@@ -70,6 +70,9 @@ async function mirrorOrderToNeon(args: {
     const statusRaw = String(fmInner.orderStatus ?? fm.orderStatus ?? fmInner.status ?? '').toUpperCase()
     const orderStatus = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
     const { subtotal, total, fee } = extractMoney(fmInner)
+    // Tax-exempt id (Item 4) — sent on checkoutDetails; persisted so the
+    // confirmation page, PDF, drawer, and emails can show it.
+    const taxExemptId = str(checkoutDetails.taxExemptId)
 
     // FM creates the PaymentIntent during placement; its id is on the response.
     const paymentDetails = (fmInner.paymentDetails ?? fm.paymentDetails ?? {}) as Record<string, unknown>
@@ -95,15 +98,16 @@ async function mirrorOrderToNeon(args: {
       INSERT INTO disco_orders (
         reference, order_number, order_status, order_type, source_of_order,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
-        order_date, order_time, subtotal, total, fee, fm_order_reference, created_at, updated_at
+        order_date, order_time, subtotal, total, fee, tax_exempt_id, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, 'DISCO',
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
-        ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${reference}::uuid, NOW(), NOW()
+        ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${taxExemptId}, ${reference}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO UPDATE SET
         subtotal = EXCLUDED.subtotal, total = EXCLUDED.total, fee = EXCLUDED.fee,
-        order_status = EXCLUDED.order_status, fm_order_reference = EXCLUDED.fm_order_reference, updated_at = NOW()
+        order_status = EXCLUDED.order_status, fm_order_reference = EXCLUDED.fm_order_reference,
+        tax_exempt_id = COALESCE(EXCLUDED.tax_exempt_id, disco_orders.tax_exempt_id), updated_at = NOW()
       RETURNING id
     `) as { id: number }[]
     const orderId = orderRows[0]?.id
