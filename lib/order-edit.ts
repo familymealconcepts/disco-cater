@@ -177,6 +177,87 @@ export async function loadFmOrderDetails(ref: string): Promise<Record<string, un
   }
 }
 
+// Neon-first "original order" snapshot used by the edit route. Neon owns the
+// CURRENT items/money/schedule (reflecting any prior native edits); FM supplies
+// the structural rates (tip, delivery, blended tax rate) + customer/restaurant
+// meta that Neon doesn't store. For a 2nd/3rd edit this is what makes the delta
+// diff against the last Disco state instead of the stale FM order.
+export interface OrderBaseline {
+  source: 'neon' | 'fm' | 'mixed'
+  items: FmOrderItem[]
+  subtotal: number
+  total: number
+  tip: number
+  delivery: number
+  tax: number
+  taxRate: number
+  fee: number
+  tipsRaw: number
+  tipsType: string
+  orderType: string
+  orderDateIso: string
+  orderTime: string
+  orderNumber: string | number
+  restaurantRef: string
+  restaurantName: string
+  customerEmail: string
+  firstName: string
+  lastName: string
+  status: string
+}
+
+export async function loadOrderBaseline(ref: string, disco: DiscoOrderRow | null): Promise<OrderBaseline | null> {
+  const details = await loadFmOrderDetails(ref)
+  const fm = details ? parseFmOrder(details) : null
+
+  // Neon current state (items + money) when the order is mirrored and has rows.
+  let neonItems: FmOrderItem[] = []
+  let neonSubtotal: number | null = null
+  let neonTotal: number | null = null
+  let neonFee: number | null = null
+  if (disco) {
+    const money = (await sql`SELECT subtotal, total, fee FROM disco_orders WHERE id = ${disco.id} LIMIT 1`
+      .catch(() => [])) as { subtotal: string | null; total: string | null; fee: string | null }[]
+    neonSubtotal = money[0]?.subtotal != null ? n(money[0].subtotal) : null
+    neonTotal = money[0]?.total != null ? n(money[0].total) : null
+    neonFee = money[0]?.fee != null ? n(money[0].fee) : null
+    const rows = (await sql`
+      SELECT meal_package_reference, name, quantity, price_per_unit, serves
+      FROM disco_order_items WHERE order_id = ${disco.id} ORDER BY id
+    `.catch(() => [])) as { meal_package_reference: string | null; name: string; quantity: number; price_per_unit: string; serves: number | null }[]
+    neonItems = rows.map(r => ({ reference: s(r.meal_package_reference), name: r.name, price: n(r.price_per_unit), count: n(r.quantity), serves: r.serves ?? null }))
+  }
+
+  if (!fm && !disco) return null
+
+  const items = neonItems.length ? neonItems : (fm?.items ?? [])
+  const itemsSubtotal = Math.round(items.reduce((a, it) => a + n(it.price) * n(it.count), 0) * 100) / 100
+  const subtotal = neonSubtotal ?? (fm ? fm.subtotal : itemsSubtotal) ?? itemsSubtotal
+  const fee = neonFee ?? 0
+  const tip = fm?.tip ?? 0
+  const delivery = fm?.delivery ?? 0
+  const total = neonTotal ?? (fm ? fm.total : subtotal + fee + tip + delivery)
+  let taxRate = fm && fm.subtotal > 0 ? fm.tax / fm.subtotal : 0
+  let tax = fm ? fm.tax : 0
+  if (!fm) { tax = Math.max(0, total - subtotal - fee - tip - delivery); taxRate = subtotal > 0 ? tax / subtotal : 0 }
+
+  return {
+    source: neonItems.length && fm ? 'mixed' : (neonItems.length ? 'neon' : 'fm'),
+    items, subtotal, total, tip, delivery, tax, taxRate, fee,
+    tipsRaw: fm?.tipsRaw ?? n(disco?.tips), tipsType: fm?.tipsType || disco?.tips_type || 'PERCENTAGE',
+    orderType: fm?.orderType || disco?.order_type || 'PICKUP',
+    orderDateIso: disco ? String(disco.order_date).slice(0, 10) : (fm?.orderDateIso ?? ''),
+    orderTime: disco ? disco.order_time : (fm?.orderTime ?? ''),
+    orderNumber: fm?.orderNumber || disco?.order_number || '',
+    restaurantRef: fm?.restaurantRef || disco?.restaurant_reference || '',
+    restaurantName: fm?.restaurantName || disco?.restaurant_name || '',
+    customerEmail: fm?.customerEmail || disco?.customer_email || '',
+    firstName: fm?.firstName || disco?.customer_first_name || '',
+    lastName: disco?.customer_last_name || '',
+    status: disco?.order_status || fm?.status || '',
+  }
+}
+
 export interface ApplyFmArgs {
   fmRef: string
   restaurantRef: string
@@ -264,15 +345,8 @@ export async function applyPendingEdit(args: {
   const restaurantRef = String(p.restaurantRef || '')
   const newTotal = typeof p.newTotal === 'number' ? p.newTotal : null
 
-  // Sync date/items to FM (best-effort).
-  if (restaurantRef && lines.length) {
-    await applyFmOrderUpdate({
-      fmRef: String(p.fmRef || orderReference), restaurantRef,
-      activeLines: lines.map(l => ({ reference: l.reference, quantity: l.quantity })),
-      orderDateIso, orderTime, orderType: String(p.orderType || 'PICKUP'),
-      tips: n(p.tips), tipsType: String(p.tipsType || 'PERCENTAGE'),
-    })
-  }
+  // FM is read-only — Neon is the source of truth. The edit is applied to Neon
+  // only; FM is never updated.
 
   // Apply the edit to disco_orders: new total/date/time, bump edit_count, clear pending.
   await sql`

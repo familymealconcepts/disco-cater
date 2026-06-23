@@ -4,7 +4,7 @@ import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
 import {
-  getDiscoOrder, loadFmOrderDetails, parseFmOrder, applyFmOrderUpdate,
+  getDiscoOrder, loadOrderBaseline,
   hoursUntil, isEditableStatus, MAX_EDITS, type FmOrderItem,
 } from '../../../../../../lib/order-edit'
 import {
@@ -76,25 +76,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     return NextResponse.json({ error: `This order is ${discoOrder.order_status.toLowerCase()} and can no longer be edited.` }, { status: 400 })
   }
 
-  // FM details are authoritative for original money/items/pickup.
-  const details = await loadFmOrderDetails(ref)
-  if (!details) return NextResponse.json({ error: 'Could not load the order from FamilyMeal.' }, { status: 502 })
-  const fm = parseFmOrder(details)
-  if (fm.status && !isEditableStatus(fm.status)) {
-    return NextResponse.json({ error: `This order is ${fm.status.toLowerCase()} and can no longer be edited.` }, { status: 400 })
+  // Neon-first baseline for original money/items/pickup. Neon owns the current
+  // state (post prior edits); FM is read-only and only fills structural rates +
+  // customer/restaurant meta it still holds.
+  const loadedBaseline = await loadOrderBaseline(ref, discoOrder)
+  if (!loadedBaseline) return NextResponse.json({ error: 'Could not load the order.' }, { status: 502 })
+  const base = loadedBaseline // non-null; narrowing survives into the nested closures below
+  if (base.status && !isEditableStatus(base.status)) {
+    return NextResponse.json({ error: `This order is ${base.status.toLowerCase()} and can no longer be edited.` }, { status: 400 })
   }
 
-  const effDate = orderDate || fm.orderDateIso
-  const effTime = orderTime || fm.orderTime
+  const effDate = orderDate || base.orderDateIso
+  const effTime = orderTime || base.orderTime
 
   // What changed (drives edit_type + the reschedule 24h rule).
   const origMap = new Map<string, number>()
-  for (const i of fm.items) origMap.set(i.reference, (origMap.get(i.reference) || 0) + i.count)
+  for (const i of base.items) origMap.set(i.reference, (origMap.get(i.reference) || 0) + i.count)
   const newMap = new Map<string, number>()
   for (const l of activeLines) newMap.set(l.reference, (newMap.get(l.reference) || 0) + l.quantity)
   let itemsChanged = origMap.size !== newMap.size
   if (!itemsChanged) for (const [k, v] of newMap) if (origMap.get(k) !== v) { itemsChanged = true; break }
-  const dateChanged = (!!orderDate && orderDate !== fm.orderDateIso) || (!!orderTime && orderTime.slice(0, 5) !== (fm.orderTime || '').slice(0, 5))
+  const dateChanged = (!!orderDate && orderDate !== base.orderDateIso) || (!!orderTime && orderTime.slice(0, 5) !== (base.orderTime || '').slice(0, 5))
   const editType: 'RESCHEDULE' | 'ITEMS' | 'BOTH' = itemsChanged && dateChanged ? 'BOTH' : itemsChanged ? 'ITEMS' : 'RESCHEDULE'
 
   // RESCHEDULE rule: the NEW pickup must be ≥24h away (SUPER_ADMIN exempt).
@@ -106,20 +108,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // subtotal from items; fee = 3% of subtotal; taxes at the original tax rate;
   // tip + delivery preserved from the original order.
   const newSubtotal = round2(activeLines.reduce((a, l) => a + (Number(l.price) || 0) * (Number(l.quantity) || 0), 0))
-  const taxRate = fm.subtotal > 0 ? fm.tax / fm.subtotal : 0
+  const taxRate = base.taxRate
   const newTaxes = round2(newSubtotal * taxRate)
   const newFee = round2(newSubtotal * FEE_RATE)
-  const newTotal = round2(newSubtotal + newTaxes + newFee + fm.tip + fm.delivery)
-  const delta = round2(newTotal - fm.total)
+  const newTotal = round2(newSubtotal + newTaxes + newFee + base.tip + base.delivery)
+  const delta = round2(newTotal - base.total)
 
-  const restaurantRef = fm.restaurantRef || discoOrder?.restaurant_reference || ctx.restaurantReference || ''
-  const customerEmail = fm.customerEmail || discoOrder?.customer_email || ''
-  const firstName = fm.firstName || discoOrder?.customer_first_name || ''
-  const businessName = fm.restaurantName || discoOrder?.restaurant_name || 'the restaurant'
-  const orderNumber = String(fm.orderNumber || discoOrder?.order_number || '')
+  const restaurantRef = base.restaurantRef || discoOrder?.restaurant_reference || ctx.restaurantReference || ''
+  const customerEmail = base.customerEmail || discoOrder?.customer_email || ''
+  const firstName = base.firstName || discoOrder?.customer_first_name || ''
+  const businessName = base.restaurantName || discoOrder?.restaurant_name || 'the restaurant'
+  const orderNumber = String(base.orderNumber || discoOrder?.order_number || '')
   const newEditNumber = editCount + 1
   const newItems: EditItem[] = activeLines.map(l => ({ count: l.quantity, name: l.name, price: l.price }))
-  const origItems: FmOrderItem[] = fm.items
+  const origItems: FmOrderItem[] = base.items
   const NO_DELTA = Math.abs(delta) < 0.01
 
   // Stripe identity (saved card) + original payment intent (refunds).
@@ -188,14 +190,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     `.catch(e => console.error('[orders/edit] sale_transactions insert:', e))
   }
 
-  // Shared "edit applied" tail: best-effort FM PUT → Neon writes → audit → emails.
+  // Shared "edit applied" tail: Neon writes → audit → emails. FM is read-only —
+  // the edit is never pushed back to FamilyMeal.
   async function confirmEdit(): Promise<NextResponse> {
-    // Best-effort PUT to FM (merges new date in DD.MM.YYYY + items). Never fails.
-    await applyFmOrderUpdate({
-      fmRef: ref, restaurantRef, activeLines: activeLines.map(l => ({ reference: l.reference, quantity: l.quantity })),
-      orderDateIso: effDate, orderTime: effTime, orderType: fm.orderType, tips: fm.tipsRaw, tipsType: fm.tipsType,
-    })
-
     await writeNeonOrder()
     await recordStripe()
 
@@ -208,9 +205,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       ) VALUES (
         ${ref}::uuid, ${newEditNumber}, ${editorEmail || null}, ${editorEmail || null}, ${editType},
         ${JSON.stringify(origItems)}::jsonb, ${JSON.stringify(newItems)}::jsonb,
-        ${fm.total}, ${fm.total}, ${newTotal}, ${delta},
-        ${fm.orderDateIso || null}::date, ${fm.orderDateIso || null}::date, ${effDate || null}::date,
-        ${fm.orderTime || null}::time, ${effTime || null}::time,
+        ${base.total}, ${base.total}, ${newTotal}, ${delta},
+        ${base.orderDateIso || null}::date, ${base.orderDateIso || null}::date, ${effDate || null}::date,
+        ${base.orderTime || null}::time, ${effTime || null}::time,
         ${paymentAction}, ${paymentStatus},
         ${stripePaymentIntentId || null}, ${stripeInvoiceId || null}, ${stripeRefundId || null}
       )
@@ -265,11 +262,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     }
 
     const pending = {
-      fmRef: ref, restaurantRef, orderType: fm.orderType,
+      fmRef: ref, restaurantRef, orderType: base.orderType,
       activeLines: activeLines.map(l => ({ reference: l.reference, quantity: l.quantity, name: l.name, price: l.price })),
-      orderDateIso: effDate, orderTime: effTime, tips: fm.tipsRaw, tipsType: fm.tipsType,
+      orderDateIso: effDate, orderTime: effTime, tips: base.tipsRaw, tipsType: base.tipsType,
       newItems, newTotal, delta, editNumber: newEditNumber, editorEmail,
-      origItems, origTotal: fm.total, origDateIso: fm.orderDateIso, origTime: fm.orderTime,
+      origItems, origTotal: base.total, origDateIso: base.orderDateIso, origTime: base.orderTime,
       customerEmail, firstName, orderNumber, businessName,
     }
     if (discoOrder) {
@@ -289,9 +286,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       ) VALUES (
         ${ref}::uuid, ${newEditNumber}, ${editorEmail || null}, ${editorEmail || null}, ${editType},
         ${JSON.stringify(origItems)}::jsonb, ${JSON.stringify(newItems)}::jsonb,
-        ${fm.total}, ${fm.total}, ${newTotal}, ${delta},
-        ${fm.orderDateIso || null}::date, ${fm.orderDateIso || null}::date, ${effDate || null}::date,
-        ${fm.orderTime || null}::time, ${effTime || null}::time,
+        ${base.total}, ${base.total}, ${newTotal}, ${delta},
+        ${base.orderDateIso || null}::date, ${base.orderDateIso || null}::date, ${effDate || null}::date,
+        ${base.orderTime || null}::time, ${effTime || null}::time,
         'invoice', 'pending', ${stripeInvoiceId || null}
       )
     `.catch(e => console.error('[orders/edit] pending edit insert:', e))

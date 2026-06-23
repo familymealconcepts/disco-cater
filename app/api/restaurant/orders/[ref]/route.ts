@@ -1,21 +1,148 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
+import { loadFmOrderDetails, fmDateToIso, isUuid } from '../../../../../lib/order-edit'
 
-const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
+const STATUS_TRANSITIONS: Record<string, string[]> = {
+  DUE: ['COMPLETED', 'CANCELED'],
+  PAID: ['COMPLETED', 'CANCELED'],
+  UNPAID: ['CANCELED'],
+  RESERVED: ['DUE', 'CANCELED'],
+  COMPLETED: ['REOPEN'],
+}
+const REFUNDABLE = new Set(['DUE', 'PAID', 'COMPLETED'])
+
+interface DiscoFull {
+  id: number
+  reference: string
+  fm_order_reference: string | null
+  order_number: string
+  order_status: string
+  order_type: string
+  delivery_type: string | null
+  source_of_order: string
+  restaurant_name: string | null
+  customer_email: string | null
+  customer_first_name: string | null
+  customer_last_name: string | null
+  customer_phone: string | null
+  order_date: string
+  order_time: string
+  order_drop_off_time: string | null
+  subtotal: string | null
+  total: string | null
+  fee: string | null
+  tips: string | null
+  note: string | null
+  delivery_address_line1: string | null
+  delivery_address_line2: string | null
+  delivery_city: string | null
+  delivery_state: string | null
+  delivery_zip: string | null
+}
+interface DiscoItem { meal_package_reference: string | null; name: string; quantity: number; price_per_unit: string; serves: number | null }
+
+function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
+
+// GET — order details for the portal drawer. Reads Neon (disco_orders +
+// disco_order_items) as the source of truth and overlays FM /details (service
+// auth) for fields Neon doesn't store (tax breakdown, restaurant address, etc.).
+// Falls back to FM-only when the order isn't mirrored in Neon yet.
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
-  let authHeaders: Record<string, string>
-  try { authHeaders = await getRestaurantAuthHeader() } catch {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
+
+  // FM details (best-effort) — supplies the rich fields Neon doesn't store.
+  const fmDetails = await loadFmOrderDetails(ref)
+  const fmOrder = (((fmDetails?.data as Record<string, unknown>)?.order as Record<string, unknown>)
+    ?? (fmDetails?.order as Record<string, unknown>)
+    ?? fmDetails
+    ?? null) as Record<string, unknown> | null
+
+  // Neon order + items.
+  let disco: DiscoFull | null = null
+  let items: DiscoItem[] = []
+  if (isUuid(ref)) {
+    const rows = (await sql`
+      SELECT id, reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
+             source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name, customer_phone,
+             to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, order_drop_off_time::text AS order_drop_off_time,
+             subtotal, total, fee, tips, note,
+             delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip
+      FROM disco_orders
+      WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
+      LIMIT 1
+    `.catch(() => [])) as DiscoFull[]
+    disco = rows[0] ?? null
+    if (disco) {
+      items = (await sql`
+        SELECT meal_package_reference, name, quantity, price_per_unit, serves
+        FROM disco_order_items WHERE order_id = ${disco.id} ORDER BY id
+      `.catch(() => [])) as DiscoItem[]
+    }
   }
-  try {
-    const res = await fetch(`${FM}/api/orders/${ref}`, { headers: authHeaders })
-    if (res.status === 401) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-    if (!res.ok) return NextResponse.json({ error: 'Failed to fetch order' }, { status: res.status })
-    return NextResponse.json(await res.json())
-  } catch (err) {
-    console.error('restaurant/orders/[ref] GET error:', err)
-    return NextResponse.json({ error: 'Unable to fetch order' }, { status: 500 })
+
+  if (!disco && !fmOrder) {
+    return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   }
+
+  // FM-only fallback: order not mirrored in Neon yet → return FM order flat.
+  if (!disco && fmOrder) {
+    const out = { ...fmOrder }
+    if (typeof out.orderDate === 'string') out.orderDate = fmDateToIso(out.orderDate)
+    return NextResponse.json(out)
+  }
+
+  // Neon-first merge: start from FM (rich extras), override core with Neon.
+  const d = disco as DiscoFull
+  const base: Record<string, unknown> = fmOrder ? { ...fmOrder } : {}
+
+  base.orderNumber = Number(d.order_number)
+  base.orderStatus = d.order_status
+  base.orderType = d.order_type
+  base.deliveryType = d.delivery_type || base.deliveryType || ''
+  base.orderDate = String(d.order_date).slice(0, 10) // YYYY-MM-DD (drawer expects ISO)
+  base.orderTime = d.order_time
+  if (d.order_drop_off_time) base.orderDropOffTime = d.order_drop_off_time
+  base.firstName = d.customer_first_name || base.firstName || ''
+  base.lastName = d.customer_last_name || base.lastName || ''
+  base.email = d.customer_email || base.email || ''
+  if (d.customer_phone) base.phoneNumber = d.customer_phone
+  base.sourceoforder = d.source_of_order
+  if (d.note != null) base.note = d.note
+  if (d.subtotal != null) base.subtotal = num(d.subtotal)
+  if (d.total != null) { base.total = num(d.total); base.transactionsTotal = num(d.total) }
+  if (d.fee != null) base.fee = num(d.fee)
+  if (d.restaurant_name) {
+    const r = (base.restaurant as Record<string, unknown>) || {}
+    base.restaurant = { ...r, businessName: r.businessName || d.restaurant_name }
+  }
+  // Delivery address — prefer FM's; fall back to Neon's stored address.
+  if (!base.deliveryAddress && d.delivery_address_line1) {
+    base.deliveryAddress = {
+      addressLine1: d.delivery_address_line1, addressLine2: d.delivery_address_line2 || undefined,
+      city: d.delivery_city || '', state: d.delivery_state || '', zipcode: d.delivery_zip || '',
+    }
+  }
+
+  // Line items — Neon is source of truth when present, else keep FM's.
+  if (items.length) {
+    base.orderMealPackages = items.map(it => ({
+      name: it.name, count: it.quantity, price: num(it.price_per_unit),
+      mealPackageReference: it.meal_package_reference || undefined,
+    }))
+    base.orderClassics = []
+  }
+
+  base.orderStatusesToChange = STATUS_TRANSITIONS[d.order_status] || []
+  if (base.maxAllowedRefundAmount == null) {
+    base.maxAllowedRefundAmount = REFUNDABLE.has(d.order_status) ? num(d.total) : 0
+  }
+
+  return NextResponse.json(base)
 }
