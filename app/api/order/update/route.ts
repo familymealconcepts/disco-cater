@@ -23,14 +23,23 @@ export async function PUT(req: NextRequest) {
     updateBody.orderType = updateBody.orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
 
     const url = `${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`
-    console.log('[order/update] FM request:', { restaurantRef, orderRef, url })
+    // DIAGNOSTIC: log the EXACT payload forwarded to FM (what FM actually parses).
+    console.log('[order/update] → FM PUT', url, '\n  payload:', JSON.stringify(updateBody))
     const res = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(updateBody),
     })
-    if (!res.ok) console.error('[order/update] FM error:', res.status, await res.clone().text())
-    const data = await res.json()
+    // Read the body as text first so a non-JSON FM error (HTML/plain 500) can't
+    // throw on res.json() and mask the real cause as a generic proxy 500.
+    const text = await res.text()
+    // DIAGNOSTIC: log the EXACT FM response — status + raw body, not just the code.
+    console.log('[order/update] ← FM', res.status, res.statusText, '\n  body:', text.slice(0, 2000))
+    let data: unknown
+    try { data = text ? JSON.parse(text) : {} } catch {
+      // Surface FM's raw error body to the client + logs instead of swallowing it.
+      data = { error: 'FM returned a non-JSON response', fmStatus: res.status, fmBody: text.slice(0, 1000) }
+    }
     return NextResponse.json(data, { status: res.status })
   } catch {
     return NextResponse.json({ error: 'Failed to update order' }, { status: 500 })
