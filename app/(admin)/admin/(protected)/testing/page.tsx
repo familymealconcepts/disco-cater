@@ -36,7 +36,7 @@ const TESTS: TestDef[] = [
   { id: 'test-12', num: 12, name: 'Edit — No Payment Delta', description: 'Same items → delta 0, no charge; disco_order_edits audit row written.' },
   { id: 'test-13', num: 13, name: 'Edit Count Enforcement', description: 'Order with edit_count = 3 → POST /edit returns 400 "Maximum edits reached".' },
   { id: 'test-14', num: 14, name: '24-Hour Rule Enforcement', description: 'Pickup < 24hrs → POST /edit returns 400 "within 24 hours of pickup".' },
-  { id: 'test-15', num: 15, name: 'Full Platform E2E: Onboard → Order → Edit → Refund', description: 'Sequential 9-step flow: customer + restaurant + menu + checkout, then charge → edit-charge → refund. All payments run in Stripe TEST mode.' },
+  { id: 'test-15', num: 15, name: 'Full Platform E2E: Onboard → Order → Edit → Refund', description: 'Sequential flow: customer + restaurant + menu, then a synthetic Neon order (subtotal/total/fee) → charge → Disco-native edit via POST /edit (reschedule + add item, FM read-only) → verify disco_orders Neon state (edit_count/order_date/total) → refund. All payments run in Stripe TEST mode.' },
 ]
 
 function deriveStatus(steps: Step[]): Status {

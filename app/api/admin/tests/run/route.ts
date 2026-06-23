@@ -468,10 +468,11 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
     '1. Create test customer (FM registration)',
     '2. Verify test restaurant (Test Kitchen — no FM creation needed)',
     '3. Create menu item',
-    '4. Initialize checkout (PENDING: native checkout not yet built)',
+    '4. Create synthetic order in Neon (subtotal/total/fee)',
     '5. Stripe test payment method (4242)',
     '6. Charge order (Stripe test mode)',
-    '7. Edit order — add item (Stripe test charge)',
+    '7. Edit order — Disco-native POST /edit (reschedule +14d, item ×2)',
+    '7b. Verify Neon state after edit (edit_count / order_date / total)',
     '8. Refund order (Stripe test mode)',
     '9. Cleanup',
   ]
@@ -525,18 +526,28 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   created.push(`Menu item: ${itemRef}`)
   ok(`item ${itemRef} ($${itemPrice.toFixed(2)})`)
 
-  // STEP 4 — synthetic order in Neon (native checkout pending). Bypasses FM:
-  // inserts a real disco_orders row to charge/edit/refund against.
+  // STEP 4 — synthetic order in Neon (native checkout not built yet). Bypasses
+  // FM: inserts a real disco_orders row — now WITH subtotal/total/fee, the
+  // columns the Disco-native edit flow reads — to charge/edit/refund against.
   void itemRef // the item exists in Neon; native checkout would order from it.
-  const so = await adminCall('POST', '/api/admin/test-helpers/create-synthetic-order', { restaurantReference: restaurantRef, customerEmail: custEmail })
+  const orderTotal = 3.09
+  const so = await adminCall('POST', '/api/admin/test-helpers/create-synthetic-order', {
+    restaurantReference: restaurantRef, customerEmail: custEmail, subtotal: 3.0, total: orderTotal, fee: 0.09,
+  })
   const soJson = (so.json || {}) as Record<string, unknown>
   const orderRef = String(soJson.fm_order_reference || '')
   if (!so.ok || !orderRef) return bail(errOf(so))
-  const exists = (await sql`SELECT 1 FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid LIMIT 1`.catch(() => [])) as unknown[]
-  if (!exists.length) return bail('synthetic order row not found in disco_orders')
+  // Verify the INSERT landed all required fields (incl. the new money columns).
+  const synthRows = (await sql`
+    SELECT subtotal, total, fee FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid LIMIT 1
+  `.catch(() => [])) as { subtotal: string | null; total: string | null; fee: string | null }[]
+  const synth = synthRows[0]
+  if (!synth) return bail('synthetic order row not found in disco_orders')
+  if (synth.subtotal == null || synth.total == null || synth.fee == null) {
+    return bail(`synthetic order missing money fields: subtotal=${synth.subtotal}, total=${synth.total}, fee=${synth.fee}`)
+  }
   created.push(`Order: ${orderRef}`)
-  const orderTotal = 1.13
-  ok(`✓ Synthetic order created in Neon (bypasses FM — native checkout pending): ${orderRef}`)
+  ok(`✓ Synthetic order in Neon: ${orderRef} (subtotal=$${Number(synth.subtotal).toFixed(2)}, total=$${Number(synth.total).toFixed(2)}, fee=$${Number(synth.fee).toFixed(2)})`)
 
   // STEP 5 — Stripe TEST payment method (4242 via test token) attached to a customer.
   if (!stripeTest) return bail('STRIPE_TEST_SECRET_KEY not set')
@@ -574,33 +585,57 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   }
   ok(`charged $${charged.toFixed(2)} (pi ${chargePiId}); disco_stripe_payments row written`)
 
-  // STEP 7 — edit: add an item (qty 2). Delta computed on the original tax rate;
-  // charged in Stripe TEST mode; an audit row is written to disco_order_edits.
-  const { delta } = computeNewTotals([{ price: itemPrice, quantity: 2 }], { subtotal: itemPrice, total: orderTotal, tip: 0, delivery: 0, taxRate: itemPrice > 0 ? (orderTotal - itemPrice) / itemPrice : 0 })
-  if (!(delta > 0)) return bail(`expected positive delta, got ${delta}`)
-  let editChargeId = ''
-  try {
-    const pi = await stripeTest.paymentIntents.create({
-      amount: Math.round(delta * 100), currency: 'usd', customer: stripeCustomerId,
-      payment_method: pmId, off_session: true, confirm: true,
-      description: `[E2E] edit delta ${orderRef}`, metadata: { e2e: 'true', orderReference: orderRef, kind: 'order_edit' },
-    })
-    if (pi.status !== 'succeeded') return bail(`edit charge status ${pi.status}`)
-    editChargeId = pi.id; charged += delta
-    await sql`
-      INSERT INTO disco_order_edits (fm_order_reference, edit_number, editor_email, new_total, delta, payment_action, payment_status, stripe_payment_intent_id)
-      VALUES (${orderRef}::uuid, 1, ${custEmail}, ${orderTotal + delta}, ${delta}, 'charge', 'succeeded', ${editChargeId})
-    `.catch(() => { /* orderRef may not be a uuid in some FM shapes — non-fatal */ })
-  } catch (e) {
-    return bail(`edit charge failed: ${e instanceof Error ? e.message : e}`)
+  // STEP 7 — edit via the Disco-native route POST /api/restaurant/orders/[ref]/edit.
+  // FM is read-only now: this writes Neon only (disco_orders + disco_order_items +
+  // disco_order_edits). Reschedule to +14d and set the cart to the menu item ×2.
+  // The new cart total ($2.06) sits below the synthetic order's total ($3.09), so
+  // the route takes its apply path (confirmEdit) and applies DETERMINISTICALLY —
+  // it doesn't depend on a live-key charge succeeding (the live edit route can't
+  // charge the Stripe TEST card; a positive delta would otherwise go to the
+  // invoice/pending path and never bump edit_count). The restaurant session
+  // authorizes the edit; the +14d date clears the 24-hour rule.
+  const newDateIso = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10)
+  const editRes = await call('POST', `${origin}/api/restaurant/orders/${orderRef}/edit`, {
+    cookie: rCookie,
+    body: {
+      activeLines: [{ reference: itemRef, name: 'E2E Test Item', price: itemPrice, quantity: 2 }],
+      orderDate: newDateIso,
+      orderTime: '10:00:00',
+      editorEmail: custEmail,
+    },
+  })
+  const ej = (editRes.json || {}) as Record<string, unknown>
+  if (!editRes.ok || ej.status !== 'confirmed') {
+    return bail(`Disco-native edit did not confirm: HTTP ${editRes.status} ${JSON.stringify(ej).slice(0, 180)}`)
   }
-  ok(`delta $${delta.toFixed(2)} charged (pi ${editChargeId}); disco_order_edits row written`)
+  const editedTotal = Number(ej.newTotal)
+  created.push(`Edit #1 (${ej.editType}, newTotal $${Number.isFinite(editedTotal) ? editedTotal.toFixed(2) : '?'})`)
+  ok(`✓ edit confirmed via POST /edit — editType=${ej.editType}, delta=${ej.delta}, newTotal=$${Number.isFinite(editedTotal) ? editedTotal.toFixed(2) : ej.newTotal}`)
 
-  // STEP 8 — refund the full amount in Stripe TEST mode.
+  // STEP 7b — verify the Neon state the edit wrote: edit_count, order_date, total.
+  const editedRows = (await sql`
+    SELECT order_number, order_status,
+           to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
+           subtotal, total, fee, COALESCE(edit_count, 0) AS edit_count, edit_status
+    FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid LIMIT 1
+  `.catch(() => [])) as Record<string, unknown>[]
+  const edited = editedRows[0]
+  if (!edited) return bail('edited order row not found in disco_orders')
+  const editCount = Number(edited.edit_count)
+  const neonDate = String(edited.order_date)
+  const neonTotal = Number(edited.total)
+  const rowJson = JSON.stringify(edited) // full disco_orders row for the test output
+  const fails: string[] = []
+  if (editCount !== 1) fails.push(`edit_count=${editCount} (expected 1)`)
+  if (neonDate !== newDateIso) fails.push(`order_date=${neonDate} (expected ${newDateIso})`)
+  if (!(Number.isFinite(editedTotal) && Math.abs(neonTotal - editedTotal) < 0.01)) fails.push(`total=${neonTotal} (expected ${editedTotal})`)
+  if (fails.length) return bail(`Neon state mismatch — ${fails.join('; ')}. Full row: ${rowJson}`)
+  ok(`✓ Neon verified — edit_count=1, order_date=${neonDate}, total=$${neonTotal.toFixed(2)}. Full disco_orders row: ${rowJson}`)
+
+  // STEP 8 — refund the original charge in Stripe TEST mode.
   let refunded = 0
   try {
     const refund = await stripeTest.refunds.create({ payment_intent: chargePiId, amount: Math.round(orderTotal * 100) })
-    if (editChargeId) await stripeTest.refunds.create({ payment_intent: editChargeId, amount: Math.round(delta * 100) })
     refunded = charged
     ok(`refunded $${refunded.toFixed(2)} (refund ${refund.id})`)
   } catch (e) {
@@ -614,6 +649,11 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
     await runMigrations()
     await sql`DELETE FROM disco_order_edits WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
     await sql`DELETE FROM disco_stripe_payments WHERE order_reference = ${orderRef}::uuid`.catch(() => {})
+    // The Disco-native edit writes a disco_sale_transactions row (FK → disco_orders)
+    // and a disco_order_events row — clear both before deleting the order.
+    await sql`DELETE FROM disco_sale_transactions WHERE order_id IN (SELECT id FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid)`.catch(() => {})
+    await sql`DELETE FROM disco_order_events WHERE order_reference IN (SELECT reference FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid)`.catch(() => {})
+    await sql`DELETE FROM disco_order_items WHERE order_id IN (SELECT id FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid)`.catch(() => {})
     await sql`DELETE FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
     // Only the item we created — Test Kitchen is real, never wipe its whole menu.
     await sql`DELETE FROM disco_menu_items WHERE reference = ${itemRef}::uuid`.catch(() => {})

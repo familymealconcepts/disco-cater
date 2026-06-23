@@ -26,27 +26,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `restaurantReference is not a valid UUID: "${restaurantReference}"` }, { status: 400 })
   }
 
+  // Money snapshot. subtotal/total/fee now live on disco_orders (added for the
+  // Disco-native edit flow), so the synthetic order carries them too — the E2E
+  // edit step diffs the new cart against these. Caller may override; defaults
+  // give a clean taxRate of 0 (total = subtotal + fee).
+  const n = (v: unknown, d: number): number => { const x = Number(v); return Number.isFinite(x) ? x : d }
+  const subtotal = n(body?.subtotal, 3.0)
+  const fee = n(body?.fee, 0.09)
+  const total = n(body?.total, 3.09)
+
   try {
     await runDiscoOrderMigrations()
     // order_number is NOT NULL UNIQUE. Use epoch (ms) + a random suffix so repeat
     // runs (and concurrent inserts) never collide.
     const orderNumber = Date.now() * 1000 + Math.floor(Math.random() * 1000)
-    // NOTE: subtotal/total/fee are NOT columns on disco_orders (they live on
-    // disco_sale_transactions) — including them was the original 500. The
-    // synthetic order only needs the order row; the E2E charges $1.13 via Stripe
-    // test mode + records it in disco_stripe_payments separately.
     const rows = (await sql`
       INSERT INTO disco_orders (
         fm_order_reference, order_number, restaurant_reference, customer_email,
         customer_first_name, customer_last_name, order_date, order_time, order_type,
-        source_of_order, order_status, created_at
+        source_of_order, order_status, subtotal, total, fee, created_at
       ) VALUES (
         gen_random_uuid(), ${orderNumber}, ${restaurantReference}::uuid, ${customerEmail},
         'E2E', 'Test', (NOW()::date + 7), '10:00:00', 'PICKUP',
-        'DISCO', 'DUE', NOW()
+        'DISCO', 'DUE', ${subtotal}, ${total}, ${fee}, NOW()
       )
-      RETURNING fm_order_reference, restaurant_reference
-    `) as { fm_order_reference: string; restaurant_reference: string }[]
+      RETURNING fm_order_reference, restaurant_reference, subtotal, total, fee, order_number
+    `) as { fm_order_reference: string; restaurant_reference: string; subtotal: string; total: string; fee: string; order_number: string }[]
 
     return NextResponse.json(rows[0])
   } catch (e) {
