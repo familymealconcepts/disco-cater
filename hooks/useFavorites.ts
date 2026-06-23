@@ -147,11 +147,23 @@ export function useFavorites(): FavoritesState {
         setLoading(false)
         return
       }
-      // 501 → FM hasn't shipped favorites; fall through to localStorage.
+      // 501/401 → FM hasn't shipped favorites; fall through to localStorage.
     } catch {
       // network — fall through
     }
-    setFavorites(readLocal(userScopeRef.current))
+    // Local fallback. Resolve the user scope FIRST so we read the right bucket —
+    // reading with the stale default 'guest' scope here was the race that made a
+    // logged-in user's favorites briefly flash and then vanish (the guest bucket
+    // is empty, so they got overwritten with []). When disco_user isn't present
+    // (cookie-only auth), confirm the scope from the cookie before reading.
+    let scope = readUserScope()
+    if (scope === 'guest') {
+      const cookieScope = await resolveScopeFromCookie()
+      if (cookieScope) scope = cookieScope
+    }
+    setUserScope(scope)
+    userScopeRef.current = scope
+    setFavorites(readLocal(scope))
     setSource('local')
     setLoading(false)
   }, [])
