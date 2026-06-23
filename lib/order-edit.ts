@@ -67,11 +67,14 @@ export interface DiscoOrderRow {
 export async function getDiscoOrder(ref: string): Promise<DiscoOrderRow | null> {
   if (!isUuid(ref)) return null
   try {
+    // to_char/::text so order_date/order_time come back as clean strings — the
+    // Neon driver otherwise returns a DATE as a JS Date, and String(date) yields
+    // "Thu Jul 02 2026 …" which sliced to a "date" corrupts the edit flow.
     const rows = (await sql`
       SELECT id, reference, fm_order_reference, order_number, order_status, order_type,
              restaurant_reference, restaurant_name, restaurant_email,
              customer_email, customer_first_name, customer_last_name,
-             order_date, order_time, tips, tips_type,
+             to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, tips, tips_type,
              COALESCE(edit_count, 0) AS edit_count, edit_status
       FROM disco_orders
       WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
@@ -109,6 +112,26 @@ export interface FmOrderMoney {
 
 function n(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
 function s(v: unknown): string { return typeof v === 'string' ? v : (v == null ? '' : String(v)) }
+
+// Normalize any date value (ISO string, DD.MM.YYYY, or a JS Date the Neon driver
+// returned for a DATE column) to "YYYY-MM-DD". Empty string when unparseable.
+// Guards the edit flow from "Thu Jul 02"-style corruption (String(Date).slice).
+export function toIsoDateStr(v: unknown): string {
+  if (v == null) return ''
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+  }
+  const str = String(v)
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(str)
+  if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`
+  const dmy = /^(\d{2})\.(\d{2})\.(\d{4})/.exec(str)
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`
+  const d = new Date(str)
+  if (!Number.isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  return ''
+}
 
 // Parse the FM /public-api/v2/orders/{ref}/details payload into the money +
 // metadata we need for delta/tax math and emails. Reads defensively — FM nests
@@ -246,7 +269,7 @@ export async function loadOrderBaseline(ref: string, disco: DiscoOrderRow | null
     items, subtotal, total, tip, delivery, tax, taxRate, fee,
     tipsRaw: fm?.tipsRaw ?? n(disco?.tips), tipsType: fm?.tipsType || disco?.tips_type || 'PERCENTAGE',
     orderType: fm?.orderType || disco?.order_type || 'PICKUP',
-    orderDateIso: disco ? String(disco.order_date).slice(0, 10) : (fm?.orderDateIso ?? ''),
+    orderDateIso: disco ? toIsoDateStr(disco.order_date) : (fm?.orderDateIso ?? ''),
     orderTime: disco ? disco.order_time : (fm?.orderTime ?? ''),
     orderNumber: fm?.orderNumber || disco?.order_number || '',
     restaurantRef: fm?.restaurantRef || disco?.restaurant_reference || '',

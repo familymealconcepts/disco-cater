@@ -178,6 +178,22 @@ function fmtDate(d: string) {
   return `${mo}/${day}/${y}`
 }
 
+// Subtle 1P/3P pill for the orders-list SOURCE column.
+//   FAMILYMEAL → 1P (first-party / direct)   ·   DISCO → 3P (marketplace)
+function SourcePill({ source }: { source: string }) {
+  const s = (source || '').trim().toUpperCase()
+  if (!s) return <span style={{ color: '#ccc' }}>—</span>
+  const label = s === 'DISCO' ? '3P' : s === 'FAMILYMEAL' ? '1P' : s
+  return (
+    <span style={{
+      display: 'inline-block', fontSize: 11, fontWeight: 400,
+      padding: '2px 8px', borderRadius: 10, color: '#6B7280', background: '#F3F4F6',
+    }}>
+      {label}
+    </span>
+  )
+}
+
 function fmtDateTime(iso?: string) {
   if (!iso) return ''
   try {
@@ -1265,6 +1281,7 @@ function OrdersContent() {
                   {aggregating && (
                     <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Restaurant</th>
                   )}
+                  <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Source</th>
                   {colHead('order_date', 'Order Time')}
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Service</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Delivery Status</th>
@@ -1275,10 +1292,10 @@ function OrdersContent() {
               </thead>
               <tbody>
                 {loading && (
-                  <tr><td colSpan={aggregating ? 8 : 7} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
+                  <tr><td colSpan={aggregating ? 9 : 8} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
                 )}
                 {!loading && displayedOrders.length === 0 && (
-                  <tr><td colSpan={aggregating ? 8 : 7} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
+                  <tr><td colSpan={aggregating ? 9 : 8} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
                 )}
                 {displayedOrders.map(order => {
                   const timeColor = statusColor(order.orderStatus, order.orderDate, order.orderTime)
@@ -1306,13 +1323,16 @@ function OrdersContent() {
                           {isRecurringOrder(order) && <RecurringBadge />}
                           {isNew && <span style={{ marginLeft: 6, background: BLUE, color: '#fff', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontWeight: 700 }}>NEW</span>}
                         </div>
-                        <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>#{order.orderNumber}{getOrderSourceBadge(order.sourceoforder || '')}</div>
+                        <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>#{order.orderNumber}</div>
                       </td>
                       {aggregating && (
                         <td style={{ padding: '12px 14px', fontSize: 13, color: '#555' }}>
                           {order.restaurantName || '—'}
                         </td>
                       )}
+                      <td style={{ padding: '12px 14px' }}>
+                        <SourcePill source={order.sourceoforder || ''} />
+                      </td>
                       <td style={{ padding: '12px 14px' }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: timeColor || DARK }}>{fmtTime(order.orderTime)}</div>
                         <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{fmtDate(order.orderDate)}</div>
