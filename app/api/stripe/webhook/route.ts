@@ -348,10 +348,18 @@ export async function POST(request: NextRequest) {
           UPDATE disco_stripe_payments SET status = 'FAILED', updated_at = NOW()
           WHERE stripe_payment_intent_id = ${pi.id}
         `
-        await sql`
-          UPDATE disco_orders SET order_status = 'EXPIRED', updated_at = NOW()
-          WHERE reference = ${orderReference}::uuid
-        `
+        // Edit-delta charges (kind='order_edit') must NOT flip the whole order to
+        // PAYMENT_FAILED — the original order is still paid; only the edit failed.
+        const isEditDelta = pi.metadata?.kind === 'order_edit'
+        if (isEditDelta) {
+          console.log('[Webhook] payment_intent.payment_failed — edit-delta charge, order status left intact:', orderReference)
+        } else {
+          await sql`
+            UPDATE disco_orders SET order_status = 'PAYMENT_FAILED', updated_at = NOW()
+            WHERE reference = ${orderReference}::uuid
+          `
+          console.log('[Webhook] payment_intent.payment_failed — checkout order marked PAYMENT_FAILED:', orderReference)
+        }
         await recordEvent(orderReference, 'PAYMENT_FAILED', event, 'STRIPE_WEBHOOK')
         break
       }

@@ -247,3 +247,8 @@ ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS edited_by VARCHAR(255);
 ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS edit_type VARCHAR(20);
 ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_total NUMERIC;
 ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_date DATE;
+
+-- Allow PAYMENT_FAILED (checkout payment failure, set by the Stripe webhook).
+-- Drop + re-add is idempotent because DROP precedes ADD on every run.
+ALTER TABLE disco_orders DROP CONSTRAINT IF EXISTS disco_orders_order_status_check;
+ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_order_status_check CHECK (order_status IN ('CART','RESERVED','DUE','COMPLETED','CANCELED','REFUND','PARTIAL_REFUND','EXPIRED','VOID','UNPAID','PAID','PAYMENT_FAILED'));

@@ -863,6 +863,9 @@ export default function CheckoutDrawer({
         + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0)
         - (fm?.discount ?? 0)
     )
+    // TEMP DIAGNOSTIC: confirm the exact figure used for the displayed total + the
+    // Stripe charge when tax-exempt is applied.
+    console.log('[checkout] payTotal', { taxExemptApplied, fmTotal: fm?.total, fmTax: fm?.tax, fmTotalEffective, payTotal })
     // Disco promo charges the full FM total, then credits it back via Stripe
     // after placement — so the displayed total is always the full payTotal, with
     // a note about the pending credit. (FM coupons are already in payTotal.)

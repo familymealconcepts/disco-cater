@@ -27,11 +27,22 @@ function toIsoDate(d: unknown): string | null {
   return null
 }
 
-// Fire-and-forget mirror of a placed FM order into Neon disco_orders, using the
-// customer + order data available in the place request and FM response. Wrapped
-// so any failure is logged and swallowed — the checkout flow is never affected.
-// source_of_order is always "DISCO" (orders through discocater.com); ON CONFLICT
-// keeps retries idempotent.
+function num(v: unknown): number { const n = parseFloat(String(v ?? '')); return Number.isFinite(n) ? n : 0 }
+
+// Pull the canonical money off the FM place response. FM nests the priced totals
+// under data.checkoutPublicResponseDto (or directly under data) — read both.
+function extractMoney(fmInner: Record<string, unknown>): { subtotal: number; total: number; fee: number } {
+  const d = ((fmInner.checkoutPublicResponseDto as Record<string, unknown>) ?? fmInner) as Record<string, unknown>
+  const subtotal = num(d.subtotal ?? d.subTotal)
+  const total = num(d.total ?? d.totalAmount ?? d.transactionsTotal)
+  const fee = num(d.fee ?? d.fees)
+  return { subtotal, total, fee }
+}
+
+// Fire-and-forget mirror of a placed FM order into Neon (disco_orders +
+// disco_stripe_payments + disco_order_items). Wrapped so any failure is logged
+// and swallowed — the checkout flow is never affected. The FM place response is
+// the source of truth; Neon is a mirror. source_of_order is always "DISCO".
 async function mirrorOrderToNeon(args: {
   restaurantRef: string
   orderRef: string
@@ -46,8 +57,8 @@ async function mirrorOrderToNeon(args: {
 
     const str = (v: unknown): string | null => (v == null || v === '' ? null : String(v))
 
-    // CheckoutDrawer nests the priced DTO (orderDate/orderTime/orderType) under
-    // checkoutDetails — read from there, not the top level of the place body.
+    // CheckoutDrawer nests the priced DTO (orderDate/orderTime/orderType + items)
+    // under checkoutDetails — read from there, not the top level of the place body.
     const checkoutDetails = (placeBody.checkoutDetails ?? {}) as Record<string, unknown>
 
     const reference = str(fmInner.orderReference) || str(fm.orderReference) || str(orderRef) || randomUUID()
@@ -58,6 +69,15 @@ async function mirrorOrderToNeon(args: {
     const orderType = checkoutDetails.orderType === 'DELIVERY' || placeBody.deliveryAddress ? 'DELIVERY' : 'PICKUP'
     const statusRaw = String(fmInner.orderStatus ?? fm.orderStatus ?? fmInner.status ?? '').toUpperCase()
     const orderStatus = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
+    const { subtotal, total, fee } = extractMoney(fmInner)
+
+    // FM creates the PaymentIntent during placement; its id is on the response.
+    const paymentDetails = (fmInner.paymentDetails ?? fm.paymentDetails ?? {}) as Record<string, unknown>
+    const stripeIntent = (paymentDetails.stripePaymentIntentDto ?? {}) as Record<string, unknown>
+    const paymentIntentId = str(stripeIntent.paymentIntentId)
+
+    // Items: the priced cart DTO (items[] with reference/name/count/price).
+    const items = Array.isArray(checkoutDetails.items) ? (checkoutDetails.items as Record<string, unknown>[]) : []
 
     // Bail (no row) if any NOT-NULL-without-default column is missing — better
     // than a guaranteed constraint error. Logged so gaps are visible.
@@ -69,18 +89,49 @@ async function mirrorOrderToNeon(args: {
       return
     }
 
-    await sql`
+    // (a) disco_orders — upsert keyed by the FM order reference (== reference here),
+    // DO UPDATE so retries refresh the money snapshot. RETURNING id for items.
+    const orderRows = (await sql`
       INSERT INTO disco_orders (
         reference, order_number, order_status, order_type, source_of_order,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
-        order_date, order_time, fm_order_reference, created_at, updated_at
+        order_date, order_time, subtotal, total, fee, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, 'DISCO',
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
-        ${orderDate}::date, ${orderTime}::time, ${str(orderRef)}::uuid, NOW(), NOW()
+        ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${reference}::uuid, NOW(), NOW()
       )
-      ON CONFLICT (reference) DO NOTHING
-    `
+      ON CONFLICT (reference) DO UPDATE SET
+        subtotal = EXCLUDED.subtotal, total = EXCLUDED.total, fee = EXCLUDED.fee,
+        order_status = EXCLUDED.order_status, fm_order_reference = EXCLUDED.fm_order_reference, updated_at = NOW()
+      RETURNING id
+    `) as { id: number }[]
+    const orderId = orderRows[0]?.id
+    if (!orderId) return
+
+    // (b) disco_stripe_payments — the PaymentIntent FM created for this order.
+    if (paymentIntentId) {
+      await sql`
+        INSERT INTO disco_stripe_payments (order_reference, restaurant_reference, stripe_payment_intent_id, status, total, created_at)
+        VALUES (${reference}::uuid, ${restaurantRef}::uuid, ${paymentIntentId}, 'SUCCEEDED', ${total}, NOW())
+        ON CONFLICT (stripe_payment_intent_id) DO NOTHING
+      `
+    }
+
+    // (c) disco_order_items — replace (no natural unique key for ON CONFLICT, so
+    // delete-then-insert keeps the mirror idempotent across retries).
+    if (items.length) {
+      await sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`
+      for (const it of items) {
+        const name = str(it.name) || str(it.reference) || 'Item'
+        const qty = Math.max(1, Math.trunc(num(it.count ?? it.quantity) || 1))
+        const unit = num(it.price)
+        await sql`
+          INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
+          VALUES (${orderId}, ${str(it.reference)}, ${name}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100})
+        `
+      }
+    }
   } catch (e) {
     console.error('[order/place] Neon mirror failed:', e instanceof Error ? e.message : e)
   }
