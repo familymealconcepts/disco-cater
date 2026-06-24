@@ -235,14 +235,21 @@ export async function POST(request: NextRequest) {
   // check will always fail.
   const body = await request.text()
   const sig = request.headers.get('stripe-signature')
-  const secret = process.env.STRIPE_WEBHOOK_SECRET
+  // Accept events signed by EITHER the connected-account webhook secret
+  // (restaurant Stripe accounts — STRIPE_ACCOUNT_WEBHOOK_SECRET) or the platform
+  // webhook secret (STRIPE_WEBHOOK_SECRET). Connect account.* events are signed
+  // with the account secret, so try it first and fall back to the platform one.
+  const secrets = [
+    process.env.STRIPE_ACCOUNT_WEBHOOK_SECRET,
+    process.env.STRIPE_WEBHOOK_SECRET,
+  ].filter(Boolean) as string[]
 
   // During the FM→Disco transition the webhook secret may not be configured yet.
   // Rather than 500 (which would surface as failures once the endpoint is wired
   // up), warn and ack so nothing breaks. No event processing happens without a
   // verified payload.
-  if (!secret) {
-    console.warn('[Webhook] STRIPE_WEBHOOK_SECRET not configured — skipping verification and acking (transition period)')
+  if (!secrets.length) {
+    console.warn('[Webhook] No webhook secret configured (STRIPE_ACCOUNT_WEBHOOK_SECRET / STRIPE_WEBHOOK_SECRET) — skipping verification and acking (transition period)')
     return NextResponse.json({ received: true, warning: 'signature verification skipped' }, { status: 200 })
   }
   if (!sig) {
@@ -258,12 +265,21 @@ export async function POST(request: NextRequest) {
     { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1],
   )
 
-  let event: Stripe.Event
-  try {
-    event = stripe.webhooks.constructEvent(body, sig, secret)
-  } catch (err) {
-    // Bad signature → reject (do not process an unverified payload).
-    console.error('[Webhook] Signature verification failed:', err instanceof Error ? err.message : err)
+  // Verify against each configured secret; accept the first that validates.
+  // (Account-signed events won't verify with the platform secret and vice versa.)
+  let event: Stripe.Event | null = null
+  let lastErr: unknown = null
+  for (const secret of secrets) {
+    try {
+      event = stripe.webhooks.constructEvent(body, sig, secret)
+      break
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  if (!event) {
+    // Bad signature against every secret → reject (don't process an unverified payload).
+    console.error('[Webhook] Signature verification failed:', lastErr instanceof Error ? lastErr.message : lastErr)
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
