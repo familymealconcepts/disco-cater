@@ -1,5 +1,54 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
+import { sql, runDiscoMenuMigrations } from '../../../../lib/db'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Save high-confidence parsed items into Disco's native menu tables for a
+// disco-native restaurant: ensure a "Catering Menu" category, insert the items,
+// and advance onboarding_step to 3. Best-effort — never throws to the caller.
+async function saveDiscoMenu(restaurantReference: string, items: MenuItem[]): Promise<number> {
+  if (!UUID_RE.test(restaurantReference) || !items.length) return 0
+  try {
+    await runDiscoMenuMigrations()
+    const existing = (await sql`
+      SELECT reference FROM disco_menu_categories
+      WHERE restaurant_reference = ${restaurantReference}::uuid ORDER BY position, id LIMIT 1
+    `) as { reference: string }[]
+    let categoryRef = existing[0]?.reference
+    if (!categoryRef) {
+      const ins = (await sql`
+        INSERT INTO disco_menu_categories (restaurant_reference, name, position)
+        VALUES (${restaurantReference}::uuid, 'Catering Menu', 0)
+        ON CONFLICT (restaurant_reference, name) DO UPDATE SET updated_at = NOW()
+        RETURNING reference
+      `) as { reference: string }[]
+      categoryRef = ins[0]?.reference
+    }
+    if (!categoryRef) return 0
+    let saved = 0
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (!it.name) continue
+      await sql`
+        INSERT INTO disco_menu_items
+          (restaurant_reference, category_reference, name, description, price, serves, position)
+        VALUES (${restaurantReference}::uuid, ${categoryRef}::uuid, ${it.name},
+                ${it.description || null}, ${Number(it.price) || 0}, ${it.serves || null}, ${i})
+      `
+      saved++
+    }
+    await sql`
+      UPDATE disco_restaurant_accounts
+      SET onboarding_step = GREATEST(COALESCE(onboarding_step, 0), 3), updated_at = NOW()
+      WHERE restaurant_reference = ${restaurantReference}
+    `
+    return saved
+  } catch (err) {
+    console.error('[menu-upload] disco menu save failed:', err instanceof Error ? err.message : err)
+    return 0
+  }
+}
 
 // AI-powered menu import for the become-a-partner onboarding (Step 4).
 //
@@ -331,6 +380,14 @@ export async function POST(req: NextRequest) {
   const isHigh = parsed?.confidence === 'high' && namedItems.length >= 3
 
   if (!isHigh) return fallback(`Low confidence (${namedItems.length} named item(s) found).`)
+
+  // 2.5) Disco-native save: persist the items to disco_menu_* for this
+  //      restaurant so they're orderable immediately (independent of FM). This is
+  //      what makes a disco-native restaurant's menu live. Best-effort.
+  if (restaurantReference) {
+    const saved = await saveDiscoMenu(restaurantReference, namedItems)
+    console.log(`[menu-upload] saved ${saved} item(s) to disco_menu_items for ${restaurantReference}.`)
+  }
 
   // 3) HIGH confidence → create FM meal packages if the restaurant exists yet.
   //    If there's no ref yet (Stripe Connect blocker) or some creates fail, send

@@ -218,6 +218,17 @@ ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS sms_enabled BOOLE
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS sms_phone TEXT;
 UPDATE disco_restaurant_accounts SET sms_phone = phone WHERE sms_phone IS NULL AND phone IS NOT NULL;
 
+-- Disco-native onboarding (become-a-partner). is_disco_native marks restaurants
+-- created entirely in Disco (no FM record); onboarding_step tracks progress
+-- (0=registered, 1=profile, 2=stripe, 3=menu, 4=live); stripe_account_id holds
+-- the Stripe Connect Express account (acct_xxx) we create natively.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS stripe_account_id TEXT;
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS stripe_onboarding_complete BOOLEAN DEFAULT false;
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS is_disco_native BOOLEAN DEFAULT true;
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS onboarding_step INTEGER DEFAULT 0;
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS cuisine TEXT;
+
 -- ── Disco-native order editing ───────────────────────────────────────────────
 -- Edit lifecycle on the order row + an audit log of every committed edit. The
 -- pending_* columns hold a proposed edit while we await customer payment on an

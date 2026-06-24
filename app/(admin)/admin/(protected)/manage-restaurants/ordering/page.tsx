@@ -49,6 +49,8 @@ interface OverrideMeta {
   isPremium: boolean
   orderUrl: string
   menuUploadUrl: string | null
+  isLive: boolean
+  isDiscoNative: boolean
 }
 
 function fmtDate(d?: string) {
@@ -413,17 +415,42 @@ export default function RestaurantsOrderingPage() {
       for (const o of (d?.overrides || []) as {
         restaurantReference: string; stripeConnected: boolean; stripeCheckedAt: string | null
         visible?: boolean; isPremium?: boolean; orderUrl?: string; menuUploadUrl?: string | null
+        isLive?: boolean; isDiscoNative?: boolean
       }[]) {
         sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt }
         oMap[o.restaurantReference] = {
           visible: !!o.visible, isPremium: !!o.isPremium,
           orderUrl: o.orderUrl || '', menuUploadUrl: o.menuUploadUrl ?? null,
+          isLive: !!o.isLive, isDiscoNative: !!o.isDiscoNative,
         }
       }
       setStripeMap(sMap)
       setOverrideMap(oMap)
     } catch { /* non-fatal: the columns just won't render */ }
   }, [])
+
+  // Flip a disco-native restaurant live/offline on the marketplace
+  // (disco_restaurant_cache.is_live). Optimistic; reverts on failure.
+  async function toggleLive(r: Restaurant) {
+    const cur = !!overrideMap[r.reference]?.isLive
+    const next = !cur
+    const prev = overrideMap[r.reference]
+    setOverrideMap(m => {
+      const base: OverrideMeta = m[r.reference] || { visible: false, isPremium: false, orderUrl: '', menuUploadUrl: null, isDiscoNative: true, isLive: cur }
+      return { ...m, [r.reference]: { ...base, isLive: next } }
+    })
+    try {
+      const res = await fetch('/api/admin/restaurant-overrides', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantReference: r.reference, isLive: next }),
+      })
+      if (!res.ok) throw new Error('failed')
+      showToast(next ? 'Restaurant set live' : 'Restaurant taken offline')
+    } catch {
+      setOverrideMap(m => ({ ...m, [r.reference]: prev || m[r.reference] }))
+      showToast('Could not update live status')
+    }
+  }
 
   useEffect(() => { loadStripeMap() }, [loadStripeMap])
 
@@ -678,7 +705,20 @@ export default function RestaurantsOrderingPage() {
                   <td style={cell}>
                     <Toggle checked={!!overrideMap[r.reference]?.visible} onChange={() => requestVisibleToggle(r)} color="#1D9E75" />
                   </td>
-                  <td style={{ ...cell, fontWeight: 600 }}>{r.businessName}</td>
+                  <td style={{ ...cell, fontWeight: 600 }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {r.businessName}
+                      {overrideMap[r.reference]?.isDiscoNative && (
+                        <>
+                          <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', padding: '2px 6px', borderRadius: 6, letterSpacing: 0.5 }}>DISCO</span>
+                          <span title="Live on the Disco Cater marketplace" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#888', fontWeight: 600 }}>
+                            <Toggle checked={!!overrideMap[r.reference]?.isLive} onChange={() => toggleLive(r)} color="#6B6EF9" />
+                            Live
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  </td>
                   <td style={{ ...cell, color: '#555' }}>{adminName || '—'}</td>
                   <td style={{ ...cell, color: '#555' }}>{adminEmail}</td>
                   <td style={{ ...cell, color: '#666' }}>{fmtDate(r.createdDate)}</td>

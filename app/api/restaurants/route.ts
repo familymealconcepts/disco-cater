@@ -13,17 +13,22 @@ export async function GET() {
   try {
     await runMigrations()
 
+    // Two kinds of restaurants surface on the marketplace:
+    //   1. FM-backed: an admin marked it visible AND Stripe is connected.
+    //   2. Disco-native: it completed onboarding and went live (is_live=true).
     const rows = (await sql`
       SELECT c.restaurant_reference, c.name, c.slug, c.cuisine, c.description, c.image_url,
-             c.lat, c.lng, c.location, c.address,
+             c.lat, c.lng, c.location, c.address, c.is_live, c.is_disco_native,
              o.is_premium, o.order_url, o.visible, o.stripe_connected, o.featured_order
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-      WHERE o.visible = true AND o.stripe_connected = true
+      WHERE (o.visible = true AND o.stripe_connected = true)
+         OR (c.is_live = true AND c.is_disco_native = true)
     `) as {
       restaurant_reference: string; name: string; slug: string | null; cuisine: string | null
       description: string | null; image_url: string | null; lat: string | null; lng: string | null
-      location: string | null; address: string | null; is_premium: boolean | null; order_url: string | null
+      location: string | null; address: string | null; is_live: boolean | null; is_disco_native: boolean | null
+      is_premium: boolean | null; order_url: string | null
       visible: boolean | null; stripe_connected: boolean | null; featured_order: number | null
     }[]
 
@@ -46,6 +51,7 @@ export async function GET() {
           address: r.address || '',
           orderUrl: r.order_url || `/restaurants/${slug}`,
           isPremium: r.is_premium ?? false,
+          isDiscoNative: r.is_disco_native ?? false,
           featuredOrder: typeof r.featured_order === 'number' ? r.featured_order : null,
         }
       })

@@ -19,25 +19,32 @@ export async function GET(req: NextRequest) {
     // No ref → return ALL overrides (used by the Ordering table to show per-row
     // Premium / visibility / Stripe status without one call per restaurant).
     if (!ref) {
+      // FULL OUTER JOIN so disco-native restaurants (which may have a cache row
+      // but no overrides row) still appear in the admin table.
       const rows = (await sql`
-        SELECT o.restaurant_reference, o.is_premium, o.visible, o.stripe_connected,
-               o.stripe_checked_at, o.order_url, c.menu_upload_url
+        SELECT COALESCE(o.restaurant_reference, c.restaurant_reference) AS restaurant_reference,
+               o.is_premium, o.visible, o.stripe_connected,
+               o.stripe_checked_at, o.order_url, c.menu_upload_url,
+               c.is_live, c.is_disco_native
         FROM disco_restaurant_overrides o
-        LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
+        FULL OUTER JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
       `) as {
-        restaurant_reference: string; is_premium: boolean; visible: boolean
-        stripe_connected: boolean; stripe_checked_at: string | null
+        restaurant_reference: string; is_premium: boolean | null; visible: boolean | null
+        stripe_connected: boolean | null; stripe_checked_at: string | null
         order_url: string | null; menu_upload_url: string | null
+        is_live: boolean | null; is_disco_native: boolean | null
       }[]
       return NextResponse.json({
         overrides: rows.map((r) => ({
           restaurantReference: r.restaurant_reference,
-          isPremium: r.is_premium,
-          visible: r.visible,
-          stripeConnected: r.stripe_connected,
+          isPremium: r.is_premium ?? false,
+          visible: r.visible ?? false,
+          stripeConnected: r.stripe_connected ?? false,
           stripeCheckedAt: r.stripe_checked_at,
           orderUrl: r.order_url ?? '',
           menuUploadUrl: r.menu_upload_url ?? null,
+          isLive: r.is_live ?? false,
+          isDiscoNative: r.is_disco_native ?? false,
         })),
       })
     }
@@ -72,11 +79,28 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json().catch(() => null)
     const restaurantReference: string | undefined = body?.restaurantReference
     if (!restaurantReference) return NextResponse.json({ error: 'restaurantReference required' }, { status: 400 })
+
+    await runMigrations()
+
+    // is_live is a disco-native marketplace toggle living on the cache row — a
+    // super admin can flip a disco-native restaurant live/offline directly.
+    // Handled independently of the overrides upsert.
+    if (typeof body?.isLive === 'boolean') {
+      await sql`
+        UPDATE disco_restaurant_cache
+        SET is_live = ${body.isLive}, cached_at = NOW()
+        WHERE restaurant_reference = ${restaurantReference}
+      `
+      // If only isLive was sent, we're done.
+      if (body?.isPremium === undefined && body?.visible === undefined && body?.orderUrl === undefined) {
+        return NextResponse.json({ ok: true, restaurantReference, isLive: body.isLive })
+      }
+    }
+
     const isPremium = body?.isPremium === true
     const visible = body?.visible === true
     const orderUrl: string | null = body?.orderUrl ? String(body.orderUrl) : null
 
-    await runMigrations()
     await sql`
       INSERT INTO disco_restaurant_overrides (restaurant_reference, is_premium, visible, order_url, updated_at)
       VALUES (${restaurantReference}, ${isPremium}, ${visible}, ${orderUrl}, NOW())

@@ -86,6 +86,14 @@ export async function runMigrations(): Promise<void> {
     // Reference (URL or filename) of a menu PDF a partner uploaded during
     // onboarding — recorded by /api/become-a-partner/complete.
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS menu_upload_url TEXT`,
+    // Disco-native onboarding fields. `phone` is the restaurant's contact number;
+    // `is_disco_native` marks a restaurant created entirely in Disco (no FM
+    // record); `is_live` is set true by become-a-partner Go-Live (or a super
+    // admin) and surfaces the restaurant on the marketplace alongside the
+    // visible+stripe_connected FM-backed rows. (cuisine already exists above.)
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS phone TEXT`,
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS is_live BOOLEAN DEFAULT false`,
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS is_disco_native BOOLEAN DEFAULT false`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true

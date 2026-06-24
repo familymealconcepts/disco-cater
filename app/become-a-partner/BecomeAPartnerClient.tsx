@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 
 // ── Brand ────────────────────────────────────────────────────────────────────
@@ -35,6 +35,23 @@ const priceSectionTitle: React.CSSProperties = {
 interface FormState {
   firstName: string; lastName: string; email: string; phoneNumber: string
   restaurantName: string; zip: string; password: string
+}
+
+// Cuisine options — mirror the fullmap cuisine pills. (If the fullmap list
+// changes, keep this in sync; an unknown value still saves fine.)
+const CUISINES = [
+  'American', 'Italian', 'Mexican', 'Chinese', 'Japanese', 'Thai', 'Indian',
+  'Mediterranean', 'Middle Eastern', 'BBQ', 'Pizza', 'Sandwiches', 'Salads',
+  'Breakfast', 'Bakery', 'Seafood', 'Vegan', 'Other',
+]
+
+// Onboarding checklist returned by GET /api/become-a-partner/status.
+interface OnboardingStatus {
+  accountCreated: boolean
+  profileComplete: boolean
+  stripeConnected: boolean
+  menuUploaded: boolean
+  isLive: boolean
 }
 
 // One parsed menu item returned by the AI menu-import route (high confidence).
@@ -145,6 +162,19 @@ export default function BecomeAPartnerClient() {
   const [alreadyCreated, setAlreadyCreated] = useState(false)
   const [restaurantRef, setRestaurantRef] = useState('')
 
+  // Step 5 — Restaurant profile (Disco-native): address, cuisine, logo.
+  const [profStreet, setProfStreet] = useState('')
+  const [profCity, setProfCity] = useState('')
+  const [profState, setProfState] = useState('')
+  const [profZip, setProfZip] = useState('')
+  const [profCuisine, setProfCuisine] = useState('American')
+  const [profLogoUrl, setProfLogoUrl] = useState('')
+  const [logoUploading, setLogoUploading] = useState(false)
+
+  // Go-Live step — checklist read from Neon.
+  const [goLiveStatus, setGoLiveStatus] = useState<OnboardingStatus | null>(null)
+  const [goingLive, setGoingLive] = useState(false)
+
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
 
   // On mount: never trust a persisted "already created" flag — the form email
@@ -163,8 +193,13 @@ export default function BecomeAPartnerClient() {
         if (saved.form) setForm(f => ({ ...f, ...saved.form }))
         if (typeof saved.joinedMarketplace === 'boolean') setJoinedMarketplace(saved.joinedMarketplace)
         if (typeof saved.deliveryEnabled === 'boolean') setDeliveryEnabled(saved.deliveryEnabled)
+        if (saved.profile) {
+          setProfStreet(saved.profile.street || ''); setProfCity(saved.profile.city || '')
+          setProfState(saved.profile.state || ''); setProfZip(saved.profile.zip || '')
+          setProfCuisine(saved.profile.cuisine || 'American'); setProfLogoUrl(saved.profile.logoUrl || '')
+        }
         setStripeConnected(true)
-        setStep(4)
+        setStep(5) // Stripe step (after the new Profile step)
         window.history.replaceState({}, '', '/become-a-partner')
       }
     } catch { /* snapshot optional */ }
@@ -181,24 +216,75 @@ export default function BecomeAPartnerClient() {
         setAlreadyCreated(true)
         setAutoLoggedIn(true)
         const ref = localStorage.getItem(restaurantRefKey(sessionEmail)) || ''
-        if (ref) setRestaurantRef(ref)
+        if (ref) {
+          setRestaurantRef(ref)
+          // Confirm Stripe onboarding server-side (sets stripe_onboarding_complete
+          // when charges are enabled) so the Go-Live checklist reflects reality.
+          fetch(`/api/become-a-partner/stripe-status?restaurantReference=${encodeURIComponent(ref)}`).catch(() => {})
+        }
       }
     } catch { /* localStorage unavailable */ }
   }, [])
 
   // Confirm the auto-login state once the success screen renders.
   useEffect(() => {
-    if (step === 6) console.log('[become-a-partner] success screen autoLoggedIn:', autoLoggedIn)
+    if (step === 8) console.log('[become-a-partner] success screen autoLoggedIn:', autoLoggedIn)
   }, [step, autoLoggedIn])
 
   // After returning from Stripe we briefly show "✓ Stripe connected" on the
-  // Stripe step, then advance to the menu step automatically.
+  // Stripe step (5), then advance to the menu step (6) automatically.
   useEffect(() => {
-    if (step === 4 && stripeConnected) {
-      const id = setTimeout(() => setStep(5), 1500)
+    if (step === 5 && stripeConnected) {
+      const id = setTimeout(() => setStep(6), 1500)
       return () => clearTimeout(id)
     }
   }, [step, stripeConnected])
+
+  // Entering the Go-Live step (7): pull the live checklist from Neon.
+  useEffect(() => {
+    if (step !== 7 || !restaurantRef) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/become-a-partner/status?restaurantReference=${encodeURIComponent(restaurantRef)}`)
+        if (res.ok && !cancelled) setGoLiveStatus(await res.json())
+      } catch { /* checklist best-effort */ }
+    })()
+    return () => { cancelled = true }
+  }, [step, restaurantRef])
+
+  // Google Places Autocomplete on the profile street field (progressive
+  // enhancement — manual entry still works if the script/key is unavailable).
+  const streetInputRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => {
+    if (step !== 4) return
+    const KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!KEY) return
+    function init() {
+      const g = (window as unknown as { google?: { maps?: { places?: { Autocomplete: new (...a: unknown[]) => { addListener: (e: string, cb: () => void) => void; getPlace: () => { address_components?: { types: string[]; long_name: string; short_name: string }[] } } } } } }).google
+      const Auto = g?.maps?.places?.Autocomplete
+      if (!Auto || !streetInputRef.current) return
+      const ac = new Auto(streetInputRef.current, { types: ['address'], componentRestrictions: { country: 'us' }, fields: ['address_components', 'formatted_address'] })
+      ac.addListener('place_changed', () => {
+        const comp = ac.getPlace()?.address_components || []
+        const get = (t: string) => comp.find(c => c.types.includes(t))?.long_name || ''
+        const getShort = (t: string) => comp.find(c => c.types.includes(t))?.short_name || ''
+        setProfStreet([get('street_number'), get('route')].filter(Boolean).join(' '))
+        setProfCity(get('locality') || get('sublocality') || get('postal_town'))
+        setProfState(getShort('administrative_area_level_1'))
+        setProfZip(get('postal_code'))
+      })
+    }
+    const w = window as unknown as { google?: { maps?: { places?: unknown } } }
+    if (w.google?.maps?.places) { init(); return }
+    const existing = document.querySelector('script[data-gmaps-partner]') as HTMLScriptElement | null
+    if (existing) { existing.addEventListener('load', init); return () => existing.removeEventListener('load', init) }
+    const s = document.createElement('script')
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${KEY}&libraries=places`
+    s.async = true; s.setAttribute('data-gmaps-partner', '1')
+    s.addEventListener('load', init)
+    document.head.appendChild(s)
+  }, [step])
 
   const infoValid = !!form.firstName && !!form.lastName && !!form.email
     && !!form.phoneNumber && !!form.restaurantName && !!form.zip && !!form.password
@@ -310,7 +396,7 @@ export default function BecomeAPartnerClient() {
         if (!created) { setLoading(false); return }
         ref = created
       }
-      try { localStorage.setItem('partner_onboarding', JSON.stringify({ form, joinedMarketplace, deliveryEnabled })) } catch {}
+      try { localStorage.setItem('partner_onboarding', JSON.stringify({ form, joinedMarketplace, deliveryEnabled, profile: { street: profStreet, city: profCity, state: profState, zip: profZip, cuisine: profCuisine, logoUrl: profLogoUrl } })) } catch {}
       const res = await fetch('/api/become-a-partner/stripe-connect', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restaurantReference: ref }),
@@ -325,6 +411,86 @@ export default function BecomeAPartnerClient() {
     } catch {
       setError('Could not start Stripe Connect. You can connect later from your dashboard.')
       setLoading(false)
+    }
+  }
+
+  // Upload a logo/photo to Vercel Blob (optional). Stores the returned URL.
+  async function uploadLogo(file: File) {
+    setLogoUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('image', file)
+      const res = await fetch('/api/become-a-partner/logo', { method: 'POST', body: fd })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.url) setProfLogoUrl(String(data.url))
+      else setError(data?.error || 'Could not upload image.')
+    } catch {
+      setError('Could not upload image.')
+    } finally {
+      setLogoUploading(false)
+    }
+  }
+
+  // Restaurant Profile step → ensure the restaurant + Disco account exist (create
+  // now if needed), then save the profile (address geocode, cuisine, logo) to
+  // Neon. Advances to the Stripe step.
+  async function saveProfile() {
+    setError('')
+    if (!form.restaurantName.trim()) { setError('Business name is required.'); return }
+    if (!profStreet.trim() || !profCity.trim() || !profState.trim()) { setError('Please enter your full address.'); return }
+    setLoading(true)
+    try {
+      let ref = restaurantRef
+      if (!alreadyCreated) {
+        const created = await createRestaurant()
+        if (!created) { setLoading(false); return } // createRestaurant set the error
+        ref = created
+      }
+      const res = await fetch('/api/become-a-partner/profile', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          restaurantReference: ref,
+          businessName: form.restaurantName,
+          street: profStreet, city: profCity, state: profState, zip: profZip || form.zip,
+          phone: form.phoneNumber, cuisine: profCuisine, logoUrl: profLogoUrl || undefined,
+          email: form.email,
+        }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.restaurant_reference) {
+        setError(data?.error || 'Could not save your restaurant profile. Please try again.')
+        return
+      }
+      // The profile route may have minted the reference (pure-native fallback).
+      if (data.restaurant_reference && data.restaurant_reference !== ref) setRestaurantRef(String(data.restaurant_reference))
+      setStep(5)
+    } catch {
+      setError('Unable to connect. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Go-Live step → flip the restaurant live on the marketplace, then finish.
+  async function goLive() {
+    setError('')
+    setGoingLive(true)
+    try {
+      const res = await fetch('/api/become-a-partner/go-live', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantReference: restaurantRef }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.success) {
+        setError(data?.error || 'Some steps are still incomplete. Finish them above, then go live.')
+        return
+      }
+      // Land in the portal (auto-logged-in via the disco session cookie).
+      window.location.href = data.redirect || '/restaurant/orders'
+    } catch {
+      setError('Unable to connect. Please try again.')
+    } finally {
+      setGoingLive(false)
     }
   }
 
@@ -435,7 +601,7 @@ export default function BecomeAPartnerClient() {
       })
       const data = await res.json()
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
-      setStep(6)
+      setStep(7) // → Go-Live checklist
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {
@@ -457,15 +623,15 @@ export default function BecomeAPartnerClient() {
 
       {/* Top bar: back link (left) + step counter (right) */}
       <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '22px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 }}>
-        {step >= 1 && step <= 5 ? (
+        {step >= 1 && step <= 7 ? (
           <button onClick={back} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#777', fontFamily: F, fontWeight: 600, padding: 0 }}>
             ‹ Back
           </button>
         ) : (
           <Link href="/" style={{ fontSize: 14, color: '#777', textDecoration: 'none', fontWeight: 600 }}>‹ Back</Link>
         )}
-        {step <= 5 && (
-          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 6</div>
+        {step <= 7 && (
+          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 8</div>
         )}
       </div>
 
@@ -478,9 +644,9 @@ export default function BecomeAPartnerClient() {
       </div>
 
       {/* Step indicator — six segments */}
-      {step <= 5 && (
+      {step <= 7 && (
         <div style={{ maxWidth: 560, width: '100%', margin: '18px auto 0', padding: '0 24px', display: 'flex', gap: 8 }}>
-          {[0, 1, 2, 3, 4, 5].map(i => (
+          {[0, 1, 2, 3, 4, 5, 6, 7].map(i => (
             <div key={i} style={{ flex: 1, height: 5, borderRadius: 999, background: i <= step ? GRADIENT : '#e8e8f0', transition: 'background 0.2s' }} />
           ))}
         </div>
@@ -628,8 +794,60 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 5 · CONNECT BANK / STRIPE — optional ── */}
+          {/* ── STEP 5 · RESTAURANT PROFILE ── */}
           {step === 4 && (
+            <div style={cardStyle}>
+              <h1 style={h1Style}>Your restaurant profile</h1>
+              <p style={subStyle}>Where you&apos;re located and what you serve — this is how customers find you on the Disco Cater map.</p>
+              {errorBox}
+              <div style={{ marginTop: 18 }}>
+                <Field label="Business name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Street address</label>
+                  <input
+                    ref={streetInputRef}
+                    type="text" value={profStreet} placeholder="123 Main St"
+                    onChange={e => setProfStreet(e.target.value)}
+                    onFocus={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(91,111,232,0.12)' }}
+                    onBlur={e => { e.currentTarget.style.borderColor = '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
+                    style={pillInput}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
+                  <Field label="City" value={profCity} onChange={setProfCity} />
+                  <Field label="State" value={profState} onChange={setProfState} />
+                  <Field label="Zip" value={profZip} onChange={setProfZip} />
+                </div>
+                <Field label="Phone" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" />
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Cuisine</label>
+                  <select value={profCuisine} onChange={e => setProfCuisine(e.target.value)}
+                    style={{ ...pillInput, cursor: 'pointer' }}>
+                    {CUISINES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Logo or photo (optional)</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>{logoUploading ? 'Uploading…' : 'Choose image'}</span>
+                    <span style={{ fontSize: 13, color: profLogoUrl ? DARK : '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {profLogoUrl ? 'Uploaded ✓' : 'No image selected'}
+                    </span>
+                    <input type="file" accept="image/*" disabled={logoUploading}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f) }}
+                      style={{ display: 'none' }} />
+                  </label>
+                </div>
+              </div>
+              <button onClick={saveProfile} disabled={loading}
+                style={{ ...primaryBtn, marginTop: 8, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                {loading ? 'Saving…' : 'Continue'}
+              </button>
+            </div>
+          )}
+
+          {/* ── STEP 6 · CONNECT BANK / STRIPE — optional ── */}
+          {step === 5 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Payout Setup (Optional)</h1>
               <p style={subStyle}>Connect your bank account to receive payouts from catering orders. You can also complete this from your Account tab any time.</p>
@@ -651,7 +869,7 @@ export default function BecomeAPartnerClient() {
 
               {!stripeConnected && (
                 <div style={{ textAlign: 'center', marginTop: 12 }}>
-                  <button onClick={() => { setError(''); setStep(5) }}
+                  <button onClick={() => { setError(''); setStep(6) }}
                     style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: 'pointer', textDecoration: 'underline' }}>
                     Skip for now
                   </button>
@@ -660,8 +878,8 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 6 · ADD YOUR MENU (AI import) ── */}
-          {step === 5 && (
+          {/* ── STEP 7 · ADD YOUR MENU (AI import) ── */}
+          {step === 6 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Add your menu</h1>
               <p style={subStyle}>Upload a PDF or paste a link to your menu.</p>
@@ -779,8 +997,48 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
+          {/* ── STEP 8 · GO LIVE (checklist) ── */}
+          {step === 7 && (() => {
+            const s = goLiveStatus
+            const allDone = !!s && s.accountCreated && s.profileComplete && s.stripeConnected && s.menuUploaded
+            const Item = ({ ok, label, action }: { ok: boolean; label: string; action?: { text: string; onClick: () => void } }) => (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '13px 0', borderTop: '1px solid #f1f1f6' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 600, color: ok ? DARK : '#888' }}>
+                  <span style={{ color: ok ? '#2E9E5B' : '#ccc', fontWeight: 800 }}>{ok ? '✓' : '○'}</span>
+                  {label}
+                </span>
+                {!ok && action && (
+                  <button onClick={action.onClick} style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 700, fontFamily: F, cursor: 'pointer', textDecoration: 'underline' }}>
+                    {action.text}
+                  </button>
+                )}
+              </div>
+            )
+            return (
+              <div style={cardStyle}>
+                <h1 style={h1Style}>You&apos;re almost live! 🎉</h1>
+                <p style={subStyle}>Finish any remaining steps, then go live on the Disco Cater marketplace.</p>
+                {errorBox}
+                {!s ? (
+                  <div style={{ padding: '24px 0', textAlign: 'center', color: '#999', fontSize: 14 }}>Checking your setup…</div>
+                ) : (
+                  <div style={{ marginTop: 12 }}>
+                    <Item ok={s.accountCreated} label="Account created" />
+                    <Item ok={s.profileComplete} label="Restaurant profile complete" action={{ text: 'Edit profile', onClick: () => setStep(4) }} />
+                    <Item ok={s.stripeConnected} label="Stripe connected" action={{ text: 'Connect Stripe', onClick: () => setStep(5) }} />
+                    <Item ok={s.menuUploaded} label="Menu uploaded" action={{ text: 'Add menu items', onClick: () => setStep(6) }} />
+                  </div>
+                )}
+                <button onClick={goLive} disabled={!allDone || goingLive}
+                  style={{ ...primaryBtn, marginTop: 22, background: allDone ? '#2E9E5B' : BLUE, opacity: allDone && !goingLive ? 1 : 0.5, cursor: allDone && !goingLive ? 'pointer' : 'default' }}>
+                  {goingLive ? 'Going live…' : allDone ? 'Go Live 🚀' : 'Complete all steps to go live'}
+                </button>
+              </div>
+            )
+          })()}
+
           {/* ── SUCCESS ── */}
-          {step === 6 && (
+          {step === 8 && (
             <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
               {void console.log('[onboarding] success screen, autoLoggedIn:', autoLoggedIn, 'restaurantRef:', restaurantRef)}
               <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>

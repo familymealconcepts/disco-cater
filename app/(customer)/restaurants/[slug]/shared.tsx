@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { createClient } from '@sanity/client'
 import { notFound } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
+import { sql, runMigrations, runDiscoMenuMigrations } from '../../../../lib/db'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared restaurant-page logic used by BOTH ordering routes:
@@ -303,6 +304,65 @@ function SeoBlock({ name, location, cuisine, description }: {
   )
 }
 
+// Disco-native restaurants live entirely in Neon (no FM/Sanity record). If this
+// slug is a LIVE disco-native restaurant, load its menu from disco_menu_* and
+// shape it into the same MenuSection[] the FM path produces, so RestaurantClient
+// renders it unchanged.
+async function loadDiscoNativeRestaurant(slug: string) {
+  try {
+    await runMigrations()
+    const rows = (await sql`
+      SELECT restaurant_reference, name, slug, address, location, cuisine, description, image_url
+      FROM disco_restaurant_cache
+      WHERE slug = ${slug} AND is_disco_native = true AND is_live = true
+      LIMIT 1
+    `) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null }[]
+    const r = rows[0]
+    if (!r) return null
+
+    await runDiscoMenuMigrations()
+    const cats = (await sql`
+      SELECT reference, name, description FROM disco_menu_categories
+      WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
+      ORDER BY position, id
+    `) as { reference: string; name: string; description: string | null }[]
+    const items = (await sql`
+      SELECT reference, category_reference, name, description, price, serves
+      FROM disco_menu_items
+      WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
+      ORDER BY position, id
+    `) as { reference: string; category_reference: string | null; name: string; description: string | null; price: string | number; serves: string | null }[]
+
+    const toPkg = (it: typeof items[number]) => ({
+      reference: it.reference, name: it.name, description: it.description,
+      price: Number(it.price) || 0, serves: it.serves,
+    })
+    const categories = cats.map(c => ({
+      reference: c.reference, name: c.name, description: c.description,
+      mealPackages: items.filter(it => it.category_reference === c.reference).map(toPkg),
+    }))
+    const orphans = items.filter(it => !cats.some(c => c.reference === it.category_reference))
+    if (orphans.length) {
+      categories.push({ reference: 'uncategorized', name: 'Menu', description: null, mealPackages: orphans.map(toPkg) })
+    }
+
+    return {
+      restaurant: {
+        name: r.name, address: r.address || undefined, cuisine: r.cuisine || undefined,
+        description: r.description || undefined, image: r.image_url || null,
+        isDisco: true, location: r.location || undefined,
+      },
+      // FmMenu only requires reference + name; its schedule/settings are optional
+      // (RestaurantClient falls back to PICKUP/DELIVERY defaults when absent).
+      menuData: [{ menu: { reference: 'disco-catering', name: 'Catering Menu' }, categories }],
+      reference: r.restaurant_reference,
+    }
+  } catch (err) {
+    console.error('[shared] loadDiscoNativeRestaurant failed:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
 // Shared page body for both routes. `isFirstParty` is the ONLY thing that
 // differs between them — it flows through RestaurantClient into CheckoutDrawer,
 // which uses it to send sourceoforder "FAMILYMEAL" (1P) instead of "DISCO" (3P).
@@ -313,6 +373,33 @@ export async function RestaurantView({
   slug: string
   isFirstParty?: boolean
 }) {
+  // Disco-native restaurants (no FM/Sanity record) take precedence — render
+  // their Neon menu directly. TODO: date/time availability + checkout for
+  // disco-native restaurants use the native ordering endpoints; FM-specific
+  // availability calls in RestaurantClient are no-ops for these (the menu,
+  // item names, descriptions and prices render correctly).
+  const native = await loadDiscoNativeRestaurant(slug)
+  if (native) {
+    return (
+      <>
+        <SeoBlock
+          name={native.restaurant.name}
+          location={native.restaurant.location}
+          cuisine={native.restaurant.cuisine}
+          description={native.restaurant.description}
+        />
+        <RestaurantClient
+          restaurant={native.restaurant}
+          fmSlug={slug}
+          fmRef={native.reference}
+          menuData={native.menuData}
+          slug={slug}
+          isFirstParty={isFirstParty}
+        />
+      </>
+    )
+  }
+
   // Try Sanity first (existing path — preserves cuisine tags,
   // descriptions, hero image overrides for restaurants curated there).
   const sanityRestaurant = await getSanityRestaurant(slug)

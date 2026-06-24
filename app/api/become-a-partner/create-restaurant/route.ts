@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
-import { sql } from '../../../../lib/db'
+import { sql, runMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
 
@@ -9,8 +10,9 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // Seed the Disco-owned Neon rows for a brand-new restaurant so it exists in our
 // overrides + cache tables immediately (hidden until an admin makes it visible
 // and Stripe connects). Fire-and-forget: never let a DB hiccup fail the FM
-// creation that already succeeded.
-async function seedNeonRows(reference: string, name: string, slug: string) {
+// creation that already succeeded. `discoNative` marks rows created without an
+// FM record (the fallback path).
+async function seedNeonRows(reference: string, name: string, slug: string, discoNative = false) {
   try {
     await sql`
       INSERT INTO disco_restaurant_overrides
@@ -20,8 +22,8 @@ async function seedNeonRows(reference: string, name: string, slug: string) {
     `
     await sql`
       INSERT INTO disco_restaurant_cache
-        (restaurant_reference, name, slug, cached_at)
-      VALUES (${reference}, ${name}, ${slug}, NOW())
+        (restaurant_reference, name, slug, is_disco_native, is_live, cached_at)
+      VALUES (${reference}, ${name}, ${slug}, ${discoNative}, false, NOW())
       ON CONFLICT (restaurant_reference) DO NOTHING
     `
   } catch (err) {
@@ -100,17 +102,27 @@ export async function POST(req: NextRequest) {
       const raw = JSON.stringify(data) || ''
       console.error(`[create-restaurant] FM ${res.status}:`, raw.slice(0, 400))
       // FM 400-027 = an admin with this email already exists. Surface the code so
-      // the client can route the partner to the restaurant login instead.
+      // the client can route the partner to the restaurant login instead. (Don't
+      // fall back to a native account — the email genuinely collides.)
       if (data?.code === '400-027' || raw.includes('400-027')) {
         return NextResponse.json(
           { error: 'An account with this email already exists.', code: '400-027' },
           { status: 409 }
         )
       }
-      return NextResponse.json(
-        { error: 'Could not create the restaurant. Please contact concierge@discocater.com.' },
-        { status: res.ok ? 502 : res.status }
-      )
+      // FM failed for another reason → DISCO-NATIVE FALLBACK. Mint a reference and
+      // seed Neon as a disco-native restaurant so the partner can still complete
+      // the entire flow (profile → Stripe → menu → go-live) with no FM record.
+      const nativeRef = randomUUID()
+      try { await runMigrations() } catch { /* seed still attempted below */ }
+      await seedNeonRows(nativeRef, restaurantName, restaurant.businessNameWithoutSpaces, true)
+      console.warn(`[create-restaurant] FM unavailable — created disco-native restaurant ${nativeRef} for ${email}`)
+      return NextResponse.json({
+        restaurantReference: nativeRef,
+        adminReference: null,
+        businessNameWithoutSpaces: restaurant.businessNameWithoutSpaces,
+        discoNative: true,
+      })
     }
 
     // Seed our Neon overrides + cache rows. Awaited so it completes before the
