@@ -199,6 +199,16 @@ CREATE TABLE IF NOT EXISTS disco_restaurant_sessions (
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_sessions_token ON disco_restaurant_sessions(token);
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_email ON disco_restaurant_accounts(email);
 
+-- Disco-native role + restaurant-group columns. ADMIN = single-location access
+-- (own restaurant_reference); SYSTEM_ADMIN = all locations in the same group
+-- (matched by business_name, or email domain as a fallback). Set by the super
+-- admin "Transfer to System Admin" action. Mirrors the FM JWT role, but driven
+-- from Neon for Disco-native restaurant accounts.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'ADMIN';
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS business_name VARCHAR(255);
+CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_business_name ON disco_restaurant_accounts(business_name);
+CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_restaurant_ref ON disco_restaurant_accounts(restaurant_reference);
+
 -- ── Disco-native order editing ───────────────────────────────────────────────
 -- Edit lifecycle on the order row + an audit log of every committed edit. The
 -- pending_* columns hold a proposed edit while we await customer payment on an

@@ -10,6 +10,10 @@ export interface RestaurantAuthContext {
   restaurantName: string | null
   authType: 'disco' | 'fm'
   fmToken: string | null // FM token if available, null for Disco-only users
+  // Disco-native role + group. Only meaningful for authType 'disco'; FM users
+  // resolve their role from the JWT via getRestaurantRole() instead.
+  role: string | null
+  businessName: string | null
 }
 
 // Resolves the restaurant request context from either auth system. Disco-native
@@ -25,7 +29,7 @@ export async function getRestaurantAuthContext(): Promise<RestaurantAuthContext 
       // Disco session always uses the service account scoped to its own
       // restaurantReference — never defer to a stale FM token left in the browser
       // (that's how a new partner ended up seeing a prior FM restaurant).
-      return { ...session, authType: 'disco', fmToken: null }
+      return { ...session, authType: 'disco', fmToken: null, role: session.role, businessName: session.businessName }
     }
   }
 
@@ -40,6 +44,8 @@ export async function getRestaurantAuthContext(): Promise<RestaurantAuthContext 
       restaurantName: null,
       authType: 'fm',
       fmToken,
+      role: null,
+      businessName: null,
     }
   }
 

@@ -118,6 +118,9 @@ export default function RestaurantsOrderingPage() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [error, setError] = useState('')
+  // "Transfer to System Admin" confirmation (Disco-native role promotion).
+  const [promoteConfirm, setPromoteConfirm] = useState<Restaurant | null>(null)
+  const [promoteBusy, setPromoteBusy] = useState(false)
   // Client-side sort of the loaded page. Default: newest registrations first.
   const [sortKey, setSortKey] = useState<SortKey>('createdDate')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -292,6 +295,26 @@ export default function RestaurantsOrderingPage() {
     if (!confirm(`Send password reset for ${r.adminEmail || r.admin?.email}?`)) return
     const res = await fetch(`/api/admin/restaurants/${r.reference}/reset-password`, { method: 'PUT' })
     if (res.ok) showToast('Password reset email sent')
+  }
+
+  // Promote the restaurant's Disco account (and its group) to SYSTEM_ADMIN.
+  async function confirmPromote() {
+    if (!promoteConfirm) return
+    setPromoteBusy(true)
+    try {
+      const res = await fetch(`/api/admin/restaurants/${promoteConfirm.reference}/promote-system-admin`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setPromoteConfirm(null)
+        showToast('Promoted to System Admin — access granted to all locations.')
+      } else {
+        showToast(data?.error || 'Could not promote to System Admin')
+      }
+    } catch {
+      showToast('Could not promote to System Admin')
+    } finally {
+      setPromoteBusy(false)
+    }
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -702,7 +725,7 @@ export default function RestaurantsOrderingPage() {
                       <button title="Refresh" onClick={() => load()} style={iconBtn}>⟳</button>
                       <button title="Edit" onClick={() => setEditRef(r.reference)} style={iconBtn}>✎</button>
                       <button title="Delete" onClick={() => deleteRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗑</button>
-                      <Kebab onResetPassword={() => resetPassword(r)} />
+                      <Kebab onResetPassword={() => resetPassword(r)} onTransferSystemAdmin={() => setPromoteConfirm(r)} />
                     </div>
                   </td>
                 </tr>
@@ -804,22 +827,49 @@ export default function RestaurantsOrderingPage() {
           </div>
         </div>
       )}
+
+      {promoteConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: '24px 26px', maxWidth: 460, width: '90%', boxShadow: '0 12px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 10 }}>
+              Promote to System Admin?
+            </div>
+            <p style={{ fontSize: 13.5, color: '#555', lineHeight: 1.55, margin: '0 0 22px' }}>
+              Promote <strong>{adminNameOf(promoteConfirm) || adminEmailOf(promoteConfirm) || 'this admin'}</strong> to System Admin?
+              They will have access to all locations under <strong>{promoteConfirm.businessName}</strong>.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setPromoteConfirm(null)} disabled={promoteBusy}
+                style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: promoteBusy ? 'default' : 'pointer', fontFamily: F, color: '#555' }}>
+                Cancel
+              </button>
+              <button onClick={confirmPromote} disabled={promoteBusy}
+                style={{ background: '#5B6FE8', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: promoteBusy ? 'wait' : 'pointer', fontFamily: F, opacity: promoteBusy ? 0.7 : 1 }}>
+                {promoteBusy ? 'Promoting…' : 'Promote'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function Kebab({ onResetPassword }: { onResetPassword: () => void }) {
+function Kebab({ onResetPassword, onTransferSystemAdmin }: { onResetPassword: () => void; onTransferSystemAdmin: () => void }) {
   const [open, setOpen] = useState(false)
+  const itemStyle: React.CSSProperties = { display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '10px 14px', fontSize: 13, color: DARK, cursor: 'pointer', fontFamily: F }
   return (
     <span style={{ position: 'relative', display: 'inline-block' }}>
       <button title="More" onClick={() => setOpen(o => !o)} style={iconBtn}>⋯</button>
       {open && (
         <>
           <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
-          <div style={{ position: 'absolute', right: 0, top: '100%', background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', zIndex: 51, minWidth: 160 }}>
-            <button onClick={() => { setOpen(false); onResetPassword() }}
-              style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '10px 14px', fontSize: 13, color: DARK, cursor: 'pointer', fontFamily: F }}>
+          <div style={{ position: 'absolute', right: 0, top: '100%', background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', zIndex: 51, minWidth: 200 }}>
+            <button onClick={() => { setOpen(false); onResetPassword() }} style={itemStyle}>
               Reset password
+            </button>
+            <button onClick={() => { setOpen(false); onTransferSystemAdmin() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0' }}>
+              Transfer to System Admin
             </button>
           </div>
         </>

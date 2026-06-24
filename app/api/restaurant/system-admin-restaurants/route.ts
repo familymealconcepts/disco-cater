@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getDiscoGroupAccounts } from '../../../../lib/disco-restaurant-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -15,6 +17,31 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // Response shape: array of { reference, businessName, editable }.
 // Not paginated.
 export async function GET() {
+  // Disco-native sessions have no FM token — resolve their location list from
+  // Neon. A Disco SYSTEM_ADMIN sees every location in their group; a Disco
+  // ADMIN sees only their own (mirrors the FM-side per-role filtering).
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') {
+    try {
+      const isSA = ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN'
+      const group = isSA ? await getDiscoGroupAccounts(ctx.businessName, ctx.email) : []
+      const list = (isSA ? group : []).map(a => ({
+        reference: a.restaurant_reference,
+        businessName: a.restaurant_name || a.business_name || '',
+        editable: true,
+      }))
+      // Always include the user's own location (covers an ADMIN, or an SA whose
+      // own row didn't come back from the group query).
+      if (ctx.restaurantReference && !list.some(l => l.reference === ctx.restaurantReference)) {
+        list.unshift({ reference: ctx.restaurantReference, businessName: ctx.restaurantName || '', editable: true })
+      }
+      return NextResponse.json(list)
+    } catch (err) {
+      console.error('[system-admin-restaurants] disco branch failed:', err instanceof Error ? err.message : err)
+      return NextResponse.json({ error: 'Unable to fetch locations' }, { status: 500 })
+    }
+  }
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

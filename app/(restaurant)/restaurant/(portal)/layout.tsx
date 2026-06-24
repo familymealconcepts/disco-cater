@@ -87,10 +87,12 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     let cached: string | null = null
     try { cached = localStorage.getItem('restaurant_user') } catch {}
     if (cached) {
-      try { setUser(JSON.parse(cached)); return } catch {}
+      try { setUser(JSON.parse(cached)) } catch {}
     }
-    // No cached identity (e.g. a brand-new Disco partner arriving straight from
-    // onboarding) → resolve the header display from the Disco session.
+    // Always reconcile against the Disco session: it carries the live Neon role,
+    // so a SYSTEM_ADMIN promotion (or a brand-new Disco partner with no cache)
+    // takes effect on the next load without needing a re-login. FM-authenticated
+    // users have no Disco session → /me 401s → we keep the cached FM identity.
     let cancelled = false
     ;(async () => {
       try {
@@ -99,12 +101,13 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
         const s = await res.json()
         const u: RestaurantUser = {
           email: s.email || '', firstName: s.firstName || '', lastName: s.lastName || '',
-          role: 'ADMIN', reference: s.restaurantReference || '', businessName: s.restaurantName || '',
+          role: s.role || 'ADMIN', reference: s.restaurantReference || '',
+          businessName: s.restaurantName || '', groupName: s.businessName || undefined,
         }
         if (cancelled) return
         setUser(u)
         try { localStorage.setItem('restaurant_user', JSON.stringify(u)) } catch {}
-      } catch { /* not a Disco session — nothing to show */ }
+      } catch { /* not a Disco session — keep the cached FM identity */ }
     })()
     return () => { cancelled = true }
   }, [])

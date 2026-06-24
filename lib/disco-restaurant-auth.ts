@@ -8,6 +8,11 @@ export interface DiscoRestaurantSession {
   firstName: string | null
   lastName: string | null
   restaurantName: string | null
+  // Disco-native role: 'ADMIN' (single location) or 'SYSTEM_ADMIN' (all
+  // locations in the group). Driven from disco_restaurant_accounts.role.
+  role: string
+  // Group identifier — null until the account is grouped/promoted.
+  businessName: string | null
 }
 
 // httpOnly session cookie shared by the disco-restaurant-auth routes. secure is
@@ -47,7 +52,8 @@ export async function createDiscoRestaurantSession(restaurantReference: string, 
 // Validate a session token — returns session data or null
 export async function validateDiscoRestaurantSession(token: string): Promise<DiscoRestaurantSession | null> {
   const rows = (await sql`
-    SELECT s.restaurant_reference, s.email, a.first_name, a.last_name, a.restaurant_name
+    SELECT s.restaurant_reference, s.email, a.first_name, a.last_name, a.restaurant_name,
+           a.role, a.business_name
     FROM disco_restaurant_sessions s
     JOIN disco_restaurant_accounts a ON a.email = s.email
     WHERE s.token = ${token} AND s.expires_at > NOW()
@@ -55,6 +61,7 @@ export async function validateDiscoRestaurantSession(token: string): Promise<Dis
   `) as Array<{
     restaurant_reference: string; email: string
     first_name: string | null; last_name: string | null; restaurant_name: string | null
+    role: string | null; business_name: string | null
   }>
   if (!rows.length) return null
   return {
@@ -63,7 +70,54 @@ export async function validateDiscoRestaurantSession(token: string): Promise<Dis
     firstName: rows[0].first_name,
     lastName: rows[0].last_name,
     restaurantName: rows[0].restaurant_name,
+    role: rows[0].role || 'ADMIN',
+    businessName: rows[0].business_name,
   }
+}
+
+// The email's domain (lowercased), or null when unparseable. Used as the
+// group fallback when an account has no business_name.
+export function discoEmailDomain(email: string): string | null {
+  const at = email.indexOf('@')
+  if (at < 0) return null
+  const d = email.slice(at + 1).trim().toLowerCase()
+  return d || null
+}
+
+export interface DiscoGroupAccount {
+  id: number
+  email: string
+  restaurant_reference: string
+  restaurant_name: string | null
+  business_name: string | null
+  role: string | null
+}
+
+// All disco_restaurant_accounts in the same "group" as the given identity.
+// Group = same business_name when present, else same email domain (fallback).
+// Shared by SYSTEM_ADMIN group-wide promotion and by order/location scoping so
+// the two always agree on which locations a SYSTEM_ADMIN can see.
+// NOTE: the domain fallback over-matches shared public domains (gmail.com,
+// etc.) — grouped accounts should carry a real business_name.
+export async function getDiscoGroupAccounts(businessName: string | null, email: string): Promise<DiscoGroupAccount[]> {
+  const bn = (businessName || '').trim()
+  if (bn) {
+    return (await sql`
+      SELECT id, email, restaurant_reference, restaurant_name, business_name, role
+      FROM disco_restaurant_accounts WHERE business_name = ${bn}
+    `) as DiscoGroupAccount[]
+  }
+  const domain = discoEmailDomain(email)
+  if (!domain) {
+    return (await sql`
+      SELECT id, email, restaurant_reference, restaurant_name, business_name, role
+      FROM disco_restaurant_accounts WHERE email = ${email}
+    `) as DiscoGroupAccount[]
+  }
+  return (await sql`
+    SELECT id, email, restaurant_reference, restaurant_name, business_name, role
+    FROM disco_restaurant_accounts WHERE LOWER(SPLIT_PART(email, '@', 2)) = ${domain}
+  `) as DiscoGroupAccount[]
 }
 
 // Delete a session (logout)

@@ -4,12 +4,15 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 // Map a Disco-native session/login payload to the restaurant_user shape the
-// portal layout reads (name display + ADMIN-role nav).
-function storeDiscoUser(d: { email?: string; firstName?: string | null; lastName?: string | null; restaurantReference?: string; restaurantName?: string | null }) {
+// portal layout reads (name display + role-driven nav). The role comes from
+// Neon (disco_restaurant_accounts.role): ADMIN → single-location nav,
+// SYSTEM_ADMIN → all-locations nav.
+function storeDiscoUser(d: { email?: string; firstName?: string | null; lastName?: string | null; restaurantReference?: string; restaurantName?: string | null; role?: string | null; businessName?: string | null }) {
   try {
     localStorage.setItem('restaurant_user', JSON.stringify({
       email: d.email || '', firstName: d.firstName || '', lastName: d.lastName || '',
-      role: 'ADMIN', reference: d.restaurantReference || '', businessName: d.restaurantName || '',
+      role: d.role || 'ADMIN', reference: d.restaurantReference || '',
+      businessName: d.restaurantName || '', groupName: d.businessName || undefined,
     }))
   } catch { /* localStorage unavailable */ }
 }

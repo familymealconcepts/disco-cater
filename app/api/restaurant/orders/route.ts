@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantRole, getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getDiscoGroupAccounts } from '../../../../lib/disco-restaurant-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { syncRestaurantOrders } from '../../../../lib/fm-orders-sync'
 import { cookies } from 'next/headers'
@@ -96,16 +97,33 @@ export async function GET(req: NextRequest) {
   const toDate = (sp.get('toDate') || '').trim()
 
   // Scope to ONE restaurant (UUID). Explicit ?restaurantReference wins; else a
-  // SA's selected location; else the ADMIN's own restaurant from the JWT. A SA
-  // with no selection → no scope (aggregate across all locations).
+  // SA's selected location; else the ADMIN's own restaurant. A SA with no
+  // selection → aggregate across all their locations.
+  //
+  // Role/own-reference come from the Disco account for Disco-native sessions
+  // (driven by disco_restaurant_accounts.role), and from the FM JWT otherwise.
   const queryRef = sp.get('restaurantReference') || ''
-  const role = await getRestaurantRole()
   const store = await cookies()
   const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value
+  const role = ctx.authType === 'disco' ? (ctx.role || 'ADMIN') : await getRestaurantRole()
+  const ownRef = ctx.authType === 'disco' ? (ctx.restaurantReference || '') : (await getRestaurantRef()) || ''
   const isSA = role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN'
   let scopeRef = queryRef
   if (!scopeRef && isSA && selected) scopeRef = selected
-  if (!scopeRef && !isSA) scopeRef = (await getRestaurantRef()) || ''
+  if (!scopeRef && !isSA) scopeRef = ownRef
+
+  // Disco SYSTEM_ADMIN aggregate (no specific location picked): restrict to the
+  // group's locations rather than every restaurant in disco_orders. FM SAs are
+  // still scoped server-side by FM, so this only applies to Disco sessions.
+  let groupRefs: string[] | null = null
+  if (!scopeRef && isSA && ctx.authType === 'disco') {
+    try {
+      const group = await getDiscoGroupAccounts(ctx.businessName, ctx.email)
+      groupRefs = group.map(a => a.restaurant_reference).filter(r => UUID_RE.test(r))
+    } catch (e) {
+      console.error('[restaurant/orders] group scope lookup failed:', e instanceof Error ? e.message : e)
+    }
+  }
 
   // Lightweight FM→Neon sync for the scoped restaurant before reading, so the
   // list reflects the latest FM state. Bounded to the most recent page (order
@@ -125,7 +143,14 @@ export async function GET(req: NextRequest) {
   const params: unknown[] = []
   const add = (clause: string, value: unknown) => { params.push(value); where.push(clause.replace('?', `$${params.length}`)) }
 
-  if (scopeRef && UUID_RE.test(scopeRef)) add('restaurant_reference = ?::uuid', scopeRef)
+  if (scopeRef && UUID_RE.test(scopeRef)) {
+    add('restaurant_reference = ?::uuid', scopeRef)
+  } else if (groupRefs) {
+    // Disco SA aggregate — limit to the group's locations. An empty group still
+    // adds an impossible-match clause so the SA never sees unrelated orders.
+    const placeholders = groupRefs.map(r => { params.push(r); return `$${params.length}::uuid` })
+    where.push(placeholders.length ? `restaurant_reference IN (${placeholders.join(',')})` : 'false')
+  }
   if (statuses.length) {
     const placeholders = statuses.map(s => { params.push(s); return `$${params.length}` })
     where.push(`order_status IN (${placeholders.join(',')})`)

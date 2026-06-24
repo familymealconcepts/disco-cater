@@ -44,6 +44,8 @@ export async function POST(req: NextRequest) {
       lastName: account.last_name ?? null,
       restaurantReference,
       restaurantName: account.restaurant_name ?? null,
+      role: (account.role as string) ?? 'ADMIN',
+      businessName: account.business_name ?? null,
     })
     res.cookies.set(DISCO_RESTAURANT_COOKIE, token, DISCO_RESTAURANT_COOKIE_OPTS)
     return res
