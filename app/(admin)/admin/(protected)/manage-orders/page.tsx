@@ -355,6 +355,138 @@ function DateTimeModal({ order, onClose, onSaved }: { order: Order; onClose: () 
   )
 }
 
+// Right-anchored order details panel — opens when a SUPER_ADMIN clicks an order
+// row. Shows the order summary and (SUPER_ADMIN only) a "Transfer Order" action.
+function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { order: Order; isSuperAdmin: boolean; onClose: () => void; onTransferred: () => void }) {
+  const [transferOpen, setTransferOpen] = useState(false)
+  const detailRow = (label: string, value: React.ReactNode) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '10px 0', borderBottom: '1px solid #f2f2f5' }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: '#888' }}>{label}</span>
+      <span style={{ fontSize: 13, color: DARK, textAlign: 'right' }}>{value}</span>
+    </div>
+  )
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 290 }} />
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 440, maxWidth: '92vw', background: '#fff', zIndex: 300, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', fontFamily: F }}>
+        <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: DARK }}>Order {order.orderNumber ? `#${order.orderNumber}` : 'Details'}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#888', lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: '12px 24px' }}>
+          {detailRow('Restaurant', order.restaurantName || '—')}
+          {detailRow('Customer', `${order.firstName || ''} ${order.lastName || ''}`.trim() || '—')}
+          {order.email && detailRow('Email', order.email)}
+          {detailRow('Order date', `${fmtDate(order.orderDate)} ${fmtTime(order.orderTime)}`)}
+          {detailRow('Type', order.orderType || '—')}
+          {detailRow('Status', order.orderStatus || '—')}
+          {detailRow('Total', fmtCurrency(order.total ?? order.transactionsTotal ?? 0))}
+        </div>
+        {isSuperAdmin && (
+          <div style={{ padding: '16px 24px', borderTop: '1px solid #f0f0f0' }}>
+            <button onClick={() => setTransferOpen(true)}
+              style={{ width: '100%', padding: '11px 18px', border: 'none', borderRadius: 8, background: BLUE, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+              Transfer Order
+            </button>
+          </div>
+        )}
+      </div>
+      {transferOpen && (
+        <TransferOrderModal
+          order={order}
+          onClose={() => setTransferOpen(false)}
+          onSaved={() => { setTransferOpen(false); onTransferred(); onClose() }}
+        />
+      )}
+    </>
+  )
+}
+
+// "Transfer Order to Another Location" modal — searchable picker over
+// disco_restaurant_cache, then POST to the SUPER_ADMIN transfer route.
+function TransferOrderModal({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
+  const [restaurants, setRestaurants] = useState<{ reference: string; name: string }[]>([])
+  const [loadingList, setLoadingList] = useState(true)
+  const [query, setQuery] = useState('')
+  const [selectedRef, setSelectedRef] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/admin/restaurant-cache/list')
+      .then(r => (r.ok ? r.json() : { restaurants: [] }))
+      .then(d => { if (!cancelled) { setRestaurants(d.restaurants || []); setLoadingList(false) } })
+      .catch(() => { if (!cancelled) setLoadingList(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const filtered = restaurants
+    .filter(r => r.reference !== order.restaurantReference) // can't transfer to itself
+    .filter(r => r.name.toLowerCase().includes(query.trim().toLowerCase()))
+    .slice(0, 100)
+
+  async function submit() {
+    if (!selectedRef) return
+    setSaving(true); setError('')
+    try {
+      const res = await fetch(`/api/admin/orders/${order.orderReference}/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newRestaurantReference: selectedRef }),
+      })
+      if (res.ok) { onSaved() }
+      else { const d = await res.json().catch(() => ({})); setError(d?.error || 'Transfer failed') }
+    } catch {
+      setError('Transfer failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: '24px 28px', maxWidth: 460, width: '92%', fontFamily: F }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: 17, fontWeight: 700, color: DARK }}>
+          Transfer Order {order.orderNumber ? `#${order.orderNumber}` : ''} to Another Location
+        </h3>
+        <input
+          type="text" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search restaurants by name…"
+          style={{ width: '100%', border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }}
+        />
+        <div style={{ maxHeight: 260, overflow: 'auto', border: '1px solid #eee', borderRadius: 8, marginBottom: 14 }}>
+          {loadingList ? (
+            <div style={{ padding: '14px', fontSize: 13, color: '#999' }}>Loading restaurants…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: '14px', fontSize: 13, color: '#999' }}>No restaurants found.</div>
+          ) : (
+            filtered.map(r => {
+              const active = r.reference === selectedRef
+              return (
+                <button key={r.reference} onClick={() => setSelectedRef(r.reference)}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', border: 'none', borderBottom: '1px solid #f2f2f5', background: active ? '#EEF0FF' : '#fff', color: active ? BLUE : DARK, fontSize: 13, fontWeight: active ? 700 : 400, cursor: 'pointer', fontFamily: F }}>
+                  {r.name}
+                </button>
+              )
+            })
+          )}
+        </div>
+        <p style={{ margin: '0 0 16px', fontSize: 12.5, lineHeight: 1.5, color: '#666' }}>
+          The customer and both restaurants will be notified by email.
+        </p>
+        {error && <div style={{ fontSize: 12, color: '#D32F2F', marginBottom: 12 }}>{error}</div>}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '9px 18px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F, color: DARK }}>Cancel</button>
+          <button onClick={submit} disabled={!selectedRef || saving}
+            style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: BLUE, color: '#fff', fontSize: 13, fontWeight: 700, cursor: !selectedRef || saving ? 'default' : 'pointer', fontFamily: F, opacity: !selectedRef || saving ? 0.6 : 1 }}>
+            {saving ? 'Transferring…' : 'Transfer Order'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [page, setPage] = useState(0)
@@ -371,6 +503,15 @@ export default function AdminOrdersPage() {
   const [toDate, setToDate] = useState(() => isoDate(daysAgo(-60)))
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Order | null>(null)
+  // Order details panel (opens on row click for SUPER_ADMIN) + role flag.
+  const [selected, setSelected] = useState<Order | null>(null)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('admin_user')
+      setIsSuperAdmin(raw ? JSON.parse(raw).role === 'SUPER_ADMIN' : false)
+    } catch {}
+  }, [])
   // Disco promo per order (orderRef → promo), from promo_code_uses. Batch-looked
   // up after orders load. Display-only; FM coupons are not included here.
   const [promos, setPromos] = useState<Record<string, { code: string; discountApplied: number; refundStatus: string }>>({})
@@ -554,7 +695,9 @@ export default function AdminOrdersPage() {
             {loading && <tr><td colSpan={10} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading orders…</td></tr>}
             {!loading && !visible.length && <tr><td colSpan={10} style={{ ...cell, textAlign: 'center', color: '#999' }}>{filtersActive ? 'No orders match these filters.' : 'No orders.'}</td></tr>}
             {!loading && pageRows.map(o => (
-              <tr key={o.orderReference}>
+              <tr key={o.orderReference}
+                onClick={isSuperAdmin ? () => setSelected(o) : undefined}
+                style={isSuperAdmin ? { cursor: 'pointer' } : undefined}>
                 <td style={{ ...cell, color: '#666' }}>{fmtDate(o.createdDate)}</td>
                 <td style={cell}>{o.restaurantName}</td>
                 <td style={cell}>{customerName(o)}</td>
@@ -567,7 +710,7 @@ export default function AdminOrdersPage() {
                 <td style={cell}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     {fmtDate(o.orderDate)} {fmtTime(o.orderTime)}
-                    <button onClick={() => setEditing(o)} title="Update order date &amp; time"
+                    <button onClick={(e) => { e.stopPropagation(); setEditing(o) }} title="Update order date &amp; time"
                       style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0, opacity: 0.6 }}>
                       ✏️
                     </button>
@@ -622,6 +765,14 @@ export default function AdminOrdersPage() {
       </div>
 
       {editing && <DateTimeModal order={editing} onClose={() => setEditing(null)} onSaved={load} />}
+      {selected && (
+        <OrderDetailsPanel
+          order={selected}
+          isSuperAdmin={isSuperAdmin}
+          onClose={() => setSelected(null)}
+          onTransferred={load}
+        />
+      )}
     </div>
   )
 }

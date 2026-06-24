@@ -40,6 +40,17 @@ export async function getAdminRole(): Promise<string | null> {
   return (payload?.role as string) || null
 }
 
+// The logged-in admin's email, decoded from the fm_admin_token JWT. FM puts the
+// email in the `sub` claim (it's the login identifier); `email` is accepted as a
+// fallback. Used to attribute admin actions (e.g. order transfers).
+export async function getAdminEmail(): Promise<string | null> {
+  const store = await cookies()
+  const token = store.get(ADMIN_TOKEN_COOKIE)?.value
+  if (!token) return null
+  const payload = decodeJwt(token)
+  return (payload?.email as string) || (payload?.sub as string) || null
+}
+
 // For Middleware (Edge runtime — next/headers not available)
 export function getAdminTokenFromRequest(req: NextRequest): string | null {
   return req.cookies.get(ADMIN_TOKEN_COOKIE)?.value ?? null
