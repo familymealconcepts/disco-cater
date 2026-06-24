@@ -209,6 +209,15 @@ ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS business_name VAR
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_business_name ON disco_restaurant_accounts(business_name);
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_restaurant_ref ON disco_restaurant_accounts(restaurant_reference);
 
+-- Disco-native SMS notifications: per-restaurant opt-in + destination number,
+-- independent of FM's own (FM-proxied) text-notification settings. Read by the
+-- Stripe webhook to text the restaurant on new Disco-native orders, and managed
+-- from the restaurant portal Settings page (/api/restaurant/sms-settings).
+-- Seed sms_phone from the existing signup contact phone so opt-in is one click.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS sms_enabled BOOLEAN DEFAULT false;
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS sms_phone TEXT;
+UPDATE disco_restaurant_accounts SET sms_phone = phone WHERE sms_phone IS NULL AND phone IS NOT NULL;
+
 -- ── Disco-native order editing ───────────────────────────────────────────────
 -- Edit lifecycle on the order row + an audit log of every committed edit. The
 -- pending_* columns hold a proposed edit while we await customer payment on an

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, sendOrderEditPaymentFailed, type OrderMealPackage } from '../../../../lib/email/notifications'
+import { sendSms } from '../../../../lib/sms'
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { waitUntil } from '@vercel/functions'
 
@@ -161,6 +162,27 @@ async function dispatchOrderEmails(orderId: number): Promise<void> {
         sourceOfOrder,
         ...shared,
       }).catch((err) => console.error('[Webhook] restaurant notification email failed:', err))
+    }
+
+    // Disco-native restaurant SMS — opt-in per restaurant (disco_restaurant_
+    // accounts.sms_enabled + sms_phone). Only fires here, i.e. for Disco-native
+    // orders; FM handles its own SMS for FM orders. Fire-and-forget like the
+    // emails above (this whole fn is wrapped in waitUntil at the call site).
+    try {
+      const acct = (await sql`
+        SELECT sms_phone FROM disco_restaurant_accounts
+        WHERE restaurant_reference = ${String(o.restaurant_reference ?? '')}
+          AND sms_enabled = true AND sms_phone IS NOT NULL AND sms_phone <> ''
+        ORDER BY id LIMIT 1
+      `) as { sms_phone: string }[]
+      const smsPhone = acct[0]?.sms_phone
+      if (smsPhone) {
+        const customerName = [shared.firstName, shared.lastName].filter(Boolean).join(' ')
+        const smsBody = `New Disco Cater order! #${shared.orderNumber} — ${customerName} — ${shared.orderService} on ${shared.orderDate} at ${shared.orderTime} — $${totalPrice.toFixed(2)}. Log in to view: discocater.com/restaurant/orders`
+        sendSms({ to: smsPhone, body: smsBody }).catch((err) => console.error('[Webhook] restaurant SMS failed:', err))
+      }
+    } catch (err) {
+      console.error('[Webhook] restaurant SMS lookup failed:', err instanceof Error ? err.message : err)
     }
 
     // New-order Slack ping (the single canonical notification). City/State come

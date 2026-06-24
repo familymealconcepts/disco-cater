@@ -124,6 +124,12 @@ export default function OrderSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
 
+  // Disco-native SMS settings (disco_restaurant_accounts), separate from FM's
+  // proxied text-notification settings below.
+  const [smsEnabled, setSmsEnabled] = useState(false)
+  const [smsPhoneInput, setSmsPhoneInput] = useState('')
+  const [smsPhoneSaved, setSmsPhoneSaved] = useState('')
+
   // Email / phone input fields
   const [newEmail, setNewEmail] = useState('')
   const [newPhone, setNewPhone] = useState('')
@@ -146,15 +152,19 @@ export default function OrderSettingsPage() {
   }
 
   const loadAll = useCallback(async () => {
-    const [rest, notif, fees, closed, coup] = await Promise.all([
+    const [rest, notif, fees, closed, coup, sms] = await Promise.all([
       fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : {}) as Promise<typeof restaurant>,
       fetch('/api/restaurant/notifications').then(r => r.ok ? r.json() : null) as Promise<Notifications | null>,
       fetch('/api/restaurant/fees-and-tips').then(r => r.ok ? r.json() : {}) as Promise<FeesAndTips>,
       fetch('/api/restaurant/closed-days').then(r => r.ok ? r.json() : []) as Promise<ClosedDay[]>,
       fetch('/api/restaurant/coupon').then(r => r.ok ? r.json() : null) as Promise<Coupon | null>,
+      fetch('/api/restaurant/sms-settings').then(r => r.ok ? r.json() : null) as Promise<{ sms_enabled?: boolean; sms_phone?: string } | null>,
     ])
     setRestaurant(rest)
     setNotifications(notif)
+    setSmsEnabled(!!sms?.sms_enabled)
+    setSmsPhoneInput(sms?.sms_phone || '')
+    setSmsPhoneSaved(sms?.sms_phone || '')
     setFeesAndTips(fees)
     setClosedDays(Array.isArray(closed) ? closed : [])
     setCoupon(coup)
@@ -182,6 +192,37 @@ export default function OrderSettingsPage() {
     setNotifications(updated)
     setSaving(false)
     showToast('Saved')
+  }
+
+  async function saveSmsEnabled(val: boolean) {
+    setSmsEnabled(val) // optimistic
+    try {
+      const res = await fetch('/api/restaurant/sms-settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sms_enabled: val }),
+      })
+      if (!res.ok) { setSmsEnabled(!val); showToast('Could not update SMS setting'); return }
+      const d = await res.json()
+      setSmsEnabled(!!d.sms_enabled)
+      if (typeof d.sms_phone === 'string') { setSmsPhoneInput(d.sms_phone); setSmsPhoneSaved(d.sms_phone) }
+      showToast(d.warning || 'Saved')
+    } catch {
+      setSmsEnabled(!val); showToast('Could not update SMS setting')
+    }
+  }
+
+  async function saveSmsPhone() {
+    try {
+      const res = await fetch('/api/restaurant/sms-settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sms_phone: smsPhoneInput.trim() }),
+      })
+      if (!res.ok) { showToast('Could not save phone number'); return }
+      const d = await res.json()
+      setSmsPhoneInput(d.sms_phone || '')
+      setSmsPhoneSaved(d.sms_phone || '')
+      showToast(d.warning || 'Saved')
+    } catch {
+      showToast('Could not save phone number')
+    }
   }
 
   async function saveFeesAndTips(patch: Partial<FeesAndTips>) {
@@ -376,6 +417,35 @@ export default function OrderSettingsPage() {
         {urlSlugError && (
           <p style={{ fontSize: 12, color: '#E76F51', margin: '6px 0 0' }}>{urlSlugError}</p>
         )}
+      </Section>
+
+      {/* Disco-native SMS — sits above the FM-backed Notifications section. */}
+      <Section title="Text Notifications (Disco Cater Orders)">
+        <Row label="Receive SMS for new orders">
+          <Toggle checked={smsEnabled} onChange={saveSmsEnabled} />
+        </Row>
+        <div style={{ marginTop: 4 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Notification phone number</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="tel"
+              value={smsPhoneInput}
+              onChange={e => setSmsPhoneInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && smsPhoneInput.trim() !== smsPhoneSaved && saveSmsPhone()}
+              placeholder="+1 555 000 0000"
+              style={{ ...inputStyle, minWidth: 200 }}
+            />
+            {smsPhoneInput.trim() !== smsPhoneSaved && (
+              <button onClick={saveSmsPhone}
+                style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                Save
+              </button>
+            )}
+          </div>
+        </div>
+        <p style={{ fontSize: 12, color: '#777', margin: '12px 0 0', lineHeight: 1.55 }}>
+          This applies to orders placed through the Disco Cater marketplace.
+        </p>
       </Section>
 
       {/* Notifications */}
