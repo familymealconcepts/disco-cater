@@ -130,14 +130,45 @@ interface SalesStatItem {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const ACTIVE_STATUSES = ['DUE', 'UNPAID', 'PAID']
-const HISTORY_STATUSES = ['COMPLETED', 'REOPEN', 'CANCELED', 'EXPIRED', 'RESERVED', 'VOID', 'REFUND', 'PARTIAL_REFUND']
+const HISTORY_STATUSES = ['COMPLETED', 'REOPEN', 'CANCELED', 'EXPIRED', 'RESERVED', 'VOID', 'VOIDED', 'REFUND', 'PARTIAL_REFUND']
 const COUNTS_STATUSES = ['COMPLETED', 'DUE']
-const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'PARTIAL_REFUND', 'CANCELED', 'VOID'])
+const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'PARTIAL_REFUND', 'CANCELED', 'VOID', 'VOIDED'])
 
 const STATUS_LABEL: Record<string, string> = {
   DUE: 'Due', COMPLETED: 'Completed', REOPEN: 'Reopened', REFUND: 'Refunded',
   PARTIAL_REFUND: 'Partial refunded', CANCELED: 'Canceled', EXPIRED: 'Expired',
-  RESERVED: 'Reserved', VOID: 'Voided', PAID: 'Paid', UNPAID: 'Unpaid',
+  RESERVED: 'Reserved', VOID: 'Voided', VOIDED: 'Voided', PAID: 'Paid', UNPAID: 'Unpaid',
+}
+
+// Restaurant-local timezone for pickup/delivery eligibility checks. The orders
+// API doesn't surface a per-restaurant timezone yet, so we fall back to a safe
+// default (Eastern) and prefer any tz that does come through on the order.
+const RESTAURANT_TZ_DEFAULT = 'America/New_York'
+
+// Current wall-clock time in `tz`, as a zero-padded 'YYYY-MM-DDTHH:MM:SS'
+// string. Because order_date/order_time are also stored as naked wall-clock in
+// the restaurant's tz, two such strings compare chronologically as plain text.
+function nowWallClockInTz(tz: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(new Date())
+  const get = (t: string) => parts.find(p => p.type === t)?.value || '00'
+  let hh = get('hour')
+  if (hh === '24') hh = '00' // some engines emit '24' for midnight under hour12:false
+  return `${get('year')}-${get('month')}-${get('day')}T${hh}:${get('minute')}:${get('second')}`
+}
+
+// True once the order's pickup/delivery datetime (order_date + order_time, in
+// the restaurant's tz) has passed — the gate for showing the Void action.
+function isPastPickup(order: Order): boolean {
+  if (!order.orderDate || !order.orderTime) return false
+  // FM sometimes returns dates as DD.MM.YYYY — normalize to YYYY-MM-DD first.
+  const date = order.orderDate.includes('.') ? order.orderDate.split('.').reverse().join('-') : order.orderDate
+  const time = order.orderTime.length === 5 ? `${order.orderTime}:00` : order.orderTime.slice(0, 8)
+  const orderWall = `${date}T${time}`
+  const tz = order.restaurantTimezone || order.restaurant?.timezone || RESTAURANT_TZ_DEFAULT
+  return nowWallClockInTz(tz) >= orderWall
 }
 
 // FM's fm-types pipe maps both NASH_DELIVERY and DLIVRD_DELIVERY to
@@ -476,8 +507,8 @@ function NoteModal({ order, orderRef, onClose, onSaved }: { order: Order; orderR
   )
 }
 
-function RefundModal({ order, orderRef, isVoid, onClose, onSaved }: { order: Order; orderRef: string; isVoid?: boolean; onClose: () => void; onSaved: () => void }) {
-  const maxAmt = isVoid ? order.transactionsTotal : (order.maxAllowedRefundAmount || order.transactionsTotal)
+function RefundModal({ order, orderRef, onClose, onSaved }: { order: Order; orderRef: string; onClose: () => void; onSaved: () => void }) {
+  const maxAmt = order.maxAllowedRefundAmount || order.transactionsTotal
   const [amount, setAmount] = useState(String(maxAmt || ''))
   const [useFullAmt, setUseFullAmt] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -494,7 +525,7 @@ function RefundModal({ order, orderRef, isVoid, onClose, onSaved }: { order: Ord
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', maxWidth: 380, width: '90%', fontFamily: F }}>
-        <h3 style={{ margin: '0 0 16px', fontSize: 16, color: DARK }}>{isVoid ? 'Void Order' : 'Refund Order'}</h3>
+        <h3 style={{ margin: '0 0 16px', fontSize: 16, color: DARK }}>Refund Order</h3>
         <div style={{ marginBottom: 14 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Amount</label>
           <input
@@ -509,7 +540,41 @@ function RefundModal({ order, orderRef, isVoid, onClose, onSaved }: { order: Ord
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
           <button onClick={save} disabled={saving || !amount} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: '#E76F51', color: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F, fontWeight: 600 }}>
-            {isVoid ? 'Void' : 'Refund'}
+            Refund
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Disco-native void confirmation. No amount field — voiding issues no refund and
+// sends no notification; it only records that food was prepared but not
+// fulfilled. Calls the Neon-only PUT .../void endpoint.
+function VoidModal({ orderRef, onClose, onSaved }: { orderRef: string; onClose: () => void; onSaved: () => void }) {
+  const [saving, setSaving] = useState(false)
+  async function save() {
+    setSaving(true)
+    try {
+      await fetch(`/api/restaurant/orders/${orderRef}/void`, { method: 'PUT' })
+    } finally {
+      setSaving(false)
+    }
+    onSaved()
+    onClose()
+  }
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: '28px 32px', maxWidth: 400, width: '90%', fontFamily: F }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 16, color: DARK }}>Void Order</h3>
+        <p style={{ fontSize: 14, color: '#555', margin: '0 0 22px', lineHeight: 1.55 }}>
+          Void this order? This action indicates the food was prepared but not fulfilled.
+          No refund will be issued and the customer will not be notified. This cannot be undone.
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} disabled={saving} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: saving ? 'default' : 'pointer', fontFamily: F }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: '#E53935', color: '#fff', fontSize: 13, cursor: saving ? 'wait' : 'pointer', fontFamily: F, fontWeight: 600, opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'Voiding…' : 'Void Order'}
           </button>
         </div>
       </div>
@@ -800,7 +865,9 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                   Refund
                 </button>
               )}
-              {!TERMINAL.has(order.orderStatus) && (
+              {/* Void is only offered once the pickup/delivery datetime has
+                  passed — it records "food prepared, not fulfilled". */}
+              {!TERMINAL.has(order.orderStatus) && isPastPickup(order) && (
                 <button onClick={() => setModal('void')}
                   style={{ padding: '8px 14px', background: '#6B7280', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
                   Void
@@ -820,7 +887,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
       </div>
 
       {modal === 'refund' && order && <RefundModal order={order} orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
-      {modal === 'void' && order && <RefundModal order={order} orderRef={orderRef} isVoid onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
+      {modal === 'void' && order && <VoidModal orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
       {modal === 'reopen' && order && <ReopenModal order={order} orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
       {modal === 'note' && order && <NoteModal order={order} orderRef={orderRef} onClose={() => setModal(null)} onSaved={() => { onOrderUpdated(); loadOrder() }} />}
       {confirm && <ConfirmDialog message={confirm.msg} onConfirm={() => { confirm.action(); setConfirm(null) }} onCancel={() => setConfirm(null)} />}

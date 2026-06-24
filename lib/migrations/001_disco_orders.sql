@@ -260,6 +260,8 @@ ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_date DATE;
 
 -- Allow PAYMENT_FAILED (checkout payment failure, set by the Stripe webhook) and
 -- REOPEN/CANCELLED (FM history statuses pulled in by the FM→Neon orders sync).
+-- VOIDED is the Disco-native void status (food prepared, not fulfilled — no
+-- refund, no notification), set by PUT /api/restaurant/orders/{ref}/void.
 -- Drop + re-add is idempotent because DROP precedes ADD on every run.
 ALTER TABLE disco_orders DROP CONSTRAINT IF EXISTS disco_orders_order_status_check;
-ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_order_status_check CHECK (order_status IN ('CART','RESERVED','DUE','COMPLETED','CANCELED','CANCELLED','REFUND','PARTIAL_REFUND','EXPIRED','VOID','UNPAID','PAID','PAYMENT_FAILED','REOPEN'));
+ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_order_status_check CHECK (order_status IN ('CART','RESERVED','DUE','COMPLETED','CANCELED','CANCELLED','REFUND','PARTIAL_REFUND','EXPIRED','VOID','VOIDED','UNPAID','PAID','PAYMENT_FAILED','REOPEN'));

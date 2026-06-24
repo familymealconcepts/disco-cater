@@ -1,0 +1,50 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const VOID_NOTE = 'Order voided by restaurant — food prepared, not fulfilled'
+
+// PUT /api/restaurant/orders/{ref}/void
+// Disco-native void — Neon only. Deliberately does NOT:
+//   • touch Stripe (no refund is issued)
+//   • send any Mailgun email (the customer is not notified)
+//   • call the FM API (no FM sync)
+// It marks the order VOIDED (food was prepared but not fulfilled) and logs a
+// VOIDED event. The order stays visible in the orders list (History tab).
+export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  const { ref } = await params
+  if (!UUID_RE.test(ref)) return NextResponse.json({ error: 'Invalid order reference' }, { status: 400 })
+
+  try {
+    await runDiscoOrderMigrations() // ensures VOIDED is an allowed order_status
+
+    // Match on either the Disco reference or the FM reference: the orders list
+    // surfaces fm_order_reference as the order id whenever it's present.
+    const rows = (await sql`
+      UPDATE disco_orders
+      SET order_status = 'VOIDED', updated_at = NOW()
+      WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
+      RETURNING reference
+    `) as Array<{ reference: string }>
+
+    if (!rows.length) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+    const reference = rows[0].reference
+
+    await sql`
+      INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+      VALUES (${reference}::uuid, 'VOIDED', ${JSON.stringify({ note: VOID_NOTE })}::jsonb, 'DISCO_VOID')
+    `
+
+    return NextResponse.json({ ok: true, orderStatus: 'VOIDED' })
+  } catch (err) {
+    console.error('[restaurant/orders/void] failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'Unable to void order' }, { status: 500 })
+  }
+}
