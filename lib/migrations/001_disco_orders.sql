@@ -326,3 +326,10 @@ ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_date DATE;
 -- Drop + re-add is idempotent because DROP precedes ADD on every run.
 ALTER TABLE disco_orders DROP CONSTRAINT IF EXISTS disco_orders_order_status_check;
 ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_order_status_check CHECK (order_status IN ('CART','RESERVED','DUE','COMPLETED','CANCELED','CANCELLED','REFUND','PARTIAL_REFUND','EXPIRED','VOID','VOIDED','UNPAID','PAID','PAYMENT_FAILED','REOPEN'));
+
+-- Widen delivery_type to accept all known FM delivery types — the FM→Neon orders
+-- sync was failing the original CHECK ('OWN_DELIVERY','THIRD_PARTY','DLIVRD').
+-- NULL is allowed automatically (a CHECK passes on NULL/UNKNOWN). DLIVRD is kept
+-- so any pre-existing rows still validate. Drop + re-add is idempotent.
+ALTER TABLE disco_orders DROP CONSTRAINT IF EXISTS disco_orders_delivery_type_check;
+ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_delivery_type_check CHECK (delivery_type IN ('NASH_DELIVERY','OWN_DELIVERY','DOORDASH','SHIPDAY','THIRD_PARTY','PICKUP','DLIVRD'));

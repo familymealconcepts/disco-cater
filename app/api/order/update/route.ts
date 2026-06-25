@@ -2,26 +2,34 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-// Forwards the order re-price to FM. NOTE: FM rejects taxExempt / taxExemptId /
-// taxExemptState on the order-update DTO (UNKNOWN_SERVER_ERROR) — tax exemption
-// is a customer-account concern in FM, not per-order — so we strip them here.
-// Tax-exempt totals are reflected client-side in the checkout UI instead.
+// Forwards the order re-price to FM. FM's order-update PUT returns
+// UNKNOWN_SERVER_ERROR when it receives any non-standard field, so instead of
+// blacklisting known-bad fields we WHITELIST only the standard checkout-DTO
+// fields and drop everything else. Notably this strips taxExempt / taxExemptId /
+// taxExemptState (tax exemption is a customer-account concern in FM, not
+// per-order — reflected client-side in the UI) and any other extras the client
+// may add (headcount, paymentMethod, sourceoforder, …).
+const FM_UPDATE_ALLOWED_FIELDS = [
+  'restaurantReference', 'items', 'mealPackages', 'orderType', 'orderDate', 'orderTime',
+  'tips', 'tipsType', 'couponCode', 'deliveryAddress', 'persons', 'subtotal', 'total', 'fee',
+] as const
+
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json()
-    const { restaurantRef, orderRef, ...updateBody } = body
+    const { restaurantRef, orderRef } = body
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
 
-    // FM does NOT accept these on the update DTO — sending them 500s the PUT.
-    delete updateBody.taxExempt
-    delete updateBody.taxExemptId
-    delete updateBody.taxExemptState
+    // Whitelist: keep only FM's standard checkout-DTO fields; drop everything else.
+    const updateBody: Record<string, unknown> = {}
+    for (const k of FM_UPDATE_ALLOWED_FIELDS) {
+      if (body[k] !== undefined) updateBody[k] = body[k]
+    }
 
     // FM requires orderType as "PICKUP" or "DELIVERY" — empty string causes 500.
-    // Normalize here as a server-side backstop: anything that isn't exactly
-    // "DELIVERY" becomes "PICKUP" so a missing/blank value can never 500 FM.
+    // Normalize as a server-side backstop so a missing/blank value can never 500.
     updateBody.orderType = updateBody.orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
 
     const url = `${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`
