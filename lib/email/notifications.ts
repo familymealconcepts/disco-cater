@@ -397,18 +397,23 @@ export async function sendCustomerWelcome(params: {
 export async function sendTeamMemberInvite(params: {
   to: string
   firstName?: string
+  inviteUrl: string
+  restaurantName?: string
+  inviterName?: string
 }): Promise<{ success: boolean }> {
   try {
+    const restaurant = params.restaurantName || 'Disco Cater'
+    const inviter = params.inviterName || 'Your team admin'
     const content = `
 <p>Hi ${escapeHtml(params.firstName || 'there')},</p>
-<p>You've been added as a team member on Disco Cater.</p>
-<p>Log in at <a href="https://discocater.com/restaurant/login" style="color:#5B6FE8;">discocater.com/restaurant/login</a> to access your locations.</p>
-<p>If you weren't expecting this, please contact us at <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
+<p>${escapeHtml(inviter)} has invited you to manage ${escapeHtml(restaurant)} on Disco Cater. Click below to set your password and get started.</p>
+${button('Set your password', params.inviteUrl)}
+<p style="color:#888;font-size:13px;">This link expires in 72 hours. If you weren't expecting this, please contact us at <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
 <p>Thanks,<br/>The Disco Cater Team</p>
 `
     return await sendEmail({
       to: params.to,
-      subject: "You've been added to a Disco Cater team",
+      subject: `You've been invited to join ${restaurant} on Disco Cater`,
       html: layout(content),
     })
   } catch (err) {

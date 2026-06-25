@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { runDiscoOrderMigrations, sql } from '../../../../../lib/db'
-import { getLocationAccessRefs, grantLocationAccess, hashPassword } from '../../../../../lib/disco-restaurant-auth'
+import { getLocationAccessRefs, grantLocationAccess, hashPassword, setInviteToken } from '../../../../../lib/disco-restaurant-auth'
 import { sendTeamMemberInvite } from '../../../../../lib/email/notifications'
+
+const SITE_URL = 'https://www.discocater.com'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -42,8 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create the account. password_hash is NOT NULL, so seed an unusable random
-    // hash — the invite tells them to log in; a set-password flow can be added.
-    // TODO: send a set-password link instead of a placeholder hash (>2h).
+    // hash — the sub admin sets their real password via the invite link below.
     const placeholderHash = await hashPassword(randomUUID())
     const home = granted[0]
     await sql`
@@ -66,8 +67,22 @@ export async function POST(req: NextRequest) {
         .catch(e => console.error('[team/sub-admins] grant failed:', e instanceof Error ? e.message : e))
     }
 
-    // Invite email (best-effort).
-    sendTeamMemberInvite({ to: email, firstName }).catch(() => {})
+    // Issue a set-password invite token and email the link (best-effort).
+    try {
+      const token = await setInviteToken(email)
+      const nameRows = (await sql`
+        SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${home} LIMIT 1
+      `) as Array<{ name: string }>
+      const restaurantName = nameRows[0]?.name || ctx.restaurantName || ctx.businessName || 'Disco Cater'
+      const inviterName = `${ctx.firstName || ''} ${ctx.lastName || ''}`.trim() || ctx.email
+      sendTeamMemberInvite({
+        to: email, firstName,
+        inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
+        restaurantName, inviterName,
+      }).catch(() => {})
+    } catch (e) {
+      console.error('[team/sub-admins] invite token/email failed:', e instanceof Error ? e.message : e)
+    }
 
     return NextResponse.json({ success: true, email, grantedCount: granted.length })
   } catch (err) {

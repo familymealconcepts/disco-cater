@@ -1,5 +1,5 @@
 import { sql } from './db'
-import { randomUUID } from 'crypto'
+import { randomUUID, randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
 
 export interface DiscoRestaurantSession {
@@ -35,6 +35,57 @@ export async function hashPassword(password: string): Promise<string> {
 // Verify a password
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return bcrypt.compare(password, hash)
+}
+
+// ── Sub-admin set-password invites ───────────────────────────────────────────
+
+export interface InviteAccount {
+  email: string
+  first_name: string | null
+  last_name: string | null
+  restaurant_reference: string
+  restaurant_name: string | null
+  role: string | null
+  business_name: string | null
+}
+
+// Issue (or re-issue) a one-time invite token for an account, expiring in 72h.
+// Returns the raw token to embed in the invite link.
+export async function setInviteToken(email: string): Promise<string> {
+  const token = randomBytes(32).toString('hex')
+  await sql`
+    UPDATE disco_restaurant_accounts
+    SET invite_token = ${token},
+        invite_token_expires_at = NOW() + INTERVAL '72 hours',
+        updated_at = NOW()
+    WHERE email = ${email}
+  `
+  return token
+}
+
+// Resolve an account by a non-expired invite token, or null.
+export async function getAccountByInviteToken(token: string): Promise<InviteAccount | null> {
+  if (!token) return null
+  const rows = (await sql`
+    SELECT email, first_name, last_name, restaurant_reference, restaurant_name, role, business_name
+    FROM disco_restaurant_accounts
+    WHERE invite_token = ${token} AND invite_token_expires_at > NOW()
+    LIMIT 1
+  `) as InviteAccount[]
+  return rows[0] ?? null
+}
+
+// Set the account password from an accepted invite: store the hash and clear the
+// one-time token so the link can't be reused.
+export async function acceptInvite(email: string, passwordHash: string): Promise<void> {
+  await sql`
+    UPDATE disco_restaurant_accounts
+    SET password_hash = ${passwordHash},
+        invite_token = NULL,
+        invite_token_expires_at = NULL,
+        updated_at = NOW()
+    WHERE email = ${email}
+  `
 }
 
 // Create a session token (30 day expiry)

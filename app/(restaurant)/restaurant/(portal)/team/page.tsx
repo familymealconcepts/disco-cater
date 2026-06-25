@@ -6,7 +6,7 @@ const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 
 interface Location { reference: string; name: string; address: string; isLive: boolean; isHome: boolean }
-interface SubAdmin { email: string; firstName: string; lastName: string; locations: { reference: string; name: string }[] }
+interface SubAdmin { email: string; firstName: string; lastName: string; pendingInvite?: boolean; locations: { reference: string; name: string }[] }
 
 export default function TeamPage() {
   const [locations, setLocations] = useState<Location[]>([])
@@ -77,6 +77,14 @@ export default function TeamPage() {
     if (res.ok) load()
   }
 
+  const [resending, setResending] = useState('')
+  async function resendInvite(s: SubAdmin) {
+    setResending(s.email)
+    const res = await fetch(`/api/restaurant/team/sub-admins/${encodeURIComponent(s.email)}/resend-invite`, { method: 'POST' })
+    setResending('')
+    alert(res.ok ? `Invite resent to ${s.email}.` : 'Could not resend the invite.')
+  }
+
   function addNewLocation() {
     // TODO (>2h): launch the become-a-partner flow at Step 2 (skip Step 1 since
     // the PSA is already authenticated), pre-fill their email, and on completion
@@ -128,13 +136,21 @@ export default function TeamPage() {
             {subAdmins.map(s => (
               <div key={s.email} style={row}>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{`${s.firstName} ${s.lastName}`.trim() || s.email}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>
+                    {`${s.firstName} ${s.lastName}`.trim() || s.email}
+                    {s.pendingInvite && <span style={pendingPill}>Invite pending</span>}
+                  </div>
                   <div style={{ fontSize: 12, color: '#888' }}>{s.email}</div>
                   <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>
                     {s.locations.length ? s.locations.map(l => l.name || l.reference).join(', ') : 'No locations'}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  {s.pendingInvite && (
+                    <button onClick={() => resendInvite(s)} disabled={resending === s.email} style={linkBtn}>
+                      {resending === s.email ? 'Sending…' : 'Resend Invite'}
+                    </button>
+                  )}
                   <button onClick={() => openEdit(s)} style={linkBtn}>Edit</button>
                   <button onClick={() => removeSubAdmin(s)} style={{ ...linkBtn, color: '#E76F51' }}>Remove</button>
                 </div>
@@ -194,6 +210,7 @@ const sectionHead: React.CSSProperties = { display: 'flex', justifyContent: 'spa
 const sectionTitle: React.CSSProperties = { fontSize: 16, fontWeight: 700, color: DARK, margin: 0 }
 const row: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid #f0f0f0' }
 const homePill: React.CSSProperties = { marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#fff', background: BLUE, borderRadius: 6, padding: '2px 7px' }
+const pendingPill: React.CSSProperties = { marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#92400E', background: '#FEF3C7', borderRadius: 6, padding: '2px 7px' }
 const livePill: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#166534', background: '#DCFCE7', borderRadius: 6, padding: '3px 9px', flexShrink: 0 }
 const offPill: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#92400E', background: '#FEF3C7', borderRadius: 6, padding: '3px 9px', flexShrink: 0 }
 const primaryBtn: React.CSSProperties = { padding: '9px 16px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }

@@ -43,11 +43,11 @@ export async function GET() {
 
     // Section 2 — Sub System Admins created by this PSA.
     const subRows = (await sql`
-      SELECT email, first_name, last_name, restaurant_reference
+      SELECT email, first_name, last_name, restaurant_reference, invite_token
       FROM disco_restaurant_accounts
       WHERE created_by = ${ctx.email} AND role = 'SYSTEM_ADMIN'
       ORDER BY id ASC
-    `) as Array<{ email: string; first_name: string | null; last_name: string | null; restaurant_reference: string | null }>
+    `) as Array<{ email: string; first_name: string | null; last_name: string | null; restaurant_reference: string | null; invite_token: string | null }>
 
     const subAdmins = []
     for (const s of subRows) {
@@ -62,6 +62,8 @@ export async function GET() {
         email: s.email,
         firstName: s.first_name || '',
         lastName: s.last_name || '',
+        // Pending = they were invited but haven't set a password yet.
+        pendingInvite: !!s.invite_token,
         locations: access.map(a => ({ reference: a.reference, name: a.name })),
       })
     }

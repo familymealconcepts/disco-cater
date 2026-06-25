@@ -249,6 +249,11 @@ CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_business_name ON disco_
 -- by the partner onboarding flow or super-admin promotion.
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS created_by TEXT;
 
+-- Set-password invite for Sub System Admins. A one-time secure token (and 72h
+-- expiry) is issued when a PSA invites them; cleared once they set a password.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS invite_token TEXT;
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS invite_token_expires_at TIMESTAMPTZ;
+
 -- Explicit per-account location access for SYSTEM_ADMINs. A SYSTEM_ADMIN sees
 -- every restaurant_reference where their email appears here (replaces the old
 -- business_name / email-domain grouping for scoping). The promote action and the
