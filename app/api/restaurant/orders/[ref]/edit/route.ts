@@ -256,12 +256,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
           const cust = await stripe.customers.create({ email: customerEmail, name: [firstName, discoOrder?.customer_last_name].filter(Boolean).join(' ') || undefined })
           customerId = cust.id
         }
-        await stripe.invoiceItems.create({ customer: customerId, amount: Math.round(delta * 100), currency: 'usd', description: `Order #${orderNumber} update — additional amount due` })
+        // delta is already round2'd (dollars); Stripe wants integer cents.
+        const deltaCents = Math.round(delta * 100)
+        console.log('[orders/edit] creating edit invoice', { orderNumber, customerId, delta, deltaCents })
+        // Create the invoice FIRST, then attach the line item directly to it via
+        // `invoice: invoice.id`. Creating a "pending" invoice item and relying on
+        // invoices.create to auto-collect it left the invoice empty ($0.00) under
+        // the pinned 2025-01-27 API. auto_advance is off during creation so the
+        // draft can't finalize before the line item is attached.
         const invoice = await stripe.invoices.create({
-          customer: customerId, collection_method: 'send_invoice', days_until_due: 7, auto_advance: true,
+          customer: customerId, collection_method: 'send_invoice', days_until_due: 7, auto_advance: false,
           metadata: { orderReference: discoOrder?.reference || ref, fmOrderReference: ref, orderNumber, kind: 'order_edit' },
         })
+        await stripe.invoiceItems.create({
+          customer: customerId, invoice: invoice.id, amount: deltaCents, currency: 'usd',
+          description: `Order #${orderNumber} update — additional amount due`,
+        })
         const finalized = await stripe.invoices.finalizeInvoice(invoice.id)
+        console.log('[orders/edit] edit invoice finalized', { invoiceId: invoice.id, amountDue: finalized.amount_due, total: finalized.total })
         await stripe.invoices.sendInvoice(invoice.id).catch(() => {})
         stripeInvoiceId = invoice.id
         invoiceUrl = (finalized.hosted_invoice_url as string) || ''
