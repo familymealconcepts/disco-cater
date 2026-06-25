@@ -283,9 +283,10 @@ export function buildPrintHtml(order: PrintableOrder): string {
   }).join('')
 
   // Totals — only show rows the order actually has, mirroring FM.
-  function totalRow(label: string, value: number, opts?: { bold?: boolean }) {
+  function totalRow(label: string, value: number, opts?: { bold?: boolean; red?: boolean }) {
     const cls = opts?.bold ? 'class="total-row"' : ''
-    return `<tr ${cls}><td class="tlbl">${esc(label)}:</td><td class="tval">${esc(fmtMoney(value))}</td></tr>`
+    const colorStyle = opts?.red ? ' style="color:#d32f2f;"' : ''
+    return `<tr ${cls}><td class="tlbl"${colorStyle}>${esc(label)}:</td><td class="tval"${colorStyle}>${esc(fmtMoney(value))}</td></tr>`
   }
   // Tax-exempt orders: taxes are $0.00 and the exempt id is noted under the row.
   const isTaxExempt = order.taxExempt === true || !!order.taxExemptId
@@ -302,8 +303,11 @@ export function buildPrintHtml(order: PrintableOrder): string {
     delivery > 0 ? totalRow('Delivery Fee', delivery) : '',
     tips > 0 ? totalRow('Tips', tips) : '',
     discount > 0 ? totalRow('Promo', -discount) : '',
-    refund > 0 ? totalRow('Refund', -refund) : '',
-    totalRow('Total', total, { bold: true }),
+    refund > 0 ? totalRow('Refund', -refund, { red: true }) : '',
+    // When refunded, the bold line is the NET amount actually charged.
+    refund > 0
+      ? totalRow('Total Charged', total - refund, { bold: true })
+      : totalRow('Total', total, { bold: true }),
   ].filter(Boolean).join('')
 
   const title = `Disco Cater Order ${order.orderNumber ?? ''}`.trim()

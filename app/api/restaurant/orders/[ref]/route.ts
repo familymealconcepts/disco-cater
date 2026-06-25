@@ -12,6 +12,10 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   UNPAID: ['CANCELED'],
   RESERVED: ['DUE', 'CANCELED'],
   COMPLETED: ['REOPEN'],
+  // Refunded orders stay active; Complete is the only allowed transition.
+  REFUNDED: ['COMPLETED'],
+  REFUND: ['COMPLETED'],
+  PARTIAL_REFUND: ['COMPLETED'],
 }
 const REFUNDABLE = new Set(['DUE', 'PAID', 'COMPLETED'])
 

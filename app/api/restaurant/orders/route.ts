@@ -20,6 +20,11 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   UNPAID: ['CANCELED'],
   RESERVED: ['DUE', 'CANCELED'],
   COMPLETED: ['REOPEN'],
+  // A refunded order stays in Active until the restaurant manually completes it;
+  // Complete is the only allowed transition.
+  REFUNDED: ['COMPLETED'],
+  REFUND: ['COMPLETED'],
+  PARTIAL_REFUND: ['COMPLETED'],
 }
 const REFUNDABLE = new Set(['DUE', 'PAID', 'COMPLETED'])
 
@@ -41,6 +46,7 @@ interface OrderRow {
   total: string | null
   fee: string | null
   tips: string | null
+  refund: string | null
   note: string | null
   seen_by_admin: boolean
   edit_count: number
@@ -72,6 +78,7 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     total,
     subtotal: r.subtotal != null ? num(r.subtotal) : undefined,
     fee: r.fee != null ? num(r.fee) : undefined,
+    refund: r.refund != null ? num(r.refund) : undefined,
     orderStatus: status,
     orderSeenByAdmin: r.seen_by_admin === true,
     orderStatusesToChange: STATUS_TRANSITIONS[status] || [],
@@ -163,9 +170,19 @@ export async function GET(req: NextRequest) {
   if (fromDate) add('order_date >= ?::date', fromDate)
   if (toDate) add('order_date <= ?::date', toDate)
   if (search) {
-    params.push(`%${search}%`)
-    const p = `$${params.length}`
-    where.push(`(customer_first_name ILIKE ${p} OR customer_last_name ILIKE ${p} OR (COALESCE(customer_first_name,'')||' '||COALESCE(customer_last_name,'')) ILIKE ${p} OR order_number::text ILIKE ${p})`)
+    // Strip a leading '#' so "#87803110" matches the same as "87803110". Search
+    // across full name, order number, and email — case-insensitive, at the SQL
+    // level (not client-side).
+    const cleaned = search.replace(/^#+/, '').trim()
+    if (cleaned) {
+      params.push(cleaned)
+      const p = `$${params.length}`
+      where.push(`(
+        LOWER(COALESCE(customer_first_name,'') || ' ' || COALESCE(customer_last_name,'')) LIKE LOWER('%' || ${p} || '%')
+        OR CAST(order_number AS TEXT) LIKE '%' || ${p} || '%'
+        OR LOWER(COALESCE(customer_email,'')) LIKE LOWER('%' || ${p} || '%')
+      )`)
+    }
   }
   const whereSql = where.join(' AND ')
 
@@ -181,7 +198,7 @@ export async function GET(req: NextRequest) {
       `SELECT disco_orders.reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
               source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name,
               to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
-              subtotal, COALESCE(NULLIF(disco_orders.total, 0), sp.sp_total) AS total, fee, tips, note, seen_by_admin,
+              subtotal, COALESCE(NULLIF(disco_orders.total, 0), sp.sp_total) AS total, fee, tips, refund, note, seen_by_admin,
               COALESCE(edit_count,0) AS edit_count, edit_status, created_at, persons
        FROM disco_orders
        LEFT JOIN (

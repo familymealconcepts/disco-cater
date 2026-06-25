@@ -130,15 +130,30 @@ interface SalesStatItem {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const ACTIVE_STATUSES = ['DUE', 'UNPAID', 'PAID']
-const HISTORY_STATUSES = ['COMPLETED', 'REOPEN', 'CANCELED', 'EXPIRED', 'RESERVED', 'VOID', 'VOIDED', 'REFUND', 'REFUNDED', 'PARTIAL_REFUND']
+// REFUNDED stays in Active (not History/terminal) — a refunded order remains
+// active until the restaurant manually completes it.
+const ACTIVE_STATUSES = ['DUE', 'UNPAID', 'PAID', 'REFUNDED']
+const HISTORY_STATUSES = ['COMPLETED', 'REOPEN', 'CANCELED', 'EXPIRED', 'RESERVED', 'VOID', 'VOIDED', 'REFUND', 'PARTIAL_REFUND']
 const COUNTS_STATUSES = ['COMPLETED', 'DUE']
-const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'REFUNDED', 'PARTIAL_REFUND', 'CANCELED', 'VOID', 'VOIDED'])
+const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'PARTIAL_REFUND', 'CANCELED', 'VOID', 'VOIDED'])
 
 const STATUS_LABEL: Record<string, string> = {
   DUE: 'Due', COMPLETED: 'Completed', REOPEN: 'Reopened', REFUND: 'Refunded', REFUNDED: 'Refunded',
   PARTIAL_REFUND: 'Partial refunded', CANCELED: 'Canceled', EXPIRED: 'Expired',
   RESERVED: 'Reserved', VOID: 'Voided', VOIDED: 'Voided', PAID: 'Paid', UNPAID: 'Unpaid',
+}
+
+// Display label for an order's OWN status. Refunded orders read "Refunded" when
+// the refund covers the whole order, or "Partially Refunded" when it's less than
+// the order total. (Target statuses in a dropdown still use STATUS_LABEL.)
+function statusLabel(o: { orderStatus: string; refund?: number; total?: number; transactionsTotal?: number }): string {
+  const st = o.orderStatus
+  const refund = o.refund ?? 0
+  if (refund > 0 || st === 'REFUNDED' || st === 'REFUND' || st === 'PARTIAL_REFUND') {
+    const total = (typeof o.total === 'number' ? o.total : o.transactionsTotal) || 0
+    return refund > 0 && total > 0 && refund < total ? 'Partially Refunded' : 'Refunded'
+  }
+  return STATUS_LABEL[st] || st
 }
 
 // Restaurant-local timezone for pickup/delivery eligibility checks. The orders
@@ -733,12 +748,12 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             <div style={{ background: '#F7F8FC', borderRadius: 8, padding: '8px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="order-drawer-chrome">
               <span style={{ fontSize: 12, color: '#666' }}>Status</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {(order.orderStatus === 'REFUNDED' || order.orderStatus === 'REFUND' || (order.refund ?? 0) > 0) && (
+                {(order.orderStatus === 'REFUNDED' || order.orderStatus === 'REFUND' || order.orderStatus === 'PARTIAL_REFUND' || (order.refund ?? 0) > 0) && (
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#E76F51', borderRadius: 6, padding: '2px 8px' }}>
-                    Refunded{(order.refund ?? 0) > 0 ? ` · ${fmt(order.refund ?? 0)}` : ''}
+                    {statusLabel(order)}{(order.refund ?? 0) > 0 ? ` · ${fmt(order.refund ?? 0)}` : ''}
                   </span>
                 )}
-                <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{STATUS_LABEL[order.orderStatus] || order.orderStatus}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{statusLabel(order)}</span>
               </span>
             </div>
 
@@ -763,6 +778,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             <SectionHeader>Order Details</SectionHeader>
             <DetailRow label="Date" value={fmtDate(order.orderDate)} />
             <DetailRow label="Time" value={fmtTime(order.orderTime)} />
+            {(order.refund ?? 0) > 0 && <DetailRow label="Refund Amount" value={`-${fmt(order.refund ?? 0)}`} valueColor="#E53935" />}
             {order.persons != null && <DetailRow label="Headcount" value={String(order.persons)} />}
             {order.orderCreatedDate && <DetailRow label="Order Placed" value={fmtCreatedAt(order.orderCreatedDate, order.restaurantTimezone || order.restaurant?.timezone || undefined)} />}
             {order.restaurant?.businessName && <DetailRow label="Store" value={order.restaurant.businessName} />}
@@ -1469,10 +1485,13 @@ function OrdersContent() {
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 600, color: DARK }}>
                         {fmt(order.transactionsTotal)}
+                        {(order.refund ?? 0) > 0 && (
+                          <div style={{ fontSize: 11, fontWeight: 600, color: '#E53935', marginTop: 2 }}>Refund: -{fmt(order.refund ?? 0)}</div>
+                        )}
                       </td>
                       <td style={{ padding: '12px 14px' }}>
                         {TERMINAL.has(order.orderStatus) ? (
-                          <span style={{ fontSize: 13, color: '#888' }}>{STATUS_LABEL[order.orderStatus] || order.orderStatus}</span>
+                          <span style={{ fontSize: 13, color: '#888' }}>{statusLabel(order)}</span>
                         ) : (
                           <select
                             value={order.orderStatus}
@@ -1495,7 +1514,7 @@ function OrdersContent() {
                             }}
                             style={{ border: '1px solid #e0e0e0', borderRadius: 6, padding: '4px 8px', fontSize: 12, fontFamily: F, background: '#fff', color: DARK, outline: 'none', cursor: 'pointer' }}
                           >
-                            <option value={order.orderStatus}>{STATUS_LABEL[order.orderStatus] || order.orderStatus}</option>
+                            <option value={order.orderStatus}>{statusLabel(order)}</option>
                             {/* FM's orderStatusesToChange includes the current status — dedupe
                                 and drop it so it isn't listed twice (e.g. a doubled "Due"). */}
                             {[...new Set(order.orderStatusesToChange || [])].filter(s => s !== order.orderStatus).map(s => (
@@ -1611,12 +1630,12 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   if (!value) return null
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px dotted #eee', fontSize: 13 }}>
       <span style={{ color: '#888' }}>{label}</span>
-      <span style={{ color: DARK, textAlign: 'right', maxWidth: '70%' }}>{value}</span>
+      <span style={{ color: valueColor || DARK, fontWeight: valueColor ? 600 : undefined, textAlign: 'right', maxWidth: '70%' }}>{value}</span>
     </div>
   )
 }
