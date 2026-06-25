@@ -3,12 +3,12 @@ import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let h: Record<string, string>
   try { h = await getAdminAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
-  const { ref } = await params
+  const { id: ref } = await params
   try {
     const body = await req.json()
     const res = await fetch(`${FM}/api/admin/users/system-admin/${ref}`, {
@@ -23,12 +23,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let h: Record<string, string>
   try { h = await getAdminAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
-  const { ref } = await params
+  const { id: ref } = await params
   try {
     const res = await fetch(`${FM}/api/admin/users/${ref}`, { method: 'DELETE', headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed to delete' }, { status: res.status })

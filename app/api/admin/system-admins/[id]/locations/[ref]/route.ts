@@ -9,11 +9,11 @@ export const dynamic = 'force-dynamic'
 // DELETE /api/admin/system-admins/{email}/locations/{ref}
 // Removes a System Admin's access to a location. The original/home location can
 // never be removed.
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ email: string; ref: string }> }) {
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string; ref: string }> }) {
   try { await getAdminAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
-  const { email: rawEmail, ref: rawRef } = await params
+  const { id: rawEmail, ref: rawRef } = await params
   const email = decodeURIComponent(rawEmail || '').trim()
   const ref = decodeURIComponent(rawRef || '').trim()
   if (!email || !ref) return NextResponse.json({ error: 'email and ref required' }, { status: 400 })

@@ -10,11 +10,11 @@ export const dynamic = 'force-dynamic'
 // Current location access for a System Admin, with restaurant name + live status
 // (from disco_restaurant_cache) and a `home` flag for the original/home location
 // (which the UI must not allow removing).
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ email: string }> }) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try { await getAdminAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
-  const { email: rawEmail } = await params
+  const { id: rawEmail } = await params
   const email = decodeURIComponent(rawEmail || '').trim()
   if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 })
 
@@ -50,12 +50,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ema
 
 // POST /api/admin/system-admins/{email}/locations  { restaurantReference }
 // Grants the System Admin access to a location.
-export async function POST(req: NextRequest, { params }: { params: Promise<{ email: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   let adminEmail: string | null = null
   try { await getAdminAuthHeader(); adminEmail = await getAdminEmail().catch(() => null) } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
-  const { email: rawEmail } = await params
+  const { id: rawEmail } = await params
   const email = decodeURIComponent(rawEmail || '').trim()
   if (!email) return NextResponse.json({ error: 'email required' }, { status: 400 })
 
