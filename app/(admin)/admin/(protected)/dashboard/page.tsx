@@ -110,6 +110,8 @@ function fmtNumber(n?: number) {
 export default function AdminDashboard() {
   const [saleRaw, setSaleRaw] = useState<AdminSaleStatsRaw>({})
   const [restaurants, setRestaurants] = useState<LocationOption[]>([])
+  // Active, Stripe-connected restaurant count (Neon) — powers Total Restaurants.
+  const [activeRestaurants, setActiveRestaurants] = useState<number | null>(null)
   const [restaurantRef, setRestaurantRef] = useState<string>('')  // '' = All restaurants
   // Date range driven by presets; default to the current month. fromDate/toDate
   // are DD.MM.YYYY (what FM's sale/stats + orders endpoints expect).
@@ -128,7 +130,7 @@ export default function AdminDashboard() {
   // orders loaded for the chart (the analytics endpoint isn't source-filtered).
   const [gmvBySource, setGmvBySource] = useState<{ p3: number; p1: number }>({ p3: 0, p1: 0 })
 
-  // Restaurant list (powers the picker + the "Total Restaurants" count).
+  // Restaurant list (powers the restaurant filter picker).
   useEffect(() => {
     fetch('/api/admin/restaurants-list')
       .then(r => r.ok ? r.json() : null)
@@ -141,6 +143,15 @@ export default function AdminDashboard() {
           setRestaurants(listRes.content)
         }
       })
+      .catch(() => {})
+  }, [])
+
+  // Total Restaurants = active, Stripe-connected restaurants (Neon count via
+  // /api/admin/dashboard/stats), NOT the full FM restaurant list length.
+  useEffect(() => {
+    fetch('/api/admin/dashboard/stats')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && typeof d.activeRestaurants === 'number') setActiveRestaurants(d.activeRestaurants) })
       .catch(() => {})
   }, [])
 
@@ -334,10 +345,10 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Top metrics — Total Restaurants is a global count; the rest reflect the
-          selected date range. */}
+      {/* Top metrics — Total Restaurants is the global count of active,
+          Stripe-connected restaurants; the rest reflect the selected date range. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginTop: 22 }}>
-        <CountCard title="Total Restaurants" value={restaurants.length} />
+        <CountCard title="Total Restaurants" value={activeRestaurants ?? 0} />
         <CountCard title="Total Orders" value={totalOrders} />
         <SaleCard title="Avg Order Value" value={avgOrderValue} />
         <CountCard title="Avg Orders / Day" value={avgOrdersPerDay} decimal />
