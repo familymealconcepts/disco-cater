@@ -147,12 +147,15 @@ export interface DiscoGroupAccount {
 // ── Explicit location access (disco_restaurant_location_access) ───────────────
 // The source of truth for which restaurant_references a SYSTEM_ADMIN can see.
 
-// All restaurant_references the email has explicit access to.
+// All restaurant_references the email has explicit access to. Returns [] for a
+// blank email (FM-native users) or on any query error — never throws.
 export async function getLocationAccessRefs(email: string): Promise<string[]> {
+  const e = (email || '').trim()
+  if (!e) return []
   try {
     const rows = (await sql`
       SELECT restaurant_reference FROM disco_restaurant_location_access
-      WHERE account_email = ${email} ORDER BY id ASC
+      WHERE account_email = ${e} ORDER BY id ASC
     `) as Array<{ restaurant_reference: string }>
     return rows.map(r => r.restaurant_reference)
   } catch {
@@ -195,43 +198,55 @@ export async function getHomeLocationRef(email: string): Promise<string | null> 
 // Shared by SYSTEM_ADMIN group-wide promotion and by order/location scoping so
 // the two always agree on which locations a SYSTEM_ADMIN can see.
 export async function getDiscoGroupAccounts(businessName: string | null, email: string): Promise<DiscoGroupAccount[]> {
-  // Explicit access wins.
-  try {
-    // One row per access entry (la is UNIQUE per email+ref). Name comes from the
-    // restaurant cache; we don't join disco_restaurant_accounts here because
-    // multiple accounts can share a restaurant and would multiply rows.
-    const access = (await sql`
-      SELECT la.id AS id, ${email} AS email, la.restaurant_reference AS restaurant_reference,
-             COALESCE(c.name, '') AS restaurant_name,
-             NULL AS business_name, 'SYSTEM_ADMIN' AS role
-      FROM disco_restaurant_location_access la
-      LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = la.restaurant_reference
-      WHERE la.account_email = ${email}
-      ORDER BY la.id ASC
-    `) as DiscoGroupAccount[]
-    if (access.length) return access
-  } catch {
-    // Table not migrated yet — fall through to legacy grouping.
-  }
+  // FM-native users have no Disco identity (getRestaurantAuthContext returns an
+  // empty email for them) and therefore no rows here — return empty immediately
+  // so the caller falls back to the FM token's own restaurant_reference. This is
+  // the regression guard: never query (or block) for a non-Disco user.
+  const e = (email || '').trim()
+  if (!e) return []
 
-  const bn = (businessName || '').trim()
-  if (bn) {
+  // This function must NEVER throw — a scoping failure must not break login or any
+  // portal request. On any error we return [] and let the caller fall back.
+  try {
+    // Explicit access wins (disco_restaurant_location_access). One row per access
+    // entry (la is UNIQUE per email+ref); name comes from the restaurant cache.
+    try {
+      const access = (await sql`
+        SELECT la.id AS id, ${e} AS email, la.restaurant_reference AS restaurant_reference,
+               COALESCE(c.name, '') AS restaurant_name,
+               NULL AS business_name, 'SYSTEM_ADMIN' AS role
+        FROM disco_restaurant_location_access la
+        LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = la.restaurant_reference
+        WHERE la.account_email = ${e}
+        ORDER BY la.id ASC
+      `) as DiscoGroupAccount[]
+      if (access.length) return access
+    } catch {
+      // Table not migrated yet / query error — fall through to legacy grouping.
+    }
+
+    const bn = (businessName || '').trim()
+    if (bn) {
+      return (await sql`
+        SELECT id, email, restaurant_reference, restaurant_name, business_name, role
+        FROM disco_restaurant_accounts WHERE business_name = ${bn}
+      `) as DiscoGroupAccount[]
+    }
+    const domain = discoEmailDomain(e)
+    if (!domain) {
+      return (await sql`
+        SELECT id, email, restaurant_reference, restaurant_name, business_name, role
+        FROM disco_restaurant_accounts WHERE email = ${e}
+      `) as DiscoGroupAccount[]
+    }
     return (await sql`
       SELECT id, email, restaurant_reference, restaurant_name, business_name, role
-      FROM disco_restaurant_accounts WHERE business_name = ${bn}
+      FROM disco_restaurant_accounts WHERE LOWER(SPLIT_PART(email, '@', 2)) = ${domain}
     `) as DiscoGroupAccount[]
+  } catch (err) {
+    console.error('[getDiscoGroupAccounts] scoping lookup failed — returning empty:', err instanceof Error ? err.message : err)
+    return []
   }
-  const domain = discoEmailDomain(email)
-  if (!domain) {
-    return (await sql`
-      SELECT id, email, restaurant_reference, restaurant_name, business_name, role
-      FROM disco_restaurant_accounts WHERE email = ${email}
-    `) as DiscoGroupAccount[]
-  }
-  return (await sql`
-    SELECT id, email, restaurant_reference, restaurant_name, business_name, role
-    FROM disco_restaurant_accounts WHERE LOWER(SPLIT_PART(email, '@', 2)) = ${domain}
-  `) as DiscoGroupAccount[]
 }
 
 // Delete a session (logout)

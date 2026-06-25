@@ -94,7 +94,13 @@ export default function RestaurantLoginPage() {
 
       if (role === 'SYSTEM_ADMIN') {
         try {
-          const locRes = await fetch('/api/restaurant/locations?size=1000', { credentials: 'include' })
+          // Non-blocking probe: never let a slow/hung locations call trap the user
+          // on "Signing in…". On timeout/failure we fall through to the Locations
+          // page where they can pick a location.
+          const ctrl = new AbortController()
+          const timer = setTimeout(() => ctrl.abort(), 8000)
+          const locRes = await fetch('/api/restaurant/locations?size=1000', { credentials: 'include', signal: ctrl.signal })
+          clearTimeout(timer)
           if (locRes.ok) {
             const locData = await locRes.json()
             const list: { reference: string; businessName: string }[] = locData.content || []
