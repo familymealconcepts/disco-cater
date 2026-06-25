@@ -150,9 +150,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   let stripeRefundId = ''
   let stripeInvoiceId = ''
 
-  // Persist the edited items into disco_order_items (replace) + the recalculated
-  // money/date onto disco_orders. Only when the order is mirrored in Neon.
-  async function writeNeonOrder(): Promise<void> {
+  // Replace disco_order_items with the edited lines. Shared by the confirm path
+  // (immediate apply) and the pending/invoice path (so the order reflects the
+  // edited items right away, even while the delta invoice is outstanding).
+  async function writeNeonItems(): Promise<void> {
     if (!discoOrder) return
     await sql`DELETE FROM disco_order_items WHERE order_id = ${discoOrder.id}`.catch(e => console.error('[orders/edit] items delete:', e))
     for (const l of activeLines) {
@@ -163,6 +164,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
                 ${unit}, ${round2(unit * (Number(l.quantity) || 0))}, ${servesToInt(l.serves)})
       `.catch(e => console.error('[orders/edit] item insert:', e))
     }
+  }
+
+  // Persist the edited items into disco_order_items (replace) + the recalculated
+  // money/date onto disco_orders. Used by the CONFIRM path — bumps edit_count and
+  // clears edit_status. Only when the order is mirrored in Neon.
+  async function writeNeonOrder(): Promise<void> {
+    if (!discoOrder) return
+    await writeNeonItems()
     await sql`
       UPDATE disco_orders SET
         subtotal = ${newSubtotal}, total = ${newTotal}, fee = ${newFee},
@@ -270,9 +279,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       customerEmail, firstName, orderNumber, businessName,
     }
     if (discoOrder) {
+      // Apply the edited items + recalculated money/date to Neon immediately so
+      // disco_order_items and disco_orders.total reflect the edit right away (a
+      // native order has no Disco-vaulted card, so an increase always lands here
+      // — without this the order would look unchanged until the invoice is paid).
+      // edit_count is intentionally NOT bumped here; the invoice.paid handler
+      // (applyPendingEdit) bumps it once when the delta is collected.
+      await writeNeonItems()
       await sql`
         UPDATE disco_orders
-        SET edit_status = 'pending_payment', pending_edit_data = ${JSON.stringify(pending)}::jsonb,
+        SET subtotal = ${newSubtotal}, total = ${newTotal}, fee = ${newFee},
+            order_date = ${effDate}::date, order_time = ${effTime}::time,
+            edit_status = 'pending_payment', pending_edit_data = ${JSON.stringify(pending)}::jsonb,
             pending_edit_delta = ${delta}, pending_stripe_invoice_id = ${stripeInvoiceId || null}, updated_at = NOW()
         WHERE id = ${discoOrder.id}
       `.catch(e => console.error('[orders/edit] pending update:', e))

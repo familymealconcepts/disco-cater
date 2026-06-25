@@ -60,7 +60,9 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   // 8 chars of the UUID if FM doesn't return one (older orders, etc).
   const orderNumber = order?.orderNumber ?? order?.orderNum
   const displayId = orderNumber ? String(orderNumber) : orderRef.slice(0, 8)
-  const items: any[] = order?.mealPackages || order?.items || order?.packages || []
+  // /api/order/status returns a normalized `items` array ({ name, quantity,
+  // price, lineTotal }); fall back to the raw FM shapes for older responses.
+  const items: any[] = order?.items || order?.mealPackages || order?.orderMealPackages || order?.packages || []
   const total = order?.total ?? order?.totalAmount ?? order?.totalCost ?? 0
   const deliveryFee = order?.deliveryFee ?? 0
   const tips = order?.tips ?? 0
@@ -160,16 +162,27 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 </div>
               )}
 
-              {/* Items */}
+              {/* Items — itemized list: name, quantity, price per item, line total */}
               {items.length > 0 && (
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
                   <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Items</div>
-                  {items.map((item: any, i: number) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 14, color: DARK }}>
-                      <span>{item.quantity > 1 && <span style={{ color: '#888' }}>{item.quantity}× </span>}{item.name || item.mealPackageName || item.packageName}</span>
-                      {item.price && <span style={{ fontWeight: 600 }}>{fmt$(item.price * (item.quantity || 1))}</span>}
-                    </div>
-                  ))}
+                  {items.map((item: any, i: number) => {
+                    const name = item.name || item.mealPackageName || item.packageName || 'Item'
+                    const quantity = Number(item.quantity ?? item.count) || 1
+                    const price = Number(item.price ?? item.pricePerUnit) || 0
+                    const lineTotal = Number(item.lineTotal) || price * quantity
+                    return (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 10, fontSize: 14, color: DARK }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600 }}>{name}</div>
+                          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                            {quantity} × {fmt$(price)} each
+                          </div>
+                        </div>
+                        <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt$(lineTotal)}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
 
