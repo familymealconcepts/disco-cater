@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { randomUUID } from 'node:crypto'
-import { getToken } from '../../../../lib/auth'
+import { getFmCustomerJwt } from '../../../../lib/customer-auth'
 import { sql } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -143,8 +143,8 @@ async function mirrorOrderToNeon(args: {
 
 export async function POST(req: NextRequest) {
   try {
-    const token = getToken(req)
-    if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    const token = await getFmCustomerJwt(req)
+    if (!token) return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
 
     const body = await req.json()
     const { restaurantRef, orderRef, ...placeBody } = body

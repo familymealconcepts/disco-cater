@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers'
+import { getCustomerSession } from './customer-auth'
 
 // ── Customer auth ──────────────────────────────────────────────────────────
 // The diner JWT lives in the `disco_token` cookie (set by /api/fm-auth). FM's
@@ -20,22 +21,39 @@ function decodeJwt(token: string): Record<string, unknown> | null {
   }
 }
 
-// Returns the logged-in customer's identity from the disco_token cookie, or
-// null when there is no usable token / reference.
+// Returns the logged-in customer's identity. Prefers the legacy disco_token FM
+// JWT (decoded for the FM reference); falls back to the Disco-native customer
+// session (disco_customer_token) so Neon-backed routes keep working even when no
+// FM JWT is present (e.g. FM was down at login).
 export async function getCustomer(): Promise<CustomerIdentity | null> {
   const store = await cookies()
   const token = store.get('disco_token')?.value
-  if (!token) return null
-  const payload = decodeJwt(token)
-  if (!payload) return null
-  const reference = (payload.reference as string) || (payload.sub as string) || ''
-  if (!reference) return null
-  return {
-    reference,
-    email: (payload.email as string) || (payload.sub as string) || '',
-    firstName: (payload.firstName as string) || '',
-    lastName: (payload.lastName as string) || '',
+  if (token) {
+    const payload = decodeJwt(token)
+    const reference = (payload?.reference as string) || (payload?.sub as string) || ''
+    if (reference) {
+      return {
+        reference,
+        email: (payload?.email as string) || (payload?.sub as string) || '',
+        firstName: (payload?.firstName as string) || '',
+        lastName: (payload?.lastName as string) || '',
+      }
+    }
   }
+
+  // Disco-native session fallback.
+  const session = await getCustomerSession()
+  if (session) {
+    return {
+      // No FM reference yet (FM-less account) → key Neon-owned data by email so
+      // it stays internally consistent for this customer.
+      reference: session.fmReference || session.email,
+      email: session.email,
+      firstName: session.firstName,
+      lastName: session.lastName,
+    }
+  }
+  return null
 }
 
 // ── Stripe identity extraction ───────────────────────────────────────────────

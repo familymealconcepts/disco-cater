@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getToken } from '../../../lib/auth'
+import { getFmCustomerJwt } from '../../../lib/customer-auth'
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -17,8 +17,8 @@ const FM_PATH = '/api/userFavorites'
 const FM_LIVE = false   // flip to true once FM ships the endpoint
 
 export async function GET(req: NextRequest) {
-  const token = getToken(req)
-  if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const token = await getFmCustomerJwt(req)
+  if (!token) return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
   if (!FM_LIVE) {
     return NextResponse.json(
       { error: 'FM_FAVORITES_NOT_SHIPPED', message: 'FM has no customer favorites endpoint yet — client should use local storage.' },
@@ -37,8 +37,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const token = getToken(req)
-  if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const token = await getFmCustomerJwt(req)
+  if (!token) return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
   if (!FM_LIVE) {
     return NextResponse.json(
       { error: 'FM_FAVORITES_NOT_SHIPPED', message: 'FM has no customer favorites endpoint yet — client should use local storage.' },

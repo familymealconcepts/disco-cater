@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getToken } from '../../../lib/auth'
+import { getFmCustomerJwt } from '../../../lib/customer-auth'
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export async function GET(req: NextRequest) {
   try {
-    const token = getToken(req)
+    const token = await getFmCustomerJwt(req)
     if (!token) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+      return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
     }
 
     const { searchParams } = req.nextUrl

@@ -199,6 +199,42 @@ CREATE TABLE IF NOT EXISTS disco_restaurant_sessions (
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_sessions_token ON disco_restaurant_sessions(token);
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_email ON disco_restaurant_accounts(email);
 
+-- ── Disco-native customer authentication ─────────────────────────────────────
+-- Customers authenticate against Neon (bcrypt password_hash). Behind the scenes
+-- we still obtain an FM JWT (+ refresh token) and store it on the session so
+-- order placement keeps working. The opaque session_token lives in the
+-- disco_customer_token cookie (separate from disco_restaurant_token / admin).
+CREATE TABLE IF NOT EXISTS disco_customers (
+  id SERIAL PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  phone TEXT,
+  fm_customer_number INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS disco_customer_sessions (
+  id SERIAL PRIMARY KEY,
+  session_token TEXT UNIQUE NOT NULL,
+  customer_email TEXT NOT NULL,
+  fm_jwt TEXT,
+  fm_refresh_token TEXT,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_disco_customer_sessions_token ON disco_customer_sessions(session_token);
+CREATE INDEX IF NOT EXISTS idx_disco_customers_email ON disco_customers(email);
+
+-- Self-heal columns: needs_password_reset flags FM-migrated rows; fm_reference
+-- preserves the FM customer reference (string) the frontend expects on the user
+-- payload (the integer fm_customer_number above is null when FM omits it).
+ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS needs_password_reset BOOLEAN DEFAULT false;
+ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS fm_reference TEXT;
+
 -- Disco-native role + restaurant-group columns. ADMIN = single-location access
 -- (own restaurant_reference); SYSTEM_ADMIN = all locations in the same group
 -- (matched by business_name, or email domain as a fallback). Set by the super
