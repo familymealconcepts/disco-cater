@@ -41,34 +41,56 @@ export async function GET() {
       ...refs.filter(r => !seen.has(r)).map(r => ({ reference: r, name: '', address: '', isLive: false, isHome: r === ctx.restaurantReference })),
     ]
 
-    // Section 2 — Sub System Admins created by this PSA.
-    const subRows = (await sql`
-      SELECT email, first_name, last_name, restaurant_reference, invite_token
-      FROM disco_restaurant_accounts
-      WHERE created_by = ${ctx.email} AND role = 'SYSTEM_ADMIN'
-      ORDER BY id ASC
-    `) as Array<{ email: string; first_name: string | null; last_name: string | null; restaurant_reference: string | null; invite_token: string | null }>
+    // Helper: the location names an account can access.
+    const accessFor = async (email: string) => (await sql`
+      SELECT la.restaurant_reference AS reference, COALESCE(c.name, '') AS name
+      FROM disco_restaurant_location_access la
+      LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = la.restaurant_reference
+      WHERE la.account_email = ${email}
+      ORDER BY la.id ASC
+    `) as Array<{ reference: string; name: string }>
 
-    const subAdmins = []
-    for (const s of subRows) {
-      const access = (await sql`
-        SELECT la.restaurant_reference AS reference, COALESCE(c.name, '') AS name
-        FROM disco_restaurant_location_access la
-        LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = la.restaurant_reference
-        WHERE la.account_email = ${s.email}
-        ORDER BY la.id ASC
-      `) as Array<{ reference: string; name: string }>
-      subAdmins.push({
-        email: s.email,
-        firstName: s.first_name || '',
-        lastName: s.last_name || '',
-        // Pending = they were invited but haven't set a password yet.
-        pendingInvite: !!s.invite_token,
-        locations: access.map(a => ({ reference: a.reference, name: a.name })),
+    // All users this account created — both SYSTEM_ADMIN and ADMIN (Restaurant
+    // User) — for the unified Authorized Users table.
+    const userRows = (await sql`
+      SELECT email, first_name, last_name, role, invite_token, created_at::text AS created_at
+      FROM disco_restaurant_accounts
+      WHERE created_by = ${ctx.email}
+      ORDER BY id ASC
+    `) as Array<{ email: string; first_name: string | null; last_name: string | null; role: string | null; invite_token: string | null; created_at: string | null }>
+
+    const users = []
+    for (const u of userRows) {
+      users.push({
+        email: u.email,
+        firstName: u.first_name || '',
+        lastName: u.last_name || '',
+        role: u.role || 'ADMIN',
+        registration: u.created_at || null,
+        pendingInvite: !!u.invite_token,
+        locations: (await accessFor(u.email)).map(a => ({ reference: a.reference, name: a.name })),
       })
     }
 
-    return NextResponse.json({ locations: locationList, subAdmins })
+    // The logged-in user themselves (shown greyed-out, no actions).
+    const selfRows = (await sql`
+      SELECT first_name, last_name, role, created_at::text AS created_at
+      FROM disco_restaurant_accounts WHERE email = ${ctx.email} LIMIT 1
+    `) as Array<{ first_name: string | null; last_name: string | null; role: string | null; created_at: string | null }>
+    const selfRow = selfRows[0]
+    const self = {
+      email: ctx.email,
+      firstName: selfRow?.first_name || ctx.firstName || '',
+      lastName: selfRow?.last_name || ctx.lastName || '',
+      role: selfRow?.role || ctx.role || 'SYSTEM_ADMIN',
+      registration: selfRow?.created_at || null,
+      locations: (await accessFor(ctx.email)).map(a => ({ reference: a.reference, name: a.name })),
+    }
+
+    // Backward-compat: the (hidden) standalone Team page still reads `subAdmins`.
+    const subAdmins = users.filter(u => u.role === 'SYSTEM_ADMIN')
+
+    return NextResponse.json({ self, users, locations: locationList, subAdmins })
   } catch (err) {
     console.error('[restaurant/team] GET failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Unable to load team' }, { status: 500 })

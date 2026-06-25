@@ -26,6 +26,9 @@ export async function POST(req: NextRequest) {
     const email = String(body?.email || '').trim().toLowerCase()
     const firstName = String(body?.firstName || '').trim()
     const lastName = String(body?.lastName || '').trim()
+    // Role of the new user: SYSTEM_ADMIN (multi-location) or ADMIN (Restaurant
+    // User, single location). Defaults to SYSTEM_ADMIN for back-compat.
+    const role = String(body?.role || 'SYSTEM_ADMIN').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'SYSTEM_ADMIN'
     const requested: string[] = Array.isArray(body?.restaurantReferences)
       ? body.restaurantReferences.map((r: unknown) => String(r)).filter(Boolean)
       : []
@@ -34,14 +37,16 @@ export async function POST(req: NextRequest) {
 
     await runDiscoOrderMigrations()
 
-    // Enforce: sub admin can only get locations the PSA actually has.
+    // Enforce: the new user can only get locations the inviter actually has.
     let psaRefs = await getLocationAccessRefs(ctx.email)
     if (!psaRefs.length && ctx.restaurantReference) psaRefs = [ctx.restaurantReference]
     const psaSet = new Set(psaRefs)
-    const granted = requested.filter(r => psaSet.has(r))
+    let granted = requested.filter(r => psaSet.has(r))
     if (!granted.length) {
       return NextResponse.json({ error: 'You can only assign locations you have access to' }, { status: 403 })
     }
+    // Restaurant Users belong to a single location.
+    if (role === 'ADMIN') granted = granted.slice(0, 1)
 
     // Create the account. password_hash is NOT NULL, so seed an unusable random
     // hash — the sub admin sets their real password via the invite link below.
@@ -53,10 +58,10 @@ export async function POST(req: NextRequest) {
         restaurant_name, role, business_name, created_by, updated_at
       ) VALUES (
         ${email}, ${placeholderHash}, ${home}, ${firstName || null}, ${lastName || null},
-        ${null}, 'SYSTEM_ADMIN', ${ctx.businessName || null}, ${ctx.email}, NOW()
+        ${null}, ${role}, ${ctx.businessName || null}, ${ctx.email}, NOW()
       )
       ON CONFLICT (email) DO UPDATE SET
-        role = 'SYSTEM_ADMIN', created_by = ${ctx.email},
+        role = ${role}, created_by = ${ctx.email},
         first_name = COALESCE(EXCLUDED.first_name, disco_restaurant_accounts.first_name),
         last_name = COALESCE(EXCLUDED.last_name, disco_restaurant_accounts.last_name),
         updated_at = NOW()

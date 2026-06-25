@@ -27,7 +27,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ em
     const rows = (await sql`
       SELECT email, first_name, restaurant_reference
       FROM disco_restaurant_accounts
-      WHERE email = ${subEmail} AND created_by = ${ctx.email} AND role = 'SYSTEM_ADMIN'
+      WHERE email = ${subEmail} AND created_by = ${ctx.email}
       LIMIT 1
     `) as Array<{ email: string; first_name: string | null; restaurant_reference: string | null }>
     const sub = rows[0]

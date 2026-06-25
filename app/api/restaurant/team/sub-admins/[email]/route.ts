@@ -6,11 +6,12 @@ import { getLocationAccessRefs, grantLocationAccess, getHomeLocationRef } from '
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Verify the target email is a Sub System Admin created by the calling PSA.
+// Verify the target email is a user (System Admin or Restaurant User) created by
+// the calling inviter.
 async function assertOwnedSubAdmin(psaEmail: string, subEmail: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 FROM disco_restaurant_accounts
-    WHERE email = ${subEmail} AND created_by = ${psaEmail} AND role = 'SYSTEM_ADMIN' LIMIT 1
+    WHERE email = ${subEmail} AND created_by = ${psaEmail} LIMIT 1
   `) as unknown[]
   return rows.length > 0
 }
