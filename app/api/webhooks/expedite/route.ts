@@ -5,6 +5,10 @@ import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// Startup confirmation — surfaces in the deploy logs so we can verify the
+// receiver is live. Registered with Expedite as EXPEDITE_WEBHOOK_URL.
+console.log('[expedite-webhook] endpoint active at /api/webhooks/expedite')
+
 // POST /api/webhooks/expedite
 // Receives delivery status updates from Expedite. Verifies the
 // X-Expedite-Signature ("<timestamp>.<HMAC-SHA256(EXPEDITE_SECRET, timestamp + '.' + rawBody)>"),

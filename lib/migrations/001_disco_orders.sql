@@ -370,3 +370,8 @@ ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS expedite_delivery_id TEXT;
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS expedite_delivery_fee NUMERIC(10,2);
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS expedite_status TEXT;
 CREATE INDEX IF NOT EXISTS idx_disco_orders_expedite_delivery_id ON disco_orders(expedite_delivery_id);
+
+-- Geocoded coordinates of the customer delivery address, so the Expedite dropoff
+-- task carries accurate lat/lng (geocoded at placement, /api/order/place).
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS delivery_lat NUMERIC(10,7);
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS delivery_lng NUMERIC(10,7);

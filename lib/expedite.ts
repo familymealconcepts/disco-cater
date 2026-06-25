@@ -71,6 +71,8 @@ export interface DiscoOrder {
   delivery_city: string | null
   delivery_state: string | null
   delivery_zip: string | null
+  delivery_lat: string | number | null
+  delivery_lng: string | number | null
   subtotal: string | number | null
   tips: string | number | null
 }
@@ -212,9 +214,10 @@ export function buildDeliveryPayload(order: DiscoOrder, restaurantCache: Restaur
     city: order.delivery_city || '',
     state: (order.delivery_state || '').toUpperCase(),
     zip: order.delivery_zip || '',
-    // disco_orders has no delivery lat/lng columns; Expedite geocodes the address.
-    latitude: 0,
-    longitude: 0,
+    // Geocoded at placement (/api/order/place); 0 only when geocoding was
+    // unavailable, in which case Expedite falls back to geocoding the address.
+    latitude: num(order.delivery_lat),
+    longitude: num(order.delivery_lng),
     canceled: false,
     external_id: 'd0',
     items_count: itemsCount,
@@ -322,7 +325,7 @@ export async function buildPayloadFromNeon(orderRef: string): Promise<ExpediteOr
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
              customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-             subtotal, tips, id
+             delivery_lat, delivery_lng, subtotal, tips, id
       FROM disco_orders
       WHERE reference = ${orderRef}::uuid OR fm_order_reference = ${orderRef}::uuid
       LIMIT 1

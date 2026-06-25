@@ -26,6 +26,29 @@ function extractPaymentIntentId(data: Record<string, unknown>): string {
   return typeof id === 'string' ? id : ''
 }
 
+// Geocode a delivery address to lat/lng via the Google Maps Geocoding API.
+// Best-effort: returns nulls on any failure (missing key, no result, error) so a
+// geocode miss never blocks the order mirror — the dropoff just lacks coords.
+async function geocodeAddress(address: string): Promise<{ lat: number | null; lng: number | null }> {
+  const key = process.env.GOOGLE_PLACES_API_KEY
+  if (!key || !address.trim()) return { lat: null, lng: null }
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`
+    const res = await fetch(url)
+    if (!res.ok) { console.warn('[order/place] geocode HTTP', res.status); return { lat: null, lng: null } }
+    const data = await res.json().catch(() => null)
+    const loc = data?.results?.[0]?.geometry?.location
+    if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
+      return { lat: loc.lat, lng: loc.lng }
+    }
+    console.warn('[order/place] geocode no result for address:', address)
+    return { lat: null, lng: null }
+  } catch (e) {
+    console.error('[order/place] geocode failed:', e instanceof Error ? e.message : e)
+    return { lat: null, lng: null }
+  }
+}
+
 // disco_orders.order_status CHECK set (001_disco_orders.sql).
 const ALLOWED_STATUS = new Set([
   'CART', 'RESERVED', 'DUE', 'COMPLETED', 'CANCELED', 'REFUND',
@@ -131,6 +154,23 @@ async function mirrorOrderToNeon(args: {
       return
     }
 
+    // Geocode the delivery address so the Expedite dropoff task has accurate
+    // lat/lng. Prefer coordinates the client already validated (Mapbox), else
+    // geocode via Google. Best-effort — NULL when unavailable.
+    let deliveryLat: number | null = null
+    let deliveryLng: number | null = null
+    if (orderType === 'DELIVERY') {
+      const cLat = Number(da.latitude)
+      const cLng = Number(da.longitude)
+      if (Number.isFinite(cLat) && Number.isFinite(cLng) && (cLat !== 0 || cLng !== 0)) {
+        deliveryLat = cLat; deliveryLng = cLng
+      } else {
+        const fullAddress = [daLine1, daLine2, daCity, daState, daZip].filter(Boolean).join(', ')
+        const geo = await geocodeAddress(fullAddress)
+        deliveryLat = geo.lat; deliveryLng = geo.lng
+      }
+    }
+
     // (a) disco_orders — upsert keyed by the FM order reference (== reference here),
     // DO UPDATE so retries refresh the money snapshot. RETURNING id for items.
     const orderRows = (await sql`
@@ -138,11 +178,13 @@ async function mirrorOrderToNeon(args: {
         reference, order_number, order_status, order_type, delivery_type, source_of_order,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
         delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
+        delivery_lat, delivery_lng,
         order_date, order_time, subtotal, total, fee, tax_exempt_id, persons, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, ${deliveryType}, 'DISCO',
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
         ${daLine1}, ${daLine2}, ${daCity}, ${daState}, ${daZip},
+        ${deliveryLat}, ${deliveryLng},
         ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${taxExemptId}, ${persons}, ${reference}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO UPDATE SET
@@ -154,6 +196,8 @@ async function mirrorOrderToNeon(args: {
         delivery_city = COALESCE(EXCLUDED.delivery_city, disco_orders.delivery_city),
         delivery_state = COALESCE(EXCLUDED.delivery_state, disco_orders.delivery_state),
         delivery_zip = COALESCE(EXCLUDED.delivery_zip, disco_orders.delivery_zip),
+        delivery_lat = COALESCE(EXCLUDED.delivery_lat, disco_orders.delivery_lat),
+        delivery_lng = COALESCE(EXCLUDED.delivery_lng, disco_orders.delivery_lng),
         tax_exempt_id = COALESCE(EXCLUDED.tax_exempt_id, disco_orders.tax_exempt_id),
         persons = COALESCE(EXCLUDED.persons, disco_orders.persons), updated_at = NOW()
       RETURNING id
