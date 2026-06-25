@@ -34,8 +34,9 @@ const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Locations', path: '/restaurant/manage/locations' },
   { title: 'Authorized Users', path: '/restaurant/manage/authorized-users' },
   { title: 'Orders', path: '/restaurant/orders', badge: true },
-  // Team — Primary System Admin location + sub-admin management (below Orders).
-  { title: 'Team', path: '/restaurant/team' },
+  // Team management (locations + sub system admins) now lives inside the
+  // Authorized Users page; the standalone /restaurant/team route is kept but
+  // hidden from the nav.
   { title: 'Links', path: '/restaurant/manage/multi-unit-links' },
   { title: 'Bulk Menu Editor', path: '/restaurant/manage/bulk-pricing' },
   { title: 'Customers', path: '/restaurant/restaurant-customers' },
