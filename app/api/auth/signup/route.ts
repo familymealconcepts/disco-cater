@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { COOKIE_OPTS } from '../../../../lib/auth'
 import { SESSION_MAX_AGE } from '../../../../lib/jwt'
 import { runDiscoOrderMigrations } from '../../../../lib/db'
 import {
   CUSTOMER_COOKIE, CUSTOMER_COOKIE_OPTS,
-  hashCustomerPassword, getDiscoCustomer, upsertDiscoCustomer, createCustomerSession, fmRegister, fmLogin,
+  hashCustomerPassword, getDiscoCustomer, upsertDiscoCustomer, createCustomerSession,
+  fmRegister, fmLogin, syncFmProfilePhoneToDigits,
 } from '../../../../lib/customer-auth'
+import { sanitizePhone } from '../../../../lib/utils/phone'
 
 export const runtime = 'nodejs'
 
@@ -32,12 +35,14 @@ export async function POST(req: NextRequest) {
     const passwordHash = await hashCustomerPassword(password)
     // FM /registration requires digits-only phone numbers ("Phone number has
     // wrong format" otherwise). Sanitize for FM; keep the entered value in Neon.
-    const sanitizePhone = (phone: string) => phone.replace(/\D/g, '')
     let fm = await fmRegister({ email, password, firstName, lastName, phoneNumber: sanitizePhone(phoneNumber) })
     // Fall back to FM /login so we capture the FM JWT even when /registration
     // doesn't return one — order placement depends on the disco_token cookie.
     if (!fm) fm = await fmLogin(email, password)
     if (!fm) console.warn('[signup] FM registration unavailable — creating Disco-only account for', email)
+    // Self-heal a legacy formatted phone in FM (e.g. the fallback login matched
+    // an existing FM account). Fire-and-forget — never blocks/fails signup.
+    if (fm) waitUntil(syncFmProfilePhoneToDigits(fm))
 
     try {
       await upsertDiscoCustomer({

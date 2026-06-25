@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getToken } from '../../../lib/auth'
 import { getCustomerSession, getDiscoCustomer, getFmCustomerJwt } from '../../../lib/customer-auth'
+import { sanitizePhoneFields } from '../../../lib/utils/phone'
 import { sql } from '../../../lib/db'
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -45,6 +46,8 @@ export async function PUT(req: NextRequest) {
   if (!token) return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
   try {
     const body = await req.json()
+    // FM rejects formatted phones — digits only. Sanitize before the profile PUT.
+    sanitizePhoneFields(body)
 
     const res = await fetch(`${FM_API}/api/users`, {
       method: 'PUT',

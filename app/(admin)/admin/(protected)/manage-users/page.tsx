@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { sanitizePhone, formatPhoneDisplay } from '../../../../../lib/utils/phone'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -188,7 +189,8 @@ function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           email: email.trim(),
-          phoneNumber: phoneNumber.trim(),
+          // FM requires a digits-only phone ("Phone number has wrong format").
+          phoneNumber: sanitizePhone(phoneNumber),
         }),
       })
       if (!res.ok) {
@@ -228,7 +230,8 @@ function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
         </div>
         <div style={{ marginBottom: 18 }}>
           <label style={lbl}>Phone *</label>
-          <input style={fieldInput} value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="000-000-0000" />
+          {/* phoneNumber state holds digits only; shown formatted, auto-stripped. */}
+          <input style={fieldInput} value={formatPhoneDisplay(phoneNumber)} onChange={e => setPhoneNumber(sanitizePhone(e.target.value))} placeholder="(000) 000-0000" inputMode="tel" maxLength={16} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button onClick={onClose} disabled={submitting}

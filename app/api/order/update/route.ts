@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -31,6 +32,10 @@ export async function PUT(req: NextRequest) {
     // FM requires orderType as "PICKUP" or "DELIVERY" — empty string causes 500.
     // Normalize as a server-side backstop so a missing/blank value can never 500.
     updateBody.orderType = updateBody.orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
+
+    // FM rejects formatted phone numbers — digits only. Sanitize any phone field
+    // (e.g. deliveryAddress.phoneNumber) anywhere in the update body before FM.
+    sanitizePhoneFields(updateBody)
 
     const url = `${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`
     const res = await fetch(url, {

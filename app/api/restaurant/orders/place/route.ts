@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { randomUUID } from 'node:crypto'
 import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
+import { sanitizePhoneFields } from '../../../../../lib/utils/phone'
 import { sql } from '../../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -168,6 +169,10 @@ export async function POST(req: NextRequest) {
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
+
+    // FM rejects formatted phone numbers — digits only. Sanitize every phone
+    // field in the place payload before FM (mutates placeBody → Neon mirror too).
+    sanitizePhoneFields(placeBody)
 
     const res = await fetch(`${FM}/api/v2/restaurants/${restaurantRef}/orders/${orderRef}`, {
       method: 'POST',

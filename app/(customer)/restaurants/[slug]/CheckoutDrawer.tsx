@@ -6,6 +6,7 @@ import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { cartLineTotal, cartSubtotal } from '../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../lib/pricing/lineItem'
 import { trackEvent } from '../../../../lib/analytics'
+import { sanitizePhone, formatPhoneDisplay } from '../../../../lib/utils/phone'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
@@ -226,7 +227,8 @@ export default function CheckoutDrawer({
     setContactFirst(p => p || authUser.firstName || '')
     setContactLast(p => p || authUser.lastName || '')
     setContactEmail(p => p || authUser.email || '')
-    setContactPhone(p => p || authUser.phoneNumber || '')
+    // Store digits-only internally (display is formatted, FM gets digits).
+    setContactPhone(p => p || sanitizePhone(authUser.phoneNumber) || '')
   }, [authUser])
 
   // GA funnel: contact details completed. Fires once when all four contact
@@ -727,7 +729,7 @@ export default function CheckoutDrawer({
             checkoutDetails,
             // FM requires a digits-only phone ("Phone number has wrong format"
             // otherwise) — "732-239-7055" → "7322397055".
-            customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: contactPhone.replace(/\D/g, '') },
+            customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: sanitizePhone(contactPhone) },
             // FM has no order-level headcount field, so send it alongside (not in
             // the FM DTO) for the Neon mirror to persist on disco_orders.persons.
             ...(headcount != null ? { headcount } : {}),
@@ -996,7 +998,9 @@ export default function CheckoutDrawer({
             </div>
             <input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email" type="email" inputMode="email" aria-label="Email"
               style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
-            <input value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="Phone" type="tel" inputMode="tel" aria-label="Phone"
+            {/* contactPhone holds digits only; the field shows them formatted and
+                auto-strips any non-digit the user types/pastes. FM gets digits. */}
+            <input value={formatPhoneDisplay(contactPhone)} onChange={e => setContactPhone(sanitizePhone(e.target.value))} placeholder="Phone" type="tel" inputMode="tel" aria-label="Phone" maxLength={16}
               style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }} />
           </div>
 

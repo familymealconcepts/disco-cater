@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -7,6 +8,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { restaurantRef, ...orderBody } = body
     if (!restaurantRef) return NextResponse.json({ error: 'restaurantRef required' }, { status: 400 })
+
+    // FM rejects formatted phone numbers — digits only. Sanitize any phone field
+    // anywhere in the init body (customer / deliveryAddress) before forwarding.
+    sanitizePhoneFields(orderBody)
 
     const res = await fetch(`${FM}/public-api/v2/restaurants/${restaurantRef}/orders/init`, {
       method: 'POST',

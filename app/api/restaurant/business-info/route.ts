@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -24,6 +25,8 @@ export async function PUT(req: NextRequest) {
   }
   try {
     const body = await req.json()
+    // FM rejects formatted phones — digits only. Sanitize any phone field present.
+    sanitizePhoneFields(body)
     const res = await fetch(`${FM}/api/businessInfo`, {
       method: 'PUT',
       headers: { ...h, 'Content-Type': 'application/json' },

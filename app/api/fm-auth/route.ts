@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { COOKIE_OPTS } from '../../../lib/auth'
 import { SESSION_MAX_AGE } from '../../../lib/jwt'
 import { runDiscoOrderMigrations } from '../../../lib/db'
@@ -6,8 +7,9 @@ import {
   CUSTOMER_COOKIE, CUSTOMER_COOKIE_OPTS, FM_MIGRATED,
   hashCustomerPassword, verifyCustomerPassword,
   getDiscoCustomer, upsertDiscoCustomer, createCustomerSession, deleteCustomerSession,
-  fmLogin, fmRegister, type FmAuthResult,
+  fmLogin, fmRegister, syncFmProfilePhoneToDigits, type FmAuthResult,
 } from '../../../lib/customer-auth'
+import { sanitizePhone } from '../../../lib/utils/phone'
 
 export const runtime = 'nodejs'
 
@@ -67,13 +69,14 @@ export async function POST(req: NextRequest) {
       // FM is down we still create the Disco account + session, just no fm_jwt.
       // FM /registration requires a digits-only phone ("Phone number has wrong
       // format" otherwise); sanitize for FM, keep the entered value in Neon.
-      const sanitizePhone = (phone: string) => phone.replace(/\D/g, '')
       let fm = await fmRegister({ email, password, firstName, lastName, phoneNumber: sanitizePhone(phoneNumber) })
       // FM may create the account but not return a JWT from /registration (or the
       // email already exists in FM). Fall back to an FM /login so we still capture
       // the FM JWT — order placement (disco_token / order/place) depends on it.
       if (!fm) fm = await fmLogin(email, password)
       if (!fm) console.warn('[fm-auth] FM registration unavailable — creating Disco-only account for', email)
+      // If the FM fallback login surfaced an existing formatted phone, fix it.
+      if (fm) waitUntil(syncFmProfilePhoneToDigits(fm))
 
       try {
         await upsertDiscoCustomer({
@@ -124,6 +127,10 @@ export async function POST(req: NextRequest) {
         console.error('[fm-auth] auto-migrate write failed (non-fatal):', e instanceof Error ? e.message : e)
       }
     }
+
+    // Self-heal a legacy formatted phone in the customer's FM profile so the
+    // next checkout doesn't 400. Fire-and-forget — never blocks/fails login.
+    if (fm) waitUntil(syncFmProfilePhoneToDigits(fm))
 
     let sessionToken: string
     try { sessionToken = await createCustomerSession(email, fm?.authorization, fm?.refreshToken) }

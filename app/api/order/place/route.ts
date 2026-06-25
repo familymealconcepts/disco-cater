@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { randomUUID } from 'node:crypto'
 import { getFmCustomerJwt } from '../../../../lib/customer-auth'
+import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { sql } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -163,18 +164,11 @@ export async function POST(req: NextRequest) {
     }
 
     // FM rejects formatted phone numbers ("Phone number has wrong format") — it
-    // wants digits only (e.g. "732-239-7055" → "7322397055"). Sanitize every
-    // phone field in the place payload before forwarding to FM.
-    const sanitizePhone = (phone: string) => phone.replace(/\D/g, '')
-    if (placeBody?.customer && typeof placeBody.customer.phoneNumber === 'string') {
-      placeBody.customer.phoneNumber = sanitizePhone(placeBody.customer.phoneNumber)
-    }
-    if (placeBody?.deliveryAddress && typeof placeBody.deliveryAddress.phoneNumber === 'string') {
-      placeBody.deliveryAddress.phoneNumber = sanitizePhone(placeBody.deliveryAddress.phoneNumber)
-    }
-    if (placeBody?.checkoutDetails && typeof placeBody.checkoutDetails.phoneNumber === 'string') {
-      placeBody.checkoutDetails.phoneNumber = sanitizePhone(placeBody.checkoutDetails.phoneNumber)
-    }
+    // wants digits only (e.g. "732-239-7055" → "7322397055"). Recursively
+    // sanitize every phone field anywhere in the place payload (customer /
+    // deliveryAddress / checkoutDetails) before forwarding to FM. This mutates
+    // placeBody in place, so the Neon mirror below also persists digits-only.
+    sanitizePhoneFields(placeBody)
 
     const res = await fetch(`${FM}/api/v2/restaurants/${restaurantRef}/orders/${orderRef}`, {
       method: 'POST',

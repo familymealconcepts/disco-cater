@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
+import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -33,6 +34,8 @@ export async function POST(req: NextRequest) {
   }
   try {
     const body = await req.json()
+    // FM rejects formatted phones — digits only. Backstop for the admin UI.
+    sanitizePhoneFields(body)
     const res = await fetch(`${FM}/api/admin/users`, {
       method: 'POST', headers: { ...h, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

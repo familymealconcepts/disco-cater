@@ -13,6 +13,7 @@ import { cookies } from 'next/headers'
 import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { sql } from './db'
+import { sanitizePhone } from './utils/phone'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -275,12 +276,39 @@ export async function fmRegister(data: {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         email: data.email, password: data.password,
-        firstName: data.firstName, lastName: data.lastName, phoneNumber: data.phoneNumber || '',
+        // FM /registration requires a digits-only phone. Sanitize here too so
+        // EVERY caller of fmRegister is safe, not just the ones that remember.
+        firstName: data.firstName, lastName: data.lastName, phoneNumber: sanitizePhone(data.phoneNumber),
       }),
     })
     if (!res.ok) return null
     return mapFmAuth(await res.json().catch(() => null), data)
   } catch {
     return null
+  }
+}
+
+// Self-healing: if FM has a formatted phone stored for this just-authenticated
+// customer (e.g. "732-239-7055" from the legacy Angular signup), silently rewrite
+// it to digits-only via PUT /api/users so the next checkout doesn't 400 on
+// "Phone number has wrong format". Best-effort and fire-and-forget at the call
+// site — NEVER throws, NEVER blocks login, NEVER logs the JWT.
+export async function syncFmProfilePhoneToDigits(fm: FmAuthResult | null): Promise<void> {
+  try {
+    if (!fm?.authorization) return
+    const raw = fm.phoneNumber || ''
+    const digits = sanitizePhone(raw)
+    // Nothing to fix when FM has no phone or it's already clean digits.
+    if (!digits || digits === raw) return
+    const res = await fetch(`${FM}/api/users`, {
+      method: 'PUT',
+      headers: { Authorization: fm.authorization, Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firstName: fm.firstName, lastName: fm.lastName, email: fm.email, phoneNumber: digits,
+      }),
+    })
+    console.log(`[customer-auth] FM phone self-heal for ${fm.email}: "${raw}" → "${digits}" (${res.ok ? 'ok' : `fm ${res.status}`})`)
+  } catch (err) {
+    console.error('[customer-auth] FM phone self-heal failed (non-fatal):', err instanceof Error ? err.message : err)
   }
 }

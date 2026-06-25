@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
+import { sanitizePhone } from '../../../../lib/utils/phone'
 import { sql, runMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -53,7 +54,8 @@ export async function POST(req: NextRequest) {
     businessName: restaurantName,
     businessNameWithoutSpaces: restaurantName.toLowerCase().replace(/[^a-z0-9]/g, ''),
     email,
-    phoneNumber: String(body?.phoneNumber || ''),
+    // FM requires a digits-only phone ("Phone number has wrong format" otherwise).
+    phoneNumber: sanitizePhone(String(body?.phoneNumber || '')),
     categories: ['EVENT', 'OFFICE', 'HOLIDAY'],
     fulfillmentOptions: ['PICKUP', 'DELIVERY'],
     // FM provisions the restaurant ADMIN account from this block. Include the
