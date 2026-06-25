@@ -1,7 +1,6 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useAuthContext } from '../context/AuthContext'
 import AuthModal from './AuthModal'
 import UserMenu from './UserMenu'
@@ -11,7 +10,6 @@ const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 
 export default function GlobalHeader({ centerContent, rightLinks = true }: { centerContent?: React.ReactNode; rightLinks?: boolean }) {
   const { user, isLoading, logout, openAuthModal, authModalOpen, authModalDefaultTab, closeAuthModal } = useAuthContext()
-  const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   async function signOut() {
@@ -79,7 +77,7 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
                   Log In
                 </button>
                 <button
-                  onClick={() => router.push('/signup')}
+                  onClick={() => openAuthModal(undefined, 'signup')}
                   style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}
                 >
                   Sign Up
@@ -121,7 +119,7 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
                   <Link href="/become-a-partner" className="dc-mobile-item" style={{ color: '#6B6EF9' }} onClick={() => setMobileOpen(false)}>For Restaurants</Link>
                   <div style={{ height: 1, background: '#f0f0f0', margin: '8px 0' }} />
                   <button onClick={() => { setMobileOpen(false); openAuthModal(undefined, 'login') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: F, marginTop: 4 }}>Log In</button>
-                  <button onClick={() => { setMobileOpen(false); router.push('/signup') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F, marginTop: 6 }}>Sign Up</button>
+                  <button onClick={() => { setMobileOpen(false); openAuthModal(undefined, 'signup') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F, marginTop: 6 }}>Sign Up</button>
                 </>
               ))}
             </div>

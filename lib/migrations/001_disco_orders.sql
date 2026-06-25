@@ -307,6 +307,11 @@ ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS subtotal NUMERIC(10,2);
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS total NUMERIC(10,2);
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS fee NUMERIC(10,2);
 
+-- Headcount (number of people the order serves). FM has no order-level headcount
+-- field, so this is captured at Disco checkout and stored here; null when not
+-- provided. Shown on the order details panel + PDF.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS persons INTEGER;
+
 -- Native-edit audit columns on disco_order_edits (in addition to the original
 -- editor_email/original_*/delta columns the webhook also uses).
 ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS edited_by VARCHAR(255);

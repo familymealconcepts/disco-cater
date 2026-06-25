@@ -726,6 +726,9 @@ export default function CheckoutDrawer({
             orderRef,
             checkoutDetails,
             customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: contactPhone },
+            // FM has no order-level headcount field, so send it alongside (not in
+            // the FM DTO) for the Neon mirror to persist on disco_orders.persons.
+            ...(headcount != null ? { headcount } : {}),
             ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
           }),
         })

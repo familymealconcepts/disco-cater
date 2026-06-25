@@ -4,7 +4,7 @@ import { SESSION_MAX_AGE } from '../../../../lib/jwt'
 import { runDiscoOrderMigrations } from '../../../../lib/db'
 import {
   CUSTOMER_COOKIE, CUSTOMER_COOKIE_OPTS,
-  hashCustomerPassword, getDiscoCustomer, upsertDiscoCustomer, createCustomerSession, fmRegister,
+  hashCustomerPassword, getDiscoCustomer, upsertDiscoCustomer, createCustomerSession, fmRegister, fmLogin,
 } from '../../../../lib/customer-auth'
 
 export const runtime = 'nodejs'
@@ -30,7 +30,10 @@ export async function POST(req: NextRequest) {
     if (existing) return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 409 })
 
     const passwordHash = await hashCustomerPassword(password)
-    const fm = await fmRegister({ email, password, firstName, lastName, phoneNumber })
+    let fm = await fmRegister({ email, password, firstName, lastName, phoneNumber })
+    // Fall back to FM /login so we capture the FM JWT even when /registration
+    // doesn't return one — order placement depends on the disco_token cookie.
+    if (!fm) fm = await fmLogin(email, password)
     if (!fm) console.warn('[signup] FM registration unavailable — creating Disco-only account for', email)
 
     try {

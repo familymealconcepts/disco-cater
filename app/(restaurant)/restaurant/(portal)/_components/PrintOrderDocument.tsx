@@ -48,6 +48,7 @@ export interface PrintableOrder {
   orderDropOffTime?: string
   orderType?: string
   createdDate?: string
+  persons?: number
   firstName?: string
   lastName?: string
   email?: string
@@ -440,6 +441,8 @@ export function buildPrintHtml(order: PrintableOrder): string {
       <td>
         ${order.orderDate ? `<div class="line"><span class="lbl">Date:</span>${esc(fmtLongDate(order.orderDate))}</div>` : ''}
         ${timeRange ? `<div class="line"><span class="lbl">Time:</span>${esc(timeRange)}</div>` : ''}
+        ${order.persons != null ? `<div class="line"><span class="lbl">Headcount:</span>${esc(String(order.persons))}</div>` : ''}
+        ${order.createdDate ? `<div class="line"><span class="lbl">Order Placed:</span>${esc(fmtReceived(order.createdDate))}</div>` : ''}
         ${order.restaurant?.businessName ? `<div class="line" style="margin-top:6px"><span class="lbl">Store:</span>${esc(order.restaurant.businessName)}</div>` : ''}
         ${storeAddrLines.map(l => `<div class="line">${esc(l)}</div>`).join('')}
         ${order.restaurant?.address?.phoneNumber ? `<div class="line">${esc(order.restaurant.address.phoneNumber)}</div>` : ''}

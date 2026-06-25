@@ -73,6 +73,10 @@ async function mirrorOrderToNeon(args: {
     // Tax-exempt id (Item 4) — sent on checkoutDetails; persisted so the
     // confirmation page, PDF, drawer, and emails can show it.
     const taxExemptId = str(checkoutDetails.taxExemptId)
+    // Headcount — FM has no order-level field, so it's sent on the place body
+    // (or, where FM ever provides one, read off the FM payload). null when absent.
+    const personsRaw = placeBody.headcount ?? checkoutDetails.headcount ?? fmInner.persons ?? fmInner.numberOfPeople
+    const persons = Number.isInteger(Number(personsRaw)) && Number(personsRaw) > 0 ? Number(personsRaw) : null
 
     // FM creates the PaymentIntent during placement; its id is on the response.
     const paymentDetails = (fmInner.paymentDetails ?? fm.paymentDetails ?? {}) as Record<string, unknown>
@@ -98,16 +102,17 @@ async function mirrorOrderToNeon(args: {
       INSERT INTO disco_orders (
         reference, order_number, order_status, order_type, source_of_order,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
-        order_date, order_time, subtotal, total, fee, tax_exempt_id, fm_order_reference, created_at, updated_at
+        order_date, order_time, subtotal, total, fee, tax_exempt_id, persons, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, 'DISCO',
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
-        ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${taxExemptId}, ${reference}::uuid, NOW(), NOW()
+        ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${taxExemptId}, ${persons}, ${reference}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO UPDATE SET
         subtotal = EXCLUDED.subtotal, total = EXCLUDED.total, fee = EXCLUDED.fee,
         order_status = EXCLUDED.order_status, fm_order_reference = EXCLUDED.fm_order_reference,
-        tax_exempt_id = COALESCE(EXCLUDED.tax_exempt_id, disco_orders.tax_exempt_id), updated_at = NOW()
+        tax_exempt_id = COALESCE(EXCLUDED.tax_exempt_id, disco_orders.tax_exempt_id),
+        persons = COALESCE(EXCLUDED.persons, disco_orders.persons), updated_at = NOW()
       RETURNING id
     `) as { id: number }[]
     const orderId = orderRows[0]?.id
@@ -144,7 +149,12 @@ async function mirrorOrderToNeon(args: {
 export async function POST(req: NextRequest) {
   try {
     const token = await getFmCustomerJwt(req)
-    if (!token) return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
+    // Vercel log: surface whether the FM JWT resolved (never log the token).
+    console.log('[order/place] FM JWT present:', !!token)
+    if (!token) {
+      console.warn('[order/place] No FM JWT — order will NOT be placed. Customer must be logged in with a valid FM session.')
+      return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
+    }
 
     const body = await req.json()
     const { restaurantRef, orderRef, ...placeBody } = body

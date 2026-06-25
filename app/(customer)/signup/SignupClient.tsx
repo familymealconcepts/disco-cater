@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useAuthContext } from '../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
@@ -34,6 +35,7 @@ function Field({ label, value, onChange, type = 'text', autoComplete, placeholde
 
 export default function SignupClient() {
   const router = useRouter()
+  const { register } = useAuthContext()
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [phone, setPhone] = useState('')
@@ -53,20 +55,12 @@ export default function SignupClient() {
     if (!agree) { setError("Please agree to Disco Cater's Privacy Policy and Terms of Service."); return }
     setLoading(true)
     try {
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstName, lastName, phoneNumber: phone, email, password }),
-        credentials: 'include',
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Sign up failed.'); return }
-      // Persist as currentUser (same shape login stores) and notify the header.
-      try { localStorage.setItem('currentUser', JSON.stringify(data)) } catch {}
-      try { window.dispatchEvent(new CustomEvent('disco-user-changed')) } catch {}
+      // Use the shared auth context so the new account is auto-logged-in
+      // (sets the user + disco_user + header) — no second login needed.
+      await register({ email, password, firstName, lastName, phoneNumber: phone || undefined })
       router.push('/account/orders')
-    } catch {
-      setError('Unable to connect. Please try again.')
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : 'Sign up failed. Please try again.')
     } finally {
       setLoading(false)
     }

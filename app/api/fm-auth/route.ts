@@ -65,7 +65,11 @@ export async function POST(req: NextRequest) {
       const passwordHash = await hashCustomerPassword(password)
       // Also create the FM account (needed for order placement). Best-effort: if
       // FM is down we still create the Disco account + session, just no fm_jwt.
-      const fm = await fmRegister({ email, password, firstName, lastName, phoneNumber })
+      let fm = await fmRegister({ email, password, firstName, lastName, phoneNumber })
+      // FM may create the account but not return a JWT from /registration (or the
+      // email already exists in FM). Fall back to an FM /login so we still capture
+      // the FM JWT — order placement (disco_token / order/place) depends on it.
+      if (!fm) fm = await fmLogin(email, password)
       if (!fm) console.warn('[fm-auth] FM registration unavailable — creating Disco-only account for', email)
 
       try {

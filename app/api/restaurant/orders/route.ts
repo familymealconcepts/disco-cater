@@ -45,6 +45,8 @@ interface OrderRow {
   seen_by_admin: boolean
   edit_count: number
   edit_status: string | null
+  created_at: string | null
+  persons: number | null
 }
 
 function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
@@ -79,6 +81,9 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     // Disco edit state (used by the edit-history icon rule / edit gate).
     editCount: r.edit_count,
     editStatus: r.edit_status,
+    // When the order was placed (Created column) + headcount.
+    orderCreatedDate: r.created_at || undefined,
+    persons: r.persons ?? undefined,
   }
 }
 
@@ -174,7 +179,7 @@ export async function GET(req: NextRequest) {
               source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name,
               to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
               subtotal, total, fee, tips, note, seen_by_admin,
-              COALESCE(edit_count,0) AS edit_count, edit_status
+              COALESCE(edit_count,0) AS edit_count, edit_status, created_at, persons
        FROM disco_orders
        WHERE ${whereSql}
        ORDER BY order_date DESC, order_time DESC

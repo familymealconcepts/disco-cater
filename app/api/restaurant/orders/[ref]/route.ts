@@ -43,6 +43,8 @@ interface DiscoFull {
   delivery_state: string | null
   delivery_zip: string | null
   tax_exempt_id: string | null
+  created_at: string | null
+  persons: number | null
 }
 interface DiscoItem { meal_package_reference: string | null; name: string; quantity: number; price_per_unit: string; serves: number | null }
 
@@ -74,7 +76,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
              source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name, customer_phone,
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, order_drop_off_time::text AS order_drop_off_time,
              subtotal, total, fee, tips, note,
-             delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, tax_exempt_id
+             delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, tax_exempt_id,
+             created_at, persons
       FROM disco_orders
       WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
       LIMIT 1
@@ -115,6 +118,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   base.email = d.customer_email || base.email || ''
   if (d.customer_phone) base.phoneNumber = d.customer_phone
   base.sourceoforder = d.source_of_order
+  // Order Placed (created_at) + headcount — Neon-first.
+  if (d.created_at) { base.createdDate = d.created_at; base.orderCreatedDate = d.created_at }
+  if (d.persons != null) base.persons = d.persons
   if (d.note != null) base.note = d.note
   if (d.subtotal != null) base.subtotal = num(d.subtotal)
   if (d.total != null) { base.total = num(d.total); base.transactionsTotal = num(d.total) }

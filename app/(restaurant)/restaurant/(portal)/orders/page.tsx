@@ -52,6 +52,7 @@ interface Order {
   orderTime: string
   orderCreatedDate: string
   restaurantTimezone: string
+  persons?: number
   orderType: string
   deliveryType: string
   transactionsTotal: number
@@ -238,6 +239,18 @@ function fmtDateTime(iso?: string) {
     const d = new Date(iso)
     return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
   } catch { return iso }
+}
+
+// "Jun 23, 2026 4:35 PM" — order-placed timestamp in the restaurant's timezone
+// (defaults to America/New_York when the order carries no tz).
+function fmtCreatedAt(iso?: string, tz: string = RESTAURANT_TZ_DEFAULT): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: tz })
+    const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz })
+    return `${date} ${time}`
+  } catch { return '' }
 }
 
 // Mirrors FM mappingOrderDetails() — combines delivery / tips / tax fields
@@ -733,6 +746,8 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             <SectionHeader>Order Details</SectionHeader>
             <DetailRow label="Date" value={fmtDate(order.orderDate)} />
             <DetailRow label="Time" value={fmtTime(order.orderTime)} />
+            {order.persons != null && <DetailRow label="Headcount" value={String(order.persons)} />}
+            {order.orderCreatedDate && <DetailRow label="Order Placed" value={fmtCreatedAt(order.orderCreatedDate, order.restaurantTimezone || order.restaurant?.timezone || undefined)} />}
             {order.restaurant?.businessName && <DetailRow label="Store" value={order.restaurant.businessName} />}
             {order.restaurant?.address?.addressLine1 && <DetailRow label="Store address" value={[order.restaurant.address.addressLine1, order.restaurant.address.city, order.restaurant.address.state, order.restaurant.address.zipcode].filter(Boolean).join(', ')} />}
             {order.restaurant?.address?.phoneNumber && <DetailRow label="Store phone" value={order.restaurant.address.phoneNumber} />}
@@ -1357,6 +1372,7 @@ function OrdersContent() {
                   )}
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Source</th>
                   {colHead('order_date', 'Order Time')}
+                  <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC', whiteSpace: 'nowrap' }}>Created</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Service</th>
                   <th style={{ padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#F7F8FC' }}>Delivery Status</th>
                   {colHead('transactions_total', 'Total')}
@@ -1366,10 +1382,10 @@ function OrdersContent() {
               </thead>
               <tbody>
                 {loading && (
-                  <tr><td colSpan={aggregating ? 9 : 8} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
+                  <tr><td colSpan={aggregating ? 10 : 9} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
                 )}
                 {!loading && displayedOrders.length === 0 && (
-                  <tr><td colSpan={aggregating ? 9 : 8} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
+                  <tr><td colSpan={aggregating ? 10 : 9} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
                 )}
                 {displayedOrders.map(order => {
                   const timeColor = statusColor(order.orderStatus, order.orderDate, order.orderTime)
@@ -1410,6 +1426,9 @@ function OrdersContent() {
                       <td style={{ padding: '12px 14px' }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: timeColor || DARK }}>{fmtTime(order.orderTime)}</div>
                         <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{fmtDate(order.orderDate)}</div>
+                      </td>
+                      <td style={{ padding: '12px 14px', fontSize: 12, color: '#666', whiteSpace: 'nowrap' }}>
+                        {fmtCreatedAt(order.orderCreatedDate, order.restaurantTimezone || undefined) || '—'}
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: 13, color: '#666' }}>
                         {DELIVERY_LABEL[order.deliveryType] || order.orderType || '—'}

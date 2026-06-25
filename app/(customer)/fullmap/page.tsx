@@ -1572,7 +1572,7 @@ function FullmapAuthBtn() {
         {/* Desktop-only filled Sign Up CTA next to Log In (matches GlobalHeader,
             incl. router.push navigation). */}
         {!isMobile && (
-          <button onClick={() => router.push('/signup')} style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0 }}>Sign Up</button>
+          <button onClick={() => openAuthModal(undefined, 'signup')} style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0 }}>Sign Up</button>
         )}
       </div>
       {/* The fullmap doesn't use GlobalHeader, so it must render its own AuthModal
