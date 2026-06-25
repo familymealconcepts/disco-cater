@@ -173,6 +173,19 @@ export async function POST(req: NextRequest) {
     })
     const data = await res.json()
 
+    // DIAGNOSTIC: full FM place response so we can see whether FM actually
+    // returns a PaymentIntent (paymentDetails.stripePaymentIntentDto.
+    // paymentIntentId). FM nests the order under `data` on most responses.
+    const fmInnerLog = (data?.data ?? data ?? {}) as Record<string, unknown>
+    console.log('[order/place] FM response', {
+      httpStatus: res.status,
+      orderStatus: fmInnerLog?.orderStatus ?? null,
+      orderNumber: fmInnerLog?.orderNumber ?? null,
+      orderReference: fmInnerLog?.orderReference ?? null,
+      paymentDetails: fmInnerLog?.paymentDetails ?? null,
+    })
+    console.log('[order/place] FM response FULL BODY:', JSON.stringify(data))
+
     // Mirror into Neon only after FM accepted the order. Fire-and-forget via
     // waitUntil — non-blocking and never affects the response below.
     if (res.ok) {

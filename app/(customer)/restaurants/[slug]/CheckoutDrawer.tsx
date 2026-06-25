@@ -745,6 +745,15 @@ export default function CheckoutDrawer({
         paymentIntentId = paymentDetails?.stripePaymentIntentDto?.paymentIntentId
       }
 
+      // Silent-path-A guard: the order was placed but FM returned NO PaymentIntent,
+      // so the card can never be charged. Fail loudly and stay on checkout — never
+      // show a confirmation for an unpaid order. (Invoice flow has no PI by design.)
+      if (!isInvoice && !paymentIntentId) {
+        trackPaymentFailed('no_payment_intent')
+        setError('Payment could not be processed. Please try again.')
+        setStep('payment'); return
+      }
+
       // Confirm the PaymentIntent FM created during placement — THIS charges the
       // card (checkout-sidebar-preview.component.ts:1205-1252). FM's contract
       // (order.service.ts:55-70): { orderReference, restaurantReference,
@@ -764,10 +773,11 @@ export default function CheckoutDrawer({
         })
         const confData = await confRes.json()
         const payStatus = (confData.data?.stripePaymentIntentDto ?? confData.stripePaymentIntentDto)?.paymentIntentStatus
-        // FM requires the PaymentIntent to be 'succeeded' (checkout-sidebar-
-        // preview.component.ts:1215). Anything else → card not charged: surface
-        // the failure and stay on payment (do NOT redirect to confirmation).
-        if (!confRes.ok || (payStatus && payStatus.toLowerCase() !== 'succeeded')) {
+        // The card is only charged when FM reports 'succeeded'. Silent-path-B:
+        // a missing/empty/any-other status (EVEN with HTTP 200) means NOT charged
+        // — treat it as failure and never redirect to the confirmation screen.
+        const charged = !!payStatus && String(payStatus).toLowerCase() === 'succeeded'
+        if (!confRes.ok || !charged) {
           // Direct-entry payment failure: keep the order + PaymentIntent so the
           // NEXT attempt re-confirms the SAME PI with a new card (FM's retry —
           // no re-place, avoids the 409), and remount the card fields so a fresh
@@ -776,8 +786,8 @@ export default function CheckoutDrawer({
             directEntryRetry.current = { orderReference: finalRef, paymentIntentId }
             setCardResetKey(k => k + 1)
           }
-          trackPaymentFailed(payStatus ? `confirm_${payStatus.toLowerCase()}` : 'confirm_failed')
-          setError(confData.error || confData.message || 'Payment could not be completed — the card was not charged. Please try again with a different card.')
+          trackPaymentFailed(payStatus ? `confirm_${String(payStatus).toLowerCase()}` : 'confirm_failed')
+          setError(confData.error || confData.message || 'Payment could not be completed. Please try again.')
           setStep('payment'); return
         }
         // Confirmed — clear any retry context.

@@ -22,6 +22,16 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(body),
     })
     const data = await res.json()
+
+    // DIAGNOSTIC: full FM confirmPayment response — shows the stripePaymentIntentDto
+    // (paymentIntentStatus) so we can see whether the card was actually charged.
+    const inner = (data?.data ?? data ?? {}) as Record<string, unknown>
+    console.log('[order/confirm-payment] FM response', {
+      httpStatus: res.status,
+      stripePaymentIntentDto: inner?.stripePaymentIntentDto ?? null,
+    })
+    console.log('[order/confirm-payment] FM response FULL BODY:', JSON.stringify(data))
+
     return NextResponse.json(data, { status: res.status })
   } catch {
     return NextResponse.json({ error: 'Failed to confirm payment' }, { status: 500 })
