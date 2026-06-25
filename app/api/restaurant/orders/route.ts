@@ -174,13 +174,22 @@ export async function GET(req: NextRequest) {
     const totalElements = countRows[0]?.c ?? 0
 
     const listParams = [...params, size, page * size]
+    // Some 3P/Disco-native orders mirrored a null/0 total (the place mirror read
+    // FM's pre-payment total). Fall back to the Stripe payment total for the order
+    // (NULLIF so a stored 0 also falls through, not just NULL).
     const rows = (await sql.query(
-      `SELECT reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
+      `SELECT disco_orders.reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
               source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name,
               to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
-              subtotal, total, fee, tips, note, seen_by_admin,
+              subtotal, COALESCE(NULLIF(disco_orders.total, 0), sp.sp_total) AS total, fee, tips, note, seen_by_admin,
               COALESCE(edit_count,0) AS edit_count, edit_status, created_at, persons
        FROM disco_orders
+       LEFT JOIN (
+         SELECT order_reference, MAX(total) AS sp_total
+         FROM disco_stripe_payments
+         WHERE total IS NOT NULL AND total > 0
+         GROUP BY order_reference
+       ) sp ON sp.order_reference = disco_orders.reference
        WHERE ${whereSql}
        ORDER BY order_date DESC, order_time DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,

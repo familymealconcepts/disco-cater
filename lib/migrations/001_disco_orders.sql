@@ -323,9 +323,11 @@ ALTER TABLE disco_order_edits ADD COLUMN IF NOT EXISTS previous_date DATE;
 -- REOPEN/CANCELLED (FM history statuses pulled in by the FM→Neon orders sync).
 -- VOIDED is the Disco-native void status (food prepared, not fulfilled — no
 -- refund, no notification), set by PUT /api/restaurant/orders/{ref}/void.
+-- REFUNDED is the Disco-native refunded status, set by PUT
+-- /api/restaurant/orders/{ref}/refund alongside disco_orders.refund.
 -- Drop + re-add is idempotent because DROP precedes ADD on every run.
 ALTER TABLE disco_orders DROP CONSTRAINT IF EXISTS disco_orders_order_status_check;
-ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_order_status_check CHECK (order_status IN ('CART','RESERVED','DUE','COMPLETED','CANCELED','CANCELLED','REFUND','PARTIAL_REFUND','EXPIRED','VOID','VOIDED','UNPAID','PAID','PAYMENT_FAILED','REOPEN'));
+ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_order_status_check CHECK (order_status IN ('CART','RESERVED','DUE','COMPLETED','CANCELED','CANCELLED','REFUND','REFUNDED','PARTIAL_REFUND','EXPIRED','VOID','VOIDED','UNPAID','PAID','PAYMENT_FAILED','REOPEN'));
 
 -- Widen delivery_type to accept all known FM delivery types — the FM→Neon orders
 -- sync was failing the original CHECK ('OWN_DELIVERY','THIRD_PARTY','DLIVRD').

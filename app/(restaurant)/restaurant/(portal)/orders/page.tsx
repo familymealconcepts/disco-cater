@@ -131,12 +131,12 @@ interface SalesStatItem {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const ACTIVE_STATUSES = ['DUE', 'UNPAID', 'PAID']
-const HISTORY_STATUSES = ['COMPLETED', 'REOPEN', 'CANCELED', 'EXPIRED', 'RESERVED', 'VOID', 'VOIDED', 'REFUND', 'PARTIAL_REFUND']
+const HISTORY_STATUSES = ['COMPLETED', 'REOPEN', 'CANCELED', 'EXPIRED', 'RESERVED', 'VOID', 'VOIDED', 'REFUND', 'REFUNDED', 'PARTIAL_REFUND']
 const COUNTS_STATUSES = ['COMPLETED', 'DUE']
-const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'PARTIAL_REFUND', 'CANCELED', 'VOID', 'VOIDED'])
+const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'REFUNDED', 'PARTIAL_REFUND', 'CANCELED', 'VOID', 'VOIDED'])
 
 const STATUS_LABEL: Record<string, string> = {
-  DUE: 'Due', COMPLETED: 'Completed', REOPEN: 'Reopened', REFUND: 'Refunded',
+  DUE: 'Due', COMPLETED: 'Completed', REOPEN: 'Reopened', REFUND: 'Refunded', REFUNDED: 'Refunded',
   PARTIAL_REFUND: 'Partial refunded', CANCELED: 'Canceled', EXPIRED: 'Expired',
   RESERVED: 'Reserved', VOID: 'Voided', VOIDED: 'Voided', PAID: 'Paid', UNPAID: 'Unpaid',
 }
@@ -235,10 +235,19 @@ function SourcePill({ source }: { source: string }) {
 
 function fmtDateTime(iso?: string) {
   if (!iso) return ''
-  try {
-    const d = new Date(iso)
-    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
-  } catch { return iso }
+  // Normalize the formats the drop-off field can arrive in: ISO, a Postgres
+  // "YYYY-MM-DD HH:MM:SS" (no "T"), or FM's "DD.MM.YYYY HH:MM". Return '' on
+  // anything unparseable so the caller hides the row instead of rendering
+  // "Invalid Date".
+  const s = String(iso).trim()
+  let d = new Date(s)
+  if (isNaN(d.getTime()) && s.includes(' ') && !s.includes('T')) d = new Date(s.replace(' ', 'T'))
+  if (isNaN(d.getTime())) {
+    const m = /^(\d{2})\.(\d{2})\.(\d{4})(?:[ T](\d{1,2}):(\d{2}))?/.exec(s)
+    if (m) d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), Number(m[4] || 0), Number(m[5] || 0))
+  }
+  if (isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
 // "Jun 23, 2026 4:35 PM" — order-placed timestamp in the restaurant's timezone
@@ -632,6 +641,7 @@ function ReopenModal({ order, orderRef, onClose, onSaved }: { order: Order; orde
 }
 
 function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; onClose: () => void; onOrderUpdated: () => void }) {
+  const router = useRouter()
   const [order, setOrder] = useState<Order | null>(null)
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'refund' | 'void' | 'reopen' | 'note' | null>(null)
@@ -722,7 +732,14 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
 
             <div style={{ background: '#F7F8FC', borderRadius: 8, padding: '8px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="order-drawer-chrome">
               <span style={{ fontSize: 12, color: '#666' }}>Status</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{STATUS_LABEL[order.orderStatus] || order.orderStatus}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {(order.orderStatus === 'REFUNDED' || order.orderStatus === 'REFUND' || (order.refund ?? 0) > 0) && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#E76F51', borderRadius: 6, padding: '2px 8px' }}>
+                    Refunded{(order.refund ?? 0) > 0 ? ` · ${fmt(order.refund ?? 0)}` : ''}
+                  </span>
+                )}
+                <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{STATUS_LABEL[order.orderStatus] || order.orderStatus}</span>
+              </span>
             </div>
 
             {/* Status change */}
@@ -755,14 +772,19 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
 
             {/* DELIVERY / PICKUP TIME — customer info */}
             <SectionHeader>{order.orderType === 'DELIVERY' ? 'Delivery Pick-up Time' : 'Pickup Time'}</SectionHeader>
-            {order.orderDropOffTime ? (
-              <DetailRow label="Drop-off" value={fmtDateTime(order.orderDropOffTime)} />
-            ) : (
-              <>
-                <DetailRow label="Date" value={fmtDate(order.orderDate)} />
-                <DetailRow label="Time" value={fmtTime(order.orderTime)} />
-              </>
-            )}
+            {(() => {
+              // Show the drop-off only when it parses to a real datetime; otherwise
+              // fall back to the order date/time (never render "Invalid Date").
+              const dropOff = fmtDateTime(order.orderDropOffTime)
+              return dropOff ? (
+                <DetailRow label="Drop-off" value={dropOff} />
+              ) : (
+                <>
+                  <DetailRow label="Date" value={fmtDate(order.orderDate)} />
+                  <DetailRow label="Time" value={fmtTime(order.orderTime)} />
+                </>
+              )
+            })()}
             <DetailRow label="Customer" value={customerFull || '—'} />
             {order.email && <DetailRow label="Email" value={order.email} />}
             {order.phoneNumber && <DetailRow label="Phone" value={order.phoneNumber} />}
@@ -866,6 +888,14 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                 <button onClick={() => handleStatusChange('COMPLETED')}
                   style={{ padding: '8px 14px', background: '#22C55E', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
                   Complete
+                </button>
+              )}
+              {/* Edit — same eligibility as the row-level pencil; navigates to the
+                  order edit page. */}
+              {isEditEligible(order) && (
+                <button onClick={() => router.push(`/restaurant/orders/${orderRef}/edit`)}
+                  style={{ padding: '8px 14px', background: '#5B6FE8', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  ✏️ Edit
                 </button>
               )}
               {order.orderStatus === 'COMPLETED' && (

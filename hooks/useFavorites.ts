@@ -115,6 +115,19 @@ function writeLocal(scope: string, favs: FavoriteRestaurant[]) {
   try { window.localStorage.setItem(storageKey(scope), JSON.stringify(favs)) } catch {}
 }
 
+// Per-scope "last refreshed" timestamp, so the favorites page can paint instantly
+// from cache and only hit the network when the cache is empty or stale (>1h).
+const TS_PREFIX = 'disco_favorites_ts_'
+const STALE_MS = 60 * 60 * 1000 // 1 hour
+function readTs(scope: string): number {
+  if (typeof window === 'undefined') return 0
+  try { return parseInt(window.localStorage.getItem(`${TS_PREFIX}${scope}`) || '0', 10) || 0 } catch { return 0 }
+}
+function writeTs(scope: string) {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.setItem(`${TS_PREFIX}${scope}`, String(Date.now())) } catch {}
+}
+
 // Broadcast changes across hook instances on the same page (e.g. heart on
 // fullmap card + heart in OrderDetailPanel + favorites page grid). Uses a
 // custom event so we don't fight the 'storage' event's same-tab gap.
@@ -135,8 +148,11 @@ export function useFavorites(): FavoritesState {
   const userScopeRef = useRef('guest')
   useEffect(() => { userScopeRef.current = userScope }, [userScope])
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  // Network refresh. `background` skips the loading flag so a cache-first paint
+  // stays on screen while we reconcile. Writes a per-scope timestamp on completion
+  // so the next mount can decide whether a refresh is even needed.
+  const refresh = useCallback(async (opts?: { background?: boolean }) => {
+    if (!opts?.background) setLoading(true)
     try {
       const res = await fetch('/api/fm-favorites', { credentials: 'include' })
       if (res.ok) {
@@ -145,6 +161,7 @@ export function useFavorites(): FavoritesState {
         setFavorites(list)
         setSource('api')
         setLoading(false)
+        writeTs(userScopeRef.current)
         return
       }
       // 501/401 → FM hasn't shipped favorites; fall through to localStorage.
@@ -166,11 +183,25 @@ export function useFavorites(): FavoritesState {
     setFavorites(readLocal(scope))
     setSource('local')
     setLoading(false)
+    writeTs(scope)
   }, [])
 
-  // Initial load — runs once (refresh is stable). Auth changes re-fetch via the
-  // scope effect below; pure scope resolution does NOT re-hit the API.
-  useEffect(() => { refresh() }, [refresh])
+  // Initial load — paint INSTANTLY from localStorage (no network on the critical
+  // path), then reconcile in the background only when the cache is empty or stale
+  // (>1h). Previously every mount awaited /api/fm-favorites (a guaranteed 501) and
+  // sometimes /api/fm-user before showing anything — that was the slow load.
+  useEffect(() => {
+    const scope = readUserScope()
+    setUserScope(scope)
+    userScopeRef.current = scope
+    const cached = readLocal(scope)
+    setFavorites(cached)
+    setSource('local')
+    setLoading(false)
+    if (cached.length === 0 || Date.now() - readTs(scope) > STALE_MS) {
+      refresh({ background: true })
+    }
+  }, [refresh])
 
   // Local fallback only: when the scope changes (login/logout) re-read the right
   // bucket without an API call or a loading flash. API mode is scoped by JWT, so

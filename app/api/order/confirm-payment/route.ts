@@ -23,7 +23,18 @@ async function dispatchAfterConfirm(orderReference: string): Promise<void> {
       WHERE fm_order_reference = ${orderReference}::uuid OR reference = ${orderReference}::uuid
       LIMIT 1
     `.catch(() => [])) as { id: number }[]
-    if (rows[0]?.id) { await dispatchOrderConfirmations(rows[0].id, 'CONFIRM_PAYMENT'); return }
+    if (rows[0]?.id) {
+      // The card just charged. The place mirror writes FM's pre-payment status
+      // (often RESERVED/UNPAID) — promote it to DUE so the order doesn't linger as
+      // "Reserved" in the restaurant portal. Only nudge those two; never override a
+      // COMPLETED/CANCELED/etc. set elsewhere.
+      await sql`
+        UPDATE disco_orders SET order_status = 'DUE', updated_at = NOW()
+        WHERE id = ${rows[0].id} AND order_status IN ('RESERVED', 'UNPAID')
+      `.catch(e => console.error('[order/confirm-payment] status→DUE failed:', e instanceof Error ? e.message : e))
+      await dispatchOrderConfirmations(rows[0].id, 'CONFIRM_PAYMENT')
+      return
+    }
     await new Promise((r) => setTimeout(r, 500))
   }
   console.warn('[order/confirm-payment] order not mirrored in time — confirmations not dispatched:', orderReference)

@@ -36,6 +36,7 @@ interface DiscoFull {
   total: string | null
   fee: string | null
   tips: string | null
+  refund: string | null
   note: string | null
   delivery_address_line1: string | null
   delivery_address_line2: string | null
@@ -75,7 +76,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       SELECT id, reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
              source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name, customer_phone,
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, order_drop_off_time::text AS order_drop_off_time,
-             subtotal, total, fee, tips, note,
+             subtotal, total, fee, tips, refund, note,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, tax_exempt_id,
              created_at, persons
       FROM disco_orders
@@ -125,6 +126,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (d.subtotal != null) base.subtotal = num(d.subtotal)
   if (d.total != null) { base.total = num(d.total); base.transactionsTotal = num(d.total) }
   if (d.fee != null) base.fee = num(d.fee)
+  if (d.refund != null) base.refund = num(d.refund)
   // Tax-exempt id — Neon-first, else keep FM's (taxExempt/taxExemptId).
   if (d.tax_exempt_id) { base.taxExemptId = d.tax_exempt_id; base.taxExempt = true }
   if (d.restaurant_name) {
