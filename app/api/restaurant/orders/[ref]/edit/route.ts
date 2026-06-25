@@ -5,7 +5,7 @@ import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-
 import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
 import {
   getDiscoOrder, loadOrderBaseline,
-  hoursUntil, isEditableStatus, MAX_EDITS, type FmOrderItem,
+  hoursUntil, isEditableStatus, MAX_EDITS, syncExpediteOnEdit, type FmOrderItem,
 } from '../../../../../../lib/order-edit'
 import {
   sendOrderUpdated, sendOrderUpdatedRestaurant, sendOrderEditRefundIssued,
@@ -240,6 +240,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     if (restaurantEmail) {
       sendOrderUpdatedRestaurant({ to: restaurantEmail, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, items: newItems, newTotal, delta }).catch(() => {})
     }
+
+    // Expedite — push the updated date/time/items to the courier (best-effort).
+    if (discoOrder) await syncExpediteOnEdit(discoOrder.id, discoOrder.reference)
 
     return NextResponse.json({ status: 'confirmed', editType, newTotal, delta, editNumber: newEditNumber })
   }

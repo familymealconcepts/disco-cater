@@ -88,6 +88,16 @@ async function mirrorOrderToNeon(args: {
     const orderDate = toIsoDate(checkoutDetails.orderDate)
     const orderTime = str(checkoutDetails.orderTime)
     const orderType = checkoutDetails.orderType === 'DELIVERY' || placeBody.deliveryAddress ? 'DELIVERY' : 'PICKUP'
+    // Disco uses Expedite for all third-party delivery; PICKUP otherwise.
+    const deliveryType = orderType === 'DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'
+    // Persist the delivery address so the Expedite dropoff task (created at
+    // confirm-payment) has a real destination.
+    const da = (placeBody.deliveryAddress ?? {}) as Record<string, unknown>
+    const daLine1 = str(da.addressLine1)
+    const daLine2 = str(da.addressLine2)
+    const daCity = str(da.city)
+    const daState = str(da.state)
+    const daZip = str(da.zipcode ?? da.zip)
     const statusRaw = String(fmInner.orderStatus ?? fm.orderStatus ?? fmInner.status ?? '').toUpperCase()
     const orderStatus = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
     const money = extractMoney(fmInner)
@@ -125,17 +135,25 @@ async function mirrorOrderToNeon(args: {
     // DO UPDATE so retries refresh the money snapshot. RETURNING id for items.
     const orderRows = (await sql`
       INSERT INTO disco_orders (
-        reference, order_number, order_status, order_type, source_of_order,
+        reference, order_number, order_status, order_type, delivery_type, source_of_order,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
+        delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
         order_date, order_time, subtotal, total, fee, tax_exempt_id, persons, fm_order_reference, created_at, updated_at
       ) VALUES (
-        ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, 'DISCO',
+        ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, ${deliveryType}, 'DISCO',
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
+        ${daLine1}, ${daLine2}, ${daCity}, ${daState}, ${daZip},
         ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${taxExemptId}, ${persons}, ${reference}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO UPDATE SET
         subtotal = EXCLUDED.subtotal, total = EXCLUDED.total, fee = EXCLUDED.fee,
         order_status = EXCLUDED.order_status, fm_order_reference = EXCLUDED.fm_order_reference,
+        delivery_type = EXCLUDED.delivery_type,
+        delivery_address_line1 = COALESCE(EXCLUDED.delivery_address_line1, disco_orders.delivery_address_line1),
+        delivery_address_line2 = COALESCE(EXCLUDED.delivery_address_line2, disco_orders.delivery_address_line2),
+        delivery_city = COALESCE(EXCLUDED.delivery_city, disco_orders.delivery_city),
+        delivery_state = COALESCE(EXCLUDED.delivery_state, disco_orders.delivery_state),
+        delivery_zip = COALESCE(EXCLUDED.delivery_zip, disco_orders.delivery_zip),
         tax_exempt_id = COALESCE(EXCLUDED.tax_exempt_id, disco_orders.tax_exempt_id),
         persons = COALESCE(EXCLUDED.persons, disco_orders.persons), updated_at = NOW()
       RETURNING id

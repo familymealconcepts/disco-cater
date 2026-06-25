@@ -3,7 +3,7 @@ import { getAdminRole, getAdminEmail } from '../../../../../../lib/admin-auth'
 import { sql, runMigrations } from '../../../../../../lib/db'
 import { sendEmail } from '../../../../../../lib/email/send'
 import { layout } from '../../../../../../lib/email/layout'
-import { sendDlivrdDeliveryModified } from '../../../../../../lib/dlivrd'
+import { modifyDelivery, buildPayloadFromNeon } from '../../../../../../lib/expedite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -17,6 +17,7 @@ interface OrderRow {
   restaurant_reference: string
   restaurant_name: string | null
   restaurant_email: string | null
+  expedite_delivery_id: string | null
   customer_email: string
 }
 
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     // reference, which maps to fm_order_reference here).
     const orderRows = (await sql`
       SELECT reference, fm_order_reference, order_number::text AS order_number,
-             restaurant_reference, restaurant_name, restaurant_email, customer_email
+             restaurant_reference, restaurant_name, restaurant_email, expedite_delivery_id, customer_email
       FROM disco_orders
       WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
       LIMIT 1
@@ -142,21 +143,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     ])
     const emailOk = (i: number) => emailResults[i].status === 'fulfilled' && (emailResults[i] as PromiseFulfilledResult<{ success: boolean }>).value.success
 
-    // dlivrd pickup-location update — best-effort, gated on EXPEDITE_* env.
-    const dlivrd = await sendDlivrdDeliveryModified({
-      externalDeliveryId: order.fm_order_reference || '',
-      address: dest.address,
-      lat: dest.lat != null ? Number(dest.lat) : null,
-      lng: dest.lng != null ? Number(dest.lng) : null,
-      businessName: dest.name,
-    })
+    // Expedite pickup-location update — best-effort, gated on an active delivery.
+    // The order's restaurant_reference was just updated to newRef, so the rebuilt
+    // payload's pickup task uses the new restaurant's address automatically.
+    let expedite: { success: boolean; error?: string } = { success: false, error: 'no active delivery' }
+    if (order.expedite_delivery_id) {
+      const payload = await buildPayloadFromNeon(order.reference)
+      expedite = payload
+        ? await modifyDelivery(payload)
+        : { success: false, error: 'could not build payload' }
+    }
 
     return NextResponse.json({
       success: true,
       from: oldRef,
       to: newRef,
       emails: { customer: emailOk(0), oldRestaurant: emailOk(1), newRestaurant: emailOk(2) },
-      dlivrd,
+      expedite,
     })
   } catch (err) {
     console.error('[admin/orders/transfer] failed:', err instanceof Error ? err.message : err)

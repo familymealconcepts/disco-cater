@@ -52,8 +52,8 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 const DELIVERY_LABEL: Record<string, string> = {
-  OWN_DELIVERY: 'Self-Delivery', NASH_DELIVERY: 'Third-Party (Nash)',
-  DOOR_DASH_DELIVERY: 'DoorDash', DLIVRD_DELIVERY: 'Dlivrd',
+  OWN_DELIVERY: 'Self-Delivery', NASH_DELIVERY: 'Third-Party Delivery',
+  DOOR_DASH_DELIVERY: 'DoorDash', DLIVRD_DELIVERY: 'Expedite',
   PICK_UP: 'Pickup',
 }
 

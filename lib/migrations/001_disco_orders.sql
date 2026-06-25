@@ -360,4 +360,13 @@ ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_order_status_check CHECK (o
 -- NULL is allowed automatically (a CHECK passes on NULL/UNKNOWN). DLIVRD is kept
 -- so any pre-existing rows still validate. Drop + re-add is idempotent.
 ALTER TABLE disco_orders DROP CONSTRAINT IF EXISTS disco_orders_delivery_type_check;
-ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_delivery_type_check CHECK (delivery_type IN ('NASH_DELIVERY','OWN_DELIVERY','DOORDASH','SHIPDAY','THIRD_PARTY','PICKUP','DLIVRD'));
+ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_delivery_type_check CHECK (delivery_type IN ('NASH_DELIVERY','OWN_DELIVERY','DOORDASH','SHIPDAY','THIRD_PARTY','THIRD_PARTY_DELIVERY','PICKUP','DLIVRD'));
+
+-- Expedite (formerly dlivrd) third-party delivery integration. We create a
+-- delivery on successful payment, modify it on edit/transfer, and cancel it on
+-- void. expedite_delivery_id is the external_delivery_id we send Expedite
+-- (== fm_order_reference); expedite_status is updated by the Expedite webhook.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS expedite_delivery_id TEXT;
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS expedite_delivery_fee NUMERIC(10,2);
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS expedite_status TEXT;
+CREATE INDEX IF NOT EXISTS idx_disco_orders_expedite_delivery_id ON disco_orders(expedite_delivery_id);

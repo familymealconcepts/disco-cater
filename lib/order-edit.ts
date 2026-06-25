@@ -5,6 +5,22 @@
 import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { sendOrderEditPaymentConfirmed } from './email/notifications'
+import { modifyDelivery, buildPayloadFromNeon } from './expedite'
+
+// Push an edited order's new date/time/items to Expedite when it has an active
+// third-party delivery. Best-effort: never throws.
+export async function syncExpediteOnEdit(orderId: number, orderReference: string): Promise<void> {
+  try {
+    const rows = (await sql`
+      SELECT expedite_delivery_id FROM disco_orders WHERE id = ${orderId} LIMIT 1
+    `.catch(() => [])) as { expedite_delivery_id: string | null }[]
+    if (!rows[0]?.expedite_delivery_id) return
+    const payload = await buildPayloadFromNeon(orderReference)
+    if (payload) await modifyDelivery(payload)
+  } catch (e) {
+    console.error('[order-edit] syncExpediteOnEdit failed:', e instanceof Error ? e.message : e)
+  }
+}
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -423,4 +439,7 @@ export async function applyPendingEdit(args: {
       newTotal: typeof p.newTotal === 'number' ? p.newTotal : undefined,
     }).catch(err => console.error('[applyPendingEdit] email:', err))
   }
+
+  // Expedite — push the updated date/time/items to the courier (best-effort).
+  await syncExpediteOnEdit(orderId, orderReference)
 }

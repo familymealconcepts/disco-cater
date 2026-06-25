@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
+import { cancelDelivery } from '../../../../../../lib/expedite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -31,8 +32,8 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref
       UPDATE disco_orders
       SET order_status = 'VOIDED', updated_at = NOW()
       WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
-      RETURNING reference
-    `) as Array<{ reference: string }>
+      RETURNING reference, expedite_delivery_id
+    `) as Array<{ reference: string; expedite_delivery_id: string | null }>
 
     if (!rows.length) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     const reference = rows[0].reference
@@ -41,6 +42,12 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
       VALUES (${reference}::uuid, 'VOIDED', ${JSON.stringify({ note: VOID_NOTE })}::jsonb, 'DISCO_VOID')
     `
+
+    // Cancel the Expedite delivery if one was dispatched (best-effort).
+    if (rows[0].expedite_delivery_id) {
+      const result = await cancelDelivery(rows[0].expedite_delivery_id)
+      console.log('[restaurant/orders/void] expedite cancel:', result.success ? 'ok' : result.error)
+    }
 
     return NextResponse.json({ ok: true, orderStatus: 'VOIDED' })
   } catch (err) {
