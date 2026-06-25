@@ -35,7 +35,6 @@ export default function ManageSystemAdminsPage() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
-  const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<FormState | null>(null)
@@ -49,6 +48,62 @@ export default function ManageSystemAdminsPage() {
   const [locations, setLocations] = useState<LocationOption[]>([])
   const [locationsLoading, setLocationsLoading] = useState(false)
   const [locationFilter, setLocationFilter] = useState('')
+
+  // Disco location access (disco_restaurant_location_access), keyed by the admin's
+  // email. Separate from FM's restaurantReferences above — this drives Disco
+  // SYSTEM_ADMIN portal scoping (Feature 1).
+  const [accessHome, setAccessHome] = useState<string | null>(null)
+  const [accessRows, setAccessRows] = useState<{ reference: string; name: string; isHome: boolean; isLive: boolean }[]>([])
+  const [accessLoading, setAccessLoading] = useState(false)
+  const [cacheList, setCacheList] = useState<{ reference: string; name: string }[]>([])
+  const [accessPickerOpen, setAccessPickerOpen] = useState(false)
+  const [accessPickerFilter, setAccessPickerFilter] = useState('')
+
+  const loadAccess = useCallback(async (email: string) => {
+    if (!email) { setAccessRows([]); setAccessHome(null); return }
+    setAccessLoading(true)
+    try {
+      const res = await fetch(`/api/admin/system-admins/${encodeURIComponent(email)}/locations`)
+      if (res.ok) {
+        const d = await res.json()
+        setAccessHome(d.home ?? null)
+        setAccessRows(d.locations || [])
+      } else { setAccessRows([]); setAccessHome(null) }
+    } catch { setAccessRows([]); setAccessHome(null) }
+    setAccessLoading(false)
+  }, [])
+
+  // Load access rows when an existing admin is opened for editing.
+  useEffect(() => {
+    if (editing?.email && editing?.reference) loadAccess(editing.email)
+    else { setAccessRows([]); setAccessHome(null); setAccessPickerOpen(false) }
+  }, [editing?.email, editing?.reference, loadAccess])
+
+  // Load the restaurant-cache list once when the access picker is first opened.
+  useEffect(() => {
+    if (!accessPickerOpen || cacheList.length) return
+    let cancelled = false
+    fetch('/api/admin/restaurant-cache/list')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d?.restaurants) setCacheList(d.restaurants) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [accessPickerOpen, cacheList.length])
+
+  async function addAccess(ref: string) {
+    if (!editing?.email) return
+    const res = await fetch(`/api/admin/system-admins/${encodeURIComponent(editing.email)}/locations`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ restaurantReference: ref }),
+    })
+    if (res.ok) { setAccessPickerOpen(false); setAccessPickerFilter(''); loadAccess(editing.email) }
+  }
+
+  async function removeAccess(ref: string) {
+    if (!editing?.email) return
+    const res = await fetch(`/api/admin/system-admins/${encodeURIComponent(editing.email)}/locations/${encodeURIComponent(ref)}`, { method: 'DELETE' })
+    if (res.ok) loadAccess(editing.email)
+  }
 
   useEffect(() => {
     if (!editing) return
@@ -71,17 +126,11 @@ export default function ManageSystemAdminsPage() {
     return () => { cancelled = true }
   }, [editing, locations.length])
 
-  useEffect(() => {
-    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(0) }, 300)
-    return () => clearTimeout(t)
-  }, [searchInput])
-
   const load = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams()
     if (page > 0) params.set('page', String(page))
     params.set('size', String(pageSize))
-    if (search) params.set('search', search)
     const res = await fetch(`/api/admin/system-admins?${params}`)
     if (res.ok) {
       const d = await res.json()
@@ -92,9 +141,18 @@ export default function ManageSystemAdminsPage() {
       setTotal(0)
     }
     setLoading(false)
-  }, [page, pageSize, search])
+  }, [page, pageSize])
 
   useEffect(() => { load() }, [load])
+
+  // Client-side search over the already-loaded list — by full name (first + last)
+  // and email, case-insensitive, whitespace-trimmed.
+  const q = searchInput.trim().toLowerCase()
+  const displayRows = q
+    ? rows.filter(u =>
+        `${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) ||
+        (u.email || '').toLowerCase().includes(q))
+    : rows
 
   async function save() {
     if (!editing) return
@@ -171,8 +229,8 @@ export default function ManageSystemAdminsPage() {
           </thead>
           <tbody>
             {loading && <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#999' }}>No system admins.</td></tr>}
-            {!loading && rows.map(u => (
+            {!loading && !displayRows.length && <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#999' }}>No system admins.</td></tr>}
+            {!loading && displayRows.map(u => (
               <tr key={u.reference}>
                 <td style={cell}>{u.firstName} {u.lastName || ''}</td>
                 <td style={{ ...cell, color: '#555' }}>{u.email}</td>
@@ -271,6 +329,52 @@ export default function ManageSystemAdminsPage() {
                     })}
                 </div>
               </div>
+
+              {/* Disco Location Access (Feature 1) — drives SYSTEM_ADMIN portal
+                  scoping via disco_restaurant_location_access. The home location
+                  cannot be removed. Shown for existing admins only (keyed by email). */}
+              {editing.reference && (
+                <div>
+                  <label style={lbl}>Disco Location Access <span style={{ color: '#999' }}>({accessRows.length})</span></label>
+                  <div style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: 4, marginBottom: 8 }}>
+                    {accessLoading && <div style={{ padding: 12, fontSize: 12, color: '#888' }}>Loading…</div>}
+                    {!accessLoading && accessRows.length === 0 && <div style={{ padding: 12, fontSize: 12, color: '#999' }}>No location access yet.</div>}
+                    {!accessLoading && accessRows.map(a => (
+                      <div key={a.reference} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '7px 10px', fontSize: 13, color: DARK }}>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {a.name || a.reference}
+                          {a.isHome && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: '#fff', background: '#6B6EF9', borderRadius: 6, padding: '2px 7px' }}>Home</span>}
+                        </span>
+                        {a.isHome
+                          ? <span style={{ fontSize: 11, color: '#bbb' }}>required</span>
+                          : <button onClick={() => removeAccess(a.reference)} style={{ ...linkBtn, color: '#E76F51' }}>Remove</button>}
+                      </div>
+                    ))}
+                  </div>
+                  {accessPickerOpen ? (
+                    <div style={{ border: '1.5px solid #e0e0e0', borderRadius: 8, padding: 8 }}>
+                      <input type="text" placeholder="Search restaurants…" value={accessPickerFilter} onChange={e => setAccessPickerFilter(e.target.value)} style={{ ...inputSt, marginBottom: 8 }} />
+                      <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                        {cacheList
+                          .filter(c => !accessPickerFilter || c.name?.toLowerCase().includes(accessPickerFilter.toLowerCase()))
+                          .filter(c => !accessRows.some(a => a.reference === c.reference))
+                          .slice(0, 100)
+                          .map(c => (
+                            <div key={c.reference} onClick={() => addAccess(c.reference)}
+                              style={{ padding: '7px 10px', fontSize: 13, color: DARK, cursor: 'pointer', borderRadius: 6 }}
+                              onMouseEnter={e => (e.currentTarget.style.background = '#EEF0FD')}
+                              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                              {c.name}
+                            </div>
+                          ))}
+                      </div>
+                      <button onClick={() => { setAccessPickerOpen(false); setAccessPickerFilter('') }} style={{ ...secondaryBtn, marginTop: 8 }}>Close</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setAccessPickerOpen(true)} style={secondaryBtn}>+ Add Location</button>
+                  )}
+                </div>
+              )}
             </div>
             {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 10, borderRadius: 8, marginTop: 12, fontSize: 13 }}>{error}</div>}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>

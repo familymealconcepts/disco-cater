@@ -15,12 +15,14 @@ export async function GET() {
   try {
     await runMigrations() // ensures disco_restaurant_cache exists
     const rows = (await sql`
-      SELECT restaurant_reference AS reference, name
+      SELECT restaurant_reference AS reference, name, address, COALESCE(is_live, false) AS is_live
       FROM disco_restaurant_cache
       WHERE name IS NOT NULL AND name <> ''
       ORDER BY name ASC
-    `) as Array<{ reference: string; name: string }>
-    return NextResponse.json({ restaurants: rows })
+    `) as Array<{ reference: string; name: string; address: string | null; is_live: boolean }>
+    return NextResponse.json({
+      restaurants: rows.map(r => ({ reference: r.reference, name: r.name, address: r.address || '', isLive: r.is_live === true })),
+    })
   } catch (e) {
     console.error('[restaurant-cache/list] failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to load restaurants' }, { status: 500 })

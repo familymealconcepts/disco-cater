@@ -243,6 +243,27 @@ ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS fm_reference TEXT;
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'ADMIN';
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS business_name VARCHAR(255);
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_business_name ON disco_restaurant_accounts(business_name);
+
+-- created_by records which Primary System Admin (PSA) email created a Sub System
+-- Admin account from the restaurant portal Team page. NULL for accounts created
+-- by the partner onboarding flow or super-admin promotion.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS created_by TEXT;
+
+-- Explicit per-account location access for SYSTEM_ADMINs. A SYSTEM_ADMIN sees
+-- every restaurant_reference where their email appears here (replaces the old
+-- business_name / email-domain grouping for scoping). The promote action and the
+-- portal Team page write rows here; the account's original/home location is
+-- always retained and can never be removed.
+CREATE TABLE IF NOT EXISTS disco_restaurant_location_access (
+  id SERIAL PRIMARY KEY,
+  account_email TEXT NOT NULL,
+  restaurant_reference TEXT NOT NULL,
+  granted_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(account_email, restaurant_reference)
+);
+CREATE INDEX IF NOT EXISTS idx_disco_location_access_email ON disco_restaurant_location_access(account_email);
+CREATE INDEX IF NOT EXISTS idx_disco_location_access_ref ON disco_restaurant_location_access(restaurant_reference);
 CREATE INDEX IF NOT EXISTS idx_disco_restaurant_accounts_restaurant_ref ON disco_restaurant_accounts(restaurant_reference);
 
 -- Disco-native SMS notifications: per-restaurant opt-in + destination number,

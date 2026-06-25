@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
+import { getAdminAuthHeader, getAdminEmail } from '../../../../../../lib/admin-auth'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
-import { discoEmailDomain } from '../../../../../../lib/disco-restaurant-auth'
+import { discoEmailDomain, grantLocationAccess } from '../../../../../../lib/disco-restaurant-auth'
 
 export const runtime = 'nodejs'
 
@@ -64,6 +64,24 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
       WHERE id = ${primary.id} RETURNING id
     `) as Array<{ id: number }>
     primaryRows.forEach(r => promotedIds.add(r.id))
+
+    // Record each promoted account's ORIGINAL/home location in the explicit
+    // access table. The home location is always retained and never removed, even
+    // if other location access changes later.
+    const grantedBy = (await getAdminEmail().catch(() => null)) || 'SUPER_ADMIN'
+    const ids = Array.from(promotedIds)
+    if (ids.length) {
+      const promoted = (await sql`
+        SELECT email, restaurant_reference FROM disco_restaurant_accounts
+        WHERE id = ANY(${ids}::int[])
+      `) as Array<{ email: string; restaurant_reference: string | null }>
+      for (const p of promoted) {
+        if (p.email && p.restaurant_reference) {
+          await grantLocationAccess(p.email, p.restaurant_reference, grantedBy)
+            .catch(e => console.error('[promote-system-admin] grant home access failed:', e instanceof Error ? e.message : e))
+        }
+      }
+    }
 
     return NextResponse.json({ success: true, updatedCount: promotedIds.size })
   } catch (err) {

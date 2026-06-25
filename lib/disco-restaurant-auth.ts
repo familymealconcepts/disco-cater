@@ -93,13 +93,76 @@ export interface DiscoGroupAccount {
   role: string | null
 }
 
-// All disco_restaurant_accounts in the same "group" as the given identity.
-// Group = same business_name when present, else same email domain (fallback).
+// ── Explicit location access (disco_restaurant_location_access) ───────────────
+// The source of truth for which restaurant_references a SYSTEM_ADMIN can see.
+
+// All restaurant_references the email has explicit access to.
+export async function getLocationAccessRefs(email: string): Promise<string[]> {
+  try {
+    const rows = (await sql`
+      SELECT restaurant_reference FROM disco_restaurant_location_access
+      WHERE account_email = ${email} ORDER BY id ASC
+    `) as Array<{ restaurant_reference: string }>
+    return rows.map(r => r.restaurant_reference)
+  } catch {
+    // Table not migrated yet — caller falls back to legacy grouping.
+    return []
+  }
+}
+
+// Grant access to a location (idempotent via the UNIQUE constraint).
+export async function grantLocationAccess(email: string, restaurantReference: string, grantedBy: string): Promise<void> {
+  await sql`
+    INSERT INTO disco_restaurant_location_access (account_email, restaurant_reference, granted_by)
+    VALUES (${email}, ${restaurantReference}, ${grantedBy})
+    ON CONFLICT (account_email, restaurant_reference) DO NOTHING
+  `
+}
+
+// Revoke access to a location. The caller is responsible for refusing to remove
+// an account's home location.
+export async function revokeLocationAccess(email: string, restaurantReference: string): Promise<void> {
+  await sql`
+    DELETE FROM disco_restaurant_location_access
+    WHERE account_email = ${email} AND restaurant_reference = ${restaurantReference}
+  `
+}
+
+// An account's home/original location — the restaurant_reference on its
+// disco_restaurant_accounts row. Never removable from location access.
+export async function getHomeLocationRef(email: string): Promise<string | null> {
+  const rows = (await sql`
+    SELECT restaurant_reference FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1
+  `) as Array<{ restaurant_reference: string | null }>
+  return rows[0]?.restaurant_reference ?? null
+}
+
+// All disco_restaurant_accounts / locations a SYSTEM_ADMIN can see. Prefers the
+// explicit disco_restaurant_location_access table (Feature 1); falls back to the
+// legacy business_name / email-domain grouping when the account has no explicit
+// access rows yet (un-migrated SAs), so existing groups keep working.
 // Shared by SYSTEM_ADMIN group-wide promotion and by order/location scoping so
 // the two always agree on which locations a SYSTEM_ADMIN can see.
-// NOTE: the domain fallback over-matches shared public domains (gmail.com,
-// etc.) — grouped accounts should carry a real business_name.
 export async function getDiscoGroupAccounts(businessName: string | null, email: string): Promise<DiscoGroupAccount[]> {
+  // Explicit access wins.
+  try {
+    // One row per access entry (la is UNIQUE per email+ref). Name comes from the
+    // restaurant cache; we don't join disco_restaurant_accounts here because
+    // multiple accounts can share a restaurant and would multiply rows.
+    const access = (await sql`
+      SELECT la.id AS id, ${email} AS email, la.restaurant_reference AS restaurant_reference,
+             COALESCE(c.name, '') AS restaurant_name,
+             NULL AS business_name, 'SYSTEM_ADMIN' AS role
+      FROM disco_restaurant_location_access la
+      LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = la.restaurant_reference
+      WHERE la.account_email = ${email}
+      ORDER BY la.id ASC
+    `) as DiscoGroupAccount[]
+    if (access.length) return access
+  } catch {
+    // Table not migrated yet — fall through to legacy grouping.
+  }
+
   const bn = (businessName || '').trim()
   if (bn) {
     return (await sql`

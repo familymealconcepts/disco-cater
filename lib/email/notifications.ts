@@ -392,6 +392,31 @@ export async function sendCustomerWelcome(params: {
   }
 }
 
+// ── Team member invite (Sub System Admin added by a Primary System Admin) ────
+
+export async function sendTeamMemberInvite(params: {
+  to: string
+  firstName?: string
+}): Promise<{ success: boolean }> {
+  try {
+    const content = `
+<p>Hi ${escapeHtml(params.firstName || 'there')},</p>
+<p>You've been added as a team member on Disco Cater.</p>
+<p>Log in at <a href="https://discocater.com/restaurant/login" style="color:#5B6FE8;">discocater.com/restaurant/login</a> to access your locations.</p>
+<p>If you weren't expecting this, please contact us at <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
+<p>Thanks,<br/>The Disco Cater Team</p>
+`
+    return await sendEmail({
+      to: params.to,
+      subject: "You've been added to a Disco Cater team",
+      html: layout(content),
+    })
+  } catch (err) {
+    console.error('[email/notifications] sendTeamMemberInvite failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
 // ── 7. Refund notification (no direct FM analog; simple message) ─────────────
 
 export async function sendCustomerRefundNotification(params: {
