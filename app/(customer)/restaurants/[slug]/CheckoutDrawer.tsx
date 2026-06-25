@@ -88,8 +88,6 @@ type AppliedPromo =
   | { type: 'disco'; code: string; discountAmount: number }
   | { type: 'fm'; code: string }
 
-const US_STATES = ['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']
-
 // FM computes fee + tax server-side and returns them on the order PUT
 // (checkoutPricesV2 → fee, stateSalesTaxInPrice, localSalesTaxInPrice,
 // otherSalesTaxInPrice — checkout-sidebar-preview.component.ts:723-726). The
@@ -143,10 +141,11 @@ export default function CheckoutDrawer({
   const [step, setStep] = useState<DrawerStep>('payment')
   const [orderRef, setOrderRef] = useState('')
   const [fmTotals, setFmTotals] = useState<any>(null)
-  // Tax Exempt Account (Item 4). FM fields: taxExempt (bool) + taxExemptId;
-  // we also send taxExemptState. Tax is zeroed SERVER-SIDE when taxExempt=true.
+  // Tax Exempt Account. Handled entirely Disco-side: FM keeps the tax in its
+  // total/PaymentIntent and /api/order/place reduces the PI by the tax amount
+  // before payment is confirmed. Just a tax-exempt ID (no state needed); the ID is
+  // persisted on disco_orders for the receipt/PDF.
   const [taxExemptId, setTaxExemptId] = useState('')
-  const [taxExemptState, setTaxExemptState] = useState('')
   const [taxExemptApplied, setTaxExemptApplied] = useState(false)
   const [taxExemptOpen, setTaxExemptOpen] = useState(false)
   // Single unified promo entry. Disco codes (display-only discount + post-order
@@ -381,7 +380,7 @@ export default function CheckoutDrawer({
   totalRef.current = trackingTotal
 
   const taxIdValid = /^\d{6,12}$/.test(taxExemptId)
-  const canApplyExempt = taxIdValid && !!taxExemptState
+  const canApplyExempt = taxIdValid
   const canProceed = cart.length > 0 && !!selDate && !!selTime && (orderType === 'PICKUP' || (!!addr.line1 && !!addr.city && !!addr.state && !!addr.zip && addr.lat != null && addr.lng != null))
   const fmAddr: FmDeliveryAddr = {
     addressLine1: addr.line1,
@@ -438,8 +437,10 @@ export default function CheckoutDrawer({
       // PUT). The drawer computes a dollar tip, which is FM's CUSTOM (a fixed $
       // amount, like the per-menu tipOption customTipSize); no tip → PERCENTAGE 0.
       tipsType: tipAmt > 0 ? 'CUSTOM' : 'PERCENTAGE',
-      taxExempt: taxExemptApplied,
-      ...(taxExemptApplied ? { taxExemptId, taxExemptState } : {}),
+      // Tax exemption is NOT sent to FM (it must keep the tax in its total/PI so
+      // the place route can subtract it from the Stripe PaymentIntent). taxExemptId
+      // is still passed so the Neon mirror can persist it on disco_orders.
+      ...(taxExemptApplied && taxExemptId ? { taxExemptId } : {}),
       ...(couponCode ? { couponCode } : {}),
     }
   }
@@ -733,6 +734,10 @@ export default function CheckoutDrawer({
             // FM has no order-level headcount field, so send it alongside (not in
             // the FM DTO) for the Neon mirror to persist on disco_orders.persons.
             ...(headcount != null ? { headcount } : {}),
+            // Tax exempt (customer flow only): tells /api/order/place to reduce the
+            // FM PaymentIntent by the tax before confirm. taxAmount is FM's reported
+            // sales tax (state+local+other) — the exact amount baked into the PI.
+            ...(taxExemptApplied && !isDirectEntry ? { taxExemptApplied: true, taxAmount: fm?.tax ?? 0 } : {}),
             ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
           }),
         })
@@ -1095,10 +1100,10 @@ export default function CheckoutDrawer({
               (checkout-customer-info.component.html:146-170). */}
           {taxExemptApplied ? (
             <div style={{ background: '#fafafa', borderRadius: 12, padding: '12px 16px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#1D9E75' }}>Tax exempt applied</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#1D9E75' }}>Tax Exempt Applied ✓</span>
               <button onClick={() => { setTaxExemptApplied(false) }}
                 style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }}>
-                Remove tax exempt account
+                Remove
               </button>
             </div>
           ) : taxExemptOpen ? (
@@ -1106,13 +1111,8 @@ export default function CheckoutDrawer({
               <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 8 }}>Tax Exempt Account</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <input value={taxExemptId} onChange={e => setTaxExemptId(e.target.value.replace(/[^0-9]/g, ''))}
-                  inputMode="numeric" placeholder="ID (6–12 digits)"
-                  style={{ flex: '1 1 120px', minWidth: 0, height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
-                <select value={taxExemptState} onChange={e => setTaxExemptState(e.target.value)}
-                  style={{ height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 8px', fontSize: 13, fontFamily: F, color: taxExemptState ? DARK : '#aaa', background: '#fff' }}>
-                  <option value="">State</option>
-                  {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                  inputMode="numeric" placeholder="Tax exempt ID (6–12 digits)"
+                  style={{ flex: '1 1 160px', minWidth: 0, height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
                 <button onClick={() => { if (canApplyExempt) setTaxExemptApplied(true) }} disabled={!canApplyExempt}
                   style={{ height: 38, padding: '0 16px', background: canApplyExempt ? BLUE : '#e8e8e8', color: canApplyExempt ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: canApplyExempt ? 'pointer' : 'default', fontFamily: F }}>
                   Apply

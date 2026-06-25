@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { randomUUID } from 'node:crypto'
+import Stripe from 'stripe'
 import { getFmCustomerJwt } from '../../../../lib/customer-auth'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { sql } from '../../../../lib/db'
@@ -8,6 +9,22 @@ import { sql } from '../../../../lib/db'
 export const runtime = 'nodejs'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+function stripeClient(): Stripe | null {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key) return null
+  return new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
+}
+
+// Pull the FM-created PaymentIntent id off the place response (nested under
+// data.paymentDetails.stripePaymentIntentDto, or flat on some envelopes).
+function extractPaymentIntentId(data: Record<string, unknown>): string {
+  const fmInner = ((data?.data ?? data ?? {}) as Record<string, unknown>)
+  const paymentDetails = (fmInner.paymentDetails ?? data.paymentDetails ?? {}) as Record<string, unknown>
+  const stripeIntent = (paymentDetails.stripePaymentIntentDto ?? {}) as Record<string, unknown>
+  const id = stripeIntent.paymentIntentId
+  return typeof id === 'string' ? id : ''
+}
 
 // disco_orders.order_status CHECK set (001_disco_orders.sql).
 const ALLOWED_STATUS = new Set([
@@ -49,6 +66,9 @@ async function mirrorOrderToNeon(args: {
   orderRef: string
   placeBody: Record<string, unknown>
   fmData: unknown
+  // When tax exempt, the actual charge (reduced PaymentIntent amount, in dollars)
+  // — stored as the order total so the confirmation page + receipts match.
+  taxExemptCharge?: number | null
 }): Promise<void> {
   try {
     const { restaurantRef, orderRef, placeBody } = args
@@ -70,7 +90,11 @@ async function mirrorOrderToNeon(args: {
     const orderType = checkoutDetails.orderType === 'DELIVERY' || placeBody.deliveryAddress ? 'DELIVERY' : 'PICKUP'
     const statusRaw = String(fmInner.orderStatus ?? fm.orderStatus ?? fmInner.status ?? '').toUpperCase()
     const orderStatus = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
-    const { subtotal, total, fee } = extractMoney(fmInner)
+    const money = extractMoney(fmInner)
+    const { subtotal, fee } = money
+    // Tax exempt → persist the reduced charge (matches the PaymentIntent + the
+    // amount the customer is actually charged), not FM's tax-inclusive total.
+    const total = args.taxExemptCharge != null ? args.taxExemptCharge : money.total
     // Tax-exempt id (Item 4) — sent on checkoutDetails; persisted so the
     // confirmation page, PDF, drawer, and emails can show it.
     const taxExemptId = str(checkoutDetails.taxExemptId)
@@ -158,7 +182,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { restaurantRef, orderRef, ...placeBody } = body
+    // taxExemptApplied / taxAmount are Disco-only directives — pull them OUT of the
+    // body so they're never forwarded to FM (the rest of the body, including
+    // checkoutDetails + customer, is proxied to FM untouched). FM keeps the tax in
+    // its total/PaymentIntent; Disco subtracts it from the PI below.
+    const { restaurantRef, orderRef, taxExemptApplied, taxAmount, ...placeBody } = body
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
@@ -194,10 +222,42 @@ export async function POST(req: NextRequest) {
     })
     console.log('[order/place] FM response FULL BODY:', JSON.stringify(data))
 
+    // Tax exempt → reduce the FM-created PaymentIntent by the tax amount BEFORE the
+    // client calls /confirm-payment (FM charges whatever amount is on the PI). This
+    // must run synchronously (awaited) so the reduced amount is live by the time the
+    // next confirm call fires. Best-effort: a failure leaves the full PI in place
+    // rather than blocking the order.
+    let taxExemptCharge: number | null = null
+    if (res.ok && taxExemptApplied === true && Number(taxAmount) > 0) {
+      const tax = Number(taxAmount)
+      const stripe = stripeClient()
+      const paymentIntentId = extractPaymentIntentId(data)
+      if (stripe && paymentIntentId) {
+        try {
+          const pi = await stripe.paymentIntents.retrieve(paymentIntentId)
+          const originalTotal = (pi.amount ?? 0) / 100 // authoritative charge amount (incl. tax), in dollars
+          const newAmount = Math.max(0, Math.round((originalTotal - tax) * 100)) // integer cents
+          await stripe.paymentIntents.update(paymentIntentId, { amount: newAmount })
+          taxExemptCharge = newAmount / 100
+          console.log(`[order/place] Tax exempt applied — PI amount updated from $${originalTotal.toFixed(2)} to $${taxExemptCharge.toFixed(2)}`)
+        } catch (e) {
+          console.error('[order/place] tax-exempt PI update failed:', e instanceof Error ? e.message : e)
+        }
+      } else {
+        console.warn('[order/place] tax exempt requested but no Stripe key / PaymentIntent — PI not reduced')
+      }
+    }
+
     // Mirror into Neon only after FM accepted the order. Fire-and-forget via
     // waitUntil — non-blocking and never affects the response below.
     if (res.ok) {
-      waitUntil(mirrorOrderToNeon({ restaurantRef, orderRef, placeBody, fmData: data }))
+      waitUntil(mirrorOrderToNeon({ restaurantRef, orderRef, placeBody, fmData: data, taxExemptCharge }))
+    }
+
+    // Surface the tax-exempt-adjusted charge so the frontend knows the real amount.
+    if (taxExemptCharge != null && data && typeof data === 'object' && !Array.isArray(data)) {
+      data.taxExemptApplied = true
+      data.taxExemptCharge = taxExemptCharge
     }
 
     return NextResponse.json(data, { status: res.status })
