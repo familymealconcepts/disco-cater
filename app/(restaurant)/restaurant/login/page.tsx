@@ -38,11 +38,63 @@ export default function RestaurantLoginPage() {
         if (!res.ok || cancelled) return
         const s = await res.json()
         storeDiscoUser(s)
-        router.replace('/restaurant/dashboard')
+        // Route to the right surface by role (regular users → orders, not the
+        // dashboard) so there's no flash on an already-signed-in revisit.
+        await navigateByRole(s.role || '')
       } catch { /* not logged in — show the form */ }
     })()
     return () => { cancelled = true }
   }, [router])
+
+  // Post-login routing by role — shared by the Disco-native and FM login paths:
+  //   SUPER_ADMIN  → /restaurant/dashboard (Reporting; all locations via the
+  //                  top-right dropdown, no picker required)
+  //   SYSTEM_ADMIN → /restaurant/manage/locations (so they can click into a
+  //                  location to operate it). With exactly one location we
+  //                  auto-pick + land on the dashboard.
+  //   ADMIN / RESTAURANT_USER → /restaurant/orders (their daily surface)
+  // Regular users go straight to /restaurant/orders — never via the dashboard,
+  // so there's no dashboard flash before the redirect.
+  async function navigateByRole(role: string) {
+    if (role === 'SUPER_ADMIN') {
+      router.push('/restaurant/dashboard')
+      return
+    }
+    if (role === 'SYSTEM_ADMIN') {
+      try {
+        // Non-blocking probe: never let a slow/hung locations call trap the user
+        // on "Signing in…". On timeout/failure we fall through to the Locations
+        // page where they can pick a location.
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 8000)
+        const locRes = await fetch('/api/restaurant/locations?size=1000', { credentials: 'include', signal: ctrl.signal })
+        clearTimeout(timer)
+        if (locRes.ok) {
+          const locData = await locRes.json()
+          const list: { reference: string; businessName: string }[] = locData.content || []
+          if (list.length === 1) {
+            const only = list[0]
+            await fetch(`/api/restaurant/selected-restaurant?restaurantReference=${only.reference}`, {
+              method: 'PUT', credentials: 'include',
+            })
+            try {
+              localStorage.setItem('selectedRestaurant', only.reference)
+              localStorage.setItem('selectedRestaurantName', only.businessName)
+            } catch {}
+            router.push('/restaurant/dashboard')
+            return
+          }
+        }
+      } catch {
+        // If the locations fetch failed, fall through to the Locations
+        // management page — the user can pick from there.
+      }
+      router.push('/restaurant/manage/locations')
+      return
+    }
+    // ADMIN / RESTAURANT_USER / RESTAURANT_ADMIN
+    router.push('/restaurant/orders')
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -56,8 +108,9 @@ export default function RestaurantLoginPage() {
           credentials: 'include', body: JSON.stringify({ email, password }),
         })
         if (dres.ok) {
-          storeDiscoUser(await dres.json())
-          router.push('/restaurant/dashboard')
+          const d = await dres.json()
+          storeDiscoUser(d)
+          await navigateByRole(d.role || '')
           return
         }
       } catch { /* fall through to FM login */ }
@@ -74,59 +127,7 @@ export default function RestaurantLoginPage() {
         return
       }
       localStorage.setItem('restaurant_user', JSON.stringify(data))
-
-      // Post-login routing by role:
-      //   SUPER_ADMIN  → /restaurant/dashboard (Reporting; sees all
-      //                  locations via the top-right dropdown, no
-      //                  picker required)
-      //   SYSTEM_ADMIN → /restaurant/manage/locations (so they can
-      //                  click into a location to operate it). With
-      //                  exactly one location we auto-pick + land on
-      //                  the dashboard.
-      //   ADMIN / RESTAURANT_USER → /restaurant/orders (their daily
-      //                  surface; JWT already carries the restaurant)
-      const role: string = data.role || ''
-
-      if (role === 'SUPER_ADMIN') {
-        router.push('/restaurant/dashboard')
-        return
-      }
-
-      if (role === 'SYSTEM_ADMIN') {
-        try {
-          // Non-blocking probe: never let a slow/hung locations call trap the user
-          // on "Signing in…". On timeout/failure we fall through to the Locations
-          // page where they can pick a location.
-          const ctrl = new AbortController()
-          const timer = setTimeout(() => ctrl.abort(), 8000)
-          const locRes = await fetch('/api/restaurant/locations?size=1000', { credentials: 'include', signal: ctrl.signal })
-          clearTimeout(timer)
-          if (locRes.ok) {
-            const locData = await locRes.json()
-            const list: { reference: string; businessName: string }[] = locData.content || []
-            if (list.length === 1) {
-              const only = list[0]
-              await fetch(`/api/restaurant/selected-restaurant?restaurantReference=${only.reference}`, {
-                method: 'PUT', credentials: 'include',
-              })
-              try {
-                localStorage.setItem('selectedRestaurant', only.reference)
-                localStorage.setItem('selectedRestaurantName', only.businessName)
-              } catch {}
-              router.push('/restaurant/dashboard')
-              return
-            }
-          }
-        } catch {
-          // If the locations fetch failed, fall through to the
-          // Locations management page — the user can pick from there.
-        }
-        router.push('/restaurant/manage/locations')
-        return
-      }
-
-      // ADMIN / RESTAURANT_USER / RESTAURANT_ADMIN
-      router.push('/restaurant/orders')
+      await navigateByRole(data.role || '')
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {
