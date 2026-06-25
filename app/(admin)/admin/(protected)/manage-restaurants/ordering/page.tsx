@@ -1,5 +1,6 @@
 'use client'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import AddRestaurantDialog from './AddRestaurantDialog'
 import EditRestaurantDialog from '../EditRestaurantDialog'
 
@@ -895,26 +896,68 @@ export default function RestaurantsOrderingPage() {
   )
 }
 
+// Row "…" actions menu. The menu is rendered in a PORTAL on document.body so it
+// escapes the table container's `overflow: auto` (which previously clipped it,
+// especially for the last rows). Position is computed from the trigger button's
+// getBoundingClientRect() each time it opens; it closes on outside click and on
+// scroll (capture, so the inner scrolling table fires it too) / resize.
+const KEBAB_MENU_WIDTH = 200
+
 function Kebab({ onResetPassword, onTransferSystemAdmin }: { onResetPassword: () => void; onTransferSystemAdmin: () => void }) {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  function openMenu() {
+    const rect = btnRef.current?.getBoundingClientRect()
+    if (!rect) return
+    // Right-align the menu under the button, clamped to the viewport.
+    const left = Math.max(8, Math.min(rect.right - KEBAB_MENU_WIDTH, window.innerWidth - KEBAB_MENU_WIDTH - 8))
+    setPos({ top: rect.bottom + 4, left })
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    function onDocPointer(e: MouseEvent) {
+      // Ignore clicks on the menu itself or the trigger (the trigger's own
+      // onClick handles toggling).
+      if (menuRef.current?.contains(e.target as Node)) return
+      if (btnRef.current?.contains(e.target as Node)) return
+      setOpen(false)
+    }
+    const close = () => setOpen(false)
+    window.addEventListener('mousedown', onDocPointer)
+    window.addEventListener('scroll', close, true) // capture → inner table scroll too
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('mousedown', onDocPointer)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [open])
+
   const itemStyle: React.CSSProperties = { display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '10px 14px', fontSize: 13, color: DARK, cursor: 'pointer', fontFamily: F }
+
   return (
-    <span style={{ position: 'relative', display: 'inline-block' }}>
-      <button title="More" onClick={() => setOpen(o => !o)} style={iconBtn}>⋯</button>
-      {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
-          <div style={{ position: 'absolute', right: 0, top: '100%', background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', zIndex: 51, minWidth: 200 }}>
-            <button onClick={() => { setOpen(false); onResetPassword() }} style={itemStyle}>
-              Reset password
-            </button>
-            <button onClick={() => { setOpen(false); onTransferSystemAdmin() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0' }}>
-              Transfer to System Admin
-            </button>
-          </div>
-        </>
+    <>
+      <button ref={btnRef} title="More" onClick={() => (open ? setOpen(false) : openMenu())} style={iconBtn}>⋯</button>
+      {open && pos && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: KEBAB_MENU_WIDTH, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', zIndex: 1000 }}
+        >
+          <button onClick={() => { setOpen(false); onResetPassword() }} style={itemStyle}>
+            Reset password
+          </button>
+          <button onClick={() => { setOpen(false); onTransferSystemAdmin() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0' }}>
+            Transfer to System Admin
+          </button>
+        </div>,
+        document.body,
       )}
-    </span>
+    </>
   )
 }
 
