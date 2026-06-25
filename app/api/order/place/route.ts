@@ -162,6 +162,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
 
+    // FM rejects formatted phone numbers ("Phone number has wrong format") — it
+    // wants digits only (e.g. "732-239-7055" → "7322397055"). Sanitize every
+    // phone field in the place payload before forwarding to FM.
+    const sanitizePhone = (phone: string) => phone.replace(/\D/g, '')
+    if (placeBody?.customer && typeof placeBody.customer.phoneNumber === 'string') {
+      placeBody.customer.phoneNumber = sanitizePhone(placeBody.customer.phoneNumber)
+    }
+    if (placeBody?.deliveryAddress && typeof placeBody.deliveryAddress.phoneNumber === 'string') {
+      placeBody.deliveryAddress.phoneNumber = sanitizePhone(placeBody.deliveryAddress.phoneNumber)
+    }
+    if (placeBody?.checkoutDetails && typeof placeBody.checkoutDetails.phoneNumber === 'string') {
+      placeBody.checkoutDetails.phoneNumber = sanitizePhone(placeBody.checkoutDetails.phoneNumber)
+    }
+
     const res = await fetch(`${FM}/api/v2/restaurants/${restaurantRef}/orders/${orderRef}`, {
       method: 'POST',
       headers: {

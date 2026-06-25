@@ -725,7 +725,9 @@ export default function CheckoutDrawer({
             restaurantRef: fmRef,
             orderRef,
             checkoutDetails,
-            customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: contactPhone },
+            // FM requires a digits-only phone ("Phone number has wrong format"
+            // otherwise) — "732-239-7055" → "7322397055".
+            customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: contactPhone.replace(/\D/g, '') },
             // FM has no order-level headcount field, so send it alongside (not in
             // the FM DTO) for the Neon mirror to persist on disco_orders.persons.
             ...(headcount != null ? { headcount } : {}),

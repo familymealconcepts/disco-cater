@@ -30,7 +30,10 @@ export async function POST(req: NextRequest) {
     if (existing) return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 409 })
 
     const passwordHash = await hashCustomerPassword(password)
-    let fm = await fmRegister({ email, password, firstName, lastName, phoneNumber })
+    // FM /registration requires digits-only phone numbers ("Phone number has
+    // wrong format" otherwise). Sanitize for FM; keep the entered value in Neon.
+    const sanitizePhone = (phone: string) => phone.replace(/\D/g, '')
+    let fm = await fmRegister({ email, password, firstName, lastName, phoneNumber: sanitizePhone(phoneNumber) })
     // Fall back to FM /login so we capture the FM JWT even when /registration
     // doesn't return one — order placement depends on the disco_token cookie.
     if (!fm) fm = await fmLogin(email, password)
