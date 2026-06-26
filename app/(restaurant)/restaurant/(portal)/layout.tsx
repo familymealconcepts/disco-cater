@@ -84,7 +84,13 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const [orderBadge, setOrderBadge] = useState(0)
   const [stripeConnected, setStripeConnected] = useState<boolean | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  // Mobile (<768px) sidebar drawer. Closed by default; opened via the hamburger
+  // in the mobile top bar. Auto-closes on navigation so a tap-through doesn't
+  // leave the overlay covering the page.
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const { ref: selectedRestaurant, name: selectedRestaurantName, viewMode, setViewMode, clearRestaurant } = useSelectedRestaurant()
+
+  useEffect(() => { setSidebarOpen(false) }, [pathname])
 
   useEffect(() => {
     let cached: string | null = null
@@ -253,17 +259,64 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
         .portal-nav-group:hover { background: rgba(107,110,249,0.12) !important; }
         .portal-nav-child:hover { background: rgba(107,110,249,0.15) !important; }
         .portal-back-link:hover { background: rgba(107,110,249,0.18) !important; }
+
+        /* Desktop: fixed sidebar, no mobile chrome. */
+        .portal-topbar { display: none; }
+        .portal-backdrop { display: none; }
+        .portal-close { display: none; }
+
+        /* Mobile: hide the sidebar off-canvas and reveal a hamburger top bar. */
+        @media (max-width: 767px) {
+          .portal-topbar {
+            display: flex; align-items: center; justify-content: space-between;
+            position: sticky; top: 0; z-index: 90;
+            background: ${DARK}; padding: 12px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+          }
+          .portal-sidebar {
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+            box-shadow: 4px 0 28px rgba(0,0,0,0.35);
+          }
+          .portal-sidebar.open { transform: translateX(0); }
+          .portal-backdrop.show {
+            display: block; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5); z-index: 95;
+          }
+          .portal-content { margin-left: 0 !important; }
+          .portal-close { display: flex; }
+        }
       `}</style>
 
       <div style={{ display: 'flex', minHeight: '100svh', fontFamily: F }}>
+        {/* Mobile-only dark backdrop — closes the drawer on tap */}
+        <div
+          className={`portal-backdrop${sidebarOpen ? ' show' : ''}`}
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden
+        />
+
         {/* Sidebar */}
-        <aside style={{
+        <aside className={`portal-sidebar${sidebarOpen ? ' open' : ''}`} style={{
           width: SW, background: DARK, position: 'fixed', top: 0, left: 0,
           height: '100vh', overflow: 'hidden auto', display: 'flex', flexDirection: 'column',
           flexShrink: 0, zIndex: 100,
         }}>
           {/* Logo + single context name */}
-          <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', position: 'relative' }}>
+            <button
+              className="portal-close"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close menu"
+              style={{
+                position: 'absolute', top: 14, right: 12,
+                width: 30, height: 30, alignItems: 'center', justifyContent: 'center',
+                background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 8,
+                color: 'rgba(255,255,255,0.8)', fontSize: 16, cursor: 'pointer', lineHeight: 1,
+              }}
+            >
+              ✕
+            </button>
             <div style={{ marginBottom: 4 }}>
               <span style={{ fontSize: 18, fontWeight: 800, background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>disco</span>
               <span style={{ fontSize: 18, fontWeight: 800, color: '#999' }}> cater</span>
@@ -364,7 +417,24 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* Main */}
-        <div style={{ marginLeft: SW, flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div className="portal-content" style={{ marginLeft: SW, flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          {/* Mobile top bar — logo left, hamburger right */}
+          <div className="portal-topbar">
+            <div>
+              <span style={{ fontSize: 17, fontWeight: 800, background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>disco</span>
+              <span style={{ fontSize: 17, fontWeight: 800, color: '#999' }}> cater</span>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+              style={{
+                background: 'transparent', border: 'none', color: '#fff',
+                fontSize: 22, cursor: 'pointer', lineHeight: 1, padding: 4,
+              }}
+            >
+              ☰
+            </button>
+          </div>
           <main style={{ flex: 1, background: '#F7F8FC', minHeight: '100vh' }}>
             {children}
           </main>

@@ -157,6 +157,31 @@ function statusLabel(o: { orderStatus: string; refund?: number; total?: number; 
   return STATUS_LABEL[st] || st
 }
 
+// Colored indicator dot for the orders-list status column. Refunds read amber
+// regardless of the underlying status code (matching statusLabel's display).
+function statusDotColor(o: { orderStatus: string; refund?: number }): string {
+  if ((o.refund ?? 0) > 0) return '#F59E0B'
+  switch ((o.orderStatus || '').toUpperCase()) {
+    case 'DUE': return '#5B6FE8'
+    case 'COMPLETED':
+    case 'PAID':
+    case 'REOPEN':
+    case 'REOPENED': return '#1D9E75'
+    case 'REFUND':
+    case 'REFUNDED':
+    case 'PARTIAL_REFUND': return '#F59E0B'
+    case 'VOID':
+    case 'VOIDED':
+    case 'CANCELLED':
+    case 'CANCELED':
+    case 'EXPIRED': return '#6B7280'
+    case 'UNPAID':
+    case 'PAYMENT_FAILED': return '#E53935'
+    case 'RESERVED': return '#6B6EF9'
+    default: return '#6B7280'
+  }
+}
+
 // Restaurant-local timezone for pickup/delivery eligibility checks. The orders
 // API doesn't surface a per-restaurant timezone yet, so we fall back to a safe
 // default (Eastern) and prefer any tz that does come through on the order.
@@ -729,7 +754,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   }
 
   return (
-    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, background: '#fff', zIndex: 200, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', fontFamily: F }} className="order-drawer-root">
+    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(480px, 100vw)', maxWidth: '100vw', background: '#fff', zIndex: 200, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', overflowY: 'auto', fontFamily: F }} className="order-drawer-root">
       {/* Header */}
       <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} className="order-drawer-chrome">
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: DARK }}>Order Details</h2>
@@ -1418,6 +1443,10 @@ function OrdersContent() {
           </div>
 
           {/* Table */}
+          <style>{`
+            @keyframes shimmer { 0% { opacity: 0.4; } 50% { opacity: 0.8; } 100% { opacity: 0.4; } }
+            .skeleton { background: #e5e7eb; border-radius: 4px; animation: shimmer 1.5s ease-in-out infinite; }
+          `}</style>
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -1437,9 +1466,18 @@ function OrdersContent() {
                 </tr>
               </thead>
               <tbody>
-                {loading && (
-                  <tr><td colSpan={aggregating ? 10 : 9} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</td></tr>
-                )}
+                {loading && Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={`sk-${i}`}>
+                    {Array.from({ length: aggregating ? 10 : 9 }).map((_, j) => {
+                      const isLast = j === (aggregating ? 9 : 8)
+                      return (
+                        <td key={j} style={{ padding: '12px 14px' }}>
+                          <div className="skeleton" style={{ height: 12, width: isLast ? '40%' : '70%', marginLeft: isLast ? 'auto' : 0 }} />
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
                 {!loading && displayedOrders.length === 0 && (
                   <tr><td colSpan={aggregating ? 10 : 9} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
                 )}
@@ -1500,6 +1538,8 @@ function OrdersContent() {
                         )}
                       </td>
                       <td style={{ padding: '12px 14px' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusDotColor(order), flexShrink: 0 }} />
                         {TERMINAL.has(order.orderStatus) ? (
                           <span style={{ fontSize: 13, color: '#888' }}>{statusLabel(order)}</span>
                         ) : (
@@ -1532,6 +1572,7 @@ function OrdersContent() {
                             ))}
                           </select>
                         )}
+                        </span>
                       </td>
                       <td data-row-actions style={{ padding: '12px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {/* Hide edit in the all-locations (aggregated) view: editing
