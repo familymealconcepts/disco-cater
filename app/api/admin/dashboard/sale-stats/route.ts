@@ -20,9 +20,15 @@ export async function GET(req: NextRequest) {
     const res = await fetch(`${FM}/api/admin/dashboard/sale/stats?${params}`, { headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed to fetch sale stats' }, { status: res.status })
     const data = await res.json()
-    // FM doesn't return a platform-fee field — Disco's platform fee is 3% of the
-    // order subtotal, so compute it here.
-    return NextResponse.json({ ...data, platformFees: (data.subtotalOrdersSum ?? 0) * 0.03 })
+    // Prefer FM's actual summed platform fee (feeSum) when present; otherwise fall
+    // back to a 3%-of-subtotal estimate and flag it so the UI can show "(est.)".
+    const realFee = Number(data?.feeSum)
+    const hasRealFee = Number.isFinite(realFee) && realFee > 0
+    return NextResponse.json({
+      ...data,
+      platformFees: hasRealFee ? realFee : (data.subtotalOrdersSum ?? 0) * 0.03,
+      platformFeesEstimated: !hasRealFee,
+    })
   } catch {
     return NextResponse.json({ error: 'Unable to fetch sale stats' }, { status: 500 })
   }

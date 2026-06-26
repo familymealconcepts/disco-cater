@@ -28,19 +28,35 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null)
     const batchSize = Math.max(1, Math.min(500, Number(body?.batchSize) || 25))
     const offset = Math.max(0, Number(body?.offset) || 0)
+    // staleOnly: only re-check restaurants whose status is unknown or older than
+    // 24h. Used by the dashboard's auto-sync-on-load so the count stays fresh
+    // without a manual full sync. (Ignores `offset` — it's a one-batch refresh.)
+    const staleOnly = body?.staleOnly === true
 
     // Stable count + page (ORDER BY keeps the offset windows consistent run-to-run).
-    const totalRows = (await sql`
-      SELECT COUNT(*)::int AS n FROM disco_restaurant_overrides WHERE visible = true
-    `) as { n: number }[]
+    const totalRows = (staleOnly
+      ? (await sql`
+          SELECT COUNT(*)::int AS n FROM disco_restaurant_overrides
+          WHERE visible = true AND (stripe_checked_at IS NULL OR stripe_checked_at < NOW() - INTERVAL '24 hours')
+        `)
+      : (await sql`
+          SELECT COUNT(*)::int AS n FROM disco_restaurant_overrides WHERE visible = true
+        `)) as { n: number }[]
     const total = totalRows[0]?.n ?? 0
 
-    const refs = (await sql`
-      SELECT restaurant_reference FROM disco_restaurant_overrides
-      WHERE visible = true
-      ORDER BY restaurant_reference
-      LIMIT ${batchSize} OFFSET ${offset}
-    `) as { restaurant_reference: string }[]
+    const refs = (staleOnly
+      ? (await sql`
+          SELECT restaurant_reference FROM disco_restaurant_overrides
+          WHERE visible = true AND (stripe_checked_at IS NULL OR stripe_checked_at < NOW() - INTERVAL '24 hours')
+          ORDER BY restaurant_reference
+          LIMIT ${batchSize}
+        `)
+      : (await sql`
+          SELECT restaurant_reference FROM disco_restaurant_overrides
+          WHERE visible = true
+          ORDER BY restaurant_reference
+          LIMIT ${batchSize} OFFSET ${offset}
+        `)) as { restaurant_reference: string }[]
 
     let header = await getFmServiceAuthHeader()
     let connected = 0

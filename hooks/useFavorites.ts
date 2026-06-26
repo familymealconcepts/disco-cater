@@ -115,14 +115,8 @@ function writeLocal(scope: string, favs: FavoriteRestaurant[]) {
   try { window.localStorage.setItem(storageKey(scope), JSON.stringify(favs)) } catch {}
 }
 
-// Per-scope "last refreshed" timestamp, so the favorites page can paint instantly
-// from cache and only hit the network when the cache is empty or stale (>1h).
+// Per-scope "last refreshed" timestamp marker (also cleared on logout).
 const TS_PREFIX = 'disco_favorites_ts_'
-const STALE_MS = 60 * 60 * 1000 // 1 hour
-function readTs(scope: string): number {
-  if (typeof window === 'undefined') return 0
-  try { return parseInt(window.localStorage.getItem(`${TS_PREFIX}${scope}`) || '0', 10) || 0 } catch { return 0 }
-}
 function writeTs(scope: string) {
   if (typeof window === 'undefined') return
   try { window.localStorage.setItem(`${TS_PREFIX}${scope}`, String(Date.now())) } catch {}
@@ -148,32 +142,70 @@ export function useFavorites(): FavoritesState {
   const userScopeRef = useRef('guest')
   useEffect(() => { userScopeRef.current = userScope }, [userScope])
 
-  // Network refresh. `background` skips the loading flag so a cache-first paint
-  // stays on screen while we reconcile. Writes a per-scope timestamp on completion
-  // so the next mount can decide whether a refresh is even needed.
+  // Network refresh against the Neon-backed favorites API. `background` skips the
+  // loading flag so the cache-first paint stays on screen while we reconcile.
+  //
+  // Logged in → server membership is AUTHORITATIVE (so a delete on another device
+  // propagates here). Pre-login favorites in the guest bucket are merged up to the
+  // server ONCE, then the guest bucket is cleared so they can't resurrect a
+  // server-side delete. Local metadata is reused to render server refs.
   const refresh = useCallback(async (opts?: { background?: boolean }) => {
     if (!opts?.background) setLoading(true)
+    const localScope = readUserScope()
     try {
-      const res = await fetch('/api/fm-favorites', { credentials: 'include' })
+      const res = await fetch('/api/customer/favorites', { credentials: 'include' })
       if (res.ok) {
         const data = await res.json()
-        const list: FavoriteRestaurant[] = Array.isArray(data) ? data : (data.content || data.data || [])
-        setFavorites(list)
-        setSource('api')
-        setLoading(false)
-        writeTs(userScopeRef.current)
-        return
+        if (data?.authenticated && data?.email) {
+          const scope = String(data.email)
+          setUserScope(scope)
+          userScopeRef.current = scope
+          const serverRefs: string[] = Array.isArray(data.favorites) ? data.favorites : []
+          const serverSet = new Set(serverRefs)
+
+          // Pre-login adds (guest bucket) not yet on the server → upload once.
+          const guestFavs = readLocal('guest')
+          const guestOnly = guestFavs.filter(f => { const ref = f.reference || f.key; return ref && !serverSet.has(ref) })
+
+          // Display metadata for server refs comes from the user cache + guest bucket.
+          const byKey = new Map<string, FavoriteRestaurant>()
+          for (const f of [...readLocal(scope), ...guestFavs]) {
+            if (f.key) byKey.set(f.key, f)
+            if (f.reference) byKey.set(f.reference, f)
+          }
+          const merged: FavoriteRestaurant[] = []
+          const seen = new Set<string>()
+          for (const ref of serverRefs) {
+            const fav = byKey.get(ref) || { key: ref, reference: ref }
+            if (!seen.has(fav.key)) { merged.push(fav); seen.add(fav.key) }
+          }
+          for (const f of guestOnly) { if (!seen.has(f.key)) { merged.push(f); seen.add(f.key) } }
+
+          setFavorites(merged)
+          setSource('api')
+          setLoading(false)
+          writeLocal(scope, merged)
+          writeTs(scope)
+
+          if (guestOnly.length) {
+            for (const f of guestOnly) {
+              const ref = f.reference || f.key
+              if (ref) fetch('/api/customer/favorites', {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ restaurant_reference: ref }),
+              }).catch(() => {})
+            }
+            writeLocal('guest', []) // merged up — don't let them resurrect a delete
+          }
+          return
+        }
       }
-      // 501/401 → FM hasn't shipped favorites; fall through to localStorage.
     } catch {
-      // network — fall through
+      // network — fall through to local
     }
-    // Local fallback. Resolve the user scope FIRST so we read the right bucket —
-    // reading with the stale default 'guest' scope here was the race that made a
-    // logged-in user's favorites briefly flash and then vanish (the guest bucket
-    // is empty, so they got overwritten with []). When disco_user isn't present
-    // (cookie-only auth), confirm the scope from the cookie before reading.
-    let scope = readUserScope()
+    // Not authenticated → localStorage only (guest / logged-out).
+    let scope = localScope
     if (scope === 'guest') {
       const cookieScope = await resolveScopeFromCookie()
       if (cookieScope) scope = cookieScope
@@ -185,6 +217,19 @@ export function useFavorites(): FavoritesState {
     setLoading(false)
     writeTs(scope)
   }, [])
+
+  // Remove every favorites-related localStorage key (used on logout).
+  function clearAllLocalFavorites() {
+    if (typeof window === 'undefined') return
+    try {
+      const toRemove: string[] = []
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i)
+        if (k && (k.startsWith(STORAGE_KEY_PREFIX) || k.startsWith(TS_PREFIX) || k === CACHED_AUTH_SCOPE_KEY || k === LEGACY_STORAGE_KEY)) toRemove.push(k)
+      }
+      toRemove.forEach(k => window.localStorage.removeItem(k))
+    } catch {}
+  }
 
   // Initial load — paint INSTANTLY from localStorage (no network on the critical
   // path), then reconcile in the background only when the cache is empty or stale
@@ -198,9 +243,10 @@ export function useFavorites(): FavoritesState {
     setFavorites(cached)
     setSource('local')
     setLoading(false)
-    if (cached.length === 0 || Date.now() - readTs(scope) > STALE_MS) {
-      refresh({ background: true })
-    }
+    // Always reconcile with the server in the background so a logged-in customer's
+    // favorites stay in sync across devices (the cache-first paint above keeps it
+    // instant). For logged-out guests this just confirms the local list.
+    refresh({ background: true })
   }, [refresh])
 
   // Local fallback only: when the scope changes (login/logout) re-read the right
@@ -230,10 +276,22 @@ export function useFavorites(): FavoritesState {
       }
     }
     function onAuthChange() {
-      // Re-resolve from the cookie so a fresh login picks up the right
-      // user, then re-fetch (handles both login and logout — logout 401s
-      // back to the guest local bucket).
-      resolveScopeFromCookie().then(s => { setUserScope(s || readUserScope()); refresh() })
+      // A 'disco-user-changed' event is an auth transition. Check the Neon
+      // favorites endpoint: authenticated → reconcile; not authenticated (logout)
+      // → clear localStorage favorites and reset to an empty guest state.
+      fetch('/api/customer/favorites', { credentials: 'include' })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (d?.authenticated) { refresh() }
+          else {
+            clearAllLocalFavorites()
+            setFavorites([])
+            setSource('local')
+            setUserScope('guest')
+            userScopeRef.current = 'guest'
+          }
+        })
+        .catch(() => refresh())
     }
     window.addEventListener('storage', onStorage)
     window.addEventListener('disco-user-changed', onAuthChange as EventListener)
@@ -266,27 +324,24 @@ export function useFavorites(): FavoritesState {
       ? favorites.filter(f => f.key !== r.key)
       : [...favorites, r]
 
-    // Optimistic update everywhere
+    // Optimistic update everywhere (write the cache in both modes).
     setFavorites(next)
-    if (source === 'local') writeLocal(userScope, next)
+    writeLocal(userScope, next)
     broadcast(next)
 
-    // Fire-and-forget API call when source is 'api'. If it fails, refresh
-    // from the server to reconcile. (FM's eventual favorites endpoint
-    // is scoped by the authenticated user via JWT, so no client-side
-    // scope key is needed in API mode.)
+    // Logged-in (api) → persist to Neon in the background. On failure, reconcile.
     if (source === 'api') {
-      const ok = wasFavorited
-        ? await fetch(`/api/fm-favorites/${encodeURIComponent(r.key)}`, { method: 'DELETE', credentials: 'include' })
-        : await fetch('/api/fm-favorites', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(r),
-          })
-      if (!ok.ok) {
-        // Refresh to bring local state back in line with server truth
-        refresh()
+      const ref = r.reference || r.key
+      if (ref) {
+        const p = wasFavorited
+          ? fetch(`/api/customer/favorites/${encodeURIComponent(ref)}`, { method: 'DELETE', credentials: 'include' })
+          : fetch('/api/customer/favorites', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ restaurant_reference: ref }),
+            })
+        p.then(res => { if (!res.ok) refresh({ background: true }) }).catch(() => {})
       }
     }
   }, [favorites, source, userScope, refresh])

@@ -385,3 +385,14 @@ CREATE TABLE IF NOT EXISTS disco_cuisine_types (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 INSERT INTO disco_cuisine_types (name) VALUES ('BBQ'),('Bagels'),('Bakery'),('Bar & Grill'),('Bowls'),('Boxed Lunches'),('Breakfast'),('Burgers'),('Burritos'),('Cafe'),('Caribbean'),('Chicken'),('Deli'),('Chinese'),('French'),('Greek'),('Indian'),('Italian'),('Japanese'),('Korean'),('Latin'),('Mediterranean'),('Mexican'),('Middle Eastern'),('Pizza'),('Sandwiches'),('Seafood'),('Soul Food'),('Sushi'),('Tacos'),('Thai'),('Vegan'),('Vietnamese') ON CONFLICT (name) DO NOTHING;
+
+-- Neon-backed customer favorites (syncs across devices). The hook keeps a
+-- localStorage cache for instant paint; this is the cross-device source of truth.
+CREATE TABLE IF NOT EXISTS disco_customer_favorites (
+  id SERIAL PRIMARY KEY,
+  customer_email TEXT NOT NULL,
+  restaurant_reference TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(customer_email, restaurant_reference)
+);
+CREATE INDEX IF NOT EXISTS idx_disco_customer_favorites_email ON disco_customer_favorites(customer_email);

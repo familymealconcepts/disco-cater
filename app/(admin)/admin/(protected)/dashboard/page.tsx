@@ -96,6 +96,7 @@ interface AdminSaleStatsRaw {
   leadgenonediscofee?: number
   leadgentwodiscofee?: number
   platformFees?: number
+  platformFeesEstimated?: boolean
 }
 
 interface LocationOption { reference: string; businessName: string }
@@ -149,10 +150,16 @@ export default function AdminDashboard() {
   // Total Restaurants = active, Stripe-connected restaurants (Neon count via
   // /api/admin/dashboard/stats), NOT the full FM restaurant list length.
   useEffect(() => {
-    fetch('/api/admin/dashboard/stats')
+    const loadStats = () => fetch('/api/admin/dashboard/stats')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d && typeof d.activeRestaurants === 'number') setActiveRestaurants(d.activeRestaurants) })
       .catch(() => {})
+    loadStats()
+    // Auto-refresh stale Stripe-connected statuses (>24h) in the background so the
+    // count stays accurate without a manual "Sync Stripe Status" click, then re-count.
+    fetch('/api/admin/sync-stripe-status', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ staleOnly: true, batchSize: 100 }),
+    }).then(r => { if (r.ok) loadStats() }).catch(() => {})
   }, [])
 
   // Sale stats — fire on mount and whenever filters change
@@ -417,7 +424,7 @@ export default function AdminDashboard() {
 
       {/* Sale stats — top block (matches FM template 2-87) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginTop: 18 }}>
-        <SaleCard title="Platform Fees" value={platformFees} />
+        <SaleCard title={saleRaw.platformFeesEstimated === false ? 'Platform Fees' : 'Platform Fees (est.)'} value={platformFees} />
         <SaleCard title="Processing Fees" value={saleRaw.stripeFeeSum} />
         <SaleCard title="Net Sales" value={saleRaw.subtotalOrdersSum} />
         <SaleCard title="Tax Amount" value={taxAmount} />

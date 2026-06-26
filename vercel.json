@@ -33,6 +33,10 @@
     {
       "path": "/api/cron/sync-restaurants",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/sync-fm-orders",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
