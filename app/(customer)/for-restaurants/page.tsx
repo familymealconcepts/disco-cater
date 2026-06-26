@@ -11,14 +11,14 @@ const GRADIENT = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 const DARK = '#1A1028'
 
 const CARDS: { title: string; subtitle: string; href: string }[] = [
-  { title: 'Create an Account', subtitle: 'Join Disco Cater and start taking catering orders.', href: '/become-a-partner' },
+  { title: 'Create an Account', subtitle: 'Join Disco Cater and start taking catering orders online.', href: '/become-a-partner' },
   { title: 'Log In', subtitle: 'Access your restaurant dashboard.', href: '/restaurant/login' },
   { title: 'Learn More', subtitle: 'See how Disco Cater works for restaurants.', href: '/faq' },
 ]
 
 export default function ForRestaurantsPage() {
   return (
-    <div style={{ minHeight: '100svh', background: DARK, fontFamily: F, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 20px 64px' }}>
+    <div style={{ minHeight: '100svh', background: `radial-gradient(ellipse at 12% 0%, rgba(107,110,249,0.22) 0%, transparent 55%), radial-gradient(ellipse at 88% 8%, rgba(240,70,138,0.16) 0%, transparent 52%), ${DARK}`, fontFamily: F, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 20px 64px' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }

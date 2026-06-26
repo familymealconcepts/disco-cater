@@ -150,7 +150,14 @@ export default function RestaurantLoginPage() {
         .r-btn:hover:not(:disabled) { opacity: 0.9; }
         .r-btn:disabled { opacity: 0.5; cursor: not-allowed; }
       `}</style>
-      <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F7F8FC', fontFamily: F, padding: '24px 16px' }}>
+      <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F7F8FC', fontFamily: F, padding: '24px 16px', position: 'relative' }}>
+        {/* Back to the restaurant landing page */}
+        <Link href="/for-restaurants" style={{
+          position: 'absolute', top: 20, left: 20, display: 'inline-flex', alignItems: 'center', gap: 6,
+          fontSize: 13, color: '#888', textDecoration: 'none', fontWeight: 600,
+        }}>
+          <span aria-hidden style={{ fontSize: 15, lineHeight: 1 }}>←</span> Back
+        </Link>
         <div style={{ width: '100%', maxWidth: 420 }}>
           {/* Logo */}
           <div style={{ textAlign: 'center', marginBottom: 32 }}>
@@ -208,7 +215,7 @@ export default function RestaurantLoginPage() {
                 </div>
               </div>
               <button type="submit" className="r-btn" disabled={loading}>
-                {loading ? 'Signing in…' : 'Sign in'}
+                {loading ? 'Logging in…' : 'Log In'}
               </button>
             </form>
           </div>

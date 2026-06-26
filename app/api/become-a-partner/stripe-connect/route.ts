@@ -24,8 +24,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Restaurant not yet created' }, { status: 400 })
   }
   if (!process.env.STRIPE_SECRET_KEY) {
+    console.error('[partner/stripe-connect] STRIPE_SECRET_KEY is missing from env.')
     return NextResponse.json({ error: 'Payments are not configured.' }, { status: 500 })
   }
+  // Express Connect (this flow) only needs STRIPE_SECRET_KEY. STRIPE_CONNECT_CLIENT_ID
+  // is only used by the OAuth Connect flow — log its presence so we can confirm
+  // the env is wired the way we expect when diagnosing failures.
+  console.log('[partner/stripe-connect] start', {
+    restaurantReference,
+    hasSecretKey: !!process.env.STRIPE_SECRET_KEY,
+    secretKeyPrefix: (process.env.STRIPE_SECRET_KEY || '').slice(0, 7),
+    hasConnectClientId: !!process.env.STRIPE_CONNECT_CLIENT_ID,
+  })
 
   try {
     await runMigrations()
@@ -60,7 +70,18 @@ export async function POST(req: NextRequest) {
     // Keep the legacy `stripeConnectUrl` key so the existing client keeps working.
     return NextResponse.json({ stripeConnectUrl: url, url, accountId })
   } catch (err) {
-    console.error('[partner/stripe-connect] failed:', err instanceof Error ? err.message : err)
+    // Surface the full Stripe error shape (type/code/statusCode/message) so we
+    // can see exactly why Connect failed instead of a generic message.
+    const e = err as { type?: string; code?: string; statusCode?: number; message?: string; raw?: { message?: string } }
+    console.error('[partner/stripe-connect] failed:', {
+      restaurantReference,
+      type: e?.type,
+      code: e?.code,
+      statusCode: e?.statusCode,
+      message: e?.message || e?.raw?.message || String(err),
+      hasSecretKey: !!process.env.STRIPE_SECRET_KEY,
+      hasConnectClientId: !!process.env.STRIPE_CONNECT_CLIENT_ID,
+    })
     return NextResponse.json(
       { error: 'Could not initiate Stripe Connect. You can connect later from your dashboard.' },
       { status: 500 },

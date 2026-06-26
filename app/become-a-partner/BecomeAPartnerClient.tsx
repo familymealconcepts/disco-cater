@@ -45,15 +45,6 @@ const CUISINES = [
   'Breakfast', 'Bakery', 'Seafood', 'Vegan', 'Other',
 ]
 
-// Onboarding checklist returned by GET /api/become-a-partner/status.
-interface OnboardingStatus {
-  accountCreated: boolean
-  profileComplete: boolean
-  stripeConnected: boolean
-  menuUploaded: boolean
-  isLive: boolean
-}
-
 // One parsed menu item returned by the AI menu-import route (high confidence).
 interface MenuItem {
   name: string; description: string; price: number; serves: string; category: string
@@ -68,6 +59,10 @@ const PARTNER_KEY_PREFIXES = ['partner_setup_complete', 'partner_restaurant_ref'
 const emailKey = (email: string) => email.trim().toLowerCase()
 const setupCompleteKey = (email: string) => `partner_setup_complete_${emailKey(email)}`
 const restaurantRefKey = (email: string) => `partner_restaurant_ref_${emailKey(email)}`
+
+// sessionStorage key holding the partner's current step, so back/forward (or a
+// reload) within the session restores their place. Cleared on the success screen.
+const STEP_KEY = 'partner_onboarding_step'
 
 // Remove every partner setup key (legacy unscoped + any email-scoped variant)
 // that doesn't belong to keepEmail. Pass '' to purge them all. The separate
@@ -132,9 +127,9 @@ function PriceRow({ label, detail, value, who, highlight }: {
 }
 
 export default function BecomeAPartnerClient() {
-  // Steps: 0 your info · 1 first-party pricing · 2 marketplace (opt) ·
-  // 3 third-party delivery (opt) · 4 connect bank/Stripe (opt) · 5 upload menu ·
-  // 6 success.
+  // Steps (7 total + success): 0 your info · 1 first-party pricing ·
+  // 2 marketplace (opt) · 3 third-party delivery (opt) · 4 restaurant profile ·
+  // 5 payout/Stripe (required) · 6 upload menu · 7 success.
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormState>({
     firstName: '', lastName: '', email: '', phoneNumber: '',
@@ -156,7 +151,6 @@ export default function BecomeAPartnerClient() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [emailInUse, setEmailInUse] = useState(false)   // FM 400-027: admin email already exists
-  const [autoLoggedIn, setAutoLoggedIn] = useState(false) // Disco-native session created
   // The restaurant is created ONCE — at the Stripe step if the partner connects,
   // otherwise at completion. alreadyCreated guards against creating it twice.
   const [alreadyCreated, setAlreadyCreated] = useState(false)
@@ -171,10 +165,6 @@ export default function BecomeAPartnerClient() {
   const [profLogoUrl, setProfLogoUrl] = useState('')
   const [logoUploading, setLogoUploading] = useState(false)
 
-  // Go-Live step — checklist read from Neon.
-  const [goLiveStatus, setGoLiveStatus] = useState<OnboardingStatus | null>(null)
-  const [goingLive, setGoingLive] = useState(false)
-
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
 
   // On mount: never trust a persisted "already created" flag — the form email
@@ -185,9 +175,11 @@ export default function BecomeAPartnerClient() {
   useEffect(() => {
     setAlreadyCreated(false)
     let sessionEmail = ''
+    let isStripeReturn = false
     try {
       const params = new URLSearchParams(window.location.search)
       if (params.get('stripe') === 'success') {
+        isStripeReturn = true
         const saved = JSON.parse(localStorage.getItem('partner_onboarding') || '{}')
         sessionEmail = String(saved?.form?.email || '')
         if (saved.form) setForm(f => ({ ...f, ...saved.form }))
@@ -214,22 +206,27 @@ export default function BecomeAPartnerClient() {
     try {
       if (sessionEmail && localStorage.getItem(setupCompleteKey(sessionEmail)) === 'true') {
         setAlreadyCreated(true)
-        setAutoLoggedIn(true)
         const ref = localStorage.getItem(restaurantRefKey(sessionEmail)) || ''
         if (ref) {
           setRestaurantRef(ref)
           // Confirm Stripe onboarding server-side (sets stripe_onboarding_complete
-          // when charges are enabled) so the Go-Live checklist reflects reality.
+          // when charges are enabled) so the status reflects reality.
           fetch(`/api/become-a-partner/stripe-status?restaurantReference=${encodeURIComponent(ref)}`).catch(() => {})
         }
       }
     } catch { /* localStorage unavailable */ }
-  }, [])
 
-  // Confirm the auto-login state once the success screen renders.
-  useEffect(() => {
-    if (step === 8) console.log('[become-a-partner] success screen autoLoggedIn:', autoLoggedIn)
-  }, [step, autoLoggedIn])
+    // Restore the saved step on a fresh mount (browser back/forward or a reload
+    // within the session). Skip on a Stripe return — that path already set the
+    // step to the Stripe screen.
+    if (!isStripeReturn) {
+      try {
+        const saved = sessionStorage.getItem(STEP_KEY)
+        const n = saved ? parseInt(saved, 10) : NaN
+        if (Number.isFinite(n) && n >= 1 && n <= 6) setStep(n)
+      } catch { /* sessionStorage unavailable */ }
+    }
+  }, [])
 
   // After returning from Stripe we briefly show "✓ Stripe connected" on the
   // Stripe step (5), then advance to the menu step (6) automatically.
@@ -240,18 +237,16 @@ export default function BecomeAPartnerClient() {
     }
   }, [step, stripeConnected])
 
-  // Entering the Go-Live step (7): pull the live checklist from Neon.
+  // Persist the current step to sessionStorage so a browser back/forward (or an
+  // accidental reload within the session) returns the partner to where they were
+  // instead of step 1. Only the form steps (0–6) are persisted; reaching the
+  // success screen clears it. STEP_KEY is module-scoped above.
   useEffect(() => {
-    if (step !== 7 || !restaurantRef) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch(`/api/become-a-partner/status?restaurantReference=${encodeURIComponent(restaurantRef)}`)
-        if (res.ok && !cancelled) setGoLiveStatus(await res.json())
-      } catch { /* checklist best-effort */ }
-    })()
-    return () => { cancelled = true }
-  }, [step, restaurantRef])
+    try {
+      if (step >= 0 && step <= 6) sessionStorage.setItem(STEP_KEY, String(step))
+      else sessionStorage.removeItem(STEP_KEY)
+    } catch { /* sessionStorage unavailable */ }
+  }, [step])
 
   // Google Places Autocomplete on the profile street field (progressive
   // enhancement — manual entry still works if the script/key is unavailable).
@@ -335,9 +330,7 @@ export default function BecomeAPartnerClient() {
       } catch { /* localStorage unavailable */ }
       // Create the Disco-native account + session (sets disco_restaurant_token)
       // so the partner is logged into the portal immediately.
-      console.log('[onboarding] calling registerDiscoAccount for ref:', ref)
-      const registered = await registerDiscoAccount(ref, data?.adminReference ?? null)
-      console.log('[onboarding] registerDiscoAccount result:', registered, 'autoLoggedIn:', autoLoggedIn)
+      await registerDiscoAccount(ref, data?.adminReference ?? null)
       return ref
     } catch {
       setError('Unable to connect. Please try again.')
@@ -361,7 +354,6 @@ export default function BecomeAPartnerClient() {
         }),
       })
       if (res.ok) {
-        setAutoLoggedIn(true)
         // Drop any stale FM restaurant identity so the portal header + data scope
         // to the new Disco restaurant, not a previously logged-in FM one. The
         // portal layout repopulates from /api/disco-restaurant-auth/me.
@@ -469,27 +461,17 @@ export default function BecomeAPartnerClient() {
     }
   }
 
-  // Go-Live step → flip the restaurant live on the marketplace, then finish.
-  async function goLive() {
-    setError('')
-    setGoingLive(true)
+  // Best-effort go-live: flips the restaurant live on the marketplace (sets
+  // is_live + sends the welcome email) once onboarding is otherwise done. Called
+  // automatically after the menu step — never blocks reaching the success screen,
+  // so a not-yet-charges-enabled Stripe account just means "not live yet".
+  async function fireGoLive(ref: string) {
     try {
-      const res = await fetch('/api/become-a-partner/go-live', {
+      await fetch('/api/become-a-partner/go-live', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantReference: restaurantRef }),
+        body: JSON.stringify({ restaurantReference: ref }),
       })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.success) {
-        setError(data?.error || 'Some steps are still incomplete. Finish them above, then go live.')
-        return
-      }
-      // Land in the portal (auto-logged-in via the disco session cookie).
-      window.location.href = data.redirect || '/restaurant/orders'
-    } catch {
-      setError('Unable to connect. Please try again.')
-    } finally {
-      setGoingLive(false)
-    }
+    } catch { /* best-effort — success screen still shows */ }
   }
 
   // Read a File into a base64 string (no data: prefix) for the JSON menu-upload.
@@ -567,7 +549,6 @@ export default function BecomeAPartnerClient() {
   // handed to concierge) on the menu step, so it isn't touched here. This is the
   // ONLY place that provisions FM, so partial signups never create accounts. ──
   async function completeOnboarding() {
-    console.log('[onboarding] completeOnboarding called, restaurantRef:', restaurantRef, 'alreadyCreated:', alreadyCreated)
     setError('')
     setLoading(true)
     try {
@@ -599,7 +580,10 @@ export default function BecomeAPartnerClient() {
       })
       const data = await res.json()
       if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
-      setStep(7) // → Go-Live checklist
+      // Flip the restaurant live now (best-effort — sets is_live + welcome email),
+      // then go straight to the success screen. No separate Go-Live checklist step.
+      await fireGoLive(ref)
+      setStep(7) // → success screen
     } catch {
       setError('Unable to connect. Please try again.')
     } finally {
@@ -621,15 +605,15 @@ export default function BecomeAPartnerClient() {
 
       {/* Top bar: back link (left) + step counter (right) */}
       <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '22px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 }}>
-        {step >= 1 && step <= 7 ? (
+        {step >= 1 && step <= 6 ? (
           <button onClick={back} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#777', fontFamily: F, fontWeight: 600, padding: 0 }}>
             ‹ Back
           </button>
         ) : (
           <Link href="/" style={{ fontSize: 14, color: '#777', textDecoration: 'none', fontWeight: 600 }}>‹ Back</Link>
         )}
-        {step <= 7 && (
-          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 8</div>
+        {step <= 6 && (
+          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 7</div>
         )}
       </div>
 
@@ -641,10 +625,10 @@ export default function BecomeAPartnerClient() {
         </Link>
       </div>
 
-      {/* Step indicator — six segments */}
-      {step <= 7 && (
+      {/* Step indicator — seven segments */}
+      {step <= 6 && (
         <div style={{ maxWidth: 560, width: '100%', margin: '18px auto 0', padding: '0 24px', display: 'flex', gap: 8 }}>
-          {[0, 1, 2, 3, 4, 5, 6, 7].map(i => (
+          {[0, 1, 2, 3, 4, 5, 6].map(i => (
             <div key={i} style={{ flex: 1, height: 5, borderRadius: 999, background: i <= step ? GRADIENT : '#e8e8f0', transition: 'background 0.2s' }} />
           ))}
         </div>
@@ -705,7 +689,7 @@ export default function BecomeAPartnerClient() {
                 <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
                   <div style={priceSectionTitle}>Paid by Customer</div>
                   <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" />
-                  <PriceRow label="Third-party delivery" value="Paid by customer" />
+                  <PriceRow label="Third-party delivery" detail="catering-specific drivers" value="15% of Subtotal, $85 cap" />
                 </div>
               </div>
 
@@ -741,7 +725,7 @@ export default function BecomeAPartnerClient() {
                 <PriceRow label="Returning customers" detail="Of order subtotal — that customer's subsequent orders from that location" value="5.00%" who="restaurant" />
               </div>
               <div style={{ fontSize: 12, color: '#999', margin: '10px 2px 0', lineHeight: 1.5 }}>
-                All First-Party ordering fees apply. See above.
+                All First-Party ordering fees apply.
               </div>
 
               {/* Opt-in agreement (only required to join) */}
@@ -844,11 +828,11 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 6 · CONNECT BANK / STRIPE — optional ── */}
+          {/* ── STEP 6 · CONNECT BANK / STRIPE — required ── */}
           {step === 5 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Payout Setup (Optional)</h1>
-              <p style={subStyle}>Connect your bank account to receive payouts from catering orders. You can also complete this from your Account tab any time.</p>
+              <h1 style={h1Style}>Payout Setup</h1>
+              <p style={subStyle}>Connect your bank account to receive payouts from catering orders. This is required to take orders on Disco Cater.</p>
               {errorBox}
 
               <div style={{ marginTop: 18 }}>
@@ -864,15 +848,6 @@ export default function BecomeAPartnerClient() {
                   </button>
                 )}
               </div>
-
-              {!stripeConnected && (
-                <div style={{ textAlign: 'center', marginTop: 12 }}>
-                  <button onClick={() => { setError(''); setStep(6) }}
-                    style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: 'pointer', textDecoration: 'underline' }}>
-                    Skip for now
-                  </button>
-                </div>
-              )}
             </div>
           )}
 
@@ -981,7 +956,7 @@ export default function BecomeAPartnerClient() {
 
                   <button onClick={processMenu}
                     style={{ ...primaryBtn, marginTop: 24 }}>
-                    Process Menu
+                    Upload Menu
                   </button>
 
                   <div style={{ textAlign: 'center', marginTop: 12 }}>
@@ -995,76 +970,30 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 8 · GO LIVE (checklist) ── */}
-          {step === 7 && (() => {
-            const s = goLiveStatus
-            // Menu is optional — restaurants can add menu items after going live.
-            // Go Live needs only: account created + profile complete + Stripe connected.
-            const allDone = !!s && s.accountCreated && s.profileComplete && s.stripeConnected
-            const Item = ({ ok, label, action }: { ok: boolean; label: string; action?: { text: string; onClick: () => void } }) => (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '13px 0', borderTop: '1px solid #f1f1f6' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 600, color: ok ? DARK : '#888' }}>
-                  <span style={{ color: ok ? '#2E9E5B' : '#ccc', fontWeight: 800 }}>{ok ? '✓' : '○'}</span>
-                  {label}
-                </span>
-                {!ok && action && (
-                  <button onClick={action.onClick} style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 700, fontFamily: F, cursor: 'pointer', textDecoration: 'underline' }}>
-                    {action.text}
-                  </button>
-                )}
-              </div>
-            )
-            return (
-              <div style={cardStyle}>
-                <h1 style={h1Style}>You&apos;re almost live! 🎉</h1>
-                <p style={subStyle}>Finish any remaining steps, then go live on the Disco Cater marketplace.</p>
-                {errorBox}
-                {!s ? (
-                  <div style={{ padding: '24px 0', textAlign: 'center', color: '#999', fontSize: 14 }}>Checking your setup…</div>
-                ) : (
-                  <div style={{ marginTop: 12 }}>
-                    <Item ok={s.accountCreated} label="Account created" />
-                    <Item ok={s.profileComplete} label="Restaurant profile complete" action={{ text: 'Edit profile', onClick: () => setStep(4) }} />
-                    <Item ok={s.stripeConnected} label="Stripe connected" action={{ text: 'Connect Stripe', onClick: () => setStep(5) }} />
-                    <Item ok={s.menuUploaded} label="Menu items (optional)" action={{ text: 'Add menu items', onClick: () => setStep(6) }} />
-                    <p style={{ margin: '8px 0 0', fontSize: 12, color: '#999' }}>You can add menu items after going live.</p>
-                  </div>
-                )}
-                <button onClick={goLive} disabled={!allDone || goingLive}
-                  style={{ ...primaryBtn, marginTop: 22, background: allDone ? '#2E9E5B' : BLUE, opacity: allDone && !goingLive ? 1 : 0.5, cursor: allDone && !goingLive ? 'pointer' : 'default' }}>
-                  {goingLive ? 'Going live…' : allDone ? 'Go Live 🚀' : 'Complete all steps to go live'}
-                </button>
-              </div>
-            )
-          })()}
-
-          {/* ── SUCCESS ── */}
-          {step === 8 && (
+          {/* ── SUCCESS (final) ── */}
+          {step === 7 && (
             <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
-              {void console.log('[onboarding] success screen, autoLoggedIn:', autoLoggedIn, 'restaurantRef:', restaurantRef)}
               <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>
               <p style={{ ...subStyle, maxWidth: 440, margin: '0 auto 8px' }}>
-                Your account has been created.
-                <br />
-                Before activating online ordering, make sure your menu, ordering settings and Stripe connection are complete.
+                Your account is ready. Head to your dashboard to manage your menu, ordering
+                settings, and orders.
               </p>
 
-              {/* Clear any stale FM identity, then navigate. Auto-logged-in via
-                  disco_restaurant_token → dashboard; otherwise the login page. */}
+              {/* Single action: the partner is already authenticated from onboarding
+                  (disco_restaurant_token), so go straight to the dashboard. Full-page
+                  navigation so the browser sends the session cookie. */}
               <button
                 onClick={() => {
                   try {
                     localStorage.removeItem('restaurant_user')
                     localStorage.removeItem('selectedRestaurant')
                     localStorage.removeItem('selectedRestaurantName')
+                    sessionStorage.removeItem(STEP_KEY)
                   } catch {}
-                  // Full-page navigation (not router.push) so the browser sends
-                  // the disco_restaurant_token cookie set by the register
-                  // response — a client-side transition may race the cookie.
-                  window.location.href = autoLoggedIn ? '/restaurant/dashboard' : '/restaurant/login'
+                  window.location.href = '/restaurant/orders'
                 }}
                 style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', marginTop: 24, cursor: 'pointer' }}>
-                Get started
+                Go to My Dashboard
               </button>
 
               <p style={{ fontSize: 12, color: '#999', maxWidth: 420, margin: '18px auto 0', lineHeight: 1.6 }}>

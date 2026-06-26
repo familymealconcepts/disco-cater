@@ -6,11 +6,11 @@ import { layout, button } from '../../../../lib/email/layout'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const SLACK_WEBHOOK_URL = process.env.SLACK_PARTNER_WEBHOOK_URL || process.env.SLACK_NEW_ORDER_WEBHOOK_URL
-
 // POST /api/become-a-partner/go-live  { restaurantReference }
 // Completion step. Verifies the full checklist from Neon, flips the restaurant
-// live on the marketplace, notifies Slack, and sends a welcome email.
+// live on the marketplace, and sends a welcome email. (The single new-partner
+// Slack notification fires from /complete — see that route — so we don't
+// duplicate it here.)
 export async function POST(req: NextRequest) {
   let ref = ''
   try { const body = await req.json(); ref = String(body?.restaurantReference || '').trim() } catch {
@@ -47,17 +47,6 @@ export async function POST(req: NextRequest) {
     await sql`UPDATE disco_restaurant_accounts SET onboarding_step = 4, updated_at = NOW() WHERE restaurant_reference = ${ref}`
 
     const name = cache?.name || acct?.business_name || acct?.restaurant_name || 'New restaurant'
-    const cityState = cache?.location || ''
-
-    // Slack — new-partner channel (best-effort).
-    if (SLACK_WEBHOOK_URL) {
-      try {
-        await fetch(SLACK_WEBHOOK_URL, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: `🎉 New Disco Cater partner live: ${name}${cityState ? `, ${cityState}` : ''}` }),
-        })
-      } catch (err) { console.error('[partner/go-live] Slack failed:', err) }
-    }
 
     // Welcome email (best-effort; sendEmail never throws).
     if (acct?.email) {
