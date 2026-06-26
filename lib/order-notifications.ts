@@ -67,11 +67,17 @@ async function sendNewOrderSlack(o: {
     const svc = String(o.orderType).toUpperCase() === 'DELIVERY' ? 'D' : 'P'
     const amount = `$${(Number.isFinite(o.total) ? o.total : 0).toFixed(2)}`
     const loc = [o.city, o.state].filter(Boolean).join(', ')
-    const text = `${o.restaurantName}, ${loc}, (${amount}), ${tag}, ${fmtSlackDate(o.orderDateIso)} - (${svc})`
+    // [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - ([P|D])
+    // filter(Boolean) so a missing city/state doesn't leave a stray comma.
+    const text = [o.restaurantName, loc, `(${amount})`, tag, `${fmtSlackDate(o.orderDateIso)} - (${svc})`]
+      .filter(Boolean)
+      .join(', ')
+    // Send as a Slack attachment with a color so the message renders with the
+    // green left border (matching the FM notifications) instead of plain text.
     await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ attachments: [{ color: '#36a64f', text }] }),
     })
   } catch (err) {
     console.error('[order-notifications] Slack notification failed:', err instanceof Error ? err.message : err)
@@ -141,6 +147,32 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
     const t = txns[0] ?? {}
     const hasTxn = txns.length > 0
 
+    // Restaurant name + city/state are canonical in disco_restaurant_cache
+    // (disco_orders.restaurant_name is often null for native orders, which is why
+    // the Slack ping showed "the restaurant").
+    const restRef = String(o.restaurant_reference ?? '')
+    let cacheName = ''
+    let cacheLocation = ''
+    try {
+      const rc = (await sql`
+        SELECT name, location FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1
+      `) as { name: string | null; location: string | null }[]
+      cacheName = rc[0]?.name || ''
+      cacheLocation = rc[0]?.location || ''
+    } catch { /* cache lookup is best-effort */ }
+
+    // Total: COALESCE(disco_orders.total, disco_stripe_payments.total). Native
+    // orders may carry a 0/null disco_orders.total but a real Stripe charge, which
+    // is why the amount showed $0.00.
+    let stripeTotal = 0
+    try {
+      const sp = (await sql`
+        SELECT MAX(total) AS total FROM disco_stripe_payments
+        WHERE order_reference = ${String(o.reference ?? '')}::uuid AND total IS NOT NULL AND total > 0
+      `) as { total: string | number | null }[]
+      stripeTotal = num(sp[0]?.total)
+    } catch { /* stripe-total fallback is best-effort */ }
+
     const items = (await sql`
       SELECT name, quantity, price_per_unit, notes FROM disco_order_items
       WHERE order_id = ${orderId} ORDER BY id
@@ -171,7 +203,7 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
     const deliveryFee = num(t.own_delivery_fee) + num(t.third_party_delivery_fee)
     const tip = num(t.tips_in_price) || num(o.tips)
     const promo = num(t.discount)
-    const totalPrice = hasTxn ? num(t.total) : num(o.total)
+    const totalPrice = hasTxn ? num(t.total) : (num(o.total) || stripeTotal)
 
     const shared = {
       firstName: o.customer_first_name ? String(o.customer_first_name) : undefined,
@@ -196,7 +228,8 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       totalPrice,
       orderNumber: o.order_number as number,
       taxExemptId: o.tax_exempt_id ? String(o.tax_exempt_id) : undefined,
-      businessName: o.restaurant_name ? String(o.restaurant_name) : 'the restaurant',
+      // Prefer the canonical cache name; fall back to the order's stored name.
+      businessName: cacheName || (o.restaurant_name ? String(o.restaurant_name) : '') || 'the restaurant',
     }
 
     // Customer confirmation — needs a recipient.
@@ -237,24 +270,14 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       console.error('[order-notifications] restaurant SMS lookup failed:', err instanceof Error ? err.message : err)
     }
 
-    // New-order Slack ping (the single canonical notification). City/State come
-    // from the restaurant cache ("City, State"), matching the required format.
-    let rCity = ''
-    let rState = ''
-    try {
-      const rc = (await sql`
-        SELECT location FROM disco_restaurant_cache WHERE restaurant_reference = ${String(o.restaurant_reference ?? '')} LIMIT 1
-      `) as { location: string | null }[]
-      const parts = (rc[0]?.location || '').split(',').map((s) => s.trim()).filter(Boolean)
-      rCity = parts[0] || ''
-      rState = parts[1] || ''
-    } catch { /* location is best-effort */ }
-
+    // New-order Slack ping (the single canonical notification). Restaurant name +
+    // City/State come from disco_restaurant_cache (location = "City, State").
+    const locParts = cacheLocation.split(',').map((s) => s.trim()).filter(Boolean)
     await sendNewOrderSlack({
       sourceOfOrder,
-      restaurantName: shared.businessName,
-      city: rCity,
-      state: rState,
+      restaurantName: cacheName || shared.businessName,
+      city: locParts[0] || '',
+      state: locParts[1] || '',
       total: totalPrice,
       orderDateIso: normDateStr(o.order_date),
       orderType: shared.orderService,
