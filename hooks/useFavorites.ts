@@ -170,13 +170,53 @@ export function useFavorites(): FavoritesState {
           const serverRefs: string[] = Array.isArray(data.favorites) ? data.favorites : []
           const serverSet = new Set(serverRefs)
 
-          // Pre-login adds (guest bucket) not yet on the server → upload once.
           const guestFavs = readLocal('guest')
+          const scopedFavs = readLocal(scope)
+
+          // ── EMPTY-SERVER GUARD ──────────────────────────────────────────────
+          // The server has NO favorites for this account. NEVER let that wipe a
+          // populated local cache (the flash-then-disappear bug) — that only ever
+          // means the local list hasn't been synced up yet. Keep the local
+          // favorites on screen and push them to the server so it catches up.
+          if (serverRefs.length === 0) {
+            const localFavs: FavoriteRestaurant[] = []
+            const seenLocal = new Set<string>()
+            for (const f of [...scopedFavs, ...guestFavs]) {
+              if (f.key && !seenLocal.has(f.key)) { localFavs.push(f); seenLocal.add(f.key) }
+            }
+            setSource('api')
+            setError(false)
+            setLoading(false)
+            if (localFavs.length > 0) {
+              setFavorites(localFavs)
+              writeLocal(scope, localFavs)
+              writeTs(scope)
+              // Background sync local → server so cross-device picks them up.
+              for (const f of localFavs) {
+                const ref = f.reference || f.key
+                if (ref) fetch('/api/customer/favorites', {
+                  method: 'POST', credentials: 'include',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ restaurant_reference: ref }),
+                }).catch(() => {})
+              }
+              if (guestFavs.length) writeLocal('guest', []) // merged up to the user scope
+            } else {
+              // Genuinely empty everywhere — safe to show the empty state.
+              setFavorites([])
+              writeTs(scope)
+            }
+            return
+          }
+          // ────────────────────────────────────────────────────────────────────
+
+          // Server has ≥1 favorite → it's authoritative. Pre-login adds (guest
+          // bucket) not yet on the server are uploaded once.
           const guestOnly = guestFavs.filter(f => { const ref = f.reference || f.key; return ref && !serverSet.has(ref) })
 
           // Display metadata for server refs comes from the user cache + guest bucket.
           const byKey = new Map<string, FavoriteRestaurant>()
-          for (const f of [...readLocal(scope), ...guestFavs]) {
+          for (const f of [...scopedFavs, ...guestFavs]) {
             if (f.key) byKey.set(f.key, f)
             if (f.reference) byKey.set(f.reference, f)
           }
@@ -221,7 +261,13 @@ export function useFavorites(): FavoritesState {
     }
     setUserScope(scope)
     userScopeRef.current = scope
-    setFavorites(readLocal(scope))
+    const localFavs = readLocal(scope)
+    // Never let a background reconcile or a failed request flip a populated list
+    // to empty. An explicit (non-background, non-error) refresh — e.g. logout —
+    // still clears, since that's an intentional transition.
+    setFavorites(prev =>
+      (localFavs.length === 0 && prev.length > 0 && (opts?.background || netFailed)) ? prev : localFavs
+    )
     setSource('local')
     // Only flag an error when the network actually failed (not the legitimate
     // guest/logged-out local path). The UI only surfaces it when there's also

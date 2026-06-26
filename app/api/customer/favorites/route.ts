@@ -11,13 +11,17 @@ export const dynamic = 'force-dynamic'
 // logged in, returns authenticated:false + an empty list (never errors).
 export async function GET(req: NextRequest) {
   const session = await getCustomerSession(req)
-  if (!session) return NextResponse.json({ authenticated: false, favorites: [] })
+  if (!session) {
+    console.log('[customer/favorites] GET — no session (disco_customer_token missing/expired)')
+    return NextResponse.json({ authenticated: false, favorites: [] })
+  }
   try {
     await runDiscoOrderMigrations()
     const rows = (await sql`
       SELECT restaurant_reference FROM disco_customer_favorites
       WHERE customer_email = ${session.email} ORDER BY created_at DESC
     `) as Array<{ restaurant_reference: string }>
+    console.log(`[customer/favorites] GET — email=${session.email} count=${rows.length}`)
     return NextResponse.json({ authenticated: true, email: session.email, favorites: rows.map(r => r.restaurant_reference) })
   } catch (err) {
     console.error('[customer/favorites] GET failed:', err instanceof Error ? err.message : err)
