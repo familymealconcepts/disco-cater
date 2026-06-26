@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 import { sql, runMigrations } from '../../../../lib/db'
+import { sendEmail } from '../../../../lib/email/send'
+import { layout, button } from '../../../../lib/email/layout'
+import { createFmRestaurant } from '../../../../lib/become-a-partner/fm-create'
+import {
+  hashPassword,
+  createDiscoRestaurantSession,
+  grantLocationAccess,
+  getDiscoRestaurantAccount,
+  DISCO_RESTAURANT_COOKIE,
+  DISCO_RESTAURANT_COOKIE_OPTS,
+} from '../../../../lib/disco-restaurant-auth'
 
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
-// Finalizes restaurant onboarding by notifying the team (email + optional Slack)
-// so a Disco Cater rep can follow up and take the merchant live. Notifications
-// are best-effort — a failure must NOT block the merchant, so we always return
-// { success: true }. Set SLACK_WEBHOOK_URL to enable the Slack message.
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN
 // Prefer a dedicated partner webhook; otherwise reuse the new-order webhook so
@@ -15,57 +24,186 @@ const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN
 const SLACK_WEBHOOK_URL = process.env.SLACK_PARTNER_WEBHOOK_URL || process.env.SLACK_NEW_ORDER_WEBHOOK_URL
 const TEAM_EMAIL = 'concierge@discocater.com'
 
-export async function POST(req: NextRequest) {
+// Server-side geocode (address → lat/lng) via the Google Geocoding API. Returns
+// null on any failure so onboarding never blocks on geocoding.
+async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
+  const key = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY
+  if (!key || !address) return null
   try {
-    const body = await req.json().catch(() => ({}))
-    const restaurantName = String(body?.restaurantName || '').trim() || 'Unknown Restaurant'
-    const email = String(body?.email || '').trim()
-    const phone = String(body?.phone || '').trim()
-    const zip = String(body?.zip || '').trim()
-    const restaurantReference = String(body?.restaurantReference || '').trim()
-    const menuFileName = String(body?.menuFileName || '').trim()
-    const menuUrl = String(body?.menuUrl || '').trim()
-    const joinedMarketplace = !!body?.joinedMarketplace
-    const deliveryEnabled = !!body?.deliveryEnabled
-    const stripeConnected = !!body?.stripeConnected
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`)
+    const data = await res.json().catch(() => null)
+    const loc = data?.results?.[0]?.geometry?.location
+    if (loc && Number.isFinite(Number(loc.lat)) && Number.isFinite(Number(loc.lng))) {
+      return { lat: Number(loc.lat), lng: Number(loc.lng) }
+    }
+  } catch (err) {
+    console.error('[complete] geocode failed:', err instanceof Error ? err.message : err)
+  }
+  return null
+}
 
-    const yn = (b: boolean) => (b ? 'Yes' : 'No')
+// Finalizes onboarding: this is the ONLY place a full account is provisioned.
+// 1) FM account (best-effort), 2) create/update disco_restaurant_accounts,
+// 3) location-access entry, 4) is_live=true cache row, 5) Disco session + cookie,
+// 6) welcome email + Slack, 7) { success: true }. Idempotent / retry-safe.
+export async function POST(req: NextRequest) {
+  let body: Record<string, unknown>
+  try { body = await req.json() } catch {
+    return NextResponse.json({ error: 'Invalid request.' }, { status: 400 })
+  }
 
-    // Best-effort: record the uploaded menu reference on the cache row so the
-    // super admin can see which restaurants have submitted a menu.
-    if (restaurantReference && (menuUrl || menuFileName)) {
-      try {
-        await runMigrations()
+  const email = String(body?.email || '').trim().toLowerCase()
+  const password = String(body?.password || '')
+  const firstName = String(body?.firstName || '').trim()
+  const lastName = String(body?.lastName || '').trim()
+  const restaurantName = String(body?.restaurantName || '').trim() || 'Unknown Restaurant'
+  const phone = String(body?.phone || body?.phoneNumber || '').trim()
+  const street = String(body?.street || '').trim()
+  const city = String(body?.city || '').trim()
+  const state = String(body?.state || '').trim()
+  const zip = String(body?.zip || '').trim()
+  const logoUrl = String(body?.logoUrl || '').trim() || null
+  const joinedMarketplace = !!body?.joinedMarketplace
+  const deliveryEnabled = !!body?.deliveryEnabled
+  const stripeConnected = !!body?.stripeConnected
+  const menuFileName = String(body?.menuFileName || '').trim()
+
+  if (!email) return NextResponse.json({ error: 'Email is required.' }, { status: 400 })
+
+  const address = [street, city, state, zip].filter(Boolean).join(', ')
+  const location = [city, state].filter(Boolean).join(', ')
+  const slug = restaurantName.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+  try {
+    await runMigrations()
+
+    // ── 2) Create or update the disco_restaurant_accounts row ──────────────────
+    // (Done before FM so the canonical Disco reference is stable. The account may
+    // already exist from the Stripe step — then we only enrich the profile.)
+    const existing = await getDiscoRestaurantAccount(email)
+    let ref = (existing?.restaurant_reference as string | undefined) || String(body?.restaurantReference || '').trim() || randomUUID()
+
+    if (existing) {
+      await sql`
+        UPDATE disco_restaurant_accounts
+        SET first_name = COALESCE(NULLIF(${firstName}, ''), first_name),
+            last_name = COALESCE(NULLIF(${lastName}, ''), last_name),
+            phone = COALESCE(NULLIF(${phone}, ''), phone),
+            restaurant_name = ${restaurantName},
+            business_name = ${restaurantName},
+            address = ${address || null},
+            is_disco_native = true,
+            onboarding_step = GREATEST(COALESCE(onboarding_step, 0), 4),
+            updated_at = NOW()
+        WHERE email = ${email}
+      `
+    } else {
+      // Brand-new account (e.g. Stripe was skipped). Requires the password.
+      if (!password || password.length < 8) {
+        return NextResponse.json({ error: 'A password (8+ characters) is required to create your account.' }, { status: 400 })
+      }
+      const passwordHash = await hashPassword(password)
+      await sql`
+        INSERT INTO disco_restaurant_accounts (
+          email, password_hash, restaurant_reference, first_name, last_name, phone,
+          restaurant_name, business_name, address, is_disco_native, onboarding_step
+        ) VALUES (
+          ${email}, ${passwordHash}, ${ref}, ${firstName || null}, ${lastName || null},
+          ${phone || null}, ${restaurantName}, ${restaurantName}, ${address || null}, true, 4
+        )
+        ON CONFLICT (email) DO NOTHING
+      `
+      // Resolve the canonical reference after a possible concurrent insert.
+      const re = (await sql`SELECT restaurant_reference FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1`) as { restaurant_reference: string }[]
+      if (re[0]?.restaurant_reference) ref = re[0].restaurant_reference
+    }
+
+    // ── 1) FM account (best-effort — never blocks completion) ──────────────────
+    // Records the FM admin reference when FM succeeds; a 400-027 (email already in
+    // FM) or any other failure is logged and ignored. The Disco reference above
+    // stays canonical regardless.
+    try {
+      const fm = await createFmRestaurant({
+        restaurantName, email, phoneNumber: phone, firstName, lastName,
+        zipcode: zip, password, addressLine1: street, city, state,
+      })
+      if (fm.ok) {
         await sql`
-          UPDATE disco_restaurant_cache
-          SET menu_upload_url = ${menuUrl || menuFileName}
-          WHERE restaurant_reference = ${restaurantReference}
+          UPDATE disco_restaurant_accounts
+          SET fm_user_reference = COALESCE(fm_user_reference, ${fm.adminReference})
+          WHERE email = ${email}
         `
+      } else {
+        console.warn('[complete] FM creation skipped/failed (continuing):', fm.code || fm.status, fm.error)
+      }
+    } catch (err) {
+      console.error('[complete] FM creation threw (continuing):', err instanceof Error ? err.message : err)
+    }
+
+    // ── 4) Upsert the marketplace cache row and flip it live ───────────────────
+    const coords = address ? await geocode(address) : null
+    await sql`
+      INSERT INTO disco_restaurant_cache
+        (restaurant_reference, name, slug, address, location, lat, lng, cuisine, phone, image_url, is_disco_native, is_live, cached_at)
+      VALUES (${ref}, ${restaurantName}, ${slug}, ${address || null}, ${location || null},
+              ${coords?.lat ?? null}, ${coords?.lng ?? null}, ${'Other'}, ${phone || null}, ${logoUrl},
+              true, true, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE SET
+        name = EXCLUDED.name,
+        slug = COALESCE(EXCLUDED.slug, disco_restaurant_cache.slug),
+        address = EXCLUDED.address,
+        location = EXCLUDED.location,
+        lat = COALESCE(EXCLUDED.lat, disco_restaurant_cache.lat),
+        lng = COALESCE(EXCLUDED.lng, disco_restaurant_cache.lng),
+        phone = EXCLUDED.phone,
+        image_url = COALESCE(EXCLUDED.image_url, disco_restaurant_cache.image_url),
+        is_disco_native = true,
+        is_live = true,
+        cached_at = NOW()
+    `
+    // Ensure an overrides row exists (visibility is admin-controlled; default false).
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, is_premium, stripe_connected)
+      VALUES (${ref}, false, false, ${stripeConnected})
+      ON CONFLICT (restaurant_reference) DO UPDATE SET stripe_connected = ${stripeConnected}
+    `
+
+    // Record the submitted menu reference (best-effort) for the super admin.
+    if (menuFileName) {
+      try {
+        await sql`UPDATE disco_restaurant_cache SET menu_upload_url = ${menuFileName} WHERE restaurant_reference = ${ref}`
       } catch (err) {
         console.error('[complete] menu_upload_url save failed:', err instanceof Error ? err.message : err)
       }
     }
 
-    const lines = [
-      `Restaurant: ${restaurantName}`,
-      `Contact email: ${email || 'Not provided'}`,
-      `Phone: ${phone || 'Not provided'}`,
-      `Zip: ${zip || 'Not provided'}`,
-      restaurantReference ? `Restaurant ref: ${restaurantReference}` : '',
-      '',
-      `Joined marketplace (3P): ${yn(joinedMarketplace)}`,
-      `Third-party delivery enabled: ${yn(deliveryEnabled)}`,
-      `Stripe connected: ${yn(stripeConnected)}`,
-      menuFileName ? `Menu file: ${menuFileName}` : '',
-    ].filter(Boolean).join('\n')
+    // ── 3) Location-access entry (idempotent) ──────────────────────────────────
+    try {
+      await grantLocationAccess(email, ref, 'onboarding')
+    } catch (err) {
+      console.error('[complete] grantLocationAccess failed (continuing):', err instanceof Error ? err.message : err)
+    }
 
-    // Slack (optional). Distinct "New Partner Signup" format so it's never
-    // confused with a new-order notification on the shared webhook.
+    // ── 5) Disco session + cookie (so the partner is logged in immediately) ────
+    let token = ''
+    try {
+      token = await createDiscoRestaurantSession(ref, email)
+    } catch (err) {
+      console.error('[complete] session creation failed:', err instanceof Error ? err.message : err)
+      return NextResponse.json({ error: 'Your account was created but the session could not be started. Please log in.' }, { status: 500 })
+    }
+
+    const res = NextResponse.json({ success: true, restaurantReference: ref })
+    res.cookies.set(DISCO_RESTAURANT_COOKIE, token, DISCO_RESTAURANT_COOKIE_OPTS)
+    res.cookies.delete('fm_restaurant_token')
+    res.cookies.delete('fm_restaurant_refresh')
+
+    // ── 6) Welcome email + Slack (best-effort) ─────────────────────────────────
+    const yn = (b: boolean) => (b ? 'Yes' : 'No')
     if (SLACK_WEBHOOK_URL) {
       try {
         await fetch(SLACK_WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text: [
               `🎉 *New Partner Signup* — ${restaurantName}`,
@@ -83,34 +221,56 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Email notification.
+    // Welcome email to the partner (best-effort; sendEmail never throws).
+    try {
+      const content = `
+        <p style="font-size:18px;font-weight:700;margin:0 0 12px;">Welcome to Disco Cater! 🪩</p>
+        <p style="margin:0 0 12px;">Congratulations${firstName ? `, ${firstName}` : ''} — <strong>${restaurantName}</strong> is now set up on Disco Cater and ready to receive catering orders.</p>
+        <p style="margin:0 0 12px;">Manage your orders, menu, and settings from your restaurant portal.</p>
+        ${button('Go to your dashboard', 'https://www.discocater.com/restaurant/orders')}
+      `
+      await sendEmail({ to: email, subject: `Welcome to Disco Cater! 🪩`, html: layout(content) })
+    } catch (err) {
+      console.error('[complete] welcome email failed:', err instanceof Error ? err.message : err)
+    }
+
+    // Team email notification (best-effort).
     if (MAILGUN_API_KEY && MAILGUN_DOMAIN) {
-      const subject = `New Partner Onboarding Complete — ${restaurantName}`
-      const text = `A restaurant has completed Disco Cater onboarding.\n\n${lines}\n\nFollow up to take the merchant live.\n\n— Disco Cater Onboarding`
+      const lines = [
+        `Restaurant: ${restaurantName}`,
+        `Contact email: ${email || 'Not provided'}`,
+        `Phone: ${phone || 'Not provided'}`,
+        `Zip: ${zip || 'Not provided'}`,
+        `Restaurant ref: ${ref}`,
+        '',
+        `Joined marketplace (3P): ${yn(joinedMarketplace)}`,
+        `Third-party delivery enabled: ${yn(deliveryEnabled)}`,
+        `Stripe connected: ${yn(stripeConnected)}`,
+        menuFileName ? `Menu: ${menuFileName}` : '',
+      ].filter(Boolean).join('\n')
       try {
         const mg = new FormData()
         mg.append('from', `Disco Cater Onboarding <onboarding@${MAILGUN_DOMAIN}>`)
         mg.append('to', TEAM_EMAIL)
-        mg.append('subject', subject)
-        mg.append('text', text)
-        const res = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
+        mg.append('subject', `New Partner Onboarding Complete — ${restaurantName}`)
+        mg.append('text', `A restaurant has completed Disco Cater onboarding.\n\n${lines}\n\n— Disco Cater Onboarding`)
+        const mgRes = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
           method: 'POST',
           headers: { Authorization: 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64') },
           body: mg,
         })
-        if (!res.ok) {
-          const raw = await res.text().catch(() => '')
-          console.error(`[complete] Mailgun ${res.status}: ${raw.slice(0, 300)}`)
+        if (!mgRes.ok) {
+          const raw = await mgRes.text().catch(() => '')
+          console.error(`[complete] Mailgun ${mgRes.status}: ${raw.slice(0, 300)}`)
         }
       } catch (err) {
-        console.error('[complete] notification send failed:', err instanceof Error ? err.message : err)
+        console.error('[complete] team email send failed:', err instanceof Error ? err.message : err)
       }
-    } else {
-      console.error('[complete] Mailgun is not configured (MAILGUN_API_KEY / MAILGUN_DOMAIN).')
     }
 
-    return NextResponse.json({ success: true })
-  } catch {
-    return NextResponse.json({ error: 'Something went wrong. Please try again.' }, { status: 500 })
+    return res
+  } catch (err) {
+    console.error('[complete] failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'Could not finish creating your account. Please try again.' }, { status: 500 })
   }
 }

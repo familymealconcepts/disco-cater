@@ -20,66 +20,35 @@ const primaryBtn: React.CSSProperties = {
   color: '#fff', fontSize: 15, fontWeight: 700, fontFamily: F, cursor: 'pointer',
   transition: 'opacity 0.15s, background 0.15s',
 }
+const linkBtn: React.CSSProperties = {
+  background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600,
+  fontFamily: F, cursor: 'pointer', textDecoration: 'underline',
+}
 const h1Style: React.CSSProperties = { fontSize: 26, fontWeight: 800, color: DARK, margin: '0 0 10px', letterSpacing: '-0.02em', lineHeight: 1.2 }
 const subStyle: React.CSSProperties = { fontSize: 14, color: '#585786', lineHeight: 1.6, margin: '0 0 8px' }
 const cardStyle: React.CSSProperties = {
   background: '#fff', border: '1px solid #ececf4', borderRadius: 20,
   boxShadow: '0 10px 40px rgba(26,16,40,0.06)', padding: '28px 26px',
 }
-// Section header inside a pricing card ("Paid by Restaurant" / "Paid by Customer").
 const priceSectionTitle: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, color: '#5B6FE8', textTransform: 'uppercase',
   letterSpacing: 0.5, padding: '12px 0 2px',
 }
 
 interface FormState {
-  firstName: string; lastName: string; email: string; phoneNumber: string
-  restaurantName: string; zip: string; password: string
+  firstName: string; lastName: string; email: string; password: string
+  phoneNumber: string; restaurantName: string
 }
-
-// Cuisine options — mirror the fullmap cuisine pills. (If the fullmap list
-// changes, keep this in sync; an unknown value still saves fine.)
-const CUISINES = [
-  'American', 'Italian', 'Mexican', 'Chinese', 'Japanese', 'Thai', 'Indian',
-  'Mediterranean', 'Middle Eastern', 'BBQ', 'Pizza', 'Sandwiches', 'Salads',
-  'Breakfast', 'Bakery', 'Seafood', 'Vegan', 'Other',
-]
+interface AddressState { street: string; city: string; state: string; zip: string }
 
 // One parsed menu item returned by the AI menu-import route (high confidence).
 interface MenuItem {
   name: string; description: string; price: number; serves: string; category: string
 }
 
-// ── Per-email onboarding cache ────────────────────────────────────────────────
-// These keys persist the "this browser already created the restaurant" state so
-// we never provision twice across the Stripe round-trip reload. They MUST be
-// scoped to the email — an unscoped key on a shared browser would let the next
-// person's onboarding reuse the previous person's restaurantRef.
-const PARTNER_KEY_PREFIXES = ['partner_setup_complete', 'partner_restaurant_ref', 'partner_restaurant_slug']
-const emailKey = (email: string) => email.trim().toLowerCase()
-const setupCompleteKey = (email: string) => `partner_setup_complete_${emailKey(email)}`
-const restaurantRefKey = (email: string) => `partner_restaurant_ref_${emailKey(email)}`
-
-// sessionStorage key holding the partner's current step, so back/forward (or a
-// reload) within the session restores their place. Cleared on the success screen.
-const STEP_KEY = 'partner_onboarding_step'
-
-// Remove every partner setup key (legacy unscoped + any email-scoped variant)
-// that doesn't belong to keepEmail. Pass '' to purge them all. The separate
-// `partner_onboarding` snapshot is intentionally left untouched.
-function purgeStalePartnerKeys(keepEmail: string) {
-  const keep = keepEmail ? PARTNER_KEY_PREFIXES.map(p => `${p}_${emailKey(keepEmail)}`) : []
-  try {
-    const toRemove: string[] = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (!key) continue
-      const isPartnerSetupKey = PARTNER_KEY_PREFIXES.some(p => key === p || key.startsWith(`${p}_`))
-      if (isPartnerSetupKey && !keep.includes(key)) toRemove.push(key)
-    }
-    toRemove.forEach(k => localStorage.removeItem(k))
-  } catch { /* localStorage unavailable */ }
-}
+// sessionStorage snapshot key — holds all collected data EXCEPT the password so
+// browser back/forward (and the Stripe redirect round-trip) keep their place.
+const SNAP_KEY = 'partner_onboarding_v2'
 
 // Small field helper — pill input with a label.
 function Field({ label, value, onChange, type = 'text', placeholder, autoComplete }: {
@@ -126,133 +95,100 @@ function PriceRow({ label, detail, value, who, highlight }: {
   )
 }
 
+// Steps (5 + final): 0 account · 1 restaurant info · 2 pricing · 3 Stripe ·
+// 4 menu · 5 "You're Live" (fires /complete, the ONLY account-provisioning call).
 export default function BecomeAPartnerClient() {
-  // Steps (7 total + success): 0 your info · 1 first-party pricing ·
-  // 2 marketplace (opt) · 3 third-party delivery (opt) · 4 restaurant profile ·
-  // 5 payout/Stripe (required) · 6 upload menu · 7 success.
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormState>({
-    firstName: '', lastName: '', email: '', phoneNumber: '',
-    restaurantName: '', zip: '', password: '',
+    firstName: '', lastName: '', email: '', password: '', phoneNumber: '', restaurantName: '',
   })
-  const [agree1P, setAgree1P] = useState(false)          // required (step 2)
-  const [agreeMarketplace, setAgreeMarketplace] = useState(false) // opt-in (step 3)
+  const [addr, setAddr] = useState<AddressState>({ street: '', city: '', state: '', zip: '' })
+  const [logoUrl, setLogoUrl] = useState('')
+  const [logoUploading, setLogoUploading] = useState(false)
+
+  const [agree, setAgree] = useState(false)
   const [joinedMarketplace, setJoinedMarketplace] = useState(false)
-  const [deliveryEnabled, setDeliveryEnabled] = useState(false)   // step 4 (3P delivery)
-  const [stripeConnected, setStripeConnected] = useState(false)   // step 5 (Stripe Connect)
-  // Menu step (step 5): AI import with graceful concierge fallback.
+  const [deliveryEnabled, setDeliveryEnabled] = useState(false)
+
+  const [stripeConnected, setStripeConnected] = useState(false)
+  const [restaurantRef, setRestaurantRef] = useState('')
+
+  // Menu step — AI import with graceful concierge fallback.
   const [menuTab, setMenuTab] = useState<'pdf' | 'url'>('pdf')
   const [menuFile, setMenuFile] = useState<File | null>(null)
   const [menuUrl, setMenuUrl] = useState('')
   const [menuProcessing, setMenuProcessing] = useState(false)
-  // null = not processed yet. 'high' shows the parsed preview; 'low' shows the
-  // concierge-handoff message. Either way the partner continues to success.
   const [menuResult, setMenuResult] = useState<null | { confidence: 'high' | 'low'; items: MenuItem[] }>(null)
+
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [emailInUse, setEmailInUse] = useState(false)   // FM 400-027: admin email already exists
-  // The restaurant is created ONCE — at the Stripe step if the partner connects,
-  // otherwise at completion. alreadyCreated guards against creating it twice.
-  const [alreadyCreated, setAlreadyCreated] = useState(false)
-  const [restaurantRef, setRestaurantRef] = useState('')
 
-  // Step 5 — Restaurant profile (Disco-native): address, cuisine, logo.
-  const [profStreet, setProfStreet] = useState('')
-  const [profCity, setProfCity] = useState('')
-  const [profState, setProfState] = useState('')
-  const [profZip, setProfZip] = useState('')
-  const [profCuisine, setProfCuisine] = useState('American')
-  const [profLogoUrl, setProfLogoUrl] = useState('')
-  const [logoUploading, setLogoUploading] = useState(false)
+  // Final-step provisioning state.
+  const [completing, setCompleting] = useState(false)
+  const [completed, setCompleted] = useState(false)
+  const completeFired = useRef(false)
 
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
 
-  // On mount: never trust a persisted "already created" flag — the form email
-  // isn't known yet, so we can't tell whose cache it is. Default alreadyCreated
-  // OFF; it's only set after the form email is confirmed during the flow. The
-  // ONE exception is the Stripe Connect return (?stripe=success), where the
-  // snapshot tells us the session email and we restore that email's state.
+  // ── Mount: restore the snapshot, handle the Stripe return ───────────────────
   useEffect(() => {
-    setAlreadyCreated(false)
-    let sessionEmail = ''
     let isStripeReturn = false
+    let refFromQuery = ''
     try {
       const params = new URLSearchParams(window.location.search)
       if (params.get('stripe') === 'success') {
         isStripeReturn = true
-        const saved = JSON.parse(localStorage.getItem('partner_onboarding') || '{}')
-        sessionEmail = String(saved?.form?.email || '')
-        if (saved.form) setForm(f => ({ ...f, ...saved.form }))
-        if (typeof saved.joinedMarketplace === 'boolean') setJoinedMarketplace(saved.joinedMarketplace)
-        if (typeof saved.deliveryEnabled === 'boolean') setDeliveryEnabled(saved.deliveryEnabled)
-        if (saved.profile) {
-          setProfStreet(saved.profile.street || ''); setProfCity(saved.profile.city || '')
-          setProfState(saved.profile.state || ''); setProfZip(saved.profile.zip || '')
-          setProfCuisine(saved.profile.cuisine || 'American'); setProfLogoUrl(saved.profile.logoUrl || '')
-        }
-        setStripeConnected(true)
-        setStep(5) // Stripe step (after the new Profile step)
-        window.history.replaceState({}, '', '/become-a-partner')
+        refFromQuery = params.get('ref') || ''
+      }
+    } catch { /* ignore */ }
+
+    try {
+      const raw = sessionStorage.getItem(SNAP_KEY)
+      if (raw) {
+        const s = JSON.parse(raw)
+        if (s.form) setForm(f => ({ ...f, ...s.form, password: '' })) // password never persisted
+        if (s.addr) setAddr(a => ({ ...a, ...s.addr }))
+        if (typeof s.logoUrl === 'string') setLogoUrl(s.logoUrl)
+        if (typeof s.agree === 'boolean') setAgree(s.agree)
+        if (typeof s.joinedMarketplace === 'boolean') setJoinedMarketplace(s.joinedMarketplace)
+        if (typeof s.deliveryEnabled === 'boolean') setDeliveryEnabled(s.deliveryEnabled)
+        if (typeof s.stripeConnected === 'boolean') setStripeConnected(s.stripeConnected)
+        if (typeof s.restaurantRef === 'string') setRestaurantRef(s.restaurantRef)
+        if (!isStripeReturn && Number.isFinite(s.step) && s.step >= 1 && s.step <= 4) setStep(s.step)
       }
     } catch { /* snapshot optional */ }
 
-    // Purge any partner setup keys not belonging to this session (everything on
-    // a fresh visit) so a shared browser never reuses a prior user's restaurant.
-    purgeStalePartnerKeys(sessionEmail)
-
-    // Stripe round-trip only: the create step ran before the redirect, so the
-    // Disco account+session already exist for this email — restore that state
-    // (lost on the reload) for the success-screen dashboard link.
-    try {
-      if (sessionEmail && localStorage.getItem(setupCompleteKey(sessionEmail)) === 'true') {
-        setAlreadyCreated(true)
-        const ref = localStorage.getItem(restaurantRefKey(sessionEmail)) || ''
-        if (ref) {
-          setRestaurantRef(ref)
-          // Confirm Stripe onboarding server-side (sets stripe_onboarding_complete
-          // when charges are enabled) so the status reflects reality.
-          fetch(`/api/become-a-partner/stripe-status?restaurantReference=${encodeURIComponent(ref)}`).catch(() => {})
-        }
+    if (isStripeReturn) {
+      setStripeConnected(true)
+      if (refFromQuery) {
+        setRestaurantRef(refFromQuery)
+        // Confirm charges_enabled server-side (sets stripe_onboarding_complete).
+        fetch(`/api/become-a-partner/stripe-status?restaurantReference=${encodeURIComponent(refFromQuery)}`).catch(() => {})
       }
-    } catch { /* localStorage unavailable */ }
-
-    // Restore the saved step on a fresh mount (browser back/forward or a reload
-    // within the session). Skip on a Stripe return — that path already set the
-    // step to the Stripe screen.
-    if (!isStripeReturn) {
-      try {
-        const saved = sessionStorage.getItem(STEP_KEY)
-        const n = saved ? parseInt(saved, 10) : NaN
-        if (Number.isFinite(n) && n >= 1 && n <= 6) setStep(n)
-      } catch { /* sessionStorage unavailable */ }
+      setStep(3)
+      try { window.history.replaceState({}, '', '/become-a-partner') } catch { /* ignore */ }
     }
   }, [])
 
-  // After returning from Stripe we briefly show "✓ Stripe connected" on the
-  // Stripe step (5), then advance to the menu step (6) automatically.
-  useEffect(() => {
-    if (step === 5 && stripeConnected) {
-      const id = setTimeout(() => setStep(6), 1500)
-      return () => clearTimeout(id)
-    }
-  }, [step, stripeConnected])
-
-  // Persist the current step to sessionStorage so a browser back/forward (or an
-  // accidental reload within the session) returns the partner to where they were
-  // instead of step 1. Only the form steps (0–6) are persisted; reaching the
-  // success screen clears it. STEP_KEY is module-scoped above.
+  // Persist the snapshot (never the password) on any relevant change, for steps 0–4.
   useEffect(() => {
     try {
-      if (step >= 0 && step <= 6) sessionStorage.setItem(STEP_KEY, String(step))
-      else sessionStorage.removeItem(STEP_KEY)
+      if (step <= 4) {
+        const snap = {
+          step,
+          form: { ...form, password: '' },
+          addr, logoUrl, agree, joinedMarketplace, deliveryEnabled, stripeConnected, restaurantRef,
+        }
+        sessionStorage.setItem(SNAP_KEY, JSON.stringify(snap))
+      }
     } catch { /* sessionStorage unavailable */ }
-  }, [step])
+  }, [step, form, addr, logoUrl, agree, joinedMarketplace, deliveryEnabled, stripeConnected, restaurantRef])
 
-  // Google Places Autocomplete on the profile street field (progressive
-  // enhancement — manual entry still works if the script/key is unavailable).
+  // Google Places Autocomplete on the restaurant address (step 1). Progressive
+  // enhancement — manual entry still works without the script/key.
   const streetInputRef = useRef<HTMLInputElement | null>(null)
   useEffect(() => {
-    if (step !== 4) return
+    if (step !== 1) return
     const KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
     if (!KEY) return
     function init() {
@@ -264,10 +200,12 @@ export default function BecomeAPartnerClient() {
         const comp = ac.getPlace()?.address_components || []
         const get = (t: string) => comp.find(c => c.types.includes(t))?.long_name || ''
         const getShort = (t: string) => comp.find(c => c.types.includes(t))?.short_name || ''
-        setProfStreet([get('street_number'), get('route')].filter(Boolean).join(' '))
-        setProfCity(get('locality') || get('sublocality') || get('postal_town'))
-        setProfState(getShort('administrative_area_level_1'))
-        setProfZip(get('postal_code'))
+        setAddr({
+          street: [get('street_number'), get('route')].filter(Boolean).join(' '),
+          city: get('locality') || get('sublocality') || get('postal_town'),
+          state: getShort('administrative_area_level_1'),
+          zip: get('postal_code'),
+        })
       })
     }
     const w = window as unknown as { google?: { maps?: { places?: unknown } } }
@@ -281,123 +219,48 @@ export default function BecomeAPartnerClient() {
     document.head.appendChild(s)
   }, [step])
 
-  const infoValid = !!form.firstName && !!form.lastName && !!form.email
-    && !!form.phoneNumber && !!form.restaurantName && !!form.zip && !!form.password
-
-  // ── Step 1 → just validate and advance. The restaurant (and its ADMIN account)
-  // is NOT created here — creation is deferred to completeOnboarding so partial
-  // signups never provision FM accounts or trigger Slack/email notifications. ──
-  function registerAccount() {
-    setError(''); setEmailInUse(false)
-    if (!infoValid) { setError('Please complete all fields.'); return }
-    if (form.password.length < 8) { setError('Password must be at least 8 characters'); return }
-    setStep(1)
-  }
-
-  // Create the restaurant. FM provisions the ADMIN account from `admin` (email +
-  // the password the partner set) using our SUPER_ADMIN service account. Returns
-  // the new restaurant reference on success, or null on failure (and sets the
-  // appropriate error). Persists a flag so a repeat run won't create a duplicate.
-  async function createRestaurant(): Promise<string | null> {
-    try {
-      const res = await fetch('/api/become-a-partner/create-restaurant', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurantName: form.restaurantName, email: form.email,
-          phoneNumber: form.phoneNumber, firstName: form.firstName,
-          lastName: form.lastName, zipcode: form.zip, password: form.password,
-        }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.restaurantReference) {
-        // FM 400-027 → a restaurant admin with this email already exists.
-        if (data?.code === '400-027') {
-          setEmailInUse(true)
-          setError('An account with this email already exists. Please log in to your restaurant portal at discocater.com/restaurant/login.')
-          return null
-        }
-        setError(data?.error || 'Could not create your restaurant. Please try again or contact concierge@discocater.com.')
-        return null
-      }
-      const ref = String(data.restaurantReference)
-      setRestaurantRef(ref)
-      setAlreadyCreated(true)
-      try {
-        // Scope the cache to this email so a shared browser can't reuse this
-        // restaurantRef for the next person's onboarding.
-        localStorage.setItem(setupCompleteKey(form.email), 'true')
-        localStorage.setItem(restaurantRefKey(form.email), ref)
-      } catch { /* localStorage unavailable */ }
-      // Create the Disco-native account + session (sets disco_restaurant_token)
-      // so the partner is logged into the portal immediately.
-      await registerDiscoAccount(ref, data?.adminReference ?? null)
-      return ref
-    } catch {
-      setError('Unable to connect. Please try again.')
-      return null
+  // Fire the final account-creation call exactly once when we reach the live step.
+  useEffect(() => {
+    if (step === 5 && !completeFired.current) {
+      completeFired.current = true
+      completeOnboarding()
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step])
 
-  // Create a Disco-native restaurant account + session right after the FM
-  // restaurant exists. Sets the httpOnly disco_restaurant_token cookie. Runs
-  // exactly once (inside createRestaurant) and is best-effort — never blocks.
-  async function registerDiscoAccount(ref: string, fmUserReference: string | null): Promise<boolean> {
-    try {
-      const res = await fetch('/api/disco-restaurant-auth/register', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          email: form.email, password: form.password,
-          firstName: form.firstName, lastName: form.lastName,
-          phone: form.phoneNumber, restaurantName: form.restaurantName,
-          restaurantReference: ref, fmUserReference: fmUserReference || undefined,
-        }),
-      })
-      if (res.ok) {
-        // Drop any stale FM restaurant identity so the portal header + data scope
-        // to the new Disco restaurant, not a previously logged-in FM one. The
-        // portal layout repopulates from /api/disco-restaurant-auth/me.
-        try {
-          localStorage.removeItem('restaurant_user')
-          localStorage.removeItem('selectedRestaurant')
-          localStorage.removeItem('selectedRestaurantName')
-        } catch {}
-        return true
-      } else {
-        console.error('[become-a-partner] disco register failed:', res.status)
-        return false
-      }
-    } catch (err) {
-      console.error('[become-a-partner] disco register request failed:', err)
-      return false
-    }
-  }
+  const step0Valid = !!form.firstName && !!form.lastName && !!form.email && form.password.length >= 8
+  const step1Valid = !!form.restaurantName.trim() && !!addr.street.trim() && !!addr.city.trim() && !!addr.state.trim()
 
-  // Stripe step → ensure the restaurant exists (create it now if needed), then
-  // start Stripe Connect via the SUPER_ADMIN service account and redirect. We
-  // save a snapshot first because the Stripe redirect reloads this page.
+  // ── Step 4 (Stripe) → create/look-up the account by email server-side, then
+  // start Connect (or skip if already connected). Snapshot is saved before the
+  // redirect so the page reload keeps its place. ──
   async function connectStripe() {
     setError('')
     setLoading(true)
     try {
-      let ref = restaurantRef
-      if (!alreadyCreated) {
-        const created = await createRestaurant()
-        if (!created) { setLoading(false); return }
-        ref = created
-      }
-      try { localStorage.setItem('partner_onboarding', JSON.stringify({ form, joinedMarketplace, deliveryEnabled, profile: { street: profStreet, city: profCity, state: profState, zip: profZip, cuisine: profCuisine, logoUrl: profLogoUrl } })) } catch {}
       const res = await fetch('/api/become-a-partner/stripe-connect', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantReference: ref }),
+        body: JSON.stringify({
+          email: form.email, password: form.password,
+          firstName: form.firstName, lastName: form.lastName,
+          restaurantName: form.restaurantName, phone: form.phoneNumber,
+          street: addr.street, city: addr.city, state: addr.state, zip: addr.zip,
+        }),
       })
       const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.stripeConnectUrl) {
-        setError(data?.error || 'Could not start Stripe Connect. You can connect later from your dashboard.')
+      if (res.ok && data?.alreadyConnected) {
+        if (data.restaurantReference) setRestaurantRef(String(data.restaurantReference))
+        setStripeConnected(true)
         setLoading(false)
         return
       }
-      window.location.href = data.stripeConnectUrl // redirect; page unloads
+      if (res.ok && data?.stripeConnectUrl) {
+        if (data.restaurantReference) setRestaurantRef(String(data.restaurantReference))
+        window.location.href = data.stripeConnectUrl // redirect; page unloads
+        return
+      }
+      setError(data?.error || 'Could not start Stripe Connect. You can connect later from your dashboard.')
+      setLoading(false)
     } catch {
       setError('Could not start Stripe Connect. You can connect later from your dashboard.')
       setLoading(false)
@@ -412,66 +275,13 @@ export default function BecomeAPartnerClient() {
       fd.append('image', file)
       const res = await fetch('/api/become-a-partner/logo', { method: 'POST', body: fd })
       const data = await res.json().catch(() => null)
-      if (res.ok && data?.url) setProfLogoUrl(String(data.url))
+      if (res.ok && data?.url) setLogoUrl(String(data.url))
       else setError(data?.error || 'Could not upload image.')
     } catch {
       setError('Could not upload image.')
     } finally {
       setLogoUploading(false)
     }
-  }
-
-  // Restaurant Profile step → ensure the restaurant + Disco account exist (create
-  // now if needed), then save the profile (address geocode, cuisine, logo) to
-  // Neon. Advances to the Stripe step.
-  async function saveProfile() {
-    setError('')
-    if (!form.restaurantName.trim()) { setError('Business name is required.'); return }
-    if (!profStreet.trim() || !profCity.trim() || !profState.trim()) { setError('Please enter your full address.'); return }
-    setLoading(true)
-    try {
-      let ref = restaurantRef
-      if (!alreadyCreated) {
-        const created = await createRestaurant()
-        if (!created) { setLoading(false); return } // createRestaurant set the error
-        ref = created
-      }
-      const res = await fetch('/api/become-a-partner/profile', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          restaurantReference: ref,
-          businessName: form.restaurantName,
-          street: profStreet, city: profCity, state: profState, zip: profZip || form.zip,
-          phone: form.phoneNumber, cuisine: profCuisine, logoUrl: profLogoUrl || undefined,
-          email: form.email,
-        }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok || !data?.restaurant_reference) {
-        setError(data?.error || 'Could not save your restaurant profile. Please try again.')
-        return
-      }
-      // The profile route may have minted the reference (pure-native fallback).
-      if (data.restaurant_reference && data.restaurant_reference !== ref) setRestaurantRef(String(data.restaurant_reference))
-      setStep(5)
-    } catch {
-      setError('Unable to connect. Please try again.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Best-effort go-live: flips the restaurant live on the marketplace (sets
-  // is_live + sends the welcome email) once onboarding is otherwise done. Called
-  // automatically after the menu step — never blocks reaching the success screen,
-  // so a not-yet-charges-enabled Stripe account just means "not live yet".
-  async function fireGoLive(ref: string) {
-    try {
-      await fetch('/api/become-a-partner/go-live', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantReference: ref }),
-      })
-    } catch { /* best-effort — success screen still shows */ }
   }
 
   // Read a File into a base64 string (no data: prefix) for the JSON menu-upload.
@@ -484,11 +294,8 @@ export default function BecomeAPartnerClient() {
     })
   }
 
-  // AI menu import. Sends the PDF (base64) or URL to /menu-upload, which parses
-  // it with Claude. HIGH confidence → preview the parsed items; LOW confidence
-  // (or any error) → the route has already emailed the concierge team, and we
-  // show the "we'll set it up for you" handoff. Either way onboarding continues —
-  // the partner never sees a failure.
+  // AI menu import — HIGH confidence previews the parsed items; anything else is a
+  // graceful concierge handoff. Either way the partner continues to the live step.
   async function processMenu() {
     setError('')
     if (menuTab === 'pdf' && !menuFile) { setError('Please choose a PDF first.'); return }
@@ -512,12 +319,9 @@ export default function BecomeAPartnerClient() {
       if (res.ok && data?.confidence === 'high' && Array.isArray(data.items)) {
         setMenuResult({ confidence: 'high', items: data.items as MenuItem[] })
       } else {
-        // Low confidence, a non-OK response, or a parse error — all resolve to the
-        // graceful concierge handoff. The route emails the team server-side.
         setMenuResult({ confidence: 'low', items: [] })
       }
     } catch (err) {
-      // Network failure reaching our own route — still hand off gracefully.
       console.error('[become-a-partner] menu processing request failed:', err)
       setMenuResult({ confidence: 'low', items: [] })
     } finally {
@@ -525,8 +329,7 @@ export default function BecomeAPartnerClient() {
     }
   }
 
-  // Tell the team the partner skipped the menu step, then finish onboarding.
-  // Best-effort — a failed note must never block completion.
+  // Skip the menu → tell the team (best-effort), then go to the live step.
   async function skipMenu() {
     try {
       await fetch('/api/become-a-partner/menu-upload', {
@@ -541,54 +344,53 @@ export default function BecomeAPartnerClient() {
     } catch (err) {
       console.error('[become-a-partner] menu skip note failed:', err)
     }
-    await completeOnboarding()
+    setStep(5)
   }
 
-  // ── Final step → create the restaurant (deferred from step 0), then fire the
-  // team notification and show success. The menu was already handled (parsed or
-  // handed to concierge) on the menu step, so it isn't touched here. This is the
-  // ONLY place that provisions FM, so partial signups never create accounts. ──
+  // ── Final step → the ONLY account-provisioning call. Creates FM (best-effort),
+  // the disco account + session cookie, location access, the live cache row, and
+  // sends the welcome email + Slack. Retry-safe. ──
   async function completeOnboarding() {
     setError('')
-    setLoading(true)
+    setCompleting(true)
     try {
-      // Create the FM restaurant + ADMIN now, unless this browser already did
-      // (e.g. at the Stripe step, or on a previous completed run).
-      let ref = restaurantRef
-      if (!alreadyCreated) {
-        const created = await createRestaurant()
-        if (!created) return // createRestaurant set the error (incl. email-in-use)
-        ref = created
-      }
       const res = await fetch('/api/become-a-partner/complete', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // Full context for the team notification (email + Slack). agreedToPricing
-        // = the required First Party terms.
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
-          restaurantName: form.restaurantName,
-          email: form.email,
-          phone: form.phoneNumber,
-          zip: form.zip,
-          joinedMarketplace,
-          deliveryEnabled,
-          stripeConnected,
-          restaurantReference: ref,
+          email: form.email, password: form.password,
+          firstName: form.firstName, lastName: form.lastName,
+          restaurantName: form.restaurantName, phone: form.phoneNumber,
+          street: addr.street, city: addr.city, state: addr.state, zip: addr.zip,
+          logoUrl, restaurantReference: restaurantRef,
+          joinedMarketplace, deliveryEnabled, stripeConnected,
           menuFileName: menuTab === 'pdf' ? (menuFile?.name || '') : (menuUrl.trim() || ''),
-          agreedToPricing: true,
-          agreedToDelivery: deliveryEnabled,
         }),
       })
-      const data = await res.json()
-      if (!res.ok || !data.success) { setError(data.error || 'Something went wrong. Please try again.'); return }
-      // Flip the restaurant live now (best-effort — sets is_live + welcome email),
-      // then go straight to the success screen. No separate Go-Live checklist step.
-      await fireGoLive(ref)
-      setStep(7) // → success screen
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data?.success) {
+        setError(data?.error || 'Something went wrong creating your account. Please try again.')
+        setCompleting(false)
+        return
+      }
+      if (data.restaurantReference) setRestaurantRef(String(data.restaurantReference))
+      setCompleted(true)
+      setCompleting(false)
+      try { sessionStorage.removeItem(SNAP_KEY) } catch { /* ignore */ }
     } catch {
       setError('Unable to connect. Please try again.')
-    } finally {
-      setLoading(false)
+      setCompleting(false)
     }
+  }
+
+  function goDashboard() {
+    try {
+      localStorage.removeItem('restaurant_user')
+      localStorage.removeItem('selectedRestaurant')
+      localStorage.removeItem('selectedRestaurantName')
+      sessionStorage.removeItem(SNAP_KEY)
+    } catch { /* ignore */ }
+    // Full-page navigation so the browser sends the disco_restaurant_token cookie.
+    window.location.href = '/restaurant/orders'
   }
 
   function back() { setError(''); setStep(s => Math.max(0, s - 1)) }
@@ -605,15 +407,15 @@ export default function BecomeAPartnerClient() {
 
       {/* Top bar: back link (left) + step counter (right) */}
       <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '22px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 }}>
-        {step >= 1 && step <= 6 ? (
+        {step >= 1 && step <= 4 ? (
           <button onClick={back} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#777', fontFamily: F, fontWeight: 600, padding: 0 }}>
             ‹ Back
           </button>
         ) : (
           <Link href="/" style={{ fontSize: 14, color: '#777', textDecoration: 'none', fontWeight: 600 }}>‹ Back</Link>
         )}
-        {step <= 6 && (
-          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 7</div>
+        {step <= 4 && (
+          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 5</div>
         )}
       </div>
 
@@ -625,10 +427,10 @@ export default function BecomeAPartnerClient() {
         </Link>
       </div>
 
-      {/* Step indicator — seven segments */}
-      {step <= 6 && (
+      {/* Step indicator — five segments */}
+      {step <= 4 && (
         <div style={{ maxWidth: 560, width: '100%', margin: '18px auto 0', padding: '0 24px', display: 'flex', gap: 8 }}>
-          {[0, 1, 2, 3, 4, 5, 6].map(i => (
+          {[0, 1, 2, 3, 4].map(i => (
             <div key={i} style={{ flex: 1, height: 5, borderRadius: 999, background: i <= step ? GRADIENT : '#e8e8f0', transition: 'background 0.2s' }} />
           ))}
         </div>
@@ -638,50 +440,96 @@ export default function BecomeAPartnerClient() {
       <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '24px 24px 64px' }}>
         <div style={{ width: '100%', maxWidth: 540 }}>
 
-          {/* ── STEP 1 · YOUR INFO ── */}
+          {/* ── STEP 1 · CREATE YOUR ACCOUNT (collect only) ── */}
           {step === 0 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Let&apos;s get you set up</h1>
-              <p style={subStyle}>Tell us about you and your restaurant. Signing up is fast and risk free.</p>
-              {emailInUse ? (
-                <div style={{ background: '#fff8ec', border: '1px solid #f5e2b8', color: '#8a6d2f', borderRadius: 12, padding: '12px 14px', fontSize: 13, lineHeight: 1.5, margin: '0 0 14px' }}>
-                  An account with this email already exists. Please{' '}
-                  <a href="/restaurant/login" style={{ color: '#5B6FE8', fontWeight: 700 }}>log in to your restaurant portal</a>
-                  {' '}instead.
-                </div>
-              ) : errorBox}
+              <h1 style={h1Style}>Create your account</h1>
+              <p style={subStyle}>Let&apos;s start with your details. Signing up is fast and risk free.</p>
+              {errorBox}
               <div style={{ marginTop: 18 }}>
-                <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <Field label="First name" value={form.firstName} onChange={v => set('firstName', v)} autoComplete="given-name" />
                   <Field label="Last name" value={form.lastName} onChange={v => set('lastName', v)} autoComplete="family-name" />
                 </div>
                 <Field label="Email" value={form.email} onChange={v => set('email', v)} type="email" autoComplete="email" />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <Field label="Phone" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
-                  <Field label="Zip code" value={form.zip} onChange={v => set('zip', v)} autoComplete="postal-code" />
-                </div>
                 <Field label="Create a password" value={form.password} onChange={v => set('password', v)} type="password" autoComplete="new-password" />
                 <div style={{ fontSize: 12, color: '#999', margin: '-6px 0 0', paddingLeft: 4 }}>Minimum 8 characters</div>
               </div>
-              <button onClick={registerAccount} disabled={!infoValid}
-                style={{ ...primaryBtn, marginTop: 8, opacity: infoValid ? 1 : 0.5, cursor: infoValid ? 'pointer' : 'default' }}>
-                Continue
+              <button
+                onClick={() => {
+                  setError('')
+                  if (!step0Valid) { setError('Please complete all fields (password must be 8+ characters).'); return }
+                  setStep(1)
+                }}
+                disabled={!step0Valid}
+                style={{ ...primaryBtn, marginTop: 8, opacity: step0Valid ? 1 : 0.5, cursor: step0Valid ? 'pointer' : 'default' }}>
+                Next
               </button>
             </div>
           )}
 
-          {/* ── STEP 2 · FIRST PARTY (1P) — required ── */}
+          {/* ── STEP 2 · RESTAURANT INFO (collect only) ── */}
           {step === 1 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}><span style={{ color: '#5B6FE8' }}>Pricing:</span> First-Party Ordering</h1>
-              <p style={subStyle}>Orders placed through your website, social and other native links.</p>
+              <h1 style={h1Style}>Restaurant info</h1>
+              <p style={subStyle}>Where you&apos;re located — this is how customers find you on the Disco Cater map.</p>
+              {errorBox}
+              <div style={{ marginTop: 18 }}>
+                <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Street address</label>
+                  <input
+                    ref={streetInputRef}
+                    type="text" value={addr.street} placeholder="Start typing your address…"
+                    onChange={e => setAddr(a => ({ ...a, street: e.target.value }))}
+                    onFocus={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(91,111,232,0.12)' }}
+                    onBlur={e => { e.currentTarget.style.borderColor = '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
+                    style={pillInput}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
+                  <Field label="City" value={addr.city} onChange={v => setAddr(a => ({ ...a, city: v }))} />
+                  <Field label="State" value={addr.state} onChange={v => setAddr(a => ({ ...a, state: v }))} />
+                  <Field label="Zip" value={addr.zip} onChange={v => setAddr(a => ({ ...a, zip: v }))} />
+                </div>
+                <Field label="Phone (optional)" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Logo or photo (optional)</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>{logoUploading ? 'Uploading…' : 'Choose image'}</span>
+                    <span style={{ fontSize: 13, color: logoUrl ? DARK : '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {logoUrl ? 'Uploaded ✓' : 'No image selected'}
+                    </span>
+                    <input type="file" accept="image/*" disabled={logoUploading}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f) }}
+                      style={{ display: 'none' }} />
+                  </label>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setError('')
+                  if (!step1Valid) { setError('Restaurant name and full address are required.'); return }
+                  setStep(2)
+                }}
+                disabled={!step1Valid}
+                style={{ ...primaryBtn, marginTop: 8, opacity: step1Valid ? 1 : 0.5, cursor: step1Valid ? 'pointer' : 'default' }}>
+                Next
+              </button>
+            </div>
+          )}
+
+          {/* ── STEP 3 · PRICING OVERVIEW (display only) ── */}
+          {step === 2 && (
+            <div style={cardStyle}>
+              <h1 style={h1Style}>Pricing overview</h1>
+              <p style={subStyle}>Simple, transparent pricing — our rates beat every major competitor.</p>
               {errorBox}
 
-              {/* 1P pricing — a separate bubble per "who pays" group */}
+              {/* First-party */}
               <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
-                  <div style={priceSectionTitle}>Paid by Restaurant</div>
+                  <div style={priceSectionTitle}>Your Own Orders · Paid by Restaurant</div>
                   <PriceRow label="First-Party orders" value="0.00%" />
                   <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" />
                   <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" />
@@ -691,174 +539,92 @@ export default function BecomeAPartnerClient() {
                   <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" />
                   <PriceRow label="Third-party delivery" detail="catering-specific drivers" value="15% of Subtotal, $85 cap" />
                 </div>
+                {/* Marketplace lead-gen */}
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
+                  <div style={priceSectionTitle}>Marketplace (optional) · Paid by Restaurant</div>
+                  <PriceRow label="First-time customers" detail="First order from a new customer at a unique location" value="15.00%" />
+                  <PriceRow label="Returning customers" detail="That customer's subsequent orders from that location" value="5.00%" />
+                  <div style={{ fontSize: 12, color: '#999', margin: '10px 2px 0', lineHeight: 1.5 }}>
+                    Marketplace fees only apply when Disco Cater is the source of the order.
+                  </div>
+                </div>
               </div>
 
-              {/* Required agreement */}
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 18px' }}>
-                <input type="checkbox" checked={agree1P} onChange={e => setAgree1P(e.target.checked)}
+              {/* Optional opt-ins */}
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '18px 0 0' }}>
+                <input type="checkbox" checked={joinedMarketplace} onChange={e => setJoinedMarketplace(e.target.checked)}
+                  style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
+                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>Join the Disco Cater Marketplace to receive new catering orders</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '12px 0 0' }}>
+                <input type="checkbox" checked={deliveryEnabled} onChange={e => setDeliveryEnabled(e.target.checked)}
+                  style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
+                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>Enable third-party catering delivery drivers</span>
+              </label>
+
+              {/* Required terms */}
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '16px 0 18px' }}>
+                <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)}
                   style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
                 <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>
                   I agree to the{' '}
-                  <a href="/terms" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#5B6FE8' }}>Disco Cater Terms of Service</a>
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#5B6FE8' }}>Terms of Service</a>
                   {' '}and{' '}
                   <a href="/privacy" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#5B6FE8' }}>Privacy Policy</a>
                 </span>
               </label>
 
-              <button onClick={() => { setError(''); setStep(2) }} disabled={!agree1P}
-                style={{ ...primaryBtn, opacity: agree1P ? 1 : 0.5, cursor: agree1P ? 'pointer' : 'default' }}>
-                Continue
+              <button onClick={() => { setError(''); setStep(3) }} disabled={!agree}
+                style={{ ...primaryBtn, opacity: agree ? 1 : 0.5, cursor: agree ? 'pointer' : 'default' }}>
+                Next
               </button>
             </div>
           )}
 
-          {/* ── STEP 3 · MARKETPLACE (3P) — optional ── */}
-          {step === 2 && (
-            <div style={cardStyle}>
-              <h1 style={h1Style}><span style={{ color: '#5B6FE8' }}>Pricing:</span> Marketplace (Optional)</h1>
-              <p style={subStyle}>We send you new catering orders through the Disco Cater network of corporate and social customers. Fees only apply when we are the source of the order.</p>
-              {errorBox}
-
-              {/* 3P pricing — lead-gen fees only; all the First-Party fees still apply. */}
-              <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
-                <PriceRow label="First-time customers" detail="Of order subtotal — the first time a new customer orders from a unique location" value="15.00%" who="restaurant" />
-                <PriceRow label="Returning customers" detail="Of order subtotal — that customer's subsequent orders from that location" value="5.00%" who="restaurant" />
-              </div>
-              <div style={{ fontSize: 12, color: '#999', margin: '10px 2px 0', lineHeight: 1.5 }}>
-                All First-Party ordering fees apply.
-              </div>
-
-              {/* Opt-in agreement (only required to join) */}
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 18px' }}>
-                <input type="checkbox" checked={agreeMarketplace} onChange={e => setAgreeMarketplace(e.target.checked)}
-                  style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
-                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>I agree to the Disco Cater Marketplace Terms</span>
-              </label>
-
-              <button onClick={() => { setError(''); setJoinedMarketplace(true); setStep(3) }} disabled={!agreeMarketplace}
-                style={{ ...primaryBtn, opacity: agreeMarketplace ? 1 : 0.5, cursor: agreeMarketplace ? 'pointer' : 'default' }}>
-                Join Marketplace
-              </button>
-              <div style={{ textAlign: 'center', marginTop: 12 }}>
-                <button onClick={() => { setError(''); setJoinedMarketplace(false); setStep(3) }}
-                  style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: 'pointer', textDecoration: 'underline' }}>
-                  Skip for now
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── STEP 4 · THIRD-PARTY DELIVERY — optional ── */}
+          {/* ── STEP 4 · CONNECT STRIPE ── */}
           {step === 3 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Third-Party Delivery (Optional)</h1>
-              <p style={subStyle}>Offer your customers catering-specific delivery drivers, automatically dispatched when they choose delivery at checkout.</p>
-              {errorBox}
-
-              <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {['Catering-specific drivers', 'Setup included', 'Proactive support'].map(b => (
-                  <div key={b} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: DARK, fontWeight: 600 }}>
-                    <span style={{ color: '#2E9E5B', fontWeight: 800 }}>✓</span> {b}
-                  </div>
-                ))}
-              </div>
-
-              <button onClick={() => { setError(''); setDeliveryEnabled(true); setStep(4) }}
-                style={{ ...primaryBtn, marginTop: 24 }}>
-                Enable third-party delivery
-              </button>
-              <div style={{ textAlign: 'center', marginTop: 12 }}>
-                <button onClick={() => { setError(''); setDeliveryEnabled(false); setStep(4) }}
-                  style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: 'pointer', textDecoration: 'underline' }}>
-                  Skip for now
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── STEP 5 · RESTAURANT PROFILE ── */}
-          {step === 4 && (
-            <div style={cardStyle}>
-              <h1 style={h1Style}>Your restaurant profile</h1>
-              <p style={subStyle}>Where you&apos;re located and what you serve — this is how customers find you on the Disco Cater map.</p>
-              {errorBox}
-              <div style={{ marginTop: 18 }}>
-                <Field label="Business name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
-                <div style={{ marginBottom: 14 }}>
-                  <label style={labelStyle}>Street address</label>
-                  <input
-                    ref={streetInputRef}
-                    type="text" value={profStreet} placeholder="123 Main St"
-                    onChange={e => setProfStreet(e.target.value)}
-                    onFocus={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(91,111,232,0.12)' }}
-                    onBlur={e => { e.currentTarget.style.borderColor = '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
-                    style={pillInput}
-                  />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
-                  <Field label="City" value={profCity} onChange={setProfCity} />
-                  <Field label="State" value={profState} onChange={setProfState} />
-                  <Field label="Zip" value={profZip} onChange={setProfZip} />
-                </div>
-                <Field label="Phone" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" />
-                <div style={{ marginBottom: 14 }}>
-                  <label style={labelStyle}>Cuisine</label>
-                  <select value={profCuisine} onChange={e => setProfCuisine(e.target.value)}
-                    style={{ ...pillInput, cursor: 'pointer' }}>
-                    {CUISINES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div style={{ marginBottom: 14 }}>
-                  <label style={labelStyle}>Logo or photo (optional)</label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe' }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>{logoUploading ? 'Uploading…' : 'Choose image'}</span>
-                    <span style={{ fontSize: 13, color: profLogoUrl ? DARK : '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {profLogoUrl ? 'Uploaded ✓' : 'No image selected'}
-                    </span>
-                    <input type="file" accept="image/*" disabled={logoUploading}
-                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f) }}
-                      style={{ display: 'none' }} />
-                  </label>
-                </div>
-              </div>
-              <button onClick={saveProfile} disabled={loading}
-                style={{ ...primaryBtn, marginTop: 8, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                {loading ? 'Saving…' : 'Continue'}
-              </button>
-            </div>
-          )}
-
-          {/* ── STEP 6 · CONNECT BANK / STRIPE — required ── */}
-          {step === 5 && (
-            <div style={cardStyle}>
-              <h1 style={h1Style}>Payout Setup</h1>
-              <p style={subStyle}>Connect your bank account to receive payouts from catering orders. This is required to take orders on Disco Cater.</p>
+              <h1 style={h1Style}>Connect Stripe for payouts</h1>
+              <p style={subStyle}>Connect your bank account through Stripe to receive payouts from catering orders.</p>
               {errorBox}
 
               <div style={{ marginTop: 18 }}>
                 {stripeConnected ? (
-                  <button disabled
-                    style={{ ...primaryBtn, background: '#2E9E5B', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                    ✓ Stripe connected
-                  </button>
+                  <>
+                    <button disabled
+                      style={{ ...primaryBtn, background: '#2E9E5B', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                      ✓ Stripe connected
+                    </button>
+                    <button onClick={() => { setError(''); setStep(4) }} style={{ ...primaryBtn, marginTop: 12 }}>
+                      Continue
+                    </button>
+                  </>
                 ) : (
-                  <button onClick={connectStripe} disabled={loading}
-                    style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                    {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
-                  </button>
+                  <>
+                    <button onClick={connectStripe} disabled={loading}
+                      style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
+                      {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
+                    </button>
+                    {error && (
+                      <div style={{ textAlign: 'center', marginTop: 12 }}>
+                        <button onClick={() => { setError(''); setStep(4) }} style={linkBtn}>
+                          Connect Stripe later from your dashboard
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           )}
 
-          {/* ── STEP 7 · ADD YOUR MENU (AI import) ── */}
-          {step === 6 && (
+          {/* ── STEP 5 · UPLOAD YOUR MENU (optional) ── */}
+          {step === 4 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Add your menu</h1>
-              <p style={subStyle}>Upload a PDF or paste a link to your menu.</p>
+              <h1 style={h1Style}>Upload your menu</h1>
+              <p style={subStyle}>Upload a PDF or paste a link and our AI will set it up. You can add menu items anytime from your dashboard.</p>
               {errorBox}
 
-              {/* While the AI is reading the menu */}
               {menuProcessing ? (
                 <div style={{ marginTop: 24, textAlign: 'center', padding: '28px 10px' }}>
                   <div style={{
@@ -871,7 +637,6 @@ export default function BecomeAPartnerClient() {
                 </div>
 
               ) : menuResult?.confidence === 'high' ? (
-                /* HIGH confidence → preview the parsed items */
                 <div style={{ marginTop: 18 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#2E9E5B', marginBottom: 10 }}>
                     ✓ We found {menuResult.items.length} item{menuResult.items.length === 1 ? '' : 's'} on your menu
@@ -888,14 +653,10 @@ export default function BecomeAPartnerClient() {
                     ))}
                   </div>
                   <p style={{ ...subStyle, margin: '14px 0 0' }}>Looks good! We&apos;ll finish setting up your menu.</p>
-                  <button onClick={completeOnboarding} disabled={loading}
-                    style={{ ...primaryBtn, marginTop: 18, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                    {loading ? 'Finishing up…' : 'Continue'}
-                  </button>
+                  <button onClick={() => setStep(5)} style={{ ...primaryBtn, marginTop: 18 }}>Continue</button>
                 </div>
 
               ) : menuResult?.confidence === 'low' ? (
-                /* LOW confidence → graceful concierge handoff (failure hidden) */
                 <div style={{ marginTop: 18 }}>
                   <div style={{ background: '#f4f6ff', border: '1px solid #dfe4ff', borderRadius: 14, padding: '18px 18px' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>We&apos;ll set up your menu for you</div>
@@ -903,14 +664,10 @@ export default function BecomeAPartnerClient() {
                       Our team will be in touch to help finish setting up your catering menu.
                     </p>
                   </div>
-                  <button onClick={completeOnboarding} disabled={loading}
-                    style={{ ...primaryBtn, marginTop: 18, opacity: loading ? 0.6 : 1, cursor: loading ? 'default' : 'pointer' }}>
-                    {loading ? 'Finishing up…' : 'Continue'}
-                  </button>
+                  <button onClick={() => setStep(5)} style={{ ...primaryBtn, marginTop: 18 }}>Continue</button>
                 </div>
 
               ) : (
-                /* Initial input: PDF / URL tabs + Process Menu */
                 <>
                   <div style={{ marginTop: 18, display: 'flex', gap: 8, background: '#f4f4fa', borderRadius: 999, padding: 4 }}>
                     {([['pdf', 'Upload PDF'], ['url', 'Paste a URL']] as const).map(([key, label]) => (
@@ -954,14 +711,12 @@ export default function BecomeAPartnerClient() {
                     </div>
                   )}
 
-                  <button onClick={processMenu}
-                    style={{ ...primaryBtn, marginTop: 24 }}>
+                  <button onClick={processMenu} style={{ ...primaryBtn, marginTop: 24 }}>
                     Upload Menu
                   </button>
 
                   <div style={{ textAlign: 'center', marginTop: 12 }}>
-                    <button onClick={skipMenu} disabled={loading}
-                      style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, fontWeight: 600, fontFamily: F, cursor: loading ? 'default' : 'pointer', textDecoration: 'underline' }}>
+                    <button onClick={skipMenu} style={linkBtn}>
                       Skip for now
                     </button>
                   </div>
@@ -970,35 +725,46 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── SUCCESS (final) ── */}
-          {step === 7 && (
+          {/* ── STEP 6 · YOU'RE LIVE (fires /complete) ── */}
+          {step === 5 && (
             <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
-              <h1 style={{ ...h1Style, fontSize: 28 }}>You&apos;re all set! 🎉</h1>
-              <p style={{ ...subStyle, maxWidth: 440, margin: '0 auto 8px' }}>
-                Your account is ready. Head to your dashboard to manage your menu, ordering
-                settings, and orders.
-              </p>
-
-              {/* Single action: the partner is already authenticated from onboarding
-                  (disco_restaurant_token), so go straight to the dashboard. Full-page
-                  navigation so the browser sends the session cookie. */}
-              <button
-                onClick={() => {
-                  try {
-                    localStorage.removeItem('restaurant_user')
-                    localStorage.removeItem('selectedRestaurant')
-                    localStorage.removeItem('selectedRestaurantName')
-                    sessionStorage.removeItem(STEP_KEY)
-                  } catch {}
-                  window.location.href = '/restaurant/orders'
-                }}
-                style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', marginTop: 24, cursor: 'pointer' }}>
-                Go to My Dashboard
-              </button>
-
-              <p style={{ fontSize: 12, color: '#999', maxWidth: 420, margin: '18px auto 0', lineHeight: 1.6 }}>
-                Questions? Feel free to email our team at concierge@discocater.com
-              </p>
+              {completing ? (
+                <div style={{ padding: '20px 0' }}>
+                  <div style={{
+                    width: 36, height: 36, margin: '0 auto 16px', borderRadius: '50%',
+                    border: '3px solid #ececf4', borderTopColor: BLUE, animation: 'discospin 0.8s linear infinite',
+                  }} />
+                  <style>{`@keyframes discospin { to { transform: rotate(360deg) } }`}</style>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Setting up your account…</div>
+                  <div style={{ fontSize: 13, color: '#888', marginTop: 6 }}>Just a moment.</div>
+                </div>
+              ) : completed ? (
+                <>
+                  <h1 style={{ ...h1Style, fontSize: 28 }}>Welcome to Disco Cater! 🎉</h1>
+                  <p style={{ ...subStyle, maxWidth: 440, margin: '0 auto 8px' }}>
+                    Your account is ready and you&apos;re all set to start taking catering orders.
+                  </p>
+                  <button onClick={goDashboard}
+                    style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', marginTop: 24, cursor: 'pointer' }}>
+                    Go to My Dashboard
+                  </button>
+                  <p style={{ fontSize: 12, color: '#999', maxWidth: 420, margin: '18px auto 0', lineHeight: 1.6 }}>
+                    Questions? Feel free to email our team at concierge@discocater.com
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1 style={{ ...h1Style, fontSize: 24 }}>Almost there</h1>
+                  {errorBox}
+                  <p style={{ ...subStyle, maxWidth: 440, margin: '0 auto 8px' }}>
+                    We couldn&apos;t finish setting up your account. Your progress is saved — please try again.
+                  </p>
+                  <button onClick={completeOnboarding}
+                    style={{ ...primaryBtn, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 'auto', padding: '0 28px', marginTop: 16, cursor: 'pointer' }}>
+                    Try again
+                  </button>
+                </>
+              )}
             </div>
           )}
 
