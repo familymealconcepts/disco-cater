@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
+import { fmFetch } from '../../../../lib/fm-fetch'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -38,7 +39,7 @@ export async function PUT(req: NextRequest) {
     sanitizePhoneFields(updateBody)
 
     const url = `${FM}/public-api/v2/restaurants/${restaurantRef}/orders/${orderRef}`
-    const res = await fetch(url, {
+    const res = await fmFetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(updateBody),

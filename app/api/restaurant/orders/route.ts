@@ -137,6 +137,15 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Hard guard against an unscoped query. An FM-native SYSTEM_ADMIN
+  // (ctx.authType !== 'disco') with no selected location has no scopeRef and no
+  // groupRefs — without this it would return EVERY restaurant's orders in
+  // disco_orders (cross-tenant exposure). Never query without a restaurant filter.
+  const hasScope = !!(scopeRef && UUID_RE.test(scopeRef))
+  if (!hasScope && (!groupRefs || groupRefs.length === 0)) {
+    return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: page, size })
+  }
+
   // Lightweight FM→Neon sync for the scoped restaurant before reading, so the
   // list reflects the latest FM state. Bounded to the most recent page (order
   // level only, no per-order items) to keep page loads fast; never blocks the

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { RESTAURANT_COOKIE_OPTS, RESTAURANT_TOKEN_COOKIE, RESTAURANT_REFRESH_COOKIE } from '../../../lib/restaurant-auth'
 import { SESSION_MAX_AGE } from '../../../lib/jwt'
+import { fmFetch } from '../../../lib/fm-fetch'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
     }
 
-    const fmRes = await fetch(`${FM}/login`, {
+    const fmRes = await fmFetch(`${FM}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ email, password }),

@@ -4,6 +4,7 @@ import { sql, runMigrations } from '../../../../../../lib/db'
 import { sendEmail } from '../../../../../../lib/email/send'
 import { layout } from '../../../../../../lib/email/layout'
 import { modifyDelivery, buildPayloadFromNeon } from '../../../../../../lib/expedite'
+import { syncOneFmOrder } from '../../../../../../lib/fm-orders-sync'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -65,15 +66,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
 
     // Look up the order in Neon by either reference (admin list surfaces the FM
     // reference, which maps to fm_order_reference here).
-    const orderRows = (await sql`
+    const lookup = async () => (await sql`
       SELECT reference, fm_order_reference, order_number::text AS order_number,
              restaurant_reference, restaurant_name, restaurant_email, expedite_delivery_id, customer_email
       FROM disco_orders
       WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
       LIMIT 1
     `) as OrderRow[]
+    let orderRows = await lookup()
     if (!orderRows.length) {
-      return NextResponse.json({ error: 'Order not found in Neon' }, { status: 404 })
+      // The admin orders list is FM-direct, so most orders are never synced into
+      // Neon. Pull this one from FM first, then retry — so transfer works on any
+      // FM order without requiring a prior full sync.
+      const synced = await syncOneFmOrder(ref).catch(() => ({ ok: false }))
+      if (synced.ok) orderRows = await lookup()
+    }
+    if (!orderRows.length) {
+      return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     }
     const order = orderRows[0]
     const oldRef = order.restaurant_reference

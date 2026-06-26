@@ -5,6 +5,7 @@ import Stripe from 'stripe'
 import { getFmCustomerJwt } from '../../../../lib/customer-auth'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { sql } from '../../../../lib/db'
+import { fmFetch } from '../../../../lib/fm-fetch'
 
 export const runtime = 'nodejs'
 
@@ -260,7 +261,7 @@ export async function POST(req: NextRequest) {
     // placeBody in place, so the Neon mirror below also persists digits-only.
     sanitizePhoneFields(placeBody)
 
-    const res = await fetch(`${FM}/api/v2/restaurants/${restaurantRef}/orders/${orderRef}`, {
+    const res = await fmFetch(`${FM}/api/v2/restaurants/${restaurantRef}/orders/${orderRef}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -290,23 +291,33 @@ export async function POST(req: NextRequest) {
     // next confirm call fires. Best-effort: a failure leaves the full PI in place
     // rather than blocking the order.
     let taxExemptCharge: number | null = null
-    if (res.ok && taxExemptApplied === true && Number(taxAmount) > 0) {
-      const tax = Number(taxAmount)
-      const stripe = stripeClient()
-      const paymentIntentId = extractPaymentIntentId(data)
-      if (stripe && paymentIntentId) {
+    if (res.ok && taxExemptApplied === true) {
+      // Recompute the tax SERVER-SIDE from FM's order response (don't trust the
+      // client-supplied taxAmount). Fall back to the client value only if FM
+      // didn't return tax fields.
+      const taxDto = ((fmInnerLog.checkoutPublicResponseDto as Record<string, unknown>) ?? fmInnerLog) as Record<string, unknown>
+      const serverTax = num(taxDto.stateSalesTaxInPrice) + num(taxDto.localSalesTaxInPrice) + num(taxDto.otherSalesTaxInPrice)
+      const tax = serverTax > 0 ? serverTax : (Number(taxAmount) || 0)
+      if (tax > 0) {
+        const stripe = stripeClient()
+        const paymentIntentId = extractPaymentIntentId(data)
+        // Refuse to proceed if we can't reduce the PI — silently charging the full
+        // tax-inclusive amount while the receipt shows tax-exempt is an overcharge.
+        if (!stripe || !paymentIntentId) {
+          console.error('[order/place] tax exempt requested but no Stripe key / PaymentIntent — refusing to overcharge')
+          return NextResponse.json({ error: 'Tax exempt could not be applied. Please try again or proceed without tax exemption.' }, { status: 502 })
+        }
         try {
           const pi = await stripe.paymentIntents.retrieve(paymentIntentId)
           const originalTotal = (pi.amount ?? 0) / 100 // authoritative charge amount (incl. tax), in dollars
           const newAmount = Math.max(0, Math.round((originalTotal - tax) * 100)) // integer cents
           await stripe.paymentIntents.update(paymentIntentId, { amount: newAmount })
           taxExemptCharge = newAmount / 100
-          console.log(`[order/place] Tax exempt applied — PI amount updated from $${originalTotal.toFixed(2)} to $${taxExemptCharge.toFixed(2)}`)
+          console.log(`[order/place] Tax exempt applied (serverTax=${serverTax}, used=${tax}) — PI from $${originalTotal.toFixed(2)} to $${taxExemptCharge.toFixed(2)}`)
         } catch (e) {
           console.error('[order/place] tax-exempt PI update failed:', e instanceof Error ? e.message : e)
+          return NextResponse.json({ error: 'Tax exempt could not be applied. Please try again or proceed without tax exemption.' }, { status: 502 })
         }
-      } else {
-        console.warn('[order/place] tax exempt requested but no Stripe key / PaymentIntent — PI not reduced')
       }
     }
 

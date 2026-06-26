@@ -285,6 +285,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       }
     }
 
+    // A positive delta REQUIRES collecting payment. If no invoice was created
+    // (Stripe unavailable, no customer email, or an error above), do NOT park the
+    // order in 'pending_payment' with a null invoice id — that left it stuck
+    // non-editable forever. Abort before any Neon mutation (nothing to roll back).
+    if (!stripeInvoiceId) {
+      console.error('[orders/edit] no invoice created for positive delta — aborting pending edit', { orderNumber })
+      return NextResponse.json({ error: 'Unable to process payment for this edit. Please try again.' }, { status: 502 })
+    }
+
     const pending = {
       fmRef: ref, restaurantRef, orderType: base.orderType,
       activeLines: activeLines.map(l => ({ reference: l.reference, quantity: l.quantity, name: l.name, price: l.price })),

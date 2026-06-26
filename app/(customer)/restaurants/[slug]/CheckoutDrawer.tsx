@@ -773,9 +773,29 @@ export default function CheckoutDrawer({
         // never confirmWithDefaultSource (no saved diner card). The customer
         // flow is unchanged.
         const confirmUrl = isDirectEntry ? '/api/restaurant/orders/confirm-payment' : '/api/order/confirm-payment'
+        // Fallback snapshot for the customer flow: if the async Neon mirror hasn't
+        // landed by the time confirm-payment dispatches, the server writes the row
+        // from this so confirmations + Expedite still fire.
+        const placedOrder = isDirectEntry ? undefined : {
+          orderNumber: placedOrderNumber,
+          restaurantRef: fmRef,
+          sourceOfOrder: isFirstParty ? 'FAMILYMEAL' : 'DISCO',
+          orderType,
+          orderDate: selDate,
+          orderTime: selTime,
+          email: contactEmail,
+          firstName: contactFirst,
+          lastName: contactLast,
+          phone: sanitizePhone(contactPhone),
+          total: trackingTotal,
+          deliveryAddress: orderType === 'DELIVERY'
+            ? { addressLine1: fmAddr.addressLine1, addressLine2: fmAddr.addressLine2, city: fmAddr.city, state: fmAddr.state, zip: fmAddr.zipcode, latitude: fmAddr.latitude, longitude: fmAddr.longitude }
+            : null,
+          items: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, count: i.quantity, price: i.unitPrice })),
+        }
         const confirmBody = isDirectEntry
           ? { orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, paymentMethodId, confirmWithDefaultSource: false }
-          : { orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, confirmWithDefaultSource: usingSavedCard, ...(usingSavedCard ? {} : { paymentMethodId }) }
+          : { orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, confirmWithDefaultSource: usingSavedCard, placedOrder, ...(usingSavedCard ? {} : { paymentMethodId }) }
         const confRes = await fetch(confirmUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(confirmBody),

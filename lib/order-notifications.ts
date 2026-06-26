@@ -12,6 +12,17 @@
 import { sql } from './db'
 import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage } from './email/notifications'
 import { sendSms } from './sms'
+import { sanitizePhone } from './utils/phone'
+
+// Normalize a stored phone to E.164 for Twilio: strip non-digits, prepend +1 for
+// a 10-digit US number (or + for an 11-digit number already starting with 1).
+function toE164(raw: string | null | undefined): string {
+  const d = sanitizePhone(raw)
+  if (!d) return ''
+  if (d.length === 10) return `+1${d}`
+  if (d.length === 11 && d.startsWith('1')) return `+${d}`
+  return `+${d}`
+}
 
 function num(v: unknown): number {
   const n = parseFloat(String(v ?? ''))
@@ -254,17 +265,23 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
     // Disco-native restaurant SMS — opt-in per restaurant (disco_restaurant_
     // accounts.sms_enabled + sms_phone). Fire-and-forget like the emails above.
     try {
-      const acct = (await sql`
+      // Send to EVERY account at this restaurant that opted into SMS — not just the
+      // lowest-id one. De-dup by normalized number.
+      const accts = (await sql`
         SELECT sms_phone FROM disco_restaurant_accounts
         WHERE restaurant_reference = ${String(o.restaurant_reference ?? '')}
           AND sms_enabled = true AND sms_phone IS NOT NULL AND sms_phone <> ''
-        ORDER BY id LIMIT 1
       `) as { sms_phone: string }[]
-      const smsPhone = acct[0]?.sms_phone
-      if (smsPhone) {
+      if (accts.length) {
         const customerName = [shared.firstName, shared.lastName].filter(Boolean).join(' ')
         const smsBody = `New Disco Cater order! #${shared.orderNumber} — ${customerName} — ${shared.orderService} on ${shared.orderDate} at ${shared.orderTime} — $${totalPrice.toFixed(2)}. Log in to view: discocater.com/restaurant/orders`
-        sendSms({ to: smsPhone, body: smsBody }).catch((err) => console.error('[order-notifications] restaurant SMS failed:', err))
+        const sent = new Set<string>()
+        for (const a of accts) {
+          const to = toE164(a.sms_phone)
+          if (!to || sent.has(to)) continue
+          sent.add(to)
+          sendSms({ to, body: smsBody }).catch((err) => console.error('[order-notifications] restaurant SMS failed:', err))
+        }
       }
     } catch (err) {
       console.error('[order-notifications] restaurant SMS lookup failed:', err instanceof Error ? err.message : err)

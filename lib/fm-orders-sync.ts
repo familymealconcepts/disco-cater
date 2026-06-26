@@ -12,6 +12,7 @@
 import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { loadFmOrderDetails, parseFmOrder, fmDateToIso, isUuid } from './order-edit'
+import { fmFetch } from './fm-fetch'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -193,7 +194,7 @@ async function fetchFmOrdersPage(restaurantReference: string, auth: Record<strin
   ]
   for (const url of urls) {
     try {
-      const res = await fetch(url, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' })
+      const res = await fmFetch(url, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' })
       if (!res.ok) continue
       const data = await res.json().catch(() => null)
       if (Array.isArray(data)) return data as Record<string, unknown>[]
@@ -239,6 +240,27 @@ export async function syncRestaurantOrders(
     if (orders.length < pageSize) break // last page
   }
   return result
+}
+
+// Sync a SINGLE FM order into Neon by its FM reference (e.g. before an admin
+// transfer of an order that was never synced). Loads FM /details, normalizes, and
+// upserts into disco_orders (+ items). Returns the order's restaurant reference.
+export async function syncOneFmOrder(fmRef: string, withItems = true): Promise<{ ok: boolean; restaurantReference?: string }> {
+  if (!isUuid(fmRef)) return { ok: false }
+  const details = await loadFmOrderDetails(fmRef)
+  if (!details) return { ok: false }
+  const p = parseFmOrder(details)
+  const restaurantReference = p.restaurantRef || ''
+  if (!isUuid(restaurantReference)) return { ok: false }
+  const norm = normalizeFmOrder(p.order as Record<string, unknown>)
+  if (!norm) return { ok: false }
+  try {
+    await upsertOne(norm, restaurantReference, withItems)
+    return { ok: true, restaurantReference }
+  } catch (e) {
+    console.error('[fm-orders-sync] syncOneFmOrder failed:', e instanceof Error ? e.message : e)
+    return { ok: false }
+  }
 }
 
 // Sync many restaurants (super-admin / cron). Pulls candidate restaurant UUIDs
