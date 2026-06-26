@@ -92,6 +92,13 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
 
   // Map fields (Neon disco_restaurant_cache — the public fullmap reads these)
   const [cuisines, setCuisines] = useState<string[]>([])
+  // Admin-managed cuisine types (disco_cuisine_types) — loaded from the API so
+  // super-admin additions show up here and on the fullmap. Falls back to the
+  // canonical seed list (CUISINES) until/if the fetch resolves.
+  const [cuisineTypes, setCuisineTypes] = useState<string[]>(CUISINES)
+  const [addingCuisine, setAddingCuisine] = useState(false)
+  const [newCuisine, setNewCuisine] = useState('')
+  const [addCuisineBusy, setAddCuisineBusy] = useState(false)
   const [description, setDescription] = useState('')
   const [location, setLocation] = useState('')
   const [lat, setLat] = useState('')
@@ -219,6 +226,43 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
     )
   }
 
+  // Load the admin-managed cuisine list (super-admin additions included).
+  useEffect(() => {
+    let cancel = false
+    fetch('/api/admin/cuisine-types')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancel && Array.isArray(d?.cuisineTypes) && d.cuisineTypes.length) setCuisineTypes(d.cuisineTypes) })
+      .catch(() => {})
+    return () => { cancel = true }
+  }, [])
+
+  // Super admin adds a new cuisine type permanently, then auto-selects it here.
+  async function addCuisineType() {
+    const raw = newCuisine.trim()
+    if (!raw || addCuisineBusy) return
+    setAddCuisineBusy(true)
+    try {
+      const res = await fetch('/api/admin/cuisine-types', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: raw }),
+      })
+      const d = await res.json().catch(() => null)
+      if (res.ok && d) {
+        if (Array.isArray(d.cuisineTypes)) setCuisineTypes(d.cuisineTypes)
+        // Auto-check the new cuisine for this restaurant (respecting the 3 max).
+        const added: string = d.added || raw
+        setCuisines(prev => prev.includes(added) ? prev : (prev.length >= MAX_CUISINES ? prev : [...prev, added]))
+        setNewCuisine(''); setAddingCuisine(false)
+      } else {
+        setErr(d?.error || 'Could not add cuisine type')
+      }
+    } catch {
+      setErr('Could not add cuisine type')
+    } finally {
+      setAddCuisineBusy(false)
+    }
+  }
+
   async function submit() {
     setErr('')
     setSavedOk(false)
@@ -310,8 +354,9 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
 
   // Public slug for both ordering URLs = FM businessNameWithoutSpaces, lowercased.
   const slug = (existing?.businessNameWithoutSpaces || '').toLowerCase()
-  // Checklist options — canonical list plus any loaded values not in it, sorted.
-  const cuisineOptions = Array.from(new Set([...CUISINES, ...cuisines])).sort()
+  // Checklist options — admin-managed list (falls back to the seed) plus any
+  // already-assigned values not in it, so nothing is silently dropped.
+  const cuisineOptions = Array.from(new Set([...cuisineTypes, ...cuisines])).sort()
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.45)', zIndex: 1100, display: 'flex', justifyContent: 'flex-end', fontFamily: F }}>
@@ -454,6 +499,31 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                     )
                   })}
                 </div>
+
+                {/* Super admin: add a new cuisine type permanently. */}
+                {addingCuisine ? (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+                    <input
+                      autoFocus value={newCuisine} onChange={e => setNewCuisine(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') addCuisineType(); if (e.key === 'Escape') { setAddingCuisine(false); setNewCuisine('') } }}
+                      placeholder="New cuisine type"
+                      style={{ flex: 1, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '7px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff' }}
+                    />
+                    <button onClick={addCuisineType} disabled={!newCuisine.trim() || addCuisineBusy}
+                      style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: newCuisine.trim() && !addCuisineBusy ? 'pointer' : 'default', opacity: newCuisine.trim() && !addCuisineBusy ? 1 : 0.6, fontFamily: F }}>
+                      {addCuisineBusy ? 'Adding…' : 'Add'}
+                    </button>
+                    <button onClick={() => { setAddingCuisine(false); setNewCuisine('') }}
+                      style={{ background: 'none', border: 'none', color: '#888', fontSize: 13, cursor: 'pointer', fontFamily: F }}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setAddingCuisine(true)}
+                    style={{ background: 'none', border: 'none', color: BLUE, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: '12px 0 0', display: 'inline-block' }}>
+                    + Add cuisine type
+                  </button>
+                )}
               </div>
 
               {/* Order URLs — read-only. 3P marketplace link sends sourceoforder

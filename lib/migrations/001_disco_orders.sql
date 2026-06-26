@@ -375,3 +375,13 @@ CREATE INDEX IF NOT EXISTS idx_disco_orders_expedite_delivery_id ON disco_orders
 -- task carries accurate lat/lng (geocoded at placement, /api/order/place).
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS delivery_lat NUMERIC(10,7);
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS delivery_lng NUMERIC(10,7);
+
+-- Admin-managed cuisine types. Drives the edit-restaurant cuisine checklist and
+-- the fullmap filter pills. Super admins can add new types permanently. Seeded
+-- with the original hardcoded list from EditRestaurantDialog.
+CREATE TABLE IF NOT EXISTS disco_cuisine_types (
+  id SERIAL PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+INSERT INTO disco_cuisine_types (name) VALUES ('BBQ'),('Bagels'),('Bakery'),('Bar & Grill'),('Bowls'),('Boxed Lunches'),('Breakfast'),('Burgers'),('Burritos'),('Cafe'),('Caribbean'),('Chicken'),('Deli'),('Chinese'),('French'),('Greek'),('Indian'),('Italian'),('Japanese'),('Korean'),('Latin'),('Mediterranean'),('Mexican'),('Middle Eastern'),('Pizza'),('Sandwiches'),('Seafood'),('Soul Food'),('Sushi'),('Tacos'),('Thai'),('Vegan'),('Vietnamese') ON CONFLICT (name) DO NOTHING;

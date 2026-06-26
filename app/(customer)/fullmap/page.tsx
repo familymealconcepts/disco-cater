@@ -115,6 +115,10 @@ function FullMapInner() {
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState<'all' | 'disco'>('all')
   const [cuisineFilter, setCuisineFilter] = useState('all')
+  // Admin-managed cuisine types (disco_cuisine_types) — drives the filter pills
+  // so super-admin additions appear automatically. Empty until the fetch lands;
+  // we fall back to the data-derived list below.
+  const [cuisineTypes, setCuisineTypes] = useState<string[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [locInput, setLocInput] = useState('')
@@ -420,6 +424,16 @@ function FullMapInner() {
     }
   }, [search, stageFilter, cuisineFilter, restaurants, proximityAnchor, sortAnchor, restaurantsLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load the admin-managed cuisine types so super-admin additions appear as pills.
+  useEffect(() => {
+    let cancel = false
+    fetch('/api/cuisine-types')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancel && Array.isArray(d?.cuisineTypes)) setCuisineTypes(d.cuisineTypes) })
+      .catch(() => {})
+    return () => { cancel = true }
+  }, [])
+
   function closeAllPopups() {
     Object.values(popupsRef.current).forEach(p => { if (p.isOpen()) p.remove() })
   }
@@ -703,11 +717,24 @@ function FullMapInner() {
   })
   const PREFERRED_CUISINES = ['Sandwiches', 'Bagels', 'Deli', 'Chicken', 'Breakfast', 'Mexican', 'Pizza']
   const EXCLUDED_CUISINES = ['American', 'Cafe']
+  // Filter pills come from the admin-managed cuisine types (so new ones appear),
+  // showing only those that actually have restaurants, ordered by popularity.
+  // Any assigned cuisine not in the admin list is appended so nothing is dropped,
+  // and we fall back to the data-derived list until the admin list loads.
+  const adminWithCount = cuisineTypes
+    .filter(c => cuisineCounts[c] > 0)
+    .sort((a, b) => cuisineCounts[b] - cuisineCounts[a])
+  const extraWithCount = Object.keys(cuisineCounts)
+    .filter(c => c && cuisineCounts[c] > 0 && !cuisineTypes.includes(c) && !EXCLUDED_CUISINES.includes(c))
+    .sort((a, b) => cuisineCounts[b] - cuisineCounts[a])
   const preferredAvailable = PREFERRED_CUISINES.filter(c => cuisineCounts[c] > 0)
   const otherCuisines = Object.entries(cuisineCounts)
     .filter(([c]) => !PREFERRED_CUISINES.includes(c) && !EXCLUDED_CUISINES.includes(c))
     .sort((a, b) => b[1] - a[1]).map(e => e[0])
-  const topCuisines = [...preferredAvailable, ...otherCuisines].slice(0, 12)
+  const topCuisines = (cuisineTypes.length
+    ? [...adminWithCount, ...extraWithCount]
+    : [...preferredAvailable, ...otherCuisines]
+  ).slice(0, 12)
 
   const pillStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px', borderRadius: 20, overflow: 'hidden', border: 'none',
