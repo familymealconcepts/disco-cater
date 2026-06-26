@@ -5,9 +5,15 @@ import { runDiscoOrderMigrations, sql } from '../../../../lib/db'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Trim + title-case a cuisine name ("bar & grill" → "Bar & Grill").
+// Trim + title-case a cuisine name ("bar & grill" → "Bar & Grill"), preserving
+// words that are already all-caps acronyms ("BBQ", "NYC" stay as-is).
 function titleCase(name: string): string {
-  return name.trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+  return name.trim().split(/\s+/).map(w => {
+    if (!w) return w
+    // Already an all-caps word (length > 1) — leave it alone.
+    if (w.length > 1 && w === w.toUpperCase()) return w
+    return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+  }).join(' ')
 }
 
 async function listCuisines(): Promise<string[]> {
