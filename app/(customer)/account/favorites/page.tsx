@@ -26,7 +26,7 @@ function locationText(city?: string, state?: string, fallback?: string): string 
 }
 
 export default function FavoritesPage() {
-  const { favorites, loading } = useFavorites()
+  const { favorites, loading, error, refresh } = useFavorites()
 
   return (
     <div style={{ fontFamily: F }}>
@@ -46,6 +46,18 @@ export default function FavoritesPage() {
               </div>
             </div>
           ))}
+        </div>
+      ) : error && favorites.length === 0 ? (
+        <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '64px 24px', textAlign: 'center', background: '#fff' }}>
+          <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>⚠️</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>Couldn&apos;t load your favorites</div>
+          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>
+            Something went wrong. Please try again.
+          </div>
+          <button onClick={() => refresh()}
+            style={{ display: 'inline-block', padding: '11px 24px', background: BLUE, color: '#fff', border: 'none', borderRadius: 999, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+            Retry
+          </button>
         </div>
       ) : favorites.length === 0 ? (
         <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '64px 24px', textAlign: 'center', background: '#fff' }}>

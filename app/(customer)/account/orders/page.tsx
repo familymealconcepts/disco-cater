@@ -258,6 +258,7 @@ function MonthAgenda({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder:
 export default function OrdersPage() {
   const [orders, setOrders] = useState<ApiOrder[]>([])
   const [loading, setLoading] = useState(true)
+  const [isError, setIsError] = useState(false)
   const [view, setView] = useState<'cal' | 'list'>('cal')
   const [selectedRef, setSelectedRef] = useState<string | null>(null)
   // YYYY-MM-DD of an empty calendar cell the user clicked. Drives the
@@ -267,13 +268,17 @@ export default function OrdersPage() {
 
   const fetchOrders = useCallback(() => {
     setLoading(true)
+    setIsError(false)
     fetch('/api/fm-order-history?page=0&size=50', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : { content: [] })
+      .then(r => {
+        if (!r.ok) throw new Error('Failed to load orders')
+        return r.json()
+      })
       .then(d => {
         const list: ApiOrder[] = d.content || d.orders || d.data || (Array.isArray(d) ? d : [])
         setOrders(list)
       })
-      .catch(() => setOrders([]))
+      .catch(() => { setOrders([]); setIsError(true) })
       .finally(() => setLoading(false))
   }, [])
 
@@ -337,6 +342,15 @@ export default function OrdersPage() {
       {/* Calendar or List — friendly empty state (any view) when there are no orders */}
       {loading ? (
         <div style={{ color: '#aaa', fontSize: 13, padding: '20px 0' }}>Loading orders…</div>
+      ) : isError ? (
+        <div style={{ textAlign: 'center', padding: '64px 24px' }}>
+          <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>⚠️</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>Couldn&apos;t load your orders</div>
+          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>Something went wrong. Please try again.</div>
+          <button onClick={fetchOrders} style={{ display: 'inline-block', padding: '11px 24px', background: BLUE, color: '#fff', border: 'none', borderRadius: 999, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+            Retry
+          </button>
+        </div>
       ) : orders.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '64px 24px' }}>
           <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>🍽️</div>

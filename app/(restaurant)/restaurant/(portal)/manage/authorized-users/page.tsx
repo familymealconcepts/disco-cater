@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { toast, confirmDialog } from '../../../../../components/ui/feedback'
 
 // Authorized Users — restaurant portal. Two modes:
 //   • Disco mode (PSA/SSA SYSTEM_ADMIN, Disco-native session): a single clean
@@ -51,7 +52,7 @@ function RolePill({ role }: { role: string }) {
 
 // Small icon button (pencil / trash / envelope) — subtle, FM-style.
 function IconBtn({ kind, title, onClick, disabled }: { kind: 'edit' | 'delete' | 'resend'; title: string; onClick: () => void; disabled?: boolean }) {
-  const color = kind === 'delete' ? '#E76F51' : '#6B7280'
+  const color = kind === 'delete' ? '#E53935' : '#6B7280'
   const paths: Record<string, React.ReactNode> = {
     edit: <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />,
     delete: <><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" /><path d="M10 11v6M14 11v6" /></>,
@@ -204,7 +205,7 @@ function DiscoUsers() {
   }
 
   async function deleteUser(u: TeamUser) {
-    if (!confirm(`Remove ${u.firstName} ${u.lastName}? Their account and access will be deleted.`)) return
+    if (!(await confirmDialog(`Remove ${u.firstName} ${u.lastName}? Their account and access will be deleted.`, { title: 'Remove user', confirmText: 'Remove', danger: true }))) return
     setBusyEmail(u.email)
     const res = await fetch(`/api/restaurant/team/sub-admins/${encodeURIComponent(u.email)}`, { method: 'DELETE' })
     setBusyEmail('')
@@ -214,7 +215,7 @@ function DiscoUsers() {
     setBusyEmail(u.email)
     const res = await fetch(`/api/restaurant/team/sub-admins/${encodeURIComponent(u.email)}/resend-invite`, { method: 'POST' })
     setBusyEmail('')
-    alert(res.ok ? `Invite resent to ${u.email}.` : 'Could not resend the invite.')
+    toast(res.ok ? `Invite resent to ${u.email}.` : 'Could not resend the invite.', { kind: res.ok ? 'success' : 'error' })
   }
 
   return (
@@ -453,12 +454,12 @@ function FmUsers() {
     } catch (e) { setFormErr((e as Error).message || 'Save failed') } finally { setSaving(false) }
   }
   async function resetPassword(u: AuthUser) {
-    if (!confirm(`Send password reset email to ${u.email}?`)) return
+    if (!(await confirmDialog(`Send password reset email to ${u.email}?`, { title: 'Reset password', confirmText: 'Send email' }))) return
     await fetch(`/api/restaurant/authorized-users/${u.reference}/reset-password`, { method: 'PUT' })
-    alert('Password reset email sent.')
+    toast('Password reset email sent.', { kind: 'success' })
   }
   async function deleteUser(u: AuthUser) {
-    if (!confirm(`Delete ${u.firstName} ${u.lastName || ''}? All data of this user will be lost.`)) return
+    if (!(await confirmDialog(`Delete ${u.firstName} ${u.lastName || ''}? All data of this user will be lost.`, { title: 'Delete user', confirmText: 'Delete', danger: true }))) return
     await fetch(`/api/restaurant/authorized-users/${u.reference}`, { method: 'DELETE' })
     load()
   }
@@ -499,7 +500,7 @@ function FmUsers() {
                     <>
                       <button onClick={() => openEdit(u)} style={btnLink}>Edit</button>
                       <button onClick={() => resetPassword(u)} style={btnLink}>Reset Password</button>
-                      <button onClick={() => deleteUser(u)} style={{ ...btnLink, color: '#E76F51' }}>Delete</button>
+                      <button onClick={() => deleteUser(u)} style={{ ...btnLink, color: '#E53935' }}>Delete</button>
                     </>
                   )}
                 </td>

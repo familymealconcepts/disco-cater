@@ -304,7 +304,6 @@ export default function BecomeAPartnerClient() {
   // the new restaurant reference on success, or null on failure (and sets the
   // appropriate error). Persists a flag so a repeat run won't create a duplicate.
   async function createRestaurant(): Promise<string | null> {
-    console.log('[onboarding] createRestaurant called for:', form.restaurantName, form.email)
     try {
       const res = await fetch('/api/become-a-partner/create-restaurant', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -315,7 +314,6 @@ export default function BecomeAPartnerClient() {
         }),
       })
       const data = await res.json().catch(() => null)
-      console.log('[onboarding] create-restaurant response:', res.status, data)
       if (!res.ok || !data?.restaurantReference) {
         // FM 400-027 → a restaurant admin with this email already exists.
         if (data?.code === '400-027') {

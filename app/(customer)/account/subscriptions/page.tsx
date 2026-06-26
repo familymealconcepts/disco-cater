@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import RecurringOrderSetupModal, { type RecurringSourceOrder } from '../components/RecurringOrderSetupModal'
 import RecurringOrderCartEditor, { type CartItem } from '../components/RecurringOrderCartEditor'
+import { toast, confirmDialog } from '../../../components/ui/feedback'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -207,7 +208,7 @@ export default function SubscriptionsPage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setDiscoOrders(prev => prev.map(x => x.id === o.id ? { ...x, status: next } : x))
     } catch {
-      alert('Could not update recurring order. Please try again.')
+      toast('Could not update recurring order. Please try again.', { kind: 'error' })
     }
     setDiscoBusy(null)
   }
@@ -225,9 +226,9 @@ export default function SubscriptionsPage() {
       if (!res.ok) throw new Error(d?.error || `HTTP ${res.status}`)
       const pm = (d?.recurringOrder?.stripe_payment_method_id as string | null) ?? null
       setDiscoOrders(prev => prev.map(x => x.id === o.id ? { ...x, stripe_payment_method_id: pm } : x))
-      alert('Payment method updated. Your next order will be charged automatically.')
+      toast('Payment method updated. Your next order will be charged automatically.', { kind: 'success' })
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Could not update payment method. Please try again.')
+      toast(e instanceof Error ? e.message : 'Could not update payment method. Please try again.', { kind: 'error' })
     }
     setDiscoBusy(null)
   }
@@ -248,7 +249,7 @@ export default function SubscriptionsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: next }),
     })
-    if (!res.ok) { alert('Could not update that order. Please try again.'); return }
+    if (!res.ok) { toast('Could not update that order. Please try again.', { kind: 'error' }); return }
     patchOccLocal(orderId, occId, { status: next })
   }
 
@@ -290,7 +291,7 @@ export default function SubscriptionsPage() {
         total: typeof d.total === 'number' ? d.total : historyTotal(o),
       })
     } catch {
-      alert('Could not load that order. Please try again.')
+      toast('Could not load that order. Please try again.', { kind: 'error' })
     }
     setSeedLoading(null)
   }
@@ -327,7 +328,7 @@ export default function SubscriptionsPage() {
                 busy={discoBusy === o.id}
                 onPause={() => changeDiscoStatus(o, 'PAUSED')}
                 onResume={() => changeDiscoStatus(o, 'ACTIVE')}
-                onCancel={() => { if (confirm('Cancel this recurring order? All upcoming orders will be canceled.')) changeDiscoStatus(o, 'CANCELED') }}
+                onCancel={async () => { if (await confirmDialog('Cancel this recurring order? All upcoming orders will be canceled.', { title: 'Cancel recurring order', confirmText: 'Cancel order', cancelText: 'Keep it', danger: true })) changeDiscoStatus(o, 'CANCELED') }}
                 onSkip={(occId) => setOccStatus(o.id, occId, 'SKIPPED')}
                 onRestore={(occId) => setOccStatus(o.id, occId, 'SCHEDULED')}
                 onModify={(occ) => openEditor(o, occ)}

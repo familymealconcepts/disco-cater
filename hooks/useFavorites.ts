@@ -28,6 +28,7 @@ export interface FavoriteRestaurant {
 
 interface FavoritesState {
   loading: boolean
+  error: boolean
   source: 'api' | 'local'
   favorites: FavoriteRestaurant[]
   isFavorited: (key: string) => boolean
@@ -134,6 +135,9 @@ function broadcast(favs: FavoriteRestaurant[]) {
 export function useFavorites(): FavoritesState {
   const [favorites, setFavorites] = useState<FavoriteRestaurant[]>([])
   const [loading, setLoading] = useState(true)
+  // True only when a network refresh genuinely failed (so the UI can show a
+  // retry state). The legitimate guest/local fallback path does NOT set this.
+  const [error, setError] = useState(false)
   const [source, setSource] = useState<'api' | 'local'>('local')
   const [userScope, setUserScope] = useState<string>('guest')
   // Latest scope, readable inside the stable refresh() without making refresh
@@ -151,9 +155,12 @@ export function useFavorites(): FavoritesState {
   // server-side delete. Local metadata is reused to render server refs.
   const refresh = useCallback(async (opts?: { background?: boolean }) => {
     if (!opts?.background) setLoading(true)
+    setError(false)
     const localScope = readUserScope()
+    let netFailed = false
     try {
       const res = await fetch('/api/customer/favorites', { credentials: 'include' })
+      if (!res.ok) netFailed = true
       if (res.ok) {
         const data = await res.json()
         if (data?.authenticated && data?.email) {
@@ -183,6 +190,7 @@ export function useFavorites(): FavoritesState {
 
           setFavorites(merged)
           setSource('api')
+          setError(false)
           setLoading(false)
           writeLocal(scope, merged)
           writeTs(scope)
@@ -203,6 +211,7 @@ export function useFavorites(): FavoritesState {
       }
     } catch {
       // network — fall through to local
+      netFailed = true
     }
     // Not authenticated → localStorage only (guest / logged-out).
     let scope = localScope
@@ -214,6 +223,10 @@ export function useFavorites(): FavoritesState {
     userScopeRef.current = scope
     setFavorites(readLocal(scope))
     setSource('local')
+    // Only flag an error when the network actually failed (not the legitimate
+    // guest/logged-out local path). The UI only surfaces it when there's also
+    // no cached data to show.
+    setError(netFailed)
     setLoading(false)
     writeTs(scope)
   }, [])
@@ -346,7 +359,7 @@ export function useFavorites(): FavoritesState {
     }
   }, [favorites, source, userScope, refresh])
 
-  return { favorites, loading, source, isFavorited, toggleFavorite, refresh }
+  return { favorites, loading, error, source, isFavorited, toggleFavorite, refresh }
 }
 
 // Convenience: derive a stable key for a restaurant from common shapes

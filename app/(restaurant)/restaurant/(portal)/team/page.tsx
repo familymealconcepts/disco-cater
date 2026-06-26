@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { toast, confirmDialog } from '../../../../components/ui/feedback'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -72,7 +73,7 @@ export default function TeamPage() {
   }
 
   async function removeSubAdmin(s: SubAdmin) {
-    if (!confirm(`Remove sub system admin ${s.email}? This deletes their account and access.`)) return
+    if (!(await confirmDialog(`Remove sub system admin ${s.email}? This deletes their account and access.`, { title: 'Remove sub system admin', confirmText: 'Remove', danger: true }))) return
     const res = await fetch(`/api/restaurant/team/sub-admins/${encodeURIComponent(s.email)}`, { method: 'DELETE' })
     if (res.ok) load()
   }
@@ -82,7 +83,7 @@ export default function TeamPage() {
     setResending(s.email)
     const res = await fetch(`/api/restaurant/team/sub-admins/${encodeURIComponent(s.email)}/resend-invite`, { method: 'POST' })
     setResending('')
-    alert(res.ok ? `Invite resent to ${s.email}.` : 'Could not resend the invite.')
+    toast(res.ok ? `Invite resent to ${s.email}.` : 'Could not resend the invite.', { kind: res.ok ? 'success' : 'error' })
   }
 
   function addNewLocation() {

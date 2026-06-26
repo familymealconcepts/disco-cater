@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import ReactCrop, { centerCrop, makeAspectCrop, type Crop, type PixelCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
+import { confirmDialog } from '../../../../../components/ui/feedback'
 
 // Link images render in a 16:9 header on /locations/[slug], so crop to match.
 const CROP_ASPECT = 16 / 9
@@ -385,7 +386,7 @@ export default function MultiUnitLinksPage() {
 
   async function deleteLink(l: MultiLink) {
     if (l.urlFrom === 'Dashboard') return
-    if (!confirm(`Delete the link "${l.header || l.url}"? This cannot be undone.`)) return
+    if (!(await confirmDialog(`Delete the link "${l.header || l.url}"? This cannot be undone.`, { title: 'Delete link', confirmText: 'Delete', danger: true }))) return
     await fetch(`/api/restaurant/multi-unit-links/${l.reference}`, { method: 'DELETE' })
     load()
   }

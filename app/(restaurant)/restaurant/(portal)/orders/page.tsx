@@ -7,6 +7,7 @@ import {
   lineQty, lineRowTotal, lineModifiers, modifierQty, modifierRowTotal, formatCurrency,
 } from '../../../../../lib/pricing/lineItem'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
+import { toast } from '../../../../components/ui/feedback'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -585,7 +586,7 @@ function RefundModal({ order, orderRef, onClose, onSaved }: { order: Order; orde
         {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', marginBottom: 12, color: '#DC2626', fontSize: 12 }}>{error}</div>}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
-          <button onClick={save} disabled={saving || invalid} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: '#E76F51', color: '#fff', fontSize: 13, cursor: saving || invalid ? 'default' : 'pointer', opacity: saving || invalid ? 0.5 : 1, fontFamily: F, fontWeight: 600 }}>
+          <button onClick={save} disabled={saving || invalid} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: '#E53935', color: '#fff', fontSize: 13, cursor: saving || invalid ? 'default' : 'pointer', opacity: saving || invalid ? 0.5 : 1, fontFamily: F, fontWeight: 600 }}>
             Refund
           </button>
         </div>
@@ -723,7 +724,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
     // new-window path side-steps the parent stylesheet entirely.
     const ok = printOrder(order as PrintableOrder)
     if (!ok) {
-      alert('Pop-up blocked. Please allow pop-ups for this site so we can open the print preview.')
+      toast('Pop-up blocked. Please allow pop-ups for this site so we can open the print preview.', { kind: 'error' })
     }
   }
 
@@ -931,7 +932,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               )}
               {(order.maxAllowedRefundAmount ?? 0) > 0 && order.orderStatus !== 'REOPEN' && (
                 <button onClick={() => setModal('refund')}
-                  style={{ padding: '8px 14px', background: '#E76F51', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  style={{ padding: '8px 14px', background: '#E53935', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
                   Refund
                 </button>
               )}

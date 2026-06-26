@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { confirmDialog } from '../../../../../components/ui/feedback'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -185,7 +186,7 @@ function ScheduledTab({ onEdit, onCreate }: { onEdit: (r: ReportPayload) => void
   }
 
   async function deleteReport(ref: string, name: string) {
-    if (!confirm(`Delete scheduled report "${name}"?`)) return
+    if (!(await confirmDialog(`Delete scheduled report "${name}"?`, { title: 'Delete report', confirmText: 'Delete', danger: true }))) return
     const res = await fetch(`/api/restaurant/reports/scheduled/${ref}`, { method: 'DELETE' })
     if (res.ok) load()
   }

@@ -19,7 +19,7 @@ function fmtTime(t: string) {
 export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   const [order, setOrder] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(false)
   // Disco promo for this order (Neon source of truth) — display only. The card
   // is charged the full FM total; the discount is refunded via Stripe post-order.
   const [promo, setPromo] = useState<{ code: string; discountApplied: number } | null>(null)
@@ -41,9 +41,18 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
 
   useEffect(() => {
     fetch(`/api/order/status?orderRef=${orderRef}`)
-      .then(r => r.json())
-      .then(d => { setOrder(d); setLoading(false) })
-      .catch(() => { setError('Could not load order details.'); setLoading(false) })
+      .then(async r => {
+        const d = await r.json().catch(() => null)
+        // Treat a failed request, an error payload, or an empty object as a
+        // genuine load failure — don't render a fake "Order Confirmed!".
+        if (!r.ok || !d || d.error || (typeof d === 'object' && Object.keys(d).length === 0)) {
+          setError(true)
+        } else {
+          setOrder(d)
+        }
+        setLoading(false)
+      })
+      .catch(() => { setError(true); setLoading(false) })
   }, [orderRef])
 
   // Look up any Disco promo applied to this order (for the breakdown line).
@@ -89,14 +98,16 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
         ) : error ? (
           <div>
             <div style={{ textAlign: 'center', padding: '40px 0' }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-              <h1 style={{ fontSize: 28, fontWeight: 800, color: DARK, margin: '0 0 10px' }}>Order Placed!</h1>
-              <p style={{ fontSize: 15, color: '#666', margin: '0 0 6px' }}>Your order has been confirmed.</p>
-              <p style={{ fontSize: 13, color: '#aaa', margin: '0 0 32px' }}>Order #{displayId}</p>
+              <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#FEF2F2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 36 }}>⚠️</div>
+              <h1 style={{ fontSize: 26, fontWeight: 800, color: DARK, margin: '0 0 12px', letterSpacing: '-0.02em' }}>We couldn&apos;t load your order details</h1>
+              <p style={{ fontSize: 15, color: '#666', margin: '0 auto 32px', maxWidth: 460, lineHeight: 1.6 }}>
+                Your order may still have been placed. Check your email for a confirmation, or contact us at{' '}
+                <a href="mailto:support@discocater.com" style={{ color: BLUE, fontWeight: 600, textDecoration: 'none' }}>support@discocater.com</a>{' '}
+                with order reference: <strong style={{ color: DARK }}>{orderRef}</strong>
+              </p>
             </div>
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-              <Link href="/portal" style={{ padding: '12px 24px', background: BLUE, color: '#fff', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>My Orders</Link>
-              <Link href="/fullmap" style={{ padding: '12px 24px', background: '#f0f0f0', color: DARK, borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>Browse More</Link>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Link href="/account/orders" style={{ padding: '13px 28px', background: BLUE, color: '#fff', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none', boxShadow: '0 4px 12px rgba(91,111,232,0.25)' }}>View My Orders</Link>
             </div>
           </div>
         ) : (

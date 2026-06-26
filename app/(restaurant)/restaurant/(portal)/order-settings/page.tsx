@@ -307,12 +307,7 @@ export default function OrderSettingsPage() {
     const method = coupon?.reference ? 'PUT' : 'POST'
     const url = '/api/restaurant/coupon'
     const payload = couponForm
-    console.log('[Coupon] Payload:', JSON.stringify(payload, null, 2))
-    console.log('[Coupon] Endpoint:', url)
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-    const responseBody = await res.json().catch(() => null)
-    console.log('[Coupon] Response status:', res.status)
-    console.log('[Coupon] Response body:', JSON.stringify(responseBody, null, 2))
     if (res.ok) { setCouponDirty(false); loadAll(); showToast('Coupon saved') }
   }
 

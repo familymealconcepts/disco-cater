@@ -527,7 +527,7 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
           >
             {uploading ? 'Uploading…' : imagePreview ? 'Replace Image' : 'Upload Image'}
           </button>
-          {imageRef && <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Image ref: {imageRef}</div>}
+          {imageRef && <div style={{ fontSize: 11, color: '#1D9E75', marginTop: 6 }}>Image attached ✓</div>}
         </div>
 
         {/* ── Section: Special Instructions ── */}

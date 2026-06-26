@@ -1214,7 +1214,7 @@ export default function CheckoutDrawer({
             <div style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '10px 12px', marginBottom: 12, color: '#991B1B', fontSize: 13 }}>{error}</div>
           )}
           <button onClick={handlePlaceOrder}
-            style={{ width: '100%', padding: '14px', background: DARK, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(26,16,40,0.25)', transition: 'all 0.15s' }}>
+            style={{ width: '100%', padding: '14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: '0 4px 14px rgba(91,111,232,0.25)', transition: 'all 0.15s' }}>
             {hideCard ? 'Send Invoice' : `Place Order · ${fmt$(payTotal)}`}
           </button>
         </div>
