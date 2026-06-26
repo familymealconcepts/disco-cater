@@ -36,7 +36,7 @@
     },
     {
       "path": "/api/cron/sync-fm-orders",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 8 * * *"
     }
   ]
 }
