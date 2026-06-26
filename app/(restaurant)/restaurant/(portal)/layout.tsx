@@ -34,6 +34,7 @@ const SYSTEM_ADMIN_NAV: NavItem[] = [
   { title: 'Locations', path: '/restaurant/manage/locations' },
   { title: 'Authorized Users', path: '/restaurant/manage/authorized-users' },
   { title: 'Orders', path: '/restaurant/orders', badge: true },
+  { title: 'Promo Codes', path: '/restaurant/promo-codes' },
   // Team management (locations + sub system admins) now lives inside the
   // Authorized Users page; the standalone /restaurant/team route is kept but
   // hidden from the nav.
@@ -57,6 +58,7 @@ const RESTAURANT_USER_NAV: NavItem[] = [
       { title: 'Modifier Library', path: '/restaurant/manage/modifiers' },
     ],
   },
+  { title: 'Promo Codes', path: '/restaurant/promo-codes' },
   { title: 'Settings', path: '/restaurant/order-settings' },
   {
     title: 'Account', path: '/restaurant/account/profile',

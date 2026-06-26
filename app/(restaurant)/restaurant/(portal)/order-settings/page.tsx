@@ -43,17 +43,6 @@ const formatEventDates = (dates?: string[]) => {
   return `${dates[0]} – ${dates[dates.length - 1]}`
 }
 
-interface Coupon {
-  reference?: string
-  code: string
-  maxAvailable: number
-  maxPerDiner: number
-  discountPercentage: number
-  startDate: string
-  endDate: string
-  remainingAvailable?: number
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -119,7 +108,6 @@ export default function OrderSettingsPage() {
   const [notifications, setNotifications] = useState<Notifications | null>(null)
   const [feesAndTips, setFeesAndTips] = useState<FeesAndTips | null>(null)
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
-  const [coupon, setCoupon] = useState<Coupon | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
@@ -139,10 +127,6 @@ export default function OrderSettingsPage() {
   const [urlSlugDirty, setUrlSlugDirty] = useState(false)
   const [urlSlugError, setUrlSlugError] = useState<string | null>(null)
 
-  // Coupon form
-  const [couponForm, setCouponForm] = useState<Partial<Coupon>>({})
-  const [couponDirty, setCouponDirty] = useState(false)
-
   // New closed day
   const [newClosedDate, setNewClosedDate] = useState('')
 
@@ -152,12 +136,11 @@ export default function OrderSettingsPage() {
   }
 
   const loadAll = useCallback(async () => {
-    const [rest, notif, fees, closed, coup, sms] = await Promise.all([
+    const [rest, notif, fees, closed, sms] = await Promise.all([
       fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : {}) as Promise<typeof restaurant>,
       fetch('/api/restaurant/notifications').then(r => r.ok ? r.json() : null) as Promise<Notifications | null>,
       fetch('/api/restaurant/fees-and-tips').then(r => r.ok ? r.json() : {}) as Promise<FeesAndTips>,
       fetch('/api/restaurant/closed-days').then(r => r.ok ? r.json() : []) as Promise<ClosedDay[]>,
-      fetch('/api/restaurant/coupon').then(r => r.ok ? r.json() : null) as Promise<Coupon | null>,
       fetch('/api/restaurant/sms-settings').then(r => r.ok ? r.json() : null) as Promise<{ sms_enabled?: boolean; sms_phone?: string } | null>,
     ])
     setRestaurant(rest)
@@ -167,8 +150,6 @@ export default function OrderSettingsPage() {
     setSmsPhoneSaved(sms?.sms_phone || '')
     setFeesAndTips(fees)
     setClosedDays(Array.isArray(closed) ? closed : [])
-    setCoupon(coup)
-    if (coup) setCouponForm(coup)
     if (fees?.announcement) setAnnouncement(fees.announcement)
     if (fees?.businessNameWithoutSpaces) setUrlSlug(fees.businessNameWithoutSpaces)
 
@@ -303,20 +284,6 @@ export default function OrderSettingsPage() {
     setClosedDays(prev => prev.filter(d => d.reference !== ref))
   }
 
-  async function saveCoupon() {
-    const method = coupon?.reference ? 'PUT' : 'POST'
-    const url = '/api/restaurant/coupon'
-    const payload = couponForm
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-    if (res.ok) { setCouponDirty(false); loadAll(); showToast('Coupon saved') }
-  }
-
-  async function endCoupon() {
-    await fetch('/api/restaurant/coupon', { method: 'DELETE' })
-    setCoupon(null)
-    setCouponForm({})
-    showToast('Coupon ended')
-  }
 
   if (loading) return <div style={{ padding: 40, color: '#aaa', fontFamily: F }}>Loading…</div>
 
@@ -581,44 +548,6 @@ export default function OrderSettingsPage() {
         </div>
       </Section>
 
-      {/* Coupon */}
-      <Section title="Discounts / Coupon">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {[
-            { label: 'Discount Name', field: 'code', type: 'text' },
-            { label: 'Total Discounts Available', field: 'maxAvailable', type: 'number' },
-            { label: 'Total Per Diner', field: 'maxPerDiner', type: 'number' },
-            { label: 'Discount %', field: 'discountPercentage', type: 'number' },
-            { label: 'Start Date', field: 'startDate', type: 'date' },
-            { label: 'End Date', field: 'endDate', type: 'date' },
-          ].map(({ label, field, type }) => (
-            <div key={field}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 5 }}>{label}</label>
-              <input
-                type={type}
-                value={(couponForm as Record<string, unknown>)[field] as string | number || ''}
-                onChange={e => { setCouponForm(prev => ({ ...prev, [field]: type === 'number' ? parseFloat(e.target.value) || 0 : e.target.value })); setCouponDirty(true) }}
-                style={{ ...inputStyle, width: '100%' }}
-              />
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-          <button
-            onClick={saveCoupon}
-            disabled={!couponDirty || saving}
-            style={{ padding: '9px 18px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: couponDirty ? 'pointer' : 'not-allowed', opacity: couponDirty ? 1 : 0.5, fontFamily: F }}
-          >
-            {coupon?.reference ? 'Update Coupon' : 'Create Promo Code'}
-          </button>
-          {coupon?.reference && (
-            <button onClick={endCoupon}
-              style={{ padding: '9px 18px', background: '#fff', color: '#E76F51', border: '1px solid #E76F51', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-              End Coupon
-            </button>
-          )}
-        </div>
-      </Section>
     </div>
   )
 }
