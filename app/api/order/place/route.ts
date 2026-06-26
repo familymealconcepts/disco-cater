@@ -93,6 +93,8 @@ async function mirrorOrderToNeon(args: {
   // When tax exempt, the actual charge (reduced PaymentIntent amount, in dollars)
   // — stored as the order total so the confirmation page + receipts match.
   taxExemptCharge?: number | null
+  // Disco-only company name (not part of the FM payload).
+  companyName?: string | null
 }): Promise<void> {
   try {
     const { restaurantRef, orderRef, placeBody } = args
@@ -132,6 +134,8 @@ async function mirrorOrderToNeon(args: {
     // Tax-exempt id (Item 4) — sent on checkoutDetails; persisted so the
     // confirmation page, PDF, drawer, and emails can show it.
     const taxExemptId = str(checkoutDetails.taxExemptId)
+    // Disco-only company name — never part of the FM DTO; mirror it here.
+    const companyName = str(args.companyName)
     // Headcount — FM has no order-level field, so it's sent on the place body
     // (or, where FM ever provides one, read off the FM payload). null when absent.
     const personsRaw = placeBody.headcount ?? checkoutDetails.headcount ?? fmInner.persons ?? fmInner.numberOfPeople
@@ -180,16 +184,17 @@ async function mirrorOrderToNeon(args: {
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
         delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
         delivery_lat, delivery_lng,
-        order_date, order_time, subtotal, total, fee, tax_exempt_id, persons, fm_order_reference, created_at, updated_at
+        order_date, order_time, subtotal, total, fee, tax_exempt_id, company_name, persons, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, ${deliveryType}, 'DISCO',
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
         ${daLine1}, ${daLine2}, ${daCity}, ${daState}, ${daZip},
         ${deliveryLat}, ${deliveryLng},
-        ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${taxExemptId}, ${persons}, ${reference}::uuid, NOW(), NOW()
+        ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${taxExemptId}, ${companyName}, ${persons}, ${reference}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO UPDATE SET
         subtotal = EXCLUDED.subtotal, total = EXCLUDED.total, fee = EXCLUDED.fee,
+        company_name = COALESCE(EXCLUDED.company_name, disco_orders.company_name),
         order_status = EXCLUDED.order_status, fm_order_reference = EXCLUDED.fm_order_reference,
         delivery_type = EXCLUDED.delivery_type,
         delivery_address_line1 = COALESCE(EXCLUDED.delivery_address_line1, disco_orders.delivery_address_line1),
@@ -249,7 +254,7 @@ export async function POST(req: NextRequest) {
     // body so they're never forwarded to FM (the rest of the body, including
     // checkoutDetails + customer, is proxied to FM untouched). FM keeps the tax in
     // its total/PaymentIntent; Disco subtracts it from the PI below.
-    const { restaurantRef, orderRef, taxExemptApplied, taxAmount, ...placeBody } = body
+    const { restaurantRef, orderRef, taxExemptApplied, taxAmount, companyName, ...placeBody } = body
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
@@ -315,7 +320,7 @@ export async function POST(req: NextRequest) {
     // Mirror into Neon only after FM accepted the order. Fire-and-forget via
     // waitUntil — non-blocking and never affects the response below.
     if (res.ok) {
-      waitUntil(mirrorOrderToNeon({ restaurantRef, orderRef, placeBody, fmData: data, taxExemptCharge }))
+      waitUntil(mirrorOrderToNeon({ restaurantRef, orderRef, placeBody, fmData: data, taxExemptCharge, companyName: typeof companyName === 'string' ? companyName : null }))
     }
 
     // Surface the tax-exempt-adjusted charge so the frontend knows the real amount.

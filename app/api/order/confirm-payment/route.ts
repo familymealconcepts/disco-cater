@@ -62,6 +62,7 @@ interface PlacedOrderFallback {
   firstName?: string
   lastName?: string
   phone?: string
+  companyName?: string
   total?: number
   deliveryAddress?: { addressLine1?: string; addressLine2?: string; city?: string; state?: string; zip?: string; latitude?: number; longitude?: number } | null
   items?: Array<{ reference?: string; name?: string; count?: number; price?: number }>
@@ -79,17 +80,18 @@ async function ensureRowFromPlaced(orderReference: string, p: PlacedOrderFallbac
     const rows = (await sql`
       INSERT INTO disco_orders (
         reference, order_number, order_status, order_type, delivery_type, source_of_order,
-        restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
+        restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone, company_name,
         delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
         delivery_lat, delivery_lng, order_date, order_time, total, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${orderReference}::uuid, ${p.orderNumber}::bigint, 'DUE', ${orderType}, ${deliveryType}, ${p.sourceOfOrder || 'DISCO'},
-        ${p.restaurantRef}::uuid, ${p.email}, ${p.firstName || null}, ${p.lastName || null}, ${p.phone || null},
+        ${p.restaurantRef}::uuid, ${p.email}, ${p.firstName || null}, ${p.lastName || null}, ${p.phone || null}, ${p.companyName || null},
         ${da.addressLine1 || null}, ${da.addressLine2 || null}, ${da.city || null}, ${da.state || null}, ${da.zip || null},
         ${da.latitude ?? null}, ${da.longitude ?? null}, ${p.orderDate}::date, ${p.orderTime}::time,
         ${p.total ?? null}, ${orderReference}::uuid, NOW(), NOW()
       )
-      ON CONFLICT (reference) DO UPDATE SET order_status = 'DUE', updated_at = NOW()
+      ON CONFLICT (reference) DO UPDATE SET order_status = 'DUE',
+        company_name = COALESCE(EXCLUDED.company_name, disco_orders.company_name), updated_at = NOW()
       RETURNING id
     `.catch(e => { console.error('[order/confirm-payment] fallback insert failed:', e instanceof Error ? e.message : e); return [] })) as { id: number }[]
     const id = rows[0]?.id ?? null

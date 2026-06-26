@@ -396,3 +396,9 @@ CREATE TABLE IF NOT EXISTS disco_customer_favorites (
   UNIQUE(customer_email, restaurant_reference)
 );
 CREATE INDEX IF NOT EXISTS idx_disco_customer_favorites_email ON disco_customer_favorites(customer_email);
+
+-- Optional company name. Disco-only (never sent to FM): captured at checkout and
+-- mirrored on the order; also stored on the customer profile so checkout can
+-- pre-populate it for logged-in customers.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS company_name TEXT;
+ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS company_name TEXT;

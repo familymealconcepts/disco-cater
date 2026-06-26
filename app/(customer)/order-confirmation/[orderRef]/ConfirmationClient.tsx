@@ -64,6 +64,9 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   }, [orderRef])
 
   const restaurantName = order?.restaurantName || order?.restaurant?.name || order?.restaurantReference || ''
+  // Customer name + optional company (Disco-only, enriched onto /api/order/status).
+  const customerName = `${order?.firstName || ''} ${order?.lastName || ''}`.trim()
+  const companyName: string = order?.companyName || order?.company_name || ''
   // FM returns a short human-friendly order number on /api/userOrder/{ref}
   // (e.g. 82243405) — show that instead of the UUID. Fall back to the first
   // 8 chars of the UUID if FM doesn't return one (older orders, etc).
@@ -121,6 +124,13 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
 
             {/* Order details */}
             <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', overflow: 'hidden', marginBottom: 20 }}>
+              {(customerName || companyName) && (
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
+                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Contact</div>
+                  {customerName && <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{customerName}</div>}
+                  {companyName && <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>{companyName}</div>}
+                </div>
+              )}
               {(orderDate || orderTime || orderType || addr) && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #f8f8f8' }}>
                   {orderDate && (

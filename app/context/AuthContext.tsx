@@ -8,6 +8,7 @@ export interface AuthUser {
   lastName: string
   phoneNumber: string
   role: string
+  companyName?: string
   address?: string
   deliveryInstructions?: string
 }
@@ -48,6 +49,7 @@ function readLocalUser(): AuthUser | null {
       reference: u.reference || '', email: u.email || '',
       firstName: u.firstName || '', lastName: u.lastName || '',
       phoneNumber: u.phoneNumber || '', role: u.role || '',
+      companyName: u.companyName || '',
     }
   } catch { return null }
 }
@@ -58,6 +60,7 @@ function writeLocalUser(u: AuthUser) {
     window.localStorage.setItem(DISCO_USER_KEY, JSON.stringify({
       reference: u.reference, email: u.email, firstName: u.firstName,
       lastName: u.lastName, phoneNumber: u.phoneNumber, role: u.role,
+      companyName: u.companyName || '',
     }))
   } catch {}
 }
@@ -79,6 +82,7 @@ async function fetchUser(): Promise<AuthUser | null> {
         lastName: data.lastName || '',
         phoneNumber: data.phoneNumber || '',
         role: data.role || '',
+        companyName: data.companyName || '',
         address: data.address || '',
         deliveryInstructions: data.deliveryInstructions || '',
       }

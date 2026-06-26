@@ -51,6 +51,7 @@ export interface PrintableOrder {
   persons?: number
   firstName?: string
   lastName?: string
+  companyName?: string
   email?: string
   phoneNumber?: string
   restaurant?: {
@@ -455,6 +456,7 @@ export function buildPrintHtml(order: PrintableOrder): string {
         <div class="line"><span class="lbl">Date:</span>${esc(fmtIsoLongDate(order.orderDropOffTime) || fmtLongDate(order.orderDate))}</div>
         <div class="line"><span class="lbl">Time:</span>${esc(fmtIsoTime(order.orderDropOffTime) || fmtTime12(order.orderTime))}</div>
         ${customerName ? `<div class="line" style="margin-top:6px"><span class="lbl">Customer:</span>${esc(customerName)}</div>` : ''}
+        ${order.companyName ? `<div class="line"><span class="lbl">Company:</span>${esc(order.companyName)}</div>` : ''}
         ${customerAddrLines.map(l => `<div class="line">${esc(l)}</div>`).join('')}
         ${order.email ? `<div class="line">${esc(order.email)}</div>` : ''}
         ${order.phoneNumber ? `<div class="line">${esc(order.phoneNumber)}</div>` : ''}

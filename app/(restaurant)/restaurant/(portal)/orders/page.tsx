@@ -46,6 +46,7 @@ interface Order {
   orderNumber: number
   firstName: string
   lastName: string
+  companyName?: string
   // Present on the aggregated /api/system-admin/orders response so the
   // SA can see which location each order belongs to (Track 1).
   restaurantName?: string
@@ -837,6 +838,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               )
             })()}
             <DetailRow label="Customer" value={customerFull || '—'} />
+            {order.companyName && <DetailRow label="Company" value={order.companyName} />}
             {order.email && <DetailRow label="Email" value={order.email} />}
             {order.phoneNumber && <DetailRow label="Phone" value={order.phoneNumber} />}
             {order.orderType === 'DELIVERY' && order.deliveryAddress?.addressLine1 && (

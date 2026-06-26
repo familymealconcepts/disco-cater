@@ -218,6 +218,9 @@ export default function CheckoutDrawer({
   const [contactLast, setContactLast] = useState('')
   const [contactEmail, setContactEmail] = useState('')
   const [contactPhone, setContactPhone] = useState('')
+  // Optional company name — Disco-only (never sent to FM). Pre-filled from the
+  // customer's saved profile when logged in; editable here.
+  const [contactCompany, setContactCompany] = useState('')
   // Delivery instructions — editable at checkout, pre-filled from what was
   // entered in the order-setup modal. Flows into fmAddr → DTO + place body.
   const [deliveryNotes, setDeliveryNotes] = useState(() => addr.instructions || '')
@@ -228,6 +231,7 @@ export default function CheckoutDrawer({
     setContactEmail(p => p || authUser.email || '')
     // Store digits-only internally (display is formatted, FM gets digits).
     setContactPhone(p => p || sanitizePhone(authUser.phoneNumber) || '')
+    setContactCompany(p => p || authUser.companyName || '')
   }, [authUser])
 
   // GA funnel: contact details completed. Fires once when all four contact
@@ -734,6 +738,8 @@ export default function CheckoutDrawer({
             // FM has no order-level headcount field, so send it alongside (not in
             // the FM DTO) for the Neon mirror to persist on disco_orders.persons.
             ...(headcount != null ? { headcount } : {}),
+            // Disco-only company name for the Neon mirror (stripped before FM).
+            ...(contactCompany.trim() ? { companyName: contactCompany.trim() } : {}),
             // Tax exempt (customer flow only): tells /api/order/place to reduce the
             // FM PaymentIntent by the tax before confirm. taxAmount is FM's reported
             // sales tax (state+local+other) — the exact amount baked into the PI.
@@ -787,6 +793,7 @@ export default function CheckoutDrawer({
           firstName: contactFirst,
           lastName: contactLast,
           phone: sanitizePhone(contactPhone),
+          companyName: contactCompany.trim() || undefined,
           total: trackingTotal,
           deliveryAddress: orderType === 'DELIVERY'
             ? { addressLine1: fmAddr.addressLine1, addressLine2: fmAddr.addressLine2, city: fmAddr.city, state: fmAddr.state, zip: fmAddr.zipcode, latitude: fmAddr.latitude, longitude: fmAddr.longitude }
@@ -1024,6 +1031,9 @@ export default function CheckoutDrawer({
                 auto-strips any non-digit the user types/pastes. FM gets digits. */}
             <input value={formatPhoneDisplay(contactPhone)} onChange={e => setContactPhone(sanitizePhone(e.target.value))} placeholder="Phone" type="tel" inputMode="tel" aria-label="Phone" maxLength={16}
               style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }} />
+            {/* Optional company name — subtle, below phone. Disco-only. */}
+            <input value={contactCompany} onChange={e => setContactCompany(e.target.value)} placeholder="Company name (optional)" aria-label="Company name"
+              style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box', marginTop: 10 }} />
           </div>
 
           {/* Totals from FM (or client-side estimate) */}

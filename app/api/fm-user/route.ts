@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
         role: 'USER',
         customerNumber: c?.fm_customer_number ?? null,
         reference: c?.fm_reference || session.fmReference || '',
+        companyName: c?.company_name || '',
       })
     }
   } catch (err) {
@@ -46,13 +47,16 @@ export async function PUT(req: NextRequest) {
   if (!token) return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
   try {
     const body = await req.json()
+    // company_name is Disco-only — pull it OUT so it's never sent to FM. The rest
+    // of the body (name/phone/email) is proxied to FM as before.
+    const { companyName, ...fmBody } = body
     // FM rejects formatted phones — digits only. Sanitize before the profile PUT.
-    sanitizePhoneFields(body)
+    sanitizePhoneFields(fmBody)
 
     const res = await fetch(`${FM_API}/api/users`, {
       method: 'PUT',
       headers: { Authorization: token, Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(fmBody),
     })
     if (!res.ok) return NextResponse.json({ error: 'Failed to update profile' }, { status: res.status })
     const data = await res.json()
@@ -69,6 +73,14 @@ export async function PUT(req: NextRequest) {
             updated_at = NOW()
           WHERE email = ${session.email}
         `
+        // Company name is optional/clearable — only touch it when the caller
+        // actually sent the field (undefined = leave as-is; '' = clear).
+        if (companyName !== undefined) {
+          await sql`
+            UPDATE disco_customers SET company_name = ${String(companyName).trim() || null}, updated_at = NOW()
+            WHERE email = ${session.email}
+          `
+        }
       }
     } catch { /* best-effort sync */ }
 

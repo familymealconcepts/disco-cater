@@ -55,6 +55,20 @@ export async function GET(req: NextRequest) {
       } catch { /* best-effort enrichment */ }
     }
 
+    // Company name is Disco-only (never on the FM order) — read it from the Neon
+    // mirror so the confirmation page can show it.
+    if (res.ok && data && typeof data === 'object' && UUID_RE.test(orderRef)) {
+      try {
+        const rows = (await sql`
+          SELECT company_name FROM disco_orders
+          WHERE fm_order_reference = ${orderRef}::uuid OR reference = ${orderRef}::uuid
+          LIMIT 1
+        `) as { company_name: string | null }[]
+        const cn = rows[0]?.company_name
+        if (cn) (data as Record<string, unknown>).companyName = cn
+      } catch { /* best-effort enrichment */ }
+    }
+
     // Attach a normalized `items` array for the itemized list on the confirmation
     // page. Prefer FM's orderMealPackages; fall back to the Neon mirror
     // (disco_order_items) so the list shows even when FM omits the line items.

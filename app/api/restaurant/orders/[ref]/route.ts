@@ -50,6 +50,7 @@ interface DiscoFull {
   tax_exempt_id: string | null
   created_at: string | null
   persons: number | null
+  company_name: string | null
 }
 interface DiscoItem { meal_package_reference: string | null; name: string; quantity: number; price_per_unit: string; serves: number | null }
 
@@ -82,7 +83,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, order_drop_off_time::text AS order_drop_off_time,
              subtotal, total, fee, tips, refund, note,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, tax_exempt_id,
-             created_at, persons
+             created_at, persons, company_name
       FROM disco_orders
       WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
       LIMIT 1
@@ -126,6 +127,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // Order Placed (created_at) + headcount — Neon-first.
   if (d.created_at) { base.createdDate = d.created_at; base.orderCreatedDate = d.created_at }
   if (d.persons != null) base.persons = d.persons
+  if (d.company_name != null) base.companyName = d.company_name
   if (d.note != null) base.note = d.note
   if (d.subtotal != null) base.subtotal = num(d.subtotal)
   if (d.total != null) { base.total = num(d.total); base.transactionsTotal = num(d.total) }

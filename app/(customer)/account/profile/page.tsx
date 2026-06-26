@@ -30,6 +30,7 @@ export default function ProfilePage() {
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  const [company, setCompany] = useState('')
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -40,6 +41,7 @@ export default function ProfilePage() {
       setLastName(user.lastName || '')
       setEmail(user.email || '')
       setPhone(user.phoneNumber || '')
+      setCompany(user.companyName || '')
       setLoaded(true)
     }
   }, [user, loaded])
@@ -56,7 +58,7 @@ export default function ProfilePage() {
       const res = await fetch('/api/fm-user', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstName, lastName, email, phoneNumber: phone }),
+        body: JSON.stringify({ firstName, lastName, email, phoneNumber: phone, companyName: company }),
         credentials: 'include',
       })
       if (!res.ok) throw new Error('Failed to save')
@@ -92,9 +94,13 @@ export default function ProfilePage() {
           <label style={labelSt}>Email address</label>
           <input className="acct-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputSt} />
         </div>
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 14 }}>
           <label style={labelSt}>Phone number</label>
           <input className="acct-input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. (555) 555-5555" style={inputSt} />
+        </div>
+        <div style={{ marginBottom: 24 }}>
+          <label style={labelSt}>Company name (optional)</label>
+          <input className="acct-input" value={company} onChange={e => setCompany(e.target.value)} placeholder="Company name (optional)" style={inputSt} />
         </div>
         <button
           type="submit"

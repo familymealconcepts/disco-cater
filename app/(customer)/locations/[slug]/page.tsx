@@ -5,6 +5,16 @@ import { getLocationLink, type LocationLink, type LocationItem } from '../../../
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
+
+// The 1P direct order URL for a location. Prefer the stored Sanity slug; when a
+// location has no Sanity doc, derive the slug from the business name (lowercase,
+// no spaces/punctuation) — the same `businessNameWithoutSpaces` pattern the
+// /restaurants/[slug] page falls back to against FM. Never send to the map.
+function orderHref(loc: LocationItem): string {
+  if (loc.slug) return `/restaurants/${loc.slug}`
+  const derived = (loc.businessName || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+  return derived ? `/restaurants/${derived}` : '/fullmap'
+}
 // 1st-party hero gradient used when the group carries no banner image of its own.
 const HERO_GRADIENT = 'linear-gradient(120deg,#6B6EF9 0%,#C044C8 52%,#F0468A 100%)'
 
@@ -28,8 +38,7 @@ export default async function LocationsPage({ params }: { params: Promise<{ slug
   // Single location → go straight to its ordering page (or the map if it has no
   // Disco/Sanity page yet). redirect() must run at the top level (it throws).
   if (link.locations.length === 1) {
-    const only = link.locations[0]
-    redirect(only.slug ? `/restaurants/${only.slug}` : '/fullmap')
+    redirect(orderHref(link.locations[0]))
   }
 
   return <Landing link={link} />
@@ -112,7 +121,7 @@ function Landing({ link }: { link: LocationLink }) {
                     )}
                   </div>
                   <a
-                    href={loc.slug ? `/restaurants/${loc.slug}` : '/fullmap'}
+                    href={orderHref(loc)}
                     style={{
                       flexShrink: 0, display: 'inline-block', background: BLUE, color: '#fff',
                       textDecoration: 'none', padding: '10px 20px', borderRadius: 999,
