@@ -55,17 +55,21 @@ export async function GET(req: NextRequest) {
       } catch { /* best-effort enrichment */ }
     }
 
-    // Company name is Disco-only (never on the FM order) — read it from the Neon
-    // mirror so the confirmation page can show it.
+    // Company name + refund are Disco-only (in the Neon mirror, not the FM order)
+    // — enrich so the confirmation page can show the company and the net total.
     if (res.ok && data && typeof data === 'object' && UUID_RE.test(orderRef)) {
       try {
         const rows = (await sql`
-          SELECT company_name FROM disco_orders
+          SELECT company_name, refund FROM disco_orders
           WHERE fm_order_reference = ${orderRef}::uuid OR reference = ${orderRef}::uuid
           LIMIT 1
-        `) as { company_name: string | null }[]
+        `) as { company_name: string | null; refund: string | null }[]
         const cn = rows[0]?.company_name
         if (cn) (data as Record<string, unknown>).companyName = cn
+        if (!Number((data as Record<string, unknown>).refund)) {
+          const r = Number(rows[0]?.refund)
+          if (Number.isFinite(r) && r > 0) (data as Record<string, unknown>).refund = r
+        }
       } catch { /* best-effort enrichment */ }
     }
 

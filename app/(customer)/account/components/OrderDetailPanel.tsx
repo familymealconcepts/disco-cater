@@ -65,6 +65,7 @@ export interface FmOrderDetail {
   localSalesTaxInPrice?: number
   otherSalesTaxInPrice?: number
   discount?: number
+  refund?: number
   orderMealPackages?: OrderMealPackage[]
   orderClassics?: OrderClassic[]
   orderSubscription?: OrderSubscription | null
@@ -275,7 +276,8 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                   )}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: DARK }}>{fmtMoney(detail.total)}</div>
+                  {/* Net of any refund (RULE 3) — the breakdown below shows the detail. */}
+                  <div style={{ fontSize: 18, fontWeight: 700, color: DARK }}>{fmtMoney((detail.total || 0) - (detail.refund || 0))}</div>
                   <div style={{ textAlign: 'right', fontSize: 11, color: '#555' }}>
                     <div>{dateText}</div>
                     {detail.orderTime && <div style={{ color: '#888', marginTop: 1 }}>{fmtTime(detail.orderTime)}</div>}
@@ -303,22 +305,35 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                   Mirrors the order-confirmation totals. */}
               {mode === 'upcoming' && (() => {
                 const taxes = (detail.stateSalesTaxInPrice || 0) + (detail.localSalesTaxInPrice || 0) + (detail.otherSalesTaxInPrice || 0)
-                const feesTotal = (detail.fee || 0) + taxes
+                const platformFee = detail.fee || 0
                 const deliveryFee = (detail.ownDeliveryFee || 0) + (detail.doordashDeliveryFee || 0) + (detail.thirdPartyDeliveryFee || 0)
                 const tip = (detail.tipsInPrice || 0) + (detail.thirdPartyDeliveryTipsInPrice || 0)
                 const discount = detail.discount || 0
+                const refund = detail.refund || 0
+                const total = detail.total || 0
                 return (
                   <>
                     <SectionLabel>Pricing</SectionLabel>
                     <div style={{ marginBottom: 18 }}>
                       {(detail.subtotal || 0) > 0 && <PriceRow label="Subtotal" value={fmtMoney(detail.subtotal)} />}
-                      {feesTotal > 0 && <PriceRow label="Taxes & Fees" value={fmtMoney(feesTotal)} />}
-                      {deliveryFee > 0 && <PriceRow label="Delivery fee" value={fmtMoney(deliveryFee)} />}
-                      <PriceRow label="Tip" value={fmtMoney(tip)} />
-                      {discount > 0 && <PriceRow label="Discount" value={`−${fmtMoney(discount)}`} />}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee', fontSize: 14, fontWeight: 800, color: DARK }}>
-                        <span>Total</span><span>{fmtMoney(detail.total)}</span>
-                      </div>
+                      {taxes > 0 && <PriceRow label="Taxes" value={fmtMoney(taxes)} />}
+                      {platformFee > 0 && <PriceRow label="Platform Fee" value={fmtMoney(platformFee)} />}
+                      {deliveryFee > 0 && <PriceRow label="Delivery Fee" value={fmtMoney(deliveryFee)} />}
+                      {tip > 0 && <PriceRow label="Tip" value={fmtMoney(tip)} />}
+                      {discount > 0 && <PriceRow label="Discount" value={`−${fmtMoney(discount)}`} color="#1D9E75" />}
+                      {refund > 0 ? (
+                        <div style={{ paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee' }}>
+                          <PriceRow label="Amount Charged" value={fmtMoney(total)} />
+                          <PriceRow label="Refund" value={`−${fmtMoney(refund)}`} color="#E53935" />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 2, borderTop: '1px solid #eee', fontSize: 14, fontWeight: 800, color: DARK }}>
+                            <span>Net Total</span><span>{fmtMoney(Math.max(0, total - refund))}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee', fontSize: 14, fontWeight: 800, color: DARK }}>
+                          <span>Total</span><span>{fmtMoney(total)}</span>
+                        </div>
+                      )}
                     </div>
                   </>
                 )
@@ -435,9 +450,9 @@ function DetailRow({ label, value, valueNode }: { label: string; value?: string;
   )
 }
 
-function PriceRow({ label, value }: { label: string; value: string }) {
+function PriceRow({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: '#666' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: color || '#666', fontWeight: color ? 600 : 400 }}>
       <span>{label}</span><span>{value}</span>
     </div>
   )

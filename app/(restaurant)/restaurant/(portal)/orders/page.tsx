@@ -898,15 +898,25 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                 />
               )}
               <TotalRow label={isTaxExempt ? 'Taxes (Tax Exempt)' : 'Taxes'} value={isTaxExempt ? 0 : totals.tax} />
-              {(order.fee ?? order.fees ?? 0) > 0 && <TotalRow label="Fees" value={order.fee ?? order.fees ?? 0} />}
-              {totals.tips > 0 && <TotalRow label="Tips" value={totals.tips} />}
+              {(order.fee ?? order.fees ?? 0) > 0 && <TotalRow label="Platform Fee" value={order.fee ?? order.fees ?? 0} />}
+              {totals.tips > 0 && <TotalRow label="Tip" value={totals.tips} />}
               {totals.delivery > 0 && <TotalRow label="Delivery Fee" value={totals.delivery} />}
-              {(order.discount ?? 0) > 0 && <TotalRow label="Promo" value={-(order.discount ?? 0)} />}
-              {(order.refund ?? 0) > 0 && <TotalRow label="Refund" value={-(order.refund ?? 0)} />}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, paddingTop: 10, borderTop: '1px solid #eee' }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Total</span>
-                <span style={{ fontSize: 15, fontWeight: 700, color: DARK }}>{fmt(totals.total)}</span>
-              </div>
+              {(order.discount ?? 0) > 0 && <TotalRow label="Discount" value={-(order.discount ?? 0)} color="#1D9E75" />}
+              {/* Refunded: show what was charged, the refund (red), and the net.
+                  Otherwise just the Total. The total reconciles with the lines. */}
+              {(order.refund ?? 0) > 0 ? (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #eee' }}>
+                  <TotalRow label="Amount Charged" value={totals.total} />
+                  <TotalRow label="Refund" value={-(order.refund ?? 0)} color="#E53935" />
+                  <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #eee' }}>
+                    <TotalRow label="Net Total" value={totals.total - (order.refund ?? 0)} strong />
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #eee' }}>
+                  <TotalRow label="Total" value={totals.total} strong />
+                </div>
+              )}
               {/* Disco promo — display-only credit (FM total above is the full
                   amount the restaurant received). Gradient to distinguish from
                   FM's native Promo line. */}
@@ -1534,7 +1544,8 @@ function OrdersContent() {
                         {order.nashDeliveryPickupEta && <div style={{ fontSize: 11 }}>Pickup: {order.nashDeliveryPickupEta}</div>}
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 600, color: DARK }}>
-                        {fmt(order.transactionsTotal)}
+                        {/* Net of any refund (RULE 3) — the refund detail shows below. */}
+                        {fmt(order.transactionsTotal - (order.refund ?? 0))}
                         {(order.refund ?? 0) > 0 && (
                           <div style={{ fontSize: 11, fontWeight: 600, color: '#E53935', marginTop: 2 }}>Refund: -{fmt(order.refund ?? 0)}</div>
                         )}
@@ -1693,11 +1704,11 @@ function DetailRow({ label, value, valueColor }: { label: string; value: string;
   )
 }
 
-function TotalRow({ label, value }: { label: string; value: number }) {
+function TotalRow({ label, value, color, strong }: { label: string; value: number; color?: string; strong?: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-      <span style={{ color: '#666' }}>{label}</span>
-      <span style={{ color: DARK }}>{fmt(value)}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: strong ? 15 : 13 }}>
+      <span style={{ color: color || '#666', fontWeight: strong ? 700 : 400 }}>{label}</span>
+      <span style={{ color: color || DARK, fontWeight: strong ? 700 : 400 }}>{fmt(value)}</span>
     </div>
   )
 }

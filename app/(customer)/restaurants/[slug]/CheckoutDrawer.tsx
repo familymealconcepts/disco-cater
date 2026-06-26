@@ -1043,7 +1043,7 @@ export default function CheckoutDrawer({
             </div>
             {orderType === 'DELIVERY' && displayDeliveryFee !== null && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
-                <span>Delivery fee</span>
+                <span>Delivery Fee</span>
                 {displayDeliveryFee === 0
                   ? <span style={{ color: '#22C55E', fontWeight: 600 }}>Free</span>
                   : <span>{fmt$(displayDeliveryFee)}</span>}

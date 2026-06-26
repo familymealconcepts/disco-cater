@@ -284,9 +284,10 @@ export function buildPrintHtml(order: PrintableOrder): string {
   }).join('')
 
   // Totals — only show rows the order actually has, mirroring FM.
-  function totalRow(label: string, value: number, opts?: { bold?: boolean; red?: boolean }) {
+  function totalRow(label: string, value: number, opts?: { bold?: boolean; red?: boolean; green?: boolean }) {
     const cls = opts?.bold ? 'class="total-row"' : ''
-    const colorStyle = opts?.red ? ' style="color:#d32f2f;"' : ''
+    const color = opts?.red ? '#d32f2f' : opts?.green ? '#1D9E75' : ''
+    const colorStyle = color ? ` style="color:${color};"` : ''
     return `<tr ${cls}><td class="tlbl"${colorStyle}>${esc(label)}:</td><td class="tval"${colorStyle}>${esc(fmtMoney(value))}</td></tr>`
   }
   // Tax-exempt orders: taxes are $0.00 and the exempt id is noted under the row.
@@ -299,15 +300,16 @@ export function buildPrintHtml(order: PrintableOrder): string {
     employeeBenefit > 0 ? totalRow('For The Staff', employeeBenefit) : '',
     serviceCharges > 0 ? totalRow(serviceLabel, serviceCharges) : '',
     taxRows,
-    // Only a separate "Fees" line when fee isn't already the service charge.
-    fee > 0 && serviceCharge > 0 ? totalRow('Fees', fee) : '',
+    // Only a separate platform-fee line when fee isn't already the service charge.
+    fee > 0 && serviceCharge > 0 ? totalRow('Platform Fee', fee) : '',
     delivery > 0 ? totalRow('Delivery Fee', delivery) : '',
-    tips > 0 ? totalRow('Tips', tips) : '',
-    discount > 0 ? totalRow('Promo', -discount) : '',
+    tips > 0 ? totalRow('Tip', tips) : '',
+    discount > 0 ? totalRow('Discount', -discount, { green: true }) : '',
+    // Refunded: Amount Charged → Refund (red) → Net Total (bold). Otherwise Total.
+    refund > 0 ? totalRow('Amount Charged', total) : '',
     refund > 0 ? totalRow('Refund', -refund, { red: true }) : '',
-    // When refunded, the bold line is the NET amount actually charged.
     refund > 0
-      ? totalRow('Total Charged', total - refund, { bold: true })
+      ? totalRow('Net Total', total - refund, { bold: true })
       : totalRow('Total', total, { bold: true }),
   ].filter(Boolean).join('')
 

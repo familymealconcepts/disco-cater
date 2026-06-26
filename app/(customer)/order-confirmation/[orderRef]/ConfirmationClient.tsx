@@ -82,6 +82,9 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   // FM splits tax across three fields (checkoutPricesV2); platform fee is `fee`.
   const tax = (Number(order?.stateSalesTaxInPrice) || 0) + (Number(order?.localSalesTaxInPrice) || 0) + (Number(order?.otherSalesTaxInPrice) || 0)
   const platformFee = Number(order?.fee ?? order?.serviceFee ?? order?.platformFee) || 0
+  // Actual refund recorded against this order (distinct from the Disco promo
+  // credit below, which is a post-order card credit shown for transparency).
+  const refund = Number(order?.refund) || 0
   const orderDate = order?.orderDate || order?.localDate || ''
   const orderTime = order?.orderTime || order?.localTime || ''
   const orderType = order?.orderType || ''
@@ -222,12 +225,12 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 )}
                 {platformFee > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                    <span>Platform fee</span><span>{fmt$(platformFee)}</span>
+                    <span>Platform Fee</span><span>{fmt$(platformFee)}</span>
                   </div>
                 )}
                 {deliveryFee > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                    <span>Delivery fee</span><span>{fmt$(deliveryFee)}</span>
+                    <span>Delivery Fee</span><span>{fmt$(deliveryFee)}</span>
                   </div>
                 )}
                 {tips > 0 && (
@@ -237,17 +240,30 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 )}
                 {promo && promo.discountApplied > 0 && (
                   <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: 13, color: '#16A34A', fontWeight: 600 }}>
-                      <span>Promo ({promo.code})</span><span>−{fmt$(promo.discountApplied)}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: 13, color: '#1D9E75', fontWeight: 600 }}>
+                      <span>Discount ({promo.code})</span><span>−{fmt$(promo.discountApplied)}</span>
                     </div>
                     <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>Credited back to your card after the order.</div>
                   </>
                 )}
-                {total > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee', fontSize: 17, fontWeight: 800, color: DARK }}>
-                    <span>Total charged</span><span>{fmt$(total)}</span>
+                {/* Refunded orders (RULE 3): Amount Charged → Refund (red) → Net Total. */}
+                {total > 0 && refund > 0 ? (
+                  <div style={{ paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
+                      <span>Amount Charged</span><span>{fmt$(total)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#E53935', fontWeight: 600 }}>
+                      <span>Refund</span><span>−{fmt$(refund)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 2, borderTop: '1px solid #eee', fontSize: 17, fontWeight: 800, color: DARK }}>
+                      <span>Net Total</span><span>{fmt$(Math.max(0, total - refund))}</span>
+                    </div>
                   </div>
-                )}
+                ) : total > 0 ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee', fontSize: 17, fontWeight: 800, color: DARK }}>
+                    <span>Total</span><span>{fmt$(total)}</span>
+                  </div>
+                ) : null}
               </div>
             </div>
 
