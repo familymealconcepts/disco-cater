@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, runMigrations, runDiscoMenuMigrations } from '../../../../lib/db'
+import { sql, runMigrations } from '../../../../lib/db'
 import { sendEmail } from '../../../../lib/email/send'
 import { layout, button } from '../../../../lib/email/layout'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const SLACK_WEBHOOK_URL = process.env.SLACK_PARTNER_WEBHOOK_URL || process.env.SLACK_NEW_ORDER_WEBHOOK_URL
 
 // POST /api/become-a-partner/go-live  { restaurantReference }
@@ -33,21 +32,12 @@ export async function POST(req: NextRequest) {
     `) as { name: string | null; location: string | null; lat: string | null; lng: string | null }[]
     const cache = cacheRows[0]
 
-    let menuCount = 0
-    if (UUID_RE.test(ref)) {
-      try {
-        await runDiscoMenuMigrations()
-        const c = (await sql`SELECT COUNT(*)::int AS c FROM disco_menu_items WHERE restaurant_reference = ${ref}::uuid`) as { c: number }[]
-        menuCount = c[0]?.c ?? 0
-      } catch { /* best-effort */ }
-    }
-
-    // Gate: all four must be complete.
+    // Gate: account + profile + Stripe must be complete. Menu is OPTIONAL —
+    // restaurants can add menu items after going live.
     const missing: string[] = []
     if (!acct) missing.push('account')
     if (!cache || cache.lat == null || cache.lng == null) missing.push('profile')
     if (!acct?.stripe_onboarding_complete) missing.push('stripe')
-    if (menuCount < 1) missing.push('menu')
     if (missing.length) {
       return NextResponse.json({ error: 'Onboarding incomplete', missing }, { status: 400 })
     }

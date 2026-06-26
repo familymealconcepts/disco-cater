@@ -1000,7 +1000,9 @@ export default function BecomeAPartnerClient() {
           {/* ── STEP 8 · GO LIVE (checklist) ── */}
           {step === 7 && (() => {
             const s = goLiveStatus
-            const allDone = !!s && s.accountCreated && s.profileComplete && s.stripeConnected && s.menuUploaded
+            // Menu is optional — restaurants can add menu items after going live.
+            // Go Live needs only: account created + profile complete + Stripe connected.
+            const allDone = !!s && s.accountCreated && s.profileComplete && s.stripeConnected
             const Item = ({ ok, label, action }: { ok: boolean; label: string; action?: { text: string; onClick: () => void } }) => (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '13px 0', borderTop: '1px solid #f1f1f6' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 600, color: ok ? DARK : '#888' }}>
@@ -1026,7 +1028,8 @@ export default function BecomeAPartnerClient() {
                     <Item ok={s.accountCreated} label="Account created" />
                     <Item ok={s.profileComplete} label="Restaurant profile complete" action={{ text: 'Edit profile', onClick: () => setStep(4) }} />
                     <Item ok={s.stripeConnected} label="Stripe connected" action={{ text: 'Connect Stripe', onClick: () => setStep(5) }} />
-                    <Item ok={s.menuUploaded} label="Menu uploaded" action={{ text: 'Add menu items', onClick: () => setStep(6) }} />
+                    <Item ok={s.menuUploaded} label="Menu items (optional)" action={{ text: 'Add menu items', onClick: () => setStep(6) }} />
+                    <p style={{ margin: '8px 0 0', fontSize: 12, color: '#999' }}>You can add menu items after going live.</p>
                   </div>
                 )}
                 <button onClick={goLive} disabled={!allDone || goingLive}

@@ -545,19 +545,26 @@ function NoteModal({ order, orderRef, onClose, onSaved }: { order: Order; orderR
 }
 
 function RefundModal({ order, orderRef, onClose, onSaved }: { order: Order; orderRef: string; onClose: () => void; onSaved: () => void }) {
-  const maxAmt = order.maxAllowedRefundAmount || order.transactionsTotal
+  // Max refundable = order total minus anything already refunded.
+  const alreadyRefunded = order.refund || 0
+  const maxAmt = Math.max(0, (order.maxAllowedRefundAmount || order.transactionsTotal || 0) - alreadyRefunded)
   const [amount, setAmount] = useState(String(maxAmt || ''))
   const [useFullAmt, setUseFullAmt] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   useEffect(() => { if (useFullAmt) setAmount(String(maxAmt || '')) }, [useFullAmt, maxAmt])
+  const parsed = parseFloat(amount)
+  const overMax = Number.isFinite(parsed) && parsed > maxAmt + 0.001
+  const invalid = !Number.isFinite(parsed) || parsed <= 0 || overMax
   async function save() {
-    setSaving(true)
-    await fetch(`/api/restaurant/orders/${orderRef}/refund`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: parseFloat(amount) }),
+    if (invalid) return
+    setSaving(true); setError('')
+    const res = await fetch(`/api/restaurant/orders/${orderRef}/refund`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: parsed }),
     })
     setSaving(false)
-    onSaved()
-    onClose()
+    if (res.ok) { onSaved(); onClose() }
+    else { const d = await res.json().catch(() => ({})); setError(d?.error || 'Refund failed') }
   }
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -567,16 +574,18 @@ function RefundModal({ order, orderRef, onClose, onSaved }: { order: Order; orde
           <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Amount</label>
           <input
             type="number" value={amount} onChange={e => setAmount(e.target.value)}
-            style={{ width: '100%', border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: F, outline: 'none' }}
+            style={{ width: '100%', border: `1.5px solid ${overMax ? '#E24B4A' : '#e0e0e0'}`, borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: F, outline: 'none' }}
           />
+          {overMax && <div style={{ color: '#E24B4A', fontSize: 12, marginTop: 6 }}>Refund amount cannot exceed {fmt(maxAmt)}</div>}
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', color: '#555', marginBottom: 16 }}>
           <input type="checkbox" checked={useFullAmt} onChange={e => setUseFullAmt(e.target.checked)} />
           Use full amount ({fmt(maxAmt)})
         </label>
+        {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', marginBottom: 12, color: '#DC2626', fontSize: 12 }}>{error}</div>}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
-          <button onClick={save} disabled={saving || !amount} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: '#E76F51', color: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F, fontWeight: 600 }}>
+          <button onClick={save} disabled={saving || invalid} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: '#E76F51', color: '#fff', fontSize: 13, cursor: saving || invalid ? 'default' : 'pointer', opacity: saving || invalid ? 0.5 : 1, fontFamily: F, fontWeight: 600 }}>
             Refund
           </button>
         </div>
@@ -689,7 +698,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   }
 
   function handleStatusChange(status: string) {
-    if (status === 'CANCELED' || status === 'VOID') {
+    if (status === 'CANCELED' || status === 'VOIDED') {
       setConfirm({
         msg: 'Do you want to cancel? Order status will be changed and customer will be notified.',
         action: () => updateStatus(status),
@@ -1499,7 +1508,7 @@ function OrdersContent() {
                             onChange={e => {
                               e.stopPropagation()
                               const newStatus = e.target.value
-                              if (newStatus === 'CANCELED' || newStatus === 'VOID') {
+                              if (newStatus === 'CANCELED' || newStatus === 'VOIDED') {
                                 setConfirm({
                                   msg: 'Do you want to cancel? Order status will be changed and customer will be notified.',
                                   action: async () => {

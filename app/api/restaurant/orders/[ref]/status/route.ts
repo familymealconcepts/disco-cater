@@ -21,6 +21,7 @@ function normStatus(s: string): string {
   if (u === 'COMPLETE') return 'COMPLETED'
   if (u === 'CANCEL') return 'CANCELED'
   if (u === 'REFUND') return 'REFUNDED'
+  if (u === 'VOID') return 'VOIDED'
   return u
 }
 

@@ -25,7 +25,7 @@ export async function syncExpediteOnEdit(orderId: number, orderReference: string
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export const MAX_EDITS = 3
-const NON_EDITABLE_STATUSES = ['COMPLETED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'VOID']
+const NON_EDITABLE_STATUSES = ['COMPLETED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'VOID', 'VOIDED']
 
 export function isEditableStatus(status: string): boolean {
   return !NON_EDITABLE_STATUSES.includes(String(status || '').toUpperCase())

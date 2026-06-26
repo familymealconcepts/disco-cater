@@ -33,15 +33,18 @@ export default function RestaurantLoginPage() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      // 5s timeout so a slow FM/Neon session check can't hang the login page.
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 5000)
       try {
-        const res = await fetch('/api/disco-restaurant-auth/me', { credentials: 'include' })
+        const res = await fetch('/api/disco-restaurant-auth/me', { credentials: 'include', signal: ctrl.signal })
         if (!res.ok || cancelled) return
         const s = await res.json()
         storeDiscoUser(s)
         // Route to the right surface by role (regular users → orders, not the
         // dashboard) so there's no flash on an already-signed-in revisit.
         await navigateByRole(s.role || '')
-      } catch { /* not logged in — show the form */ }
+      } catch { /* not logged in / timed out — show the form */ } finally { clearTimeout(timer) }
     })()
     return () => { cancelled = true }
   }, [router])

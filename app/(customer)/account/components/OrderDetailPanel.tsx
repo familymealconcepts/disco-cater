@@ -120,7 +120,7 @@ function paymentLabel(d: FmOrderDetail): { label: string; color: string } {
   const s = (d.orderStatus || '').toUpperCase()
   if (s === 'UNPAID') return { label: 'Unpaid', color: '#E24B4A' }
   if (s === 'REFUND' || s === 'PARTIAL_REFUND') return { label: 'Refunded', color: ORANGE }
-  if (s === 'CANCELED' || s === 'VOID' || s === 'EXPIRED') return { label: s.charAt(0) + s.slice(1).toLowerCase(), color: '#888' }
+  if (s === 'CANCELED' || s === 'VOID' || s === 'VOIDED' || s === 'EXPIRED') return { label: s.charAt(0) + s.slice(1).toLowerCase(), color: '#888' }
   return { label: 'Paid', color: GREEN }
 }
 

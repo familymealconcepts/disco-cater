@@ -168,14 +168,8 @@ export async function POST(req: NextRequest) {
     })
     const data = await res.json()
 
-    // DIAGNOSTIC: full FM confirmPayment response — shows the stripePaymentIntentDto
-    // (paymentIntentStatus) so we can see whether the card was actually charged.
+    // FM reports the charge result under stripePaymentIntentDto.paymentIntentStatus.
     const inner = (data?.data ?? data ?? {}) as Record<string, unknown>
-    console.log('[order/confirm-payment] FM response', {
-      httpStatus: res.status,
-      stripePaymentIntentDto: inner?.stripePaymentIntentDto ?? null,
-    })
-    console.log('[order/confirm-payment] FM response FULL BODY:', JSON.stringify(data))
 
     // Charge confirmed → fire the order confirmations (customer + restaurant
     // email, SMS, Slack). FM reports success as stripePaymentIntentDto.

@@ -18,8 +18,8 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // disco_orders.order_status CHECK set (001_disco_orders.sql, widened for sync).
 const ALLOWED_STATUS = new Set([
-  'CART', 'RESERVED', 'DUE', 'COMPLETED', 'CANCELED', 'CANCELLED', 'REFUND',
-  'PARTIAL_REFUND', 'EXPIRED', 'VOID', 'UNPAID', 'PAID', 'PAYMENT_FAILED', 'REOPEN',
+  'CART', 'RESERVED', 'DUE', 'COMPLETED', 'CANCELED', 'CANCELLED', 'REFUND', 'REFUNDED',
+  'PARTIAL_REFUND', 'EXPIRED', 'VOID', 'VOIDED', 'UNPAID', 'PAID', 'PAYMENT_FAILED', 'REOPEN',
 ])
 
 function n(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
@@ -63,7 +63,10 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
   const fmRef = s(o.orderReference) || s(o.reference)
   if (!isUuid(fmRef)) return null
 
-  const statusRaw = (s(o.orderStatus) || s(o.status)).toUpperCase()
+  // Normalize FM's singular 'VOID' to Disco's canonical 'VOIDED' so Neon uses one
+  // value everywhere.
+  const statusRaw0 = (s(o.orderStatus) || s(o.status)).toUpperCase()
+  const statusRaw = statusRaw0 === 'VOID' ? 'VOIDED' : statusRaw0
   const status = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
 
   const deliveryType = s(o.deliveryType) || null

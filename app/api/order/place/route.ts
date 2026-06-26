@@ -272,18 +272,9 @@ export async function POST(req: NextRequest) {
     })
     const data = await res.json()
 
-    // DIAGNOSTIC: full FM place response so we can see whether FM actually
-    // returns a PaymentIntent (paymentDetails.stripePaymentIntentDto.
-    // paymentIntentId). FM nests the order under `data` on most responses.
+    // FM nests the order under `data` on most responses; used below for the
+    // tax-exempt recompute + PaymentIntent extraction.
     const fmInnerLog = (data?.data ?? data ?? {}) as Record<string, unknown>
-    console.log('[order/place] FM response', {
-      httpStatus: res.status,
-      orderStatus: fmInnerLog?.orderStatus ?? null,
-      orderNumber: fmInnerLog?.orderNumber ?? null,
-      orderReference: fmInnerLog?.orderReference ?? null,
-      paymentDetails: fmInnerLog?.paymentDetails ?? null,
-    })
-    console.log('[order/place] FM response FULL BODY:', JSON.stringify(data))
 
     // Tax exempt → reduce the FM-created PaymentIntent by the tax amount BEFORE the
     // client calls /confirm-payment (FM charges whatever amount is on the PI). This
