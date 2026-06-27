@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantRole, getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
-import { getDiscoGroupAccounts } from '../../../../lib/disco-restaurant-auth'
+import { getLocationAccessRefs } from '../../../../lib/disco-restaurant-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { syncRestaurantOrders } from '../../../../lib/fm-orders-sync'
 import { cookies } from 'next/headers'
@@ -124,16 +124,25 @@ export async function GET(req: NextRequest) {
   if (!scopeRef && isSA && selected) scopeRef = selected
   if (!scopeRef && !isSA) scopeRef = ownRef
 
-  // Disco SYSTEM_ADMIN aggregate (no specific location picked): restrict to the
-  // group's locations rather than every restaurant in disco_orders. FM SAs are
-  // still scoped server-side by FM, so this only applies to Disco sessions.
+  // SYSTEM_ADMIN aggregate (no specific location picked): include every location
+  // the account has EXPLICIT access to (disco_restaurant_location_access for their
+  // email — written by the promote-to-SYSTEM_ADMIN action). If there are no access
+  // rows (e.g. an FM-native SYSTEM_ADMIN whose email isn't in our table), fall
+  // back to their own FM-JWT / account restaurant_reference so they still see
+  // their location instead of an empty list.
   let groupRefs: string[] | null = null
-  if (!scopeRef && isSA && ctx.authType === 'disco') {
+  if (!scopeRef && isSA) {
+    let accessRefs: string[] = []
     try {
-      const group = await getDiscoGroupAccounts(ctx.businessName, ctx.email)
-      groupRefs = group.map(a => a.restaurant_reference).filter(r => UUID_RE.test(r))
+      accessRefs = (await getLocationAccessRefs(ctx.email)).filter(r => UUID_RE.test(r))
     } catch (e) {
-      console.error('[restaurant/orders] group scope lookup failed:', e instanceof Error ? e.message : e)
+      console.error('[restaurant/orders] location-access lookup failed:', e instanceof Error ? e.message : e)
+    }
+    if (accessRefs.length) {
+      groupRefs = accessRefs
+    } else if (ownRef && UUID_RE.test(ownRef)) {
+      // 0 access rows → single-location fallback (FM-native SYSTEM_ADMIN).
+      scopeRef = ownRef
     }
   }
 
@@ -143,7 +152,7 @@ export async function GET(req: NextRequest) {
   // disco_orders (cross-tenant exposure). Never query without a restaurant filter.
   const hasScope = !!(scopeRef && UUID_RE.test(scopeRef))
   if (!hasScope && (!groupRefs || groupRefs.length === 0)) {
-    return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: page, size })
+    return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: page, size, restaurantExists: false })
   }
 
   // Lightweight FM→Neon sync for the scoped restaurant before reading, so the
@@ -199,6 +208,20 @@ export async function GET(req: NextRequest) {
     const countRows = (await sql.query(`SELECT COUNT(*)::int AS c FROM disco_orders WHERE ${whereSql}`, params)) as { c: number }[]
     const totalElements = countRows[0]?.c ?? 0
 
+    // For a single-location view, confirm the restaurant exists in the cache so
+    // the client can show "No orders yet" (a real, new restaurant) rather than the
+    // generic "No orders found". Only meaningful when scoped to one restaurant.
+    let restaurantExists = false
+    if (scopeRef && UUID_RE.test(scopeRef)) {
+      try {
+        const ex = (await sql.query(
+          'SELECT 1 FROM disco_restaurant_cache WHERE restaurant_reference = $1 LIMIT 1',
+          [scopeRef],
+        )) as unknown[]
+        restaurantExists = ex.length > 0
+      } catch { /* best-effort */ }
+    }
+
     const listParams = [...params, size, page * size]
     // Some 3P/Disco-native orders mirrored a null/0 total (the place mirror read
     // FM's pre-payment total). Fall back to the Stripe payment total for the order
@@ -228,6 +251,7 @@ export async function GET(req: NextRequest) {
       totalPages: Math.ceil(totalElements / size),
       number: page,
       size,
+      restaurantExists,
     })
   } catch (err) {
     console.error('restaurant/orders GET error:', err)

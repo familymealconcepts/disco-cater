@@ -1192,6 +1192,10 @@ function OrdersContent() {
   // orders), not a "pick a location" prompt. `aggregating` drives the
   // Restaurant column + the info banner.
   const [aggregating, setAggregating] = useState(false)
+  // Whether the scoped restaurant exists in disco_restaurant_cache (from the
+  // orders API). Defaults true so a brand-new ADMIN sees the friendly empty state
+  // immediately rather than a flash of "No orders found".
+  const [restaurantExists, setRestaurantExists] = useState(true)
   // User role drives the edit-history icon rule: ADMIN / SYSTEM_ADMIN only see it
   // on orders that actually have edits; SUPER_ADMIN is unaffected (always shown).
   const [role, setRole] = useState('')
@@ -1308,6 +1312,9 @@ function OrdersContent() {
       const d = await res.json()
       const next: Order[] = d.content || []
       const nextTotal: number = d.totalElements || 0
+      // Whether this restaurant exists in the cache — drives the friendly
+      // "No orders yet" empty state vs the generic "No orders found".
+      if (typeof d.restaurantExists === 'boolean') setRestaurantExists(d.restaurantExists)
       if (background) {
         // Genuinely new orders = order numbers not already on screen.
         const currentNums = new Set(ordersRef.current.map(o => o.orderNumber))
@@ -1550,7 +1557,13 @@ function OrdersContent() {
                   </tr>
                 ))}
                 {!loading && displayedOrders.length === 0 && (
-                  <tr><td colSpan={aggregating ? 10 : 9} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>No orders found</td></tr>
+                  <tr><td colSpan={aggregating ? 10 : 9} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>
+                    {aggregating
+                      ? 'No orders found across your locations.'
+                      : restaurantExists
+                        ? "No orders yet. Once customers place orders, they'll appear here."
+                        : 'No orders found.'}
+                  </td></tr>
                 )}
                 {displayedOrders.map(order => {
                   const timeColor = statusColor(order.orderStatus, order.orderDate, order.orderTime)
