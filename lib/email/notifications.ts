@@ -74,10 +74,15 @@ interface BaseOrderParams {
   subtotal: number
   serviceCharge?: number
   serviceChargeDisplayName?: string
+  // Separate taxes + fees (FM format). taxesAndFees is the legacy combined value,
+  // still honored as a fallback when the split isn't provided.
+  taxes?: number
+  fees?: number
   taxesAndFees?: number
   deliveryFee?: number
   tip?: number
   promo?: number
+  refund?: number
   totalPrice: number
   orderNumber: number | string
   taxExemptId?: string
@@ -139,17 +144,29 @@ function renderLineItems(packages: OrderMealPackage[]): string {
 // Financial breakdown. Conditional rows mirror the FM templates (service charge
 // and delivery fee only when non-zero; promo shown as a negative).
 function renderTotals(p: BaseOrderParams): string {
-  const row = (label: string, value: string) =>
-    `<tr><td ${cellLeft}>${label}</td><td ${cellRight}>&nbsp;${value}</td></tr>`
+  const row = (label: string, value: string, color?: string) =>
+    `<tr><td ${cellLeft}${color ? ` style="padding:2px 8px 2px 0;color:${color};"` : ''}>${label}</td><td ${cellRight}${color ? ` style="padding:2px 0;white-space:nowrap;color:${color};"` : ''}>&nbsp;${value}</td></tr>`
   const rows: string[] = []
   if (p.subtotal != null) rows.push(row('Subtotal:', money(p.subtotal)))
-  if (p.serviceCharge != null && p.serviceCharge !== 0)
-    rows.push(row(`${escapeHtml(p.serviceChargeDisplayName || 'Service Charge')}:`, money(p.serviceCharge)))
-  if (p.taxesAndFees != null) rows.push(row('Taxes &amp; Fees:', money(p.taxesAndFees)))
-  if (p.deliveryFee != null && p.deliveryFee !== 0) rows.push(row('Delivery Fee:', money(p.deliveryFee)))
-  if (p.tip != null) rows.push(row('Tip:', money(p.tip)))
-  if (p.promo != null && p.promo !== 0) rows.push(row('Promo:', `-${money(p.promo)}`))
-  rows.push(row('<strong>Total:</strong>', `<strong>${money(p.totalPrice)}</strong>`))
+  if (p.serviceCharge != null && p.serviceCharge > 0)
+    rows.push(row(`${escapeHtml(p.serviceChargeDisplayName || 'Service charge')}:`, money(p.serviceCharge)))
+  // Prefer the separate Taxes / Fees split (FM format); fall back to the legacy
+  // combined "Taxes & Fees" value when the split isn't supplied.
+  if (p.taxes != null || p.fees != null) {
+    if (p.taxes != null && p.taxes > 0) rows.push(row('Taxes:', money(p.taxes)))
+    if (p.fees != null && p.fees > 0) rows.push(row('Fees:', money(p.fees)))
+  } else if (p.taxesAndFees != null && p.taxesAndFees > 0) {
+    rows.push(row('Taxes &amp; Fees:', money(p.taxesAndFees)))
+  }
+  if (p.deliveryFee != null && p.deliveryFee > 0) rows.push(row('Delivery Fee:', money(p.deliveryFee)))
+  if (p.tip != null && p.tip > 0) rows.push(row('Tip:', money(p.tip)))
+  if (p.promo != null && p.promo > 0) rows.push(row('Discount:', `-${money(p.promo)}`, '#1D9E75'))
+  const refund = p.refund && p.refund > 0 ? p.refund : 0
+  if (refund > 0) rows.push(row('Refund:', `-${money(refund)}`, '#d32f2f'))
+  // When refunded, the bold Total is the net amount (charged − refund) so the
+  // visible lines reconcile.
+  const net = p.totalPrice - refund
+  rows.push(row('<strong>Total:</strong>', `<strong>${money(net)}</strong>`))
   return `<table style="width:100%;border-collapse:collapse;margin:8px 0;">${rows.join('')}</table>`
 }
 
@@ -179,23 +196,28 @@ export async function sendCustomerOrderConfirmation(
   try {
     const p = params
     const phone = formatPhone(p.businessPhone)
+    const customerName = [p.firstName, p.lastName].filter(Boolean).map(escapeHtml).join(' ')
+    // Subject mirrors FM: "Disco Cater Order N ($total) date for Name". Total is
+    // the net (after any refund), matching the body.
+    const subjectTotal = money(p.totalPrice - (p.refund && p.refund > 0 ? p.refund : 0))
+    const subject = `Disco Cater Order ${p.orderNumber} (${subjectTotal})${p.orderDate ? ` ${p.orderDate}` : ''}${customerName ? ` for ${customerName}` : ''}`
 
     const content = `
 ${p.orderEditNotice ? `<p style="font-size:15px;line-height:1.5;margin-bottom:12px;">${escapeHtml(p.orderEditNotice)}</p>` : ''}
 ${p.additionalInvoiceDue != null ? `<p style="margin-bottom:12px;"><strong>Additional amount due (invoice):</strong> ${money(p.additionalInvoiceDue)}</p>` : ''}
-<p style="margin:0;"><strong>ORDER RECEIPT:</strong></p>
-${HR}
-<p style="margin:0;"><strong>${escapeHtml(p.orderService)}: ${escapeHtml(p.orderDate)}${p.orderTime ? ` at ${escapeHtml(p.orderTime)}` : ''}</strong></p>
-${HR}
-<p style="margin:0;">Thanks for your order${p.firstName ? `, ${escapeHtml(p.firstName)}!` : '!'} Your order has been submitted to ${escapeHtml(p.businessName)}.</p>
-${HR}
-<p style="margin:0;"><strong>${escapeHtml(p.businessName)}</strong>${phone ? `<br/>${escapeHtml(phone)}` : ''}${p.addressLine1 ? `<br/>${escapeHtml(p.addressLine1)}` : ''}</p>
+<p style="margin:0;">
+Order Type: <strong>${escapeHtml(p.orderService)}</strong><br/>
+${p.orderDate ? `Order Date: <strong>${escapeHtml(p.orderDate)}</strong><br/>` : ''}
+${p.orderTime ? `Order Time: <strong>${escapeHtml(p.orderTime)}</strong>` : ''}
+</p>
 ${HR}
 ${renderCustomerBlock(p)}
 ${HR}
 <p style="margin:0;">Order Received: ${escapeHtml(p.orderReceived)}</p>
 ${HR}
 ${renderLineItems(p.orderMealPackages)}
+${HR}
+<p style="margin:0;"><strong>${escapeHtml(p.businessName)}</strong>${phone ? `<br/>${escapeHtml(phone)}` : ''}${p.addressLine1 ? `<br/>${escapeHtml(p.addressLine1)}` : ''}</p>
 ${HR}
 ${renderTotals(p)}
 ${HR}
@@ -206,7 +228,7 @@ ${anyQuestions(p)}
 `
     return await sendEmail({
       to: p.to,
-      subject: 'Your Disco Cater order is confirmed! 🪩',
+      subject,
       html: layout(content),
     })
   } catch (err) {

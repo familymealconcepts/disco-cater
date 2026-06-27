@@ -32,14 +32,13 @@ function normDateStr(v: unknown): string {
   if (v instanceof Date) return v.toISOString().slice(0, 10)
   return String(v ?? '').slice(0, 10)
 }
+// FM email/PDF date format: MM/DD/YYYY.
 function fmtDate(v: unknown): string {
   const iso = normDateStr(v)
   if (!iso) return ''
   const [y, m, d] = iso.split('-').map(Number)
   if (!y) return iso
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
-  })
+  return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`
 }
 function fmtTime(v: unknown): string {
   if (!v) return ''
@@ -129,7 +128,7 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
              customer_email, customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
              restaurant_reference, restaurant_name, restaurant_email, tax_exempt_id, tips,
-             subtotal, total, fee
+             subtotal, total, fee, refund
       FROM disco_orders WHERE id = ${orderId} LIMIT 1
     `) as Record<string, unknown>[]
     if (orders.length === 0) return
@@ -164,12 +163,16 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
     const restRef = String(o.restaurant_reference ?? '')
     let cacheName = ''
     let cacheLocation = ''
+    let cacheAddress = ''
+    let cachePhone = ''
     try {
       const rc = (await sql`
-        SELECT name, location FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1
-      `) as { name: string | null; location: string | null }[]
+        SELECT name, location, address, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1
+      `) as { name: string | null; location: string | null; address: string | null; phone: string | null }[]
       cacheName = rc[0]?.name || ''
       cacheLocation = rc[0]?.location || ''
+      cacheAddress = rc[0]?.address || ''
+      cachePhone = rc[0]?.phone || ''
     } catch { /* cache lookup is best-effort */ }
 
     // Total: COALESCE(disco_orders.total, disco_stripe_payments.total). Native
@@ -208,13 +211,18 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
     // Sale-transaction snapshot when present, else the disco_orders columns.
     const subtotal = hasTxn ? num(t.subtotal) : num(o.subtotal)
     const serviceCharge = num(t.service_charge)
-    const taxesAndFees = hasTxn
-      ? num(t.state_tax) + num(t.local_tax) + num(t.other_tax) + num(t.fee)
-      : num(o.fee)
     const deliveryFee = num(t.own_delivery_fee) + num(t.third_party_delivery_fee)
     const tip = num(t.tips_in_price) || num(o.tips)
     const promo = num(t.discount)
+    const refund = num(o.refund)
     const totalPrice = hasTxn ? num(t.total) : (num(o.total) || stripeTotal)
+    // Fees = the platform fee. Taxes are explicit on the sale-transaction
+    // snapshot; native orders don't store a tax column, so derive taxes as the
+    // residual that makes the visible lines reconcile to the total.
+    const fees = hasTxn ? num(t.fee) : num(o.fee)
+    const taxes = hasTxn
+      ? num(t.state_tax) + num(t.local_tax) + num(t.other_tax)
+      : Math.max(0, totalPrice - subtotal - fees - serviceCharge - tip - deliveryFee + promo)
 
     const shared = {
       firstName: o.customer_first_name ? String(o.customer_first_name) : undefined,
@@ -232,15 +240,20 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       orderMealPackages,
       subtotal,
       serviceCharge,
-      taxesAndFees,
+      taxes,
+      fees,
       deliveryFee,
       tip,
       promo,
+      refund,
       totalPrice,
       orderNumber: o.order_number as number,
       taxExemptId: o.tax_exempt_id ? String(o.tax_exempt_id) : undefined,
       // Prefer the canonical cache name; fall back to the order's stored name.
       businessName: cacheName || (o.restaurant_name ? String(o.restaurant_name) : '') || 'the restaurant',
+      // Store contact (FM format) — canonical in disco_restaurant_cache.
+      businessPhone: cachePhone || undefined,
+      addressLine1: cacheAddress || undefined,
     }
 
     // Customer confirmation — needs a recipient.

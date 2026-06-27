@@ -28,6 +28,7 @@ interface DiscoFull {
   order_type: string
   delivery_type: string | null
   source_of_order: string
+  restaurant_reference: string | null
   restaurant_name: string | null
   customer_email: string | null
   customer_first_name: string | null
@@ -79,7 +80,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (isUuid(ref)) {
     const rows = (await sql`
       SELECT id, reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
-             source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name, customer_phone,
+             source_of_order, restaurant_reference, restaurant_name, customer_email, customer_first_name, customer_last_name, customer_phone,
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, order_drop_off_time::text AS order_drop_off_time,
              subtotal, total, fee, tips, refund, note,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, tax_exempt_id,
@@ -135,9 +136,36 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (d.refund != null) base.refund = num(d.refund)
   // Tax-exempt id — Neon-first, else keep FM's (taxExempt/taxExemptId).
   if (d.tax_exempt_id) { base.taxExemptId = d.tax_exempt_id; base.taxExempt = true }
-  if (d.restaurant_name) {
+  // Restaurant identity for the drawer + PDF. Canonical name/address/phone live
+  // in disco_restaurant_cache (native orders have no FM restaurant, and
+  // disco_orders.restaurant_name is often null). Prefer any FM values already on
+  // base.restaurant; fall back to the cache.
+  {
     const r = (base.restaurant as Record<string, unknown>) || {}
-    base.restaurant = { ...r, businessName: r.businessName || d.restaurant_name }
+    let cacheName = ''
+    let cacheAddress = ''
+    let cachePhone = ''
+    if (d.restaurant_reference) {
+      try {
+        const rc = (await sql`
+          SELECT name, address, phone FROM disco_restaurant_cache
+          WHERE restaurant_reference = ${d.restaurant_reference} LIMIT 1
+        `.catch(() => [])) as { name: string | null; address: string | null; phone: string | null }[]
+        cacheName = rc[0]?.name || ''
+        cacheAddress = rc[0]?.address || ''
+        cachePhone = rc[0]?.phone || ''
+      } catch { /* best-effort */ }
+    }
+    const businessName = (r.businessName as string) || d.restaurant_name || cacheName || ''
+    const fmAddr = (r.address as Record<string, unknown> | undefined)
+    // Keep FM's structured address when present; otherwise synthesize one from the
+    // cache so the PDF/drawer show the store address + phone.
+    const address = fmAddr && (fmAddr.addressLine1 || fmAddr.city)
+      ? { ...fmAddr, phoneNumber: fmAddr.phoneNumber || cachePhone || undefined }
+      : (cacheAddress || cachePhone ? { addressLine1: cacheAddress || undefined, phoneNumber: cachePhone || undefined } : fmAddr)
+    if (businessName || address) {
+      base.restaurant = { ...r, ...(businessName ? { businessName } : {}), ...(address ? { address } : {}) }
+    }
   }
   // Delivery address — prefer FM's; fall back to Neon's stored address.
   if (!base.deliveryAddress && d.delivery_address_line1) {

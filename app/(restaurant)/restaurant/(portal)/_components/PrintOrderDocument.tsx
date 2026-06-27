@@ -313,15 +313,20 @@ export function buildPrintHtml(order: PrintableOrder): string {
       : totalRow('Total', total, { bold: true }),
   ].filter(Boolean).join('')
 
-  const title = `Disco Cater Order ${order.orderNumber ?? ''}`.trim()
-
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>${esc(title)}</title>
+  <!-- Empty title so the browser print header doesn't show "Disco Cater Order N"
+       or the about:blank URL. @page margin:0 suppresses the browser's own
+       header/footer (date, URL, page numbers) entirely. -->
+  <title> </title>
   <style>
-    @page { size: letter portrait; margin: 0.5in; }
+    @page { size: letter portrait; margin: 0; }
+    @media print {
+      header, footer { display: none !important; }
+      body { padding: 0.5in; }
+    }
     * { box-sizing: border-box; }
     body {
       font-family: Arial, "Helvetica Neue", Helvetica, system-ui, sans-serif;
@@ -425,8 +430,11 @@ export function buildPrintHtml(order: PrintableOrder): string {
     .notes .lbl { font-weight: 700; margin-right: 4px; }
     .footer {
       font-size: 10px;
-      color: #000;
-      margin-top: 10px;
+      color: #888;
+      margin-top: 20px;
+      padding-top: 8px;
+      border-top: 1px solid #ddd;
+      text-align: center;
     }
     @media screen {
       body { padding: 24px; max-width: 720px; margin: 0 auto; }
@@ -450,18 +458,31 @@ export function buildPrintHtml(order: PrintableOrder): string {
         ${timeRange ? `<div class="line"><span class="lbl">Time:</span>${esc(timeRange)}</div>` : ''}
         ${order.persons != null ? `<div class="line"><span class="lbl">Headcount:</span>${esc(String(order.persons))}</div>` : ''}
         ${order.createdDate ? `<div class="line"><span class="lbl">Order Placed:</span>${esc(fmtReceived(order.createdDate))}</div>` : ''}
-        ${order.restaurant?.businessName ? `<div class="line" style="margin-top:6px"><span class="lbl">Store:</span>${esc(order.restaurant.businessName)}</div>` : ''}
-        ${storeAddrLines.map(l => `<div class="line">${esc(l)}</div>`).join('')}
-        ${order.restaurant?.address?.phoneNumber ? `<div class="line">${esc(order.restaurant.address.phoneNumber)}</div>` : ''}
       </td>
       <td>
         <div class="line"><span class="lbl">Date:</span>${esc(fmtIsoLongDate(order.orderDropOffTime) || fmtLongDate(order.orderDate))}</div>
         <div class="line"><span class="lbl">Time:</span>${esc(fmtIsoTime(order.orderDropOffTime) || fmtTime12(order.orderTime))}</div>
-        ${customerName ? `<div class="line" style="margin-top:6px"><span class="lbl">Customer:</span>${esc(customerName)}</div>` : ''}
+      </td>
+    </tr>
+  </table>
+
+  <table class="cols" cellspacing="0" cellpadding="0">
+    <tr>
+      <td class="head">STORE</td>
+      <td class="head">CUSTOMER</td>
+    </tr>
+    <tr>
+      <td>
+        ${order.restaurant?.businessName ? `<div class="line"><strong>${esc(order.restaurant.businessName)}</strong></div>` : ''}
+        ${storeAddrLines.map(l => `<div class="line">${esc(l)}</div>`).join('')}
+        ${order.restaurant?.address?.phoneNumber ? `<div class="line">${esc(order.restaurant.address.phoneNumber)}</div>` : ''}
+      </td>
+      <td>
+        ${customerName ? `<div class="line"><strong>${esc(customerName)}</strong></div>` : ''}
         ${order.companyName ? `<div class="line"><span class="lbl">Company:</span>${esc(order.companyName)}</div>` : ''}
-        ${customerAddrLines.map(l => `<div class="line">${esc(l)}</div>`).join('')}
         ${order.email ? `<div class="line">${esc(order.email)}</div>` : ''}
         ${order.phoneNumber ? `<div class="line">${esc(order.phoneNumber)}</div>` : ''}
+        ${customerAddrLines.map(l => `<div class="line">${esc(l)}</div>`).join('')}
         ${order.deliveryAddress?.deliveryInstructions ? `<div class="line"><span class="lbl">Notes:</span>${esc(order.deliveryAddress.deliveryInstructions)}</div>` : ''}
       </td>
     </tr>
@@ -502,9 +523,6 @@ export function buildPrintHtml(order: PrintableOrder): string {
 // was blocked so the caller can surface an error to the user.
 export function printOrder(order: PrintableOrder): boolean {
   if (typeof window === 'undefined') return false
-  // Temporary: surface the full order shape so we can confirm the real field
-  // names (pickup time, service charge, note) against FM.
-  console.log('[printOrder] order object:', order)
   const html = buildPrintHtml(order)
   const w = window.open('', '_blank', 'width=820,height=900')
   if (!w) return false
