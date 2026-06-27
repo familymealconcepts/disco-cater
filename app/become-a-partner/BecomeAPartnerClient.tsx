@@ -95,8 +95,9 @@ function PriceRow({ label, detail, value, who, highlight }: {
   )
 }
 
-// Steps (5 + final): 0 account · 1 restaurant info · 2 pricing · 3 Stripe ·
-// 4 menu · 5 "You're Live" (fires /complete, the ONLY account-provisioning call).
+// Steps: 0 account · 1 restaurant info · 2 first-party pricing (required) ·
+// 3 marketplace (opt) · 4 third-party delivery (opt) · 5 Stripe (skippable) ·
+// 6 menu · 7 "You're Live" (fires /complete, the ONLY account-provisioning call).
 export default function BecomeAPartnerClient() {
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormState>({
@@ -154,7 +155,7 @@ export default function BecomeAPartnerClient() {
         if (typeof s.deliveryEnabled === 'boolean') setDeliveryEnabled(s.deliveryEnabled)
         if (typeof s.stripeConnected === 'boolean') setStripeConnected(s.stripeConnected)
         if (typeof s.restaurantRef === 'string') setRestaurantRef(s.restaurantRef)
-        if (!isStripeReturn && Number.isFinite(s.step) && s.step >= 1 && s.step <= 4) setStep(s.step)
+        if (!isStripeReturn && Number.isFinite(s.step) && s.step >= 1 && s.step <= 6) setStep(s.step)
       }
     } catch { /* snapshot optional */ }
 
@@ -165,15 +166,15 @@ export default function BecomeAPartnerClient() {
         // Confirm charges_enabled server-side (sets stripe_onboarding_complete).
         fetch(`/api/become-a-partner/stripe-status?restaurantReference=${encodeURIComponent(refFromQuery)}`).catch(() => {})
       }
-      setStep(3)
+      setStep(5) // Stripe step
       try { window.history.replaceState({}, '', '/become-a-partner') } catch { /* ignore */ }
     }
   }, [])
 
-  // Persist the snapshot (never the password) on any relevant change, for steps 0–4.
+  // Persist the snapshot (never the password) on any relevant change, for steps 0–6.
   useEffect(() => {
     try {
-      if (step <= 4) {
+      if (step <= 6) {
         const snap = {
           step,
           form: { ...form, password: '' },
@@ -221,7 +222,7 @@ export default function BecomeAPartnerClient() {
 
   // Fire the final account-creation call exactly once when we reach the live step.
   useEffect(() => {
-    if (step === 5 && !completeFired.current) {
+    if (step === 7 && !completeFired.current) {
       completeFired.current = true
       completeOnboarding()
     }
@@ -344,7 +345,7 @@ export default function BecomeAPartnerClient() {
     } catch (err) {
       console.error('[become-a-partner] menu skip note failed:', err)
     }
-    setStep(5)
+    setStep(7)
   }
 
   // ── Final step → the ONLY account-provisioning call. Creates FM (best-effort),
@@ -407,15 +408,15 @@ export default function BecomeAPartnerClient() {
 
       {/* Top bar: back link (left) + step counter (right) */}
       <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '22px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 }}>
-        {step >= 1 && step <= 4 ? (
+        {step >= 1 && step <= 6 ? (
           <button onClick={back} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#777', fontFamily: F, fontWeight: 600, padding: 0 }}>
             ‹ Back
           </button>
         ) : (
           <Link href="/" style={{ fontSize: 14, color: '#777', textDecoration: 'none', fontWeight: 600 }}>‹ Back</Link>
         )}
-        {step <= 4 && (
-          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 5</div>
+        {step <= 6 && (
+          <div style={{ fontSize: 13, color: '#aaa', fontWeight: 700 }}>Step {step + 1} of 8</div>
         )}
       </div>
 
@@ -427,10 +428,10 @@ export default function BecomeAPartnerClient() {
         </Link>
       </div>
 
-      {/* Step indicator — five segments */}
-      {step <= 4 && (
+      {/* Step indicator — eight segments */}
+      {step <= 6 && (
         <div style={{ maxWidth: 560, width: '100%', margin: '18px auto 0', padding: '0 24px', display: 'flex', gap: 8 }}>
-          {[0, 1, 2, 3, 4].map(i => (
+          {[0, 1, 2, 3, 4, 5, 6, 7].map(i => (
             <div key={i} style={{ flex: 1, height: 5, borderRadius: 999, background: i <= step ? GRADIENT : '#e8e8f0', transition: 'background 0.2s' }} />
           ))}
         </div>
@@ -472,7 +473,7 @@ export default function BecomeAPartnerClient() {
           {step === 1 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Restaurant info</h1>
-              <p style={subStyle}>Where you&apos;re located — this is how customers find you on the Disco Cater map.</p>
+              <p style={subStyle}>Start with 1 location and our team can help onboard the rest.</p>
               {errorBox}
               <div style={{ marginTop: 18 }}>
                 <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
@@ -519,51 +520,24 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 3 · PRICING OVERVIEW (display only) ── */}
+          {/* ── STEP 3 · PRICING: FIRST-PARTY (required) ── */}
           {step === 2 && (
             <div style={cardStyle}>
-              <h1 style={h1Style}>Pricing overview</h1>
-              <p style={subStyle}>Simple, transparent pricing — our rates beat every major competitor.</p>
+              <h1 style={h1Style}><span style={{ color: '#5B6FE8' }}>Pricing:</span> First-Party Ordering</h1>
+              <p style={subStyle}>Orders placed through your website, social and other native links.</p>
               {errorBox}
 
-              {/* First-party */}
-              <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ marginTop: 18 }}>
                 <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
-                  <div style={priceSectionTitle}>Your Own Orders · Paid by Restaurant</div>
+                  <div style={priceSectionTitle}>Paid by Restaurant</div>
                   <PriceRow label="First-Party orders" value="0.00%" />
                   <PriceRow label="Direct Entry orders" detail="Orders you enter yourself through your portal" value="0.00%" />
                   <PriceRow label="Stripe processing" detail="Per transaction" value="2.90% + $0.30" />
                 </div>
-                <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
-                  <div style={priceSectionTitle}>Paid by Customer</div>
-                  <PriceRow label="Customer convenience fee" detail="Added at checkout" value="3.00%" />
-                  <PriceRow label="Third-party delivery" detail="catering-specific drivers" value="15% of Subtotal, $85 cap" />
-                </div>
-                {/* Marketplace lead-gen */}
-                <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 20 }}>
-                  <div style={priceSectionTitle}>Marketplace (optional) · Paid by Restaurant</div>
-                  <PriceRow label="First-time customers" detail="First order from a new customer at a unique location" value="15.00%" />
-                  <PriceRow label="Returning customers" detail="That customer's subsequent orders from that location" value="5.00%" />
-                  <div style={{ fontSize: 12, color: '#999', margin: '10px 2px 0', lineHeight: 1.5 }}>
-                    Marketplace fees only apply when Disco Cater is the source of the order.
-                  </div>
-                </div>
               </div>
 
-              {/* Optional opt-ins */}
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '18px 0 0' }}>
-                <input type="checkbox" checked={joinedMarketplace} onChange={e => setJoinedMarketplace(e.target.checked)}
-                  style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
-                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>Join the Disco Cater Marketplace to receive new catering orders</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '12px 0 0' }}>
-                <input type="checkbox" checked={deliveryEnabled} onChange={e => setDeliveryEnabled(e.target.checked)}
-                  style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
-                <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>Enable third-party catering delivery drivers</span>
-              </label>
-
-              {/* Required terms */}
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '16px 0 18px' }}>
+              {/* Required terms — no skip; must agree to continue */}
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 11, cursor: 'pointer', margin: '20px 0 18px' }}>
                 <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)}
                   style={{ width: 18, height: 18, marginTop: 1, accentColor: BLUE, cursor: 'pointer', flexShrink: 0 }} />
                 <span style={{ fontSize: 14, color: DARK, fontWeight: 600, lineHeight: 1.5 }}>
@@ -576,13 +550,67 @@ export default function BecomeAPartnerClient() {
 
               <button onClick={() => { setError(''); setStep(3) }} disabled={!agree}
                 style={{ ...primaryBtn, opacity: agree ? 1 : 0.5, cursor: agree ? 'pointer' : 'default' }}>
-                Next
+                Continue
               </button>
             </div>
           )}
 
-          {/* ── STEP 4 · CONNECT STRIPE ── */}
+          {/* ── STEP 4 · PRICING: MARKETPLACE (optional) ── */}
           {step === 3 && (
+            <div style={cardStyle}>
+              <h1 style={h1Style}><span style={{ color: '#5B6FE8' }}>Pricing:</span> Marketplace (Optional)</h1>
+              <p style={subStyle}>We send you new catering orders through the Disco Cater network of corporate and social customers. Fees only apply when we are the source of the order.</p>
+              {errorBox}
+
+              <div style={{ marginTop: 18, border: '1px solid #ececf4', borderRadius: 16, padding: '4px 18px 14px' }}>
+                <PriceRow label="First-time customers" detail="Of order subtotal — the first time a new customer orders from a unique location" value="15.00%" who="restaurant" />
+                <PriceRow label="Returning customers" detail="Of order subtotal — that customer's subsequent orders from that location" value="5.00%" who="restaurant" />
+              </div>
+              <div style={{ fontSize: 12, color: '#999', margin: '10px 2px 0', lineHeight: 1.5 }}>
+                All First-Party ordering fees apply.
+              </div>
+
+              <button onClick={() => { setError(''); setJoinedMarketplace(true); setStep(4) }}
+                style={{ ...primaryBtn, marginTop: 22 }}>
+                Join Marketplace
+              </button>
+              <div style={{ textAlign: 'center', marginTop: 12 }}>
+                <button onClick={() => { setError(''); setJoinedMarketplace(false); setStep(4) }} style={linkBtn}>
+                  Skip for now
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 5 · THIRD-PARTY DELIVERY (optional) ── */}
+          {step === 4 && (
+            <div style={cardStyle}>
+              <h1 style={h1Style}>Third-Party Delivery (Optional)</h1>
+              <p style={subStyle}>Offer your customers catering-specific delivery drivers, automatically dispatched when they choose delivery at checkout.</p>
+              {errorBox}
+
+              <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {['Catering-specific drivers', '15% of Subtotal, $85 cap', 'Setup included', 'Proactive support'].map(b => (
+                  <div key={b} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: DARK, fontWeight: 600 }}>
+                    <span style={{ color: '#2E9E5B', fontWeight: 800 }}>✓</span> {b}
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={() => { setError(''); setDeliveryEnabled(true); setStep(5) }}
+                style={{ ...primaryBtn, marginTop: 24 }}>
+                Enable Third-Party Delivery
+              </button>
+              <div style={{ textAlign: 'center', marginTop: 12 }}>
+                <button onClick={() => { setError(''); setDeliveryEnabled(false); setStep(5) }} style={linkBtn}>
+                  Skip for now
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 6 · CONNECT STRIPE (skippable) ── */}
+          {step === 5 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Connect Stripe for payouts</h1>
               <p style={subStyle}>Connect your bank account through Stripe to receive payouts from catering orders.</p>
@@ -595,7 +623,7 @@ export default function BecomeAPartnerClient() {
                       style={{ ...primaryBtn, background: '#2E9E5B', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                       ✓ Stripe connected
                     </button>
-                    <button onClick={() => { setError(''); setStep(4) }} style={{ ...primaryBtn, marginTop: 12 }}>
+                    <button onClick={() => { setError(''); setStep(6) }} style={{ ...primaryBtn, marginTop: 12 }}>
                       Continue
                     </button>
                   </>
@@ -605,21 +633,23 @@ export default function BecomeAPartnerClient() {
                       style={{ ...primaryBtn, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: loading ? 0.7 : 1, cursor: loading ? 'default' : 'pointer' }}>
                       {loading ? 'Connecting…' : <>Connect to <span style={{ fontWeight: 800, fontStyle: 'italic' }}>Stripe</span> →</>}
                     </button>
-                    {error && (
-                      <div style={{ textAlign: 'center', marginTop: 12 }}>
-                        <button onClick={() => { setError(''); setStep(4) }} style={linkBtn}>
-                          Connect Stripe later from your dashboard
-                        </button>
-                      </div>
-                    )}
+                    {/* Skippable — banking can be set up later from the dashboard. */}
+                    <div style={{ textAlign: 'center', marginTop: 14 }}>
+                      <button onClick={() => { setError(''); setStep(6) }} style={linkBtn}>
+                        Skip for now
+                      </button>
+                      <p style={{ fontSize: 12, color: '#999', margin: '8px auto 0', maxWidth: 360, lineHeight: 1.5 }}>
+                        You can set up banking anytime from your dashboard under Account → Banking.
+                      </p>
+                    </div>
                   </>
                 )}
               </div>
             </div>
           )}
 
-          {/* ── STEP 5 · UPLOAD YOUR MENU (optional) ── */}
-          {step === 4 && (
+          {/* ── STEP 7 · UPLOAD YOUR MENU (optional) ── */}
+          {step === 6 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Upload your menu</h1>
               <p style={subStyle}>Upload a PDF or paste a link and our AI will set it up. You can add menu items anytime from your dashboard.</p>
@@ -653,7 +683,7 @@ export default function BecomeAPartnerClient() {
                     ))}
                   </div>
                   <p style={{ ...subStyle, margin: '14px 0 0' }}>Looks good! We&apos;ll finish setting up your menu.</p>
-                  <button onClick={() => setStep(5)} style={{ ...primaryBtn, marginTop: 18 }}>Continue</button>
+                  <button onClick={() => setStep(7)} style={{ ...primaryBtn, marginTop: 18 }}>Continue</button>
                 </div>
 
               ) : menuResult?.confidence === 'low' ? (
@@ -664,7 +694,7 @@ export default function BecomeAPartnerClient() {
                       Our team will be in touch to help finish setting up your catering menu.
                     </p>
                   </div>
-                  <button onClick={() => setStep(5)} style={{ ...primaryBtn, marginTop: 18 }}>Continue</button>
+                  <button onClick={() => setStep(7)} style={{ ...primaryBtn, marginTop: 18 }}>Continue</button>
                 </div>
 
               ) : (
@@ -725,8 +755,8 @@ export default function BecomeAPartnerClient() {
             </div>
           )}
 
-          {/* ── STEP 6 · YOU'RE LIVE (fires /complete) ── */}
-          {step === 5 && (
+          {/* ── STEP 8 · YOU'RE LIVE (fires /complete) ── */}
+          {step === 7 && (
             <div style={{ ...cardStyle, textAlign: 'center', padding: '40px 30px' }}>
               {completing ? (
                 <div style={{ padding: '20px 0' }}>

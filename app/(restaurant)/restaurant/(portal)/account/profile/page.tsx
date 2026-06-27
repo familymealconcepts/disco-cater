@@ -43,11 +43,14 @@ interface Restaurant {
   marketplaceImage?: { reference?: string }
 }
 
-interface BusinessInfo {
-  businessLegalName: string
-  city: string
-  state: string
-  zipcode: string
+// Disco-native restaurant profile (name / address / phone / logo), stored in
+// disco_restaurant_accounts + disco_restaurant_cache during onboarding. Editable
+// here; saved to Neon (never synced to FM).
+interface DiscoProfile {
+  restaurantName: string
+  phone: string
+  address: string
+  logoUrl: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -133,7 +136,13 @@ function Card({
 
 export default function ProfilePage() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
-  const [businessInfo, setBusinessInfo] = useState<BusinessInfo>({ businessLegalName: '', city: '', state: '', zipcode: '' })
+
+  // Disco-native profile card (Neon-backed; pre-populated from onboarding).
+  const [discoProfile, setDiscoProfile] = useState<DiscoProfile>({ restaurantName: '', phone: '', address: '', logoUrl: '' })
+  const [discoSaving, setDiscoSaving] = useState(false)
+  const [discoSuccess, setDiscoSuccess] = useState('')
+  const [discoError, setDiscoError] = useState('')
+  const [discoLogoUploading, setDiscoLogoUploading] = useState(false)
 
   // Profile card state
   const [admin, setAdmin] = useState<Admin>({ firstName: '', lastName: '', email: '', phoneNumber: '' })
@@ -148,16 +157,9 @@ export default function ProfilePage() {
   const [pwSuccess, setPwSuccess] = useState('')
   const [pwError, setPwError] = useState('')
 
-  // Business info card state
-  const [bizSaving, setBizSaving] = useState(false)
-  const [bizSuccess, setBizSuccess] = useState('')
-  const [bizError, setBizError] = useState('')
-
-  // Address card state
+  // Address state — populated from FM and reused by the FM-backed payload below
+  // (Profile + DoorDash cards). No standalone "Address" card anymore.
   const [address, setAddress] = useState<Address>({ businessName: '', phoneNumber: '', addressLine1: '', city: '', state: '', zipcode: '' })
-  const [addrSaving, setAddrSaving] = useState(false)
-  const [addrSuccess, setAddrSuccess] = useState('')
-  const [addrError, setAddrError] = useState('')
 
   // DoorDash card state
   const [pickupInstructions, setPickupInstructions] = useState('')
@@ -203,8 +205,8 @@ export default function ProfilePage() {
   useEffect(() => {
     Promise.all([
       fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : null),
-      fetch('/api/restaurant/business-info').then(r => r.ok ? r.json() : null),
-    ]).then(([rest, biz]) => {
+      fetch('/api/restaurant/disco-profile').then(r => r.ok ? r.json() : null),
+    ]).then(([rest, disco]) => {
       if (rest) {
         setRestaurant(rest)
         setAdmin({
@@ -225,12 +227,12 @@ export default function ProfilePage() {
         })
         setPickupInstructions(rest.pickupInstructions || '')
       }
-      if (biz) {
-        setBusinessInfo({
-          businessLegalName: biz.businessLegalName || '',
-          city: biz.city || '',
-          state: biz.state || '',
-          zipcode: biz.zipcode || '',
+      if (disco) {
+        setDiscoProfile({
+          restaurantName: disco.restaurantName || '',
+          phone: disco.phone || '',
+          address: disco.address || '',
+          logoUrl: disco.logoUrl || '',
         })
       }
       setLoading(false)
@@ -318,51 +320,45 @@ export default function ProfilePage() {
     setPwSaving(false)
   }
 
-  async function saveBusinessInfo() {
-    setBizSaving(true)
-    setBizError('')
-    setBizSuccess('')
+  // Disco-native restaurant info — saved to Neon (accounts + cache), not FM.
+  async function saveDiscoProfile() {
+    setDiscoSaving(true)
+    setDiscoError('')
+    setDiscoSuccess('')
     try {
-      const res = await fetch('/api/restaurant/business-info', {
+      const res = await fetch('/api/restaurant/disco-profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(businessInfo),
+        body: JSON.stringify(discoProfile),
       })
       if (!res.ok) {
-        setBizError('Failed to save business info. Please try again.')
+        setDiscoError('Failed to save. Please try again.')
       } else {
-        setBizSuccess('Business info updated.')
-        setTimeout(() => setBizSuccess(''), 3000)
+        setDiscoSuccess('Restaurant info updated.')
+        setTimeout(() => setDiscoSuccess(''), 3000)
       }
     } catch {
-      setBizError('Network error. Please try again.')
+      setDiscoError('Network error. Please try again.')
     }
-    setBizSaving(false)
+    setDiscoSaving(false)
   }
 
-  async function saveAddress() {
-    setAddrSaving(true)
-    setAddrError('')
-    setAddrSuccess('')
+  // Logo / marketplace image upload → Vercel Blob; the URL is saved on "Save".
+  async function uploadDiscoLogo(file: File) {
+    setDiscoLogoUploading(true)
+    setDiscoError('')
     try {
-      const payload = buildRestaurantPayload()
-      const res = await fetch('/api/restaurant/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      if (res.status === 501) {
-        setAddrError('Profile editing will be available soon.')
-      } else if (!res.ok) {
-        setAddrError('Failed to save address. Please try again.')
-      } else {
-        setAddrSuccess('Address updated.')
-        setTimeout(() => setAddrSuccess(''), 3000)
-      }
+      const fd = new FormData()
+      fd.append('image', file)
+      const res = await fetch('/api/become-a-partner/logo', { method: 'POST', body: fd })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data?.url) setDiscoProfile(p => ({ ...p, logoUrl: String(data.url) }))
+      else setDiscoError(data?.error || 'Could not upload image.')
     } catch {
-      setAddrError('Network error. Please try again.')
+      setDiscoError('Could not upload image.')
+    } finally {
+      setDiscoLogoUploading(false)
     }
-    setAddrSaving(false)
   }
 
   async function saveDoorDash() {
@@ -477,41 +473,30 @@ export default function ProfilePage() {
           </FormField>
         </Card>
 
-        {/* Card 3: Business Legal Info */}
-        <Card title="Business Legal Info" onSave={saveBusinessInfo} saving={bizSaving} success={bizSuccess} error={bizError}>
-          <FormField label="Business Legal Name">
-            {inp(businessInfo.businessLegalName, v => setBusinessInfo({ ...businessInfo, businessLegalName: v }))}
-          </FormField>
-          <FormField label="City">
-            {inp(businessInfo.city, v => setBusinessInfo({ ...businessInfo, city: v }))}
-          </FormField>
-          <FormField label="State">
-            {inp(businessInfo.state, v => setBusinessInfo({ ...businessInfo, state: v }))}
-          </FormField>
-          <FormField label="Zip Code">
-            {inp(businessInfo.zipcode, v => setBusinessInfo({ ...businessInfo, zipcode: v }))}
-          </FormField>
-        </Card>
-
-        {/* Card 4: Restaurant Address */}
-        <Card title="Restaurant Address" onSave={saveAddress} saving={addrSaving} success={addrSuccess} error={addrError}>
-          <FormField label="Business Name">
-            {inp(address.businessName, v => setAddress({ ...address, businessName: v }))}
+        {/* Card 3: Restaurant Info (Disco-native; pre-populated from onboarding,
+            saved to Neon — not synced to FM) */}
+        <Card title="Restaurant Info" onSave={saveDiscoProfile} saving={discoSaving} success={discoSuccess} error={discoError}>
+          <FormField label="Restaurant Name">
+            {inp(discoProfile.restaurantName, v => setDiscoProfile({ ...discoProfile, restaurantName: v }))}
           </FormField>
           <FormField label="Phone Number">
-            {inp(address.phoneNumber, v => setAddress({ ...address, phoneNumber: v }), { type: 'tel' })}
+            {inp(discoProfile.phone, v => setDiscoProfile({ ...discoProfile, phone: v }), { type: 'tel' })}
           </FormField>
           <FormField label="Address">
-            {inp(address.addressLine1, v => setAddress({ ...address, addressLine1: v }))}
+            {inp(discoProfile.address, v => setDiscoProfile({ ...discoProfile, address: v }), { placeholder: 'Street, City, State ZIP' })}
           </FormField>
-          <FormField label="City">
-            {inp(address.city, v => setAddress({ ...address, city: v }))}
-          </FormField>
-          <FormField label="State">
-            {inp(address.state, v => setAddress({ ...address, state: v }))}
-          </FormField>
-          <FormField label="Zip Code">
-            {inp(address.zipcode, v => setAddress({ ...address, zipcode: v }))}
+          <FormField label="Logo / Marketplace Image">
+            {discoProfile.logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={discoProfile.logoUrl} alt="Logo" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block', marginBottom: 10 }} />
+            )}
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, cursor: discoLogoUploading ? 'default' : 'pointer', fontFamily: F, color: DARK }}>
+              {discoLogoUploading ? 'Uploading…' : (discoProfile.logoUrl ? 'Replace Image' : 'Upload Image')}
+              <input type="file" accept="image/*" disabled={discoLogoUploading}
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadDiscoLogo(f) }}
+                style={{ display: 'none' }} />
+            </label>
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Shown on the Disco Cater marketplace. Click Save to apply.</div>
           </FormField>
         </Card>
 

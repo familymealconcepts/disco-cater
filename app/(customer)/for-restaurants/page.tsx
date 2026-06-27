@@ -20,8 +20,8 @@ const VALUE_PROPS: { emoji: string; title: string; desc: string }[] = [
 
 // Action cards — white, subtle border + shadow, brand-purple arrow.
 const CARDS: { title: string; subtitle: string; href: string }[] = [
-  { title: 'Create an Account', subtitle: 'Join Disco Cater and start taking catering orders online.', href: '/become-a-partner' },
   { title: 'Log In', subtitle: 'Access your restaurant dashboard.', href: '/restaurant/login' },
+  { title: 'Create an Account', subtitle: 'Join Disco Cater and start taking catering orders online.', href: '/become-a-partner' },
   { title: 'Learn More', subtitle: 'See how Disco Cater works for restaurants.', href: '/faq' },
 ]
 
@@ -51,7 +51,7 @@ export default function ForRestaurantsPage() {
 
       <div style={{ width: '100%', maxWidth: 620, textAlign: 'center' }}>
         <h1 className="fr-heading" style={{ fontSize: 36, fontWeight: 800, color: DARK, letterSpacing: '-0.02em', lineHeight: 1.15, margin: '0 0 12px' }}>
-          Built for restaurants that cater
+          Predictable, recurring and high-margin orders on your terms
         </h1>
         <p style={{ fontSize: 15, color: '#585786', lineHeight: 1.6, margin: '0 0 36px' }}>
           Manage catering orders, reach new customers, and grow — all in one place.
