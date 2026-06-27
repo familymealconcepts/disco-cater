@@ -1244,12 +1244,22 @@ function OrdersContent() {
   // Client-side recurring filter over the loaded page of orders.
   const [recurringFilter, setRecurringFilter] = useState<'all' | 'recurring' | 'onetime'>('all')
   const [loading, setLoading] = useState(false)
+  // Silent auto-refresh: backgroundRefreshing never drives the skeleton. When a
+  // background poll surfaces genuinely new orders, we stash them in `pending` and
+  // show a subtle pill instead of disrupting the list; status/total-only changes
+  // apply silently in place.
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
+  const [pending, setPending] = useState<{ content: Order[]; total: number } | null>(null)
   const [sortField, setSortField] = useState('order_date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [drawerRef, setDrawerRef] = useState<string | null>(null)
   const [historyRef, setHistoryRef] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ msg: string; action: () => void } | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Mirrors `orders` so loadOrders can diff against the current list without
+  // taking `orders` as a dependency (which would re-fire the load effect).
+  const ordersRef = useRef<Order[]>([])
+  useEffect(() => { ordersRef.current = orders }, [orders])
 
   const statuses = tab === 'active' ? ACTIVE_STATUSES : HISTORY_STATUSES
 
@@ -1276,9 +1286,12 @@ function OrdersContent() {
     setAppliedFrom(''); setAppliedTo('')
   }
 
-  const loadOrders = useCallback(async (resetPage?: boolean) => {
+  const loadOrders = useCallback(async (resetPage?: boolean, background?: boolean) => {
     if (tab === 'counts') return
-    setLoading(true)
+    // Skeleton ONLY on the very first load (nothing on screen yet). A background
+    // auto-refresh never touches `loading`, so the list never flashes.
+    if (background) setBackgroundRefreshing(true)
+    else if (ordersRef.current.length === 0) setLoading(true)
     const p = new URLSearchParams()
     const currentPage = resetPage ? 0 : page
     p.set('page', String(currentPage))
@@ -1293,10 +1306,30 @@ function OrdersContent() {
     const res = await fetch(`/api/restaurant/orders?${p}`)
     if (res.ok) {
       const d = await res.json()
-      setOrders(d.content || [])
-      setTotal(d.totalElements || 0)
+      const next: Order[] = d.content || []
+      const nextTotal: number = d.totalElements || 0
+      if (background) {
+        // Genuinely new orders = order numbers not already on screen.
+        const currentNums = new Set(ordersRef.current.map(o => o.orderNumber))
+        const hasNew = next.some(o => !currentNums.has(o.orderNumber))
+        if (hasNew) {
+          // Don't disrupt — stash and let the user opt in via the pill.
+          setPending({ content: next, total: nextTotal })
+        } else {
+          // No new orders → apply status/total changes silently in place.
+          setOrders(next)
+          setTotal(nextTotal)
+          setPending(null)
+        }
+      } else {
+        // Foreground (initial / tab / sort / search / page) → apply immediately.
+        setOrders(next)
+        setTotal(nextTotal)
+        setPending(null)
+      }
     }
-    setLoading(false)
+    if (background) setBackgroundRefreshing(false)
+    else setLoading(false)
   }, [tab, page, size, statuses, sortField, sortDir, search, appliedFrom, appliedTo])
 
   // Load whenever any dependency in loadOrders changes (tab, page, sort, search, dates)
@@ -1321,12 +1354,24 @@ function OrdersContent() {
     return () => { cancelled = true }
   }, [orders])
 
-  // Polling for active tab
+  // Polling for active tab — SILENT background refresh (same 60s cadence).
   useEffect(() => {
     if (tab !== 'active') return
-    const id = setInterval(() => loadOrders(), 60000)
+    const id = setInterval(() => loadOrders(false, true), 60000)
     return () => clearInterval(id)
   }, [loadOrders, tab])
+
+  // Apply a stashed background result (the "new orders" pill click).
+  function applyPending() {
+    if (!pending) return
+    setOrders(pending.content)
+    setTotal(pending.total)
+    setPending(null)
+  }
+  // How many of the stashed orders are genuinely new vs what's on screen.
+  const newCount = pending
+    ? pending.content.filter(o => !orders.some(c => c.orderNumber === o.orderNumber)).length
+    : 0
 
   async function openOrder(order: Order) {
     if (!order.orderSeenByAdmin) {
@@ -1385,7 +1430,11 @@ function OrdersContent() {
         )
       })()}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 20px', gap: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Orders</h1>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Orders</h1>
+          {/* Silent background-refresh hint — header only, never shifts the list. */}
+          {backgroundRefreshing && <span style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>Updating…</span>}
+        </div>
         <button onClick={() => router.push('/restaurant/orders/create')}
           style={{ padding: '9px 18px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, boxShadow: '0 2px 8px rgba(91,111,232,0.25)', whiteSpace: 'nowrap' }}>
           + Create Order
@@ -1459,6 +1508,16 @@ function OrdersContent() {
             @keyframes shimmer { 0% { opacity: 0.4; } 50% { opacity: 0.8; } 100% { opacity: 0.4; } }
             .skeleton { background: #e5e7eb; border-radius: 4px; animation: shimmer 1.5s ease-in-out infinite; }
           `}</style>
+          {/* New-orders pill — subtle, non-intrusive; click to apply the stashed
+              background refresh. Only shown when a poll surfaced new orders. */}
+          {newCount > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+              <button onClick={applyPending}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#EEF0FD', color: '#5B6FE8', border: '1px solid #d7dbfa', borderRadius: 999, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                ↑ {newCount} new order{newCount === 1 ? '' : 's'} — click to refresh
+              </button>
+            </div>
+          )}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
