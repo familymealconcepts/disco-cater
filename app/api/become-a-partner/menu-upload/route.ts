@@ -291,17 +291,25 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.ANTHROPIC_API_KEY
 
+  // The original menu the partner submitted: the PDF as an attachment (when a PDF
+  // was uploaded) plus a source line. Included on EVERY concierge email so the
+  // team always gets the original menu — not just on the low-confidence path.
+  function menuArtifacts(): { attachment?: { buffer: Buffer; filename: string }; sourceLine: string } {
+    if (source === 'pdf' && fileBase64) {
+      try {
+        return { attachment: { buffer: Buffer.from(fileBase64, 'base64'), filename: 'menu.pdf' }, sourceLine: 'Menu PDF: attached' }
+      } catch {
+        return { sourceLine: 'Menu PDF: (upload could not be read)' }
+      }
+    }
+    if (source === 'url') return { sourceLine: `Menu URL: ${url || 'Not provided'}` }
+    return { sourceLine: '' }
+  }
+
   // Build the concierge fallback once — used for any low-confidence/error path.
   async function fallback(reason: string): Promise<NextResponse> {
     console.error(`[menu-upload] falling back to concierge for ${safeName}: ${reason}`)
-    let attachment: { buffer: Buffer; filename: string } | undefined
-    let sourceLine = ''
-    if (source === 'pdf' && fileBase64) {
-      try { attachment = { buffer: Buffer.from(fileBase64, 'base64'), filename: 'menu.pdf' } } catch { /* unreadable base64 */ }
-      sourceLine = 'Menu PDF: attached'
-    } else if (source === 'url') {
-      sourceLine = `Menu URL: ${url || 'Not provided'}`
-    }
+    const { attachment, sourceLine } = menuArtifacts()
     await notifyConcierge(
       `Menu Upload — ${safeName}`,
       `A restaurant submitted their menu during onboarding, but our AI could not parse it confidently. Please set it up manually.\n\nRestaurant: ${safeName}\nEmail: ${restaurantEmail || 'Not provided'}\nRestaurant ref: ${restaurantReference || 'Not yet created'}\n${sourceLine}\n\nReason: ${reason}\n\nMenu Import tool: https://www.discocater.com/admin/manage-restaurants/menu-import`,
@@ -406,10 +414,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (needsConcierge) {
+    const { attachment, sourceLine } = menuArtifacts()
     const itemLines = items.map(i => `  · ${i.name}${i.price > 0 ? ` — $${i.price.toFixed(2)}` : ''}${i.serves ? ` (serves ${i.serves})` : ''}${i.category ? ` [${i.category}]` : ''}`).join('\n')
     await notifyConcierge(
       `Menu Upload — ${safeName}`,
-      `Our AI parsed this restaurant's menu during onboarding, but some/all items still need to be set up in FM.\n\nRestaurant: ${safeName}\nEmail: ${restaurantEmail || 'Not provided'}\nRestaurant ref: ${restaurantReference || 'Not yet created'}\n\nReason: ${conciergeReason}\n\nParsed items (${items.length}):\n${itemLines}\n\nMenu Import tool: https://www.discocater.com/admin/manage-restaurants/menu-import`,
+      `Our AI parsed this restaurant's menu during onboarding, but some/all items still need to be set up in FM.\n\nRestaurant: ${safeName}\nEmail: ${restaurantEmail || 'Not provided'}\nRestaurant ref: ${restaurantReference || 'Not yet created'}\n${sourceLine}\n\nReason: ${conciergeReason}\n\nParsed items (${items.length}):\n${itemLines}\n\nMenu Import tool: https://www.discocater.com/admin/manage-restaurants/menu-import`,
+      attachment,
     )
   }
 

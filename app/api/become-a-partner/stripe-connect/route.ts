@@ -74,11 +74,11 @@ export async function POST(req: NextRequest) {
       await sql`
         INSERT INTO disco_restaurant_accounts (
           email, password_hash, restaurant_reference, first_name, last_name, phone,
-          restaurant_name, business_name, address, is_disco_native, onboarding_step
+          restaurant_name, business_name, address, role, is_disco_native, onboarding_step
         ) VALUES (
           ${email}, ${passwordHash}, ${ref}, ${firstName || null}, ${lastName || null},
           ${phone || null}, ${restaurantName || null}, ${restaurantName || null},
-          ${address || null}, true, 2
+          ${address || null}, 'ADMIN', true, 2
         )
         ON CONFLICT (email) DO NOTHING
       `

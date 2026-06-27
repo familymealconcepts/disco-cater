@@ -7,7 +7,6 @@ import { createFmRestaurant } from '../../../../lib/become-a-partner/fm-create'
 import {
   hashPassword,
   createDiscoRestaurantSession,
-  grantLocationAccess,
   getDiscoRestaurantAccount,
   DISCO_RESTAURANT_COOKIE,
   DISCO_RESTAURANT_COOKIE_OPTS,
@@ -106,10 +105,10 @@ export async function POST(req: NextRequest) {
       await sql`
         INSERT INTO disco_restaurant_accounts (
           email, password_hash, restaurant_reference, first_name, last_name, phone,
-          restaurant_name, business_name, address, is_disco_native, onboarding_step
+          restaurant_name, business_name, address, role, is_disco_native, onboarding_step
         ) VALUES (
           ${email}, ${passwordHash}, ${ref}, ${firstName || null}, ${lastName || null},
-          ${phone || null}, ${restaurantName}, ${restaurantName}, ${address || null}, true, 4
+          ${phone || null}, ${restaurantName}, ${restaurantName}, ${address || null}, 'ADMIN', true, 4
         )
         ON CONFLICT (email) DO NOTHING
       `
@@ -177,12 +176,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── 3) Location-access entry (idempotent) ──────────────────────────────────
-    try {
-      await grantLocationAccess(email, ref, 'onboarding')
-    } catch (err) {
-      console.error('[complete] grantLocationAccess failed (continuing):', err instanceof Error ? err.message : err)
-    }
+    // Note: a new partner is a single-location ADMIN (role set on the account row
+    // above). We intentionally do NOT grant disco_restaurant_location_access here —
+    // that table is the multi-location SYSTEM_ADMIN marker, and creating a row made
+    // new partners resolve as SYSTEM_ADMIN. Their home location (the account's
+    // restaurant_reference) is always accessible without it.
 
     // ── 5) Disco session + cookie (so the partner is logged in immediately) ────
     let token = ''
