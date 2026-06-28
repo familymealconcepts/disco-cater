@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { sql, runMigrations } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -25,6 +27,27 @@ export async function PUT(req: NextRequest) {
     })
     if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
     const text = await res.text()
+
+    // Slug change: when the portal edits the public-page slug
+    // (businessNameWithoutSpaces), mirror it into disco_restaurant_cache.slug so
+    // the Disco map/ordering URLs stay in sync with FM. Best-effort.
+    const newSlug = String(body?.businessNameWithoutSpaces || '').trim().toLowerCase()
+    if (newSlug) {
+      try {
+        const ctx = await getRestaurantAuthContext()
+        const ref = ctx?.restaurantReference || (await getRestaurantRef()) || ''
+        if (ref) {
+          await runMigrations()
+          await sql`
+            UPDATE disco_restaurant_cache SET slug = ${newSlug}, cached_at = NOW()
+            WHERE restaurant_reference = ${ref}
+          `
+        }
+      } catch (e) {
+        console.error('[fees-and-tips] cache slug sync failed:', e instanceof Error ? e.message : e)
+      }
+    }
+
     return NextResponse.json(text ? JSON.parse(text) : { ok: true })
   } catch { return NextResponse.json({ error: 'Unable to update' }, { status: 500 }) }
 }

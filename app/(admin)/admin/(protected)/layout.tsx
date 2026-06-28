@@ -8,7 +8,6 @@ const DARK = '#0D0D1A'
 const GOLD = '#EFB84A'
 const SIDEBAR_BG = '#0D0D1A'
 const ACTIVE_BG = '#EFB84A'
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 const SW = 230
 
 interface NavItem {
@@ -187,11 +186,7 @@ export default function AdminProtectedLayout({ children }: { children: React.Rea
             >
               ✕
             </button>
-            <div>
-              <span style={{ fontSize: 19, fontWeight: 800, background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>disco</span>
-              <span style={{ fontSize: 19, fontWeight: 800, color: '#999' }}> cater</span>
-            </div>
-            <div style={{ marginTop: 2, fontSize: 10, fontWeight: 700, color: GOLD, letterSpacing: 1.5 }}>ADMIN</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: GOLD, letterSpacing: 1.5 }}>ADMIN</div>
           </div>
 
           {/* Nav */}
@@ -251,14 +246,10 @@ export default function AdminProtectedLayout({ children }: { children: React.Rea
 
         {/* Main */}
         <div className="admin-content" style={{ marginLeft: SW, flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          {/* Mobile top bar — logo + ADMIN tag left, hamburger right */}
+          {/* Mobile top bar — ADMIN tag left, hamburger right */}
           <div className="admin-topbar">
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span>
-                <span style={{ fontSize: 17, fontWeight: 800, background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>disco</span>
-                <span style={{ fontSize: 17, fontWeight: 800, color: '#999' }}> cater</span>
-              </span>
-              <span style={{ fontSize: 9, fontWeight: 700, color: GOLD, letterSpacing: 1.5 }}>ADMIN</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: GOLD, letterSpacing: 1.5 }}>ADMIN</span>
             </div>
             <button
               onClick={() => setSidebarOpen(true)}

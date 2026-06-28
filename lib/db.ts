@@ -67,6 +67,10 @@ export async function runMigrations(): Promise<void> {
     // Manual pinning for the fullmap default sort: 1..N appear first (by this
     // value ascending), ahead of the alphabetical Premium / non-Premium groups.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS featured_order INT DEFAULT NULL`,
+    // Disco-side mirror of FM's onlineOrderingAllowed, written alongside the FM
+    // call so the super admin view + Disco-native restaurants have a source of
+    // truth (FM is unavailable for Disco-native restaurants).
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS online_ordering_enabled BOOLEAN DEFAULT false`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.

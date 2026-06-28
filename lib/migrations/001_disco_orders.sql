@@ -402,3 +402,8 @@ CREATE INDEX IF NOT EXISTS idx_disco_customer_favorites_email ON disco_customer_
 -- pre-populate it for logged-in customers.
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS company_name TEXT;
 ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS company_name TEXT;
+
+-- Marketplace opt-in mirror on the restaurant account, kept in sync with the
+-- super admin Marketplace toggle (disco_restaurant_overrides.visible) and the
+-- restaurant portal's own marketplace toggle.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS joined_marketplace BOOLEAN DEFAULT false;

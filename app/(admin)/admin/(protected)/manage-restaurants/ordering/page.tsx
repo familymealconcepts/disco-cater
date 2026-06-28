@@ -29,6 +29,8 @@ interface Restaurant {
   _rowId: string
   reference: string
   businessName: string
+  // FM's URL-safe slug; used to build the 1P direct ordering URL (/order/[slug]).
+  businessNameWithoutSpaces?: string
   url?: string
   blocked?: boolean
   nashAllowed?: boolean
@@ -256,8 +258,13 @@ export default function RestaurantsOrderingPage() {
   }
 
   // Stripe must be connected before online ordering can be toggled — a
-  // restaurant can't accept orders without a payout account.
-  const isStripeConnected = (r: Restaurant) => stripeMap[r.reference]?.connected === true
+  // restaurant can't accept orders without a payout account. Disco-native
+  // restaurants connect via disco_restaurant_accounts.stripe_account_id, so a
+  // present Stripe account counts as connected too (fallback).
+  const isStripeConnected = (r: Restaurant) => {
+    const s = stripeMap[r.reference]
+    return s?.connected === true || s?.hasStripeAccount === true
+  }
 
   // Online Ordering = FM onlineOrderingAllowed boolean. Toggling opens a
   // confirmation modal; confirming routes through the GET→merge→PUT restaurant
@@ -375,7 +382,7 @@ export default function RestaurantsOrderingPage() {
   }
   // Per-restaurant Stripe status (keyed by reference) from Neon overrides, shown
   // as a column on each row. checkedAt === null means "never synced".
-  const [stripeMap, setStripeMap] = useState<Record<string, { connected: boolean; checkedAt: string | null }>>({})
+  const [stripeMap, setStripeMap] = useState<Record<string, { connected: boolean; checkedAt: string | null; hasStripeAccount: boolean }>>({})
   // Disco overrides (visibility / Premium / menu) per reference, from the same fetch.
   const [overrideMap, setOverrideMap] = useState<Record<string, OverrideMeta>>({})
 
@@ -411,14 +418,14 @@ export default function RestaurantsOrderingPage() {
       const res = await fetch('/api/admin/restaurant-overrides')
       if (!res.ok) return
       const d = await res.json()
-      const sMap: Record<string, { connected: boolean; checkedAt: string | null }> = {}
+      const sMap: Record<string, { connected: boolean; checkedAt: string | null; hasStripeAccount: boolean }> = {}
       const oMap: Record<string, OverrideMeta> = {}
       for (const o of (d?.overrides || []) as {
         restaurantReference: string; stripeConnected: boolean; stripeCheckedAt: string | null
         visible?: boolean; isPremium?: boolean; orderUrl?: string; menuUploadUrl?: string | null
-        isLive?: boolean; isDiscoNative?: boolean
+        isLive?: boolean; isDiscoNative?: boolean; hasStripeAccount?: boolean
       }[]) {
-        sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt }
+        sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt, hasStripeAccount: !!o.hasStripeAccount }
         oMap[o.restaurantReference] = {
           visible: !!o.visible, isPremium: !!o.isPremium,
           orderUrl: o.orderUrl || '', menuUploadUrl: o.menuUploadUrl ?? null,
@@ -429,29 +436,6 @@ export default function RestaurantsOrderingPage() {
       setOverrideMap(oMap)
     } catch { /* non-fatal: the columns just won't render */ }
   }, [])
-
-  // Flip a disco-native restaurant live/offline on the marketplace
-  // (disco_restaurant_cache.is_live). Optimistic; reverts on failure.
-  async function toggleLive(r: Restaurant) {
-    const cur = !!overrideMap[r.reference]?.isLive
-    const next = !cur
-    const prev = overrideMap[r.reference]
-    setOverrideMap(m => {
-      const base: OverrideMeta = m[r.reference] || { visible: false, isPremium: false, orderUrl: '', menuUploadUrl: null, isDiscoNative: true, isLive: cur }
-      return { ...m, [r.reference]: { ...base, isLive: next } }
-    })
-    try {
-      const res = await fetch('/api/admin/restaurant-overrides', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ restaurantReference: r.reference, isLive: next }),
-      })
-      if (!res.ok) throw new Error('failed')
-      showToast(next ? 'Restaurant set live' : 'Restaurant taken offline')
-    } catch {
-      setOverrideMap(m => ({ ...m, [r.reference]: prev || m[r.reference] }))
-      showToast('Could not update live status')
-    }
-  }
 
   useEffect(() => { loadStripeMap() }, [loadStripeMap])
 
@@ -682,7 +666,6 @@ export default function RestaurantsOrderingPage() {
               {sortTh('email')}
               {sortTh('createdDate')}
               <th style={colHead}>Checkout Page</th>
-              <th style={colHead}>Menu</th>
               {sortTh('stripe')}
               {sortTh('status')}
               <th style={colHead}>Third-Party Allowed</th>
@@ -694,8 +677,8 @@ export default function RestaurantsOrderingPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={13} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !rows.length && <tr><td colSpan={13} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
+            {loading && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
             {!loading && sortedRows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
@@ -710,26 +693,22 @@ export default function RestaurantsOrderingPage() {
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       {r.businessName}
                       {overrideMap[r.reference]?.isDiscoNative && (
-                        <>
-                          <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', padding: '2px 6px', borderRadius: 6, letterSpacing: 0.5 }}>DISCO</span>
-                          <span title="Live on the Disco Cater marketplace" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: '#888', fontWeight: 600 }}>
-                            <Toggle checked={!!overrideMap[r.reference]?.isLive} onChange={() => toggleLive(r)} color="#6B6EF9" />
-                            Live
-                          </span>
-                        </>
+                        <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', padding: '2px 6px', borderRadius: 6, letterSpacing: 0.5 }}>DISCO</span>
                       )}
                     </span>
                   </td>
                   <td style={{ ...cell, color: '#555' }}>{adminName || '—'}</td>
                   <td style={{ ...cell, color: '#555' }}>{adminEmail}</td>
                   <td style={{ ...cell, color: '#666' }}>{fmtDate(r.createdDate)}</td>
+                  {/* Checkout Page: the 1P direct ordering URL (/order/[slug]),
+                      slug = FM businessNameWithoutSpaces lowercased. */}
                   <td style={cell}>
-                    {r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: BLUE, textDecoration: 'none' }}>open ↗</a> : '—'}
-                  </td>
-                  {/* Menu: filename of an uploaded menu PDF (disco_restaurant_cache.menu_upload_url). */}
-                  <td style={{ ...cell, color: '#555', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                    title={overrideMap[r.reference]?.menuUploadUrl || ''}>
-                    {overrideMap[r.reference]?.menuUploadUrl || '—'}
+                    {(() => {
+                      const slug = (r.businessNameWithoutSpaces || r.businessName || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+                      return slug
+                        ? <a href={`https://www.discocater.com/order/${slug}`} target="_blank" rel="noreferrer" title={`https://www.discocater.com/order/${slug}`} style={{ color: BLUE, textDecoration: 'none', fontSize: 16 }}>↗</a>
+                        : '—'
+                    })()}
                   </td>
                   <td style={cell}><StripeStatus status={stripeMap[r.reference]} /></td>
                   {/* Online Ordering: FM onlineOrderingAllowed boolean. Disabled
@@ -764,9 +743,13 @@ export default function RestaurantsOrderingPage() {
                   <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', right: 0, zIndex: 1, minWidth: 120, background: '#fff', borderLeft: '1px solid #f0f0f0' }}>
                     <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                       <button title="Refresh" onClick={() => load()} style={iconBtn}>⟳</button>
-                      <button title="Edit" onClick={() => setEditRef(r.reference)} style={iconBtn}>✎</button>
+                      <button title="Edit restaurant" onClick={() => setEditRef(r.reference)} style={{ ...iconBtn, color: '#6B6EF9', fontWeight: 700 }}>Edit</button>
                       <button title="Delete" onClick={() => deleteRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗑</button>
-                      <Kebab onResetPassword={() => resetPassword(r)} onTransferSystemAdmin={() => setPromoteConfirm(r)} />
+                      <Kebab
+                        menuUrl={overrideMap[r.reference]?.menuUploadUrl || null}
+                        onResetPassword={() => resetPassword(r)}
+                        onTransferSystemAdmin={() => setPromoteConfirm(r)}
+                      />
                     </div>
                   </td>
                 </tr>
@@ -903,7 +886,7 @@ export default function RestaurantsOrderingPage() {
 // scroll (capture, so the inner scrolling table fires it too) / resize.
 const KEBAB_MENU_WIDTH = 200
 
-function Kebab({ onResetPassword, onTransferSystemAdmin }: { onResetPassword: () => void; onTransferSystemAdmin: () => void }) {
+function Kebab({ menuUrl, onResetPassword, onTransferSystemAdmin }: { menuUrl: string | null; onResetPassword: () => void; onTransferSystemAdmin: () => void }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement | null>(null)
@@ -940,6 +923,24 @@ function Kebab({ onResetPassword, onTransferSystemAdmin }: { onResetPassword: ()
 
   const itemStyle: React.CSSProperties = { display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '10px 14px', fontSize: 13, color: DARK, cursor: 'pointer', fontFamily: F }
 
+  // "View Menu": an http(s) URL opens in a new tab; any other non-empty value
+  // (a stored filename / blob ref) triggers a download; empty → disabled.
+  const hasMenu = !!(menuUrl && menuUrl.trim())
+  function viewMenu() {
+    if (!hasMenu) return
+    const url = (menuUrl as string).trim()
+    if (/^https?:\/\//i.test(url)) {
+      window.open(url, '_blank', 'noopener')
+    } else {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = url.split('/').pop() || 'menu'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    }
+  }
+
   return (
     <>
       <button ref={btnRef} title="More" onClick={() => (open ? setOpen(false) : openMenu())} style={iconBtn}>⋯</button>
@@ -948,7 +949,14 @@ function Kebab({ onResetPassword, onTransferSystemAdmin }: { onResetPassword: ()
           ref={menuRef}
           style={{ position: 'fixed', top: pos.top, left: pos.left, width: KEBAB_MENU_WIDTH, background: '#fff', border: '1px solid #eee', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.12)', zIndex: 1000 }}
         >
-          <button onClick={() => { setOpen(false); onResetPassword() }} style={itemStyle}>
+          <button
+            onClick={() => { if (!hasMenu) return; setOpen(false); viewMenu() }}
+            disabled={!hasMenu}
+            title={hasMenu ? undefined : 'No menu uploaded'}
+            style={{ ...itemStyle, color: hasMenu ? DARK : '#bbb', cursor: hasMenu ? 'pointer' : 'not-allowed' }}>
+            View Menu
+          </button>
+          <button onClick={() => { setOpen(false); onResetPassword() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0' }}>
             Reset password
           </button>
           <button onClick={() => { setOpen(false); onTransferSystemAdmin() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0' }}>

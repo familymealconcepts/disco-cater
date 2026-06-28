@@ -24,15 +24,24 @@ export async function GET(req: NextRequest) {
       const rows = (await sql`
         SELECT COALESCE(o.restaurant_reference, c.restaurant_reference) AS restaurant_reference,
                o.is_premium, o.visible, o.stripe_connected,
-               o.stripe_checked_at, o.order_url, c.menu_upload_url,
-               c.is_live, c.is_disco_native
+               o.stripe_checked_at, o.order_url, o.online_ordering_enabled, c.menu_upload_url,
+               c.is_live, c.is_disco_native,
+               -- Disco-native restaurants connect Stripe via disco_restaurant_accounts;
+               -- expose whether a Stripe account exists as a connection fallback.
+               (a.stripe_account_id IS NOT NULL) AS has_stripe_account
         FROM disco_restaurant_overrides o
         FULL OUTER JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
+        LEFT JOIN LATERAL (
+          SELECT stripe_account_id FROM disco_restaurant_accounts a2
+          WHERE a2.restaurant_reference = COALESCE(o.restaurant_reference, c.restaurant_reference)
+            AND a2.stripe_account_id IS NOT NULL
+          LIMIT 1
+        ) a ON true
       `) as {
         restaurant_reference: string; is_premium: boolean | null; visible: boolean | null
         stripe_connected: boolean | null; stripe_checked_at: string | null
-        order_url: string | null; menu_upload_url: string | null
-        is_live: boolean | null; is_disco_native: boolean | null
+        order_url: string | null; online_ordering_enabled: boolean | null; menu_upload_url: string | null
+        is_live: boolean | null; is_disco_native: boolean | null; has_stripe_account: boolean | null
       }[]
       return NextResponse.json({
         overrides: rows.map((r) => ({
@@ -42,9 +51,11 @@ export async function GET(req: NextRequest) {
           stripeConnected: r.stripe_connected ?? false,
           stripeCheckedAt: r.stripe_checked_at,
           orderUrl: r.order_url ?? '',
+          onlineOrderingEnabled: r.online_ordering_enabled ?? false,
           menuUploadUrl: r.menu_upload_url ?? null,
           isLive: r.is_live ?? false,
           isDiscoNative: r.is_disco_native ?? false,
+          hasStripeAccount: r.has_stripe_account ?? false,
         })),
       })
     }
@@ -110,6 +121,22 @@ export async function PATCH(req: NextRequest) {
             order_url = EXCLUDED.order_url,
             updated_at = NOW()
     `
+
+    // Two-way marketplace sync: a restaurant shown on the marketplace is also
+    // "live" on the map, and its Disco account (if any) reflects the opt-in. Only
+    // when `visible` was explicitly part of this request (Marketplace toggle / edit
+    // dialog), so a Premium-only or order_url-only PATCH doesn't flip live status.
+    if (typeof body?.visible === 'boolean') {
+      await sql`
+        UPDATE disco_restaurant_cache SET is_live = ${visible}, cached_at = NOW()
+        WHERE restaurant_reference = ${restaurantReference}
+      `.catch((e: unknown) => console.error('[restaurant-overrides] is_live sync failed:', e instanceof Error ? e.message : e))
+      await sql`
+        UPDATE disco_restaurant_accounts SET joined_marketplace = ${visible}, updated_at = NOW()
+        WHERE restaurant_reference = ${restaurantReference}
+      `.catch((e: unknown) => console.error('[restaurant-overrides] joined_marketplace sync failed:', e instanceof Error ? e.message : e))
+    }
+
     return NextResponse.json({ ok: true, restaurantReference, isPremium, visible, orderUrl })
   } catch (e) {
     console.error('[restaurant-overrides] PATCH failed:', e instanceof Error ? e.message : e)

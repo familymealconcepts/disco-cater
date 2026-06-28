@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 
 export const runtime = 'nodejs'
 
@@ -9,8 +10,16 @@ export const runtime = 'nodejs'
 // restaurant_reference is derived server-side from the auth cookie, so a
 // restaurant can only ever read/write its OWN row.
 
+// Resolve the restaurant_reference for either auth system: Disco-native sessions
+// carry it directly; FM-token users decode it from the JWT.
+async function resolveRef(): Promise<string | null> {
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.restaurantReference) return ctx.restaurantReference
+  return await getRestaurantRef()
+}
+
 export async function GET() {
-  const ref = await getRestaurantRef()
+  const ref = await resolveRef()
   if (!ref) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   try {
     await runMigrations()
@@ -25,7 +34,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const ref = await getRestaurantRef()
+  const ref = await resolveRef()
   if (!ref) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
   let visible = false
@@ -43,6 +52,16 @@ export async function PATCH(req: Request) {
       VALUES (${ref}, ${visible}, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE SET visible = ${visible}, updated_at = NOW()
     `
+    // Two-way marketplace sync (mirrors the super admin toggle): keep the map's
+    // is_live and the account's joined_marketplace opt-in in step with visibility.
+    await sql`
+      UPDATE disco_restaurant_cache SET is_live = ${visible}, cached_at = NOW()
+      WHERE restaurant_reference = ${ref}
+    `.catch((e: unknown) => console.error('[marketplace-visibility] is_live sync failed:', e instanceof Error ? e.message : e))
+    await sql`
+      UPDATE disco_restaurant_accounts SET joined_marketplace = ${visible}, updated_at = NOW()
+      WHERE restaurant_reference = ${ref}
+    `.catch((e: unknown) => console.error('[marketplace-visibility] joined_marketplace sync failed:', e instanceof Error ? e.message : e))
     return NextResponse.json({ visible })
   } catch (err) {
     console.error('[marketplace-visibility] write failed:', err instanceof Error ? err.message : err)
