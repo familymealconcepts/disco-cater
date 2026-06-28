@@ -33,6 +33,47 @@ export async function POST(req: NextRequest) {
     // without a manual full sync. (Ignores `offset` — it's a one-batch refresh.)
     const staleOnly = body?.staleOnly === true
 
+    // Explicit-references mode: check exactly these restaurant_references (used by
+    // the Ordering page to background-check only the current page's never-checked
+    // rows). UPSERTs the result so a restaurant without an overrides row still
+    // gets a recorded status. Returns per-ref statuses for the UI to apply.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const explicitRefs = Array.isArray(body?.restaurantReferences)
+      ? Array.from(new Set((body.restaurantReferences as unknown[]).map(String).filter(r => UUID_RE.test(r)))).slice(0, 25)
+      : null
+
+    if (explicitRefs) {
+      const statuses: Record<string, boolean> = {}
+      let header = await getFmServiceAuthHeader()
+      let connected = 0
+      let notConnected = 0
+      for (const ref of explicitRefs) {
+        let isConnected = false
+        try {
+          let res = await fetch(`${FM}/api/stripe/${ref}`, { method: 'HEAD', headers: header, cache: 'no-store' })
+          if (res.status === 401) {
+            header = await getFmServiceAuthHeader(true)
+            res = await fetch(`${FM}/api/stripe/${ref}`, { method: 'HEAD', headers: header, cache: 'no-store' })
+          }
+          isConnected = res.status === 204
+        } catch (err) {
+          console.error(`[sync-stripe-status] HEAD failed for ${ref}:`, err instanceof Error ? err.message : err)
+          isConnected = false
+        }
+        // UPSERT — a restaurant with no overrides row still records its status.
+        await sql`
+          INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_connected, stripe_checked_at, updated_at)
+          VALUES (${ref}, ${isConnected}, NOW(), NOW())
+          ON CONFLICT (restaurant_reference) DO UPDATE
+            SET stripe_connected = ${isConnected}, stripe_checked_at = NOW(), updated_at = NOW()
+        `
+        statuses[ref] = isConnected
+        if (isConnected) connected++
+        else notConnected++
+      }
+      return NextResponse.json({ statuses, connected, notConnected, done: true, durationMs: Date.now() - startedAt })
+    }
+
     // Stable count + page (ORDER BY keeps the offset windows consistent run-to-run).
     const totalRows = (staleOnly
       ? (await sql`

@@ -100,10 +100,11 @@ function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolea
   )
 }
 
-// Stripe Connect status per row. No indicator until the status has been synced
-// (checkedAt === null). Green = connected, grey = not connected.
-function StripeStatus({ status }: { status?: { connected: boolean; checkedAt: string | null } }) {
-  if (!status || !status.checkedAt) return <span style={{ color: '#ccc', fontSize: 12 }}>—</span>
+// Stripe Connect status per row. Never-checked (checkedAt === null) shows
+// "Unknown"; a row mid-check shows "Checking…". Green = connected, grey = not.
+function StripeStatus({ status, checking }: { status?: { connected: boolean; checkedAt: string | null }; checking?: boolean }) {
+  if (checking) return <span style={{ color: '#9CA3AF', fontSize: 12, whiteSpace: 'nowrap' }}>Checking…</span>
+  if (!status || !status.checkedAt) return <span style={{ color: '#9CA3AF', fontSize: 12 }}>Unknown</span>
   const dot = (color: string) => (
     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 6, verticalAlign: 'middle' }} />
   )
@@ -383,6 +384,14 @@ export default function RestaurantsOrderingPage() {
   // Per-restaurant Stripe status (keyed by reference) from Neon overrides, shown
   // as a column on each row. checkedAt === null means "never synced".
   const [stripeMap, setStripeMap] = useState<Record<string, { connected: boolean; checkedAt: string | null; hasStripeAccount: boolean }>>({})
+  // True once the cached Stripe statuses have loaded — gates the background check
+  // so we don't treat everything as "never checked" before the cache arrives.
+  const [stripeLoaded, setStripeLoaded] = useState(false)
+  // References currently being background-checked (drives the row "Checking…").
+  const [checkingRefs, setCheckingRefs] = useState<Set<string>>(new Set())
+  // References we've already kicked off a background check for this session, so a
+  // re-render / page revisit never re-checks the same restaurant.
+  const attemptedRef = useRef<Set<string>>(new Set())
   // Disco overrides (visibility / Premium / menu) per reference, from the same fetch.
   const [overrideMap, setOverrideMap] = useState<Record<string, OverrideMeta>>({})
 
@@ -435,9 +444,49 @@ export default function RestaurantsOrderingPage() {
       setStripeMap(sMap)
       setOverrideMap(oMap)
     } catch { /* non-fatal: the columns just won't render */ }
+    finally { setStripeLoaded(true) }
   }, [])
 
   useEffect(() => { loadStripeMap() }, [loadStripeMap])
+
+  // Smart background Stripe check: once the cached statuses + the current page's
+  // rows are loaded, check ONLY the rows that have never been checked
+  // (stripe_checked_at IS NULL → no cached status). Already-connected and
+  // already-not-connected rows are trusted forever and never re-checked here.
+  // attemptedRef guards against re-runs / loops; the manual "Sync Stripe Status"
+  // button remains for full re-checks.
+  useEffect(() => {
+    if (!stripeLoaded || loading || !rows.length) return
+    const toCheck = Array.from(new Set(
+      rows.map(r => r.reference).filter(ref => ref && !attemptedRef.current.has(ref) && !stripeMap[ref]?.checkedAt)
+    )).slice(0, pageSize)
+    if (!toCheck.length) return
+    toCheck.forEach(ref => attemptedRef.current.add(ref))
+    setCheckingRefs(prev => new Set([...prev, ...toCheck]))
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/sync-stripe-status', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ restaurantReferences: toCheck }),
+        })
+        if (res.ok) {
+          const d = await res.json()
+          const statuses = (d?.statuses || {}) as Record<string, boolean>
+          const now = new Date().toISOString()
+          setStripeMap(prev => {
+            const next = { ...prev }
+            for (const ref of toCheck) {
+              next[ref] = { connected: !!statuses[ref], checkedAt: now, hasStripeAccount: prev[ref]?.hasStripeAccount ?? false }
+            }
+            return next
+          })
+        }
+      } catch { /* leave as Unknown on failure */ }
+      finally {
+        setCheckingRefs(prev => { const n = new Set(prev); toCheck.forEach(ref => n.delete(ref)); return n })
+      }
+    })()
+  }, [stripeLoaded, loading, rows, stripeMap, pageSize])
 
   // Probe FM Stripe Connect status for every visible restaurant, one batch at a
   // time (each request stays under the function-duration limit), looping until
@@ -710,7 +759,7 @@ export default function RestaurantsOrderingPage() {
                         : '—'
                     })()}
                   </td>
-                  <td style={cell}><StripeStatus status={stripeMap[r.reference]} /></td>
+                  <td style={cell}><StripeStatus status={stripeMap[r.reference]} checking={checkingRefs.has(r.reference)} /></td>
                   {/* Online Ordering: FM onlineOrderingAllowed boolean. Disabled
                       until Stripe is connected (can't accept orders without payouts). */}
                   <td style={cell}>
