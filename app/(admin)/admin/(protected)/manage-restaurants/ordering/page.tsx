@@ -690,10 +690,10 @@ export default function RestaurantsOrderingPage() {
                     <Toggle checked={!!overrideMap[r.reference]?.visible} onChange={() => requestVisibleToggle(r)} color="#1D9E75" />
                   </td>
                   <td style={{ ...cell, fontWeight: 600 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       {r.businessName}
                       {overrideMap[r.reference]?.isDiscoNative && (
-                        <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', padding: '2px 6px', borderRadius: 6, letterSpacing: 0.5 }}>DISCO</span>
+                        <span style={{ fontSize: 10, fontWeight: 400, color: '#6B7280', background: '#F3F4F6', padding: '2px 6px', borderRadius: 4 }}>Disco</span>
                       )}
                     </span>
                   </td>
