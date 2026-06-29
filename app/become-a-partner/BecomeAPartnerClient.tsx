@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { sanitizePhone } from '../../lib/utils/phone'
 
 // ── Brand ────────────────────────────────────────────────────────────────────
 const F = "'DM Sans', sans-serif"
@@ -294,7 +295,8 @@ export default function BecomeAPartnerClient() {
   }, [step])
 
   const step0Valid = !!form.firstName && !!form.lastName && !!form.email && form.password.length >= 8
-  const step1Valid = !!form.restaurantName.trim() && !!addr.street.trim() && !!addr.city.trim() && !!addr.state.trim()
+  // Phone is required for restaurant signup — must be a valid 10-digit US number.
+  const step1Valid = !!form.restaurantName.trim() && !!addr.street.trim() && !!addr.city.trim() && !!addr.state.trim() && sanitizePhone(form.phoneNumber).length === 10
 
   // ── Step 4 (Stripe) → create/look-up the account by email server-side, then
   // start Connect (or skip if already connected). Snapshot is saved before the
@@ -572,7 +574,7 @@ export default function BecomeAPartnerClient() {
                   <Field label="State" value={addr.state} onChange={v => setAddr(a => ({ ...a, state: v }))} />
                   <Field label="Zip" value={addr.zip} onChange={v => setAddr(a => ({ ...a, zip: v }))} />
                 </div>
-                <Field label="Phone (optional)" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
+                <Field label="Phone" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
                 {/* Restaurant Icon — square image used as the logo/icon */}
                 <div style={{ marginBottom: 14 }}>
                   <label style={labelStyle}>Restaurant icon (optional)</label>
@@ -606,7 +608,12 @@ export default function BecomeAPartnerClient() {
               <button
                 onClick={() => {
                   setError('')
-                  if (!step1Valid) { setError('Restaurant name and full address are required.'); return }
+                  if (!form.restaurantName.trim() || !addr.street.trim() || !addr.city.trim() || !addr.state.trim()) {
+                    setError('Restaurant name and full address are required.'); return
+                  }
+                  const phoneDigits = sanitizePhone(form.phoneNumber)
+                  if (!phoneDigits) { setError('Phone number is required.'); return }
+                  if (phoneDigits.length !== 10) { setError('Please enter a valid 10-digit phone number.'); return }
                   setStep(2)
                 }}
                 disabled={!step1Valid}

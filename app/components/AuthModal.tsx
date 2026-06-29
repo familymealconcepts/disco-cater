@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuthContext } from '../context/AuthContext'
+import { sanitizePhone } from '../../lib/utils/phone'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
@@ -101,13 +102,16 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
     if (!signupFirst || !signupLast || !signupEmail || !signupPassword) {
       setSignupError('Please fill in your name, email and password.'); return
     }
+    const phoneDigits = sanitizePhone(signupPhone)
+    if (!phoneDigits) { setSignupError('Phone number is required.'); return }
+    if (phoneDigits.length !== 10) { setSignupError('Please enter a valid 10-digit phone number.'); return }
     if (signupPassword.length < 8) { setSignupError('Password must be at least 8 characters.'); return }
     setSignupLoading(true); setSignupError('')
     try {
       await register({
         email: signupEmail, password: signupPassword,
         firstName: signupFirst, lastName: signupLast,
-        phoneNumber: signupPhone || undefined,
+        phoneNumber: phoneDigits,
       })
       closeAuthModal()
       handleClose()
@@ -353,7 +357,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               />
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Phone <span style={{ color: '#aaa', fontWeight: 400 }}>(optional)</span></label>
+              <label style={labelStyle}>Phone</label>
               <input
                 className="auth-modal-input"
                 type="tel"

@@ -206,15 +206,28 @@ export default function ProfilePage() {
     Promise.all([
       fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : null),
       fetch('/api/restaurant/disco-profile').then(r => r.ok ? r.json() : null),
-    ]).then(([rest, disco]) => {
-      if (rest) {
-        setRestaurant(rest)
+      fetch('/api/restaurant/account-profile').then(r => r.ok ? r.json() : null),
+    ]).then(([rest, disco, acct]) => {
+      // Personal profile (name / email / phone) — works for FM AND Disco-native
+      // users via /api/restaurant/account-profile. Fall back to the FM restaurant
+      // admin block if that endpoint is unavailable.
+      if (acct) {
+        setAdmin({
+          firstName: acct.firstName || '',
+          lastName: acct.lastName || '',
+          email: acct.email || '',
+          phoneNumber: acct.phoneNumber || '',
+        })
+      } else if (rest?.admin) {
         setAdmin({
           firstName: rest.admin?.firstName || '',
           lastName: rest.admin?.lastName || '',
           email: rest.admin?.email || '',
           phoneNumber: rest.admin?.phoneNumber || '',
         })
+      }
+      if (rest) {
+        setRestaurant(rest)
         setAddress({
           businessName: rest.address?.businessName || '',
           phoneNumber: rest.address?.phoneNumber || '',
@@ -267,20 +280,24 @@ export default function ProfilePage() {
     }
   }
 
+  // Personal profile — saved via /api/restaurant/account-profile, which routes to
+  // disco_restaurant_accounts (Disco-native) or FM /api/users (FM-native). Email
+  // is intentionally not changed here.
   async function saveProfile() {
     setProfileSaving(true)
     setProfileError('')
     setProfileSuccess('')
     try {
-      const payload = buildRestaurantPayload()
-      const res = await fetch('/api/restaurant/profile', {
+      const res = await fetch('/api/restaurant/account-profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          firstName: admin.firstName,
+          lastName: admin.lastName,
+          phoneNumber: admin.phoneNumber,
+        }),
       })
-      if (res.status === 501) {
-        setProfileError('Profile editing will be available soon.')
-      } else if (!res.ok) {
+      if (!res.ok) {
         setProfileError('Failed to save profile. Please try again.')
       } else {
         setProfileSuccess('Profile updated.')
@@ -372,9 +389,7 @@ export default function ProfilePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (res.status === 501) {
-        setDdError('Profile editing will be available soon.')
-      } else if (!res.ok) {
+      if (!res.ok) {
         setDdError('Failed to save. Please try again.')
       } else {
         setDdSuccess('DoorDash settings updated.')
@@ -456,7 +471,7 @@ export default function ProfilePage() {
             {inp(admin.lastName, v => setAdmin({ ...admin, lastName: v }))}
           </FormField>
           <FormField label="Email">
-            {inp(admin.email, () => {}, { disabled: true })}
+            {inp(admin.email, v => setAdmin({ ...admin, email: v }), { type: 'email' })}
           </FormField>
           <FormField label="Phone Number">
             {inp(admin.phoneNumber, v => setAdmin({ ...admin, phoneNumber: v }), { type: 'tel' })}
