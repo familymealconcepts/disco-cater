@@ -109,7 +109,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
               <h1 style={{ fontSize: 26, fontWeight: 800, color: DARK, margin: '0 0 12px', letterSpacing: '-0.02em' }}>We couldn&apos;t load your order details</h1>
               <p style={{ fontSize: 15, color: '#666', margin: '0 auto 32px', maxWidth: 460, lineHeight: 1.6 }}>
                 Your order may still have been placed. Check your email for a confirmation, or contact us at{' '}
-                <a href="mailto:support@discocater.com" style={{ color: BLUE, fontWeight: 600, textDecoration: 'none' }}>support@discocater.com</a>{' '}
+                <a href="mailto:concierge@discocater.com" style={{ color: BLUE, fontWeight: 600, textDecoration: 'none' }}>concierge@discocater.com</a>{' '}
                 with order reference: <strong style={{ color: DARK }}>{orderRef}</strong>
               </p>
             </div>

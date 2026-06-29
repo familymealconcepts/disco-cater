@@ -471,7 +471,8 @@ export default function ProfilePage() {
             {inp(admin.lastName, v => setAdmin({ ...admin, lastName: v }))}
           </FormField>
           <FormField label="Email">
-            {inp(admin.email, v => setAdmin({ ...admin, email: v }), { type: 'email' })}
+            {inp(admin.email, () => {}, { disabled: true, type: 'email' })}
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>To change your email, contact concierge@discocater.com</div>
           </FormField>
           <FormField label="Phone Number">
             {inp(admin.phoneNumber, v => setAdmin({ ...admin, phoneNumber: v }), { type: 'tel' })}
