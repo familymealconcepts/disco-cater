@@ -134,7 +134,7 @@ function button(label: string, href: string): string {
 // ── Email templates ──────────────────────────────────────────────────────────
 
 function emailReminder(firstName: string, restaurantName: string, dateISO: string, time: string, chargeISO: string, modifyISO: string) {
-  const subject = `Your recurring catering order from ${restaurantName} is coming up 🪩`
+  const subject = `Your recurring catering order from ${restaurantName} is coming up`
   const date = fmtLong(dateISO)
   const chargeDate = fmtLong(chargeISO)
   const modifyDeadline = fmtLong(modifyISO)
@@ -163,7 +163,7 @@ If you'd like to pause or cancel, you can do so from your subscriptions page bef
 }
 
 function emailPaymentNeeded(firstName: string, restaurantName: string, dateISO: string, deadlineISO: string, needsNewCard = false) {
-  const subject = `Action required: Payment needed for your catering order from ${restaurantName} 🪩`
+  const subject = `Action required: Payment needed for your catering order from ${restaurantName}`
   const date = fmtLong(dateISO)
   const deadline = fmtLong(deadlineISO)
   const cardNoteHtml = needsNewCard
@@ -201,7 +201,7 @@ function emailManualReview(o: {
   dateISO: string; amount: number; paymentIntentId: string; occurrenceId: string; reason: string
   cart: CartItem[]
 }) {
-  const subject = `⚠️ Manual placement needed — ${o.restaurantName} on ${fmtLong(o.dateISO)} (charged $${o.amount.toFixed(2)})`
+  const subject = `Manual placement needed — ${o.restaurantName} on ${fmtLong(o.dateISO)} (charged $${o.amount.toFixed(2)})`
   const items = (o.cart || []).map(i => `  - ${i.name} ×${i.quantity ?? 1}`).join('\n') || '  (no items recorded)'
   const text = `A recurring-order charge SUCCEEDED but the order could NOT be placed automatically. Do not refund — place the order manually.
 

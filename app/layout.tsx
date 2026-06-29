@@ -18,8 +18,11 @@ export const metadata: Metadata = {
   title: "Disco Cater",
   description: "Discover and order premium catering from the best local restaurants. Corporate, holiday, and event catering — delivered or picked up.",
   icons: {
-    icon: '/disco-cater-logo.png',
-    apple: '/disco-cater-logo.png',
+    icon: [
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/apple-touch-icon.png',
   },
 };
 
