@@ -17,6 +17,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Disco Cater",
   description: "Discover and order premium catering from the best local restaurants. Corporate, holiday, and event catering — delivered or picked up.",
+  icons: {
+    icon: '/disco-cater-logo.png',
+    apple: '/disco-cater-logo.png',
+  },
 };
 
 const ORG_SCHEMA = {

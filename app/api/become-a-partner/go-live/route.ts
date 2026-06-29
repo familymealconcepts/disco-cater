@@ -51,12 +51,12 @@ export async function POST(req: NextRequest) {
     // Welcome email (best-effort; sendEmail never throws).
     if (acct?.email) {
       const content = `
-        <p style="font-size:18px;font-weight:700;margin:0 0 12px;">You're live on Disco Cater! 🪩</p>
+        <p style="font-size:18px;font-weight:700;margin:0 0 12px;">You're live on Disco Cater!</p>
         <p style="margin:0 0 12px;">Congratulations${acct.first_name ? `, ${acct.first_name}` : ''} — <strong>${name}</strong> is now live on the Disco Cater marketplace and ready to receive catering orders.</p>
         <p style="margin:0 0 12px;">Manage your orders, menu, and settings from your restaurant portal.</p>
         ${button('Go to your dashboard', 'https://www.discocater.com/restaurant/orders')}
       `
-      await sendEmail({ to: acct.email, subject: `You're live on Disco Cater! 🪩`, html: layout(content) })
+      await sendEmail({ to: acct.email, subject: `You're live on Disco Cater!`, html: layout(content) })
     }
 
     return NextResponse.json({ success: true, redirect: '/restaurant/orders' })

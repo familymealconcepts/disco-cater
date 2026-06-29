@@ -204,7 +204,7 @@ export async function POST(req: NextRequest) {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text: [
-              `🎉 *New Partner Signup* — ${restaurantName}`,
+              `*New Partner Signup* — ${restaurantName}`,
               `Email: ${email || 'Not provided'}`,
               `Phone: ${phone || 'Not provided'}`,
               `Zip: ${zip || 'Not provided'}`,
@@ -222,12 +222,12 @@ export async function POST(req: NextRequest) {
     // Welcome email to the partner (best-effort; sendEmail never throws).
     try {
       const content = `
-        <p style="font-size:18px;font-weight:700;margin:0 0 12px;">Welcome to Disco Cater! 🪩</p>
+        <p style="font-size:18px;font-weight:700;margin:0 0 12px;">Welcome to Disco Cater!</p>
         <p style="margin:0 0 12px;">Congratulations${firstName ? `, ${firstName}` : ''} — <strong>${restaurantName}</strong> is now set up on Disco Cater and ready to receive catering orders.</p>
         <p style="margin:0 0 12px;">Manage your orders, menu, and settings from your restaurant portal.</p>
         ${button('Go to your dashboard', 'https://www.discocater.com/restaurant/orders')}
       `
-      await sendEmail({ to: email, subject: `Welcome to Disco Cater! 🪩`, html: layout(content) })
+      await sendEmail({ to: email, subject: `Welcome to Disco Cater!`, html: layout(content) })
     } catch (err) {
       console.error('[complete] welcome email failed:', err instanceof Error ? err.message : err)
     }

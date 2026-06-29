@@ -405,7 +405,7 @@ export async function sendCustomerWelcome(params: {
 `
     return await sendEmail({
       to: params.to,
-      subject: 'Welcome to Disco Cater! 🪩',
+      subject: 'Welcome to Disco Cater!',
       html: layout(content),
     })
   } catch (err) {
