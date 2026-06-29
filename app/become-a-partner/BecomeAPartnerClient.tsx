@@ -129,10 +129,22 @@ export default function BecomeAPartnerClient() {
   const [completed, setCompleted] = useState(false)
   const completeFired = useRef(false)
 
+  // Stale-session expiry + render gating. `restored` flips true only after the
+  // mount effect has read sessionStorage, so we never paint step 0 before the
+  // saved step is known (issue #2). `startedAtRef` carries the session-start
+  // timestamp used for the 24h expiry (issue #3).
+  const [restored, setRestored] = useState(false)
+  const startedAtRef = useRef<number>(0)
+  // Live Stripe verification in flight (issue #1).
+  const [stripeChecking, setStripeChecking] = useState(false)
+
   const set = (k: keyof FormState, v: string) => setForm(p => ({ ...p, [k]: v }))
 
-  // ── Mount: restore the snapshot, handle the Stripe return ───────────────────
+  // ── Mount: expire stale sessions, restore the snapshot, handle the Stripe return ──
   useEffect(() => {
+    const SESSION_TTL_MS = 24 * 60 * 60 * 1000 // 24h
+    const now = Date.now()
+
     let isStripeReturn = false
     let refFromQuery = ''
     try {
@@ -143,39 +155,86 @@ export default function BecomeAPartnerClient() {
       }
     } catch { /* ignore */ }
 
+    // Load the snapshot, discarding anything from a session older than 24h so a
+    // previous day's abandoned onboarding can't pre-fill the form (issue #3).
+    let snap: Record<string, unknown> | null = null
     try {
       const raw = sessionStorage.getItem(SNAP_KEY)
       if (raw) {
-        const s = JSON.parse(raw)
-        if (s.form) setForm(f => ({ ...f, ...s.form, password: '' })) // password never persisted
-        if (s.addr) setAddr(a => ({ ...a, ...s.addr }))
-        if (typeof s.logoUrl === 'string') setLogoUrl(s.logoUrl)
-        if (typeof s.agree === 'boolean') setAgree(s.agree)
-        if (typeof s.joinedMarketplace === 'boolean') setJoinedMarketplace(s.joinedMarketplace)
-        if (typeof s.deliveryEnabled === 'boolean') setDeliveryEnabled(s.deliveryEnabled)
-        if (typeof s.stripeConnected === 'boolean') setStripeConnected(s.stripeConnected)
-        if (typeof s.restaurantRef === 'string') setRestaurantRef(s.restaurantRef)
-        if (!isStripeReturn && Number.isFinite(s.step) && s.step >= 1 && s.step <= 6) setStep(s.step)
+        const parsed = JSON.parse(raw) as Record<string, unknown>
+        const startedAt = typeof parsed?.startedAt === 'number' ? parsed.startedAt : 0
+        if (startedAt && now - startedAt > SESSION_TTL_MS) {
+          sessionStorage.removeItem(SNAP_KEY) // expired — start completely fresh
+        } else {
+          snap = parsed
+        }
       }
     } catch { /* snapshot optional */ }
 
-    if (isStripeReturn) {
-      setStripeConnected(true)
-      if (refFromQuery) {
-        setRestaurantRef(refFromQuery)
-        // Confirm charges_enabled server-side (sets stripe_onboarding_complete).
-        fetch(`/api/become-a-partner/stripe-status?restaurantReference=${encodeURIComponent(refFromQuery)}`).catch(() => {})
+    // Carry the original session-start time forward, or stamp a new one now.
+    startedAtRef.current = snap && typeof snap.startedAt === 'number' ? (snap.startedAt as number) : now
+
+    if (snap) {
+      const s = snap as {
+        form?: Partial<FormState>; addr?: Partial<AddressState>; logoUrl?: unknown
+        agree?: unknown; joinedMarketplace?: unknown; deliveryEnabled?: unknown
+        stripeConnected?: unknown; restaurantRef?: unknown; step?: unknown
       }
-      setStep(5) // Stripe step
+      if (s.form) setForm(f => ({ ...f, ...s.form, password: '' })) // password never persisted
+      if (s.addr) setAddr(a => ({ ...a, ...s.addr }))
+      if (typeof s.logoUrl === 'string') setLogoUrl(s.logoUrl)
+      if (typeof s.agree === 'boolean') setAgree(s.agree)
+      if (typeof s.joinedMarketplace === 'boolean') setJoinedMarketplace(s.joinedMarketplace)
+      if (typeof s.deliveryEnabled === 'boolean') setDeliveryEnabled(s.deliveryEnabled)
+      if (typeof s.stripeConnected === 'boolean') setStripeConnected(s.stripeConnected)
+      if (typeof s.restaurantRef === 'string') setRestaurantRef(s.restaurantRef)
+      // Restore the saved step — never default to 0 when a later step was saved (issue #2).
+      if (!isStripeReturn && Number.isFinite(s.step) && (s.step as number) >= 1 && (s.step as number) <= 6) {
+        setStep(s.step as number)
+      }
+    }
+
+    if (isStripeReturn) {
+      // Returning from Stripe → land on the Stripe step. Do NOT optimistically
+      // mark connected; the live-verify effect below confirms charges_enabled
+      // and reconciles the UI (issue #1).
+      if (refFromQuery) setRestaurantRef(refFromQuery)
+      setStep(5)
       try { window.history.replaceState({}, '', '/become-a-partner') } catch { /* ignore */ }
     }
+
+    setRestored(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Persist the snapshot (never the password) on any relevant change, for steps 0–6.
+  // ── Live Stripe verification (issue #1) ─────────────────────────────────────
+  // Never trust the persisted stripeConnected flag. Every time the Stripe step is
+  // shown — including browser back/forward into it — re-confirm charges_enabled
+  // server-side and reconcile. If the check fails or returns false, the Connect
+  // button is shown.
   useEffect(() => {
+    if (!restored || step !== 5) return
+    const ref = restaurantRef
+    if (!ref) { setStripeConnected(false); return }
+    let cancelled = false
+    setStripeChecking(true)
+    fetch(`/api/become-a-partner/stripe-status?restaurantReference=${encodeURIComponent(ref)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled) setStripeConnected(!!d?.connected) })
+      .catch(() => { if (!cancelled) setStripeConnected(false) })
+      .finally(() => { if (!cancelled) setStripeChecking(false) })
+    return () => { cancelled = true }
+  }, [restored, step, restaurantRef])
+
+  // Persist the snapshot (never the password) on any relevant change, for steps 0–6.
+  // Gated on `restored` so the empty initial state can't clobber a saved snapshot
+  // before the mount effect has restored it.
+  useEffect(() => {
+    if (!restored) return
     try {
       if (step <= 6) {
         const snap = {
+          startedAt: startedAtRef.current,
           step,
           form: { ...form, password: '' },
           addr, logoUrl, agree, joinedMarketplace, deliveryEnabled, stripeConnected, restaurantRef,
@@ -183,7 +242,7 @@ export default function BecomeAPartnerClient() {
         sessionStorage.setItem(SNAP_KEY, JSON.stringify(snap))
       }
     } catch { /* sessionStorage unavailable */ }
-  }, [step, form, addr, logoUrl, agree, joinedMarketplace, deliveryEnabled, stripeConnected, restaurantRef])
+  }, [restored, step, form, addr, logoUrl, agree, joinedMarketplace, deliveryEnabled, stripeConnected, restaurantRef])
 
   // Google Places Autocomplete on the restaurant address (step 1). Progressive
   // enhancement — manual entry still works without the script/key.
@@ -402,6 +461,17 @@ export default function BecomeAPartnerClient() {
     </div>
   ) : null
 
+  // Hold rendering until the saved step is known, so we never flash step 0 and
+  // then jump (issue #2 — back/forward lands on the correct step).
+  if (!restored) {
+    return (
+      <div style={{ minHeight: '100svh', background: 'linear-gradient(180deg,rgba(107,110,249,0.06) 0%,rgba(240,70,138,0.03) 220px,#fafafc 520px,#fafafc 100%)', fontFamily: F, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap'); @keyframes discospin { to { transform: rotate(360deg) } }`}</style>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid #ececf4', borderTopColor: BLUE, animation: 'discospin 0.8s linear infinite' }} />
+      </div>
+    )
+  }
+
   return (
     <div style={{ minHeight: '100svh', background: 'linear-gradient(180deg,rgba(107,110,249,0.06) 0%,rgba(240,70,138,0.03) 220px,#fafafc 520px,#fafafc 100%)', fontFamily: F, display: 'flex', flexDirection: 'column' }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap'); * { box-sizing: border-box; }`}</style>
@@ -617,7 +687,12 @@ export default function BecomeAPartnerClient() {
               {errorBox}
 
               <div style={{ marginTop: 18 }}>
-                {stripeConnected ? (
+                {stripeChecking ? (
+                  <button disabled
+                    style={{ ...primaryBtn, opacity: 0.7, cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    Verifying Stripe…
+                  </button>
+                ) : stripeConnected ? (
                   <>
                     <button disabled
                       style={{ ...primaryBtn, background: '#2E9E5B', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
