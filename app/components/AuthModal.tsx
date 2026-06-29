@@ -391,6 +391,10 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
             >
               {signupLoading ? 'Creating account…' : 'Create Account'}
             </button>
+            <div style={{ textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 14 }}>
+              Looking to create a{' '}
+              <a href="/for-restaurants" style={{ color: '#6B6EF9', textDecoration: 'underline' }}>restaurant account?</a>
+            </div>
           </form>
         )}
 
