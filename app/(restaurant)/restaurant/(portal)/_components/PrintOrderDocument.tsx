@@ -95,6 +95,7 @@ export interface PrintableOrder {
   note?: string
   taxExempt?: boolean
   taxExemptId?: string
+  taxExemptState?: string
 }
 
 // ── Formatters ──────────────────────────────────────────────────────────────
@@ -457,6 +458,7 @@ export function buildPrintHtml(order: PrintableOrder): string {
         ${order.orderDate ? `<div class="line"><span class="lbl">Date:</span>${esc(fmtLongDate(order.orderDate))}</div>` : ''}
         ${timeRange ? `<div class="line"><span class="lbl">Time:</span>${esc(timeRange)}</div>` : ''}
         ${order.persons != null ? `<div class="line"><span class="lbl">Headcount:</span>${esc(String(order.persons))}</div>` : ''}
+        ${isTaxExempt && order.taxExemptState ? `<div class="line"><span class="lbl">Tax Exempt State:</span>${esc(order.taxExemptState)}</div>` : ''}
         ${order.createdDate ? `<div class="line"><span class="lbl">Order Placed:</span>${esc(fmtReceived(order.createdDate))}</div>` : ''}
       </td>
       <td>

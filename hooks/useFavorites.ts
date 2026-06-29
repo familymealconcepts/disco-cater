@@ -167,7 +167,35 @@ export function useFavorites(): FavoritesState {
           const scope = String(data.email)
           setUserScope(scope)
           userScopeRef.current = scope
-          const serverRefs: string[] = Array.isArray(data.favorites) ? data.favorites : []
+          // The API now returns ENRICHED favorite objects ({reference,name,image,
+          // slug,cuisine,location,...}). Stay backward-compatible with the old
+          // bare-string shape. serverMeta holds the cache-enriched display fields
+          // so a favorite renders correctly even if it was never viewed on this
+          // device (the old "Restaurant" + 🪩 placeholder bug).
+          const rawServer: unknown[] = Array.isArray(data.favorites) ? data.favorites : []
+          const serverMeta = new Map<string, FavoriteRestaurant>()
+          const serverRefs: string[] = []
+          for (const item of rawServer) {
+            if (typeof item === 'string') {
+              if (item) serverRefs.push(item)
+              continue
+            }
+            const o = item as Partial<FavoriteRestaurant>
+            const ref = String(o.reference || o.key || '')
+            if (!ref) continue
+            serverRefs.push(ref)
+            // Keep only the fields the cache actually provided (truthy) so this
+            // never blanks out a richer local value when spread.
+            const meta: FavoriteRestaurant = { key: ref, reference: ref }
+            if (o.name) meta.name = o.name
+            if (o.image) meta.image = o.image
+            if (o.slug) meta.slug = o.slug
+            if (o.cuisine) meta.cuisine = o.cuisine
+            if (o.location) meta.location = o.location
+            if (o.city) meta.city = o.city
+            if (o.state) meta.state = o.state
+            serverMeta.set(ref, meta)
+          }
           const serverSet = new Set(serverRefs)
 
           const guestFavs = readLocal('guest')
@@ -223,7 +251,10 @@ export function useFavorites(): FavoritesState {
           const merged: FavoriteRestaurant[] = []
           const seen = new Set<string>()
           for (const ref of serverRefs) {
-            const fav = byKey.get(ref) || { key: ref, reference: ref }
+            const local = byKey.get(ref)
+            const server = serverMeta.get(ref)
+            // Server (cache-enriched) metadata wins; local fills any gaps.
+            const fav: FavoriteRestaurant = { ...(local || {}), ...(server || {}), key: ref, reference: ref }
             if (!seen.has(fav.key)) { merged.push(fav); seen.add(fav.key) }
           }
           for (const f of guestOnly) { if (!seen.has(f.key)) { merged.push(f); seen.add(f.key) } }

@@ -92,6 +92,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   // Tax-exempt orders: FM (or the Neon fallback in /api/order/status) returns
   // taxExempt + taxExemptId. When present, taxes are $0.00 and we surface the id.
   const taxExemptId: string = order?.taxExemptId || order?.tax_exempt_id || ''
+  const taxExemptState: string = order?.taxExemptState || order?.tax_exempt_state || ''
   const isTaxExempt = order?.taxExempt === true || !!taxExemptId
 
   return (
@@ -160,7 +161,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 // Headcount lives either in a dedicated orderHeadcount
                 // field (forward-compat with FM) or in the order note as
                 // "Headcount: N" — read both.
-                const direct = (order?.orderHeadcount ?? order?.headcount) as number | undefined
+                const direct = (order?.orderHeadcount ?? order?.headcount ?? order?.persons) as number | undefined
                 const noteText: string = order?.note || order?.comment || ''
                 const m = noteText.match(/Headcount:\s*(\d+)/i)
                 const n = direct ?? (m ? parseInt(m[1], 10) : null)
@@ -183,6 +184,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
                   <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tax Exempt</div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>Tax Exempt ID: {taxExemptId || '—'}</div>
+                  {taxExemptState && <div style={{ fontSize: 14, fontWeight: 600, color: DARK, marginTop: 2 }}>Tax Exempt State: {taxExemptState}</div>}
                 </div>
               )}
 

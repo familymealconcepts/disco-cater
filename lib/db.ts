@@ -98,6 +98,9 @@ export async function runMigrations(): Promise<void> {
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS phone TEXT`,
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS is_live BOOLEAN DEFAULT false`,
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS is_disco_native BOOLEAN DEFAULT false`,
+    // Square restaurant icon/logo, captured at onboarding (separate from image_url,
+    // which is the wider marketplace/hero image). Both set via become-a-partner.
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS icon_url TEXT`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true

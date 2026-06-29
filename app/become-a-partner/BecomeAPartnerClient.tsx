@@ -104,8 +104,12 @@ export default function BecomeAPartnerClient() {
     firstName: '', lastName: '', email: '', password: '', phoneNumber: '', restaurantName: '',
   })
   const [addr, setAddr] = useState<AddressState>({ street: '', city: '', state: '', zip: '' })
+  // logoUrl = wider Marketplace/hero image → disco_restaurant_cache.image_url
   const [logoUrl, setLogoUrl] = useState('')
   const [logoUploading, setLogoUploading] = useState(false)
+  // iconUrl = square Restaurant Icon/logo → disco_restaurant_cache.icon_url
+  const [iconUrl, setIconUrl] = useState('')
+  const [iconUploading, setIconUploading] = useState(false)
 
   const [agree, setAgree] = useState(false)
   const [joinedMarketplace, setJoinedMarketplace] = useState(false)
@@ -176,13 +180,14 @@ export default function BecomeAPartnerClient() {
 
     if (snap) {
       const s = snap as {
-        form?: Partial<FormState>; addr?: Partial<AddressState>; logoUrl?: unknown
+        form?: Partial<FormState>; addr?: Partial<AddressState>; logoUrl?: unknown; iconUrl?: unknown
         agree?: unknown; joinedMarketplace?: unknown; deliveryEnabled?: unknown
         stripeConnected?: unknown; restaurantRef?: unknown; step?: unknown
       }
       if (s.form) setForm(f => ({ ...f, ...s.form, password: '' })) // password never persisted
       if (s.addr) setAddr(a => ({ ...a, ...s.addr }))
       if (typeof s.logoUrl === 'string') setLogoUrl(s.logoUrl)
+      if (typeof s.iconUrl === 'string') setIconUrl(s.iconUrl)
       if (typeof s.agree === 'boolean') setAgree(s.agree)
       if (typeof s.joinedMarketplace === 'boolean') setJoinedMarketplace(s.joinedMarketplace)
       if (typeof s.deliveryEnabled === 'boolean') setDeliveryEnabled(s.deliveryEnabled)
@@ -237,12 +242,12 @@ export default function BecomeAPartnerClient() {
           startedAt: startedAtRef.current,
           step,
           form: { ...form, password: '' },
-          addr, logoUrl, agree, joinedMarketplace, deliveryEnabled, stripeConnected, restaurantRef,
+          addr, logoUrl, iconUrl, agree, joinedMarketplace, deliveryEnabled, stripeConnected, restaurantRef,
         }
         sessionStorage.setItem(SNAP_KEY, JSON.stringify(snap))
       }
     } catch { /* sessionStorage unavailable */ }
-  }, [restored, step, form, addr, logoUrl, agree, joinedMarketplace, deliveryEnabled, stripeConnected, restaurantRef])
+  }, [restored, step, form, addr, logoUrl, iconUrl, agree, joinedMarketplace, deliveryEnabled, stripeConnected, restaurantRef])
 
   // Google Places Autocomplete on the restaurant address (step 1). Progressive
   // enhancement — manual entry still works without the script/key.
@@ -327,20 +332,24 @@ export default function BecomeAPartnerClient() {
     }
   }
 
-  // Upload a logo/photo to Vercel Blob (optional). Stores the returned URL.
-  async function uploadLogo(file: File) {
-    setLogoUploading(true)
+  // Upload an image to Vercel Blob (optional). `which` selects the target field:
+  // 'icon' → square restaurant icon (icon_url); 'marketplace' → wider hero image
+  // (image_url). Both go through the same /api/become-a-partner/logo endpoint.
+  async function uploadImage(file: File, which: 'icon' | 'marketplace') {
+    const setUploading = which === 'icon' ? setIconUploading : setLogoUploading
+    const setUrl = which === 'icon' ? setIconUrl : setLogoUrl
+    setUploading(true)
     try {
       const fd = new FormData()
       fd.append('image', file)
       const res = await fetch('/api/become-a-partner/logo', { method: 'POST', body: fd })
       const data = await res.json().catch(() => null)
-      if (res.ok && data?.url) setLogoUrl(String(data.url))
+      if (res.ok && data?.url) setUrl(String(data.url))
       else setError(data?.error || 'Could not upload image.')
     } catch {
       setError('Could not upload image.')
     } finally {
-      setLogoUploading(false)
+      setUploading(false)
     }
   }
 
@@ -421,7 +430,7 @@ export default function BecomeAPartnerClient() {
           firstName: form.firstName, lastName: form.lastName,
           restaurantName: form.restaurantName, phone: form.phoneNumber,
           street: addr.street, city: addr.city, state: addr.state, zip: addr.zip,
-          logoUrl, restaurantReference: restaurantRef,
+          logoUrl, iconUrl, restaurantReference: restaurantRef,
           joinedMarketplace, deliveryEnabled, stripeConnected,
           menuFileName: menuTab === 'pdf' ? (menuFile?.name || '') : (menuUrl.trim() || ''),
         }),
@@ -564,17 +573,34 @@ export default function BecomeAPartnerClient() {
                   <Field label="Zip" value={addr.zip} onChange={v => setAddr(a => ({ ...a, zip: v }))} />
                 </div>
                 <Field label="Phone (optional)" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
+                {/* Restaurant Icon — square image used as the logo/icon */}
                 <div style={{ marginBottom: 14 }}>
-                  <label style={labelStyle}>Logo or photo (optional)</label>
+                  <label style={labelStyle}>Restaurant icon (optional)</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>{iconUploading ? 'Uploading…' : 'Choose image'}</span>
+                    <span style={{ fontSize: 13, color: iconUrl ? DARK : '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {iconUrl ? 'Uploaded ✓' : 'No image selected'}
+                    </span>
+                    <input type="file" accept="image/*" disabled={iconUploading}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f, 'icon') }}
+                      style={{ display: 'none' }} />
+                  </label>
+                  <div style={{ fontSize: 11, color: '#999', margin: '6px 0 0', paddingLeft: 4 }}>Square image — your logo/icon.</div>
+                </div>
+
+                {/* Marketplace Image — wider hero image for the catering map listing */}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Marketplace image (optional)</label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe' }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>{logoUploading ? 'Uploading…' : 'Choose image'}</span>
                     <span style={{ fontSize: 13, color: logoUrl ? DARK : '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {logoUrl ? 'Uploaded ✓' : 'No image selected'}
                     </span>
                     <input type="file" accept="image/*" disabled={logoUploading}
-                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f) }}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f, 'marketplace') }}
                       style={{ display: 'none' }} />
                   </label>
+                  <div style={{ fontSize: 11, color: '#999', margin: '6px 0 0', paddingLeft: 4 }}>Wider image — shown as your hero on the catering map.</div>
                 </div>
               </div>
               <button

@@ -104,6 +104,7 @@ interface Order {
   otherSalesTaxInPrice?: number
   taxExempt?: boolean
   taxExemptId?: string
+  taxExemptState?: string
   discount?: number
   refund?: number
   orderDropOffTime?: string
@@ -821,6 +822,7 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             {order.restaurant?.address?.addressLine1 && <DetailRow label="Store address" value={[order.restaurant.address.addressLine1, order.restaurant.address.city, order.restaurant.address.state, order.restaurant.address.zipcode].filter(Boolean).join(', ')} />}
             {order.restaurant?.address?.phoneNumber && <DetailRow label="Store phone" value={order.restaurant.address.phoneNumber} />}
             {isTaxExempt && <DetailRow label="Tax Exempt ID" value={order.taxExemptId || '—'} />}
+            {isTaxExempt && order.taxExemptState && <DetailRow label="Tax Exempt State" value={order.taxExemptState} />}
 
             {/* DELIVERY / PICKUP TIME — customer info */}
             <SectionHeader>{order.orderType === 'DELIVERY' ? 'Delivery Pick-up Time' : 'Pickup Time'}</SectionHeader>

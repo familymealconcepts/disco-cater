@@ -403,6 +403,10 @@ CREATE INDEX IF NOT EXISTS idx_disco_customer_favorites_email ON disco_customer_
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS company_name TEXT;
 ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS company_name TEXT;
 
+-- Tax-exempt US state captured at checkout alongside the tax_exempt_id. Shown on
+-- the order confirmation email, PDF, and restaurant portal order details panel.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS tax_exempt_state TEXT;
+
 -- Marketplace opt-in mirror on the restaurant account, kept in sync with the
 -- super admin Marketplace toggle (disco_restaurant_overrides.visible) and the
 -- restaurant portal's own marketplace toggle.

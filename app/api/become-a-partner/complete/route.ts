@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
   const state = String(body?.state || '').trim()
   const zip = String(body?.zip || '').trim()
   const logoUrl = String(body?.logoUrl || '').trim() || null
+  const iconUrl = String(body?.iconUrl || '').trim() || null
   const joinedMarketplace = !!body?.joinedMarketplace
   const deliveryEnabled = !!body?.deliveryEnabled
   const stripeConnected = !!body?.stripeConnected
@@ -143,9 +144,9 @@ export async function POST(req: NextRequest) {
     const coords = address ? await geocode(address) : null
     await sql`
       INSERT INTO disco_restaurant_cache
-        (restaurant_reference, name, slug, address, location, lat, lng, cuisine, phone, image_url, is_disco_native, is_live, cached_at)
+        (restaurant_reference, name, slug, address, location, lat, lng, cuisine, phone, image_url, icon_url, is_disco_native, is_live, cached_at)
       VALUES (${ref}, ${restaurantName}, ${slug}, ${address || null}, ${location || null},
-              ${coords?.lat ?? null}, ${coords?.lng ?? null}, ${'Other'}, ${phone || null}, ${logoUrl},
+              ${coords?.lat ?? null}, ${coords?.lng ?? null}, ${'Other'}, ${phone || null}, ${logoUrl}, ${iconUrl},
               true, true, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE SET
         name = EXCLUDED.name,
@@ -156,6 +157,7 @@ export async function POST(req: NextRequest) {
         lng = COALESCE(EXCLUDED.lng, disco_restaurant_cache.lng),
         phone = EXCLUDED.phone,
         image_url = COALESCE(EXCLUDED.image_url, disco_restaurant_cache.image_url),
+        icon_url = COALESCE(EXCLUDED.icon_url, disco_restaurant_cache.icon_url),
         is_disco_native = true,
         is_live = true,
         cached_at = NOW()

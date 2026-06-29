@@ -86,6 +86,9 @@ interface BaseOrderParams {
   totalPrice: number
   orderNumber: number | string
   taxExemptId?: string
+  taxExemptState?: string
+  persons?: number
+  companyName?: string
   deliveryTrackingUrl?: string
   businessName: string
   businessPhone?: string
@@ -175,6 +178,7 @@ function renderCustomerBlock(p: BaseOrderParams): string {
   const lines: string[] = []
   const name = [p.firstName, p.lastName].filter(Boolean).map(escapeHtml).join(' ')
   if (name) lines.push(`<strong>${name}</strong>`)
+  if (p.companyName) lines.push(escapeHtml(p.companyName))
   if (p.userEmail) lines.push(escapeHtml(p.userEmail))
   if (p.userPhoneNumber) lines.push(escapeHtml(p.userPhoneNumber))
   if (p.dinerAddress) lines.push(escapeHtml(p.dinerAddress))
@@ -209,6 +213,7 @@ ${p.additionalInvoiceDue != null ? `<p style="margin-bottom:12px;"><strong>Addit
 Order Type: <strong>${escapeHtml(p.orderService)}</strong><br/>
 ${p.orderDate ? `Order Date: <strong>${escapeHtml(p.orderDate)}</strong><br/>` : ''}
 ${p.orderTime ? `Order Time: <strong>${escapeHtml(p.orderTime)}</strong>` : ''}
+${p.persons != null && p.persons > 0 ? `<br/>Headcount: <strong>${escapeHtml(p.persons)}</strong>` : ''}
 </p>
 ${HR}
 ${renderCustomerBlock(p)}
@@ -223,6 +228,7 @@ ${renderTotals(p)}
 ${HR}
 <p style="margin:0;">Order ID: ${escapeHtml(p.orderNumber)}</p>
 ${p.taxExemptId ? `<p style="margin:8px 0 0 0;"><strong>Tax Exempt #: ${escapeHtml(p.taxExemptId)}</strong></p>` : ''}
+${p.taxExemptState ? `<p style="margin:4px 0 0 0;"><strong>Tax Exempt State: ${escapeHtml(p.taxExemptState)}</strong></p>` : ''}
 ${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track your delivery order <a href="${escapeHtml(p.deliveryTrackingUrl)}" style="color:#5B6FE8;">HERE</a>.</p>` : ''}
 ${anyQuestions(p)}
 `
@@ -260,6 +266,7 @@ export async function sendRestaurantOrderNotification(
     } else if (p.orderTime) {
       timingHtml += `Order Time: <strong>${escapeHtml(p.orderTime)}</strong><br/>`
     }
+    if (p.persons != null && p.persons > 0) timingHtml += `Headcount: <strong>${escapeHtml(p.persons)}</strong><br/>`
 
     const content = `
 ${p.orderEditNotice ? `<p style="font-size:15px;line-height:1.5;margin-bottom:12px;">${escapeHtml(p.orderEditNotice)}</p>` : ''}
@@ -276,6 +283,7 @@ ${renderTotals(p)}
 ${HR}
 <p style="margin:0;">Order ID: ${escapeHtml(p.orderNumber)}</p>
 ${p.taxExemptId ? `<p style="margin:8px 0 0 0;"><strong>Tax Exempt #: ${escapeHtml(p.taxExemptId)}</strong></p>` : ''}
+${p.taxExemptState ? `<p style="margin:4px 0 0 0;"><strong>Tax Exempt State: ${escapeHtml(p.taxExemptState)}</strong></p>` : ''}
 ${p.deliveryId ? `<p style="margin-top:20px;">Delivery Id: ${escapeHtml(p.deliveryId)}</p>` : ''}
 ${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track this delivery order <a href="${escapeHtml(p.deliveryTrackingUrl)}" style="color:#5B6FE8;">HERE</a>.</p>` : ''}
 `

@@ -118,6 +118,30 @@ async function claimConfirmationSend(orderReference: string, source: string): Pr
   }
 }
 
+// Dedicated idempotency guard for the new-order Slack ping. Belt-and-suspenders
+// on top of claimConfirmationSend: even if the Slack ping is ever reached from a
+// second path (a re-dispatch, an FM→Neon sync, a retry), it fires AT MOST ONCE
+// per order. Returns true only for the caller that wins the SLACK_NOTIFIED claim.
+async function claimSlackNotified(orderReference: string): Promise<boolean> {
+  try {
+    const rows = (await sql`
+      INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+      SELECT ${orderReference}::uuid, 'SLACK_NOTIFIED', '{}'::jsonb, 'order-notifications'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM disco_order_events
+        WHERE order_reference = ${orderReference}::uuid AND event_type = 'SLACK_NOTIFIED'
+      )
+      RETURNING id
+    `) as { id: number }[]
+    return rows.length > 0
+  } catch (err) {
+    // On guard failure prefer NOT sending — a missing Slack ping is recoverable,
+    // a duplicate is the bug we're fixing.
+    console.error('[order-notifications] slack claim failed (skipping to avoid dup):', err instanceof Error ? err.message : err)
+    return false
+  }
+}
+
 // Dispatch all confirmations for a paid order. Fire-and-forget at the call site
 // (waitUntil). Does its own fetching; never throws. Sends at most once per order
 // thanks to claimConfirmationSend.
@@ -127,8 +151,8 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       SELECT reference, order_number, order_type, delivery_type, source_of_order, order_date, order_time, created_at,
              customer_email, customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-             restaurant_reference, restaurant_name, restaurant_email, tax_exempt_id, tips,
-             subtotal, total, fee, refund
+             restaurant_reference, restaurant_name, restaurant_email, tax_exempt_id, tax_exempt_state, tips,
+             subtotal, total, fee, refund, persons, company_name
       FROM disco_orders WHERE id = ${orderId} LIMIT 1
     `) as Record<string, unknown>[]
     if (orders.length === 0) return
@@ -249,6 +273,9 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       totalPrice,
       orderNumber: o.order_number as number,
       taxExemptId: o.tax_exempt_id ? String(o.tax_exempt_id) : undefined,
+      taxExemptState: o.tax_exempt_state ? String(o.tax_exempt_state) : undefined,
+      persons: o.persons != null && Number(o.persons) > 0 ? Number(o.persons) : undefined,
+      companyName: o.company_name ? String(o.company_name) : undefined,
       // Prefer the canonical cache name; fall back to the order's stored name.
       businessName: cacheName || (o.restaurant_name ? String(o.restaurant_name) : '') || 'the restaurant',
       // Store contact (FM format) — canonical in disco_restaurant_cache.
@@ -302,16 +329,23 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
 
     // New-order Slack ping (the single canonical notification). Restaurant name +
     // City/State come from disco_restaurant_cache (location = "City, State").
-    const locParts = cacheLocation.split(',').map((s) => s.trim()).filter(Boolean)
-    await sendNewOrderSlack({
-      sourceOfOrder,
-      restaurantName: cacheName || shared.businessName,
-      city: locParts[0] || '',
-      state: locParts[1] || '',
-      total: totalPrice,
-      orderDateIso: normDateStr(o.order_date),
-      orderType: shared.orderService,
-    })
+    // Guarded by a dedicated SLACK_NOTIFIED event so it fires at most once per
+    // order even if reached from a second dispatch path (fixes the duplicate).
+    const slackOk = reference ? await claimSlackNotified(reference) : true
+    if (slackOk) {
+      const locParts = cacheLocation.split(',').map((s) => s.trim()).filter(Boolean)
+      await sendNewOrderSlack({
+        sourceOfOrder,
+        restaurantName: cacheName || shared.businessName,
+        city: locParts[0] || '',
+        state: locParts[1] || '',
+        total: totalPrice,
+        orderDateIso: normDateStr(o.order_date),
+        orderType: shared.orderService,
+      })
+    } else {
+      console.log('[order-notifications] Slack already notified, skipping:', reference)
+    }
   } catch (err) {
     console.error('[order-notifications] dispatchOrderConfirmations failed:', err instanceof Error ? err.message : err)
   }

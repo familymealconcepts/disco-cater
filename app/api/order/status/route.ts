@@ -55,21 +55,37 @@ export async function GET(req: NextRequest) {
       } catch { /* best-effort enrichment */ }
     }
 
-    // Company name + refund are Disco-only (in the Neon mirror, not the FM order)
-    // — enrich so the confirmation page can show the company and the net total.
+    // Company name, headcount, tax-exempt state + refund are Disco-only (in the
+    // Neon mirror, not the FM order) — enrich so the confirmation page can show
+    // them and the net total.
     if (res.ok && data && typeof data === 'object' && UUID_RE.test(orderRef)) {
       try {
         const rows = (await sql`
-          SELECT company_name, refund FROM disco_orders
-          WHERE fm_order_reference = ${orderRef}::uuid OR reference = ${orderRef}::uuid
+          SELECT o.total AS o_total, o.company_name, o.persons, o.tax_exempt_state, o.refund,
+                 (SELECT MAX(sp.total) FROM disco_stripe_payments sp
+                  WHERE sp.order_reference = o.reference AND sp.total IS NOT NULL AND sp.total > 0) AS sp_total
+          FROM disco_orders o
+          WHERE o.fm_order_reference = ${orderRef}::uuid OR o.reference = ${orderRef}::uuid
           LIMIT 1
-        `) as { company_name: string | null; refund: string | null }[]
+        `) as { o_total: string | null; company_name: string | null; persons: number | null; tax_exempt_state: string | null; refund: string | null; sp_total: string | null }[]
+        const d = data as Record<string, unknown>
         const cn = rows[0]?.company_name
-        if (cn) (data as Record<string, unknown>).companyName = cn
-        if (!Number((data as Record<string, unknown>).refund)) {
+        if (cn) d.companyName = cn
+        const persons = rows[0]?.persons
+        if (persons != null && Number(persons) > 0 && d.persons == null) d.persons = Number(persons)
+        const tes = rows[0]?.tax_exempt_state
+        if (tes && !d.taxExemptState) d.taxExemptState = tes
+        if (!Number(d.refund)) {
           const r = Number(rows[0]?.refund)
-          if (Number.isFinite(r) && r > 0) (data as Record<string, unknown>).refund = r
+          if (Number.isFinite(r) && r > 0) d.refund = r
         }
+        // Authoritative total: disco_orders.total (the actual charge — already the
+        // tax-exempt-reduced amount) falling back to the Stripe payment total. This
+        // overrides FM's tax-inclusive total so the confirmation page matches the
+        // restaurant portal / PDF / email / Slack (which all use this same source),
+        // fixing the same-order-different-amount discrepancy.
+        const authTotal = Number(rows[0]?.o_total) > 0 ? Number(rows[0]?.o_total) : Number(rows[0]?.sp_total)
+        if (Number.isFinite(authTotal) && authTotal > 0) d.total = authTotal
       } catch { /* best-effort enrichment */ }
     }
 

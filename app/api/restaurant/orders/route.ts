@@ -53,6 +53,9 @@ interface OrderRow {
   edit_status: string | null
   created_at: string | null
   persons: number | null
+  company_name: string | null
+  tax_exempt_id: string | null
+  tax_exempt_state: string | null
 }
 
 function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
@@ -91,6 +94,11 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     // When the order was placed (Created column) + headcount.
     orderCreatedDate: r.created_at || undefined,
     persons: r.persons ?? undefined,
+    // Disco-only: company name + tax-exempt id/state for the details panel + PDF.
+    companyName: r.company_name || undefined,
+    taxExemptId: r.tax_exempt_id || undefined,
+    taxExemptState: r.tax_exempt_state || undefined,
+    taxExempt: !!r.tax_exempt_id,
   }
 }
 
@@ -231,7 +239,8 @@ export async function GET(req: NextRequest) {
               source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name,
               to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
               subtotal, COALESCE(NULLIF(disco_orders.total, 0), sp.sp_total) AS total, fee, tips, refund, note, seen_by_admin,
-              COALESCE(edit_count,0) AS edit_count, edit_status, created_at, persons
+              COALESCE(edit_count,0) AS edit_count, edit_status, created_at, persons,
+              company_name, tax_exempt_id, tax_exempt_state
        FROM disco_orders
        LEFT JOIN (
          SELECT order_reference, MAX(total) AS sp_total
