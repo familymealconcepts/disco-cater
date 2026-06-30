@@ -43,16 +43,17 @@ export async function GET() {
       FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
     `) as { restaurant_name: string | null; business_name: string | null; phone: string | null; address: string | null }[]
     const cache = (await sql`
-      SELECT name, phone, address, image_url
+      SELECT name, phone, address, image_url, icon_url
       FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
-    `) as { name: string | null; phone: string | null; address: string | null; image_url: string | null }[]
+    `) as { name: string | null; phone: string | null; address: string | null; image_url: string | null; icon_url: string | null }[]
     const a = acct[0] || {}
     const c = cache[0] || {}
     return NextResponse.json({
       restaurantName: a.restaurant_name || a.business_name || c.name || '',
       phone: a.phone || c.phone || '',
       address: a.address || c.address || '',
-      logoUrl: c.image_url || '',
+      logoUrl: c.image_url || '', // Marketplace Image
+      iconUrl: c.icon_url || '',  // Logo
     })
   } catch (err) {
     console.error('[restaurant/disco-profile] GET failed:', err instanceof Error ? err.message : err)
@@ -68,8 +69,10 @@ export async function PUT(req: NextRequest) {
     const restaurantName = String(body?.restaurantName || '').trim()
     const phone = String(body?.phone || '').trim()
     const address = String(body?.address || '').trim()
-    // logoUrl is optional — only touched when explicitly provided.
+    // Images are optional — only touched when explicitly provided.
+    // logoUrl = Marketplace Image (image_url); iconUrl = Logo (icon_url).
     const logoUrl = body?.logoUrl != null ? String(body.logoUrl).trim() : undefined
+    const iconUrl = body?.iconUrl != null ? String(body.iconUrl).trim() : undefined
 
     await runMigrations()
 
@@ -98,10 +101,17 @@ export async function PUT(req: NextRequest) {
         cached_at = NOW()
       WHERE restaurant_reference = ${ref}
     `
-    // Logo / marketplace image — only when explicitly provided.
+    // Marketplace Image (image_url) — only when explicitly provided.
     if (logoUrl !== undefined) {
       await sql`
         UPDATE disco_restaurant_cache SET image_url = ${logoUrl || null}, cached_at = NOW()
+        WHERE restaurant_reference = ${ref}
+      `
+    }
+    // Logo (icon_url) — only when explicitly provided.
+    if (iconUrl !== undefined) {
+      await sql`
+        UPDATE disco_restaurant_cache SET icon_url = ${iconUrl || null}, cached_at = NOW()
         WHERE restaurant_reference = ${ref}
       `
     }

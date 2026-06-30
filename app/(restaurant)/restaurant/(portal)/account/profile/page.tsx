@@ -1,11 +1,10 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 const PAGE_BG = '#F7F8FC'
-const FM_PUBLIC = 'https://api.familymeal.com'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,7 +49,8 @@ interface DiscoProfile {
   restaurantName: string
   phone: string
   address: string
-  logoUrl: string
+  logoUrl: string   // Marketplace Image → disco_restaurant_cache.image_url
+  iconUrl: string   // Logo → disco_restaurant_cache.icon_url
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -138,11 +138,13 @@ export default function ProfilePage() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
 
   // Disco-native profile card (Neon-backed; pre-populated from onboarding).
-  const [discoProfile, setDiscoProfile] = useState<DiscoProfile>({ restaurantName: '', phone: '', address: '', logoUrl: '' })
+  const [discoProfile, setDiscoProfile] = useState<DiscoProfile>({ restaurantName: '', phone: '', address: '', logoUrl: '', iconUrl: '' })
   const [discoSaving, setDiscoSaving] = useState(false)
   const [discoSuccess, setDiscoSuccess] = useState('')
   const [discoError, setDiscoError] = useState('')
-  const [discoLogoUploading, setDiscoLogoUploading] = useState(false)
+  // Per-field upload spinners for the two images (Logo + Marketplace Image).
+  const [discoLogoUploading, setDiscoLogoUploading] = useState(false) // Marketplace Image
+  const [discoIconUploading, setDiscoIconUploading] = useState(false) // Logo
 
   // Profile card state
   const [admin, setAdmin] = useState<Admin>({ firstName: '', lastName: '', email: '', phoneNumber: '' })
@@ -167,12 +169,10 @@ export default function ProfilePage() {
   const [ddSuccess, setDdSuccess] = useState('')
   const [ddError, setDdError] = useState('')
 
-  // Image state
-  const [imgUploading, setImgUploading] = useState<'restaurant' | 'marketplace' | null>(null)
+  // Restaurant Images card (Logo + Marketplace Image) — Neon-backed save state.
+  const [imgSaving, setImgSaving] = useState(false)
   const [imgError, setImgError] = useState('')
   const [imgSuccess, setImgSuccess] = useState('')
-  const restaurantImgRef = useRef<HTMLInputElement>(null)
-  const marketplaceImgRef = useRef<HTMLInputElement>(null)
 
   const [loading, setLoading] = useState(true)
 
@@ -246,6 +246,7 @@ export default function ProfilePage() {
           phone: disco.phone || '',
           address: disco.address || '',
           logoUrl: disco.logoUrl || '',
+          iconUrl: disco.iconUrl || '',
         })
       }
       setLoading(false)
@@ -360,22 +361,54 @@ export default function ProfilePage() {
     setDiscoSaving(false)
   }
 
-  // Logo / marketplace image upload → Vercel Blob; the URL is saved on "Save".
-  async function uploadDiscoLogo(file: File) {
-    setDiscoLogoUploading(true)
-    setDiscoError('')
+  // Image upload → Vercel Blob; the URL is saved on "Save". `which` selects the
+  // target: 'logo' → iconUrl (icon_url); 'marketplace' → logoUrl (image_url).
+  // Reuses the onboarding endpoint so both flows behave identically.
+  async function uploadDiscoImage(file: File, which: 'logo' | 'marketplace') {
+    const setUploading = which === 'logo' ? setDiscoIconUploading : setDiscoLogoUploading
+    setUploading(true)
+    setImgError('')
     try {
       const fd = new FormData()
       fd.append('image', file)
       const res = await fetch('/api/become-a-partner/logo', { method: 'POST', body: fd })
       const data = await res.json().catch(() => null)
-      if (res.ok && data?.url) setDiscoProfile(p => ({ ...p, logoUrl: String(data.url) }))
-      else setDiscoError(data?.error || 'Could not upload image.')
+      if (res.ok && data?.url) {
+        const url = String(data.url)
+        setDiscoProfile(p => (which === 'logo' ? { ...p, iconUrl: url } : { ...p, logoUrl: url }))
+      } else {
+        setImgError(data?.error || 'Could not upload image.')
+      }
     } catch {
-      setDiscoError('Could not upload image.')
+      setImgError('Could not upload image.')
     } finally {
-      setDiscoLogoUploading(false)
+      setUploading(false)
     }
+  }
+
+  // Persist both images (icon_url + image_url) via the disco-profile PUT.
+  async function saveDiscoImages() {
+    setImgSaving(true)
+    setImgError('')
+    setImgSuccess('')
+    try {
+      // Send the full profile so the PUT doesn't null phone/address (it sets them
+      // from the body); discoProfile holds the loaded values + both image URLs.
+      const res = await fetch('/api/restaurant/disco-profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(discoProfile),
+      })
+      if (!res.ok) {
+        setImgError('Failed to save images. Please try again.')
+      } else {
+        setImgSuccess('Images updated.')
+        setTimeout(() => setImgSuccess(''), 3000)
+      }
+    } catch {
+      setImgError('Network error. Please try again.')
+    }
+    setImgSaving(false)
   }
 
   async function saveDoorDash() {
@@ -399,32 +432,6 @@ export default function ProfilePage() {
       setDdError('Network error. Please try again.')
     }
     setDdSaving(false)
-  }
-
-  async function uploadImage(type: 'restaurant' | 'marketplace', file: File) {
-    setImgUploading(type)
-    setImgError('')
-    setImgSuccess('')
-    const formData = new FormData()
-    formData.append('file', file)
-    try {
-      const endpoint = type === 'restaurant'
-        ? '/api/restaurant/images/upload'
-        : '/api/restaurant/images/marketplace'
-      const res = await fetch(endpoint, { method: 'POST', body: formData })
-      if (!res.ok) {
-        setImgError('Failed to upload image. Please try again.')
-      } else {
-        setImgSuccess('Image uploaded successfully.')
-        setTimeout(() => setImgSuccess(''), 3000)
-        // Refresh restaurant data to get new image reference
-        const updated = await fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : null)
-        if (updated) setRestaurant(updated)
-      }
-    } catch {
-      setImgError('Network error. Please try again.')
-    }
-    setImgUploading(null)
   }
 
   if (loading) {
@@ -501,19 +508,6 @@ export default function ProfilePage() {
           <FormField label="Address">
             {inp(discoProfile.address, v => setDiscoProfile({ ...discoProfile, address: v }), { placeholder: 'Street, City, State ZIP' })}
           </FormField>
-          <FormField label="Logo / Marketplace Image">
-            {discoProfile.logoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={discoProfile.logoUrl} alt="Logo" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block', marginBottom: 10 }} />
-            )}
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, cursor: discoLogoUploading ? 'default' : 'pointer', fontFamily: F, color: DARK }}>
-              {discoLogoUploading ? 'Uploading…' : (discoProfile.logoUrl ? 'Replace Image' : 'Upload Image')}
-              <input type="file" accept="image/*" disabled={discoLogoUploading}
-                onChange={e => { const f = e.target.files?.[0]; if (f) uploadDiscoLogo(f) }}
-                style={{ display: 'none' }} />
-            </label>
-            <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Shown on the Disco Cater marketplace. Click Save to apply.</div>
-          </FormField>
         </Card>
 
         {/* Card 5: DoorDash (conditional) */}
@@ -538,87 +532,44 @@ export default function ProfilePage() {
           </Card>
         )}
 
-        {/* Card 6: Images */}
-        <Card title="Restaurant Images">
-          {imgError && (
-            <div style={{ background: '#FFF0F0', border: '1px solid #FFCDD2', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#C62828' }}>
-              {imgError}
-            </div>
-          )}
-          {imgSuccess && (
-            <div style={{ background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 13, color: '#2E7D32' }}>
-              {imgSuccess}
-            </div>
-          )}
-
-          {/* Restaurant logo (square) */}
+        {/* Card 6: Restaurant Images (Disco-native; Neon-backed icon_url + image_url) */}
+        <Card title="Restaurant Images" onSave={saveDiscoImages} saving={imgSaving} success={imgSuccess} error={imgError}>
+          {/* Logo — small square icon → disco_restaurant_cache.icon_url */}
           <div style={{ marginBottom: 24 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 8 }}>
-              Restaurant Logo
+              Logo
             </label>
-            {restaurant?.image?.reference && (
-              <img
-                src={`${FM_PUBLIC}/public-api/images/${restaurant.image.reference}/download?size=150`}
-                alt="Restaurant"
-                style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block', marginBottom: 10 }}
-              />
+            {discoProfile.iconUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={discoProfile.iconUrl} alt="Logo"
+                style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block', marginBottom: 10 }} />
             )}
-            <input
-              ref={restaurantImgRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={e => {
-                const file = e.target.files?.[0]
-                if (file) uploadImage('restaurant', file)
-              }}
-            />
-            <button
-              onClick={() => restaurantImgRef.current?.click()}
-              disabled={imgUploading !== null}
-              style={{
-                padding: '8px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 8,
-                fontSize: 13, cursor: imgUploading !== null ? 'default' : 'pointer', fontFamily: F,
-                color: DARK, opacity: imgUploading !== null ? 0.6 : 1,
-              }}
-            >
-              {imgUploading === 'restaurant' ? 'Uploading…' : 'Upload Image'}
-            </button>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, cursor: discoIconUploading ? 'default' : 'pointer', fontFamily: F, color: DARK }}>
+              {discoIconUploading ? 'Uploading…' : (discoProfile.iconUrl ? 'Replace Image' : 'Upload Image')}
+              <input type="file" accept="image/*" disabled={discoIconUploading}
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadDiscoImage(f, 'logo') }}
+                style={{ display: 'none' }} />
+            </label>
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Small square icon — your restaurant logo. Click Save to apply.</div>
           </div>
 
-          {/* Marketplace image (4:3) */}
+          {/* Marketplace Image — wider hero photo → disco_restaurant_cache.image_url */}
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 8 }}>
-              Marketplace Image (4:3)
+              Marketplace Image
             </label>
-            {restaurant?.marketplaceImage?.reference && (
-              <img
-                src={`${FM_PUBLIC}/public-api/images/${restaurant.marketplaceImage.reference}/download?size=150`}
-                alt="Marketplace"
-                style={{ width: 150, height: 113, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block', marginBottom: 10 }}
-              />
+            {discoProfile.logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={discoProfile.logoUrl} alt="Marketplace"
+                style={{ width: 150, height: 113, objectFit: 'cover', borderRadius: 8, border: '1px solid #eee', display: 'block', marginBottom: 10 }} />
             )}
-            <input
-              ref={marketplaceImgRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={e => {
-                const file = e.target.files?.[0]
-                if (file) uploadImage('marketplace', file)
-              }}
-            />
-            <button
-              onClick={() => marketplaceImgRef.current?.click()}
-              disabled={imgUploading !== null}
-              style={{
-                padding: '8px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 8,
-                fontSize: 13, cursor: imgUploading !== null ? 'default' : 'pointer', fontFamily: F,
-                color: DARK, opacity: imgUploading !== null ? 0.6 : 1,
-              }}
-            >
-              {imgUploading === 'marketplace' ? 'Uploading…' : 'Upload Image'}
-            </button>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: '#fff', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, cursor: discoLogoUploading ? 'default' : 'pointer', fontFamily: F, color: DARK }}>
+              {discoLogoUploading ? 'Uploading…' : (discoProfile.logoUrl ? 'Replace Image' : 'Upload Image')}
+              <input type="file" accept="image/*" disabled={discoLogoUploading}
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadDiscoImage(f, 'marketplace') }}
+                style={{ display: 'none' }} />
+            </label>
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>Wider hero photo shown on the catering map listing. Click Save to apply.</div>
           </div>
         </Card>
       </div>

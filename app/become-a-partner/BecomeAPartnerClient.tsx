@@ -575,9 +575,9 @@ export default function BecomeAPartnerClient() {
                   <Field label="Zip" value={addr.zip} onChange={v => setAddr(a => ({ ...a, zip: v }))} />
                 </div>
                 <Field label="Phone" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
-                {/* Restaurant Icon — square image used as the logo/icon */}
+                {/* Logo — small square icon, saved to disco_restaurant_cache.icon_url */}
                 <div style={{ marginBottom: 14 }}>
-                  <label style={labelStyle}>Restaurant icon (optional)</label>
+                  <label style={labelStyle}>Logo (optional)</label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', border: '1.5px dashed #d6d6e4', borderRadius: 14, cursor: 'pointer', background: '#fbfbfe' }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: BLUE, whiteSpace: 'nowrap' }}>{iconUploading ? 'Uploading…' : 'Choose image'}</span>
                     <span style={{ fontSize: 13, color: iconUrl ? DARK : '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -587,7 +587,7 @@ export default function BecomeAPartnerClient() {
                       onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f, 'icon') }}
                       style={{ display: 'none' }} />
                   </label>
-                  <div style={{ fontSize: 11, color: '#999', margin: '6px 0 0', paddingLeft: 4 }}>Square image — your logo/icon.</div>
+                  <div style={{ fontSize: 11, color: '#999', margin: '6px 0 0', paddingLeft: 4 }}>Small square icon — your restaurant logo.</div>
                 </div>
 
                 {/* Marketplace Image — wider hero image for the catering map listing */}
