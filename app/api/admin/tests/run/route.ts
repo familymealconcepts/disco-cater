@@ -41,6 +41,17 @@ async function call(method: string, url: string, opts: { body?: unknown; cookie?
   }
 }
 
+// Keep ONLY the admin auth cookies from a full browser cookie string, so a call
+// can't accidentally carry a restaurant/customer session token. Used by step 7c
+// so getRestaurantAuthContext() returns null in the edit route (→ isAdminEdit=true,
+// activating the SUPER_ADMIN-only test-mode Stripe branch).
+function extractAdminCookie(fullCookie: string): string {
+  return fullCookie.split(';')
+    .map(c => c.trim())
+    .filter(c => c.startsWith('fm_admin_token=') || c.startsWith('fm_admin_refresh='))
+    .join('; ')
+}
+
 function errOf(r: CallResult): string {
   const j = r.json as Record<string, unknown> | null
   const parts = [`HTTP ${r.status}`]
@@ -651,7 +662,9 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   `.catch((e) => console.error('[E2E] pm vault insert:', e))
 
   const adminEdit = await call('POST', `${origin}/api/restaurant/orders/${orderRef}/edit`, {
-    cookie: adminCookie,                  // ADMIN auth path (no restaurant session)
+    // Admin-ONLY cookie: strip any restaurant/customer session token so
+    // getRestaurantAuthContext() returns null and isAdminEdit is reliably true.
+    cookie: extractAdminCookie(adminCookie),
     headers: { 'X-Stripe-Test': 'true' }, // SUPER_ADMIN-only test-mode Stripe
     body: {
       activeLines: [{ reference: itemRef, name: 'E2E Test Item', price: itemPrice, quantity: 3 }],
