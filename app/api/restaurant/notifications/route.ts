@@ -2,16 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { sql, runMigrations } from '../../../../lib/db'
+import { sanitizePhone } from '../../../../lib/utils/phone'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // The restaurant Settings "Notifications" section (multi-email + multi-phone
 // recipient lists + reminder toggle). Two account types, never lose either:
-//   • FM-token restaurants  → proxy FM /api/notifications exactly as before.
+//   • FM-token restaurants  → proxy FM /api/notifications exactly as before (FM
+//     stays authoritative).
 //   • Disco-native (no FM token) → serve the SAME shape from Neon (the FM call
-//     would 401, which hid the whole section). Email list lives in
-//     disco_restaurant_overrides.notification_emails; phone list in
-//     disco_restaurant_sms_recipients (fallback: legacy sms_phone).
+//     would 401, which hid the whole section). Neon is authoritative:
+//       email[]       ← disco_restaurant_overrides.notification_emails (CSV)
+//       phoneNumber[] ← disco_restaurant_overrides.notification_sms_numbers (CSV)
+//       reminder      ← disco_restaurant_overrides.order_reminder_emails_enabled
 
 interface NotificationsShape {
   email: string[]
@@ -20,35 +23,49 @@ interface NotificationsShape {
   phoneNotificationType: 'ALL' | 'OFF'
   autoPrint: boolean
   orderReminderEmailsEnabled: boolean
+  discoNative?: boolean
 }
 
-const cleanList = (v: unknown): string[] =>
+const cleanEmails = (v: unknown): string[] =>
   Array.isArray(v) ? Array.from(new Set((v as unknown[]).map(x => String(x).trim()).filter(Boolean))) : []
 
+const cleanPhones = (v: unknown): string[] =>
+  Array.isArray(v) ? Array.from(new Set((v as unknown[]).map(x => sanitizePhone(String(x))).filter(Boolean))) : []
+
+const splitCsv = (v: string | null | undefined): string[] =>
+  String(v || '').split(',').map(s => s.trim()).filter(Boolean)
+
 // Build the FM-shaped notifications object for a Disco-native restaurant from Neon.
+// `emailNotificationType`/`phoneNotificationType` are DERIVED from whether the
+// respective recipient list is non-empty rather than stored separately: there is
+// no Neon column for FM's tri-state, the new-order dispatch sends to the lists
+// regardless of these flags, and FM's 'ORDERS_ONLY' middle state has no
+// Disco-native meaning — so the flag is just a display reflection of "is anyone
+// configured to receive this?". `autoPrint` defaults off (no Disco-native feature).
 async function discoNativeNotifications(ref: string): Promise<NotificationsShape> {
   await runMigrations()
   const ov = (await sql`
-    SELECT notification_emails, order_reminder_emails_enabled
+    SELECT notification_emails, notification_sms_numbers, order_reminder_emails_enabled
     FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
-  `) as { notification_emails: string | null; order_reminder_emails_enabled: boolean | null }[]
-  const email = String(ov[0]?.notification_emails || '').split(',').map(s => s.trim()).filter(Boolean)
-  const reminderOn = ov[0]?.order_reminder_emails_enabled === true
+  `) as { notification_emails: string | null; notification_sms_numbers: string | null; order_reminder_emails_enabled: boolean | null }[]
 
-  // Phone recipients from the new multi-phone table; fall back to the legacy
-  // single sms_phone so nothing already configured is lost.
-  const recips = (await sql`
-    SELECT phone FROM disco_restaurant_sms_recipients WHERE restaurant_reference = ${ref} ORDER BY id
-  `) as { phone: string }[]
-  let phoneNumber = recips.map(r => r.phone).filter(Boolean)
-  if (phoneNumber.length === 0) {
-    const acct = (await sql`
-      SELECT sms_phone FROM disco_restaurant_accounts
-      WHERE restaurant_reference = ${ref} AND sms_phone IS NOT NULL AND sms_phone <> ''
-      ORDER BY id LIMIT 1
-    `) as { sms_phone: string }[]
-    if (acct[0]?.sms_phone) phoneNumber = [acct[0].sms_phone]
-  }
+  // Account row supplies the back-compat fallbacks + first-view seed values.
+  const acct = (await sql`
+    SELECT email, sms_phone FROM disco_restaurant_accounts
+    WHERE restaurant_reference = ${ref} ORDER BY id LIMIT 1
+  `) as { email: string | null; sms_phone: string | null }[]
+  const acctEmail = acct[0]?.email || ''
+  const acctSmsPhone = acct[0]?.sms_phone || ''
+
+  // Email list — seed (display-only, NOT written) with the account email when the
+  // restaurant has never saved a list, so it isn't empty on first view.
+  let email = splitCsv(ov[0]?.notification_emails)
+  if (email.length === 0 && acctEmail) email = [acctEmail]
+
+  // Phone list — fall back to the legacy single sms_phone so existing single-number
+  // configs aren't lost (also display-only until the user saves).
+  let phoneNumber = splitCsv(ov[0]?.notification_sms_numbers)
+  if (phoneNumber.length === 0 && acctSmsPhone) phoneNumber = [acctSmsPhone]
 
   return {
     email,
@@ -56,7 +73,8 @@ async function discoNativeNotifications(ref: string): Promise<NotificationsShape
     emailNotificationType: email.length ? 'ALL' : 'OFF',
     phoneNotificationType: phoneNumber.length ? 'ALL' : 'OFF',
     autoPrint: false,
-    orderReminderEmailsEnabled: reminderOn,
+    orderReminderEmailsEnabled: ov[0]?.order_reminder_emails_enabled === true,
+    discoNative: true,
   }
 }
 
@@ -64,7 +82,7 @@ export async function GET() {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
-  // ── FM-token path — unchanged ───────────────────────────────────────────────
+  // ── FM-token path — unchanged FM proxy ──────────────────────────────────────
   if (ctx.fmToken) {
     try {
       const res = await fetch(`${FM}/api/notifications`, { headers: { Authorization: ctx.fmToken } })
@@ -109,7 +127,7 @@ export async function PUT(req: NextRequest) {
       try {
         const ref = ctx.restaurantReference || (await getRestaurantRef()) || ''
         if (ref) {
-          const emails = cleanList(body?.email)
+          const emails = cleanEmails(body?.email)
           const reminderOn = body?.orderReminderEmailsEnabled === true
           await runMigrations()
           await sql`
@@ -136,33 +154,23 @@ export async function PUT(req: NextRequest) {
   if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
   try {
     await runMigrations()
-    const emails = cleanList(body?.email)
-    const phones = cleanList(body?.phoneNumber)
+    const emails = cleanEmails(body?.email)
+    const phones = cleanPhones(body?.phoneNumber)
     const reminderOn = body?.orderReminderEmailsEnabled === true
 
-    // Email list + reminder toggle → disco_restaurant_overrides.
+    // Email list + phone list + reminder toggle → disco_restaurant_overrides (CSV).
     await sql`
-      INSERT INTO disco_restaurant_overrides (restaurant_reference, order_reminder_emails_enabled, notification_emails, updated_at)
-      VALUES (${ref}, ${reminderOn}, ${emails.join(',') || null}, NOW())
+      INSERT INTO disco_restaurant_overrides
+        (restaurant_reference, order_reminder_emails_enabled, notification_emails, notification_sms_numbers, updated_at)
+      VALUES (${ref}, ${reminderOn}, ${emails.join(',') || null}, ${phones.join(',') || null}, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE
         SET order_reminder_emails_enabled = ${reminderOn},
             notification_emails = ${emails.join(',') || null},
+            notification_sms_numbers = ${phones.join(',') || null},
             updated_at = NOW()
     `
 
-    // Phone list → disco_restaurant_sms_recipients (replace the set: delete all,
-    // re-insert current). A small per-restaurant list, so this is the simplest
-    // correct "delete removed + insert new".
-    await sql`DELETE FROM disco_restaurant_sms_recipients WHERE restaurant_reference = ${ref}`
-    for (const phone of phones) {
-      await sql`
-        INSERT INTO disco_restaurant_sms_recipients (restaurant_reference, phone)
-        VALUES (${ref}, ${phone})
-        ON CONFLICT (restaurant_reference, phone) DO NOTHING
-      `
-    }
-
-    // Keep legacy sms_enabled/sms_phone in sync for back-compat (first number).
+    // Keep legacy sms_enabled/sms_phone in sync for any code still reading them.
     await sql`
       UPDATE disco_restaurant_accounts
       SET sms_enabled = ${phones.length > 0}, sms_phone = ${phones[0] || null}, updated_at = NOW()

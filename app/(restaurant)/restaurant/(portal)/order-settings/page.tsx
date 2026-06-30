@@ -14,6 +14,10 @@ interface Notifications {
   phoneNotificationType: 'ALL' | 'OFF'
   autoPrint: boolean
   orderReminderEmailsEnabled: boolean
+  // Disco-native restaurants serve this section from Neon (the FM call would 401).
+  // Used to hide the legacy single-phone SMS section for them (the multi-phone
+  // list below now covers it). Absent/false for FM-token restaurants.
+  discoNative?: boolean
 }
 
 interface FeesAndTips {
@@ -381,34 +385,40 @@ export default function OrderSettingsPage() {
         )}
       </Section>
 
-      {/* Disco-native SMS — sits above the FM-backed Notifications section. */}
-      <Section title="Text Notifications (Disco Cater Orders)">
-        <Row label="Receive SMS for new orders">
-          <Toggle checked={smsEnabled} onChange={saveSmsEnabled} />
-        </Row>
-        <div style={{ marginTop: 4 }}>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Notification phone number</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="tel"
-              value={smsPhoneInput}
-              onChange={e => setSmsPhoneInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && smsPhoneInput.trim() !== smsPhoneSaved && saveSmsPhone()}
-              placeholder="+1 555 000 0000"
-              style={{ ...inputStyle, minWidth: 200 }}
-            />
-            {smsPhoneInput.trim() !== smsPhoneSaved && (
-              <button onClick={saveSmsPhone}
-                style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                Save
-              </button>
-            )}
+      {/* Disco-native SMS (legacy single-phone) — sits above the FM-backed
+          Notifications section. Hidden for Disco-native restaurants, where the
+          multi-phone list in the Notifications section below now supersedes it.
+          Kept for FM-token restaurants, where it sets Disco-marketplace order SMS
+          separately from FM's own order SMS. */}
+      {!notifications?.discoNative && (
+        <Section title="Text Notifications (Disco Cater Orders)">
+          <Row label="Receive SMS for new orders">
+            <Toggle checked={smsEnabled} onChange={saveSmsEnabled} />
+          </Row>
+          <div style={{ marginTop: 4 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Notification phone number</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="tel"
+                value={smsPhoneInput}
+                onChange={e => setSmsPhoneInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && smsPhoneInput.trim() !== smsPhoneSaved && saveSmsPhone()}
+                placeholder="+1 555 000 0000"
+                style={{ ...inputStyle, minWidth: 200 }}
+              />
+              {smsPhoneInput.trim() !== smsPhoneSaved && (
+                <button onClick={saveSmsPhone}
+                  style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  Save
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-        <p style={{ fontSize: 12, color: '#777', margin: '12px 0 0', lineHeight: 1.55 }}>
-          This applies to orders placed through the Disco Cater marketplace.
-        </p>
-      </Section>
+          <p style={{ fontSize: 12, color: '#777', margin: '12px 0 0', lineHeight: 1.55 }}>
+            This applies to orders placed through the Disco Cater marketplace.
+          </p>
+        </Section>
+      )}
 
       {/* Notifications */}
       {notifications && (

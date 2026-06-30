@@ -314,19 +314,19 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
     }
 
     // Disco-native restaurant SMS — send to EVERY number in the multi-phone
-    // recipient list (disco_restaurant_sms_recipients). Falls back to the legacy
-    // per-account sms_phone (sms_enabled=true) when that table has no rows for the
-    // restaurant, so restaurants configured before the multi-recipient change keep
-    // working. De-duped by normalized number. Fire-and-forget like the emails above.
+    // recipient list (disco_restaurant_overrides.notification_sms_numbers, CSV).
+    // Falls back to the legacy per-account sms_phone (sms_enabled=true) when that
+    // list is empty, so restaurants configured before the multi-recipient change
+    // keep working. De-duped by normalized number. Fire-and-forget like the emails.
     try {
       const smsRestRef = String(o.restaurant_reference ?? '')
       let smsNumbers: string[] = []
       try {
-        const recips = (await sql`
-          SELECT phone FROM disco_restaurant_sms_recipients WHERE restaurant_reference = ${smsRestRef}
-        `) as { phone: string }[]
-        smsNumbers = recips.map((r) => r.phone).filter(Boolean)
-      } catch { /* table may not exist on a brand-new DB — fall back below */ }
+        const ovRows = (await sql`
+          SELECT notification_sms_numbers FROM disco_restaurant_overrides WHERE restaurant_reference = ${smsRestRef} LIMIT 1
+        `) as { notification_sms_numbers: string | null }[]
+        smsNumbers = String(ovRows[0]?.notification_sms_numbers || '').split(',').map((s) => s.trim()).filter(Boolean)
+      } catch { /* column may not exist on a brand-new DB — fall back below */ }
       if (smsNumbers.length === 0) {
         const accts = (await sql`
           SELECT sms_phone FROM disco_restaurant_accounts
