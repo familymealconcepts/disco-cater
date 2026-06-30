@@ -115,6 +115,12 @@ export default function OrderSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
+  // Authoritative account-type signal: a valid disco_restaurant_token session
+  // (GET /api/disco-restaurant-auth/me → 200) means this is a Disco-native
+  // restaurant. Used to hide the legacy single-phone SMS section for them. We rely
+  // on THIS (not notifications.discoNative) because the notifications fetch can be
+  // null on a transient error, which would otherwise fail open and re-show it.
+  const [isDiscoNative, setIsDiscoNative] = useState(false)
 
   // Disco-native SMS settings (disco_restaurant_accounts), separate from FM's
   // proxied text-notification settings below.
@@ -140,15 +146,19 @@ export default function OrderSettingsPage() {
   }
 
   const loadAll = useCallback(async () => {
-    const [rest, notif, fees, closed, sms] = await Promise.all([
+    const [rest, notif, fees, closed, sms, discoMe] = await Promise.all([
       fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : {}) as Promise<typeof restaurant>,
       fetch('/api/restaurant/notifications').then(r => r.ok ? r.json() : null) as Promise<Notifications | null>,
       fetch('/api/restaurant/fees-and-tips').then(r => r.ok ? r.json() : {}) as Promise<FeesAndTips>,
       fetch('/api/restaurant/closed-days').then(r => r.ok ? r.json() : []) as Promise<ClosedDay[]>,
       fetch('/api/restaurant/sms-settings').then(r => r.ok ? r.json() : null) as Promise<{ sms_enabled?: boolean; sms_phone?: string } | null>,
+      // Authoritative Disco-native check (200 = valid disco session). Resolved here
+      // so it's known before the loading gate lifts (no flash of the legacy section).
+      fetch('/api/disco-restaurant-auth/me').then(r => r.ok).catch(() => false) as Promise<boolean>,
     ])
     setRestaurant(rest)
     setNotifications(notif)
+    setIsDiscoNative(discoMe)
     setSmsEnabled(!!sms?.sms_enabled)
     setSmsPhoneInput(sms?.sms_phone || '')
     setSmsPhoneSaved(sms?.sms_phone || '')
@@ -389,8 +399,9 @@ export default function OrderSettingsPage() {
           Notifications section. Hidden for Disco-native restaurants, where the
           multi-phone list in the Notifications section below now supersedes it.
           Kept for FM-token restaurants, where it sets Disco-marketplace order SMS
-          separately from FM's own order SMS. */}
-      {!notifications?.discoNative && (
+          separately from FM's own order SMS. Gated on the authoritative disco
+          session check (fails closed — only shows when NOT a Disco-native session). */}
+      {!isDiscoNative && (
         <Section title="Text Notifications (Disco Cater Orders)">
           <Row label="Receive SMS for new orders">
             <Toggle checked={smsEnabled} onChange={saveSmsEnabled} />
