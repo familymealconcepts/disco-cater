@@ -21,8 +21,12 @@ const FEE_RATE = 0.03 // 3% platform fee on subtotal
 
 interface ActiveLine { reference: string; name: string; price: number; quantity: number; serves?: string | number | null }
 
-function stripeClient(): Stripe | null {
-  const key = process.env.STRIPE_SECRET_KEY
+// Live by default. `testMode` (SUPER_ADMIN E2E only — see POST) swaps in the
+// Stripe TEST secret so the harness can settle test charges through this same
+// route without touching the live payment path. Falls back to no client if the
+// requested key is unset.
+function stripeClient(testMode = false): Stripe | null {
+  const key = testMode ? process.env.STRIPE_TEST_SECRET_KEY : process.env.STRIPE_SECRET_KEY
   if (!key) return null
   return new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
 }
@@ -152,7 +156,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     originalPaymentIntentId = pays[0]?.stripe_payment_intent_id || ''
   }
 
-  const stripe = stripeClient()
+  // Test-mode Stripe is allowed ONLY for an admin (SUPER_ADMIN) caller that
+  // explicitly opts in via X-Stripe-Test — used by the E2E harness (step 7c) to
+  // settle test charges through this route. Restaurant-level callers can NEVER
+  // trigger it (isAdminEdit is false for them), so the live path is untouched.
+  const useTestStripe = isAdminEdit
+    && req.headers.get('x-stripe-test') === 'true'
+    && !!process.env.STRIPE_TEST_SECRET_KEY
+  const stripe = stripeClient(useTestStripe)
   let paymentAction: 'charge' | 'refund' | 'invoice' | 'none' = 'none'
   let paymentStatus: 'succeeded' | 'refunded' | 'invoiced' | 'pending' | 'failed' | 'none' = 'none'
   let stripePaymentIntentId = ''

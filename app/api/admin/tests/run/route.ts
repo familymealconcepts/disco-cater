@@ -18,13 +18,14 @@ interface TestResult { steps: Step[]; testData: { createdRecords: string[] } }
 interface CallResult { status: number; ok: boolean; json: Record<string, unknown> | unknown[] | null; setCookie: string }
 
 // Internal HTTP helper — server-to-server fetch against this deployment.
-async function call(method: string, url: string, opts: { body?: unknown; cookie?: string } = {}): Promise<CallResult> {
+async function call(method: string, url: string, opts: { body?: unknown; cookie?: string; headers?: Record<string, string> } = {}): Promise<CallResult> {
   try {
     const res = await fetch(url, {
       method,
       headers: {
         ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
         ...(opts.cookie ? { Cookie: opts.cookie } : {}),
+        ...(opts.headers || {}),
         Accept: 'application/json',
       },
       body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -473,6 +474,7 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
     '6. Charge order (Stripe test mode)',
     '7. Edit order — Disco-native POST /edit (reschedule +14d, item ×2)',
     '7b. Verify Neon state after edit (edit_count / order_date / total)',
+    '7c. Admin-initiated edit via admin auth path (Stripe test mode)',
     '8. Refund order (Stripe test mode)',
     '9. Cleanup',
   ]
@@ -632,6 +634,60 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   if (fails.length) return bail(`Neon state mismatch — ${fails.join('; ')}. Full row: ${rowJson}`)
   ok(`✓ Neon verified — edit_count=1, order_date=${neonDate}, total=$${neonTotal.toFixed(2)}. Full disco_orders row: ${rowJson}`)
 
+  // STEP 7c — admin-initiated edit via the ADMIN auth path (admin cookie, NO
+  // restaurant session) + the SUPER_ADMIN-only test-mode Stripe branch
+  // (X-Stripe-Test). We vault the step-5 test card so the positive +1 delta
+  // settles through the route's direct-charge path on STRIPE_TEST_SECRET_KEY,
+  // which bumps edit_count to 2 deterministically in this single call. (Without a
+  // card on file the +1 would INVOICE and leave edit_count at 1 until the invoice
+  // is paid — so the card-on-file path is what makes the count assertion provable
+  // here.) This verifies: (a) the admin path resolves restaurant_reference from
+  // the ORDER not the session, (b) Stripe settles in TEST mode through the live
+  // route, (c) disco_orders reflects the new total + edit_count = 2.
+  await sql`
+    INSERT INTO disco_customer_payment_methods (customer_email, stripe_customer_id, stripe_payment_method_id, is_default)
+    VALUES (${custEmail}, ${stripeCustomerId}, ${pmId}, true)
+    ON CONFLICT DO NOTHING
+  `.catch((e) => console.error('[E2E] pm vault insert:', e))
+
+  const adminEdit = await call('POST', `${origin}/api/restaurant/orders/${orderRef}/edit`, {
+    cookie: adminCookie,                  // ADMIN auth path (no restaurant session)
+    headers: { 'X-Stripe-Test': 'true' }, // SUPER_ADMIN-only test-mode Stripe
+    body: {
+      activeLines: [{ reference: itemRef, name: 'E2E Test Item', price: itemPrice, quantity: 3 }],
+      orderDate: newDateIso,
+      orderTime: '10:00:00',
+      editorEmail: custEmail,
+    },
+  })
+  const aj = (adminEdit.json || {}) as Record<string, unknown>
+  if (!adminEdit.ok || aj.status !== 'confirmed') {
+    return bail(`admin-auth edit did not confirm: HTTP ${adminEdit.status} ${JSON.stringify(aj).slice(0, 200)}`)
+  }
+  const adminNewTotal = Number(aj.newTotal)
+
+  // Verify Neon state + that the delta settlement was recorded for THIS restaurant
+  // (proves the admin path resolved restaurant_reference from the order row).
+  const a2Rows = (await sql`
+    SELECT COALESCE(edit_count,0) AS edit_count, total FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid LIMIT 1
+  `.catch(() => [])) as { edit_count: number; total: string | null }[]
+  const a2 = a2Rows[0]
+  if (!a2) return bail('order row not found after admin-auth edit')
+  const adminEditCount = Number(a2.edit_count)
+  const adminTotal = Number(a2.total)
+  const payRows = (await sql`
+    SELECT total FROM disco_stripe_payments
+    WHERE order_reference = ${orderRef}::uuid AND restaurant_reference = ${restaurantRef}::uuid
+  `.catch(() => [])) as { total: string | null }[]
+  const aFails: string[] = []
+  if (adminEditCount !== 2) aFails.push(`edit_count=${adminEditCount} (expected 2)`)
+  if (!(Number.isFinite(adminNewTotal) && Math.abs(adminTotal - adminNewTotal) < 0.01)) aFails.push(`total=${adminTotal} (expected ${adminNewTotal})`)
+  // step-6 original charge + the 7c delta charge → ≥2 rows for this order+restaurant.
+  if (payRows.length < 2) aFails.push(`delta charge not recorded for restaurant ${restaurantRef} (found ${payRows.length} payment rows)`)
+  if (aFails.length) return bail(`admin-auth edit verification failed — ${aFails.join('; ')}`)
+  created.push(`Admin edit #2 (delta=${aj.delta}, newTotal $${Number.isFinite(adminNewTotal) ? adminNewTotal.toFixed(2) : '?'})`)
+  ok(`✓ admin-auth edit confirmed via test-mode Stripe — edit_count=2, total=$${adminTotal.toFixed(2)}, delta settled for ${restaurantRef} (ref resolved from order)`)
+
   // STEP 8 — refund the original charge in Stripe TEST mode.
   let refunded = 0
   try {
@@ -655,6 +711,8 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
     await sql`DELETE FROM disco_order_events WHERE order_reference IN (SELECT reference FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid)`.catch(() => {})
     await sql`DELETE FROM disco_order_items WHERE order_id IN (SELECT id FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid)`.catch(() => {})
     await sql`DELETE FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
+    // The test card vaulted for step 7c's admin-edit charge path.
+    await sql`DELETE FROM disco_customer_payment_methods WHERE customer_email = ${custEmail}`.catch(() => {})
     // Only the item we created — Test Kitchen is real, never wipe its whole menu.
     await sql`DELETE FROM disco_menu_items WHERE reference = ${itemRef}::uuid`.catch(() => {})
     if (categoryRef) {
@@ -666,7 +724,7 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
     }
   } catch { /* best-effort */ }
   created.push(`Charged: $${charged.toFixed(2)}`, `Refunded: $${refunded.toFixed(2)}`)
-  ok('synthetic order + menu removed (Test Kitchen left intact) — E2E complete, all 9 steps passed')
+  ok('synthetic order + menu + test card removed (Test Kitchen left intact) — E2E complete, all steps passed')
 
   return { steps, testData: { createdRecords: created } }
 }
