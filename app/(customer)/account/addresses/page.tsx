@@ -73,6 +73,11 @@ export default function AddressesPage() {
   const [formErr, setFormErr] = useState('')
 
   const inputRef = useRef<HTMLInputElement>(null)
+  // The exact formatted address last chosen from the Places dropdown. Lets the
+  // input's onChange tell Google's programmatic fill (keep `parts`) apart from a
+  // real user edit (invalidate `parts`). Fixes the race where the post-selection
+  // `input` event fired AFTER `place_changed` and nulled `parts`, blocking Save.
+  const selectedAddrRef = useRef('')
   const [placesLoaded, setPlacesLoaded] = useState(false)
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
@@ -123,14 +128,19 @@ export default function AddressesPage() {
     const listener = ac.addListener('place_changed', () => {
       const place = ac.getPlace()
       if (!place?.address_components) return
+      const formatted = place.formatted_address ?? ''
+      // Record the selection BEFORE updating state so the (possibly later)
+      // programmatic `input` event onChange recognizes it and keeps `parts`.
+      selectedAddrRef.current = formatted
       setParts(extractPlace(place))
-      setLine1Text(place.formatted_address ?? '')
+      setLine1Text(formatted)
       setFormErr('')
     })
     return () => { google.maps.event.removeListener(listener) }
   }, [adding, placesLoaded])
 
   function resetForm() {
+    selectedAddrRef.current = ''
     setParts(null); setLine1Text(''); setLine2(''); setInstructions(''); setFormErr('')
   }
 
@@ -260,7 +270,13 @@ export default function AddressesPage() {
                     ref={inputRef}
                     className="acct-input"
                     value={line1Text}
-                    onChange={e => { setLine1Text(e.target.value); setParts(null) }}
+                    onChange={e => {
+                      const v = e.target.value
+                      setLine1Text(v)
+                      // Only invalidate verification on a genuine user edit — NOT
+                      // Google's programmatic fill (which equals the selection).
+                      if (v !== selectedAddrRef.current) setParts(null)
+                    }}
                     placeholder="Start typing your address…"
                     style={inputSt}
                     autoComplete="off"
