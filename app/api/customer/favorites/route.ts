@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { runDiscoOrderMigrations, sql } from '../../../../lib/db'
+// Note: the GET hot-path deliberately does NOT call runDiscoOrderMigrations() —
+// the tables already exist in production and the per-request ~60-statement
+// migration run was the dominant favorites-load latency. Migrations run via
+// runMigrations()/runDiscoOrderMigrations() on other (cold-start) routes.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -19,16 +23,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ authenticated: false, favorites: [] })
   }
   try {
-    await runDiscoOrderMigrations()
+    // Enrich via TWO joins: by restaurant_reference (UUID-stored favorites) and by
+    // slug (legacy slug-stored favorites). COALESCE so either match populates the
+    // card, and surface the canonical UUID so the client stores/deletes by UUID.
     const rows = (await sql`
       SELECT f.restaurant_reference,
-             c.name, c.slug, c.image_url, c.cuisine, c.location
+             COALESCE(c.restaurant_reference, c2.restaurant_reference) AS canonical_reference,
+             COALESCE(c.name, c2.name)             AS name,
+             COALESCE(c.slug, c2.slug)             AS slug,
+             COALESCE(c.image_url, c2.image_url)   AS image_url,
+             COALESCE(c.cuisine, c2.cuisine)       AS cuisine,
+             COALESCE(c.location, c2.location)     AS location
       FROM disco_customer_favorites f
-      LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = f.restaurant_reference
+      LEFT JOIN disco_restaurant_cache c  ON c.restaurant_reference = f.restaurant_reference
+      LEFT JOIN disco_restaurant_cache c2 ON c2.slug = f.restaurant_reference
       WHERE f.customer_email = ${session.email}
       ORDER BY f.created_at DESC
     `) as Array<{
       restaurant_reference: string
+      canonical_reference: string | null
       name: string | null
       slug: string | null
       image_url: string | null
@@ -37,11 +50,13 @@ export async function GET(req: NextRequest) {
     }>
     // Shape each row to the FavoriteRestaurant the client hook/pages expect.
     // location is "City, State" — split it so locationText()/the picker work.
+    // Prefer the canonical UUID so the client keys + persists by UUID going forward.
     const favorites = rows.map(r => {
       const [city, state] = (r.location || '').split(',').map(s => s.trim())
+      const reference = r.canonical_reference || r.restaurant_reference
       return {
-        key: r.restaurant_reference,
-        reference: r.restaurant_reference,
+        key: reference,
+        reference,
         name: r.name || undefined,
         image: r.image_url || undefined,
         slug: r.slug || undefined,

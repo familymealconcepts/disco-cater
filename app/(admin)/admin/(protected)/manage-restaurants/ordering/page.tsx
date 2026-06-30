@@ -313,7 +313,13 @@ export default function RestaurantsOrderingPage() {
     if (!promoteConfirm) return
     setPromoteBusy(true)
     try {
-      const res = await fetch(`/api/admin/restaurants/${promoteConfirm.reference}/promote-system-admin`, { method: 'POST' })
+      // Pass the admin's email so the API can find the Disco account even when its
+      // restaurant_reference differs from the table reference.
+      const email = adminEmailOf(promoteConfirm)
+      const res = await fetch(
+        `/api/admin/restaurants/${promoteConfirm.reference}/promote-system-admin?email=${encodeURIComponent(email)}`,
+        { method: 'POST' },
+      )
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
         setPromoteConfirm(null)

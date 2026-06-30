@@ -101,11 +101,39 @@ export async function runMigrations(): Promise<void> {
     // Square restaurant icon/logo, captured at onboarding (separate from image_url,
     // which is the wider marketplace/hero image). Both set via become-a-partner.
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS icon_url TEXT`,
+    // Index the slug so the favorites enrichment can join on slug (some favorites
+    // were stored by Sanity slug rather than the restaurant_reference UUID).
+    `CREATE INDEX IF NOT EXISTS idx_disco_restaurant_cache_slug ON disco_restaurant_cache(slug)`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true
 
   await runDiscoOrderMigrations()
+
+  // One-time idempotent backfill: convert favorites stored by Sanity slug into
+  // the canonical restaurant_reference UUID (the enrichment join keys on the
+  // UUID). Runs here — after both disco_restaurant_cache (above) and
+  // disco_customer_favorites (runDiscoOrderMigrations) exist. Only rows whose
+  // stored value matches a cache slug AND isn't already a UUID are touched, and
+  // any that would collide with an existing UUID favorite for that user are
+  // skipped (the UNIQUE(customer_email, restaurant_reference) constraint).
+  // Wrapped so a backfill hiccup can never break a request.
+  try {
+    await sql.query(`
+      UPDATE disco_customer_favorites f
+      SET restaurant_reference = c.restaurant_reference
+      FROM disco_restaurant_cache c
+      WHERE c.slug = f.restaurant_reference
+        AND f.restaurant_reference !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        AND NOT EXISTS (
+          SELECT 1 FROM disco_customer_favorites f2
+          WHERE f2.customer_email = f.customer_email
+            AND f2.restaurant_reference = c.restaurant_reference
+        )
+    `)
+  } catch (e) {
+    console.error('[migrations] favorites slug→uuid backfill skipped:', e instanceof Error ? e.message : e)
+  }
 }
 
 // ── Customer saved-addresses schema ───────────────────────────────────────────

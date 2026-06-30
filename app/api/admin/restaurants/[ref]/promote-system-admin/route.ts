@@ -11,26 +11,33 @@ export const runtime = 'nodejs'
 // business_name, or same email domain as a fallback) so the whole group gets
 // all-locations access in the restaurant portal. This mirrors FM's "promote to
 // SYSTEM_ADMIN" but is driven entirely from Neon — no FM call.
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   // Super admin must be authenticated (same guard as the sibling FM proxies).
   try { await getAdminAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
   const { ref } = await params
+  // The admin's email (passed by the UI) lets us find the Disco account even when
+  // its restaurant_reference differs from the cache/FM reference shown in the
+  // table — a real account was being missed when only matching on restaurant_reference.
+  const email = (req.nextUrl.searchParams.get('email') || '').trim().toLowerCase()
   try {
     await runDiscoOrderMigrations() // ensures role + business_name columns exist
 
     const accounts = (await sql`
-      SELECT id, email, business_name, restaurant_name
+      SELECT id, email, business_name, restaurant_name, restaurant_reference
       FROM disco_restaurant_accounts
       WHERE restaurant_reference = ${ref}
+         OR (${email} <> '' AND LOWER(email) = ${email})
       ORDER BY id ASC
-    `) as Array<{ id: number; email: string; business_name: string | null; restaurant_name: string | null }>
+    `) as Array<{ id: number; email: string; business_name: string | null; restaurant_name: string | null; restaurant_reference: string | null }>
 
     if (!accounts.length) {
+      // No Disco-native account row → they've never logged into the Disco portal.
+      // Return a clear, actionable error (never a false success).
       return NextResponse.json(
-        { error: 'This restaurant has no Disco Cater account yet. They must log in first.' },
+        { error: 'This user must log into the restaurant portal at least once before they can be promoted to System Admin.' },
         { status: 404 },
       )
     }

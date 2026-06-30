@@ -1204,7 +1204,8 @@ function FullMapInner() {
                               background="rgba(255,255,255,0.92)"
                               style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
                               restaurant={{
-                                key: r.slug?.current || r._id,
+                                key: r._id || r.slug?.current || '',
+                                reference: r._id,
                                 slug: r.slug?.current,
                                 name: r.name,
                                 image: r.image,
@@ -1298,7 +1299,8 @@ function FullMapInner() {
                     background="rgba(255,255,255,0.92)"
                     style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
                     restaurant={{
-                      key: r.slug?.current || r._id,
+                      key: r._id || r.slug?.current || '',
+                      reference: r._id,
                       slug: r.slug?.current,
                       name: r.name,
                       image: r.image,
@@ -1463,7 +1465,8 @@ function FullMapInner() {
                     background="rgba(255,255,255,0.92)"
                     style={{ position: 'absolute', top: 6, right: 8, zIndex: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}
                     restaurant={{
-                      key: r.slug?.current || r._id,
+                      key: r._id || r.slug?.current || '',
+                      reference: r._id,
                       slug: r.slug?.current,
                       name: r.name,
                       image: r.image,
