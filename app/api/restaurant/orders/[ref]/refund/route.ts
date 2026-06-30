@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
+import { sendCustomerRefundNotification } from '../../../../../../lib/email/notifications'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -77,16 +78,41 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       UPDATE disco_orders
       SET order_status = 'REFUNDED', refund = ${totalRefund}, updated_at = NOW()
       WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
-      RETURNING reference
-    `) as Array<{ reference: string }>
+      RETURNING reference, order_number, customer_email, customer_first_name,
+                customer_last_name, restaurant_reference, restaurant_name
+    `) as Array<{
+      reference: string; order_number: string | number | null
+      customer_email: string | null; customer_first_name: string | null; customer_last_name: string | null
+      restaurant_reference: string | null; restaurant_name: string | null
+    }>
 
     if (!rows.length) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
-    const reference = rows[0].reference
+    const o = rows[0]
+    const reference = o.reference
 
     await sql`
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
       VALUES (${reference}::uuid, 'REFUNDED', ${JSON.stringify({ amount, totalRefund })}::jsonb, 'DISCO_REFUND')
     `.catch(e => console.error('[restaurant/orders/refund] event insert:', e))
+
+    // Notify the customer of the refund (best-effort — never block the refund).
+    if (o.customer_email) {
+      try {
+        const rc = (await sql`
+          SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${o.restaurant_reference} LIMIT 1
+        `) as { name: string | null }[]
+        await sendCustomerRefundNotification({
+          to: o.customer_email,
+          firstName: o.customer_first_name || '',
+          lastName: o.customer_last_name || undefined,
+          orderNumber: o.order_number ?? reference,
+          refundAmount: amount,
+          businessName: rc[0]?.name || o.restaurant_name || 'the restaurant',
+        })
+      } catch (e) {
+        console.error('[restaurant/orders/refund] refund email failed (non-fatal):', e instanceof Error ? e.message : e)
+      }
+    }
 
     return NextResponse.json({ ok: true, orderStatus: 'REFUNDED', refund: totalRefund })
   } catch (err) {

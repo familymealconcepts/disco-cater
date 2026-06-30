@@ -290,12 +290,23 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       )
     }
 
-    // Restaurant notification — only when the restaurant has an email on file.
+    // Restaurant notification — sent to EVERY address in the FM "Email Notification
+    // Recipients" list (mirrored to disco_restaurant_overrides.notification_emails
+    // on save), falling back to the order's single restaurant_email. De-duped.
     const sourceOfOrder = o.source_of_order ? String(o.source_of_order) : ''
     const restaurantEmail = o.restaurant_email ? String(o.restaurant_email) : ''
-    if (restaurantEmail) {
+    let notificationEmails: string[] = []
+    try {
+      const ov = (await sql`
+        SELECT notification_emails FROM disco_restaurant_overrides WHERE restaurant_reference = ${restRef} LIMIT 1
+      `) as { notification_emails: string | null }[]
+      notificationEmails = String(ov[0]?.notification_emails || '').split(',').map((e) => e.trim()).filter(Boolean)
+    } catch { /* fall back to the single order email */ }
+    const recipientList = notificationEmails.length ? notificationEmails : (restaurantEmail ? [restaurantEmail] : [])
+    const uniqueRecipients = Array.from(new Set(recipientList.map((e) => e.toLowerCase())))
+    for (const to of uniqueRecipients) {
       sendRestaurantOrderNotification({
-        restaurantEmail,
+        restaurantEmail: to,
         deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
         sourceOfOrder,
         ...shared,
