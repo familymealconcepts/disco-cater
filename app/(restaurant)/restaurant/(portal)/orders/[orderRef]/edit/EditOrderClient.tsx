@@ -145,8 +145,15 @@ function collectOrderItems(rec: AnyRec): AnyRec[] {
   return []
 }
 
-export default function EditOrderClient({ orderRef }: { orderRef: string }) {
+// `context` lets the same editor serve both portals against the same API routes
+// (which now accept admin auth): 'restaurant' (default) and 'admin' (super admin
+// from the admin portal). It only changes the return path + which localStorage
+// user key supplies the editor email + how the restaurant ref is resolved.
+export default function EditOrderClient({ orderRef, context = 'restaurant' }: { orderRef: string; context?: 'restaurant' | 'admin' }) {
   const router = useRouter()
+  const isAdmin = context === 'admin'
+  const returnPath = isAdmin ? '/admin/manage-orders' : '/restaurant/orders'
+  const editorStorageKey = isAdmin ? 'admin_user' : 'restaurant_user'
 
   // ─── Lifecycle / load state ───────────────────────────────────────────────
   const [loading, setLoading] = useState(true)
@@ -289,9 +296,10 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
           orderType: order.orderType, orderDate: order.orderDate, orderTime: order.orderTime,
         })
 
-        // Resolve the restaurant ref client-side: prefer the portal's selected
-        // location, fall back to whatever the order details carry.
-        const fromStorage = typeof window !== 'undefined' ? (localStorage.getItem('selectedRestaurant') || '') : ''
+        // Resolve the restaurant ref client-side: the restaurant portal prefers
+        // its selected location; the admin portal has no such selection, so it
+        // always uses the order's own restaurant from the details payload.
+        const fromStorage = (!isAdmin && typeof window !== 'undefined') ? (localStorage.getItem('selectedRestaurant') || '') : ''
         const fromDetails = str(order.restaurantReference) || str((order.restaurant as AnyRec | undefined)?.reference)
         const rr = fromStorage || fromDetails
         console.log('[edit-client] restaurantRef resolved', { fromStorage, fromDetails, used: rr })
@@ -495,7 +503,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
     setCommitting(true)
     try {
       let editorEmail = ''
-      try { editorEmail = JSON.parse(localStorage.getItem('restaurant_user') || '{}')?.email || '' } catch { /* ignore */ }
+      try { editorEmail = JSON.parse(localStorage.getItem(editorStorageKey) || '{}')?.email || '' } catch { /* ignore */ }
       const res = await fetch(`/api/restaurant/orders/${orderRef}/edit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -517,7 +525,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       setCommitted(true)
       const qp = new URLSearchParams({ editSuccess: 'true', editOutcome: invoiced ? 'invoiced' : 'success' })
       if (orderNumber) qp.set('orderNumber', orderNumber)
-      setTimeout(() => router.push(`/restaurant/orders?${qp.toString()}`), 1500)
+      setTimeout(() => router.push(`${returnPath}?${qp.toString()}`), 1500)
     } catch (err) {
       setCommitError(err instanceof Error ? err.message : 'Something went wrong committing the edit.')
       setCommitting(false)
@@ -526,7 +534,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
 
   // ─── Discard ──────────────────────────────────────────────────────────────
   function discard() {
-    router.push('/restaurant/orders')
+    router.push(returnPath)
   }
 
   const filteredSection = useMemo(() => {
@@ -567,7 +575,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
             </pre>
           </div>
         )}
-        <button onClick={() => router.push('/restaurant/orders')} style={pillBtn(BLUE)}>Return to Orders</button>
+        <button onClick={() => router.push(returnPath)} style={pillBtn(BLUE)}>Return to Orders</button>
       </div>
     )
   }
@@ -593,7 +601,7 @@ export default function EditOrderClient({ orderRef }: { orderRef: string }) {
       {!canEdit && (
         <div style={{ background: '#fff3f3', color: '#c0392b', borderBottom: '1px solid #ffd6d6', padding: '10px 18px', fontSize: 14, fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span>This order can no longer be edited{editReason ? ` — ${editReason}.` : '.'}</span>
-          <button onClick={() => router.push('/restaurant/orders')} style={{ background: '#fff', border: '1px solid #f0bdbd', color: '#c0392b', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>Return to Orders</button>
+          <button onClick={() => router.push(returnPath)} style={{ background: '#fff', border: '1px solid #f0bdbd', color: '#c0392b', borderRadius: 8, padding: '6px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>Return to Orders</button>
         </div>
       )}
 

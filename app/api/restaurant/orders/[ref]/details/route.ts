@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { loadFmOrderDetails, isoToFmDate, isUuid } from '../../../../../../lib/order-edit'
 
@@ -37,8 +38,12 @@ function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFl
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
+  // Admin portal (fm_admin_token) can load order details for the full edit page.
   const ctx = await getRestaurantAuthContext()
-  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  if (!ctx) {
+    try { await getAdminAuthHeader() }
+    catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
+  }
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 
   // FM details (best-effort) — the rich base the edit client already understands.

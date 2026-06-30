@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
+import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import {
   getDiscoOrder, loadOrderBaseline,
   hoursUntil, isEditableStatus, MAX_EDITS, syncExpediteOnEdit, type FmOrderItem,
@@ -46,8 +47,15 @@ function fmtTime(t: string): string {
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
+  // Admin portal (fm_admin_token) gets the same full edit as a restaurant
+  // SUPER_ADMIN: when there's no restaurant session, fall back to admin auth and
+  // resolve the order's restaurant from the order row itself (not the session).
   const ctx = await getRestaurantAuthContext()
-  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  let isAdminEdit = false
+  if (!ctx) {
+    try { await getAdminAuthHeader(); isAdminEdit = true }
+    catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
+  }
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 
   let body: { activeLines?: ActiveLine[]; orderDate?: string; orderTime?: string; editorEmail?: string }
@@ -61,7 +69,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
 
   // SUPER_ADMIN bypasses the 24-hour pickup-proximity restriction (only). All
   // other eligibility — edit-count cap, order status — applies to every role.
-  const isSuperAdmin = (await getRestaurantRole()) === 'SUPER_ADMIN'
+  // An admin-portal session is treated as SUPER_ADMIN for this purpose.
+  const isSuperAdmin = isAdminEdit || (await getRestaurantRole()) === 'SUPER_ADMIN'
 
   // ── 1. VALIDATION + edit_count gate ─────────────────────────────────────────
   const discoOrder = await getDiscoOrder(ref)
@@ -114,7 +123,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const newTotal = round2(newSubtotal + newTaxes + newFee + base.tip + base.delivery)
   const delta = round2(newTotal - base.total)
 
-  const restaurantRef = base.restaurantRef || discoOrder?.restaurant_reference || ctx.restaurantReference || ''
+  const restaurantRef = base.restaurantRef || discoOrder?.restaurant_reference || ctx?.restaurantReference || ''
   const customerEmail = base.customerEmail || discoOrder?.customer_email || ''
   const firstName = base.firstName || discoOrder?.customer_first_name || ''
   const businessName = base.restaurantName || discoOrder?.restaurant_name || 'the restaurant'

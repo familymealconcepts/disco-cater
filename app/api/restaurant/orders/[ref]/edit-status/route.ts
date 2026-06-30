@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
+import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
 import {
   getDiscoOrder, loadFmOrderDetails, parseFmOrder, hoursUntil, isEditableStatus, MAX_EDITS, applyPendingEdit,
@@ -24,8 +25,13 @@ function stripeClient(): Stripe | null {
 //   → { editCount, canEdit, reason, editStatus, pendingPayment }
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
+  // Admin portal (fm_admin_token) can read eligibility too — treated as SUPER_ADMIN.
   const ctx = await getRestaurantAuthContext()
-  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  let isAdminEdit = false
+  if (!ctx) {
+    try { await getAdminAuthHeader(); isAdminEdit = true }
+    catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
+  }
 
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 
@@ -95,8 +101,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     }
   }
 
-  // SUPER_ADMIN bypasses the 24-hour pickup-proximity restriction (only).
-  const isSuperAdmin = (await getRestaurantRole()) === 'SUPER_ADMIN'
+  // SUPER_ADMIN bypasses the 24-hour pickup-proximity restriction (only). An
+  // admin-portal session is treated as SUPER_ADMIN for this purpose.
+  const isSuperAdmin = isAdminEdit || (await getRestaurantRole()) === 'SUPER_ADMIN'
 
   const hrs = hoursUntil(pickupDate, pickupTime)
   let canEdit = true
