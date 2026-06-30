@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 
 const F = "'DM Sans', sans-serif"
@@ -412,7 +412,7 @@ function TransferOrderModal({ order, onClose, onSaved }: { order: Order; onClose
   )
 }
 
-export default function AdminOrdersPage() {
+function AdminOrdersContent() {
   const [orders, setOrders] = useState<Order[]>([])
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
@@ -428,6 +428,28 @@ export default function AdminOrdersPage() {
   const [toDate, setToDate] = useState(() => isoDate(daysAgo(-60)))
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const pathname = usePathname()
+
+  // Edit-success banner — the admin edit page redirects back here with
+  // ?editSuccess=true&orderNumber=XXXXX&editOutcome=success|invoiced. Capture it
+  // into a dismissible banner, then strip the params from the URL so a refresh
+  // doesn't re-show it (mirrors the restaurant orders list).
+  const [editSuccessBanner, setEditSuccessBanner] = useState<string | null>(null)
+  const [editOutcome, setEditOutcome] = useState<string>('success')
+  useEffect(() => {
+    if (searchParams.get('editSuccess') !== 'true') return
+    setEditSuccessBanner(searchParams.get('orderNumber') || '')
+    setEditOutcome(searchParams.get('editOutcome') || 'success')
+    const p = new URLSearchParams(searchParams.toString())
+    p.delete('editSuccess')
+    p.delete('orderNumber')
+    p.delete('editOutcome')
+    const qs = p.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Order details panel (opens on row click for SUPER_ADMIN) + role flag.
   const [selected, setSelected] = useState<Order | null>(null)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
@@ -556,6 +578,19 @@ export default function AdminOrdersPage() {
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, minHeight: '100vh' }}>
+      {editSuccessBanner !== null && (() => {
+        const tag = editSuccessBanner ? `Order #${editSuccessBanner}` : 'Order'
+        const message = editOutcome === 'invoiced'
+          ? `${tag} has been updated. The customer has been sent an invoice for the difference.`
+          : `${tag} has been updated successfully.`
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', marginBottom: 16, background: '#ECFDF3', border: '1px solid #ABEFC6', borderRadius: 8 }}>
+            <span style={{ fontSize: 13, color: '#067647', fontWeight: 600 }}>{message}</span>
+            <button onClick={() => setEditSuccessBanner(null)} aria-label="Dismiss"
+              style={{ background: 'none', border: 'none', color: '#067647', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: 4 }}>×</button>
+          </div>
+        )
+      })()}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 12, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Orders</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -710,3 +745,13 @@ const smallSelect: React.CSSProperties = { border: '1.5px solid #e0e0e0', border
 const pageBtn: React.CSSProperties = { background: '#fff', border: '1px solid #ddd', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK }
 // Suppress unused-variable warning if BLUE is unreferenced after edits.
 void BLUE
+
+// Suspense wrapper — required because AdminOrdersContent reads useSearchParams()
+// (for the edit-success banner), which Next needs inside a Suspense boundary.
+export default function AdminOrdersPage() {
+  return (
+    <Suspense>
+      <AdminOrdersContent />
+    </Suspense>
+  )
+}
