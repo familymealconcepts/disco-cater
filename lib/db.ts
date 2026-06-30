@@ -78,6 +78,17 @@ export async function runMigrations(): Promise<void> {
     // notification_emails ← FM email[] recipient list (comma-separated).
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS order_reminder_emails_enabled BOOLEAN DEFAULT false`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS notification_emails TEXT`,
+    // Disco-native multi-phone SMS recipient list (replaces the single
+    // disco_restaurant_accounts.sms_phone going forward; that column is kept as a
+    // back-compat fallback when this table has no rows for a restaurant).
+    `CREATE TABLE IF NOT EXISTS disco_restaurant_sms_recipients (
+      id SERIAL PRIMARY KEY,
+      restaurant_reference TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(restaurant_reference, phone)
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_disco_sms_recipients_ref ON disco_restaurant_sms_recipients(restaurant_reference)`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.

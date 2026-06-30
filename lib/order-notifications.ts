@@ -313,22 +313,34 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       }).catch((err) => console.error('[order-notifications] restaurant notification email failed:', err))
     }
 
-    // Disco-native restaurant SMS — opt-in per restaurant (disco_restaurant_
-    // accounts.sms_enabled + sms_phone). Fire-and-forget like the emails above.
+    // Disco-native restaurant SMS — send to EVERY number in the multi-phone
+    // recipient list (disco_restaurant_sms_recipients). Falls back to the legacy
+    // per-account sms_phone (sms_enabled=true) when that table has no rows for the
+    // restaurant, so restaurants configured before the multi-recipient change keep
+    // working. De-duped by normalized number. Fire-and-forget like the emails above.
     try {
-      // Send to EVERY account at this restaurant that opted into SMS — not just the
-      // lowest-id one. De-dup by normalized number.
-      const accts = (await sql`
-        SELECT sms_phone FROM disco_restaurant_accounts
-        WHERE restaurant_reference = ${String(o.restaurant_reference ?? '')}
-          AND sms_enabled = true AND sms_phone IS NOT NULL AND sms_phone <> ''
-      `) as { sms_phone: string }[]
-      if (accts.length) {
+      const smsRestRef = String(o.restaurant_reference ?? '')
+      let smsNumbers: string[] = []
+      try {
+        const recips = (await sql`
+          SELECT phone FROM disco_restaurant_sms_recipients WHERE restaurant_reference = ${smsRestRef}
+        `) as { phone: string }[]
+        smsNumbers = recips.map((r) => r.phone).filter(Boolean)
+      } catch { /* table may not exist on a brand-new DB — fall back below */ }
+      if (smsNumbers.length === 0) {
+        const accts = (await sql`
+          SELECT sms_phone FROM disco_restaurant_accounts
+          WHERE restaurant_reference = ${smsRestRef}
+            AND sms_enabled = true AND sms_phone IS NOT NULL AND sms_phone <> ''
+        `) as { sms_phone: string }[]
+        smsNumbers = accts.map((a) => a.sms_phone).filter(Boolean)
+      }
+      if (smsNumbers.length) {
         const customerName = [shared.firstName, shared.lastName].filter(Boolean).join(' ')
         const smsBody = `New Disco Cater order! #${shared.orderNumber} — ${customerName} — ${shared.orderService} on ${shared.orderDate} at ${shared.orderTime} — $${totalPrice.toFixed(2)}. Log in to view: discocater.com/restaurant/orders`
         const sent = new Set<string>()
-        for (const a of accts) {
-          const to = toE164(a.sms_phone)
+        for (const num of smsNumbers) {
+          const to = toE164(num)
           if (!to || sent.has(to)) continue
           sent.add(to)
           sendSms({ to, body: smsBody }).catch((err) => console.error('[order-notifications] restaurant SMS failed:', err))
