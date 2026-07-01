@@ -413,6 +413,13 @@ ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS tax_exempt_state TEXT;
 -- from the customer reminder's ORDER_REMINDER_SENT event marker).
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS admin_reminder_sent BOOLEAN DEFAULT false;
 
+-- Snapshot of the restaurant's deliveryOrderTimeWindows setting ('exact' |
+-- '30_min' | '1_hour') at placement time, for DELIVERY orders. Drives whether the
+-- order time is shown as a range ("9:00 AM - 9:30 AM") on the confirmation page +
+-- emails. NULL for PICKUP orders and for orders placed before this column existed
+-- (treated the same as 'exact' — exact time shown).
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS delivery_time_window TEXT;
+
 -- Marketplace opt-in mirror on the restaurant account, kept in sync with the
 -- super admin Marketplace toggle (disco_restaurant_overrides.visible) and the
 -- restaurant portal's own marketplace toggle.

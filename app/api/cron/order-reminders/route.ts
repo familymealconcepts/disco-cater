@@ -3,6 +3,7 @@ import { sql, runMigrations } from '../../../../lib/db'
 import {
   sendCustomerOrderReminder, sendRestaurantOrderReminder, type OrderMealPackage,
 } from '../../../../lib/email/notifications'
+import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -43,14 +44,6 @@ function fmtDate(iso: string): string {
   if (!y) return String(iso || '')
   return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`
 }
-function fmtTime(v: unknown): string {
-  if (!v) return ''
-  const [h, mm] = String(v).split(':').map(Number)
-  if (isNaN(h)) return String(v)
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(mm || 0).padStart(2, '0')} ${ampm}`
-}
 
 const splitCsv = (v: string | null | undefined): string[] =>
   String(v || '').split(',').map(s => s.trim()).filter(Boolean)
@@ -66,7 +59,7 @@ interface ReminderRow {
   subtotal: string | null; fee: string | null; tips: string | null; total: string | null
   restaurant_reference: string; restaurant_name: string | null; restaurant_email: string | null
   cache_name: string | null; cache_phone: string | null; cache_address: string | null
-  notif_emails: string | null
+  notif_emails: string | null; delivery_time_window: string | null
 }
 
 // Atomically claim the one-time CUSTOMER reminder for an order. Returns true only
@@ -145,7 +138,7 @@ export async function GET(req: NextRequest) {
                (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
              ) AS total,
              rc.name AS cache_name, rc.phone AS cache_phone, rc.address AS cache_address,
-             ov.notification_emails AS notif_emails
+             ov.notification_emails AS notif_emails, o.delivery_time_window
       FROM disco_orders o
       JOIN disco_restaurant_overrides ov ON ov.restaurant_reference = o.restaurant_reference::text
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
@@ -169,7 +162,7 @@ export async function GET(req: NextRequest) {
         lastName: o.customer_last_name || undefined,
         orderService: String(o.order_type || ''),
         orderDate: fmtDate(o.order_date),
-        orderTime: fmtTime(o.order_time),
+        orderTime: formatTimeWindow(o.order_time, o.delivery_time_window, String(o.order_type || '').toUpperCase() === 'DELIVERY'),
         orderReceived: '',
         orderMealPackages: packages,
         subtotal: num(o.subtotal),
@@ -197,7 +190,7 @@ export async function GET(req: NextRequest) {
                (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
              ) AS total,
              rc.name AS cache_name, rc.phone AS cache_phone, rc.address AS cache_address,
-             ov.notification_emails AS notif_emails
+             ov.notification_emails AS notif_emails, o.delivery_time_window
       FROM disco_orders o
       JOIN disco_restaurant_overrides ov ON ov.restaurant_reference = o.restaurant_reference::text
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
@@ -235,7 +228,7 @@ export async function GET(req: NextRequest) {
           dinerAddress: addr || undefined,
           orderService: String(o.order_type || ''),
           orderDate: fmtDate(o.order_date),
-          orderTime: fmtTime(o.order_time),
+          orderTime: formatTimeWindow(o.order_time, o.delivery_time_window, String(o.order_type || '').toUpperCase() === 'DELIVERY'),
           orderReceived: '',
           orderMealPackages: packages,
           subtotal: num(o.subtotal),

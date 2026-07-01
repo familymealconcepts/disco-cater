@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
+import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
@@ -11,9 +12,6 @@ const FM_PUBLIC = process.env.NEXT_PUBLIC_FM_API_BASE_URL || 'https://api.family
 function fmt$(n: number) { return `$${n.toFixed(2)}` }
 function fmtDate(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) } catch { return d }
-}
-function fmtTime(t: string) {
-  try { const [h, m] = t.split(':').map(Number); const dt = new Date(); dt.setHours(h, m); return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) } catch { return t }
 }
 
 export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
@@ -88,6 +86,10 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   const orderDate = order?.orderDate || order?.localDate || ''
   const orderTime = order?.orderTime || order?.localTime || ''
   const orderType = order?.orderType || ''
+  // Delivery time-window snapshot (persisted at placement). Delivery orders with a
+  // non-'exact' window show the time as a range; null/'exact'/pickup → exact time.
+  const deliveryTimeWindow: string = order?.deliveryTimeWindow || order?.delivery_time_window || ''
+  const orderTimeDisplay = orderTime ? formatTimeWindow(orderTime, deliveryTimeWindow, orderType === 'DELIVERY') : ''
   const addr = order?.deliveryAddress
   // Tax-exempt orders: FM (or the Neon fallback in /api/order/status) returns
   // taxExempt + taxExemptId. When present, taxes are $0.00 and we surface the id.
@@ -146,7 +148,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                   {orderTime && (
                     <div style={{ padding: '16px 20px' }}>
                       <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Time</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{fmtTime(orderTime)}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{orderTimeDisplay}</div>
                     </div>
                   )}
                 </div>

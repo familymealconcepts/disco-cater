@@ -31,6 +31,7 @@ interface DiscoFull {
   subtotal: string | null
   total: string | null
   fee: string | null
+  delivery_time_window: string | null
 }
 interface DiscoItem { meal_package_reference: string | null; name: string; quantity: number; price_per_unit: string; serves: number | null }
 
@@ -61,7 +62,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       SELECT id, reference, fm_order_reference, order_number, order_status, order_type,
              restaurant_reference, restaurant_name, customer_email, customer_first_name, customer_last_name,
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
-             subtotal, total, fee
+             subtotal, total, fee, delivery_time_window
       FROM disco_orders
       WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
       LIMIT 1
@@ -94,6 +95,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // Match FM's native DD.MM.YYYY so the edit client's date normalizer is happy.
   order.orderDate = isoToFmDate(String(d.order_date).slice(0, 10))
   order.orderTime = d.order_time
+  if (d.delivery_time_window) order.deliveryTimeWindow = d.delivery_time_window
   order.restaurantReference = d.restaurant_reference || order.restaurantReference
   order.restaurantName = d.restaurant_name || order.restaurantName
   order.userEmail = d.customer_email || order.userEmail

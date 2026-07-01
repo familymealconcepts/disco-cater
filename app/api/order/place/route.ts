@@ -50,6 +50,23 @@ async function geocodeAddress(address: string): Promise<{ lat: number | null; ln
   }
 }
 
+// Read the restaurant's delivery time-window setting (deliveryOrderTimeWindows:
+// 'exact' | '30_min' | '1_hour') from the FM public restaurant DTO — the
+// authoritative, current value. Best-effort: null on any failure. Only fetched
+// for DELIVERY orders; PICKUP always stores null (exact time).
+async function fetchDeliveryTimeWindow(restaurantRef: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${FM}/public-api/restaurants/${restaurantRef}`, { headers: { Accept: 'application/json' } })
+    if (!res.ok) return null
+    const data = await res.json().catch(() => null)
+    const w = data?.deliveryOrderTimeWindows
+    return typeof w === 'string' && w ? w : null
+  } catch (e) {
+    console.error('[order/place] deliveryOrderTimeWindows fetch failed:', e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
 // disco_orders.order_status CHECK set (001_disco_orders.sql).
 const ALLOWED_STATUS = new Set([
   'CART', 'RESERVED', 'DUE', 'COMPLETED', 'CANCELED', 'REFUND',
@@ -180,6 +197,10 @@ async function mirrorOrderToNeon(args: {
       }
     }
 
+    // Snapshot the restaurant's delivery time-window setting so the confirmation
+    // page + emails can render the delivery time as a range. DELIVERY only.
+    const deliveryTimeWindow = orderType === 'DELIVERY' ? await fetchDeliveryTimeWindow(restaurantRef) : null
+
     // (a) disco_orders — upsert keyed by the FM order reference (== reference here),
     // DO UPDATE so retries refresh the money snapshot. RETURNING id for items.
     const orderRows = (await sql`
@@ -187,13 +208,13 @@ async function mirrorOrderToNeon(args: {
         reference, order_number, order_status, order_type, delivery_type, source_of_order,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
         delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-        delivery_lat, delivery_lng,
+        delivery_lat, delivery_lng, delivery_time_window,
         order_date, order_time, subtotal, total, fee, tax_exempt_id, tax_exempt_state, company_name, persons, fm_order_reference, created_at, updated_at
       ) VALUES (
         ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, ${deliveryType}, 'DISCO',
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
         ${daLine1}, ${daLine2}, ${daCity}, ${daState}, ${daZip},
-        ${deliveryLat}, ${deliveryLng},
+        ${deliveryLat}, ${deliveryLng}, ${deliveryTimeWindow},
         ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${taxExemptId}, ${taxExemptState}, ${companyName}, ${persons}, ${reference}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO UPDATE SET
@@ -209,6 +230,7 @@ async function mirrorOrderToNeon(args: {
         delivery_zip = COALESCE(EXCLUDED.delivery_zip, disco_orders.delivery_zip),
         delivery_lat = COALESCE(EXCLUDED.delivery_lat, disco_orders.delivery_lat),
         delivery_lng = COALESCE(EXCLUDED.delivery_lng, disco_orders.delivery_lng),
+        delivery_time_window = COALESCE(EXCLUDED.delivery_time_window, disco_orders.delivery_time_window),
         tax_exempt_id = COALESCE(EXCLUDED.tax_exempt_id, disco_orders.tax_exempt_id),
         persons = COALESCE(EXCLUDED.persons, disco_orders.persons), updated_at = NOW()
       RETURNING id

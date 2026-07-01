@@ -62,15 +62,21 @@ export async function GET(req: NextRequest) {
       try {
         const rows = (await sql`
           SELECT o.total AS o_total, o.company_name, o.persons, o.tax_exempt_state, o.refund,
+                 o.order_type, o.delivery_time_window,
                  (SELECT MAX(sp.total) FROM disco_stripe_payments sp
                   WHERE sp.order_reference = o.reference AND sp.total IS NOT NULL AND sp.total > 0) AS sp_total
           FROM disco_orders o
           WHERE o.fm_order_reference = ${orderRef}::uuid OR o.reference = ${orderRef}::uuid
           LIMIT 1
-        `) as { o_total: string | null; company_name: string | null; persons: number | null; tax_exempt_state: string | null; refund: string | null; sp_total: string | null }[]
+        `) as { o_total: string | null; company_name: string | null; persons: number | null; tax_exempt_state: string | null; refund: string | null; order_type: string | null; delivery_time_window: string | null; sp_total: string | null }[]
         const d = data as Record<string, unknown>
         const cn = rows[0]?.company_name
         if (cn) d.companyName = cn
+        // Delivery time-window snapshot → the confirmation page renders the
+        // delivery time as a range. Fall back to Neon's order_type if FM omits it.
+        const dtw = rows[0]?.delivery_time_window
+        if (dtw) d.deliveryTimeWindow = dtw
+        if (!d.orderType && rows[0]?.order_type) d.orderType = rows[0].order_type
         const persons = rows[0]?.persons
         if (persons != null && Number(persons) > 0 && d.persons == null) d.persons = Number(persons)
         const tes = rows[0]?.tax_exempt_state

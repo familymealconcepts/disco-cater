@@ -12,6 +12,7 @@
 import { sql } from './db'
 import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage } from './email/notifications'
 import { sendSms } from './sms'
+import { formatTimeWindow } from './utils/deliveryTimeWindow'
 import { sanitizePhone } from './utils/phone'
 
 // Normalize a stored phone to E.164 for Twilio: strip non-digits, prepend +1 for
@@ -39,14 +40,6 @@ function fmtDate(v: unknown): string {
   const [y, m, d] = iso.split('-').map(Number)
   if (!y) return iso
   return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`
-}
-function fmtTime(v: unknown): string {
-  if (!v) return ''
-  const [h, mm] = String(v).split(':').map(Number)
-  if (isNaN(h)) return String(v)
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(mm || 0).padStart(2, '0')} ${ampm}`
 }
 
 // Date as M/DD/YY (no leading zero on the month) for the Slack line.
@@ -148,7 +141,7 @@ async function claimSlackNotified(orderReference: string): Promise<boolean> {
 export async function dispatchOrderConfirmations(orderId: number, source: string = 'STRIPE_WEBHOOK'): Promise<void> {
   try {
     const orders = (await sql`
-      SELECT reference, order_number, order_type, delivery_type, source_of_order, order_date, order_time, created_at,
+      SELECT reference, order_number, order_type, delivery_type, source_of_order, order_date, order_time, delivery_time_window, created_at,
              customer_email, customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
              restaurant_reference, restaurant_name, restaurant_email, tax_exempt_id, tax_exempt_state, tips,
@@ -257,7 +250,9 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       dinerAddress2,
       orderService: String(o.order_type ?? ''),
       orderDate: fmtDate(o.order_date),
-      orderTime: fmtTime(o.order_time),
+      // Delivery orders with a non-'exact' window snapshot show a time range;
+      // pickup / null / 'exact' → exact time (formatTimeWindow handles the gating).
+      orderTime: formatTimeWindow(String(o.order_time ?? ''), o.delivery_time_window as string | null, isDelivery),
       orderReceived: o.created_at
         ? new Date(o.created_at as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
         : '',
