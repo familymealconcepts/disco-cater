@@ -1436,16 +1436,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             into the Order Summary panel on narrow widths. */}
         <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
           {menuData.length === 0 ? (
+            // No valid menu → informational empty state only. No "Order Catering"
+            // button and no Order Summary panel (gated below) — there's nothing
+            // orderable.
             <div style={{ textAlign: 'center', padding: '72px 0' }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>🍽️</div>
               <div style={{ fontSize: 17, fontWeight: 700, color: '#666', marginBottom: 8 }}>Menu details coming soon</div>
-              <div style={{ fontSize: 14, color: '#aaa', marginBottom: 20 }}>Contact the restaurant to discuss catering options</div>
-              {fmSlug && (
-                <a href={`https://www.familymeal.com/disco/${fmSlug}`} target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'inline-block', padding: '11px 22px', background: BLUE, color: '#fff', borderRadius: 10, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
-                  Order Catering →
-                </a>
-              )}
+              <div style={{ fontSize: 14, color: '#aaa' }}>Contact the restaurant to discuss catering options</div>
             </div>
           ) : (
             <>
@@ -1542,7 +1539,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         {/* RIGHT: sticky cart — explicit flex basis so it can't expand
             and push the left column out from under it. Hidden after
             hydration on mobile viewports (see isMobileViewport). */}
-        {isMobileViewport !== true && (
+        {isMobileViewport !== true && menuData.length > 0 && (
         <div className="order-sidebar" style={{ flex: '0 0 340px', width: 340 }}>
           <div style={{ position: 'sticky', top: hasSelection ? 106 : 68 }}>
             <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', marginBottom: cart.length > 0 && fmRef ? 10 : 0 }}>
@@ -1568,8 +1565,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         )}
       </div>
 
-      {/* Mobile bottom bar — hidden after hydration on desktop viewports. */}
-      {isMobileViewport !== false && (
+      {/* Mobile bottom bar — hidden after hydration on desktop viewports, and
+          hidden entirely when there's no valid menu (nothing to order). */}
+      {isMobileViewport !== false && menuData.length > 0 && (
       <div className="mobile-order-bar" style={{ display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: '#fff', borderTop: '1px solid #f0f0f0', boxShadow: '0 -4px 16px rgba(0,0,0,0.06)', zIndex: 100 }}>
         <button onClick={() => setMobileCartOpen(true)}
           onMouseOver={e => { if (cartCount > 0) e.currentTarget.style.background = '#4A5FD4' }}
