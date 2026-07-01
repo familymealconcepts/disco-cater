@@ -52,6 +52,18 @@ interface FullMenu {
 
 const DAY_KEYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'] as const
 type DayKey = typeof DAY_KEYS[number]
+
+// FM serializes times as "H:mm:ss" (Constants.TIME_FORMAT) — a NON-zero-padded
+// hour plus seconds, e.g. "9:00:00" for 9 AM. HTML <input type="time"> requires a
+// strict zero-padded "HH:mm" and silently blanks anything else, so single-digit
+// hours (typical morning "from" times) rendered as "--:-- --". Normalize every FM
+// time to "HH:mm" (pad the hour, keep minutes, drop seconds) on load.
+function normalizeTime(t: string | null | undefined): string {
+  if (!t) return ''
+  const parts = String(t).split(':')
+  if (parts.length < 2) return String(t)
+  return parts[0].padStart(2, '0') + ':' + parts[1]
+}
 const DAY_LABELS: Record<DayKey, string> = {
   MONDAY: 'Mon', TUESDAY: 'Tue', WEDNESDAY: 'Wed', THURSDAY: 'Thu',
   FRIDAY: 'Fri', SATURDAY: 'Sat', SUNDAY: 'Sun',
@@ -230,14 +242,14 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         setPrepHours(totalHours % 24)
         // Daily cutoff: present whenever scheduleOption.cutOff is set.
         setDailyCutoffEnabled(!!sched.cutOff)
-        setDailyCutoff(sched.cutOff || '09:00')
+        setDailyCutoff(normalizeTime(sched.cutOff) || '09:00')
         // Hard cutoff: scheduleOption.cutOffDate, which may be date-only
         // (legacy/FM) or "YYYY-MM-DDTHH:mm" (Disco).
         if (sched.cutOffDate) {
           setHardCutoffEnabled(true)
           const [d, t] = sched.cutOffDate.split('T')
           setHardCutoffDate(d || '')
-          setHardCutoffTime((t || '17:00').slice(0, 5))
+          setHardCutoffTime(normalizeTime(t) || '17:00')
         } else {
           setHardCutoffEnabled(false)
         }
@@ -255,8 +267,8 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
           for (const d of days) {
             if (d in dayMap) {
               dayMap[d] = true
-              perMap[d] = { from: w.fromPickUpTime || '11:00', to: w.toPickUpTime || '19:00' }
-              if (!firstFrom) { firstFrom = w.fromPickUpTime || ''; firstTo = w.toPickUpTime || '' }
+              perMap[d] = { from: normalizeTime(w.fromPickUpTime) || '11:00', to: normalizeTime(w.toPickUpTime) || '19:00' }
+              if (!firstFrom) { firstFrom = normalizeTime(w.fromPickUpTime); firstTo = normalizeTime(w.toPickUpTime) }
             }
           }
         }
@@ -858,7 +870,7 @@ function SkippedDaysEditor({ value, onChange, inputStyle, labelStyle }: {
             <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', border: '1px solid #eee', borderRadius: 8, marginBottom: 6, background: '#fafafe' }}>
               <div style={{ fontSize: 13, color: DARK }}>
                 <span style={{ fontWeight: 600 }}>{d.name}</span>
-                <span style={{ color: '#888' }}> · {d.fromDate}{d.toDate !== d.fromDate ? ` → ${d.toDate}` : ''} · {d.intervals.length ? `${d.intervals[0].fromTime}–${d.intervals[0].toTime}` : 'Closed all day'}</span>
+                <span style={{ color: '#888' }}> · {d.fromDate}{d.toDate !== d.fromDate ? ` → ${d.toDate}` : ''} · {d.intervals.length ? `${normalizeTime(d.intervals[0].fromTime)}–${normalizeTime(d.intervals[0].toTime)}` : 'Closed all day'}</span>
               </div>
               <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E24B4A', fontSize: 18, lineHeight: 1 }}>×</button>
