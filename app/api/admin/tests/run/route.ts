@@ -688,9 +688,17 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   if (!a2) return bail('order row not found after admin-auth edit')
   const adminEditCount = Number(a2.edit_count)
   const adminTotal = Number(a2.total)
+  // The edit route's recordStripe writes disco_stripe_payments under the order's
+  // INTERNAL reference (disco_orders.reference) — which differs from orderRef
+  // (fm_order_reference) for a synthetic order. Resolve it so the assertion counts
+  // the delta-charge row written under either reference.
+  const irRows = (await sql`
+    SELECT reference FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid LIMIT 1
+  `.catch(() => [])) as { reference: string }[]
+  const internalRef = irRows[0]?.reference || orderRef
   const payRows = (await sql`
     SELECT total FROM disco_stripe_payments
-    WHERE order_reference = ${orderRef}::uuid AND restaurant_reference = ${restaurantRef}::uuid
+    WHERE order_reference IN (${orderRef}::uuid, ${internalRef}::uuid) AND restaurant_reference = ${restaurantRef}::uuid
   `.catch(() => [])) as { total: string | null }[]
   const aFails: string[] = []
   if (adminEditCount !== 2) aFails.push(`edit_count=${adminEditCount} (expected 2)`)
@@ -717,7 +725,9 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   try {
     await runMigrations()
     await sql`DELETE FROM disco_order_edits WHERE fm_order_reference = ${orderRef}::uuid`.catch(() => {})
-    await sql`DELETE FROM disco_stripe_payments WHERE order_reference = ${orderRef}::uuid`.catch(() => {})
+    // Step 6 wrote the original charge under orderRef (fm_order_reference); step 7c's
+    // delta charge is under the internal reference — delete both so nothing orphans.
+    await sql`DELETE FROM disco_stripe_payments WHERE order_reference IN (${orderRef}::uuid, ${internalRef}::uuid)`.catch(() => {})
     // The Disco-native edit writes a disco_sale_transactions row (FK → disco_orders)
     // and a disco_order_events row — clear both before deleting the order.
     await sql`DELETE FROM disco_sale_transactions WHERE order_id IN (SELECT id FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid)`.catch(() => {})
