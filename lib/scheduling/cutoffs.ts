@@ -32,8 +32,11 @@ function startOfDay(d: Date): Date {
   x.setHours(0, 0, 0, 0)
   return x
 }
-function hhmmToMinutes(t: string): number {
-  const [h, m] = t.split(':').map(Number)
+function hhmmToMinutes(t: string | null | undefined): number {
+  // Defensive: FM emits null pickup times for closed days. Returning NaN makes
+  // the callers treat the slot as not-bookable instead of throwing on null.split.
+  if (!t) return NaN
+  const [h, m] = String(t).split(':').map(Number)
   return (h || 0) * 60 + (m || 0)
 }
 function atTime(day: Date, minutes: number): Date {
@@ -104,7 +107,8 @@ export interface FmScheduleLike {
   cutOff?: string | null // daily cutoff "HH:mm"
   cutOffDate?: string | null // hard cutoff date or datetime
   cutOffType?: string | null
-  repeatWeekDays?: { days: string; fromPickUpTime: string; toPickUpTime: string }[]
+  // FM emits null from/to for closed days — reflected here so the null-guard is honest.
+  repeatWeekDays?: { days: string; fromPickUpTime: string | null; toPickUpTime: string | null }[]
   rollingAvailability?: number
   endDate?: string | null
   skippedDays?: (SkippedDay | string)[] | null
@@ -134,7 +138,12 @@ export function toCutoffConfig(s: FmScheduleLike): CutoffConfig {
 function windowForDay(s: FmScheduleLike, dayName: string): { from: string; to: string } | null {
   for (const w of s.repeatWeekDays ?? []) {
     const days = (w.days || '').split(',').map(d => d.trim().toUpperCase())
-    if (days.includes(dayName)) return { from: w.fromPickUpTime, to: w.toPickUpTime }
+    // FM lists closed days as repeatWeekDays entries with null from/to times.
+    // Only treat an entry as a bookable window when BOTH times are present; skip
+    // otherwise so the day is correctly unavailable (and we never split(null)).
+    if (days.includes(dayName) && w.fromPickUpTime && w.toPickUpTime) {
+      return { from: w.fromPickUpTime, to: w.toPickUpTime }
+    }
   }
   return null
 }
