@@ -54,6 +54,7 @@ const RESTAURANT_USER_NAV: NavItem[] = [
     title: 'Manage Menus', path: '/restaurant/manage-v2/menus',
     children: [
       { title: 'Menus', path: '/restaurant/manage-v2/menus' },
+      { title: 'Menus (New)', path: '/restaurant/menu-manager' },
       { title: 'Group Library', path: '/restaurant/manage/groups' },
       { title: 'Modifier Library', path: '/restaurant/manage/modifiers' },
     ],
