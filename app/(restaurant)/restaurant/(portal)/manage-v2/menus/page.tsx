@@ -34,13 +34,6 @@ const TABS: { label: string; filter: FilterType }[] = [
 ]
 
 // FM FAKE_MENU_CATEGORIES (fake-data.constant.ts:675-717).
-const TYPE_LABELS: Record<string, string> = {
-  GENERAL_CATERING: 'General Catering', OFFICE_CATERING: 'Office Catering',
-  HOLIDAY_CATERING: 'Holiday Catering', MEAL_PREP: 'Meal Prep',
-  PRIVATE_CHEF: 'Private Chef', NATIONWIDE_SHIPPING: 'Nationwide Shipping',
-  MERCH: 'Merch', POP_UP: 'Pop Up',
-}
-
 function formatDate(d: string) {
   if (!d) return '—'
   try { return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
@@ -68,6 +61,7 @@ export default function MenusPage() {
   const [loading, setLoading] = useState(true)
   const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null)
   const [settingsRef, setSettingsRef] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
 
   const filter = TABS[activeTab].filter
 
@@ -135,7 +129,7 @@ export default function MenusPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Menus</h1>
         <button
-          onClick={() => router.push('/restaurant/manage-v2/add-new-menu/settings')}
+          onClick={() => setCreating(true)}
           style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}
         >
           + Create Menu
@@ -171,7 +165,6 @@ export default function MenusPage() {
               <tr style={{ background: '#fafafa' }}>
                 <th style={{ ...thStyle, width: 34 }} aria-label="Reorder" />
                 <th style={thStyle}>Name</th>
-                <th style={thStyle}>Type</th>
                 <th style={thStyle}>Start Date</th>
                 <th style={thStyle}>End Date</th>
                 <th style={thStyle}>Image</th>
@@ -209,11 +202,11 @@ export default function MenusPage() {
         />
       )}
 
-      {settingsRef && (
+      {(settingsRef || creating) && (
         <MenuSettingsDialog
-          menuRef={settingsRef}
-          onClose={() => setSettingsRef(null)}
-          onSaved={() => { setSettingsRef(null); loadMenus() }}
+          menuRef={settingsRef ?? undefined}
+          onClose={() => { setSettingsRef(null); setCreating(false) }}
+          onSaved={() => { setSettingsRef(null); setCreating(false); loadMenus() }}
         />
       )}
     </div>
@@ -245,7 +238,6 @@ function SortableMenuRow({ m, filter, tdStyle, onOpen, onSettings, onClone, onVi
       <td style={{ ...tdStyle, textAlign: 'center', cursor: 'grab', touchAction: 'none', color: '#bbb' }}
         {...attributes} {...listeners} onClick={e => e.stopPropagation()} title="Drag to reorder">⋮⋮</td>
       <td style={{ ...clickCell, fontWeight: 600 }} onClick={onOpen}>{m.name}</td>
-      <td style={clickCell} onClick={onOpen}>{TYPE_LABELS[m.menuType] || m.menuType || '—'}</td>
       <td style={clickCell} onClick={onOpen}>{formatDate(m.startDate)}</td>
       <td style={clickCell} onClick={onOpen}>{formatDate(m.endDate)}</td>
       <td style={clickCell} onClick={onOpen}>

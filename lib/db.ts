@@ -134,6 +134,10 @@ export async function runMigrations(): Promise<void> {
       include_utensils BOOLEAN NOT NULL DEFAULT false,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
+    // Disco-only per-menu image (keyed by the FM menu reference). FM's
+    // MenuRequestDto has no image field — the menu image is a Disco addition
+    // captured in MenuSettingsDialog and stored here alongside include_utensils.
+    `ALTER TABLE disco_menu_settings ADD COLUMN IF NOT EXISTS image_url TEXT`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true

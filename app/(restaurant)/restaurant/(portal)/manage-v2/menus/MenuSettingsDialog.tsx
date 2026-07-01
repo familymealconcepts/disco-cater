@@ -63,19 +63,14 @@ const DAY_LABELS: Record<DayKey, string> = {
 
 // FM FAKE_MENU_CATEGORIES (fake-data.constant.ts:675-717). The per-menu
 // `type` field uses these values.
-const MENU_TYPES = [
-  { v: 'GENERAL_CATERING', label: 'General Catering' },
-  { v: 'OFFICE_CATERING', label: 'Office Catering' },
-  { v: 'HOLIDAY_CATERING', label: 'Holiday Catering' },
-  { v: 'MEAL_PREP', label: 'Meal Prep' },
-  { v: 'PRIVATE_CHEF', label: 'Private Chef' },
-  { v: 'NATIONWIDE_SHIPPING', label: 'Nationwide Shipping' },
-  { v: 'MERCH', label: 'Merch' },
-  { v: 'POP_UP', label: 'Pop Up' },
-]
+// Menu Category is intentionally dropped as a Disco concept. FM's MenuRequestDto
+// still requires a `type`, so we always send this fixed hidden constant — never
+// surfaced in the UI.
+const FM_MENU_TYPE_DEFAULT = 'GENERAL_CATERING'
 
 interface Props {
-  menuRef: string
+  // Omit for create mode (opens the same rich dialog; first save POST-creates).
+  menuRef?: string | null
   onClose: () => void
   onSaved: () => void
 }
@@ -99,15 +94,17 @@ function emptySettings(): MenuSettings {
 }
 
 export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props) {
-  const [loading, setLoading] = useState(true)
+  const isNew = !menuRef
+  const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [menu, setMenu] = useState<FullMenu | null>(null)
 
   // form state
   const [name, setName] = useState('')
-  const [type, setType] = useState('GENERAL_CATERING')
   const [url, setUrl] = useState('')
+  const [imageUrl, setImageUrl] = useState('')
+  const [uploadingImage, setUploadingImage] = useState(false)
   const [visible, setVisible] = useState(true)
   const [archived, setArchived] = useState(false)
 
@@ -175,6 +172,11 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
   // ── load menu ────────────────────────────────────────────────────────
   useEffect(() => {
     let cancel = false
+    // Create mode — no menu to load; start with the empty defaults already set.
+    if (!menuRef) { setLoading(false); return () => { cancel = true } }
+    // Disco-only per-menu image (side-store keyed by the FM menu ref).
+    fetch(`/api/restaurant/menu-settings?menuRef=${menuRef}`)
+      .then(r => (r.ok ? r.json() : null)).then(d => { if (!cancel && d?.imageUrl) setImageUrl(String(d.imageUrl)) }).catch(() => {})
     setLoading(true); setErr(null)
     fetch(`/api/restaurant/menus/${menuRef}`)
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`Load failed (${r.status})`)))
@@ -182,7 +184,6 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         if (cancel) return
         setMenu(m)
         setName(m.name || '')
-        setType(m.type || m.menuType || 'GENERAL_CATERING')
         setUrl(m.url || '')
         setVisible(m.visible !== false)
         setArchived(!!m.archived)
@@ -305,8 +306,20 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
     return activeDays.map(d => ({ days: d, fromPickUpTime: perDay[d].from, toPickUpTime: perDay[d].to }))
   }
 
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { setErr('Image is too large (max 5MB).'); return }
+    setUploadingImage(true); setErr(null)
+    try {
+      const fd = new FormData(); fd.append('image', file)
+      const res = await fetch('/api/become-a-partner/logo', { method: 'POST', body: fd })
+      const d = await res.json().catch(() => ({}))
+      if (res.ok && d?.url) setImageUrl(String(d.url)); else setErr(d?.error || 'Could not upload image.')
+    } finally { setUploadingImage(false) }
+  }
+
   async function save() {
-    if (!menu) return
     setErr(null)
     if (!name.trim()) { setErr('Menu name is required'); return }
     if (!pickup && !delivery) { setErr('Select at least one service type'); return }
@@ -320,7 +333,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
       if (delivery) menuAvailability.push('DELIVERY')
 
       const scheduleOption: ScheduleOption = {
-        ...(menu.scheduleOption || emptyScheduleOption()),
+        ...(menu?.scheduleOption || emptyScheduleOption()),
         scheduleType,
         rollingAvailability,
         repeatWeekDays,
@@ -338,7 +351,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
       // FM stores ONE of fee / feePercent per tier and nulls the other based
       // on the $/% toggle (menu-settings-v2.component.ts:497-531, 999-1005).
       const settings: MenuSettings = {
-        ...(menu.settings || emptySettings()),
+        ...(menu?.settings || emptySettings()),
         pickupOrderMinimum: Number(pickupMin) || 0,
         deliveryOrderMinimum: Number(deliveryMin) || 0,
         menuAvailability,
@@ -359,27 +372,46 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
       }
 
       const body = {
-        ...menu,
+        ...(menu || {}),
         name: name.trim(),
-        type,
+        type: FM_MENU_TYPE_DEFAULT, // Menu Category dropped from Disco; FM requires a type.
         url,
         scheduleOption,
         settings,
       }
 
-      const putRes = await fetch(`/api/restaurant/menus/${menuRef}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!putRes.ok) throw new Error(`Save failed (${putRes.status})`)
-
-      // Separate endpoints for visible/archive toggles.
-      if (visible !== (menu.visible !== false)) {
-        await fetch(`/api/restaurant/menus/${menuRef}/visible?isVisible=${visible}`, { method: 'PUT' })
+      let ref = menuRef || ''
+      if (isNew) {
+        // Create mode → POST-create the FM menu, then apply non-default
+        // visible/archived via the dedicated endpoints on the new ref.
+        const postRes = await fetch('/api/restaurant/menus', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        })
+        if (!postRes.ok) throw new Error(`Create failed (${postRes.status})`)
+        const created = await postRes.json().catch(() => ({}))
+        ref = created.reference || created.id || (created.data && created.data.reference) || ''
+        if (ref && !visible) await fetch(`/api/restaurant/menus/${ref}/visible?isVisible=false`, { method: 'PUT' }).catch(() => {})
+        if (ref && archived) await fetch(`/api/restaurant/menus/${ref}/archive?isArchived=true`, { method: 'PUT' }).catch(() => {})
+      } else {
+        const putRes = await fetch(`/api/restaurant/menus/${menuRef}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        })
+        if (!putRes.ok) throw new Error(`Save failed (${putRes.status})`)
+        // Separate endpoints for visible/archive toggles (edit only).
+        if (visible !== (menu?.visible !== false)) {
+          await fetch(`/api/restaurant/menus/${menuRef}/visible?isVisible=${visible}`, { method: 'PUT' })
+        }
+        if (archived !== !!menu?.archived) {
+          await fetch(`/api/restaurant/menus/${menuRef}/archive?isArchived=${archived}`, { method: 'PUT' })
+        }
       }
-      if (archived !== !!menu.archived) {
-        await fetch(`/api/restaurant/menus/${menuRef}/archive?isArchived=${archived}`, { method: 'PUT' })
+
+      // Persist the Disco-only menu image (side-store keyed by the FM menu ref).
+      if (ref) {
+        await fetch('/api/restaurant/menu-settings', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ menuRef: ref, imageUrl }),
+        }).catch(() => {})
       }
 
       onSaved()
@@ -420,7 +452,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
           padding: '16px 22px', borderBottom: '1px solid #ececf2', background: '#fff', flexShrink: 0,
         }}>
           <div>
-            <div style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Menu Settings</div>
+            <div style={{ fontSize: 11, color: '#888', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{isNew ? 'Create Menu' : 'Menu Settings'}</div>
             <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginTop: 2 }}>{name || '…'}</div>
           </div>
           <button onClick={onClose} aria-label="Close" disabled={saving}
@@ -446,17 +478,22 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
                   <label style={labelStyle}>Menu name</label>
                   <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} />
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-                  <div>
-                    <label style={labelStyle}>Type</label>
-                    <select style={inputStyle} value={type} onChange={e => setType(e.target.value)}>
-                      {MENU_TYPES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
-                    </select>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>URL slug</label>
+                  <input style={inputStyle} value={url} onChange={e => setUrl(e.target.value)} placeholder="catering" />
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Menu image</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    {imageUrl
+                      ? <img src={imageUrl} alt="" style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover', border: '1px solid #eee' }} />
+                      : <div style={{ width: 64, height: 64, borderRadius: 8, background: '#f4f4f8', border: '1px solid #eee' }} />}
+                    <label style={{ fontSize: 13, color: INDIGO, fontWeight: 600, cursor: 'pointer' }}>
+                      {uploadingImage ? 'Uploading…' : (imageUrl ? 'Replace image' : 'Upload image')}
+                      <input type="file" accept="image/jpeg,image/png" onChange={handleImageUpload} style={{ display: 'none' }} />
+                    </label>
                   </div>
-                  <div>
-                    <label style={labelStyle}>URL slug</label>
-                    <input style={inputStyle} value={url} onChange={e => setUrl(e.target.value)} placeholder="catering" />
-                  </div>
+                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>.jpg or .png, up to 5MB.</div>
                 </div>
                 <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                   <Toggle label="Visible (active)" checked={visible} onChange={setVisible} />
@@ -736,7 +773,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
           </button>
           <button onClick={save} disabled={saving || loading}
             style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: (saving || loading) ? 0.6 : 1 }}>
-            {saving ? 'Saving…' : 'Save settings'}
+            {saving ? 'Saving…' : (isNew ? 'Create Menu' : 'Save settings')}
           </button>
         </div>
       </div>
