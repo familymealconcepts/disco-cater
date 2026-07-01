@@ -124,6 +124,16 @@ export async function runMigrations(): Promise<void> {
     // Index the slug so the favorites enrichment can join on slug (some favorites
     // were stored by Sanity slug rather than the restaurant_reference UUID).
     `CREATE INDEX IF NOT EXISTS idx_disco_restaurant_cache_slug ON disco_restaurant_cache(slug)`,
+    // Per-menu Disco-only settings (keyed by the FM/menu reference). Holds the
+    // "Include Utensils" toggle — a Disco concept FM has no field for. When true,
+    // the customer ordering page offers an optional "Include utensils" checkbox
+    // that writes "Include utensils" to disco_orders.note at placement.
+    `CREATE TABLE IF NOT EXISTS disco_menu_settings (
+      menu_reference UUID PRIMARY KEY,
+      restaurant_reference UUID,
+      include_utensils BOOLEAN NOT NULL DEFAULT false,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true

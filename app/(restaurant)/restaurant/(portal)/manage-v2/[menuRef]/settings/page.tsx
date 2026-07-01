@@ -28,6 +28,9 @@ export default function EditMenuSettingsPage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [visible, setVisible] = useState(true)
+  // Disco-only per-menu toggle (Neon disco_menu_settings). When on, the customer
+  // ordering page offers an optional "Include utensils" checkbox at checkout.
+  const [includeUtensils, setIncludeUtensils] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -60,6 +63,10 @@ export default function EditMenuSettingsPage() {
           setEndDate(menu.endDate || '')
           setVisible(menu.visible ?? true)
         }
+        // Disco-only utensils toggle (Neon, separate from the FM menu fields).
+        const us = await fetch(`/api/restaurant/menu-settings?menuRef=${encodeURIComponent(menuRef)}`)
+          .then(r => (r.ok ? r.json() : null)).catch(() => null)
+        if (us) setIncludeUtensils(us.includeUtensils === true)
       } finally {
         setLoading(false)
       }
@@ -86,6 +93,13 @@ export default function EditMenuSettingsPage() {
         setError(d.error || 'Failed to update menu.')
         return
       }
+      // Persist the Disco-only utensils toggle to Neon (best-effort — the FM menu
+      // fields are the critical save above).
+      await fetch('/api/restaurant/menu-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ menuRef, includeUtensils }),
+      }).catch(() => {})
       router.push(`/restaurant/manage-v2/${menuRef}`)
     } catch {
       setError('Network error. Please try again.')
@@ -177,7 +191,7 @@ export default function EditMenuSettingsPage() {
             </div>
           </div>
 
-          <div style={{ marginBottom: 28 }}>
+          <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, color: DARK }}>
               <input
                 type="checkbox"
@@ -186,6 +200,18 @@ export default function EditMenuSettingsPage() {
                 style={{ width: 16, height: 16, cursor: 'pointer', accentColor: BLUE }}
               />
               Visible (show this menu to customers)
+            </label>
+          </div>
+
+          <div style={{ marginBottom: 28 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, color: DARK }}>
+              <input
+                type="checkbox"
+                checked={includeUtensils}
+                onChange={e => setIncludeUtensils(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: 'pointer', accentColor: BLUE }}
+              />
+              Include Utensils (offer an optional utensils checkbox at checkout)
             </label>
           </div>
 

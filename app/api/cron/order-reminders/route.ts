@@ -59,7 +59,7 @@ interface ReminderRow {
   subtotal: string | null; fee: string | null; tips: string | null; total: string | null
   restaurant_reference: string; restaurant_name: string | null; restaurant_email: string | null
   cache_name: string | null; cache_phone: string | null; cache_address: string | null
-  notif_emails: string | null; delivery_time_window: string | null
+  notif_emails: string | null; delivery_time_window: string | null; note: string | null
 }
 
 // Atomically claim the one-time CUSTOMER reminder for an order. Returns true only
@@ -138,7 +138,7 @@ export async function GET(req: NextRequest) {
                (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
              ) AS total,
              rc.name AS cache_name, rc.phone AS cache_phone, rc.address AS cache_address,
-             ov.notification_emails AS notif_emails, o.delivery_time_window
+             ov.notification_emails AS notif_emails, o.delivery_time_window, o.note
       FROM disco_orders o
       JOIN disco_restaurant_overrides ov ON ov.restaurant_reference = o.restaurant_reference::text
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
@@ -170,6 +170,7 @@ export async function GET(req: NextRequest) {
         tip: num(o.tips),
         totalPrice: num(o.total),
         orderNumber: o.order_number,
+        note: o.note || undefined,
         businessName: o.cache_name || o.restaurant_name || 'the restaurant',
         businessPhone: o.cache_phone || undefined,
         addressLine1: o.cache_address || undefined,
@@ -190,7 +191,7 @@ export async function GET(req: NextRequest) {
                (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
              ) AS total,
              rc.name AS cache_name, rc.phone AS cache_phone, rc.address AS cache_address,
-             ov.notification_emails AS notif_emails, o.delivery_time_window
+             ov.notification_emails AS notif_emails, o.delivery_time_window, o.note
       FROM disco_orders o
       JOIN disco_restaurant_overrides ov ON ov.restaurant_reference = o.restaurant_reference::text
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
@@ -236,6 +237,7 @@ export async function GET(req: NextRequest) {
           tip: num(o.tips),
           totalPrice: num(o.total),
           orderNumber: o.order_number,
+          note: o.note || undefined,
           businessName: o.cache_name || o.restaurant_name || 'the restaurant',
           businessPhone: o.cache_phone || undefined,
           addressLine1: o.cache_address || undefined,

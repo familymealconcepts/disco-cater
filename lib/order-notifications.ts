@@ -141,7 +141,7 @@ async function claimSlackNotified(orderReference: string): Promise<boolean> {
 export async function dispatchOrderConfirmations(orderId: number, source: string = 'STRIPE_WEBHOOK'): Promise<void> {
   try {
     const orders = (await sql`
-      SELECT reference, order_number, order_type, delivery_type, source_of_order, order_date, order_time, delivery_time_window, created_at,
+      SELECT reference, order_number, order_type, delivery_type, source_of_order, order_date, order_time, delivery_time_window, note, created_at,
              customer_email, customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
              restaurant_reference, restaurant_name, restaurant_email, tax_exempt_id, tax_exempt_state, tips,
@@ -271,6 +271,7 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       taxExemptState: o.tax_exempt_state ? String(o.tax_exempt_state) : undefined,
       persons: o.persons != null && Number(o.persons) > 0 ? Number(o.persons) : undefined,
       companyName: o.company_name ? String(o.company_name) : undefined,
+      note: o.note ? String(o.note) : undefined,
       // Prefer the canonical cache name; fall back to the order's stored name.
       businessName: cacheName || (o.restaurant_name ? String(o.restaurant_name) : '') || 'the restaurant',
       // Store contact (FM format) — canonical in disco_restaurant_cache.

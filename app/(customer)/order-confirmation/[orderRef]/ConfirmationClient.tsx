@@ -90,6 +90,8 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
   // non-'exact' window show the time as a range; null/'exact'/pickup → exact time.
   const deliveryTimeWindow: string = order?.deliveryTimeWindow || order?.delivery_time_window || ''
   const orderTimeDisplay = orderTime ? formatTimeWindow(orderTime, deliveryTimeWindow, orderType === 'DELIVERY') : ''
+  // Order note (e.g. "Include utensils"). Shown only when non-empty.
+  const orderNote: string = order?.note || order?.orderNote || ''
   const addr = order?.deliveryAddress
   // Tax-exempt orders: FM (or the Neon fallback in /api/order/status) returns
   // taxExempt + taxExemptId. When present, taxes are $0.00 and we surface the id.
@@ -157,6 +159,12 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
                   <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Fulfillment</div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}</div>
+                </div>
+              )}
+              {orderNote && (
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
+                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Notes</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: DARK, whiteSpace: 'pre-wrap' }}>{orderNote}</div>
                 </div>
               )}
               {(() => {

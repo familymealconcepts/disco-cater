@@ -352,6 +352,19 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // Restaurant-level delivery time-window setting ('exact' | '30_min' | '1_hour').
   // Delivery orders show the pickup time as a range; pickup always shows exact.
   const deliveryWindow = restaurantSettings?.deliveryOrderTimeWindows || 'exact'
+  // Per-menu Disco "Include Utensils" toggle (Neon disco_menu_settings). When on,
+  // CheckoutDrawer offers an optional utensils checkbox that writes an order note.
+  const [includeUtensils, setIncludeUtensils] = useState(false)
+  const activeMenuRef = activeMenu?.reference
+  useEffect(() => {
+    if (!activeMenuRef) { setIncludeUtensils(false); return }
+    let cancel = false
+    fetch(`/api/menu-utensils?menuRef=${encodeURIComponent(activeMenuRef)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancel) setIncludeUtensils(d?.includeUtensils === true) })
+      .catch(() => { if (!cancel) setIncludeUtensils(false) })
+    return () => { cancel = true }
+  }, [activeMenuRef])
   const menuAvail = settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
   const defaultTip = settings?.tipOption?.tipsPrice ?? 15
   // In "Other" mode a blank input means $0 (tipPct null → 0), never the menu
@@ -1770,6 +1783,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           fmRef={fmRef} fmSlug={fmSlug} restaurantName={restaurant.name}
           cart={cart} selDate={selDate} selTime={selTime} orderType={orderType}
           deliveryOrderTimeWindows={deliveryWindow}
+          includeUtensils={includeUtensils}
           addr={addr} subtotal={subtotal} tipAmt={tipAmt} svcAmt={svcAmt} minOrder={minOrder}
           headcount={headcount} onHeadcount={setHeadcount}
           menuReference={menuData[activeMenuIdx]?.menu?.reference ?? null}

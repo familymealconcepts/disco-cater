@@ -97,6 +97,8 @@ interface BaseOrderParams {
   taxExemptState?: string
   persons?: number
   companyName?: string
+  // Order-level note (e.g. "Include utensils"). Rendered only when non-empty.
+  note?: string
   deliveryTrackingUrl?: string
   businessName: string
   businessPhone?: string
@@ -200,6 +202,13 @@ function anyQuestions(p: BaseOrderParams): string {
   return `<p style="margin-top:28px;">ANY QUESTIONS?<br/>${escapeHtml(p.businessName)}${phone ? ` - ${escapeHtml(phone)}` : ''}</p>`
 }
 
+// Order-level note block (e.g. "Include utensils"). Empty string when no note, so
+// it can be interpolated inline in any email body without adding a blank row.
+function renderNote(p: BaseOrderParams): string {
+  if (!p.note || !String(p.note).trim()) return ''
+  return `<p style="margin:0;"><strong>Order Notes:</strong> ${escapeHtml(p.note)}</p>${HR}`
+}
+
 // ── 1. Customer order confirmation (user-order-confirm.ftl) ──────────────────
 
 export async function sendCustomerOrderConfirmation(
@@ -228,7 +237,7 @@ ${renderCustomerBlock(p)}
 ${HR}
 <p style="margin:0;">Order Received: ${escapeHtml(p.orderReceived)}</p>
 ${HR}
-${renderLineItems(p.orderMealPackages)}
+${renderNote(p)}${renderLineItems(p.orderMealPackages)}
 ${HR}
 <p style="margin:0;"><strong>${escapeHtml(p.businessName)}</strong>${phone ? `<br/>${escapeHtml(phone)}` : ''}${p.addressLine1 ? `<br/>${escapeHtml(p.addressLine1)}` : ''}</p>
 ${HR}
@@ -285,7 +294,7 @@ ${renderCustomerBlock(p)}
 ${HR}
 <p style="margin:0;">Order Received: ${escapeHtml(p.orderReceived)}</p>
 ${HR}
-${renderLineItems(p.orderMealPackages)}
+${renderNote(p)}${renderLineItems(p.orderMealPackages)}
 ${HR}
 ${renderTotals(p)}
 ${HR}
@@ -325,7 +334,7 @@ ${p.orderDate ? `Order date: ${escapeHtml(p.orderDate)}<br/>` : ''}
 ${p.orderTime ? `Order time: ${escapeHtml(p.orderTime)}<br/>` : ''}
 </p>
 ${HR}
-${renderLineItems(p.orderMealPackages)}
+${renderNote(p)}${renderLineItems(p.orderMealPackages)}
 ${HR}
 <p style="margin:0;"><strong>${escapeHtml(p.businessName)}</strong>${phone ? `<br/>${escapeHtml(phone)}` : ''}${p.addressLine1 ? `<br/>${escapeHtml(p.addressLine1)}` : ''}</p>
 ${HR}
@@ -374,7 +383,7 @@ ${p.orderTime ? `Order time: ${escapeHtml(p.orderTime)}` : ''}
 ${HR}
 ${renderCustomerBlock(p)}
 ${HR}
-${renderLineItems(p.orderMealPackages)}
+${renderNote(p)}${renderLineItems(p.orderMealPackages)}
 ${HR}
 ${renderTotals(p)}
 ${HR}

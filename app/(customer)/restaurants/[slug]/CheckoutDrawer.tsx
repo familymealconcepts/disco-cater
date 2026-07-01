@@ -59,6 +59,9 @@ interface Props {
   // Restaurant-level delivery time-window setting ('exact' | '30_min' | '1_hour').
   // Display-only: delivery orders show the time as a range in the summary.
   deliveryOrderTimeWindows?: string
+  // Per-menu "Include Utensils" toggle — when true, offer an optional utensils
+  // checkbox that writes "Include utensils" to the order note at placement.
+  includeUtensils?: boolean
   addr: { line1: string; line2?: string; city: string; state: string; zip: string; lat?: number | null; lng?: number | null; instructions?: string }
   // Selected menu reference — required by FM's delivery validate contract.
   menuReference?: string | null
@@ -139,7 +142,7 @@ function fmtTime(t: string) {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function CheckoutDrawer({
-  fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType, deliveryOrderTimeWindows,
+  fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType, deliveryOrderTimeWindows, includeUtensils = false,
   addr, menuReference, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount,
   isFirstParty = false, isDirectEntry = false, directEntryMethod = 'payment',
   onChangeAddress, onPromoChange, onClose,
@@ -152,6 +155,8 @@ export default function CheckoutDrawer({
   // Checkout flow
   const [step, setStep] = useState<DrawerStep>('payment')
   const [orderRef, setOrderRef] = useState('')
+  // Optional utensils — only offered when the menu has Include Utensils on.
+  const [wantsUtensils, setWantsUtensils] = useState(false)
   const [fmTotals, setFmTotals] = useState<any>(null)
   // Tax Exempt Account. Handled entirely Disco-side: FM keeps the tax in its
   // total/PaymentIntent and /api/order/place reduces the PI by the tax amount
@@ -753,6 +758,9 @@ export default function CheckoutDrawer({
             ...(headcount != null ? { headcount } : {}),
             // Disco-only company name for the Neon mirror (stripped before FM).
             ...(contactCompany.trim() ? { companyName: contactCompany.trim() } : {}),
+            // Disco-only order note (utensils) for the Neon mirror (stripped before
+            // FM). Persisted to disco_orders.note; surfaced on every order surface.
+            ...(wantsUtensils ? { note: 'Include utensils' } : {}),
             // Tax exempt (customer flow only): tells /api/order/place to reduce the
             // FM PaymentIntent by the tax before confirm. taxAmount is FM's reported
             // sales tax (state+local+other) — the exact amount baked into the PI.
@@ -946,6 +954,15 @@ export default function CheckoutDrawer({
                 {orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}
               </span>
             </div>
+            {/* Optional utensils — offered only when the menu enables it. Checked →
+                writes "Include utensils" to the order note at placement. */}
+            {includeUtensils && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, cursor: 'pointer', fontSize: 13, color: DARK }}>
+                <input type="checkbox" checked={wantsUtensils} onChange={e => setWantsUtensils(e.target.checked)}
+                  style={{ width: 16, height: 16, cursor: 'pointer', accentColor: BLUE }} />
+                Include utensils with my order
+              </label>
+            )}
           </div>
 
           {/* Delivery — validated address (read-only) + editable instructions +
