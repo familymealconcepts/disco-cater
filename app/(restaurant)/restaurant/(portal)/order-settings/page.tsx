@@ -398,9 +398,9 @@ export default function OrderSettingsPage() {
             <Row label="Customer Order Reminder Emails">
               <Toggle checked={notifications.orderReminderEmailsEnabled} onChange={v => saveNotifications({ ...notifications, orderReminderEmailsEnabled: v })} />
             </Row>
-            <Row label="Print Kitchen Tickets">
-              <Toggle checked={notifications.autoPrint} onChange={v => saveNotifications({ ...notifications, autoPrint: v })} />
-            </Row>
+            {/* "Print Kitchen Tickets" (autoPrint) toggle intentionally hidden from
+                the UI — the field is still round-tripped to FM on every save (kept
+                in the Notifications interface + saveNotifications payload). */}
           </div>
         </Section>
       )}

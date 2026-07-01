@@ -7,6 +7,7 @@ import { cartLineTotal, cartSubtotal } from '../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../lib/pricing/lineItem'
 import { trackEvent } from '../../../../lib/analytics'
 import { sanitizePhone, formatPhoneDisplay } from '../../../../lib/utils/phone'
+import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
@@ -55,6 +56,9 @@ interface Props {
   selDate: string
   selTime: string
   orderType: 'PICKUP' | 'DELIVERY'
+  // Restaurant-level delivery time-window setting ('exact' | '30_min' | '1_hour').
+  // Display-only: delivery orders show the time as a range in the summary.
+  deliveryOrderTimeWindows?: string
   addr: { line1: string; line2?: string; city: string; state: string; zip: string; lat?: number | null; lng?: number | null; instructions?: string }
   // Selected menu reference — required by FM's delivery validate contract.
   menuReference?: string | null
@@ -135,7 +139,7 @@ function fmtTime(t: string) {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function CheckoutDrawer({
-  fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType,
+  fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType, deliveryOrderTimeWindows,
   addr, menuReference, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount,
   isFirstParty = false, isDirectEntry = false, directEntryMethod = 'payment',
   onChangeAddress, onPromoChange, onClose,
@@ -936,7 +940,7 @@ export default function CheckoutDrawer({
           <div style={{ padding: '0 0 14px', borderBottom: '1px solid #f4f4f4', marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               {selDate && <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtDateShort(selDate)}</span>}
-              {selTime && <><span style={{ color: '#ddd' }}>·</span><span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtTime(selTime)}</span></>}
+              {selTime && <><span style={{ color: '#ddd' }}>·</span><span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{formatTimeWindow(selTime, deliveryOrderTimeWindows, orderType === 'DELIVERY')}</span></>}
               <span style={{ color: '#ddd' }}>·</span>
               <span style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: orderType === 'PICKUP' ? '#EEF0FD' : '#F0FDF4', color: orderType === 'PICKUP' ? INDIGO : '#166534' }}>
                 {orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}

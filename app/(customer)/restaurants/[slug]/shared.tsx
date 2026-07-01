@@ -67,6 +67,10 @@ interface FmRestaurantLookup {
     phoneNumber?: string
   }
   image?: { reference?: string }
+  // Restaurant-level FM settings (RestaurantSimplePublicResponseDto). FM exposes
+  // these on the RESTAURANT, not the menu — the ordering page reads them here.
+  enableMenuSearch?: boolean
+  deliveryOrderTimeWindows?: string
 }
 
 const resolveFmRef = cache(async (slug: string): Promise<string | null> => {
@@ -395,6 +399,7 @@ export async function RestaurantView({
           menuData={native.menuData}
           slug={slug}
           isFirstParty={isFirstParty}
+          restaurantSettings={{}}
         />
       </>
     )
@@ -436,6 +441,10 @@ export async function RestaurantView({
           menuData={menuData}
           slug={slug}
           isFirstParty={isFirstParty}
+          restaurantSettings={{
+            enableMenuSearch: fmDetail?.enableMenuSearch,
+            deliveryOrderTimeWindows: fmDetail?.deliveryOrderTimeWindows,
+          }}
         />
       </>
     )
@@ -485,6 +494,10 @@ export async function RestaurantView({
         menuData={menuData}
         slug={slug}
         isFirstParty={isFirstParty}
+        restaurantSettings={{
+          enableMenuSearch: fmDetail?.enableMenuSearch,
+          deliveryOrderTimeWindows: fmDetail?.deliveryOrderTimeWindows,
+        }}
       />
     </>
   )

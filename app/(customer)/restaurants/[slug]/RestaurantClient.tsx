@@ -10,6 +10,7 @@ import CheckoutDrawer from './CheckoutDrawer'
 import MenuAdvisor, { type DiscoIntake } from './MenuAdvisor'
 import FavoriteHeart from '../../account/components/FavoriteHeart'
 import { cartSubtotal } from '../../../../lib/pricing/cart'
+import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
 import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
@@ -225,7 +226,7 @@ function MonthCalendar({ year, month, availSet, todayIso, selDate, onSelect }: {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, slug, isFirstParty = false }: {
+export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, slug, isFirstParty = false, restaurantSettings }: {
   restaurant: Restaurant; fmSlug: string | null; fmRef: string | null
   menuData: MenuSection[]; slug: string
   // True only on the 1st-party /order/[slug] route. Flows straight to
@@ -233,6 +234,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // ("FAMILYMEAL" when true, "DISCO" when false). Defaults false so the
   // existing 3P /restaurants/[slug] behavior is unchanged.
   isFirstParty?: boolean
+  // Restaurant-LEVEL FM settings (feesAndTips / RestaurantSimplePublicResponseDto).
+  // FM exposes these on the restaurant, not the menu, so they're threaded in here
+  // rather than read off menu.settings (which never carries them).
+  restaurantSettings?: { enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string }
 }) {
   // ── UI state ──────────────────────────────────────────────────────────────
   // Auth — used to gate the checkout action behind login (browsing/cart-building
@@ -338,10 +343,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const activeMenu = menuData[activeMenuIdx]?.menu
   const sched = activeMenu?.scheduleOption
   const settings = activeMenu?.settings
-  // Menu search — only shown when the restaurant enabled it (FM feesAndTips).
+  // Menu search — only shown when the restaurant enabled it. This is a
+  // RESTAURANT-level FM setting (restaurantSettings), NOT a menu-level one; FM
+  // never populates it on menu.settings, so reading it there left the bar hidden.
   const [menuSearch, setMenuSearch] = useState('')
-  const menuSearchEnabled = !!settings?.enableMenuSearch
+  const menuSearchEnabled = !!restaurantSettings?.enableMenuSearch
   const menuQuery = menuSearchEnabled ? menuSearch.trim().toLowerCase() : ''
+  // Restaurant-level delivery time-window setting ('exact' | '30_min' | '1_hour').
+  // Delivery orders show the pickup time as a range; pickup always shows exact.
+  const deliveryWindow = restaurantSettings?.deliveryOrderTimeWindows || 'exact'
   const menuAvail = settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
   const defaultTip = settings?.tipOption?.tipsPrice ?? 15
   // In "Other" mode a blank input means $0 (tipPct null → 0), never the menu
@@ -1062,7 +1072,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontSize: 12, color: '#555' }}>
                 <span style={{ fontWeight: 700 }}>{fmtDateShort(selDate)}</span>
-                {selTime && <span style={{ color: '#888' }}> · {fmtTime(selTime)}</span>}
+                {selTime && <span style={{ color: '#888' }}> · {formatTimeWindow(selTime, deliveryWindow, orderType === 'DELIVERY')}</span>}
                 <span style={{ color: '#888' }}> · {orderType === 'PICKUP' ? 'Pickup' : 'Delivery'}</span>
               </div>
               <button onClick={openMenus} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>Edit</button>
@@ -1324,7 +1334,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           <div style={{ maxWidth: 1140, margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12, height: 46 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtDateShort(selDate)}</span>
-              {selTime && <><span style={{ color: '#ddd' }}>·</span><span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtTime(selTime)}</span></>}
+              {selTime && <><span style={{ color: '#ddd' }}>·</span><span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{formatTimeWindow(selTime, deliveryWindow, orderType === 'DELIVERY')}</span></>}
               <span style={{ color: '#ddd' }}>·</span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: orderType === 'PICKUP' ? '#EEF0FD' : '#F0FDF4', color: orderType === 'PICKUP' ? INDIGO : '#166534' }}>
                 {orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}
@@ -1699,7 +1709,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 <select value={tempTime} onChange={e => setTempTime(e.target.value)}
                   style={{ width: '100%', height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: tempTime ? DARK : '#aaa', fontFamily: F, background: '#fff', cursor: 'pointer', outline: 'none' }}>
                   <option value="">Select time</option>
-                  {mModalTimes.map(t => <option key={t} value={t}>{fmtTime(t)}</option>)}
+                  {mModalTimes.map(t => <option key={t} value={t}>{formatTimeWindow(t, deliveryWindow, tempType === 'DELIVERY')}</option>)}
                 </select>
               </div>
             </div>
@@ -1759,6 +1769,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         <CheckoutDrawer
           fmRef={fmRef} fmSlug={fmSlug} restaurantName={restaurant.name}
           cart={cart} selDate={selDate} selTime={selTime} orderType={orderType}
+          deliveryOrderTimeWindows={deliveryWindow}
           addr={addr} subtotal={subtotal} tipAmt={tipAmt} svcAmt={svcAmt} minOrder={minOrder}
           headcount={headcount} onHeadcount={setHeadcount}
           menuReference={menuData[activeMenuIdx]?.menu?.reference ?? null}
