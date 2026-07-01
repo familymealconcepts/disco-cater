@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import { TimeSelect, normalizeTime } from '../../_components/TimeSelect'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -53,50 +54,8 @@ interface FullMenu {
 const DAY_KEYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'] as const
 type DayKey = typeof DAY_KEYS[number]
 
-// FM serializes times as "H:mm:ss" (Constants.TIME_FORMAT) — a NON-zero-padded
-// hour plus seconds, e.g. "9:00:00" for 9 AM. HTML <input type="time"> requires a
-// strict zero-padded "HH:mm" and silently blanks anything else, so single-digit
-// hours (typical morning "from" times) rendered as "--:-- --". Normalize every FM
-// time to "HH:mm" (pad the hour, keep minutes, drop seconds) on load.
-function normalizeTime(t: string | null | undefined): string {
-  if (!t) return ''
-  const parts = String(t).split(':')
-  if (parts.length < 2) return String(t)
-  return parts[0].padStart(2, '0') + ':' + parts[1]
-}
-
-// 15-minute time options — "HH:mm" value with a 12-hour label. Built once.
-const TIME_OPTIONS: { value: string; label: string }[] = (() => {
-  const out: { value: string; label: string }[] = []
-  for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-      const ampm = h >= 12 ? 'PM' : 'AM'
-      const h12 = h % 12 || 12
-      out.push({ value, label: `${h12}:${String(m).padStart(2, '0')} ${ampm}` })
-    }
-  }
-  return out
-})()
-
-// Time picker as a 15-minute-interval dropdown (value + onChange use "HH:mm").
-// A current value that's off the 15-minute grid (e.g. a legacy "11:20") is kept
-// as a selectable option so loading never blanks or silently changes it.
-function TimeSelect({ value, onChange, style }: {
-  value: string
-  onChange: (v: string) => void
-  style?: React.CSSProperties
-}) {
-  const v = normalizeTime(value)
-  const opts = !v || TIME_OPTIONS.some(o => o.value === v)
-    ? TIME_OPTIONS
-    : [{ value: v, label: v }, ...TIME_OPTIONS]
-  return (
-    <select value={v} onChange={e => onChange(e.target.value)} style={style}>
-      {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
-  )
-}
+// normalizeTime + the 15-minute TimeSelect now live in ../../_components/TimeSelect
+// (shared with the Disco-native menu form). Imported at the top of this file.
 const DAY_LABELS: Record<DayKey, string> = {
   MONDAY: 'Mon', TUESDAY: 'Tue', WEDNESDAY: 'Wed', THURSDAY: 'Thu',
   FRIDAY: 'Fri', SATURDAY: 'Sat', SUNDAY: 'Sun',

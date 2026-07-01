@@ -60,18 +60,21 @@ export async function POST(req: NextRequest) {
   const type = String(body?.type || 'GENERAL_CATERING')
   if (!MENU_TYPES.has(type)) return NextResponse.json({ error: 'Invalid menu category.' }, { status: 400 })
 
-  // Slug: use the provided url (sanitized) or derive from name; ensure uniqueness
-  // per restaurant by appending -2, -3, … on collision.
+  // Slug: derived from name (urlAuto) → append -2,-3… on collision silently.
+  // User-typed slug (urlAuto=false) → a collision is a hard 409 with a clear
+  // message so the form can show inline "that URL is taken".
+  const urlAuto = body?.urlAuto !== false
   const base = slugify(String(body?.url || '') || name) || 'menu'
   let url = base
   try {
     await runDiscoMenuMigrations()
-    for (let i = 2; i < 50; i++) {
-      const clash = (await sql`
-        SELECT 1 FROM disco_menus WHERE restaurant_reference = ${ref}::uuid AND url = ${url} LIMIT 1
-      `) as unknown[]
-      if (clash.length === 0) break
-      url = `${base}-${i}`
+    const isTaken = async (u: string) => ((await sql`
+      SELECT 1 FROM disco_menus WHERE restaurant_reference = ${ref}::uuid AND url = ${u} LIMIT 1
+    `) as unknown[]).length > 0
+    if (!urlAuto) {
+      if (await isTaken(url)) return NextResponse.json({ error: 'That URL is already taken. Choose another.' }, { status: 409 })
+    } else {
+      for (let i = 2; i < 50 && (await isTaken(url)); i++) url = `${base}-${i}`
     }
 
     const availabilityMode = String(body?.availabilityMode || 'ALWAYS') === 'CUSTOM' ? 'CUSTOM' : 'ALWAYS'

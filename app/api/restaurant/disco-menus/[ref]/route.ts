@@ -10,6 +10,9 @@ const MENU_TYPES = new Set([
   'GENERAL_CATERING', 'OFFICE_CATERING', 'HOLIDAY_CATERING', 'MEAL_PREP',
   'PRIVATE_CHEF', 'NATIONWIDE_SHIPPING', 'MERCH', 'POP_UP',
 ])
+function slugify(s: string): string {
+  return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
+}
 
 // Ownership guard: the menu must belong to the authed restaurant.
 async function ownedRef(reqRef: string): Promise<string | null> {
@@ -38,7 +41,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
   await runDiscoMenuMigrations()
-  if (!(await ownedRef(ref))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const restRef = await ownedRef(ref)
+  if (!restRef) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
@@ -46,6 +50,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   if (!name) return NextResponse.json({ error: 'Menu name is required.' }, { status: 400 })
   const type = String(body?.type || 'GENERAL_CATERING')
   if (!MENU_TYPES.has(type)) return NextResponse.json({ error: 'Invalid menu category.' }, { status: 400 })
+
+  // URL slug — uniqueness per restaurant (excluding self). A user-typed collision
+  // is a hard 409; a blank/derived one is auto-suffixed.
+  const urlAuto = body?.urlAuto !== false
+  const base = slugify(String(body?.url || '') || name) || 'menu'
+  let url = base
+  const takenByOther = async (u: string) => ((await sql`
+    SELECT 1 FROM disco_menus WHERE restaurant_reference = ${restRef}::uuid AND url = ${u} AND reference <> ${ref}::uuid LIMIT 1
+  `) as unknown[]).length > 0
+  if (!urlAuto) {
+    if (await takenByOther(url)) return NextResponse.json({ error: 'That URL is already taken. Choose another.' }, { status: 409 })
+  } else {
+    for (let i = 2; i < 50 && (await takenByOther(url)); i++) url = `${base}-${i}`
+  }
+
   const availabilityMode = String(body?.availabilityMode || 'ALWAYS') === 'CUSTOM' ? 'CUSTOM' : 'ALWAYS'
   const startDate = availabilityMode === 'CUSTOM' && body?.startDate ? String(body.startDate) : null
   const endDate = availabilityMode === 'CUSTOM' && body?.endDate ? String(body.endDate) : null
@@ -54,7 +73,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   try {
     await sql`
       UPDATE disco_menus SET
-        name = ${name}, type = ${type},
+        name = ${name}, type = ${type}, url = ${url},
         description = ${String(body?.description || '') || null},
         image_url = COALESCE(${String(body?.imageUrl || '') || null}, image_url),
         visible = ${body?.visible === false ? false : true},
