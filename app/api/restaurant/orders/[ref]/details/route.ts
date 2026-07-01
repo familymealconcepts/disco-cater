@@ -80,8 +80,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   }
 
-  // FM-only (not in Neon yet) → return the FM payload as-is.
+  // FM-only (not in Neon yet) → return the FM payload, but first normalize the
+  // restaurant reference ONTO the order node. FM's /details DTO
+  // (OrderPublicResponseEditDto) puts `restaurantReference` at the TOP LEVEL of
+  // the payload — a sibling of `order`, NOT inside it — so the edit client (which
+  // reads order.restaurantReference) can't resolve the restaurant for FM-only
+  // orders. Without this, admin edits of such orders show "No menu items
+  // available" because loadMenu never gets a restaurant ref. Mutating fmOrder in
+  // place keeps the original payload shape while surfacing the ref where the
+  // client looks. Also fall back to a nested restaurant.reference.
   if (!disco) {
+    if (fmOrder && !fmOrder.restaurantReference) {
+      const top = ((fmDetails?.data as Record<string, unknown>) ?? fmDetails ?? {}) as Record<string, unknown>
+      const nested = (fmOrder.restaurant as Record<string, unknown> | undefined)?.reference
+      const rr = top.restaurantReference || nested
+      if (rr) fmOrder.restaurantReference = rr
+    }
     return NextResponse.json(fmDetails ?? { data: { order: fmOrder } })
   }
 
