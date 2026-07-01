@@ -64,6 +64,39 @@ function normalizeTime(t: string | null | undefined): string {
   if (parts.length < 2) return String(t)
   return parts[0].padStart(2, '0') + ':' + parts[1]
 }
+
+// 15-minute time options — "HH:mm" value with a 12-hour label. Built once.
+const TIME_OPTIONS: { value: string; label: string }[] = (() => {
+  const out: { value: string; label: string }[] = []
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+      const ampm = h >= 12 ? 'PM' : 'AM'
+      const h12 = h % 12 || 12
+      out.push({ value, label: `${h12}:${String(m).padStart(2, '0')} ${ampm}` })
+    }
+  }
+  return out
+})()
+
+// Time picker as a 15-minute-interval dropdown (value + onChange use "HH:mm").
+// A current value that's off the 15-minute grid (e.g. a legacy "11:20") is kept
+// as a selectable option so loading never blanks or silently changes it.
+function TimeSelect({ value, onChange, style }: {
+  value: string
+  onChange: (v: string) => void
+  style?: React.CSSProperties
+}) {
+  const v = normalizeTime(value)
+  const opts = !v || TIME_OPTIONS.some(o => o.value === v)
+    ? TIME_OPTIONS
+    : [{ value: v, label: v }, ...TIME_OPTIONS]
+  return (
+    <select value={v} onChange={e => onChange(e.target.value)} style={style}>
+      {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  )
+}
 const DAY_LABELS: Record<DayKey, string> = {
   MONDAY: 'Mon', TUESDAY: 'Tue', WEDNESDAY: 'Wed', THURSDAY: 'Thu',
   FRIDAY: 'Fri', SATURDAY: 'Sat', SUNDAY: 'Sun',
@@ -521,11 +554,11 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                     <div>
                       <label style={labelStyle}>From</label>
-                      <input type="time" style={inputStyle} value={sameDayFrom} onChange={e => setSameDayFrom(e.target.value)} />
+                      <TimeSelect style={inputStyle} value={sameDayFrom} onChange={setSameDayFrom} />
                     </div>
                     <div>
                       <label style={labelStyle}>To</label>
-                      <input type="time" style={inputStyle} value={sameDayTo} onChange={e => setSameDayTo(e.target.value)} />
+                      <TimeSelect style={inputStyle} value={sameDayTo} onChange={setSameDayTo} />
                     </div>
                   </div>
                 ) : (
@@ -536,10 +569,10 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
                     {activeDays.map(d => (
                       <div key={d} style={{ display: 'grid', gridTemplateColumns: '90px 1fr 1fr', gap: 10, alignItems: 'center', marginBottom: 8 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: DARK }}>{DAY_LABELS[d]}</div>
-                        <input type="time" style={inputStyle} value={perDay[d].from}
-                          onChange={e => setPerDay(s => ({ ...s, [d]: { ...s[d], from: e.target.value } }))} />
-                        <input type="time" style={inputStyle} value={perDay[d].to}
-                          onChange={e => setPerDay(s => ({ ...s, [d]: { ...s[d], to: e.target.value } }))} />
+                        <TimeSelect style={inputStyle} value={perDay[d].from}
+                          onChange={v => setPerDay(s => ({ ...s, [d]: { ...s[d], from: v } }))} />
+                        <TimeSelect style={inputStyle} value={perDay[d].to}
+                          onChange={v => setPerDay(s => ({ ...s, [d]: { ...s[d], to: v } }))} />
                       </div>
                     ))}
                   </div>
@@ -583,7 +616,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
                 {dailyCutoffEnabled && (
                   <div style={{ maxWidth: 220, marginBottom: 18 }}>
                     <label style={labelStyle}>Cutoff time</label>
-                    <input type="time" style={inputStyle} value={dailyCutoff} onChange={e => setDailyCutoff(e.target.value)} />
+                    <TimeSelect style={inputStyle} value={dailyCutoff} onChange={setDailyCutoff} />
                   </div>
                 )}
 
@@ -603,7 +636,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
                     </div>
                     <div>
                       <label style={labelStyle}>Cutoff time</label>
-                      <input type="time" style={inputStyle} value={hardCutoffTime} onChange={e => setHardCutoffTime(e.target.value)} />
+                      <TimeSelect style={inputStyle} value={hardCutoffTime} onChange={setHardCutoffTime} />
                     </div>
                   </div>
                 )}
@@ -895,8 +928,8 @@ function SkippedDaysEditor({ value, onChange, inputStyle, labelStyle }: {
           </div>
           {custom && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div><label style={labelStyle}>From</label><input type="time" style={inputStyle} value={fromTime} onChange={e => setFromTime(e.target.value)} /></div>
-              <div><label style={labelStyle}>To</label><input type="time" style={inputStyle} value={toTime} onChange={e => setToTime(e.target.value)} /></div>
+              <div><label style={labelStyle}>From</label><TimeSelect style={inputStyle} value={fromTime} onChange={setFromTime} /></div>
+              <div><label style={labelStyle}>To</label><TimeSelect style={inputStyle} value={toTime} onChange={setToTime} /></div>
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
