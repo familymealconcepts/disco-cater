@@ -311,6 +311,9 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
             >
               {loginLoading ? 'Signing in…' : 'Log In'}
             </button>
+            <div style={{ textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 14 }}>
+              <a href="/restaurant/login" style={{ color: '#6B6EF9', textDecoration: 'underline' }}>Restaurant Log in</a>
+            </div>
           </form>
         )}
 
