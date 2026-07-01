@@ -42,6 +42,14 @@ function formatPhone(phone?: string): string {
   return phone
 }
 
+// Human-facing service label for email subjects: PICKUP / DELIVERY /
+// "THIRD-PARTY DELIVERY" (FM renders the underscore form with a hyphen + space).
+function orderServiceLabel(service?: string): string {
+  const u = String(service || '').toUpperCase().replace(/[_\s]+/g, '_')
+  if (u === 'THIRD_PARTY_DELIVERY' || u === 'THIRD_PARTY') return 'THIRD-PARTY DELIVERY'
+  return u.replace(/_/g, ' ')
+}
+
 // ── shared param shapes ──────────────────────────────────────────────────────
 
 export interface OrderAddOn {
@@ -329,11 +337,56 @@ ${anyQuestions(p)}
 `
     return await sendEmail({
       to: p.to,
-      subject: `REMINDER: Your order will be ready on ${p.orderDate} at ${p.orderTime} for ${p.firstName || ''}`.trim(),
+      // FM format: "REMINDER: Your {PICKUP/DELIVERY/THIRD-PARTY DELIVERY} Order
+      // will be ready on: {MM/DD/YYYY} at {H:MM AM/PM} for {First} {Last}".
+      subject: `REMINDER: Your ${orderServiceLabel(p.orderService)} Order will be ready on: ${p.orderDate} at ${p.orderTime} for ${[p.firstName, p.lastName].filter(Boolean).join(' ')}`.trim(),
       html: layout(content),
     })
   } catch (err) {
     console.error('[email/notifications] sendCustomerOrderReminder failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
+// ── 3b. Restaurant/admin order reminder (24h before pickup) ──────────────────
+// Sent to the restaurant notification-email list by the hourly order-reminders
+// cron's second pass. Subject mirrors FM's admin reminder
+// (EmailNotificationServiceImpl:2225 — "REMINDER: Upcoming Order(in 24 hours) …");
+// body reuses the confirmation fragments (customer contact + line items + totals).
+
+export type RestaurantOrderReminderParams = BaseOrderParams & { to: string }
+
+export async function sendRestaurantOrderReminder(
+  params: RestaurantOrderReminderParams,
+): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const customerName = [p.firstName, p.lastName].filter(Boolean).join(' ')
+    const content = `
+<p style="margin:0;"><strong>Upcoming order in 24 hours</strong></p>
+${HR}
+<p style="margin:0;">
+Order ${escapeHtml(p.orderNumber)}<br/>
+${p.orderService ? `Order type: ${escapeHtml(orderServiceLabel(p.orderService))}<br/>` : ''}
+${p.orderDate ? `Order date: ${escapeHtml(p.orderDate)}<br/>` : ''}
+${p.orderTime ? `Order time: ${escapeHtml(p.orderTime)}` : ''}
+</p>
+${HR}
+${renderCustomerBlock(p)}
+${HR}
+${renderLineItems(p.orderMealPackages)}
+${HR}
+${renderTotals(p)}
+${HR}
+<p style="margin:0;"><strong>${escapeHtml(p.businessName)}</strong></p>
+`
+    return await sendEmail({
+      to: p.to,
+      subject: `REMINDER: Upcoming Order(in 24 hours) ${p.orderNumber} (${money(p.totalPrice)}) ${p.orderDate}, ${p.orderTime} for ${customerName}`.trim(),
+      html: layout(content),
+    })
+  } catch (err) {
+    console.error('[email/notifications] sendRestaurantOrderReminder failed:', err instanceof Error ? err.message : err)
     return { success: false }
   }
 }

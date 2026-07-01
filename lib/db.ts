@@ -77,6 +77,10 @@ export async function runMigrations(): Promise<void> {
     // order_reminder_emails_enabled ← FM orderReminderEmailsEnabled;
     // notification_emails ← FM email[] recipient list (comma-separated).
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS order_reminder_emails_enabled BOOLEAN DEFAULT false`,
+    // admin_order_reminder_emails_enabled ← FM adminOrderReminderEmailsEnabled: the
+    // SEPARATE restaurant-facing reminder toggle. Mirrored on every notifications
+    // save; read by the hourly order-reminders cron's restaurant/admin pass.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS admin_order_reminder_emails_enabled BOOLEAN`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS notification_emails TEXT`,
     // Disco-native multi-phone SMS recipient list (comma-separated, mirrors the
     // notification_emails pattern). Replaces the single
@@ -113,6 +117,10 @@ export async function runMigrations(): Promise<void> {
     // Square restaurant icon/logo, captured at onboarding (separate from image_url,
     // which is the wider marketplace/hero image). Both set via become-a-partner.
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS icon_url TEXT`,
+    // IANA timezone (e.g. 'America/New_York') for the restaurant. Used by the
+    // hourly order-reminders cron to compute the 24h-before-pickup window in the
+    // restaurant's local time. NULL falls back to America/New_York in the cron.
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS timezone TEXT`,
     // Index the slug so the favorites enrichment can join on slug (some favorites
     // were stored by Sanity slug rather than the restaurant_reference UUID).
     `CREATE INDEX IF NOT EXISTS idx_disco_restaurant_cache_slug ON disco_restaurant_cache(slug)`,

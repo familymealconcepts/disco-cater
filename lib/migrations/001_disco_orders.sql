@@ -407,6 +407,12 @@ ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS company_name TEXT;
 -- the order confirmation email, PDF, and restaurant portal order details panel.
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS tax_exempt_state TEXT;
 
+-- Restaurant/admin order-reminder idempotency flag — mirrors FM's
+-- RestaurantOrder.admin_reminder_sent. Set true once the hourly order-reminders
+-- cron has sent the 24h-before RESTAURANT reminder email for this order (separate
+-- from the customer reminder's ORDER_REMINDER_SENT event marker).
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS admin_reminder_sent BOOLEAN DEFAULT false;
+
 -- Marketplace opt-in mirror on the restaurant account, kept in sync with the
 -- super admin Marketplace toggle (disco_restaurant_overrides.visible) and the
 -- restaurant portal's own marketplace toggle.

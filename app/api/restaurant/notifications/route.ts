@@ -23,6 +23,7 @@ interface NotificationsShape {
   phoneNotificationType: 'ALL' | 'OFF'
   autoPrint: boolean
   orderReminderEmailsEnabled: boolean
+  adminOrderReminderEmailsEnabled: boolean
   discoNative?: boolean
 }
 
@@ -45,9 +46,9 @@ const splitCsv = (v: string | null | undefined): string[] =>
 async function discoNativeNotifications(ref: string): Promise<NotificationsShape> {
   await runMigrations()
   const ov = (await sql`
-    SELECT notification_emails, notification_sms_numbers, order_reminder_emails_enabled
+    SELECT notification_emails, notification_sms_numbers, order_reminder_emails_enabled, admin_order_reminder_emails_enabled
     FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
-  `) as { notification_emails: string | null; notification_sms_numbers: string | null; order_reminder_emails_enabled: boolean | null }[]
+  `) as { notification_emails: string | null; notification_sms_numbers: string | null; order_reminder_emails_enabled: boolean | null; admin_order_reminder_emails_enabled: boolean | null }[]
 
   // Account row supplies the back-compat fallbacks + first-view seed values.
   const acct = (await sql`
@@ -74,6 +75,8 @@ async function discoNativeNotifications(ref: string): Promise<NotificationsShape
     phoneNotificationType: phoneNumber.length ? 'ALL' : 'OFF',
     autoPrint: false,
     orderReminderEmailsEnabled: ov[0]?.order_reminder_emails_enabled === true,
+    // FM entity default is TRUE; NULL (never mirrored) reflects that default.
+    adminOrderReminderEmailsEnabled: ov[0]?.admin_order_reminder_emails_enabled !== false,
     discoNative: true,
   }
 }
@@ -129,12 +132,22 @@ export async function PUT(req: NextRequest) {
         if (ref) {
           const emails = cleanEmails(body?.email)
           const reminderOn = body?.orderReminderEmailsEnabled === true
+          // FM's separate restaurant-reminder toggle — prefer the value FM returns,
+          // fall back to what the UI sent. null → don't overwrite (COALESCE keeps
+          // the existing/entity-default value).
+          let fmObj: Record<string, unknown> = {}
+          try { fmObj = text ? JSON.parse(text) : {} } catch { /* non-JSON body */ }
+          const adminReminderOn: boolean | null =
+            typeof fmObj.adminOrderReminderEmailsEnabled === 'boolean' ? fmObj.adminOrderReminderEmailsEnabled
+            : typeof body?.adminOrderReminderEmailsEnabled === 'boolean' ? (body.adminOrderReminderEmailsEnabled as boolean)
+            : null
           await runMigrations()
           await sql`
-            INSERT INTO disco_restaurant_overrides (restaurant_reference, order_reminder_emails_enabled, notification_emails, updated_at)
-            VALUES (${ref}, ${reminderOn}, ${emails.join(',') || null}, NOW())
+            INSERT INTO disco_restaurant_overrides (restaurant_reference, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_emails, updated_at)
+            VALUES (${ref}, ${reminderOn}, ${adminReminderOn}, ${emails.join(',') || null}, NOW())
             ON CONFLICT (restaurant_reference) DO UPDATE
               SET order_reminder_emails_enabled = ${reminderOn},
+                  admin_order_reminder_emails_enabled = COALESCE(${adminReminderOn}::boolean, disco_restaurant_overrides.admin_order_reminder_emails_enabled),
                   notification_emails = ${emails.join(',') || null},
                   updated_at = NOW()
           `
@@ -157,14 +170,19 @@ export async function PUT(req: NextRequest) {
     const emails = cleanEmails(body?.email)
     const phones = cleanPhones(body?.phoneNumber)
     const reminderOn = body?.orderReminderEmailsEnabled === true
+    // The Disco-native settings UI has no admin-reminder toggle yet — honor it if
+    // ever sent, otherwise preserve the existing value (COALESCE below).
+    const adminReminderOn: boolean | null =
+      typeof body?.adminOrderReminderEmailsEnabled === 'boolean' ? (body.adminOrderReminderEmailsEnabled as boolean) : null
 
-    // Email list + phone list + reminder toggle → disco_restaurant_overrides (CSV).
+    // Email list + phone list + reminder toggles → disco_restaurant_overrides (CSV).
     await sql`
       INSERT INTO disco_restaurant_overrides
-        (restaurant_reference, order_reminder_emails_enabled, notification_emails, notification_sms_numbers, updated_at)
-      VALUES (${ref}, ${reminderOn}, ${emails.join(',') || null}, ${phones.join(',') || null}, NOW())
+        (restaurant_reference, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_emails, notification_sms_numbers, updated_at)
+      VALUES (${ref}, ${reminderOn}, ${adminReminderOn}, ${emails.join(',') || null}, ${phones.join(',') || null}, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE
         SET order_reminder_emails_enabled = ${reminderOn},
+            admin_order_reminder_emails_enabled = COALESCE(${adminReminderOn}::boolean, disco_restaurant_overrides.admin_order_reminder_emails_enabled),
             notification_emails = ${emails.join(',') || null},
             notification_sms_numbers = ${phones.join(',') || null},
             updated_at = NOW()
