@@ -52,6 +52,18 @@ interface Order {
   // also accept `isTaxExempt` as a defensive variant.
   taxExempt?: boolean
   isTaxExempt?: boolean
+  // FM's admin userOrders (UserOrderResponseDto) names the ORDER's own reference
+  // `reference` — NOT `orderReference`. Captured here so we can normalize it into
+  // orderReference on load (see withOrderRef).
+  reference?: string
+}
+
+// FM returns the order reference under `reference`; every consumer here (the Edit
+// link, transfer, promo lookup, and the row React key) reads `orderReference`.
+// Without this, orderReference is undefined → the Edit link becomes
+// `/admin/manage-orders/undefined/edit` → details 404 "Order not found".
+function withOrderRef(o: Order): Order {
+  return { ...o, orderReference: o.orderReference ?? o.reference ?? '' }
 }
 
 // ── Client-side filter + sort (FIX: operate on already-loaded orders) ─────────
@@ -489,7 +501,7 @@ function AdminOrdersContent() {
         console.error('[admin/orders] first page fetch failed', { fromDate, toDate })
         setOrders([]); setLoading(false); return
       }
-      let all: Order[] = first.content || []
+      let all: Order[] = (first.content || []).map(withOrderRef)
       // FM's userOrders may omit totalPages (or name it total_pages); if so,
       // `?? 1` would silently stop at page 0 and drop the rest. Fall back to
       // computing pages from totalElements / FETCH_SIZE.
@@ -507,7 +519,7 @@ function AdminOrdersContent() {
         rest.forEach((pg, i) => {
           const c = pg?.content?.length || 0
           console.log(`[admin/orders] page ${i + 1} → ${c} orders`)
-          if (pg?.content) all = all.concat(pg.content)
+          if (pg?.content) all = all.concat((pg.content as Order[]).map(withOrderRef))
         })
       }
       console.log(`[admin/orders] loaded ${all.length} orders across ${totalPages} page(s)`, { fromDate, toDate })
