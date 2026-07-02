@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
+import { getRestaurantMoneyFlow, canRestaurantFundedSettle } from '../../../../lib/promo'
 
 export const runtime = 'nodejs'
 
@@ -10,6 +11,7 @@ interface PromoRow {
   discount_value: string | number
   scope: 'global' | 'restaurant'
   restaurant_ref: string | null
+  funded_by: 'DISCO' | 'RESTAURANT'
   max_uses: number | null
   uses_count: number
   max_uses_per_user: number
@@ -43,8 +45,17 @@ export async function POST(req: NextRequest) {
 
   if (!code) return NextResponse.json({ valid: false, message: 'Enter a promo code.' }, { status: 400 })
 
-  // (1) code exists — 404 if not.
-  const rows = (await sql`SELECT * FROM promo_codes WHERE UPPER(code) = UPPER(${code}) LIMIT 1`) as PromoRow[]
+  // (1) code exists — 404 if not. Codes are now unique per (restaurant, code),
+  // and the same code string can exist as a global code AND as different
+  // restaurants' codes. Scope the lookup to this restaurant's own code or a
+  // global one, preferring the restaurant-specific match.
+  const rows = (await sql`
+    SELECT * FROM promo_codes
+    WHERE UPPER(code) = UPPER(${code})
+      AND (restaurant_ref IS NULL OR restaurant_ref = ${restaurantRef})
+    ORDER BY (restaurant_ref IS NOT NULL) DESC, id DESC
+    LIMIT 1
+  `) as PromoRow[]
   const promo = rows[0]
   if (!promo) return NextResponse.json({ valid: false, message: 'That promo code doesn’t exist.' }, { status: 404 })
 
@@ -68,6 +79,19 @@ export async function POST(req: NextRequest) {
   // (5) restaurant scope must match
   if (promo.scope === 'restaurant' && promo.restaurant_ref && promo.restaurant_ref !== restaurantRef) {
     return NextResponse.json({ valid: false, message: 'This promo code isn’t valid for this restaurant.' })
+  }
+
+  // (5b) restaurant-funded settlement gate. A restaurant-funded discount settles
+  // by reversing the amount out of the restaurant's Stripe transfer, which is only
+  // safe under FM moneyFlow=DIRECT and only once empirically verified (see
+  // lib/promo.ts). Until then we refuse to APPLY the discount at checkout rather
+  // than promise a discount that wouldn't settle the way it claims to. The code
+  // still exists and is manageable in the restaurant portal.
+  if (promo.funded_by === 'RESTAURANT') {
+    const moneyFlow = await getRestaurantMoneyFlow(promo.restaurant_ref || restaurantRef)
+    if (!canRestaurantFundedSettle(moneyFlow)) {
+      return NextResponse.json({ valid: false, message: 'This promo code isn’t active yet.' })
+    }
   }
 
   // (6) minimum subtotal

@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runMigrations } from '../../../../lib/db'
+import { getRestaurantMoneyFlow, canRestaurantFundedSettle } from '../../../../lib/promo'
 
 export const runtime = 'nodejs'
 
 // POST /api/promo/redeem — called server-side AFTER a successful FM order + Stripe
-// charge. Issues the Disco-side discount as a Stripe refund (the restaurant
-// always received full payment; FM never saw the promo).
-// { code, orderRef, userEmail, discountAmount, stripePaymentIntentId }
+// charge. Issues the discount as a Stripe refund. Who absorbs it depends on
+// funded_by:
+//   DISCO      → plain refund off the platform balance; the restaurant keeps its
+//                full destination transfer (Disco/platform funds the discount).
+//   RESTAURANT → refund WITH reverse_transfer:true, which reverses the discount
+//                out of the restaurant's Stripe destination transfer, so the
+//                RESTAURANT absorbs it. Only valid under FM moneyFlow=DIRECT (a
+//                destination charge exists to reverse); refused otherwise.
+// { code, orderRef, restaurantReference, userEmail, discountAmount, stripePaymentIntentId }
 export async function POST(req: NextRequest) {
   await runMigrations()
 
@@ -16,6 +23,7 @@ export async function POST(req: NextRequest) {
 
   const code = String(body.code || '').trim()
   const orderRef = String(body.orderRef || '').trim()
+  const restaurantRef = String(body.restaurantReference || body.restaurantRef || '').trim()
   const userEmail = String(body.userEmail || '').trim().toLowerCase()
   const discountAmount = typeof body.discountAmount === 'number' ? body.discountAmount : parseFloat(String(body.discountAmount || 0))
   const stripePaymentIntentId = String(body.stripePaymentIntentId || '').trim()
@@ -24,10 +32,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Missing required fields.' }, { status: 400 })
   }
 
-  // (1) look up the code
-  const rows = (await sql`SELECT id FROM promo_codes WHERE UPPER(code) = UPPER(${code}) LIMIT 1`) as { id: number }[]
+  // (1) look up the code — scoped to this restaurant's own code or a global one,
+  // preferring the restaurant-specific match (same as /api/promo/validate).
+  const rows = (await sql`
+    SELECT id, funded_by, restaurant_ref FROM promo_codes
+    WHERE UPPER(code) = UPPER(${code})
+      AND (restaurant_ref IS NULL OR restaurant_ref = ${restaurantRef})
+    ORDER BY (restaurant_ref IS NOT NULL) DESC, id DESC
+    LIMIT 1
+  `) as { id: number; funded_by: 'DISCO' | 'RESTAURANT'; restaurant_ref: string | null }[]
   const promo = rows[0]
   if (!promo) return NextResponse.json({ success: false, error: 'Promo code not found.' }, { status: 404 })
+
+  // Restaurant-funded settlement is gated: it reverses funds out of the
+  // restaurant's transfer, only safe under DIRECT and once verified. Refuse rather
+  // than silently refunding off the platform (which would make Disco eat a
+  // restaurant-funded discount).
+  const isRestaurantFunded = promo.funded_by === 'RESTAURANT'
+  if (isRestaurantFunded) {
+    const moneyFlow = await getRestaurantMoneyFlow(promo.restaurant_ref || restaurantRef)
+    if (!canRestaurantFundedSettle(moneyFlow)) {
+      return NextResponse.json({ success: false, error: 'Restaurant-funded promo settlement is not enabled for this restaurant.' }, { status: 409 })
+    }
+  }
 
   // (2) issue the Stripe refund
   let refundId: string | null = null
@@ -44,6 +71,10 @@ export async function POST(req: NextRequest) {
       const refund = await stripe.refunds.create({
         payment_intent: stripePaymentIntentId,
         amount: Math.round(discountAmount * 100), // dollars → cents
+        // Restaurant-funded: pull the discount back out of the restaurant's
+        // destination transfer so the restaurant absorbs it. Disco-funded: leave
+        // the transfer intact so the refund comes off the platform balance.
+        ...(isRestaurantFunded ? { reverse_transfer: true, refund_application_fee: false } : {}),
       })
       refundId = refund.id
       refundStatus = 'completed'

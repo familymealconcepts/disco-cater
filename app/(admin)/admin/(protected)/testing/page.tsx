@@ -37,6 +37,7 @@ const TESTS: TestDef[] = [
   { id: 'test-13', num: 13, name: 'Edit Count Enforcement', description: 'Order with edit_count = 3 → POST /edit returns 400 "Maximum edits reached".' },
   { id: 'test-14', num: 14, name: '24-Hour Rule Enforcement', description: 'Pickup < 24hrs → POST /edit returns 400 "within 24 hours of pickup".' },
   { id: 'test-15', num: 15, name: 'Full Platform E2E: Onboard → Order → Edit → Refund', description: 'Sequential flow: customer + restaurant + menu, then a synthetic Neon order (subtotal/total/fee) → charge → Disco-native edit via POST /edit (reschedule + add item, FM read-only) → verify disco_orders Neon state (edit_count/order_date/total) → refund. All payments run in Stripe TEST mode.' },
+  { id: 'test-16', num: 16, name: 'Restaurant-Funded Promo Settlement (reverse_transfer)', description: 'Empirically confirms WHO absorbs a restaurant-funded promo discount under FM DIRECT (a destination charge). Case A: refund with reverse_transfer:true → discount reverses out of the restaurant’s payout (restaurant absorbs). Case B (control): refund without it → platform absorbs. Requires STRIPE_TEST_SECRET_KEY + STRIPE_TEST_CONNECTED_ACCOUNT; skips otherwise. Stripe TEST mode only.' },
 ]
 
 function deriveStatus(steps: Step[]): Status {

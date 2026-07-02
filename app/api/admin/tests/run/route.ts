@@ -752,6 +752,96 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   return { steps, testData: { createdRecords: created } }
 }
 
+// ── test-16: Restaurant-funded promo settlement (Stripe TEST mode) ──────────
+// Empirically verifies WHO absorbs a restaurant-funded promo discount under the
+// FM DIRECT money-flow structure (a destination charge). Mirrors FM's
+// createOrderPaymentIntent: amount=total, on_behalf_of + transfer_data.destination
+// = restaurant, transfer_data.amount = restaurant payout (fixed at creation).
+//   • With reverse_transfer:true  → the discount is pulled OUT of the restaurant's
+//     transfer (a transfer reversal appears) → RESTAURANT absorbs. ✅ correct for
+//     restaurant-funded.
+//   • Without reverse_transfer     → no transfer reversal; the refund comes off the
+//     PLATFORM balance → DISCO absorbs. ✅ correct for Disco-funded.
+// Requires STRIPE_TEST_SECRET_KEY + STRIPE_TEST_CONNECTED_ACCOUNT (a test-mode
+// connected acct with transfers enabled). Skips cleanly if either is unset so it
+// never blocks the suite. NO real money — test keys only.
+async function testRestaurantFundedSettlement(): Promise<TestResult> {
+  const steps: Step[] = []
+  const skip = (name: string, detail: string): void => { steps.push({ name, status: 'skipped', detail }) }
+
+  const testKey = process.env.STRIPE_TEST_SECRET_KEY
+  const connectedAcct = process.env.STRIPE_TEST_CONNECTED_ACCOUNT
+  if (!testKey || !connectedAcct) {
+    skip('Restaurant-funded settlement (reverse_transfer)', 'Set STRIPE_TEST_SECRET_KEY + STRIPE_TEST_CONNECTED_ACCOUNT (a test connected account) to run this empirical check.')
+    return { steps, testData: { createdRecords: [] } }
+  }
+  const acct: string = connectedAcct
+  const stripe = new Stripe(testKey, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
+
+  // FM DIRECT numbers (see StripeConnectedAccountServiceImpl.createOrderPaymentIntent):
+  const totalCents = 10000      // $100 charged to the customer
+  const payoutCents = 7440      // $74.40 restaurant transfer (fixed at creation)
+  const discountCents = 2500    // $25.00 restaurant-funded promo discount
+
+  // Helper: build a DIRECT-shaped destination charge and confirm it in test mode.
+  async function makeDirectCharge(tag: string): Promise<string> {
+    const customer = await stripe.customers.create({ email: `promo-settle-${tag}@discocater.com` })
+    const pm = await stripe.paymentMethods.create({ type: 'card', card: { token: 'tok_visa' } })
+    await stripe.paymentMethods.attach(pm.id, { customer: customer.id })
+    const pi = await stripe.paymentIntents.create({
+      amount: totalCents, currency: 'usd', customer: customer.id, payment_method: pm.id,
+      off_session: true, confirm: true,
+      on_behalf_of: acct,
+      transfer_data: { destination: acct, amount: payoutCents },
+      description: `[TEST] restaurant-funded promo ${tag}`,
+    })
+    if (pi.status !== 'succeeded') throw new Error(`charge ${tag} status ${pi.status}`)
+    return pi.id
+  }
+
+  // Net transferred to the connected account for a charge = transfers − reversals.
+  async function connectedNet(piId: string): Promise<{ transferred: number; reversed: number }> {
+    const pi = await stripe.paymentIntents.retrieve(piId, { expand: ['latest_charge'] })
+    const charge = pi.latest_charge as Stripe.Charge
+    const transferId = typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id
+    if (!transferId) return { transferred: 0, reversed: 0 }
+    const transfer = await stripe.transfers.retrieve(transferId)
+    return { transferred: transfer.amount, reversed: transfer.amount_reversed }
+  }
+
+  // CASE A — restaurant-funded: refund WITH reverse_transfer:true.
+  try {
+    const piA = await makeDirectCharge('A')
+    await stripe.refunds.create({ payment_intent: piA, amount: discountCents, reverse_transfer: true, refund_application_fee: false })
+    const net = await connectedNet(piA)
+    const restaurantAbsorbed = net.reversed === discountCents
+    steps.push({
+      name: 'A. RESTAURANT-funded → reverse_transfer reverses the payout',
+      status: restaurantAbsorbed ? 'passed' : 'failed',
+      detail: `transfer=$${(net.transferred / 100).toFixed(2)}, reversed=$${(net.reversed / 100).toFixed(2)} (expected reversed=$${(discountCents / 100).toFixed(2)}). Restaurant net payout = $${((net.transferred - net.reversed) / 100).toFixed(2)} → restaurant ${restaurantAbsorbed ? 'ABSORBS the discount ✓' : 'did NOT absorb ✗'}`,
+    })
+  } catch (e) {
+    steps.push({ name: 'A. RESTAURANT-funded → reverse_transfer reverses the payout', status: 'failed', detail: e instanceof Error ? e.message : String(e) })
+  }
+
+  // CASE B — control (Disco-funded): refund WITHOUT reverse_transfer.
+  try {
+    const piB = await makeDirectCharge('B')
+    await stripe.refunds.create({ payment_intent: piB, amount: discountCents })
+    const net = await connectedNet(piB)
+    const platformAbsorbed = net.reversed === 0
+    steps.push({
+      name: 'B. DISCO-funded (control) → no transfer reversal, platform absorbs',
+      status: platformAbsorbed ? 'passed' : 'failed',
+      detail: `transfer=$${(net.transferred / 100).toFixed(2)}, reversed=$${(net.reversed / 100).toFixed(2)} (expected reversed=$0.00). Restaurant keeps full $${(net.transferred / 100).toFixed(2)} → platform ${platformAbsorbed ? 'ABSORBS the discount ✓' : 'did NOT absorb ✗'}`,
+    })
+  } catch (e) {
+    steps.push({ name: 'B. DISCO-funded (control) → no transfer reversal, platform absorbs', status: 'failed', detail: e instanceof Error ? e.message : String(e) })
+  }
+
+  return { steps, testData: { createdRecords: ['Stripe TEST-mode charges + refunds (no cleanup needed)'] } }
+}
+
 const RUNNERS: Record<string, (origin: string, adminEmail: string, adminCookie: string) => Promise<TestResult>> = {
   'test-1': (o) => testOnboarding(o),
   'test-2': () => testCustomerCreate(),
@@ -768,6 +858,7 @@ const RUNNERS: Record<string, (origin: string, adminEmail: string, adminCookie: 
   'test-13': (o) => testEditCountLimit(o),
   'test-14': (o) => testEdit24hr(o),
   'test-15': (o, _e, cookie) => testFullE2E(o, _e, cookie),
+  'test-16': () => testRestaurantFundedSettlement(),
 }
 
 export async function POST(req: NextRequest) {

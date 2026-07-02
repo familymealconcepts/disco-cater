@@ -861,6 +861,7 @@ export default function CheckoutDrawer({
             body: JSON.stringify({
               code: appliedPromo.code,
               orderRef: finalRef,
+              restaurantReference: fmRef,
               userEmail: contactEmail || authUser?.email || '',
               discountAmount: appliedPromo.discountAmount,
               stripePaymentIntentId: paymentIntentId,

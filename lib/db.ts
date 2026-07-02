@@ -43,6 +43,24 @@ export async function runMigrations(): Promise<void> {
     `CREATE TABLE IF NOT EXISTS promo_code_uses (id SERIAL PRIMARY KEY, promo_code_id INT NOT NULL REFERENCES promo_codes(id), user_email TEXT NOT NULL, order_ref TEXT NOT NULL, discount_applied NUMERIC(10,2) NOT NULL, stripe_refund_id TEXT, refund_status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
     `CREATE INDEX IF NOT EXISTS idx_promo_code_uses_email ON promo_code_uses(user_email)`,
     `CREATE INDEX IF NOT EXISTS idx_promo_code_uses_code_id ON promo_code_uses(promo_code_id)`,
+    // ── Restaurant-funded promo codes ─────────────────────────────────────────
+    // `funded_by` distinguishes who absorbs the discount:
+    //   'DISCO'      → platform Stripe refund post-charge (existing behavior;
+    //                  restaurant keeps full payment).
+    //   'RESTAURANT' → discount reduces the FM PaymentIntent pre-charge so the
+    //                  restaurant absorbs it (mirrors the tax-exempt PI reduction).
+    // Enforced in app code (only 'DISCO'/'RESTAURANT' are ever written); the
+    // default 'DISCO' correctly classifies every pre-existing row.
+    `ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS funded_by TEXT NOT NULL DEFAULT 'DISCO'`,
+    // Uniqueness moves from code-alone to a scope-aware pair: a restaurant may
+    // hold many codes, and two restaurants may reuse the same code, but a given
+    // (restaurant, code) is unique. Global (Disco-wide) codes stay unique among
+    // themselves. Case-insensitive to match the UPPER() lookup in /api/promo/validate.
+    `ALTER TABLE promo_codes DROP CONSTRAINT IF EXISTS promo_codes_code_key`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS promo_codes_global_code_uq ON promo_codes (UPPER(code)) WHERE restaurant_ref IS NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS promo_codes_restaurant_code_uq ON promo_codes (restaurant_ref, UPPER(code)) WHERE restaurant_ref IS NOT NULL`,
+    // Speeds the restaurant-portal listing (all codes for a restaurant, newest first).
+    `CREATE INDEX IF NOT EXISTS idx_promo_codes_restaurant_ref ON promo_codes(restaurant_ref)`,
     // Generic key/value store for cross-run cursors (e.g. the FM→Sanity sync offset).
     `CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
     // Disco-owned per-restaurant overrides layered on top of the FM restaurant
@@ -87,6 +105,12 @@ export async function runMigrations(): Promise<void> {
     // disco_restaurant_accounts.sms_phone going forward; that column is kept as a
     // back-compat fallback when this is empty for a restaurant.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS notification_sms_numbers TEXT`,
+    // Disco-side mirror of FM's per-restaurant `moneyFlow` (DIRECT | FAMILY_MEAL),
+    // written alongside the FM money-flow PUT. Read by the checkout to decide
+    // whether a restaurant-funded promo code may settle: reducing the FM
+    // PaymentIntent only provably comes off the restaurant's net under DIRECT, so
+    // restaurant-funded settlement is gated to DIRECT until FAMILY_MEAL is verified.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS money_flow TEXT`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.
