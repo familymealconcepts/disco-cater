@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
-import { TimeSelect, normalizeTime } from '../../_components/TimeSelect'
+import { TimeSelect, normalizeTime, toFmTime } from '../../_components/TimeSelect'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -307,10 +307,12 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
     // of type `Days` from String \"MONDAY,TUESDAY,...\""). SAME_DAY shares one window
     // across every selected day; CUSTOM uses each day's own window. Both now produce
     // the same shape FM accepts (CUSTOM already did — that path was never broken).
+    // fromPickUpTime/toPickUpTime are FM LocalTime → must be "H:mm:ss" (toFmTime),
+    // never the UI's "HH:mm" (FM 500s on "09:00").
     if (scheduleType === 'SAME_DAY') {
-      return activeDays.map(d => ({ days: d, fromPickUpTime: sameDayFrom, toPickUpTime: sameDayTo }))
+      return activeDays.map(d => ({ days: d, fromPickUpTime: toFmTime(sameDayFrom), toPickUpTime: toFmTime(sameDayTo) }))
     }
-    return activeDays.map(d => ({ days: d, fromPickUpTime: perDay[d].from, toPickUpTime: perDay[d].to }))
+    return activeDays.map(d => ({ days: d, fromPickUpTime: toFmTime(perDay[d].from), toPickUpTime: toFmTime(perDay[d].to) }))
   }
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -348,11 +350,19 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         maxOrder: maxOrder === '' ? null : Number(maxOrder),
         // Daily + Hard cutoffs are independent. cutOffType reflects precedence
         // for FM's single-field consumers (Disco reads both fields directly).
-        cutOff: dailyCutoffEnabled ? dailyCutoff : undefined,
-        cutOffDate: hardCutoffEnabled && hardCutoffDate ? `${hardCutoffDate}T${hardCutoffTime}` : undefined,
+        // cutOff is FM LocalTime → "H:mm:ss". cutOffDate is FM LocalDate → "yyyy-MM-dd"
+        // ONLY (FM has no time component here; sending "…T09:00" 500s the LocalDate
+        // parser). hardCutoffTime is UI-only and not persisted by FM.
+        cutOff: dailyCutoffEnabled ? toFmTime(dailyCutoff) : undefined,
+        cutOffDate: hardCutoffEnabled && hardCutoffDate ? hardCutoffDate : undefined,
         cutOffType: hardCutoffEnabled && hardCutoffDate ? 'BY_DATE' : (dailyCutoffEnabled ? 'DAILY' : undefined),
         // FM only attaches skippedDays when there are any (component.ts:1022).
-        skippedDays: skippedDays.length ? skippedDays : undefined,
+        // interval fromTime/toTime are FM LocalTime → "H:mm:ss"; fromDate/toDate are
+        // already "yyyy-MM-dd" from the date inputs. toFmTime is idempotent so
+        // FM-loaded ("H:mm:ss") and newly-added ("HH:mm") intervals both normalize.
+        skippedDays: skippedDays.length
+          ? skippedDays.map(s => ({ ...s, intervals: (s.intervals || []).map(iv => ({ fromTime: toFmTime(iv.fromTime), toTime: toFmTime(iv.toTime) })) }))
+          : undefined,
       }
 
       // FM stores ONE of fee / feePercent per tier and nulls the other based

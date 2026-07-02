@@ -10,6 +10,18 @@ export function normalizeTime(t: string | null | undefined): string {
   return parts[0].padStart(2, '0') + ':' + parts[1]
 }
 
+// Reverse of normalizeTime: our "HH:mm" (or an already-FM "H:mm:ss") → FM's exact
+// LocalTime wire format "H:mm:ss" (non-zero-padded hour, WITH seconds). FM's
+// deserializer is DateTimeFormatter.ofPattern("H:mm:ss") and 500s on "09:00"
+// ("Text '09:00' could not be parsed at index 5"). Idempotent — normalizeTime first
+// strips any seconds/padding, then we re-emit non-padded hour + ":00".
+export function toFmTime(t: string | null | undefined): string {
+  const v = normalizeTime(t)
+  if (!v) return ''
+  const [h, m] = v.split(':')
+  return `${parseInt(h, 10)}:${m}:00`
+}
+
 // 15-minute time options — "HH:mm" value with a 12-hour label. Built once.
 export const TIME_OPTIONS: { value: string; label: string }[] = (() => {
   const out: { value: string; label: string }[] = []
