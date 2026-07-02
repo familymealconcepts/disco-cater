@@ -28,6 +28,16 @@ export async function createConnectAccount(email: string, businessName: string):
       card_payments: { requested: true },
       transfers: { requested: true },
     },
+    // Default new restaurants to WEEKLY payouts on FRIDAY, 2-day rolling basis
+    // (matches EggBred's configuration). Set at creation so every Disco-onboarded
+    // account inherits it — Disco is the sole creator of new connected accounts.
+    // Existing restaurants are intentionally NOT touched. delay_days:2 is the US
+    // minimum funds-availability window; weekly_anchor:'friday' pays out Fridays.
+    settings: {
+      payouts: {
+        schedule: { interval: 'weekly', weekly_anchor: 'friday', delay_days: 2 },
+      },
+    },
     metadata: { source: 'disco-become-a-partner' },
   })
   return account.id

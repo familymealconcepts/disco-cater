@@ -137,8 +137,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Max per diner must be a whole number of 1 or more.' }, { status: 400 })
     }
 
-    // Restaurant-funded codes discount the subtotal pre-charge (Path B), which is
-    // money-flow-agnostic — supported under both DIRECT and FAMILY_MEAL. No gate.
+    // Restaurant-funded codes are DIRECT-only (permanent). Under FAMILY_MEAL money-
+    // flow, FM is the merchant of record and pays the restaurant out-of-band, so a
+    // discount can't be made to come off the restaurant — it would hit FamilyMeal's
+    // balance. Block creation for FAMILY_MEAL locations. (NULL money_flow = FM
+    // default DIRECT → allowed.)
+    const mfRows = (await sql`SELECT money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`) as { money_flow: string | null }[]
+    if (mfRows[0]?.money_flow === 'FAMILY_MEAL') {
+      return NextResponse.json({ error: 'This location holds payments on FamilyMeal (money-flow), so restaurant-funded promo codes can’t settle here — the discount would come off FamilyMeal, not the restaurant. Not supported.' }, { status: 409 })
+    }
+
     try {
       const rows = (await sql`
         INSERT INTO promo_codes (

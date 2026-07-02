@@ -66,8 +66,21 @@ export async function applyRestaurantFundedDiscount(args: {
   const resolved = await resolveCode(code, restaurantRef)
   if (!resolved) return { applied: false, reason: 'code invalid/expired/inactive' }
 
-  // Tax rates from the Neon mirror (only source at customer-checkout time).
-  const mrows = (await sql`SELECT tax_rates FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`) as { tax_rates: TaxRatesMirror | null }[]
+  // Tax rates + money-flow from the Neon mirror (the only source at checkout time).
+  const mrows = (await sql`SELECT tax_rates, money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`) as { tax_rates: TaxRatesMirror | null; money_flow: string | null }[]
+
+  // DIRECT-only gate. Restaurant-funded promo codes can ONLY settle where the
+  // restaurant is the merchant of record (FM moneyFlow=DIRECT: a destination charge
+  // whose transfer we reduce so the restaurant absorbs the discount). Under
+  // FAMILY_MEAL, FamilyMeal is the MoR (plain platform charge, no transfer_data)
+  // and the restaurant is paid OUT-OF-BAND from FM's own undiscounted saleTransaction
+  // — so reducing the charge would make FamilyMeal, NOT the restaurant, absorb the
+  // discount. There is no FM-side lever to fix that (Revyrie gone). So decline.
+  // This is a PERMANENT constraint, not a temporary gap.
+  if (mrows[0]?.money_flow === 'FAMILY_MEAL') {
+    return { applied: false, reason: 'restaurant is FAMILY_MEAL money-flow (FM is merchant of record) — restaurant-funded promos are DIRECT-only' }
+  }
+
   const tax = mrows[0]?.tax_rates
   if (!tax) return { applied: false, reason: 'tax rates not mirrored for restaurant' }
 
@@ -103,6 +116,12 @@ export async function applyRestaurantFundedDiscount(args: {
   const piAmount = pi.amount ?? 0
   const piTransfer = pi.transfer_data?.amount
   const moneyFlow: 'DIRECT' | 'FAMILY_MEAL' = piTransfer != null ? 'DIRECT' : 'FAMILY_MEAL'
+  // Defense-in-depth for the DIRECT-only gate: the ABSENCE of transfer_data on the
+  // FM-created PI is the real-time proof that FM is the merchant of record
+  // (FAMILY_MEAL) — catches it even if the money_flow mirror is missing/stale.
+  if (moneyFlow !== 'DIRECT') {
+    return { applied: false, reason: 'PI has no transfer_data (FM is merchant of record) — restaurant-funded promos are DIRECT-only' }
+  }
 
   const order: PricingOrder = {
     subtotal, ownDeliveryFee, thirdPartyDeliveryFee, thirdPartyDeliverySubsiding: subsidy,
