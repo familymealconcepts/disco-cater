@@ -35,7 +35,6 @@ export default function PromoCodesPage() {
   const [codes, setCodes] = useState<PromoCode[]>([])
   const [locations, setLocations] = useState<Location[]>([])
   const [isSA, setIsSA] = useState(false)
-  const [live, setLive] = useState(true)
   const [loading, setLoading] = useState(true)
   const [locationFilter, setLocationFilter] = useState('')
   const [modal, setModal] = useState<{ mode: 'create' } | { mode: 'edit'; code: PromoCode } | null>(null)
@@ -51,7 +50,6 @@ export default function PromoCodesPage() {
         setCodes(Array.isArray(d.codes) ? d.codes : [])
         setLocations(Array.isArray(d.locations) ? d.locations : [])
         setIsSA(!!d.isSystemAdmin)
-        setLive(d.restaurantFundedLive !== false)
       } else { setCodes([]) }
     } catch { setCodes([]) }
     setLoading(false)
@@ -98,19 +96,13 @@ export default function PromoCodesPage() {
         </button>
       </div>
 
-      {!live && (
-        <div style={{ background: '#FFF8E6', border: '1px solid #F0D48A', color: '#8A6D1A', padding: '10px 14px', borderRadius: 8, fontSize: 12.5, marginBottom: 16 }}>
-          Promo codes can be set up now, but aren’t live at checkout yet — restaurant-funded settlement is pending final verification. You’ll be notified when they go live.
-        </div>
-      )}
-
       {isSA && locations.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#888' }}>Location</span>
           <select value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
             style={{ ...inputSt, width: 'auto', minWidth: 220, padding: '7px 10px' }}>
             <option value="">All my locations ({locations.length})</option>
-            {locations.map(l => <option key={l.reference} value={l.reference}>{l.name || l.reference.slice(0, 8)}{l.moneyFlow === 'FAMILY_MEAL' ? ' — holds payments' : ''}</option>)}
+            {locations.map(l => <option key={l.reference} value={l.reference}>{l.name || l.reference.slice(0, 8)}</option>)}
           </select>
         </div>
       )}
@@ -185,16 +177,12 @@ function CodeModal({ mode, existing, isSA, locations, onClose, onSaved }: {
   const [error, setError] = useState('')
   const isEdit = mode === 'edit'
 
-  const selectedLoc = locations.find(l => l.reference === location)
-  const familyMeal = selectedLoc?.moneyFlow === 'FAMILY_MEAL'
-
   async function submit() {
     setError('')
     const cleanCode = code.trim().toUpperCase()
     if (!isEdit) {
       if (!cleanCode || !/^[A-Z0-9]+$/.test(cleanCode)) { setError('Code is required and must be uppercase letters/numbers only.'); return }
       if (isSA && !location) { setError('Select a location for this promo code.'); return }
-      if (isSA && familyMeal) { setError('This location holds payments on FamilyMeal — switch it to direct payouts before adding a promo code.'); return }
     }
     const pct = parseFloat(discount)
     if (!Number.isFinite(pct) || pct < 1 || pct > 100) { setError('Discount must be a number between 1 and 100.'); return }
@@ -235,9 +223,7 @@ function CodeModal({ mode, existing, isSA, locations, onClose, onSaved }: {
             <select value={location} onChange={e => setLocation(e.target.value)} style={inputSt}>
               <option value="">Select a location…</option>
               {locations.map(l => (
-                <option key={l.reference} value={l.reference} disabled={l.moneyFlow === 'FAMILY_MEAL'}>
-                  {l.name || l.reference.slice(0, 8)}{l.moneyFlow === 'FAMILY_MEAL' ? ' — holds payments (unavailable)' : ''}
-                </option>
+                <option key={l.reference} value={l.reference}>{l.name || l.reference.slice(0, 8)}</option>
               ))}
             </select>
           </Field>

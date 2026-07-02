@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { sql, runMigrations } from '../../../../lib/db'
-import { RESTAURANT_FUNDED_PROMOS_LIVE } from '../../../../lib/promo'
 import { resolvePromoScope } from '../../../../lib/restaurant-promo'
 
 export const runtime = 'nodejs'
@@ -50,7 +49,7 @@ export async function GET(req: NextRequest) {
     if (focus && scope.allowedRefs.includes(focus)) refs = [focus]
 
     if (!refs.length) {
-      return NextResponse.json({ role: scope.role, isSystemAdmin: scope.isSystemAdmin, restaurantFundedLive: RESTAURANT_FUNDED_PROMOS_LIVE, codes: [], locations: [] })
+      return NextResponse.json({ role: scope.role, isSystemAdmin: scope.isSystemAdmin, codes: [], locations: [] })
     }
 
     const placeholders = refs.map((_, i) => `$${i + 1}`).join(',')
@@ -84,7 +83,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       role: scope.role,
       isSystemAdmin: scope.isSystemAdmin,
-      restaurantFundedLive: RESTAURANT_FUNDED_PROMOS_LIVE,
       codes: rows.map(toApiCode),
       locations,
     })
@@ -139,14 +137,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Max per diner must be a whole number of 1 or more.' }, { status: 400 })
     }
 
-    // Restrict creation to DIRECT money-flow restaurants: a restaurant-funded code
-    // can only settle (restaurant absorbs it) under DIRECT. Block explicit
-    // FAMILY_MEAL with a clear message; NULL is treated as DIRECT (FM default).
-    const mfRows = (await sql`SELECT money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`) as { money_flow: string | null }[]
-    if (mfRows[0]?.money_flow === 'FAMILY_MEAL') {
-      return NextResponse.json({ error: 'This location holds payments on FamilyMeal, so restaurant-funded promo codes can’t settle here yet. Switch it to direct payouts to use promo codes.' }, { status: 409 })
-    }
-
+    // Restaurant-funded codes discount the subtotal pre-charge (Path B), which is
+    // money-flow-agnostic — supported under both DIRECT and FAMILY_MEAL. No gate.
     try {
       const rows = (await sql`
         INSERT INTO promo_codes (

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
-import { getRestaurantMoneyFlow, canRestaurantFundedSettle } from '../../../../lib/promo'
+import { r2 } from '../../../../lib/promo-pricing'
 
 export const runtime = 'nodejs'
 
@@ -81,17 +81,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'This promo code isn’t valid for this restaurant.' })
   }
 
-  // (5b) restaurant-funded settlement gate. A restaurant-funded discount settles
-  // by reversing the amount out of the restaurant's Stripe transfer, which is only
-  // safe under FM moneyFlow=DIRECT and only once empirically verified (see
-  // lib/promo.ts). Until then we refuse to APPLY the discount at checkout rather
-  // than promise a discount that wouldn't settle the way it claims to. The code
-  // still exists and is manageable in the restaurant portal.
+  // (5b) restaurant-funded codes discount the SUBTOTAL pre-charge (Path B): the
+  // customer is charged the discounted total and the restaurant's transfer is
+  // naturally smaller — no refund/reversal, works under both DIRECT and
+  // FAMILY_MEAL. The one prerequisite is that the restaurant's tax rates are
+  // mirrored into Neon (FM exposes them only to the restaurant's own admin token),
+  // so the checkout can recompute discounted tax to the cent. If they aren't
+  // mirrored yet, don't promise a discount that can't be applied at placement.
   if (promo.funded_by === 'RESTAURANT') {
-    const moneyFlow = await getRestaurantMoneyFlow(promo.restaurant_ref || restaurantRef)
-    if (!canRestaurantFundedSettle(moneyFlow)) {
-      return NextResponse.json({ valid: false, message: 'This promo code isn’t active yet.' })
+    const ref = promo.restaurant_ref || restaurantRef
+    const trows = (await sql`SELECT tax_rates FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { tax_rates: unknown }[]
+    if (!trows[0]?.tax_rates) {
+      return NextResponse.json({ valid: false, message: 'This promo code can’t be applied for this restaurant right now.' })
     }
+    // Discount the SUBTOTAL (headline). The exact charge reduction (tax/fee/tip also
+    // recompute off the discounted subtotal) is finalized authoritatively at placement.
+    const value = n(promo.discount_value) ?? 0
+    const subtotalDiscount = r2(orderSubtotal * (value / 100))
+    return NextResponse.json({
+      valid: true,
+      fundedBy: 'RESTAURANT',
+      discountAmount: subtotalDiscount,
+      discountType: 'percent',
+      discountValue: value,
+      code: promo.code,
+      message: `Promo applied — ${value}% off. Your discounted total is calculated at checkout.`,
+    })
   }
 
   // (6) minimum subtotal
@@ -131,6 +146,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     valid: true,
+    fundedBy: 'DISCO',
     discountAmount,
     discountType: promo.discount_type,
     discountValue: value,

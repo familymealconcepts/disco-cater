@@ -61,19 +61,18 @@ export async function runMigrations(): Promise<void> {
     `CREATE UNIQUE INDEX IF NOT EXISTS promo_codes_restaurant_code_uq ON promo_codes (restaurant_ref, UPPER(code)) WHERE restaurant_ref IS NOT NULL`,
     // Speeds the restaurant-portal listing (all codes for a restaurant, newest first).
     `CREATE INDEX IF NOT EXISTS idx_promo_codes_restaurant_ref ON promo_codes(restaurant_ref)`,
-    // Restaurant-funded settlement bookkeeping on each redemption. The customer
-    // refund fires inline; the restaurant's transfer reversal happens LATER via the
-    // transfer.created webhook (the destination transfer doesn't exist at redeem
-    // time). We record enough to match the incoming transfer (stripe_charge_id =
-    // transfer.source_transaction) and track the reversal lifecycle.
-    // reversal_status: NULL (Disco-funded, N/A) | 'reversal_pending' | 'reversed' | 'reversal_failed'.
+    // Per-redemption audit columns. `funded_by`/`restaurant_ref`/
+    // `stripe_payment_intent_id` are recorded on each use. Restaurant-funded codes
+    // now settle PRE-CHARGE in /api/order/place (subtotal reduction — no refund/
+    // reversal), so the reversal_status/stripe_reversal_id/stripe_charge_id columns
+    // are legacy (from the retired transfer-reversal approach) and left in place
+    // (harmless, no longer written); the index is kept for any historical rows.
     `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS funded_by TEXT`,
     `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS restaurant_ref TEXT`,
     `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS stripe_charge_id TEXT`,
     `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS stripe_payment_intent_id TEXT`,
     `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS reversal_status TEXT`,
     `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS stripe_reversal_id TEXT`,
-    // Match incoming transfer.created events (by charge) to pending reversals.
     `CREATE INDEX IF NOT EXISTS idx_promo_code_uses_charge ON promo_code_uses(stripe_charge_id)`,
     // Generic key/value store for cross-run cursors (e.g. the FM→Sanity sync offset).
     `CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
@@ -120,11 +119,16 @@ export async function runMigrations(): Promise<void> {
     // back-compat fallback when this is empty for a restaurant.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS notification_sms_numbers TEXT`,
     // Disco-side mirror of FM's per-restaurant `moneyFlow` (DIRECT | FAMILY_MEAL),
-    // written alongside the FM money-flow PUT. Read by the checkout to decide
-    // whether a restaurant-funded promo code may settle: reducing the FM
-    // PaymentIntent only provably comes off the restaurant's net under DIRECT, so
-    // restaurant-funded settlement is gated to DIRECT until FAMILY_MEAL is verified.
+    // written alongside the FM money-flow PUT.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS money_flow TEXT`,
+    // Disco-side mirror of FM's per-restaurant tax rates ({stateSalesTax, localSalesTax,
+    // otherSalesTax}, each {percent, fixedAmount}; otherSalesTax also has `types`).
+    // FM only exposes tax rates via an ADMIN endpoint scoped to the authenticated
+    // restaurant (no by-ref/SUPER_ADMIN access), so we mirror them on every
+    // tax-rate GET/PUT in the restaurant portal. The customer checkout reads THIS
+    // to recompute a restaurant-funded promo's discounted tax to the cent; if a
+    // restaurant's rates aren't mirrored yet, the discount safely doesn't apply.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS tax_rates JSONB`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.

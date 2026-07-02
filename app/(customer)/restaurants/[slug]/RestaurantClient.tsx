@@ -1782,7 +1782,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           cart={cart} selDate={selDate} selTime={selTime} orderType={orderType}
           deliveryOrderTimeWindows={deliveryWindow}
           includeUtensils={includeUtensils}
-          addr={addr} subtotal={subtotal} tipAmt={tipAmt} svcAmt={svcAmt} minOrder={minOrder}
+          addr={addr} subtotal={subtotal} tipAmt={tipAmt} svcAmt={svcAmt} serviceChargePct={svcPct} minOrder={minOrder}
           headcount={headcount} onHeadcount={setHeadcount}
           menuReference={menuData[activeMenuIdx]?.menu?.reference ?? null}
           isFirstParty={isFirstParty}

@@ -68,6 +68,7 @@ interface Props {
   subtotal: number
   tipAmt: number
   svcAmt: number
+  serviceChargePct?: number   // menu's service-charge % — passed to /api/order/place so the restaurant-funded discount recompute matches FM to the cent
   minOrder: number
   // Optional headcount captured upstream. If null, the review step shows
   // an inline prompt so we can still ask — Skip is allowed.
@@ -97,10 +98,16 @@ interface Props {
 
 type DrawerStep = 'processing' | 'payment' | 'placing' | 'sent'
 
-// A promo is either a Disco code (display-only discount; refunded via Stripe
-// after the order) or an FM coupon (sent as couponCode; FM computes the total).
+// A promo is one of:
+//  - 'disco'      Disco-funded code: display-only discount, refunded via Stripe
+//                 after the order (platform absorbs).
+//  - 'restaurant' restaurant-funded code: discounts the subtotal PRE-CHARGE at
+//                 /api/order/place (the restaurant absorbs it via a smaller
+//                 transfer); the customer is charged the discounted total.
+//  - 'fm'         legacy FM coupon (sent as couponCode; FM computes the total).
 type AppliedPromo =
   | { type: 'disco'; code: string; discountAmount: number }
+  | { type: 'restaurant'; code: string; discountAmount: number }
   | { type: 'fm'; code: string }
 
 // FM computes fee + tax server-side and returns them on the order PUT
@@ -143,7 +150,7 @@ function fmtTime(t: string) {
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function CheckoutDrawer({
   fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType, deliveryOrderTimeWindows, includeUtensils = false,
-  addr, menuReference, subtotal, tipAmt, svcAmt, minOrder, headcount, onHeadcount,
+  addr, menuReference, subtotal, tipAmt, svcAmt, serviceChargePct = 0, minOrder, headcount, onHeadcount,
   isFirstParty = false, isDirectEntry = false, directEntryMethod = 'payment',
   onChangeAddress, onPromoChange, onClose,
 }: Props) {
@@ -181,7 +188,7 @@ export default function CheckoutDrawer({
   // the drawer keeps its own "full charge + note" behavior unchanged.
   useEffect(() => {
     if (!onPromoChange) return
-    onPromoChange(appliedPromo?.type === 'disco'
+    onPromoChange(appliedPromo?.type === 'disco' || appliedPromo?.type === 'restaurant'
       ? { code: appliedPromo.code, discountAmount: appliedPromo.discountAmount }
       : null)
   }, [appliedPromo, onPromoChange])
@@ -605,10 +612,12 @@ export default function CheckoutDrawer({
         return
       }
 
-      // Disco result.
+      // Neon promo result — restaurant-funded (discounts pre-charge at placement)
+      // or Disco-funded (refunded after the charge).
       const d = await res.json().catch(() => ({}))
       if (res.ok && d.valid) {
-        setAppliedPromo({ type: 'disco', code: d.code || code, discountAmount: d.discountAmount })
+        const type = d.fundedBy === 'RESTAURANT' ? 'restaurant' : 'disco'
+        setAppliedPromo({ type, code: d.code || code, discountAmount: d.discountAmount })
         setPromoError('')
       } else {
         setAppliedPromo(null)
@@ -765,6 +774,11 @@ export default function CheckoutDrawer({
             // FM PaymentIntent by the tax before confirm. taxAmount is FM's reported
             // sales tax (state+local+other) — the exact amount baked into the PI.
             ...(taxExemptApplied && !isDirectEntry ? { taxExemptApplied: true, taxAmount: fm?.tax ?? 0, taxExemptState } : {}),
+            // Restaurant-funded promo (customer flow): tells /api/order/place to
+            // recompute the discounted total + restaurant transfer and adjust the FM
+            // PaymentIntent pre-charge. serviceChargePct lets the server reproduce
+            // FM's pricing to the cent (self-check).
+            ...(appliedPromo?.type === 'restaurant' && !isDirectEntry ? { restaurantPromoCode: appliedPromo.code, serviceChargePct } : {}),
             ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
           }),
         })
@@ -1112,6 +1126,14 @@ export default function CheckoutDrawer({
                 Promo code {appliedPromo.code} will apply a {fmt$(appliedPromo.discountAmount)} credit to your card after your order is placed
               </div>
             )}
+            {/* Restaurant-funded promo discounts the order pre-charge — the total
+                above is the pre-discount estimate; your discounted total is applied
+                at payment. */}
+            {appliedPromo?.type === 'restaurant' && (
+              <div style={{ fontSize: 11, color: '#999', marginTop: 6, lineHeight: 1.45 }}>
+                Promo code {appliedPromo.code} applies your discount at checkout — you’ll be charged the discounted total.
+              </div>
+            )}
             {!fmTotals && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>Estimate — final total confirmed at payment</div>}
           </div>
 
@@ -1120,7 +1142,7 @@ export default function CheckoutDrawer({
             {appliedPromo ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 10, padding: '10px 14px' }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#047857' }}>
-                  {appliedPromo.type === 'disco'
+                  {appliedPromo.type === 'disco' || appliedPromo.type === 'restaurant'
                     ? `Promo “${appliedPromo.code}” applied — −${fmt$(appliedPromo.discountAmount)}`
                     : `Promo “${appliedPromo.code}” applied`}
                 </span>

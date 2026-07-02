@@ -4,7 +4,6 @@ import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
 import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
 import { applyPendingEdit } from '../../../../lib/order-edit'
-import { processTransferReversal } from '../../../../lib/promo-reversal'
 import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs'
@@ -361,27 +360,6 @@ export async function POST(request: NextRequest) {
           UPDATE disco_orders SET stripe_invoice_status = 'failed', updated_at = NOW() WHERE id = ${order.id}
         `
         await recordEvent(order.reference, 'INVOICE_PAYMENT_FAILED', event, 'STRIPE_WEBHOOK')
-        break
-      }
-
-      // ── transfer.created — restaurant-funded promo settlement ──
-      // A DIRECT (destination-charge) order's transfer to the restaurant just
-      // materialized (~9s after the charge). If a restaurant-funded promo left a
-      // pending reversal for this charge, reverse the FULL discount out of the
-      // restaurant's transfer now (see lib/promo-reversal.ts). Idempotent against
-      // redelivery. A failure is surfaced as PROMO_REVERSAL_FAILED — never hidden.
-      case 'transfer.created': {
-        const transfer = event.data.object as Stripe.Transfer
-        const res = await processTransferReversal(stripe, transfer)
-        if (res.matched) {
-          if (res.reversed) {
-            console.log('[Webhook] promo transfer reversal done:', transfer.id, 'use', res.useId, res.amountCents, 'reversal', res.reversalId)
-            await recordEvent(null, 'PROMO_TRANSFER_REVERSED', { transferId: transfer.id, useId: res.useId, orderRef: res.orderRef, amountCents: res.amountCents, reversalId: res.reversalId }, 'STRIPE_WEBHOOK')
-          } else {
-            console.error('[Webhook] PROMO REVERSAL FAILED — restaurant not debited:', transfer.id, 'use', res.useId, res.error)
-            await recordEvent(null, 'PROMO_REVERSAL_FAILED', { transferId: transfer.id, useId: res.useId, orderRef: res.orderRef, amountCents: res.amountCents, error: res.error }, 'STRIPE_WEBHOOK')
-          }
-        }
         break
       }
 

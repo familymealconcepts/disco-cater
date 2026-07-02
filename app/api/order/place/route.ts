@@ -6,6 +6,7 @@ import { getFmCustomerJwt } from '../../../../lib/customer-auth'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
+import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib/promo-apply'
 
 export const runtime = 'nodejs'
 
@@ -286,7 +287,7 @@ export async function POST(req: NextRequest) {
     // body so they're never forwarded to FM (the rest of the body, including
     // checkoutDetails + customer, is proxied to FM untouched). FM keeps the tax in
     // its total/PaymentIntent; Disco subtracts it from the PI below.
-    const { restaurantRef, orderRef, taxExemptApplied, taxAmount, taxExemptState, companyName, note, ...placeBody } = body
+    const { restaurantRef, orderRef, taxExemptApplied, taxAmount, taxExemptState, companyName, note, restaurantPromoCode, serviceChargePct, ...placeBody } = body
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
@@ -349,6 +350,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Restaurant-funded promo (Path B): recompute FM's DISCOUNTED total + restaurant
+    // transfer and adjust the FM-created PaymentIntent PRE-CHARGE — so the customer
+    // is charged the discounted total and the restaurant's transfer is naturally
+    // smaller (no refund/reversal). Skipped for tax-exempt orders (the PI was already
+    // adjusted above; the promo self-check would fail — safe). A self-check failure
+    // or un-mirrored tax rates → refuse rather than charge the wrong amount.
+    let restaurantPromoApplied: ApplyResult | null = null
+    if (res.ok && typeof restaurantPromoCode === 'string' && restaurantPromoCode.trim() && taxExemptApplied !== true) {
+      const stripe = stripeClient()
+      const paymentIntentId = extractPaymentIntentId(data)
+      if (!stripe || !paymentIntentId) {
+        console.error('[order/place] restaurant promo requested but no Stripe key / PaymentIntent — refusing to charge full price')
+        return NextResponse.json({ error: 'Promo code could not be applied. Please remove it and try again.' }, { status: 502 })
+      }
+      const fmCheckout = ((fmInnerLog.checkoutPublicResponseDto as Record<string, unknown>) ?? fmInnerLog) as Record<string, unknown>
+      try {
+        const pb = placeBody as Record<string, unknown>
+        const cust = (pb.customer ?? {}) as Record<string, unknown>
+        const email = String(cust.email || pb.email || '').trim().toLowerCase()
+        restaurantPromoApplied = await applyRestaurantFundedDiscount({
+          stripe, paymentIntentId, restaurantRef, code: restaurantPromoCode.trim().toUpperCase(),
+          serviceChargePct: Number(serviceChargePct) || 0,
+          orderType: String(pb.orderType || '').toUpperCase() === 'DELIVERY' ? 'DELIVERY' : 'PICKUP',
+          fmCheckout, orderRef, userEmail: email,
+        })
+      } catch (e) {
+        console.error('[order/place] restaurant promo apply error:', e instanceof Error ? e.message : e)
+        return NextResponse.json({ error: 'Promo code could not be applied. Please remove it and try again.' }, { status: 502 })
+      }
+      if (!restaurantPromoApplied.applied) {
+        console.error('[order/place] restaurant promo NOT applied:', restaurantPromoApplied.reason, 'code', restaurantPromoCode)
+        return NextResponse.json({ error: 'Promo code could not be applied. Please remove it and try again.' }, { status: 502 })
+      }
+      console.log(`[order/place] restaurant promo ${restaurantPromoCode} applied (${restaurantPromoApplied.moneyFlow}): charge $${restaurantPromoApplied.newAmount?.toFixed(2)}, transfer ${restaurantPromoApplied.newTransfer != null ? '$' + restaurantPromoApplied.newTransfer.toFixed(2) : 'n/a'}`)
+    }
+
     // Mirror into Neon only after FM accepted the order. Fire-and-forget via
     // waitUntil — non-blocking and never affects the response below.
     if (res.ok) {
@@ -359,6 +396,13 @@ export async function POST(req: NextRequest) {
     if (taxExemptCharge != null && data && typeof data === 'object' && !Array.isArray(data)) {
       data.taxExemptApplied = true
       data.taxExemptCharge = taxExemptCharge
+    }
+    // Surface the restaurant-funded promo result so the confirmation UI shows the
+    // discounted charge (the PI was adjusted pre-charge; confirm charges this).
+    if (restaurantPromoApplied?.applied && data && typeof data === 'object' && !Array.isArray(data)) {
+      data.restaurantPromoApplied = true
+      data.restaurantPromoCharge = restaurantPromoApplied.newAmount
+      data.restaurantPromoDiscountPct = restaurantPromoApplied.discountPct
     }
 
     return NextResponse.json(data, { status: res.status })
