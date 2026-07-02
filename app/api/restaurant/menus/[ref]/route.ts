@@ -26,10 +26,20 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   try {
     const body = await req.json()
     const res = await fetch(`${FM}/api/menu/${ref}`, { method: 'PUT', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
+    // Read the body as text first so FM's actual error is surfaced + logged (not
+    // swallowed as a bare "Failed"), and so a non-JSON FM 200 can't throw on parse.
     const text = await res.text()
-    return NextResponse.json(text ? JSON.parse(text) : { ok: true })
-  } catch { return NextResponse.json({ error: 'Unable to update' }, { status: 500 }) }
+    if (!res.ok) {
+      console.error('[restaurant/menus PUT] FM error', res.status, text.slice(0, 800))
+      return NextResponse.json({ error: 'Failed to save menu', fmStatus: res.status, raw: text.slice(0, 1000) }, { status: res.status })
+    }
+    let data: unknown = { ok: true }
+    try { if (text) data = JSON.parse(text) } catch { data = { ok: true, raw: text.slice(0, 500) } }
+    return NextResponse.json(data)
+  } catch (e) {
+    console.error('[restaurant/menus PUT] proxy error:', e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: 'Unable to update' }, { status: 500 })
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {

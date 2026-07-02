@@ -56,8 +56,16 @@ export async function POST(req: NextRequest) {
       ? `${FM}/api/admin/menu?restaurantReference=${encodeURIComponent(ctx.restaurantReference)}`
       : `${FM}/api/menu`
     const res = await fetch(url, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
     const text = await res.text()
-    return NextResponse.json(text ? JSON.parse(text) : { ok: true })
-  } catch { return NextResponse.json({ error: 'Unable to create' }, { status: 500 }) }
+    if (!res.ok) {
+      console.error('[restaurant/menus POST] FM error', res.status, text.slice(0, 800))
+      return NextResponse.json({ error: 'Failed to create menu', fmStatus: res.status, raw: text.slice(0, 1000) }, { status: res.status })
+    }
+    let data: unknown = { ok: true }
+    try { if (text) data = JSON.parse(text) } catch { data = { ok: true, raw: text.slice(0, 500) } }
+    return NextResponse.json(data)
+  } catch (e) {
+    console.error('[restaurant/menus POST] proxy error:', e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: 'Unable to create' }, { status: 500 })
+  }
 }

@@ -389,7 +389,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         const postRes = await fetch('/api/restaurant/menus', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         })
-        if (!postRes.ok) throw new Error(`Create failed (${postRes.status})`)
+        if (!postRes.ok) { const ed = await postRes.json().catch(() => ({})); throw new Error(ed.raw || ed.error || `Create failed (${postRes.status})`) }
         const created = await postRes.json().catch(() => ({}))
         ref = created.reference || created.id || (created.data && created.data.reference) || ''
         if (ref && !visible) await fetch(`/api/restaurant/menus/${ref}/visible?isVisible=false`, { method: 'PUT' }).catch(() => {})
@@ -398,7 +398,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         const putRes = await fetch(`/api/restaurant/menus/${menuRef}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         })
-        if (!putRes.ok) throw new Error(`Save failed (${putRes.status})`)
+        if (!putRes.ok) { const ed = await putRes.json().catch(() => ({})); throw new Error(ed.raw || ed.error || `Save failed (${putRes.status})`) }
         // Separate endpoints for visible/archive toggles (edit only).
         if (visible !== (menu?.visible !== false)) {
           await fetch(`/api/restaurant/menus/${menuRef}/visible?isVisible=${visible}`, { method: 'PUT' })
