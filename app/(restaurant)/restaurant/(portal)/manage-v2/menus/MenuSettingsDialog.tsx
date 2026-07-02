@@ -302,8 +302,13 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
 
   function buildRepeatWeekDays(): RepeatWeekDay[] {
     if (activeDays.length === 0) return []
+    // FM's Days enum takes ONE day per repeatWeekDays entry, so emit one entry per
+    // selected day — never a comma-joined string (FM 500s: "Cannot deserialize value
+    // of type `Days` from String \"MONDAY,TUESDAY,...\""). SAME_DAY shares one window
+    // across every selected day; CUSTOM uses each day's own window. Both now produce
+    // the same shape FM accepts (CUSTOM already did — that path was never broken).
     if (scheduleType === 'SAME_DAY') {
-      return [{ days: activeDays.join(','), fromPickUpTime: sameDayFrom, toPickUpTime: sameDayTo }]
+      return activeDays.map(d => ({ days: d, fromPickUpTime: sameDayFrom, toPickUpTime: sameDayTo }))
     }
     return activeDays.map(d => ({ days: d, fromPickUpTime: perDay[d].from, toPickUpTime: perDay[d].to }))
   }
