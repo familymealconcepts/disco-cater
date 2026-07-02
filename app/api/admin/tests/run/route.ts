@@ -4,6 +4,7 @@ import { getAdminRole } from '../../../../../lib/admin-auth'
 import { sql, runMigrations, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { sendEmail } from '../../../../../lib/email/send'
 import { computeNewTotals, MAX_EDITS } from '../../../../../lib/order-edit'
+import { processTransferReversal } from '../../../../../lib/promo-reversal'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -753,93 +754,99 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
 }
 
 // ── test-16: Restaurant-funded promo settlement (Stripe TEST mode) ──────────
-// Empirically verifies WHO absorbs a restaurant-funded promo discount under the
-// FM DIRECT money-flow structure (a destination charge). Mirrors FM's
-// createOrderPaymentIntent: amount=total, on_behalf_of + transfer_data.destination
-// = restaurant, transfer_data.amount = restaurant payout (fixed at creation).
-//   • With reverse_transfer:true  → the discount is pulled OUT of the restaurant's
-//     transfer (a transfer reversal appears) → RESTAURANT absorbs. ✅ correct for
-//     restaurant-funded.
-//   • Without reverse_transfer     → no transfer reversal; the refund comes off the
-//     PLATFORM balance → DISCO absorbs. ✅ correct for Disco-funded.
-// Requires STRIPE_TEST_SECRET_KEY + STRIPE_TEST_CONNECTED_ACCOUNT (a test-mode
-// connected acct with transfers enabled). Skips cleanly if either is unset so it
-// never blocks the suite. NO real money — test keys only.
+// Empirically verifies the CORRECTED restaurant-funded settlement end-to-end,
+// through the REAL production path (lib/promo-reversal.processTransferReversal —
+// the function the transfer.created webhook calls), against a FM-DIRECT-shaped
+// destination charge. Mirrors FM's createOrderPaymentIntent: amount=total,
+// transfer_data.destination = restaurant, transfer_data.amount = payout.
+//
+// NOTE: `reverse_transfer:true` was proven WRONG here earlier — it reverses only
+// PROPORTIONALLY ($18.60 of a $74.40 transfer for a $25/$100 refund). The correct
+// mechanism (this test) is: plain customer refund + an EXPLICIT full-amount
+// transfers.createReversal, fired from the transfer.created webhook.
+//
+// Requires STRIPE_TEST_SECRET_KEY + STRIPE_TEST_CONNECTED_ACCOUNT (transfers-
+// enabled test acct). Skips cleanly if unset. NO real money — test keys only.
 async function testRestaurantFundedSettlement(): Promise<TestResult> {
   const steps: Step[] = []
+  const created: string[] = []
   const skip = (name: string, detail: string): void => { steps.push({ name, status: 'skipped', detail }) }
 
   const testKey = process.env.STRIPE_TEST_SECRET_KEY
-  const connectedAcct = process.env.STRIPE_TEST_CONNECTED_ACCOUNT
-  if (!testKey || !connectedAcct) {
-    skip('Restaurant-funded settlement (reverse_transfer)', 'Set STRIPE_TEST_SECRET_KEY + STRIPE_TEST_CONNECTED_ACCOUNT (a test connected account) to run this empirical check.')
+  const acct = process.env.STRIPE_TEST_CONNECTED_ACCOUNT
+  if (!testKey || !acct) {
+    skip('Restaurant-funded settlement (webhook reversal)', 'Set STRIPE_TEST_SECRET_KEY + STRIPE_TEST_CONNECTED_ACCOUNT (a transfers-enabled test connected account) to run this empirical check.')
     return { steps, testData: { createdRecords: [] } }
   }
-  const acct: string = connectedAcct
   const stripe = new Stripe(testKey, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
+  const TOTAL = 10000, PAYOUT = 7440, DISCOUNT = 2500
+  const restRef = 'c8322ff4-32dd-47bc-8515-3f0cffc34bbf' // Test Kitchen (real ref; only a promo row is written+cleaned)
+  await runMigrations().catch(() => {})
 
-  // FM DIRECT numbers (see StripeConnectedAccountServiceImpl.createOrderPaymentIntent):
-  const totalCents = 10000      // $100 charged to the customer
-  const payoutCents = 7440      // $74.40 restaurant transfer (fixed at creation)
-  const discountCents = 2500    // $25.00 restaurant-funded promo discount
-
-  // Helper: build a DIRECT-shaped destination charge and confirm it in test mode.
-  async function makeDirectCharge(tag: string): Promise<string> {
-    const customer = await stripe.customers.create({ email: `promo-settle-${tag}@discocater.com` })
+  let promoId = 0, useId = 0
+  try {
+    // 1) DIRECT-shaped destination charge + wait for the transfer to materialize.
+    const customer = await stripe.customers.create({ email: `promo-settle-${Date.now()}@discocater.com` })
     const pm = await stripe.paymentMethods.create({ type: 'card', card: { token: 'tok_visa' } })
     await stripe.paymentMethods.attach(pm.id, { customer: customer.id })
     const pi = await stripe.paymentIntents.create({
-      amount: totalCents, currency: 'usd', customer: customer.id, payment_method: pm.id,
-      off_session: true, confirm: true,
-      on_behalf_of: acct,
-      transfer_data: { destination: acct, amount: payoutCents },
-      description: `[TEST] restaurant-funded promo ${tag}`,
+      amount: TOTAL, currency: 'usd', customer: customer.id, payment_method: pm.id, off_session: true, confirm: true,
+      transfer_data: { destination: acct, amount: PAYOUT }, description: '[TEST] restaurant-funded promo',
     })
-    if (pi.status !== 'succeeded') throw new Error(`charge ${tag} status ${pi.status}`)
-    return pi.id
-  }
+    if (pi.status !== 'succeeded') throw new Error(`charge status ${pi.status}`)
+    const chargeId = typeof pi.latest_charge === 'string' ? pi.latest_charge : (pi.latest_charge as Stripe.Charge).id
+    let transferId: string | undefined
+    for (let i = 0; i < 20 && !transferId; i++) { const ch = await stripe.charges.retrieve(chargeId); transferId = typeof ch.transfer === 'string' ? ch.transfer : ch.transfer?.id; if (!transferId) await new Promise(r => setTimeout(r, 1000)) }
+    if (!transferId) throw new Error('destination transfer never materialized')
+    steps.push({ name: '1. DIRECT destination charge + transfer', status: 'passed', detail: `charge ${chargeId} $${(TOTAL / 100).toFixed(2)} → transfer ${transferId} $${(PAYOUT / 100).toFixed(2)} to ${acct}` })
 
-  // Net transferred to the connected account for a charge = transfers − reversals.
-  async function connectedNet(piId: string): Promise<{ transferred: number; reversed: number }> {
-    const pi = await stripe.paymentIntents.retrieve(piId, { expand: ['latest_charge'] })
-    const charge = pi.latest_charge as Stripe.Charge
-    const transferId = typeof charge.transfer === 'string' ? charge.transfer : charge.transfer?.id
-    if (!transferId) return { transferred: 0, reversed: 0 }
+    // 2) Plain customer refund (mirrors /api/promo/redeem — off platform).
+    const refund = await stripe.refunds.create({ payment_intent: pi.id, amount: DISCOUNT })
+    steps.push({ name: '2. Plain customer refund (no reverse_transfer)', status: 'passed', detail: `refund ${refund.id} $${(DISCOUNT / 100).toFixed(2)}` })
+
+    // 3) Seed the pending reversal exactly as /api/promo/redeem would.
+    const rows = (await sql`
+      INSERT INTO promo_codes (code, discount_type, discount_value, scope, restaurant_ref, funded_by, max_uses, valid_from, valid_until)
+      VALUES (${'TESTREV' + Date.now()}, 'percent', 25, 'restaurant', ${restRef}, 'RESTAURANT', 100, NOW(), NOW() + INTERVAL '30 days') RETURNING id
+    `) as { id: number }[]
+    promoId = rows[0].id
+    const useRows = (await sql`
+      INSERT INTO promo_code_uses (promo_code_id, user_email, order_ref, discount_applied, stripe_refund_id, refund_status, funded_by, restaurant_ref, stripe_charge_id, stripe_payment_intent_id, reversal_status)
+      VALUES (${promoId}, 'e2e@discocater.com', ${'test-' + Date.now()}, 25.00, ${refund.id}, 'completed', 'RESTAURANT', ${restRef}, ${chargeId}, ${pi.id}, 'reversal_pending') RETURNING id
+    `) as { id: number }[]
+    useId = useRows[0].id
+    created.push(`promo_codes#${promoId}`, `promo_code_uses#${useId}`)
+    steps.push({ name: '3. Seed pending reversal (as redeem does)', status: 'passed', detail: `promo_code_uses#${useId} reversal_status=reversal_pending charge=${chargeId}` })
+
+    // 4) Fire the REAL webhook path: transfer.created → processTransferReversal.
     const transfer = await stripe.transfers.retrieve(transferId)
-    return { transferred: transfer.amount, reversed: transfer.amount_reversed }
-  }
-
-  // CASE A — restaurant-funded: refund WITH reverse_transfer:true.
-  try {
-    const piA = await makeDirectCharge('A')
-    await stripe.refunds.create({ payment_intent: piA, amount: discountCents, reverse_transfer: true, refund_application_fee: false })
-    const net = await connectedNet(piA)
-    const restaurantAbsorbed = net.reversed === discountCents
+    const r1 = await processTransferReversal(stripe, transfer)
+    const t1 = await stripe.transfers.retrieve(transferId)
+    const okA = r1.matched === true && r1.reversed === true && t1.amount_reversed === DISCOUNT && (t1.amount - t1.amount_reversed) === PAYOUT - DISCOUNT
     steps.push({
-      name: 'A. RESTAURANT-funded → reverse_transfer reverses the payout',
-      status: restaurantAbsorbed ? 'passed' : 'failed',
-      detail: `transfer=$${(net.transferred / 100).toFixed(2)}, reversed=$${(net.reversed / 100).toFixed(2)} (expected reversed=$${(discountCents / 100).toFixed(2)}). Restaurant net payout = $${((net.transferred - net.reversed) / 100).toFixed(2)} → restaurant ${restaurantAbsorbed ? 'ABSORBS the discount ✓' : 'did NOT absorb ✗'}`,
+      name: '4. Webhook reversal → restaurant absorbs FULL discount',
+      status: okA ? 'passed' : 'failed',
+      detail: `RAW transfer ${t1.id}: amount=$${(t1.amount / 100).toFixed(2)}, amount_reversed=$${(t1.amount_reversed / 100).toFixed(2)} (expected $${(DISCOUNT / 100).toFixed(2)}), restaurant NET PAYOUT=$${((t1.amount - t1.amount_reversed) / 100).toFixed(2)} (expected $${((PAYOUT - DISCOUNT) / 100).toFixed(2)}). reversalId=${r1.reversalId}`,
+    })
+
+    // 5) Idempotency — redeliver the SAME transfer.created event; must NOT double-reverse.
+    const r2 = await processTransferReversal(stripe, transfer)
+    const t2 = await stripe.transfers.retrieve(transferId)
+    const okIdem = r2.matched === false && t2.amount_reversed === DISCOUNT
+    steps.push({
+      name: '5. Webhook redelivery → no double reversal (idempotent)',
+      status: okIdem ? 'passed' : 'failed',
+      detail: `2nd call matched=${r2.matched} (expected false — pending row already reversed); amount_reversed still $${(t2.amount_reversed / 100).toFixed(2)} (expected $${(DISCOUNT / 100).toFixed(2)}, NOT doubled)`,
     })
   } catch (e) {
-    steps.push({ name: 'A. RESTAURANT-funded → reverse_transfer reverses the payout', status: 'failed', detail: e instanceof Error ? e.message : String(e) })
+    steps.push({ name: 'Restaurant-funded settlement (webhook reversal)', status: 'failed', detail: e instanceof Error ? e.message : String(e) })
+  } finally {
+    // Cleanup the temp promo rows (Stripe test-mode charges need no cleanup).
+    if (useId) await sql`DELETE FROM promo_code_uses WHERE id = ${useId}`.catch(() => {})
+    if (promoId) await sql`DELETE FROM promo_codes WHERE id = ${promoId}`.catch(() => {})
   }
 
-  // CASE B — control (Disco-funded): refund WITHOUT reverse_transfer.
-  try {
-    const piB = await makeDirectCharge('B')
-    await stripe.refunds.create({ payment_intent: piB, amount: discountCents })
-    const net = await connectedNet(piB)
-    const platformAbsorbed = net.reversed === 0
-    steps.push({
-      name: 'B. DISCO-funded (control) → no transfer reversal, platform absorbs',
-      status: platformAbsorbed ? 'passed' : 'failed',
-      detail: `transfer=$${(net.transferred / 100).toFixed(2)}, reversed=$${(net.reversed / 100).toFixed(2)} (expected reversed=$0.00). Restaurant keeps full $${(net.transferred / 100).toFixed(2)} → platform ${platformAbsorbed ? 'ABSORBS the discount ✓' : 'did NOT absorb ✗'}`,
-    })
-  } catch (e) {
-    steps.push({ name: 'B. DISCO-funded (control) → no transfer reversal, platform absorbs', status: 'failed', detail: e instanceof Error ? e.message : String(e) })
-  }
-
-  return { steps, testData: { createdRecords: ['Stripe TEST-mode charges + refunds (no cleanup needed)'] } }
+  return { steps, testData: { createdRecords: created } }
 }
 
 const RUNNERS: Record<string, (origin: string, adminEmail: string, adminCookie: string) => Promise<TestResult>> = {

@@ -56,10 +56,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // (2) issue the Stripe refund
+  // (2) refund the CUSTOMER — identical for both funded types (off the platform
+  // balance, no reverse_transfer). Restaurant-funded codes ALSO reverse the
+  // discount out of the restaurant's transfer, but that happens LATER via the
+  // transfer.created webhook: the destination transfer doesn't exist yet at redeem
+  // time, and the refund's reverse_transfer flag would only reverse PROPORTIONALLY
+  // (empirically: a $25 refund on a $100 charge reverses just $18.60 of a $74.40
+  // transfer). See lib/promo-reversal.ts.
   let refundId: string | null = null
   let refundStatus: 'completed' | 'failed' = 'failed'
   let refundError: string | null = null
+  let chargeId: string | null = null
   const stripeKey = process.env.STRIPE_SECRET_KEY
   if (!stripeKey) {
     refundError = 'STRIPE_SECRET_KEY not configured'
@@ -71,24 +78,36 @@ export async function POST(req: NextRequest) {
       const refund = await stripe.refunds.create({
         payment_intent: stripePaymentIntentId,
         amount: Math.round(discountAmount * 100), // dollars → cents
-        // Restaurant-funded: pull the discount back out of the restaurant's
-        // destination transfer so the restaurant absorbs it. Disco-funded: leave
-        // the transfer intact so the refund comes off the platform balance.
-        ...(isRestaurantFunded ? { reverse_transfer: true, refund_application_fee: false } : {}),
       })
       refundId = refund.id
       refundStatus = 'completed'
+      // The charge id is how the transfer.created webhook later matches this
+      // pending reversal (transfer.source_transaction === charge).
+      chargeId = typeof refund.charge === 'string' ? refund.charge : (refund.charge as { id?: string } | null)?.id ?? null
     } catch (e) {
       refundError = e instanceof Error ? e.message : String(e)
       console.error('[promo/redeem] Stripe refund failed:', refundError)
     }
   }
 
-  // (3) record the use (always — even when the refund failed, the order is placed)
+  // Restaurant-funded: queue the transfer reversal. Only when the customer refund
+  // actually succeeded (otherwise there's nothing to offset). The webhook fires
+  // the reversal once the destination transfer exists.
+  const reversalStatus = isRestaurantFunded && refundStatus === 'completed' ? 'reversal_pending' : null
+
+  // (3) record the use (always — even when the refund failed, the order is placed).
+  // For restaurant-funded, stripe_charge_id + reversal_status='reversal_pending'
+  // are what the transfer.created webhook matches to fire the transfer reversal.
   try {
     await sql`
-      INSERT INTO promo_code_uses (promo_code_id, user_email, order_ref, discount_applied, stripe_refund_id, refund_status)
-      VALUES (${promo.id}, ${userEmail}, ${orderRef}, ${discountAmount}, ${refundId}, ${refundStatus})
+      INSERT INTO promo_code_uses (
+        promo_code_id, user_email, order_ref, discount_applied, stripe_refund_id, refund_status,
+        funded_by, restaurant_ref, stripe_charge_id, stripe_payment_intent_id, reversal_status
+      )
+      VALUES (
+        ${promo.id}, ${userEmail}, ${orderRef}, ${discountAmount}, ${refundId}, ${refundStatus},
+        ${promo.funded_by}, ${promo.restaurant_ref}, ${chargeId}, ${stripePaymentIntentId || null}, ${reversalStatus}
+      )
     `
     // (4) increment uses_count
     await sql`UPDATE promo_codes SET uses_count = uses_count + 1 WHERE id = ${promo.id}`

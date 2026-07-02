@@ -61,6 +61,20 @@ export async function runMigrations(): Promise<void> {
     `CREATE UNIQUE INDEX IF NOT EXISTS promo_codes_restaurant_code_uq ON promo_codes (restaurant_ref, UPPER(code)) WHERE restaurant_ref IS NOT NULL`,
     // Speeds the restaurant-portal listing (all codes for a restaurant, newest first).
     `CREATE INDEX IF NOT EXISTS idx_promo_codes_restaurant_ref ON promo_codes(restaurant_ref)`,
+    // Restaurant-funded settlement bookkeeping on each redemption. The customer
+    // refund fires inline; the restaurant's transfer reversal happens LATER via the
+    // transfer.created webhook (the destination transfer doesn't exist at redeem
+    // time). We record enough to match the incoming transfer (stripe_charge_id =
+    // transfer.source_transaction) and track the reversal lifecycle.
+    // reversal_status: NULL (Disco-funded, N/A) | 'reversal_pending' | 'reversed' | 'reversal_failed'.
+    `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS funded_by TEXT`,
+    `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS restaurant_ref TEXT`,
+    `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS stripe_charge_id TEXT`,
+    `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS stripe_payment_intent_id TEXT`,
+    `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS reversal_status TEXT`,
+    `ALTER TABLE promo_code_uses ADD COLUMN IF NOT EXISTS stripe_reversal_id TEXT`,
+    // Match incoming transfer.created events (by charge) to pending reversals.
+    `CREATE INDEX IF NOT EXISTS idx_promo_code_uses_charge ON promo_code_uses(stripe_charge_id)`,
     // Generic key/value store for cross-run cursors (e.g. the FM→Sanity sync offset).
     `CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
     // Disco-owned per-restaurant overrides layered on top of the FM restaurant
