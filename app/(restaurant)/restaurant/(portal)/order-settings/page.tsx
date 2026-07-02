@@ -14,6 +14,7 @@ interface Notifications {
   phoneNotificationType: 'ALL' | 'OFF'
   autoPrint: boolean
   orderReminderEmailsEnabled: boolean
+  adminOrderReminderEmailsEnabled: boolean
   // Disco-native restaurants serve this section from Neon (the FM call would 401).
   // Used to hide the legacy single-phone SMS section for them (the multi-phone
   // list below now covers it). Absent/false for FM-token restaurants.
@@ -398,6 +399,12 @@ export default function OrderSettingsPage() {
             <Row label="Customer Order Reminder Emails">
               <Toggle checked={notifications.orderReminderEmailsEnabled} onChange={v => saveNotifications({ ...notifications, orderReminderEmailsEnabled: v })} />
             </Row>
+            <Row label="Restaurant Order Reminder Emails">
+              <Toggle checked={notifications.adminOrderReminderEmailsEnabled} onChange={v => saveNotifications({ ...notifications, adminOrderReminderEmailsEnabled: v })} />
+            </Row>
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: -4 }}>
+              Sent ~24 hours before the order. <strong>Customer</strong> reminders email the diner; <strong>Restaurant</strong> reminders email your team (the notification recipients above).
+            </div>
             {/* "Print Kitchen Tickets" (autoPrint) toggle intentionally hidden from
                 the UI — the field is still round-tripped to FM on every save (kept
                 in the Notifications interface + saveNotifications payload). */}

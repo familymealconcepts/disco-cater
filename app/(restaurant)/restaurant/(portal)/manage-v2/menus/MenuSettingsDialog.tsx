@@ -105,6 +105,7 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
   const [url, setUrl] = useState('')
   const [imageUrl, setImageUrl] = useState('')
   const [uploadingImage, setUploadingImage] = useState(false)
+  const [includeUtensils, setIncludeUtensils] = useState(false)   // Disco-only per-menu toggle (disco_menu_settings)
   const [visible, setVisible] = useState(true)
   const [archived, setArchived] = useState(false)
 
@@ -174,9 +175,10 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
     let cancel = false
     // Create mode — no menu to load; start with the empty defaults already set.
     if (!menuRef) { setLoading(false); return () => { cancel = true } }
-    // Disco-only per-menu image (side-store keyed by the FM menu ref).
+    // Disco-only per-menu settings (side-store keyed by the FM menu ref): image +
+    // the "Include Utensils" toggle.
     fetch(`/api/restaurant/menu-settings?menuRef=${menuRef}`)
-      .then(r => (r.ok ? r.json() : null)).then(d => { if (!cancel && d?.imageUrl) setImageUrl(String(d.imageUrl)) }).catch(() => {})
+      .then(r => (r.ok ? r.json() : null)).then(d => { if (cancel || !d) return; if (d.imageUrl) setImageUrl(String(d.imageUrl)); setIncludeUtensils(d.includeUtensils === true) }).catch(() => {})
     setLoading(true); setErr(null)
     fetch(`/api/restaurant/menus/${menuRef}`)
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`Load failed (${r.status})`)))
@@ -406,11 +408,12 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
         }
       }
 
-      // Persist the Disco-only menu image (side-store keyed by the FM menu ref).
+      // Persist the Disco-only menu settings (image + Include Utensils toggle),
+      // side-store keyed by the FM menu ref.
       if (ref) {
         await fetch('/api/restaurant/menu-settings', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ menuRef: ref, imageUrl }),
+          body: JSON.stringify({ menuRef: ref, imageUrl, includeUtensils }),
         }).catch(() => {})
       }
 
@@ -498,6 +501,10 @@ export default function MenuSettingsDialog({ menuRef, onClose, onSaved }: Props)
                 <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                   <Toggle label="Visible (active)" checked={visible} onChange={setVisible} />
                   <Toggle label="Archived" checked={archived} onChange={setArchived} />
+                  <Toggle label="Include utensils" checked={includeUtensils} onChange={setIncludeUtensils} />
+                </div>
+                <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
+                  Include utensils: offers customers an optional “Include utensils” checkbox at checkout for this menu.
                 </div>
               </div>
 
