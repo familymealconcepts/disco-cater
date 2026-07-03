@@ -123,8 +123,15 @@ route an FM restaurant into the native path, and never route a native restaurant
   so BOTH the native and FM-mirror paths geocode via a working provider (was: Google-only, silently
   null because the Geocoding API is disabled on the project). ACTION FOR PETER: enable the Google
   Geocoding API on the key's project to restore the Google fallback (not blocking — Mapbox works).
-- **1e — Native order init/price/place.** Create/persist `disco_orders` (native `order_number`),
-  recompute totals, finalize. Native routes gated by `is_disco_native`. ⬜
+- **1e — Native order init/price/place.** ✅ DONE & TESTED (21/21). `lib/order/native-checkout.ts`:
+  `priceNativeCheckout` (init — cart → cent-exact breakdown), `placeNativeOrder` (persist to
+  `disco_orders` RESERVED + `disco_sale_transactions` INITIATED/DIRECT with the full breakdown),
+  native `order_number` from new `disco_native_order_seq` (starts 900000000, never collides with FM).
+  `/api/order/init` and `/api/order/place` now branch on `is_disco_native` (native → Neon, no FM
+  JWT; FM path unchanged). Tested: cent-exact init, both-table persistence, unique numbers, and the
+  RESERVED→DUE lead-gen lifecycle (fee 1 until a paid order exists, then fee 2).
+  NOTE: native place currently trusts the body's customer identity — tighten to the disco_customer
+  session in 1g/1h.
 - **1f — Native payment (MONEY-FLOW — verify empirically).** CORRECTED from ground-truth extraction:
   the proven mechanism (test-16 + `promo-apply.ts`) is a **destination charge with
   `transfer_data.destination` = the restaurant's connected account and `transfer_data.amount` =

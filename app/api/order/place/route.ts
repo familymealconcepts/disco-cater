@@ -8,6 +8,7 @@ import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib/promo-apply'
 import { geocodeAddress } from '../../../../lib/geocode'
+import { isDiscoNativeRestaurant, placeNativeOrder } from '../../../../lib/order/native-checkout'
 
 export const runtime = 'nodejs'
 
@@ -257,6 +258,34 @@ async function mirrorOrderToNeon(args: {
 
 export async function POST(req: NextRequest) {
   try {
+    const body = await req.json()
+
+    // ── Disco-native path: persist the order entirely in Neon (zero FM). No FM JWT
+    // needed — native customers authenticate via the Disco session. The Stripe
+    // charge is Stage 1f; place leaves the order RESERVED. ──
+    if (body?.restaurantRef && await isDiscoNativeRestaurant(body.restaurantRef)) {
+      const result = await placeNativeOrder({
+        restaurantReference: body.restaurantRef,
+        customerEmail: String(body?.customerEmail || body?.customer?.email || ''),
+        customerFirstName: body?.customer?.firstName ?? body?.customerFirstName,
+        customerLastName: body?.customer?.lastName ?? body?.customerLastName,
+        customerPhone: body?.customer?.phoneNumber ?? body?.customerPhone,
+        fulfillment: body?.fulfillment || (body?.deliveryAddress ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'),
+        items: Array.isArray(body?.items) ? body.items : [],
+        tip: body?.tip,
+        deliveryFee: body?.deliveryFee,
+        discountPct: body?.discountPct,
+        scPct: body?.scPct,
+        orderDate: String(body?.orderDate || body?.checkoutDetails?.orderDate || ''),
+        orderTime: String(body?.orderTime || body?.checkoutDetails?.orderTime || ''),
+        deliveryAddress: body?.deliveryAddress,
+        note: body?.note ?? null,
+        companyName: body?.companyName ?? null,
+        persons: body?.persons ?? body?.headcount ?? null,
+      })
+      return NextResponse.json({ native: true, orderReference: result.orderReference, orderNumber: result.orderNumber, breakdown: result.breakdown })
+    }
+
     const token = await getFmCustomerJwt(req)
     // Vercel log: surface whether the FM JWT resolved (never log the token).
     console.log('[order/place] FM JWT present:', !!token)
@@ -265,7 +294,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
     }
 
-    const body = await req.json()
     // taxExemptApplied / taxAmount are Disco-only directives — pull them OUT of the
     // body so they're never forwarded to FM (the rest of the body, including
     // checkoutDetails + customer, is proxied to FM untouched). FM keeps the tax in

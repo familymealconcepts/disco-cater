@@ -424,3 +424,8 @@ ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS delivery_time_window TEXT;
 -- super admin Marketplace toggle (disco_restaurant_overrides.visible) and the
 -- restaurant portal's own marketplace toggle.
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS joined_marketplace BOOLEAN DEFAULT false;
+
+-- Native-checkout order numbers. Disco-native orders have no FM to assign an
+-- order_number, so they draw from this sequence. Started high (900,000,000) so
+-- native numbers never collide with the (smaller) FM order numbers mirrored in.
+CREATE SEQUENCE IF NOT EXISTS disco_native_order_seq START WITH 900000000;
