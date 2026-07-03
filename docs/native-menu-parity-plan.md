@@ -113,7 +113,16 @@ route an FM restaurant into the native path, and never route a native restaurant
   `lib/scheduling/cutoffs.ts` from the emitted `scheduleOption` (zero FM calls). REMAINING: verify
   `RestaurantClient` date/time pickers use the client engine (not FM `/api/order/dates|times`) for
   disco-native, and that lead-time/cutoffs land once Stage 5 authoring exists. ⬜(verify in 1g)
-- **1d — Native address/delivery validation.** Geocode + radius check; native route. ⬜
+- **1d — Native address/delivery validation.** ✅ DONE & TESTED (10/10). `lib/geocode.ts`
+  (Mapbox-preferred forward geocoding + haversine) and `lib/order/native-delivery.ts`
+  (geocode → distance → serviceability); `/api/order/validate-address` now branches on
+  `is_disco_native` → native (zero FM), else FM proxy unchanged. Radius+fee are permissive/$0 until
+  Stage 6 delivery-settings authoring. Tested: haversine (NYC→Philly ≈80mi), valid/invalid,
+  client-coord passthrough, live Mapbox geocode.
+  ⚠️ INFRA FINDING: the Google Geocoding API is NOT enabled on the project (REQUEST_DENIED) — the
+  existing `place/route.ts` geocoder has been silently returning null in prod. Native path uses
+  Mapbox instead. Flagged to Peter; `place/route.ts` could be pointed at `lib/geocode` to fix its
+  silent miss (not done — it's on the FM path).
 - **1e — Native order init/price/place.** Create/persist `disco_orders` (native `order_number`),
   recompute totals, finalize. Native routes gated by `is_disco_native`. ⬜
 - **1f — Native payment (MONEY-FLOW — verify empirically).** CORRECTED from ground-truth extraction:
