@@ -309,6 +309,14 @@ function SeoBlock({ name, location, cuisine, description }: {
   )
 }
 
+// Native modifier shapes — mirror RestaurantClient's FmAddOn / FmExtraItemsGroup so
+// the emitted menu packages carry modifiers the customer UI renders + prices as-is.
+interface NativeAddOn { reference: string; name: string; price: number; visible: boolean; position: number }
+interface NativeExtraItemsGroup {
+  reference: string; name: string; externalName?: string; subExternalName?: string
+  minSelectedItems: number; maxSelectedItems: number; visible: boolean; enabled: boolean; addOns: NativeAddOn[]
+}
+
 // Disco-native restaurants live entirely in Neon (no FM/Sanity record). If this
 // slug is a LIVE disco-native restaurant, load its menu from disco_menu_* and
 // shape it into the same MenuSection[] the FM path produces, so RestaurantClient
@@ -338,9 +346,54 @@ async function loadDiscoNativeRestaurant(slug: string) {
       ORDER BY position, id
     `) as { reference: string; category_reference: string | null; name: string; description: string | null; price: string | number; serves: string | null }[]
 
+    // Attached modifier groups per item (Stage 4 consumption). Shaped into the
+    // FM `extraItemsGroups` structure RestaurantClient already renders + prices, so
+    // native modifiers appear + charge with zero FM. Only ENABLED attachments,
+    // non-archived groups/modifiers.
+    const groupsByItem = new Map<string, NativeExtraItemsGroup[]>()
+    try {
+      const attach = (await sql`
+        SELECT ig.item_reference, ig.position,
+               g.reference, g.name, g.external_name, g.sub_external_name, g.min_selected, g.max_selected
+        FROM disco_item_groups ig
+        JOIN disco_menu_items mi ON mi.reference = ig.item_reference AND mi.restaurant_reference = ${r.restaurant_reference}::uuid
+        JOIN disco_modifier_groups g ON g.reference = ig.group_reference AND g.archived = false
+        WHERE ig.enabled = true
+        ORDER BY ig.position, g.name
+      `) as { item_reference: string; position: number; reference: string; name: string; external_name: string | null; sub_external_name: string | null; min_selected: number; max_selected: number }[]
+      const groupRefs = [...new Set(attach.map(a => a.reference))]
+      const members = groupRefs.length ? (await sql`
+        SELECT gm.group_reference, gm.position, m.reference, m.name, m.price
+        FROM disco_modifier_group_members gm
+        JOIN disco_modifiers m ON m.reference = gm.modifier_reference AND m.archived = false
+        WHERE gm.group_reference = ANY(${groupRefs})
+        ORDER BY gm.position, m.name
+      `) as { group_reference: string; position: number; reference: string; name: string; price: string | number }[] : []
+      const addOnsByGroup = new Map<string, NativeAddOn[]>()
+      members.forEach((m, i) => {
+        const l = addOnsByGroup.get(m.group_reference) ?? []
+        l.push({ reference: m.reference, name: m.name, price: Number(m.price) || 0, visible: true, position: i })
+        addOnsByGroup.set(m.group_reference, l)
+      })
+      for (const a of attach) {
+        const l = groupsByItem.get(a.item_reference) ?? []
+        l.push({
+          reference: a.reference, name: a.name,
+          externalName: a.external_name || undefined, subExternalName: a.sub_external_name || undefined,
+          minSelectedItems: a.min_selected, maxSelectedItems: a.max_selected,
+          visible: true, enabled: true,
+          addOns: addOnsByGroup.get(a.reference) ?? [],
+        })
+        groupsByItem.set(a.item_reference, l)
+      }
+    } catch (e) {
+      console.error('[shared] native item modifier groups load failed (menu still renders):', e instanceof Error ? e.message : e)
+    }
+
     const toPkg = (it: typeof items[number]) => ({
       reference: it.reference, name: it.name, description: it.description,
       price: Number(it.price) || 0, serves: it.serves,
+      extraItemsGroups: groupsByItem.get(it.reference) ?? [],
     })
     const categories = cats.map(c => ({
       reference: c.reference, name: c.name, description: c.description,
