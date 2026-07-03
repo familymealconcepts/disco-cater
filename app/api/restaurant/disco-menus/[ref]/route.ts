@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoMenuMigrations } from '../../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -14,14 +14,16 @@ function slugify(s: string): string {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
 }
 
-// Ownership guard: the menu must belong to the authed restaurant.
+// Ownership guard: the menu must belong to the restaurant the caller is currently
+// scoped to (their home location, or a SA's selected + authorized location).
 async function ownedRef(reqRef: string): Promise<string | null> {
   const ctx = await getRestaurantAuthContext()
   if (!ctx?.restaurantReference || !UUID_RE.test(reqRef)) return null
+  const scopeRef = await resolveDiscoScopeRef(ctx)
   const rows = (await sql`
-    SELECT 1 FROM disco_menus WHERE reference = ${reqRef}::uuid AND restaurant_reference = ${ctx.restaurantReference}::uuid LIMIT 1
+    SELECT 1 FROM disco_menus WHERE reference = ${reqRef}::uuid AND restaurant_reference = ${scopeRef}::uuid LIMIT 1
   `.catch(() => [])) as unknown[]
-  return rows.length ? ctx.restaurantReference : null
+  return rows.length ? scopeRef : null
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {

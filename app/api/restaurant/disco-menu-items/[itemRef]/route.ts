@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoMenuMigrations } from '../../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -10,9 +10,10 @@ function num(v: unknown): number { const n = parseFloat(String(v ?? '')); return
 async function ownedItem(itemRef: string): Promise<{ category_reference: string } | null> {
   const ctx = await getRestaurantAuthContext()
   if (!ctx?.restaurantReference || !UUID_RE.test(itemRef)) return null
+  const scopeRef = await resolveDiscoScopeRef(ctx)
   const rows = (await sql`
     SELECT category_reference FROM disco_menu_items
-    WHERE reference = ${itemRef}::uuid AND restaurant_reference = ${ctx.restaurantReference}::uuid LIMIT 1
+    WHERE reference = ${itemRef}::uuid AND restaurant_reference = ${scopeRef}::uuid LIMIT 1
   `.catch(() => [])) as { category_reference: string }[]
   return rows[0] ?? null
 }

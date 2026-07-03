@@ -85,6 +85,10 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<RestaurantUser | null>(null)
   const [orderBadge, setOrderBadge] = useState(0)
   const [stripeConnected, setStripeConnected] = useState<boolean | null>(null)
+  // True ONLY once /api/disco-restaurant-auth/me affirmatively confirms a Disco
+  // session. Defaults false so an FM (or not-yet-known) session always gets the
+  // FM menu UI — we never route an FM restaurant to the Neon menu-manager.
+  const [isDiscoSession, setIsDiscoSession] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   // Mobile (<768px) sidebar drawer. Closed by default; opened via the hamburger
   // in the mobile top bar. Auto-closes on navigation so a tap-through doesn't
@@ -117,8 +121,9 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
         }
         if (cancelled) return
         setUser(u)
+        setIsDiscoSession(true)
         try { localStorage.setItem('restaurant_user', JSON.stringify(u)) } catch {}
-      } catch { /* not a Disco session — keep the cached FM identity */ }
+      } catch { /* not a Disco session — keep the cached FM identity + FM menu UI */ }
     })()
     return () => { cancelled = true }
   }, [])
@@ -154,7 +159,19 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     ? (selectedRestaurantName || '')
     : (user?.groupName || user?.businessName || `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim())
 
-  const NAV: NavItem[] = inRestaurantUserView ? RESTAURANT_USER_NAV : SYSTEM_ADMIN_NAV
+  const baseNav: NavItem[] = inRestaurantUserView ? RESTAURANT_USER_NAV : SYSTEM_ADMIN_NAV
+  // Disco-native restaurants have no FM record, so the FM-backed manage-v2 menu
+  // UI 404s for them. Route confirmed Disco sessions to the Neon-native
+  // menu-manager instead, and drop the FM-only submenu items (Group / Modifier
+  // libraries) that would 404. FM sessions are untouched (isDiscoSession stays
+  // false unless /me confirms Disco).
+  const NAV: NavItem[] = isDiscoSession
+    ? baseNav.map(item =>
+        item.title === 'Manage Menus'
+          ? { ...item, path: '/restaurant/menu-manager', children: [{ title: 'Menus', path: '/restaurant/menu-manager' }] }
+          : item,
+      )
+    : baseNav
 
   const refreshBadge = useCallback(async () => {
     try {

@@ -63,6 +63,18 @@ export default function MenusPage() {
   const [settingsRef, setSettingsRef] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
+  // Fail-safe: this FM-backed menu UI 404s for Disco-native restaurants (FM has
+  // no record of them). The nav routes Disco sessions to the Neon menu-manager,
+  // but a stale bookmark / deep link could still land one here — bounce those to
+  // the native UI. FM sessions (/me 401s) stay on this page untouched.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/disco-restaurant-auth/me', { credentials: 'include' })
+      .then(r => { if (!cancelled && r.ok) router.replace('/restaurant/menu-manager') })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [router])
+
   const filter = TABS[activeTab].filter
 
   // Drag-to-reorder. 6px activation distance so a click still opens the menu.

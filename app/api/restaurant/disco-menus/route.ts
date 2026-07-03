@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { sql, runDiscoMenuMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -25,7 +25,9 @@ function slugify(s: string): string {
 export async function GET() {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const ref = ctx.restaurantReference
+  // Scope to the SA's selected location when applicable (else home). See
+  // resolveDiscoScopeRef — fail-safe to home.
+  const ref = await resolveDiscoScopeRef(ctx)
   if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
   try {
     await runDiscoMenuMigrations()
@@ -49,7 +51,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const ref = ctx.restaurantReference
+  // Create under the SA's selected location when applicable (else home).
+  const ref = await resolveDiscoScopeRef(ctx)
   if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
 
   let body: Record<string, unknown>

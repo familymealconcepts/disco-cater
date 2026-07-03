@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { sql, runDiscoMenuMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -12,6 +12,7 @@ function num(v: unknown): number { const n = parseFloat(String(v ?? '')); return
 export async function POST(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx?.restaurantReference) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  const scopeRef = await resolveDiscoScopeRef(ctx)
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
   const categoryReference = String(body?.categoryReference || '')
@@ -20,13 +21,13 @@ export async function POST(req: NextRequest) {
   if (!name) return NextResponse.json({ error: 'Item name is required.' }, { status: 400 })
   await runDiscoMenuMigrations()
   const owns = (await sql`
-    SELECT 1 FROM disco_menu_categories WHERE reference = ${categoryReference}::uuid AND restaurant_reference = ${ctx.restaurantReference}::uuid LIMIT 1
+    SELECT 1 FROM disco_menu_categories WHERE reference = ${categoryReference}::uuid AND restaurant_reference = ${scopeRef}::uuid LIMIT 1
   `.catch(() => [])) as unknown[]
   if (!owns.length) return NextResponse.json({ error: 'Category not found' }, { status: 404 })
   try {
     const rows = (await sql`
       INSERT INTO disco_menu_items (restaurant_reference, category_reference, name, description, price, serves, image_url, visible, position)
-      VALUES (${ctx.restaurantReference}::uuid, ${categoryReference}::uuid, ${name},
+      VALUES (${scopeRef}::uuid, ${categoryReference}::uuid, ${name},
               ${String(body?.description || '') || null}, ${num(body?.price)}, ${String(body?.serves || '') || null},
               ${String(body?.imageUrl || '') || null}, ${body?.visible === false ? false : true},
               (SELECT COALESCE(MAX(position), -1) + 1 FROM disco_menu_items WHERE category_reference = ${categoryReference}::uuid))

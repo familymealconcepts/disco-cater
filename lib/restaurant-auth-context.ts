@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
-import { validateDiscoRestaurantSession } from './disco-restaurant-auth'
+import { validateDiscoRestaurantSession, getDiscoGroupAccounts } from './disco-restaurant-auth'
 import { getFmServiceAuthHeader } from './fm-service-auth'
+import { SELECTED_RESTAURANT_COOKIE } from './restaurant-auth'
 
 export interface RestaurantAuthContext {
   restaurantReference: string
@@ -65,4 +66,35 @@ export async function getFmHeaderForRestaurant(ctx: RestaurantAuthContext): Prom
 // is exactly when getFmHeaderForRestaurant returns the service-account header.
 export function usesServiceAccount(ctx: RestaurantAuthContext): boolean {
   return ctx.authType === 'disco' && !ctx.fmToken && !!ctx.restaurantReference
+}
+
+// The restaurant reference a Disco portal request should actually operate on for
+// Neon-native resources (e.g. the disco-menus stack).
+//
+// A Disco SYSTEM_ADMIN manages many locations: in the portal they pick one
+// ("View as Restaurant User"), which stores the choice in the
+// fm_selected_restaurant cookie. Neon menu routes must scope to that SELECTED
+// location, not the SA's home account — otherwise a multi-location admin can only
+// ever see/edit their home location's menus.
+//
+// Security + fail-safe. The selected ref is honored ONLY when all hold:
+//   (a) the session is Disco — FM contexts are returned unchanged (they don't use
+//       the Neon routes at all), so an FM restaurant can never be redirected here;
+//   (b) the role is SYSTEM_ADMIN/SUPER_ADMIN — a plain ADMIN has one location; and
+//   (c) the ref is within the SA's own group/access set (getDiscoGroupAccounts —
+//       the same source used for order/location scoping).
+// Any doubt — plain ADMIN, no cookie, an unknown/foreign ref, or a lookup error —
+// resolves to the session's home reference. A cookie value is never trusted alone.
+export async function resolveDiscoScopeRef(ctx: RestaurantAuthContext): Promise<string> {
+  const home = ctx.restaurantReference
+  if (ctx.authType !== 'disco' || !home) return home
+  if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return home
+  const cookieStore = await cookies()
+  const selected = (cookieStore.get(SELECTED_RESTAURANT_COOKIE)?.value || '').trim()
+  if (!selected || selected === home) return home
+  try {
+    const group = await getDiscoGroupAccounts(ctx.businessName, ctx.email)
+    if (group.some(g => g.restaurant_reference === selected)) return selected
+  } catch { /* fall through to home — never widen access on error */ }
+  return home
 }

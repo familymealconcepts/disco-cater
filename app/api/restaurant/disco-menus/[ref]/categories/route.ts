@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoMenuMigrations } from '../../../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -11,10 +11,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 async function ownsMenu(ref: string): Promise<string | null> {
   const ctx = await getRestaurantAuthContext()
   if (!ctx?.restaurantReference || !UUID_RE.test(ref)) return null
+  const scopeRef = await resolveDiscoScopeRef(ctx)
   const rows = (await sql`
-    SELECT 1 FROM disco_menus WHERE reference = ${ref}::uuid AND restaurant_reference = ${ctx.restaurantReference}::uuid LIMIT 1
+    SELECT 1 FROM disco_menus WHERE reference = ${ref}::uuid AND restaurant_reference = ${scopeRef}::uuid LIMIT 1
   `.catch(() => [])) as unknown[]
-  return rows.length ? ctx.restaurantReference : null
+  return rows.length ? scopeRef : null
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
