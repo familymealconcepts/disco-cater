@@ -119,10 +119,10 @@ route an FM restaurant into the native path, and never route a native restaurant
   `is_disco_native` → native (zero FM), else FM proxy unchanged. Radius+fee are permissive/$0 until
   Stage 6 delivery-settings authoring. Tested: haversine (NYC→Philly ≈80mi), valid/invalid,
   client-coord passthrough, live Mapbox geocode.
-  ⚠️ INFRA FINDING: the Google Geocoding API is NOT enabled on the project (REQUEST_DENIED) — the
-  existing `place/route.ts` geocoder has been silently returning null in prod. Native path uses
-  Mapbox instead. Flagged to Peter; `place/route.ts` could be pointed at `lib/geocode` to fix its
-  silent miss (not done — it's on the FM path).
+  GEOCODING FIX (done): `place/route.ts` now also uses the shared Mapbox-preferred `lib/geocode`,
+  so BOTH the native and FM-mirror paths geocode via a working provider (was: Google-only, silently
+  null because the Geocoding API is disabled on the project). ACTION FOR PETER: enable the Google
+  Geocoding API on the key's project to restore the Google fallback (not blocking — Mapbox works).
 - **1e — Native order init/price/place.** Create/persist `disco_orders` (native `order_number`),
   recompute totals, finalize. Native routes gated by `is_disco_native`. ⬜
 - **1f — Native payment (MONEY-FLOW — verify empirically).** CORRECTED from ground-truth extraction:
