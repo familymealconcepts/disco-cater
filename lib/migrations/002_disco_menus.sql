@@ -98,3 +98,44 @@ CREATE TABLE IF NOT EXISTS disco_modifiers (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_disco_modifiers_restaurant ON disco_modifiers(restaurant_reference);
+
+-- ── Modifier groups (FM extraItemsGroup) ─────────────────────────────────────
+-- A container of modifiers with selection rules. `external_name`/`sub_external_name`
+-- are customer-facing labels; required iff min_selected > 0. Reused across items.
+CREATE TABLE IF NOT EXISTS disco_modifier_groups (
+  id SERIAL PRIMARY KEY,
+  reference UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+  restaurant_reference UUID NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  external_name VARCHAR(255),
+  sub_external_name VARCHAR(255),
+  min_selected INTEGER NOT NULL DEFAULT 0,
+  max_selected INTEGER NOT NULL DEFAULT 1,
+  archived BOOLEAN NOT NULL DEFAULT false,
+  visible BOOLEAN NOT NULL DEFAULT true,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_disco_modifier_groups_restaurant ON disco_modifier_groups(restaurant_reference);
+
+-- Group ↔ modifier membership (ordered, many-to-many).
+CREATE TABLE IF NOT EXISTS disco_modifier_group_members (
+  id SERIAL PRIMARY KEY,
+  group_reference UUID NOT NULL,
+  modifier_reference UUID NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(group_reference, modifier_reference)
+);
+CREATE INDEX IF NOT EXISTS idx_disco_mg_members_group ON disco_modifier_group_members(group_reference);
+
+-- Item ↔ group attachment (ordered, with a per-item enable/disable toggle).
+CREATE TABLE IF NOT EXISTS disco_item_groups (
+  id SERIAL PRIMARY KEY,
+  item_reference UUID NOT NULL,
+  group_reference UUID NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  position INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(item_reference, group_reference)
+);
+CREATE INDEX IF NOT EXISTS idx_disco_item_groups_item ON disco_item_groups(item_reference);

@@ -173,6 +173,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
               children: [
                 { title: 'Menus', path: '/restaurant/menu-manager' },
                 { title: 'Modifiers', path: '/restaurant/menu-manager/modifiers' },
+                { title: 'Modifier Groups', path: '/restaurant/menu-manager/groups' },
               ],
             }
           : item,
