@@ -211,12 +211,15 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   `/api/restaurant/disco-modifiers` CRUD (list/create/edit/archive/unarchive/clone/delete, SA
   location-scoped via resolveDiscoScopeRef) + native library UI at
   `/restaurant/menu-manager/modifiers` + nav link for Disco users. Zero FM.
-- **Stage 3 — Group library + item attach (Neon)** 🟨 backend + libraries DONE & TESTED (13/13):
-  `disco_modifier_groups` + `disco_modifier_group_members` + `disco_item_groups` tables;
-  `/api/restaurant/disco-modifier-groups` CRUD (with membership, min/max rules, clone, cascade
-  delete) + `/api/restaurant/disco-menu-items/[itemRef]/groups` (ordered attach + per-item enable);
-  group library UI at `/restaurant/menu-manager/groups` + nav link. REMAINING: item-editor attach UI
-  (Stage 3 UI) — then Stage 4 consumption.
+- **Stage 3 — Group library + item attach (Neon)** ✅ DONE & TESTED (13/13).
+  `disco_modifier_groups` + `disco_modifier_group_members` + `disco_item_groups`;
+  `/api/restaurant/disco-modifier-groups` CRUD (membership, min/max rules, clone, cascade delete) +
+  `/api/restaurant/disco-menu-items/[itemRef]/groups` (ordered attach + per-item enable); group
+  library UI at `/restaurant/menu-manager/groups` + item-editor "Modifier Groups" attach section
+  (checklist + per-group on/off) + nav link. Zero FM.
+- **Stage 4 — Customer consumption of modifiers** ✅ DONE & TESTED (5/5). `loadDiscoNativeRestaurant`
+  emits each item's enabled attached groups as `extraItemsGroups`; RestaurantClient renders the
+  modifier modal and native pricing folds add-ons into the total ($12→$14 verified). Zero FM.
 - **Stage 3 — Attach groups to items** ⬜
 - **Stage 4 — Customer consumption of modifiers/groups (render + native pricing)** ⬜
 - **Stage 5 — Menu money/timing settings** ⬜

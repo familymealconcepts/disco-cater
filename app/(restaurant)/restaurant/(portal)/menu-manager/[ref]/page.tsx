@@ -238,6 +238,24 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  const isEdit = mode === 'edit'
+
+  // Modifier groups attached to this item (edit mode only — the item must exist).
+  const [libGroups, setLibGroups] = useState<{ reference: string; name: string; external_name: string | null }[]>([])
+  const [attached, setAttached] = useState<{ reference: string; enabled: boolean }[]>([])
+  useEffect(() => {
+    if (!isEdit || !item?.reference) return
+    Promise.all([
+      fetch('/api/restaurant/disco-modifier-groups').then(r => r.ok ? r.json() : { groups: [] }),
+      fetch(`/api/restaurant/disco-menu-items/${item.reference}/groups`).then(r => r.ok ? r.json() : { groups: [] }),
+    ]).then(([lib, cur]) => {
+      setLibGroups(Array.isArray(lib.groups) ? lib.groups : [])
+      setAttached((Array.isArray(cur.groups) ? cur.groups : []).map((g: { reference: string; enabled?: boolean }) => ({ reference: g.reference, enabled: g.enabled !== false })))
+    }).catch(() => {})
+  }, [isEdit, item?.reference])
+  const isAttached = (ref: string) => attached.some(a => a.reference === ref)
+  const toggleAttach = (ref: string) => setAttached(a => isAttached(ref) ? a.filter(x => x.reference !== ref) : [...a, { reference: ref, enabled: true }])
+  const toggleEnabled = (ref: string) => setAttached(a => a.map(x => x.reference === ref ? { ...x, enabled: !x.enabled } : x))
 
   async function upload(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]; if (!f) return
@@ -253,13 +271,19 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   async function save() {
     if (!name.trim()) { setErr('Item name is required.'); return }
     setSaving(true); setErr('')
-    const isEdit = mode === 'edit'
     const res = await fetch(isEdit ? `/api/restaurant/disco-menu-items/${item!.reference}` : '/api/restaurant/disco-menu-items', {
       method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ categoryReference: categoryRef, name: name.trim(), description: desc, price, serves, imageUrl, visible }),
     })
+    if (!res.ok) { setSaving(false); const d = await res.json().catch(() => ({})); setErr(d.error || 'Could not save item'); return }
+    // Persist attached modifier groups (edit mode only — the item exists).
+    if (isEdit && item?.reference) {
+      await fetch(`/api/restaurant/disco-menu-items/${item.reference}/groups`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groups: attached }),
+      }).catch(() => {})
+    }
     setSaving(false)
-    if (res.ok) onSaved(); else { const d = await res.json().catch(() => ({})); setErr(d.error || 'Could not save item') }
+    onSaved()
   }
   return (
     <div style={dlgOverlay} onClick={onCancel}>
@@ -282,6 +306,33 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 13, color: DARK, cursor: 'pointer' }}>
           <input type="checkbox" checked={visible} onChange={e => setVisible(e.target.checked)} style={{ accentColor: BLUE }} /> Visible to customers
         </label>
+
+        <label style={dlgLabel}>Modifier Groups</label>
+        {!isEdit ? (
+          <div style={{ fontSize: 12.5, color: '#999' }}>Save the item first, then reopen it to attach modifier groups.</div>
+        ) : libGroups.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: '#999' }}>No modifier groups yet — create some under Manage Menus → Modifier Groups.</div>
+        ) : (
+          <div style={{ border: '1px solid #eee', borderRadius: 8, maxHeight: 180, overflowY: 'auto' }}>
+            {libGroups.map(g => {
+              const on = isAttached(g.reference)
+              const enabled = attached.find(a => a.reference === g.reference)?.enabled !== false
+              return (
+                <div key={g.reference} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: '1px solid #f4f4f8', fontSize: 13 }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleAttach(g.reference)} style={{ accentColor: BLUE }} />
+                  <span style={{ flex: 1, color: DARK }}>{g.name}{g.external_name ? <span style={{ color: '#aaa' }}> · “{g.external_name}”</span> : null}</span>
+                  {on && (
+                    <button type="button" onClick={() => toggleEnabled(g.reference)}
+                      style={{ background: 'none', border: '1px solid #ddd', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 600, color: enabled ? '#2E9E5B' : '#999', cursor: 'pointer', fontFamily: F }}>
+                      {enabled ? 'On' : 'Off'}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button onClick={save} disabled={saving} style={{ background: saving ? '#aaa' : BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: F }}>{saving ? 'Saving…' : 'Save'}</button>
           <button onClick={onCancel} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, color: '#555', cursor: 'pointer', fontFamily: F }}>Cancel</button>
