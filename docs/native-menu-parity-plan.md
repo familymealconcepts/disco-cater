@@ -28,9 +28,37 @@ Status legend: ⬜ not started · 🟨 in progress · ✅ done & tested · ⏭�
 
 ---
 
+## ⚠️ CRITICAL FINDING — Stage 0 audit (verified against the code)
+
+The native customer path is **menu-display only**. The entire order lifecycle is still
+FamilyMeal:
+- `loadDiscoNativeRestaurant` (`app/(customer)/restaurants/[slug]/shared.tsx:315-368`) loads
+  name/description/price/serves from Neon and emits a synthetic menu with **no settings, no
+  schedule, no modifiers** (`:359-361`).
+- **Every** `app/api/order/*` route proxies to FM (`init`, `update`, `validate-address`, `dates`,
+  `times`, `place`, `stripe-info`) — verified. The only Neon touch is a saved-card *read* and a
+  post-facto order *mirror* into `disco_orders`.
+- **Payment is charged on FM's Stripe** — `confirm-payment/route.ts:14-17` says so and posts to
+  `FM/api/userOrder/confirmPayment`. FM mints the PaymentIntent.
+- The `isDiscoNative` flag exists only in `shared.tsx`; it is **not** threaded into
+  `RestaurantClient`/`CheckoutDrawer`, so checkout always uses the FM proxies.
+
+**Consequences:**
+1. A disco-native restaurant (Neon UUID FM never saw) **cannot complete a real checkout** today —
+   `/api/order/init` 404s against FM.
+2. To the extent any checkout would proceed, it would **touch FM and charge on FM's Stripe** —
+   a direct violation of the "never touch FM" constraint.
+3. Therefore authoring settings/modifiers in Neon is necessary but **not sufficient** — a
+   **native checkout backend** (init/price/availability/place/payment on Disco's own Stripe,
+   reading Neon) is a prerequisite for any of it to "affect a real order."
+4. This contradicts the `native-checkout-and-revyrie-gone` memory, which describes the *goal*;
+   the customer flow has **not** actually been migrated off FM. Flagged for Peter.
+
+**Awaiting Peter's re-sequencing decision** (native-checkout foundation vs authoring-first).
+
 ## Build order & progress
 
-- **Stage 0 — Native checkout audit** 🟨 (in progress; report before continuing)
+- **Stage 0 — Native checkout audit** ✅ done — see critical finding above
 - **Stage 1 — Modifier library (Neon)** ⬜
 - **Stage 2 — Group library (Neon)** ⬜
 - **Stage 3 — Attach groups to items** ⬜
