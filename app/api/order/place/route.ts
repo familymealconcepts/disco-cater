@@ -7,6 +7,7 @@ import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib/promo-apply'
+import { geocodeAddress } from '../../../../lib/geocode'
 
 export const runtime = 'nodejs'
 
@@ -28,28 +29,10 @@ function extractPaymentIntentId(data: Record<string, unknown>): string {
   return typeof id === 'string' ? id : ''
 }
 
-// Geocode a delivery address to lat/lng via the Google Maps Geocoding API.
-// Best-effort: returns nulls on any failure (missing key, no result, error) so a
-// geocode miss never blocks the order mirror — the dropoff just lacks coords.
-async function geocodeAddress(address: string): Promise<{ lat: number | null; lng: number | null }> {
-  const key = process.env.GOOGLE_PLACES_API_KEY
-  if (!key || !address.trim()) return { lat: null, lng: null }
-  try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`
-    const res = await fetch(url)
-    if (!res.ok) { console.warn('[order/place] geocode HTTP', res.status); return { lat: null, lng: null } }
-    const data = await res.json().catch(() => null)
-    const loc = data?.results?.[0]?.geometry?.location
-    if (loc && typeof loc.lat === 'number' && typeof loc.lng === 'number') {
-      return { lat: loc.lat, lng: loc.lng }
-    }
-    console.warn('[order/place] geocode no result for address:', address)
-    return { lat: null, lng: null }
-  } catch (e) {
-    console.error('[order/place] geocode failed:', e instanceof Error ? e.message : e)
-    return { lat: null, lng: null }
-  }
-}
+// Delivery-address geocoding now uses the shared, Mapbox-preferred geocoder
+// (lib/geocode) — the same one the native checkout uses — so both the FM-mirror
+// and native paths geocode via a working provider instead of the disabled Google
+// Geocoding API. Best-effort: nulls never block the order mirror.
 
 // Read the restaurant's delivery time-window setting (deliveryOrderTimeWindows:
 // 'exact' | '30_min' | '1_hour') from the FM public restaurant DTO — the
