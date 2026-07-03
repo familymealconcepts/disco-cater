@@ -42,11 +42,6 @@ interface FormState {
 }
 interface AddressState { street: string; city: string; state: string; zip: string }
 
-// One parsed menu item returned by the AI menu-import route (high confidence).
-interface MenuItem {
-  name: string; description: string; price: number; serves: string; category: string
-}
-
 // sessionStorage snapshot key — holds all collected data EXCEPT the password so
 // browser back/forward (and the Stripe redirect round-trip) keep their place.
 const SNAP_KEY = 'partner_onboarding_v2'
@@ -119,12 +114,12 @@ export default function BecomeAPartnerClient() {
   const [stripeConnected, setStripeConnected] = useState(false)
   const [restaurantRef, setRestaurantRef] = useState('')
 
-  // Menu step — AI import with graceful concierge fallback.
+  // Menu step — store/forward the submitted menu to the Disco team (no AI parsing).
   const [menuTab, setMenuTab] = useState<'pdf' | 'url'>('pdf')
   const [menuFile, setMenuFile] = useState<File | null>(null)
   const [menuUrl, setMenuUrl] = useState('')
   const [menuProcessing, setMenuProcessing] = useState(false)
-  const [menuResult, setMenuResult] = useState<null | { confidence: 'high' | 'low'; items: MenuItem[] }>(null)
+  const [menuUploaded, setMenuUploaded] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -365,9 +360,9 @@ export default function BecomeAPartnerClient() {
     })
   }
 
-  // AI menu import — HIGH confidence previews the parsed items; anything else is a
-  // graceful concierge handoff. Either way the partner continues to the live step.
-  async function processMenu() {
+  // Upload the menu — store/forward it to the Disco team for manual setup. No AI
+  // parsing. On success we show a simple confirmation and let the partner continue.
+  async function uploadMenu() {
     setError('')
     if (menuTab === 'pdf' && !menuFile) { setError('Please choose a PDF first.'); return }
     if (menuTab === 'url' && !menuUrl.trim()) { setError('Please paste a menu URL first.'); return }
@@ -387,14 +382,14 @@ export default function BecomeAPartnerClient() {
         body: JSON.stringify(payload),
       })
       const data = await res.json().catch(() => null)
-      if (res.ok && data?.confidence === 'high' && Array.isArray(data.items)) {
-        setMenuResult({ confidence: 'high', items: data.items as MenuItem[] })
+      if (res.ok && data?.success) {
+        setMenuUploaded(true)
       } else {
-        setMenuResult({ confidence: 'low', items: [] })
+        setError(data?.error || 'Could not upload your menu. Please try again, or add items later from your dashboard.')
       }
     } catch (err) {
-      console.error('[become-a-partner] menu processing request failed:', err)
-      setMenuResult({ confidence: 'low', items: [] })
+      console.error('[become-a-partner] menu upload request failed:', err)
+      setError('Could not upload your menu. Please try again, or add items later from your dashboard.')
     } finally {
       setMenuProcessing(false)
     }
@@ -574,7 +569,31 @@ export default function BecomeAPartnerClient() {
                   <Field label="State" value={addr.state} onChange={v => setAddr(a => ({ ...a, state: v }))} />
                   <Field label="Zip" value={addr.zip} onChange={v => setAddr(a => ({ ...a, zip: v }))} />
                 </div>
-                <Field label="Phone" value={form.phoneNumber} onChange={v => set('phoneNumber', v)} type="tel" autoComplete="tel" />
+                {/* Phone — required, must be a 10-digit US number. Chrome autofill can
+                    silently inject a malformed / non-10-digit value, so we surface a
+                    persistent hint plus a live inline error keyed off the actual digit
+                    count, making it obvious what's wrong even when the user never typed. */}
+                {(() => {
+                  const phoneDigits = sanitizePhone(form.phoneNumber)
+                  const phoneInvalid = form.phoneNumber.trim().length > 0 && phoneDigits.length !== 10
+                  return (
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={labelStyle}>Phone</label>
+                      <input
+                        type="tel" inputMode="tel" value={form.phoneNumber} placeholder="(555) 555-5555" autoComplete="tel"
+                        onChange={e => set('phoneNumber', e.target.value)}
+                        onFocus={e => { e.currentTarget.style.borderColor = phoneInvalid ? '#e0a0a0' : BLUE; e.currentTarget.style.boxShadow = phoneInvalid ? '0 0 0 3px rgba(192,57,43,0.10)' : '0 0 0 3px rgba(91,111,232,0.12)' }}
+                        onBlur={e => { e.currentTarget.style.borderColor = phoneInvalid ? '#e0a0a0' : '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
+                        style={{ ...pillInput, borderColor: phoneInvalid ? '#e0a0a0' : '#e6e6ee' }}
+                      />
+                      <div style={{ fontSize: 11, color: phoneInvalid ? '#c0392b' : '#999', margin: '6px 0 0', paddingLeft: 4, lineHeight: 1.4 }}>
+                        {phoneInvalid
+                          ? `Phone number must be 10 digits (US format) — you entered ${phoneDigits.length} digit${phoneDigits.length === 1 ? '' : 's'}. Check for an autofilled country code or extra characters.`
+                          : 'Must be 10 digits (US format), e.g. (555) 555-5555.'}
+                      </div>
+                    </div>
+                  )
+                })()}
                 {/* Logo — small square icon, saved to disco_restaurant_cache.icon_url */}
                 <div style={{ marginBottom: 14 }}>
                   <label style={labelStyle}>Logo (optional)</label>
@@ -613,7 +632,7 @@ export default function BecomeAPartnerClient() {
                   }
                   const phoneDigits = sanitizePhone(form.phoneNumber)
                   if (!phoneDigits) { setError('Phone number is required.'); return }
-                  if (phoneDigits.length !== 10) { setError('Please enter a valid 10-digit phone number.'); return }
+                  if (phoneDigits.length !== 10) { setError('Phone number must be 10 digits (US format). Check for an autofilled country code or extra characters.'); return }
                   setStep(2)
                 }}
                 disabled={!step1Valid}
@@ -760,7 +779,7 @@ export default function BecomeAPartnerClient() {
           {step === 6 && (
             <div style={cardStyle}>
               <h1 style={h1Style}>Upload your menu</h1>
-              <p style={subStyle}>Upload a PDF or paste a link and our AI will set it up. You can add menu items anytime from your dashboard.</p>
+              <p style={subStyle}>Upload a PDF or paste a link and our team will set up your catering menu. You can also add items yourself anytime from your dashboard.</p>
               {errorBox}
 
               {menuProcessing ? (
@@ -770,36 +789,16 @@ export default function BecomeAPartnerClient() {
                     border: '3px solid #ececf4', borderTopColor: BLUE, animation: 'discospin 0.8s linear infinite',
                   }} />
                   <style>{`@keyframes discospin { to { transform: rotate(360deg) } }`}</style>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Our AI is reading your menu…</div>
-                  <div style={{ fontSize: 13, color: '#888', marginTop: 6 }}>This usually takes 10–30 seconds.</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>Uploading your menu…</div>
+                  <div style={{ fontSize: 13, color: '#888', marginTop: 6 }}>This will just take a moment.</div>
                 </div>
 
-              ) : menuResult?.confidence === 'high' ? (
-                <div style={{ marginTop: 18 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#2E9E5B', marginBottom: 10 }}>
-                    ✓ We found {menuResult.items.length} item{menuResult.items.length === 1 ? '' : 's'} on your menu
-                  </div>
-                  <div style={{ border: '1px solid #ececf4', borderRadius: 14, overflow: 'hidden', maxHeight: 280, overflowY: 'auto' }}>
-                    {menuResult.items.map((it, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderTop: i === 0 ? 'none' : '1px solid #f1f1f6' }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 14, fontWeight: 700, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
-                          {it.serves && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Serves {it.serves}</div>}
-                        </div>
-                        {it.price > 0 && <div style={{ fontSize: 14, fontWeight: 800, color: BLUE, whiteSpace: 'nowrap', flexShrink: 0 }}>${it.price.toFixed(2)}</div>}
-                      </div>
-                    ))}
-                  </div>
-                  <p style={{ ...subStyle, margin: '14px 0 0' }}>Looks good! We&apos;ll finish setting up your menu.</p>
-                  <button onClick={() => setStep(7)} style={{ ...primaryBtn, marginTop: 18 }}>Continue</button>
-                </div>
-
-              ) : menuResult?.confidence === 'low' ? (
+              ) : menuUploaded ? (
                 <div style={{ marginTop: 18 }}>
                   <div style={{ background: '#f4f6ff', border: '1px solid #dfe4ff', borderRadius: 14, padding: '18px 18px' }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: DARK }}>We&apos;ll set up your menu for you</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#2E9E5B' }}>✓ Menu received</div>
                     <p style={{ fontSize: 13.5, color: '#585786', lineHeight: 1.6, margin: '6px 0 0' }}>
-                      Our team will be in touch to help finish setting up your catering menu.
+                      Our team will set up your catering menu. You can also add items yourself anytime from your dashboard.
                     </p>
                   </div>
                   <button onClick={() => setStep(7)} style={{ ...primaryBtn, marginTop: 18 }}>Continue</button>
@@ -849,7 +848,7 @@ export default function BecomeAPartnerClient() {
                     </div>
                   )}
 
-                  <button onClick={processMenu} style={{ ...primaryBtn, marginTop: 24 }}>
+                  <button onClick={uploadMenu} style={{ ...primaryBtn, marginTop: 24 }}>
                     Upload Menu
                   </button>
 
