@@ -141,8 +141,17 @@ route an FM restaurant into the native path, and never route a native restaurant
   cent-exact self-check (compute total+transfer, require integer-cent match to the PI) as the gate.
   Verify in Stripe **test mode** to the cent across pickup / self / third-party + a fee-1→fee-2 pair
   (per `payment-settlement-must-be-verified`). ⬜
-- **1g — Client wiring.** Thread `isDiscoNative` → CheckoutDrawer; select native endpoints + Disco
-  publishable key. ⬜
+- **1g — Client wiring (pricing).** ✅ DONE & TESTED (16/16). Instead of editing the money-critical
+  CheckoutDrawer, the SERVER adapts to the existing client contract: `/api/order/init` and
+  `/api/order/update` branch on `is_disco_native` → `priceNativeFmDto` prices the FM-shaped cart DTO
+  in Neon and returns the SAME `data.checkoutPublicResponseDto` envelope the client already reads
+  (`extractFmMoney`). Zero client changes; modifier lines + tips handled. Customer total is
+  lead-gen-independent, so pricing needs no session.
+  COUPLED TO 1f (place+pay): native `place` still reads the native contract (not the FM DTO) and the
+  final charge needs the native PaymentIntent — so the place button wiring + FM-DTO adaptation of
+  `place` + `disco_customer` session auth are done WITH 1f (they can't complete without the charge,
+  and wiring place alone would allow half-placed unpaid orders). Native restaurants aren't live, so
+  no interim risk.
 - **1h — End-to-end test.** Disco-native restaurant → full order → paid (Stripe test) → `disco_orders`
   row + funds to connected account + confirmations fired + **assert ZERO FM calls** on the native
   path. ⬜

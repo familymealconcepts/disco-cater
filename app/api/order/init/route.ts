@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { fmFetch } from '../../../../lib/fm-fetch'
-import { isDiscoNativeRestaurant, priceNativeCheckout } from '../../../../lib/order/native-checkout'
+import { isDiscoNativeRestaurant, priceNativeFmDto } from '../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -11,19 +11,10 @@ export async function POST(req: NextRequest) {
     const { restaurantRef, ...orderBody } = body
     if (!restaurantRef) return NextResponse.json({ error: 'restaurantRef required' }, { status: 400 })
 
-    // ── Disco-native path: price the cart in Neon (zero FM). ──
+    // ── Disco-native path: price the FM-shaped cart DTO in Neon (zero FM) and
+    // return the FM response envelope the client already reads. ──
     if (await isDiscoNativeRestaurant(restaurantRef)) {
-      const b = await priceNativeCheckout({
-        restaurantReference: restaurantRef,
-        customerEmail: String(body?.customerEmail || body?.customer?.email || ''),
-        fulfillment: body?.fulfillment || (body?.deliveryAddress ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'),
-        items: Array.isArray(body?.items) ? body.items : [],
-        tip: body?.tip,
-        deliveryFee: body?.deliveryFee,
-        discountPct: body?.discountPct,
-        scPct: body?.scPct,
-      })
-      return NextResponse.json({ native: true, ...b })
+      return NextResponse.json(await priceNativeFmDto(body))
     }
 
     // FM rejects formatted phone numbers — digits only. Sanitize any phone field

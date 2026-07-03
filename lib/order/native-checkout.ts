@@ -70,6 +70,68 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
   return { ...breakdown, subtotal }
 }
 
+// ── Client (FM-DTO) adapter for the pricing preview ──────────────────────────
+// The customer checkout (CheckoutDrawer/buildCheckoutPayload) sends an FM-shaped
+// DTO to /api/order/init|update. For a Disco-native restaurant we price it in Neon
+// and return the SAME FM response shape (data.checkoutPublicResponseDto) the client
+// already reads (extractFmMoney), so no client changes are needed for pricing.
+// NOTE: the customer-facing TOTAL does not depend on lead-gen (that's withheld from
+// the restaurant payout), so pricing needs no customer session — safe for previews.
+
+interface FmDtoAddOn { price?: number; count?: number }
+interface FmDtoItem { price?: number; count?: number; extraItems?: FmDtoAddOn[] }
+
+export function fmDtoSubtotal(items: FmDtoItem[] | undefined): number {
+  return round2((items || []).reduce((sum, it) => {
+    const addOns = Array.isArray(it.extraItems)
+      ? it.extraItems.reduce((a, e) => a + (Number(e.price) || 0) * Math.max(1, Math.trunc(Number(e.count) || 1)), 0)
+      : 0
+    const unit = (Number(it.price) || 0) + addOns
+    const qty = Math.max(1, Math.trunc(Number(it.count) || 1))
+    return sum + unit * qty
+  }, 0))
+}
+
+// Price an FM-shaped checkout DTO for a native restaurant and return the FM
+// response envelope the client already understands. Delivery is third-party (Disco
+// uses Expedite for all delivery); own-delivery + real delivery fees arrive with
+// Stage 6 settings.
+export async function priceNativeFmDto(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const orderType = String(body?.orderType || 'PICKUP')
+  const tipsType = String(body?.tipsType || 'PERCENTAGE')
+  const tips = Number(body?.tips) || 0
+  const subtotal = fmDtoSubtotal(body?.items as FmDtoItem[])
+  const b = await priceNativeOrder({
+    restaurantReference: String(body?.restaurantRef || body?.restaurantReference || ''),
+    customerEmail: '', // total is lead-gen-independent; place() resolves the real customer
+    subtotal,
+    fulfillment: orderType === 'DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP',
+    deliveryFee: 0,
+    scPct: Number(body?.serviceChargePct) || 0,
+    tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
+  })
+  const deliveryFee = 0
+  const tipsInPrice = round2(b.tipsInPrice + b.thirdPartyDeliveryTips)
+  return {
+    native: true,
+    data: {
+      orderReference: 'native',
+      checkoutPublicResponseDto: {
+        subtotal,
+        fee: b.familyMealFee,
+        serviceCharge: b.serviceCharge,
+        stateSalesTaxInPrice: b.stateTax,
+        localSalesTaxInPrice: b.localTax,
+        otherSalesTaxInPrice: b.otherTax,
+        deliveryFee,
+        tipsInPrice,
+        discount: b.discount,
+        total: b.total,
+      },
+    },
+  }
+}
+
 async function nextNativeOrderNumber(): Promise<number> {
   const rows = (await sql`SELECT nextval('disco_native_order_seq')::bigint AS n`) as { n: string | number }[]
   return Number(rows[0].n)

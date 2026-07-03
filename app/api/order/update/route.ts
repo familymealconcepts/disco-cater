@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { fmFetch } from '../../../../lib/fm-fetch'
+import { isDiscoNativeRestaurant, priceNativeFmDto } from '../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -22,6 +23,11 @@ export async function PUT(req: NextRequest) {
     const { restaurantRef, orderRef } = body
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
+    }
+
+    // ── Disco-native path: re-price the FM-shaped DTO in Neon (zero FM). ──
+    if (await isDiscoNativeRestaurant(restaurantRef)) {
+      return NextResponse.json(await priceNativeFmDto(body))
     }
 
     // Whitelist: keep only FM's standard checkout-DTO fields; drop everything else.
