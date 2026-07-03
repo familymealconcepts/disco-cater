@@ -8,7 +8,9 @@ import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib/promo-apply'
 import { geocodeAddress } from '../../../../lib/geocode'
-import { isDiscoNativeRestaurant, placeNativeOrder } from '../../../../lib/order/native-checkout'
+import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart } from '../../../../lib/order/native-checkout'
+import { getCustomerSession } from '../../../../lib/customer-auth'
+import type { Fulfillment } from '../../../../lib/pricing/native-order'
 
 export const runtime = 'nodejs'
 
@@ -260,30 +262,57 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
 
-    // ── Disco-native path: persist the order entirely in Neon (zero FM). No FM JWT
-    // needed — native customers authenticate via the Disco session. The Stripe
-    // charge is Stage 1f; place leaves the order RESERVED. ──
+    // ── Disco-native path: place the order + create the Stripe destination charge
+    // entirely in Neon/Stripe (zero FM). Native customers authenticate via the
+    // Disco session (not an FM JWT). Returns the PaymentIntent client_secret for the
+    // browser to confirm; the webhook flips RESERVED→DUE on success. ──
     if (body?.restaurantRef && await isDiscoNativeRestaurant(body.restaurantRef)) {
-      const result = await placeNativeOrder({
+      const session = await getCustomerSession(req)
+      if (!session?.email) {
+        return NextResponse.json({ error: 'Please log in to place your order.' }, { status: 401 })
+      }
+      const stripe = stripeClient()
+      if (!stripe) return NextResponse.json({ error: 'Payment is temporarily unavailable.' }, { status: 503 })
+
+      const cd = (body?.checkoutDetails ?? {}) as Record<string, unknown>
+      const orderTypeRaw = String(cd.orderType ?? body?.orderType ?? (body?.deliveryAddress ? 'DELIVERY' : 'PICKUP'))
+      const fulfillment: Fulfillment = orderTypeRaw === 'DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'
+      const tips = Number(cd.tips ?? body?.tips) || 0
+      const tipsType = String(cd.tipsType ?? body?.tipsType ?? 'PERCENTAGE')
+      const items = fmItemsToNativeCart((cd.items ?? body?.items) as Parameters<typeof fmItemsToNativeCart>[0])
+      // Normalize orderDate: the checkout DTO sends DD.MM.YYYY; disco_orders wants ISO.
+      const rawDate = String(cd.orderDate ?? body?.orderDate ?? '')
+      const dm = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(rawDate)
+      const orderDate = dm ? `${dm[3]}-${dm[2]}-${dm[1]}` : rawDate
+
+      const result = await placeAndPayNativeOrder({
         restaurantReference: body.restaurantRef,
-        customerEmail: String(body?.customerEmail || body?.customer?.email || ''),
-        customerFirstName: body?.customer?.firstName ?? body?.customerFirstName,
-        customerLastName: body?.customer?.lastName ?? body?.customerLastName,
-        customerPhone: body?.customer?.phoneNumber ?? body?.customerPhone,
-        fulfillment: body?.fulfillment || (body?.deliveryAddress ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'),
-        items: Array.isArray(body?.items) ? body.items : [],
-        tip: body?.tip,
-        deliveryFee: body?.deliveryFee,
-        discountPct: body?.discountPct,
-        scPct: body?.scPct,
-        orderDate: String(body?.orderDate || body?.checkoutDetails?.orderDate || ''),
-        orderTime: String(body?.orderTime || body?.checkoutDetails?.orderTime || ''),
+        customerEmail: session.email,
+        customerFirstName: session.firstName ?? body?.customer?.firstName ?? null,
+        customerLastName: session.lastName ?? body?.customer?.lastName ?? null,
+        customerPhone: body?.customer?.phoneNumber ?? null,
+        fulfillment,
+        items,
+        tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
+        deliveryFee: 0, // real delivery fee arrives with Stage 6 delivery settings
+        scPct: Number(body?.serviceChargePct ?? cd.serviceChargePct) || 0,
+        orderDate,
+        orderTime: String(cd.orderTime ?? body?.orderTime ?? ''),
         deliveryAddress: body?.deliveryAddress,
         note: body?.note ?? null,
         companyName: body?.companyName ?? null,
-        persons: body?.persons ?? body?.headcount ?? null,
+        persons: (body?.headcount ?? cd.headcount ?? null) as number | null,
+      }, stripe)
+
+      return NextResponse.json({
+        native: true,
+        orderReference: result.orderReference,
+        orderNumber: result.orderNumber,
+        paymentIntentId: result.paymentIntentId,
+        clientSecret: result.clientSecret,
+        withheld: result.withheld,
+        breakdown: result.breakdown,
       })
-      return NextResponse.json({ native: true, orderReference: result.orderReference, orderNumber: result.orderNumber, breakdown: result.breakdown })
     }
 
     const token = await getFmCustomerJwt(req)

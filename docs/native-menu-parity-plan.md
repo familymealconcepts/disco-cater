@@ -132,7 +132,21 @@ route an FM restaurant into the native path, and never route a native restaurant
   RESERVED→DUE lead-gen lifecycle (fee 1 until a paid order exists, then fee 2).
   NOTE: native place currently trusts the body's customer identity — tighten to the disco_customer
   session in 1g/1h.
-- **1f — Native payment (MONEY-FLOW — verify empirically).** CORRECTED from ground-truth extraction:
+- **1f — Native payment.** ✅ DONE & EMPIRICALLY VERIFIED IN STRIPE TEST MODE (21/21, real charges).
+  `lib/order/native-payment.ts` (destination-charge PaymentIntent + withhold handling +
+  `getRestaurantPayoutConfig`) and `placeAndPayNativeOrder` (place → PI → link in
+  `disco_stripe_payments` so the existing webhook flips RESERVED→DUE). `/api/order/place` native
+  branch resolves the `disco_customer` session, maps the FM place body, and returns the PI
+  `client_secret`. VERIFIED against real test-mode charges to the cent:
+  · pickup $224.08 → restaurant $182.90 (Disco $41.18)
+  · self-delivery ($8 fee+$10 tip) $242.08 → restaurant $200.38 (keeps both)
+  · third-party ($8 fee+$10 tip) $242.08 → restaurant $182.38 (Disco keeps fee+tip, $59.70)
+  · withhold → charge completes, NO transfer (funds held with Disco)
+  · repeat customer → transfer +$19.10 (fee-1→fee-2 lead-gen delta)
+  · place→PI→disco_stripe_payments link + transfer_data → connected account.
+  REMAINING (client): CheckoutDrawer must confirm the returned `client_secret` with Stripe.js using
+  the platform publishable key (browser UI) — paired with 1h E2E. Money flow itself is proven.
+  (Historical note — the model was corrected from ground-truth extraction:
   the proven mechanism (test-16 + `promo-apply.ts`) is a **destination charge with
   `transfer_data.destination` = the restaurant's connected account and `transfer_data.amount` =
   restaurant payout (`Breakdown.transfer`)**, `on_behalf_of` = restaurant (keeps restaurant as MoR

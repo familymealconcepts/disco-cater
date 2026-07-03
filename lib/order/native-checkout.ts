@@ -3,8 +3,10 @@
 // place leaves the order in RESERVED (pre-payment), and the existing Stripe webhook
 // flips RESERVED→DUE on payment_intent.succeeded.
 
+import type Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
+import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig } from './native-payment'
 
 export interface NativeCartItem { reference?: string; name: string; price: number; quantity: number }
 export interface NativeTip { custom: boolean; amount?: number; pct?: number }
@@ -79,7 +81,24 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
 // the restaurant payout), so pricing needs no customer session — safe for previews.
 
 interface FmDtoAddOn { price?: number; count?: number }
-interface FmDtoItem { price?: number; count?: number; extraItems?: FmDtoAddOn[] }
+interface FmDtoItem { reference?: string; name?: string; price?: number; count?: number; extraItems?: FmDtoAddOn[] }
+
+// Map FM-shaped checkout items → native cart items, folding each line's add-on
+// prices into the unit price and count→quantity, so cartSubtotal is consistent
+// with fmDtoSubtotal (the pricing preview) and with FM's line math.
+export function fmItemsToNativeCart(items: FmDtoItem[] | undefined): NativeCartItem[] {
+  return (items || []).map((it, i) => {
+    const addOns = Array.isArray(it.extraItems)
+      ? it.extraItems.reduce((a, e) => a + (Number(e.price) || 0) * Math.max(1, Math.trunc(Number(e.count) || 1)), 0)
+      : 0
+    return {
+      reference: it.reference,
+      name: it.name || `item-${i}`,
+      price: (Number(it.price) || 0) + addOns,
+      quantity: Math.max(1, Math.trunc(Number(it.count) || 1)),
+    }
+  })
+}
 
 export function fmDtoSubtotal(items: FmDtoItem[] | undefined): number {
   return round2((items || []).reduce((sum, it) => {
@@ -203,4 +222,41 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   `
 
   return { orderId: order.id, orderReference: order.reference, orderNumber: Number(order.order_number), breakdown: b }
+}
+
+export interface NativePlaceAndPayResult extends NativePlaceResult {
+  paymentIntentId: string
+  clientSecret: string | null
+  withheld: boolean
+}
+
+// Place a native order AND create its PaymentIntent (destination charge). The PI is
+// created UNCONFIRMED (client_secret returned) for the browser to confirm with
+// Stripe.js; the existing Stripe webhook flips the order RESERVED→DUE on
+// payment_intent.succeeded (it looks the order up via disco_stripe_payments).
+export async function placeAndPayNativeOrder(
+  input: NativePlaceInput,
+  stripe: Stripe,
+  opts?: { customerId?: string; onBehalfOf?: boolean },
+): Promise<NativePlaceAndPayResult> {
+  const placed = await placeNativeOrder(input)
+  const pay = await getRestaurantPayoutConfig(input.restaurantReference)
+  const pi = await createNativeOrderPaymentIntent(stripe, {
+    totalDollars: placed.breakdown.total,
+    transferDollars: placed.breakdown.transfer,
+    connectedAccountId: pay.connectedAccountId,
+    withholdPayouts: pay.withholdPayouts,
+    customerId: opts?.customerId,
+    onBehalfOf: opts?.onBehalfOf ?? true, // production: restaurant is merchant-of-record
+    metadata: { orderReference: placed.orderReference, orderNumber: String(placed.orderNumber), kind: 'native_order' },
+    description: `Disco Cater order #${placed.orderNumber}`,
+  })
+  // Link the PaymentIntent → order so the webhook can find and complete it.
+  await sql`
+    INSERT INTO disco_stripe_payments (order_reference, restaurant_reference, stripe_payment_intent_id, status, subtotal, total, created_at)
+    VALUES (${placed.orderReference}::uuid, ${input.restaurantReference}::uuid, ${pi.id}, 'INITIATED', ${placed.breakdown.subtotal}, ${placed.breakdown.total}, NOW())
+    ON CONFLICT (stripe_payment_intent_id) DO NOTHING
+  `
+  await sql`UPDATE disco_sale_transactions SET stripe_payment_intent_id = ${pi.id} WHERE order_id = ${placed.orderId}`
+  return { ...placed, paymentIntentId: pi.id, clientSecret: pi.client_secret, withheld: pay.withholdPayouts || !pay.connectedAccountId }
 }
