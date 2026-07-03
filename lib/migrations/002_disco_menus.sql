@@ -81,3 +81,20 @@ ALTER TABLE disco_menu_categories ADD COLUMN IF NOT EXISTS menu_reference UUID;
 CREATE INDEX IF NOT EXISTS idx_disco_menu_categories_menu ON disco_menu_categories(menu_reference);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_disco_menu_categories_menu_name ON disco_menu_categories(menu_reference, name) WHERE menu_reference IS NOT NULL;
 -- Item enable/disable + ordering already exist (visible, position); category too.
+
+-- ── Modifiers (FM addOn) ──────────────────────────────────────────────────────
+-- A single selectable option with a name + price. Reused across many modifier
+-- groups. Disco-native equivalent of FM's /api/addOns. Restaurant-scoped.
+CREATE TABLE IF NOT EXISTS disco_modifiers (
+  id SERIAL PRIMARY KEY,
+  reference UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+  restaurant_reference UUID NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  price NUMERIC(10,2) NOT NULL DEFAULT 0,
+  archived BOOLEAN NOT NULL DEFAULT false,
+  visible BOOLEAN NOT NULL DEFAULT true,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_disco_modifiers_restaurant ON disco_modifiers(restaurant_reference);

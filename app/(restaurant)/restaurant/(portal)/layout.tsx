@@ -168,7 +168,13 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const NAV: NavItem[] = isDiscoSession
     ? baseNav.map(item =>
         item.title === 'Manage Menus'
-          ? { ...item, path: '/restaurant/menu-manager', children: [{ title: 'Menus', path: '/restaurant/menu-manager' }] }
+          ? {
+              ...item, path: '/restaurant/menu-manager',
+              children: [
+                { title: 'Menus', path: '/restaurant/menu-manager' },
+                { title: 'Modifiers', path: '/restaurant/menu-manager/modifiers' },
+              ],
+            }
           : item,
       )
     : baseNav

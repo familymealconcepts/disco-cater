@@ -207,7 +207,10 @@ The restaurant's payout = total charged − everything Disco withholds. Withheld
 implemented (promo/settlement/payout code) so the native pricer + Stripe params match to the cent —
 NOT reconstructing from prose. 1a schema will hold the full breakdown (subtotal, tax, tip, delivery
 fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restaurant payout).
-- **Stage 1 — Modifier library (Neon)** ⬜
+- **Stage 2 — Modifier library (Neon)** ✅ DONE & TESTED (14/14). `disco_modifiers` table +
+  `/api/restaurant/disco-modifiers` CRUD (list/create/edit/archive/unarchive/clone/delete, SA
+  location-scoped via resolveDiscoScopeRef) + native library UI at
+  `/restaurant/menu-manager/modifiers` + nav link for Disco users. Zero FM.
 - **Stage 2 — Group library (Neon)** ⬜
 - **Stage 3 — Attach groups to items** ⬜
 - **Stage 4 — Customer consumption of modifiers/groups (render + native pricing)** ⬜
