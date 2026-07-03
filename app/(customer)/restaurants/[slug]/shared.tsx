@@ -4,6 +4,7 @@ import { createClient } from '@sanity/client'
 import { notFound } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
 import { sql, runMigrations, runDiscoMenuMigrations } from '../../../../lib/db'
+import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../../lib/scheduling/native-schedule'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared restaurant-page logic used by BOTH ordering routes:
@@ -350,15 +351,31 @@ async function loadDiscoNativeRestaurant(slug: string) {
       categories.push({ reference: 'uncategorized', name: 'Menu', description: null, mealPackages: orphans.map(toPkg) })
     }
 
+    // Primary menu container — carries the pickup schedule (and, later, settings).
+    const menuRows = (await sql`
+      SELECT reference, name, schedule_config, availability_mode, to_char(end_date, 'YYYY-MM-DD') AS end_date
+      FROM disco_menus
+      WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true AND archived = false
+      ORDER BY position, id LIMIT 1
+    `) as { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; end_date: string | null }[]
+    const primary = menuRows[0]
+    const scheduleOption = buildNativeScheduleOption(primary?.schedule_config ?? null, primary?.availability_mode ?? null, primary?.end_date ?? null)
+    // Money/timing settings (service charge, tips, delivery, order min/max) are
+    // authored in Stage 5–7; until then only the fulfillment types are asserted.
+    // Authoritative pricing is server-side (lib/pricing/native-order); these drive
+    // the client preview + min-order gate and grow as settings land.
+    const settings = { menuAvailability: ['PICKUP', 'DELIVERY'] }
+
     return {
       restaurant: {
         name: r.name, address: r.address || undefined, cuisine: r.cuisine || undefined,
         description: r.description || undefined, image: r.image_url || null,
         isDisco: true, location: r.location || undefined,
       },
-      // FmMenu only requires reference + name; its schedule/settings are optional
-      // (RestaurantClient falls back to PICKUP/DELIVERY defaults when absent).
-      menuData: [{ menu: { reference: 'disco-catering', name: 'Catering Menu' }, categories }],
+      menuData: [{
+        menu: { reference: primary?.reference || 'disco-catering', name: primary?.name || 'Catering Menu', scheduleOption, settings },
+        categories,
+      }],
       reference: r.restaurant_reference,
     }
   } catch (err) {

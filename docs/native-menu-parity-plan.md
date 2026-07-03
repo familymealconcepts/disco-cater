@@ -102,10 +102,17 @@ route an FM restaurant into the native path, and never route a native restaurant
   `withhold_payouts`). Tests: cent-exact vs FM worked example (224.08/168.06/158.59/5.17);
   routing (pickup keeps tip; self keeps tip+fee; third-party loses both → transfers 101.42/109.19/
   91.19); lead-gen first→repeat per (customer,restaurant), different customer still fee 1.
-- **1b — Native menu-load settings/schedule.** Extend `loadDiscoNativeRestaurant` to emit
-  `settings` (tax + placeholders for min/tips/svc/delivery) + `scheduleOption` from Neon. ⬜
-- **1c — Native availability.** Dates/times/cutoffs from Neon `schedule_config` via
-  `lib/scheduling/cutoffs.ts`; native `/api/order/native/availability`. ⬜
+- **1b — Native menu-load settings/schedule.** ✅ DONE & TESTED (16/16).
+  `lib/scheduling/native-schedule.ts` converts `disco_menus.schedule_config` (+ availability
+  window) into the FM-shaped `scheduleOption` the client engine consumes; `loadDiscoNativeRestaurant`
+  now loads the primary menu and emits `{ scheduleOption, settings:{menuAvailability:[PICKUP,DELIVERY]} }`
+  (money/timing settings arrive Stage 5–7). Tested: weekday windows, slot boundaries (11:00→18:30),
+  weekend exclusion, CUSTOM per-day, no-config fallback (all 7 days), endDate propagation; cutoffs
+  self-tests still green.
+- **1c — Native availability.** ✅ LARGELY DONE via 1b — availability is computed CLIENT-SIDE by
+  `lib/scheduling/cutoffs.ts` from the emitted `scheduleOption` (zero FM calls). REMAINING: verify
+  `RestaurantClient` date/time pickers use the client engine (not FM `/api/order/dates|times`) for
+  disco-native, and that lead-time/cutoffs land once Stage 5 authoring exists. ⬜(verify in 1g)
 - **1d — Native address/delivery validation.** Geocode + radius check; native route. ⬜
 - **1e — Native order init/price/place.** Create/persist `disco_orders` (native `order_number`),
   recompute totals, finalize. Native routes gated by `is_disco_native`. ⬜
