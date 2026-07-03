@@ -42,6 +42,9 @@ interface Restaurant {
   adminName?: string
   adminEmail?: string
   admin?: { firstName?: string; lastName?: string; email?: string }
+  // FM address object — spread onto each row from /api/admin/restaurants; used to
+  // show the map listing location as "City, State".
+  address?: { city?: string; state?: string }
 }
 
 // Disco-owned per-restaurant overrides (Neon), keyed by reference. Carries the
@@ -751,6 +754,11 @@ export default function RestaurantsOrderingPage() {
                         <span style={{ fontSize: 10, fontWeight: 400, color: '#6B7280', background: '#F3F4F6', padding: '2px 6px', borderRadius: 4 }}>Disco</span>
                       )}
                     </span>
+                    {(r.address?.city || r.address?.state) && (
+                      <div style={{ fontSize: 11, fontWeight: 400, color: '#999', marginTop: 2 }}>
+                        {[r.address?.city, r.address?.state].filter(Boolean).join(', ')}
+                      </div>
+                    )}
                   </td>
                   <td style={{ ...cell, color: '#555' }}>{adminName || '—'}</td>
                   <td style={{ ...cell, color: '#555' }}>{adminEmail}</td>
