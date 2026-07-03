@@ -59,6 +59,21 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const [sameTo, setSameTo] = useState('19:00')
   const [perDay, setPerDay] = useState<Record<string, Win>>(DEFAULT_PERDAY)
 
+  // Money/timing settings (Stage 5)
+  const [offersPickup, setOffersPickup] = useState(true)
+  const [offersDelivery, setOffersDelivery] = useState(true)
+  const [serviceChargePct, setServiceChargePct] = useState('0')
+  const [serviceChargeName, setServiceChargeName] = useState('')
+  const [tipDefaultType, setTipDefaultType] = useState<'PERCENTAGE' | 'CUSTOM' | 'NONE'>('PERCENTAGE')
+  const [tipDefaultValue, setTipDefaultValue] = useState('15')
+  const [pickupOrderMinimum, setPickupOrderMinimum] = useState('0')
+  const [deliveryOrderMinimum, setDeliveryOrderMinimum] = useState('0')
+  const [maxOrdersPerDay, setMaxOrdersPerDay] = useState('')
+  const [leadTimeHours, setLeadTimeHours] = useState('24')
+  const [rollingAvailabilityDays, setRollingAvailabilityDays] = useState('90')
+  const [dailyCutoffTime, setDailyCutoffTime] = useState('')
+  const [hardCutoffDate, setHardCutoffDate] = useState('')
+
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -92,6 +107,14 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
           for (const k of Object.keys(pd)) if (sc.perDay[k]) pd[k] = { from: normalizeTime(sc.perDay[k].from) || '11:00', to: normalizeTime(sc.perDay[k].to) || '19:00' }
           setPerDay(pd)
         }
+        setOffersPickup(d.offers_pickup !== false); setOffersDelivery(d.offers_delivery !== false)
+        setServiceChargePct(String(d.service_charge_pct ?? 0)); setServiceChargeName(d.service_charge_name || '')
+        setTipDefaultType(d.tip_default_type === 'CUSTOM' ? 'CUSTOM' : d.tip_default_type === 'NONE' ? 'NONE' : 'PERCENTAGE')
+        setTipDefaultValue(String(d.tip_default_value ?? 15))
+        setPickupOrderMinimum(String(d.pickup_order_minimum ?? 0)); setDeliveryOrderMinimum(String(d.delivery_order_minimum ?? 0))
+        setMaxOrdersPerDay(d.max_orders_per_day != null ? String(d.max_orders_per_day) : '')
+        setLeadTimeHours(String(d.lead_time_hours ?? 24)); setRollingAvailabilityDays(String(d.rolling_availability_days ?? 90))
+        setDailyCutoffTime(d.daily_cutoff_time || ''); setHardCutoffDate(d.hard_cutoff_date || '')
       } finally { setLoading(false) }
     })()
   }, [menuRef])
@@ -131,6 +154,13 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
       imageUrl: imageUrl || undefined, visible,
       availabilityMode, startDate: startDate || undefined, endDate: endDate || undefined,
       scheduleConfig,
+      offersPickup, offersDelivery,
+      serviceChargePct: parseFloat(serviceChargePct) || 0, serviceChargeName: serviceChargeName || undefined,
+      tipDefaultType, tipDefaultValue: parseFloat(tipDefaultValue) || 0,
+      pickupOrderMinimum: parseFloat(pickupOrderMinimum) || 0, deliveryOrderMinimum: parseFloat(deliveryOrderMinimum) || 0,
+      maxOrdersPerDay: maxOrdersPerDay.trim() === '' ? null : (parseInt(maxOrdersPerDay, 10) || 0),
+      leadTimeHours: parseInt(leadTimeHours, 10) || 0, rollingAvailabilityDays: parseInt(rollingAvailabilityDays, 10) || 90,
+      dailyCutoffTime: dailyCutoffTime || undefined, hardCutoffDate: hardCutoffDate || undefined,
     }
     setSaving(true)
     try {
@@ -255,6 +285,53 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Order settings (Stage 5) */}
+        <div style={card}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 14 }}>Order Settings</div>
+
+          <label style={label}>Fulfillment types offered</label>
+          <div style={{ display: 'flex', gap: 20, marginBottom: 16 }}>
+            <label style={radioRow(offersPickup)}><input type="checkbox" checked={offersPickup} onChange={e => setOffersPickup(e.target.checked)} style={{ accentColor: BLUE }} /> Pickup</label>
+            <label style={radioRow(offersDelivery)}><input type="checkbox" checked={offersDelivery} onChange={e => setOffersDelivery(e.target.checked)} style={{ accentColor: BLUE }} /> Delivery</label>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div><label style={label}>Service charge (%)</label><input value={serviceChargePct} onChange={e => setServiceChargePct(e.target.value)} inputMode="decimal" style={inputStyle} /></div>
+            <div><label style={label}>Service charge name</label><input value={serviceChargeName} onChange={e => setServiceChargeName(e.target.value)} placeholder="e.g. Service fee" style={inputStyle} /></div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div>
+              <label style={label}>Default tip</label>
+              <select value={tipDefaultType} onChange={e => setTipDefaultType(e.target.value as 'PERCENTAGE' | 'CUSTOM' | 'NONE')} style={inputStyle}>
+                <option value="PERCENTAGE">Percentage</option><option value="CUSTOM">Fixed $</option><option value="NONE">No default</option>
+              </select>
+            </div>
+            <div><label style={label}>{tipDefaultType === 'CUSTOM' ? 'Default tip ($)' : 'Default tip (%)'}</label><input value={tipDefaultValue} onChange={e => setTipDefaultValue(e.target.value)} inputMode="decimal" disabled={tipDefaultType === 'NONE'} style={{ ...inputStyle, opacity: tipDefaultType === 'NONE' ? 0.5 : 1 }} /></div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div><label style={label}>Pickup minimum ($)</label><input value={pickupOrderMinimum} onChange={e => setPickupOrderMinimum(e.target.value)} inputMode="decimal" style={inputStyle} /></div>
+            <div><label style={label}>Delivery minimum ($)</label><input value={deliveryOrderMinimum} onChange={e => setDeliveryOrderMinimum(e.target.value)} inputMode="decimal" style={inputStyle} /></div>
+            <div><label style={label}>Max orders/day</label><input value={maxOrdersPerDay} onChange={e => setMaxOrdersPerDay(e.target.value)} inputMode="numeric" placeholder="No limit" style={inputStyle} /></div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div><label style={label}>Lead time (hours)</label><input value={leadTimeHours} onChange={e => setLeadTimeHours(e.target.value)} inputMode="numeric" style={inputStyle} /></div>
+            <div>
+              <label style={label}>Bookable window</label>
+              <select value={rollingAvailabilityDays} onChange={e => setRollingAvailabilityDays(e.target.value)} style={inputStyle}>
+                <option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div><label style={label}>Daily cutoff time</label><input type="time" value={dailyCutoffTime} onChange={e => setDailyCutoffTime(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Same-day orders stop at this time.</div></div>
+            <div><label style={label}>Hard cutoff date</label><input type="date" value={hardCutoffDate} onChange={e => setHardCutoffDate(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Ordering closes after this date.</div></div>
+          </div>
         </div>
 
         {/* Visible */}

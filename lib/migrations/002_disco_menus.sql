@@ -139,3 +139,22 @@ CREATE TABLE IF NOT EXISTS disco_item_groups (
   UNIQUE(item_reference, group_reference)
 );
 CREATE INDEX IF NOT EXISTS idx_disco_item_groups_item ON disco_item_groups(item_reference);
+
+-- ── Menu money/timing settings (Stage 5) ─────────────────────────────────────
+-- Per-menu settings consumed by the native pricer (service charge, tips) + the
+-- availability engine (lead time, cutoffs, rolling window) + the order gate
+-- (order minimums, max orders/day) + the fulfillment types offered. All additive
+-- with safe defaults so existing native menus keep working.
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS offers_pickup BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS offers_delivery BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS service_charge_pct NUMERIC(5,2) NOT NULL DEFAULT 0;
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS service_charge_name VARCHAR(120);
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS tip_default_type VARCHAR(12) NOT NULL DEFAULT 'PERCENTAGE'; -- PERCENTAGE | CUSTOM | NONE
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS tip_default_value NUMERIC(10,2) NOT NULL DEFAULT 15;
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS pickup_order_minimum NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS delivery_order_minimum NUMERIC(10,2) NOT NULL DEFAULT 0;
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS max_orders_per_day INTEGER; -- NULL = no limit
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS lead_time_hours INTEGER NOT NULL DEFAULT 24;
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS rolling_availability_days INTEGER NOT NULL DEFAULT 90;
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS daily_cutoff_time TIME; -- NULL = none
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS hard_cutoff_date DATE; -- NULL = none

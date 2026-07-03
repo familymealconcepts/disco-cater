@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
+import { parseMenuSettingsInput } from '../../../../../lib/menu-settings'
 import { sql, runDiscoMenuMigrations } from '../../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -34,7 +35,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     SELECT reference, restaurant_reference, name, url, type, description, image_url,
            visible, archived, position, availability_mode,
            to_char(start_date,'YYYY-MM-DD') AS start_date, to_char(end_date,'YYYY-MM-DD') AS end_date,
-           schedule_config, created_at, updated_at
+           schedule_config,
+           offers_pickup, offers_delivery, service_charge_pct, service_charge_name,
+           tip_default_type, tip_default_value, pickup_order_minimum, delivery_order_minimum,
+           max_orders_per_day, lead_time_hours, rolling_availability_days,
+           to_char(daily_cutoff_time,'HH24:MI') AS daily_cutoff_time,
+           to_char(hard_cutoff_date,'YYYY-MM-DD') AS hard_cutoff_date,
+           created_at, updated_at
     FROM disco_menus WHERE reference = ${ref}::uuid LIMIT 1
   `) as Record<string, unknown>[]
   return NextResponse.json({ menu: rows[0] || null })
@@ -73,6 +80,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   const scheduleConfig = body?.scheduleConfig != null ? JSON.stringify(body.scheduleConfig) : null
 
   try {
+    const s = parseMenuSettingsInput(body)
     await sql`
       UPDATE disco_menus SET
         name = ${name}, type = ${type}, url = ${url},
@@ -82,6 +90,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         availability_mode = ${availabilityMode},
         start_date = ${startDate}::date, end_date = ${endDate}::date,
         schedule_config = ${scheduleConfig}::jsonb,
+        offers_pickup = ${s.offersPickup}, offers_delivery = ${s.offersDelivery},
+        service_charge_pct = ${s.serviceChargePct}, service_charge_name = ${s.serviceChargeName},
+        tip_default_type = ${s.tipDefaultType}, tip_default_value = ${s.tipDefaultValue},
+        pickup_order_minimum = ${s.pickupOrderMinimum}, delivery_order_minimum = ${s.deliveryOrderMinimum},
+        max_orders_per_day = ${s.maxOrdersPerDay}, lead_time_hours = ${s.leadTimeHours},
+        rolling_availability_days = ${s.rollingAvailabilityDays},
+        daily_cutoff_time = ${s.dailyCutoffTime}::time, hard_cutoff_date = ${s.hardCutoffDate}::date,
         updated_at = NOW()
       WHERE reference = ${ref}::uuid
     `

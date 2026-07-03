@@ -222,7 +222,12 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   modifier modal and native pricing folds add-ons into the total ($12→$14 verified). Zero FM.
 - **Stage 3 — Attach groups to items** ⬜
 - **Stage 4 — Customer consumption of modifiers/groups (render + native pricing)** ⬜
-- **Stage 5 — Menu money/timing settings** ⬜
+- **Stage 5 — Menu money/timing settings** ✅ DONE & TESTED (7/7). disco_menus gained service
+  charge (%+name), default tip, pickup/delivery order minimums, max orders/day, lead time, bookable
+  window, daily + hard cutoff, fulfillment types. Stored via disco-menus create/edit; emitted by
+  loadDiscoNativeRestaurant (settings + scheduleOption); service charge applied to the order total
+  FROM THE MENU (client never dictates it) — verified $117.32 cent-exact. UI: "Order Settings"
+  section in the menu form. Zero FM.
 - **Stage 6 — Menu delivery settings** ⬜
 - **Stage 7 — Skipped days (menu) + Closed Days (restaurant)** ⬜
 - **Stage 8 — Item fields (display price, min qty, dietary, special instructions)** ⬜

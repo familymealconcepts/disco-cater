@@ -8,7 +8,7 @@ import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib/promo-apply'
 import { geocodeAddress } from '../../../../lib/geocode'
-import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart } from '../../../../lib/order/native-checkout'
+import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart, loadRestaurantServiceChargePct } from '../../../../lib/order/native-checkout'
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import type { Fulfillment } from '../../../../lib/pricing/native-order'
 
@@ -295,7 +295,8 @@ export async function POST(req: NextRequest) {
         items,
         tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
         deliveryFee: 0, // real delivery fee arrives with Stage 6 delivery settings
-        scPct: Number(body?.serviceChargePct ?? cd.serviceChargePct) || 0,
+        scPct: await loadRestaurantServiceChargePct(body.restaurantRef), // authoritative: from the menu, not the client
+
         orderDate,
         orderTime: String(cd.orderTime ?? body?.orderTime ?? ''),
         deliveryAddress: body?.deliveryAddress,

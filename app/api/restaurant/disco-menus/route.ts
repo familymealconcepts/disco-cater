@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { parseMenuSettingsInput } from '../../../../lib/menu-settings'
 import { sql, runDiscoMenuMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -84,16 +85,23 @@ export async function POST(req: NextRequest) {
     const startDate = availabilityMode === 'CUSTOM' && body?.startDate ? String(body.startDate) : null
     const endDate = availabilityMode === 'CUSTOM' && body?.endDate ? String(body.endDate) : null
     const scheduleConfig = body?.scheduleConfig != null ? JSON.stringify(body.scheduleConfig) : null
+    const s = parseMenuSettingsInput(body)
 
     const rows = (await sql`
       INSERT INTO disco_menus (
         restaurant_reference, name, url, type, description, image_url, visible,
         availability_mode, start_date, end_date, schedule_config,
+        offers_pickup, offers_delivery, service_charge_pct, service_charge_name,
+        tip_default_type, tip_default_value, pickup_order_minimum, delivery_order_minimum,
+        max_orders_per_day, lead_time_hours, rolling_availability_days, daily_cutoff_time, hard_cutoff_date,
         position, created_at, updated_at
       ) VALUES (
         ${ref}::uuid, ${name}, ${url}, ${type}, ${String(body?.description || '') || null},
         ${String(body?.imageUrl || '') || null}, ${body?.visible === false ? false : true},
         ${availabilityMode}, ${startDate}::date, ${endDate}::date, ${scheduleConfig}::jsonb,
+        ${s.offersPickup}, ${s.offersDelivery}, ${s.serviceChargePct}, ${s.serviceChargeName},
+        ${s.tipDefaultType}, ${s.tipDefaultValue}, ${s.pickupOrderMinimum}, ${s.deliveryOrderMinimum},
+        ${s.maxOrdersPerDay}, ${s.leadTimeHours}, ${s.rollingAvailabilityDays}, ${s.dailyCutoffTime}::time, ${s.hardCutoffDate}::date,
         (SELECT COALESCE(MAX(position), -1) + 1 FROM disco_menus WHERE restaurant_reference = ${ref}::uuid),
         NOW(), NOW()
       )

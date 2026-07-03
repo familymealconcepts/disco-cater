@@ -51,6 +51,18 @@ export async function isDiscoNativeRestaurant(ref: string): Promise<boolean> {
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
+// The service-charge % for a native order — read from the restaurant's primary
+// (lowest-position, visible) menu. Authoritative: the client never dictates it.
+export async function loadRestaurantServiceChargePct(restaurantReference: string): Promise<number> {
+  const rows = (await sql`
+    SELECT service_charge_pct FROM disco_menus
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+    ORDER BY position, id LIMIT 1
+  `.catch(() => [])) as { service_charge_pct: string | number | null }[]
+  const v = rows[0]?.service_charge_pct
+  return v != null && Number.isFinite(Number(v)) ? Number(v) : 0
+}
+
 export function cartSubtotal(items: NativeCartItem[]): number {
   return round2((items || []).reduce((s, it) => s + (Number(it.price) || 0) * Math.max(1, Math.trunc(Number(it.quantity) || 1)), 0))
 }
@@ -116,17 +128,19 @@ export function fmDtoSubtotal(items: FmDtoItem[] | undefined): number {
 // uses Expedite for all delivery); own-delivery + real delivery fees arrive with
 // Stage 6 settings.
 export async function priceNativeFmDto(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const restaurantRef = String(body?.restaurantRef || body?.restaurantReference || '')
   const orderType = String(body?.orderType || 'PICKUP')
   const tipsType = String(body?.tipsType || 'PERCENTAGE')
   const tips = Number(body?.tips) || 0
   const subtotal = fmDtoSubtotal(body?.items as FmDtoItem[])
+  const scPct = await loadRestaurantServiceChargePct(restaurantRef)
   const b = await priceNativeOrder({
-    restaurantReference: String(body?.restaurantRef || body?.restaurantReference || ''),
+    restaurantReference: restaurantRef,
     customerEmail: '', // total is lead-gen-independent; place() resolves the real customer
     subtotal,
     fulfillment: orderType === 'DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP',
     deliveryFee: 0,
-    scPct: Number(body?.serviceChargePct) || 0,
+    scPct,
     tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
   })
   const deliveryFee = 0
