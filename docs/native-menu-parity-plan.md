@@ -59,6 +59,65 @@ FamilyMeal:
 ## Build order & progress
 
 - **Stage 0 — Native checkout audit** ✅ done — see critical finding above
+- **Stage 1 — NATIVE CHECKOUT FOUNDATION** 🟨 next (detailed plan below) — must land before modifiers/settings
+
+---
+
+## Stage 1 — Native Checkout Foundation (detailed plan; disco-native restaurants ONLY)
+
+**Scope guard:** everything here is gated on `is_disco_native`. Existing FM restaurants keep the
+FM checkout **untouched**. Fail-safe: if disco-native can't be confirmed, use the FM path (never
+route an FM restaurant into the native path, and never route a native restaurant into FM).
+
+**Already exists — REUSE (recon 2026-07-03), so this is mostly assembly + wiring:**
+- `disco_orders` / `disco_order_items` / `disco_stripe_payments` — full schema incl. status
+  lifecycle, tips, delivery, lead-gen (commission) columns (`lead_gen_one/two_disco_fee`).
+- Cent-exact pricing libs: `lib/pricing/{cart,checkout,lineItem,totals}.ts` + `lib/promo-pricing.ts`.
+- Stripe **webhook** already marks `disco_orders` DUE on `payment_intent.succeeded` and handles
+  `payment_failed` / `charge.refunded` / `invoice.paid` (`app/api/stripe/webhook/route.ts`).
+- Native destination-charge PaymentIntent pattern already used in order-edit
+  (`app/api/restaurant/orders/[ref]/edit/route.ts:376`) — the template to reuse.
+- Native delivery dispatch (`lib/expedite` — Dlivrd/Nash/Shipday, Neon-based).
+- Restaurant Connect accounts (`disco_restaurant_accounts.stripe_account_id`) from onboarding.
+- Confirmations pipeline (`lib/order-notifications.ts` `dispatchOrderConfirmations`).
+- **Stripe platform account is settled**: the shared (formerly-FM) live account, permanent — no
+  re-onboarding of Connect accounts.
+
+**Genuinely NEW to build:**
+- Native order-lifecycle API routes (parallel to the FM proxies), selected by `is_disco_native`.
+- Native `order_number` generator (today it comes from FM).
+- `loadDiscoNativeRestaurant` must emit a real `settings` + `scheduleOption` from Neon (starts
+  minimal: item prices + tax; grows as Stage 5–7 settings land).
+- Make `lib/pricing` the **server-side canonical** pricer for native orders (persist the breakdown).
+- Native address/delivery validation (geocode via Mapbox/Google + radius) — no FM.
+- Thread `isDiscoNative` from `shared.tsx` → `RestaurantClient` → `CheckoutDrawer`; native path uses
+  Disco's Stripe publishable key + native endpoints (not FM `stripe-info`/`confirmPayment`).
+
+**Sub-stages (built + tested one at a time, in order):**
+- **1a — Pricing authority + schema check.** Make `lib/pricing` the canonical server-side pricer;
+  confirm/extend `disco_orders` breakdown columns (subtotal, service_charge, delivery_fee, tax,
+  discount, total). Unit-test cent-exact vs known cases. ⬜
+- **1b — Native menu-load settings/schedule.** Extend `loadDiscoNativeRestaurant` to emit
+  `settings` (tax + placeholders for min/tips/svc/delivery) + `scheduleOption` from Neon. ⬜
+- **1c — Native availability.** Dates/times/cutoffs from Neon `schedule_config` via
+  `lib/scheduling/cutoffs.ts`; native `/api/order/native/availability`. ⬜
+- **1d — Native address/delivery validation.** Geocode + radius check; native route. ⬜
+- **1e — Native order init/price/place.** Create/persist `disco_orders` (native `order_number`),
+  recompute totals, finalize. Native routes gated by `is_disco_native`. ⬜
+- **1f — Native payment (MONEY-FLOW — verify empirically).** PaymentIntent on the shared platform,
+  **destination charge to the restaurant's connected account** + `application_fee` = Disco
+  commission; client confirms via Stripe.js; existing webhook drives success. Verify in Stripe
+  **test mode** to the cent before shipping (per `payment-settlement-must-be-verified`). ⬜
+- **1g — Client wiring.** Thread `isDiscoNative` → CheckoutDrawer; select native endpoints + Disco
+  publishable key. ⬜
+- **1h — End-to-end test.** Disco-native restaurant → full order → paid (Stripe test) → `disco_orders`
+  row + funds to connected account + confirmations fired + **assert ZERO FM calls** on the native
+  path. ⬜
+
+**Open decision for Peter (money flow — will not guess):** confirm the payment model is a
+destination charge to the restaurant's connected account with a Disco `application_fee` (commission)
+on the shared platform account, and confirm where the commission rate comes from
+(`lead_gen_*_disco_fee` computation / a per-restaurant rate). Then verified empirically in 1f.
 - **Stage 1 — Modifier library (Neon)** ⬜
 - **Stage 2 — Group library (Neon)** ⬜
 - **Stage 3 — Attach groups to items** ⬜
