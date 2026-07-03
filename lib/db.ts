@@ -129,6 +129,18 @@ export async function runMigrations(): Promise<void> {
     // to recompute a restaurant-funded promo's discounted tax to the cent; if a
     // restaurant's rates aren't mirrored yet, the discount safely doesn't apply.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS tax_rates JSONB`,
+    // Native lead-gen commission rates (whole-number percents). FM stores these as
+    // Restaurant.leadGenOne/leadGenTwo, but Disco-native restaurants have no FM
+    // record, so the native checkout reads them from here. Fee 1 applies to a
+    // customer's FIRST paid order from this restaurant; fee 2 to every order after,
+    // forever (per customer↔restaurant pair). Defaults mirror FM's 15% / 5%.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS lead_gen_one_pct NUMERIC(5,2) DEFAULT 15`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS lead_gen_two_pct NUMERIC(5,2) DEFAULT 5`,
+    // Super-admin "withhold payouts" freeze for Disco-native restaurants. When true,
+    // the native checkout charges WITHOUT a transfer_data destination so funds stay
+    // in the platform account (mirrors FM's payout hold); the intended payout is
+    // still recorded so it can be released later. Enforced in the native place route.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS withhold_payouts BOOLEAN NOT NULL DEFAULT false`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.

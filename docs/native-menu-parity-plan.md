@@ -94,9 +94,14 @@ route an FM restaurant into the native path, and never route a native restaurant
   Disco's Stripe publishable key + native endpoints (not FM `stripe-info`/`confirmPayment`).
 
 **Sub-stages (built + tested one at a time, in order):**
-- **1a — Pricing authority + schema check.** Make `lib/pricing` the canonical server-side pricer;
-  confirm/extend `disco_orders` breakdown columns (subtotal, service_charge, delivery_fee, tax,
-  discount, total). Unit-test cent-exact vs known cases. ⬜
+- **1a — Pricing authority + schema.** ✅ DONE & TESTED (20/20). The cent-exact engine already
+  existed (`lib/promo-pricing.ts` `computeBreakdown`, FM-verified) and `disco_sale_transactions`
+  already has every breakdown column — so 1a added only the native-specific pieces:
+  `lib/pricing/native-order.ts` (fulfillment routing + lead-gen resolver + config load) and three
+  `disco_restaurant_overrides` columns (`lead_gen_one_pct` def 15, `lead_gen_two_pct` def 5,
+  `withhold_payouts`). Tests: cent-exact vs FM worked example (224.08/168.06/158.59/5.17);
+  routing (pickup keeps tip; self keeps tip+fee; third-party loses both → transfers 101.42/109.19/
+  91.19); lead-gen first→repeat per (customer,restaurant), different customer still fee 1.
 - **1b — Native menu-load settings/schedule.** Extend `loadDiscoNativeRestaurant` to emit
   `settings` (tax + placeholders for min/tips/svc/delivery) + `scheduleOption` from Neon. ⬜
 - **1c — Native availability.** Dates/times/cutoffs from Neon `schedule_config` via
@@ -104,10 +109,15 @@ route an FM restaurant into the native path, and never route a native restaurant
 - **1d — Native address/delivery validation.** Geocode + radius check; native route. ⬜
 - **1e — Native order init/price/place.** Create/persist `disco_orders` (native `order_number`),
   recompute totals, finalize. Native routes gated by `is_disco_native`. ⬜
-- **1f — Native payment (MONEY-FLOW — verify empirically).** PaymentIntent on the shared platform,
-  **destination charge to the restaurant's connected account** + `application_fee` = Disco
-  commission; client confirms via Stripe.js; existing webhook drives success. Verify in Stripe
-  **test mode** to the cent before shipping (per `payment-settlement-must-be-verified`). ⬜
+- **1f — Native payment (MONEY-FLOW — verify empirically).** CORRECTED from ground-truth extraction:
+  the proven mechanism (test-16 + `promo-apply.ts`) is a **destination charge with
+  `transfer_data.destination` = the restaurant's connected account and `transfer_data.amount` =
+  restaurant payout (`Breakdown.transfer`)**, `on_behalf_of` = restaurant (keeps restaurant as MoR
+  for tax/1099) — NOT `application_fee_amount`. Disco keeps `total − transfer` in the platform.
+  Persist the full breakdown to `disco_sale_transactions`. Mirror `promo-apply.ts`'s
+  cent-exact self-check (compute total+transfer, require integer-cent match to the PI) as the gate.
+  Verify in Stripe **test mode** to the cent across pickup / self / third-party + a fee-1→fee-2 pair
+  (per `payment-settlement-must-be-verified`). ⬜
 - **1g — Client wiring.** Thread `isDiscoNative` → CheckoutDrawer; select native endpoints + Disco
   publishable key. ⬜
 - **1h — End-to-end test.** Disco-native restaurant → full order → paid (Stripe test) → `disco_orders`
