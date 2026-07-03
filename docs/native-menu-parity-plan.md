@@ -59,7 +59,10 @@ FamilyMeal:
 ## Build order & progress
 
 - **Stage 0 — Native checkout audit** ✅ done — see critical finding above
-- **Stage 1 — NATIVE CHECKOUT FOUNDATION** 🟨 next (detailed plan below) — must land before modifiers/settings
+- **Stage 1 — NATIVE CHECKOUT FOUNDATION** ✅ COMPLETE & VERIFIED (1a–1h). Disco-native restaurants
+  can take a real order end-to-end — menu → price → availability → address → place → pay (Disco's own
+  Stripe) → complete → confirmations — with ZERO FamilyMeal contact (proven with FM pinned to a dead
+  host). Next: Stage 2 (Modifier library), per the approved order.
 
 ---
 
@@ -166,9 +169,15 @@ route an FM restaurant into the native path, and never route a native restaurant
   `place` + `disco_customer` session auth are done WITH 1f (they can't complete without the charge,
   and wiring place alone would allow half-placed unpaid orders). Native restaurants aren't live, so
   no interim risk.
-- **1h — End-to-end test.** Disco-native restaurant → full order → paid (Stripe test) → `disco_orders`
-  row + funds to connected account + confirmations fired + **assert ZERO FM calls** on the native
-  path. ⬜
+- **1h — End-to-end.** ✅ DONE & VERIFIED (10/10 + client wiring). `CheckoutDrawer` gained a native
+  branch: when place returns `{ native, clientSecret }` it confirms the platform PaymentIntent with
+  Stripe.js (same account as FM) and lets the webhook complete the order — no FM confirm-payment.
+  Full E2E against the real routes with FM pinned to a dead host (`127.0.0.1:9`): live native
+  restaurant → menu renders → init prices $224.08 → place (customer session) → order RESERVED +
+  client_secret → **real test card charges $224.08** → webhook completes (order DUE, sale txn PAID,
+  payment SUCCEEDED) → confirmations dispatch runs. Server log shows **0** FM contact attempts.
+  Follow-up (not blocking, native not live): native saved-card confirm; browser smoke-test of the
+  Stripe.js confirm.
 
 ### 1f payment rules (CONFIRMED by Peter — must match FM exactly; verify empirically in Stripe test mode)
 

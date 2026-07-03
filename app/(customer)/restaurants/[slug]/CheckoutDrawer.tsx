@@ -787,6 +787,32 @@ export default function CheckoutDrawer({
         finalRef = placeData.data?.orderReference || placeData.reference || placeData.orderReference || orderRef
         placedOrderNumber = placeData.data?.orderNumber ?? placeData.orderNumber ?? finalRef
 
+        // ── Disco-native order: the platform PaymentIntent was created at place;
+        // confirm it client-side here (same Stripe account as FM, so the same
+        // publishable key + card PaymentMethod work). The Stripe webhook completes
+        // the order (RESERVED→DUE) and fires confirmations — NO FM confirm-payment.
+        // Withheld payouts still charge the customer (only the transfer is omitted),
+        // so a client_secret is always returned.
+        if (placeData.native) {
+          if (!placeData.clientSecret || !paymentMethodId) {
+            trackPaymentFailed('native_payment_unavailable')
+            setError('Payment could not be processed. Please try again.')
+            setStep('payment'); return
+          }
+          const nativeConfirm = await stripeRef.current!.confirmCardPayment(placeData.clientSecret, { payment_method: paymentMethodId })
+          if (nativeConfirm.error || nativeConfirm.paymentIntent?.status !== 'succeeded') {
+            trackPaymentFailed(nativeConfirm.error ? 'native_confirm_error' : 'native_confirm_failed')
+            setError(nativeConfirm.error?.message || 'Payment could not be completed. Please try again.')
+            setStep('payment'); return
+          }
+          trackEvent('checkout_completed', {
+            restaurant_name: restaurantName, order_number: placedOrderNumber ?? finalRef,
+            total: trackingTotal, order_type: orderType, source: isFirstParty ? 'FAMILYMEAL' : 'DISCO',
+          })
+          router.push(`/order-confirmation/${finalRef}`)
+          return
+        }
+
         // Invoice (direct entry): the order is created unpaid and FM emails the
         // customer a payment link. No card, no confirm-payment — done.
         if (isInvoice) { setStep('sent'); return }
