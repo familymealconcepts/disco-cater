@@ -114,10 +114,34 @@ route an FM restaurant into the native path, and never route a native restaurant
   row + funds to connected account + confirmations fired + **assert ZERO FM calls** on the native
   path. ⬜
 
-**Open decision for Peter (money flow — will not guess):** confirm the payment model is a
-destination charge to the restaurant's connected account with a Disco `application_fee` (commission)
-on the shared platform account, and confirm where the commission rate comes from
-(`lead_gen_*_disco_fee` computation / a per-restaurant rate). Then verified empirically in 1f.
+### 1f payment rules (CONFIRMED by Peter — must match FM exactly; verify empirically in Stripe test mode)
+
+Model: destination charge to the restaurant's connected account; Disco's cut = `application_fee_amount`.
+The restaurant's payout = total charged − everything Disco withholds. Withheld items:
+
+| Item | Pickup | Self-delivery | Third-party delivery |
+|---|---|---|---|
+| Tip | restaurant keeps | restaurant keeps | **Disco keeps** (Disco pays courier) |
+| Delivery fee | n/a | restaurant keeps 100% | **Disco keeps** (Disco pays Expedite/Dlivrd) |
+| 3% convenience fee | Disco (withheld) | Disco (withheld) | Disco (withheld) |
+| Stripe processing fee | withheld from payout | withheld from payout | withheld from payout |
+| Lead-gen fee 1 or 2 | withheld from payout | withheld from payout | withheld from payout |
+
+- **Convenience fee:** always 3%, paid by customer, always withheld → Disco. (Confirm base against code.)
+- **Stripe fee:** withheld from the restaurant's payout — NOT billed separately to the restaurant.
+- **Lead-gen fees:** fee **1** on the customer's FIRST order from a specific restaurant *location*;
+  fee **2** on every order after that, forever, tied permanently to that customer↔location pair.
+  Both withheld → Disco. (Need the customer↔location history lookup — match existing code.)
+- **Withhold-payouts toggle (super admin):** must also work for disco-native restaurants — turning it
+  on stops their payout exactly as it does for FM restaurants today. (Match the existing mechanism.)
+- **Empirical gate:** 1f is NOT done until verified in Stripe **test mode** with real numbers — the
+  restaurant payout and Disco's application fee reconcile to the cent for pickup, self-delivery, and
+  third-party-delivery cases (incl. lead-gen fee-1-then-fee-2 across two orders by the same customer).
+
+**Ground-truth extraction in progress:** reverse-engineering the exact FM money model already
+implemented (promo/settlement/payout code) so the native pricer + Stripe params match to the cent —
+NOT reconstructing from prose. 1a schema will hold the full breakdown (subtotal, tax, tip, delivery
+fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restaurant payout).
 - **Stage 1 — Modifier library (Neon)** ⬜
 - **Stage 2 — Group library (Neon)** ⬜
 - **Stage 3 — Attach groups to items** ⬜
