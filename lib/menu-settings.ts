@@ -2,6 +2,8 @@
 // and map a disco_menus row into the FM-shaped `settings` + `scheduleOption` the
 // customer flow (pricer + availability engine) already consumes. Zero FM.
 
+import { r2 } from './promo-pricing'
+
 export interface MenuSettingsInput {
   offersPickup: boolean
   offersDelivery: boolean
@@ -82,11 +84,16 @@ export function parseSkippedDays(body: Record<string, unknown>): SkippedDay[] {
 export type DeliveryFeeType = 'FIXED' | 'PERCENT'
 export interface DeliveryTier { radiusMiles: number; feeType: DeliveryFeeType; feeValue: number }
 // method OWN_DELIVERY: restaurant delivers with its own configurable radius/fee.
-// method THIRD_PARTY: Disco dispatches a courier; the fee is a FIXED platform rule
-// (15% of subtotal, capped at $85) — NO per-restaurant configuration.
+// method THIRD_PARTY: Disco dispatches a courier. The TOTAL fee is a fixed platform
+// rule (15% of subtotal, capped at $85) that Disco always collects to pay the courier.
+// thirdPartySubsidyPct (0–15) splits that fixed fee between the customer and the
+// restaurant: the customer pays fee×(15−subsidy)/15, the restaurant covers the rest
+// (deducted from its payout). Higher subsidy = cheaper delivery for the customer,
+// funded by the restaurant; Disco stays neutral. Matches FM PriceCalculateService.
 export interface DeliverySettings {
   method: 'OWN_DELIVERY' | 'THIRD_PARTY'
   own?: { primary?: DeliveryTier; secondary?: DeliveryTier }
+  thirdPartySubsidyPct: number // 0–15 percentage points out of the 15% fee
 }
 
 function parseTier(t: unknown): DeliveryTier | undefined {
@@ -105,6 +112,9 @@ export function parseDeliverySettings(body: Record<string, unknown>): DeliverySe
   return {
     method,
     own: own ? { primary: parseTier(own.primary), secondary: parseTier(own.secondary) } : undefined,
+    // 0–15 points out of the 15% fee; default 0 (no subsidy). We deliberately do NOT
+    // replicate FM's "20 if cleared" default, which would make the customer fee negative.
+    thirdPartySubsidyPct: Math.max(0, Math.min(THIRD_PARTY_DELIVERY_FEE_PCT, n(raw.thirdPartySubsidyPct))),
   }
 }
 
@@ -113,13 +123,28 @@ function tierFee(t: DeliveryTier, subtotal: number): number {
   return t.feeType === 'PERCENT' ? round2d(subtotal * t.feeValue / 100) : round2d(t.feeValue)
 }
 
-// THIRD_PARTY delivery fee: a flat 15% of the subtotal, capped at $85 (the fixed
-// formula used across the system; Disco keeps it and pays the courier — no live
-// Expedite quote). Confirmed by Peter 2026-07-04.
+// THIRD_PARTY delivery — the platform fee is a flat 15% of subtotal capped at $85.
 export const THIRD_PARTY_DELIVERY_FEE_PCT = 15
 export const THIRD_PARTY_DELIVERY_FEE_CAP = 85
-export function computeThirdPartyDeliveryFee(subtotal: number): number {
-  return Math.min(round2d(subtotal * THIRD_PARTY_DELIVERY_FEE_PCT / 100), THIRD_PARTY_DELIVERY_FEE_CAP)
+
+export interface ThirdPartyDelivery {
+  fullFee: number     // total delivery cost Disco collects to pay the courier (fixed)
+  customerFee: number // what the customer pays  = fullFee × (15 − subsidy)/15
+  subsidy: number     // what the restaurant covers = fullFee − customerFee (off its payout)
+}
+
+// Replicates FM's PriceCalculateService.calculateThirdPartyDeliveryFee +
+// RestaurantSaleTransactionServiceImpl.calculateThirdPartyDeliverySubsiding exactly:
+//   fullFee     = min(subtotal × 15%, $85)              (unrounded, capped)
+//   customerFee = r2( fullFee × (15 − subsidyPct)/15 )  (HALF_UP, 2dp)
+//   subsidy     = r2( fullFee − customerFee )
+// The subsidy shifts cost from customer to restaurant; Disco always nets fullFee.
+export function computeThirdPartyDelivery(subtotal: number, subsidyPct = 0): ThirdPartyDelivery {
+  const s = Math.max(0, Math.min(THIRD_PARTY_DELIVERY_FEE_PCT, subsidyPct))
+  const fullFee = Math.min(subtotal * THIRD_PARTY_DELIVERY_FEE_PCT / 100, THIRD_PARTY_DELIVERY_FEE_CAP)
+  const customerFee = r2(fullFee * (THIRD_PARTY_DELIVERY_FEE_PCT - s) / THIRD_PARTY_DELIVERY_FEE_PCT)
+  const subsidy = r2(fullFee - customerFee)
+  return { fullFee: r2(fullFee), customerFee, subsidy }
 }
 
 // OWN_DELIVERY serviceability + fee for a distance: primary ring first, then the
@@ -174,9 +199,9 @@ export function menuRowToSettings(row: MenuSettingsRow) {
     secondaryOwnDeliveryRadius: secondary?.radiusMiles ?? null,
     secondaryOwnDeliveryFee: feeCurrency(secondary),
     secondaryOwnDeliveryFeePercent: feePercent(secondary),
-    // Third-party fee is a fixed platform rule (15%/$85) computed at order time —
-    // never a per-restaurant subsidy. Emit 0 so nothing downstream reduces the payout.
-    thirdPartyDeliverySubsidingPercent: 0,
+    // Third-party subsidy % (0–15): shifts the fixed 15%/$85 fee from the customer to
+    // the restaurant. The actual dollar split is computed at order time.
+    thirdPartyDeliverySubsidingPercent: del?.thirdPartySubsidyPct ?? 0,
   }
 }
 

@@ -234,9 +234,17 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   (fixed or % of subtotal); place resolves fulfillment (own vs third-party) + fee authoritatively
   from the menu + distance (restaurant keeps own-delivery fee, Disco keeps third-party — per Stage 1f).
   Emitted FM-shaped to the customer page. UI: "Delivery" section in the menu form. Zero FM.
-  Third-party delivery fee = flat 15% of subtotal capped at $85 (`computeThirdPartyDeliveryFee`,
-  confirmed by Peter 2026-07-04 — no live Expedite quote); customer pays it, Disco keeps it and pays
-  the courier. Tested 8/8. ✅ FOLLOW-UP CLOSED.
+  Third-party delivery = FIXED platform fee (15% of subtotal capped at $85) that Disco always
+  collects to pay the courier, SPLIT between customer + restaurant by the per-restaurant subsidy %
+  (0–15) — matches FM's PriceCalculateService/RestaurantSaleTransactionServiceImpl EXACTLY:
+    fullFee = min(subtotal×15%, $85);  customerFee = r2(fullFee×(15−subsidy)/15);  subsidy = fullFee−customerFee
+  (`computeThirdPartyDelivery` in lib/menu-settings.ts). Customer pays customerFee; restaurant covers
+  `subsidy` off its payout (computeBreakdown subtracts thirdPartyDeliverySubsiding from the transfer);
+  Disco stays delivery-neutral. Threaded through validateNativeDelivery + the init preview + place +
+  persistence. UI: subsidy input (0–15, default 0) in the menu form's Delivery section.
+  Verified 25/25 incl. REAL Stripe test-mode PaymentIntents to the cent: $200 @ 5% → customer $20 /
+  restaurant −$10 / Disco nets $30; $200 @ 0% → customer $30 / Disco nets $30. ✅ (subsidy restored per
+  FM source, 2026-07-04.)
 - **Stage 7 — Skipped days (menu) + Closed Days (restaurant)** ✅ DONE & TESTED (9/9).
   disco_menus.skipped_days JSONB (per-menu blackout ranges) + disco_restaurant_closed_days table
   (restaurant-wide) with `/api/restaurant/disco-closed-days` CRUD. Both merged into

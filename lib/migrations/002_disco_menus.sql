@@ -176,10 +176,13 @@ ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS include_utensils BOOLEAN NOT NU
 -- Delivery settings (Stage 6). JSONB:
 --   { method: 'OWN_DELIVERY'|'THIRD_PARTY',
 --     own: { primary:{radiusMiles,feeType:'FIXED'|'PERCENT',feeValue},
---            secondary?:{radiusMiles,feeType,feeValue} } }
+--            secondary?:{radiusMiles,feeType,feeValue} },
+--     thirdPartySubsidyPct: 0-15 }
 -- OWN_DELIVERY: restaurant delivers + keeps its configurable distance-based fee.
--- THIRD_PARTY: Disco dispatches a courier + keeps the fee, which is a FIXED platform
--- rule (15% of subtotal capped at $85) — NO per-restaurant configuration.
+-- THIRD_PARTY: Disco dispatches a courier. The TOTAL fee is a fixed platform rule
+-- (15% of subtotal capped at $85) that Disco always collects to pay the courier;
+-- thirdPartySubsidyPct (0-15) shifts that fee from the customer to the restaurant
+-- (customer pays fee×(15-subsidy)/15, restaurant covers the rest off its payout).
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS delivery_settings JSONB;
 
 -- Skipped / blackout days (Stage 7). Per-menu closures — JSONB array of

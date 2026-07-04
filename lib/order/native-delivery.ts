@@ -6,7 +6,7 @@
 
 import { sql } from '../db'
 import { geocodeAddress, haversineMiles, type LatLng } from '../geocode'
-import { computeOwnDeliveryFee, computeThirdPartyDeliveryFee, type DeliverySettings } from '../menu-settings'
+import { computeOwnDeliveryFee, computeThirdPartyDelivery, type DeliverySettings } from '../menu-settings'
 import type { Fulfillment } from '../pricing/native-order'
 
 export interface NativeDeliveryAddress {
@@ -22,7 +22,8 @@ export interface NativeDeliveryAddress {
 
 export interface NativeDeliveryResult {
   valid: boolean
-  deliveryFee: number
+  deliveryFee: number            // what the customer pays (third-party: already net of subsidy)
+  thirdPartyDeliverySubsiding: number // restaurant's subsidy share (0 unless third-party w/ subsidy)
   method: 'OWN_DELIVERY' | 'THIRD_PARTY'
   fulfillment: Fulfillment
   distanceMiles: number | null
@@ -73,22 +74,27 @@ export async function validateNativeDelivery(
     : null
 
   // OWN_DELIVERY: enforce the radius tiers + compute the fee (restaurant keeps it).
-  // THIRD_PARTY: Disco dispatches a courier — serviceable wherever we can geocode;
-  // the customer pays a flat 15% of subtotal capped at $85 (Disco keeps it, pays the
-  // courier — no live quote).
+  // THIRD_PARTY: Disco dispatches a courier — serviceable wherever we can geocode.
+  // The full fee (15%/$85) splits between customer and restaurant per the subsidy %:
+  // the customer pays customerFee, the restaurant covers subsidy (off its payout),
+  // and Disco collects the full fee to pay the courier.
   let deliveryFee = 0
+  let thirdPartyDeliverySubsiding = 0
   let serviceable = true
   if (method === 'OWN_DELIVERY' && del?.own && distanceMiles != null) {
     const r = computeOwnDeliveryFee(del.own, distanceMiles, subtotal)
     serviceable = r.serviceable
     deliveryFee = r.fee
   } else if (method === 'THIRD_PARTY') {
-    deliveryFee = computeThirdPartyDeliveryFee(subtotal)
+    const tp = computeThirdPartyDelivery(subtotal, del?.thirdPartySubsidyPct ?? 0)
+    deliveryFee = tp.customerFee
+    thirdPartyDeliverySubsiding = tp.subsidy
   }
 
   return {
     valid: geocoded && serviceable,
     deliveryFee,
+    thirdPartyDeliverySubsiding,
     method,
     fulfillment,
     distanceMiles,

@@ -7,7 +7,7 @@ import type Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig } from './native-payment'
-import { computeThirdPartyDeliveryFee, type DeliverySettings } from '../menu-settings'
+import { computeThirdPartyDelivery, type DeliverySettings } from '../menu-settings'
 
 export interface NativeCartItem { reference?: string; name: string; price: number; quantity: number }
 export interface NativeTip { custom: boolean; amount?: number; pct?: number }
@@ -22,7 +22,8 @@ export interface NativeCheckoutInput {
   fulfillment: Fulfillment
   items: NativeCartItem[]
   tip?: NativeTip
-  deliveryFee?: number
+  deliveryFee?: number                 // customer-facing delivery fee (third-party: net of subsidy)
+  thirdPartyDeliverySubsiding?: number // restaurant's subsidy share (off its payout)
   discountPct?: number
   scPct?: number
 }
@@ -89,6 +90,7 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
     subtotal,
     fulfillment: input.fulfillment,
     deliveryFee: input.deliveryFee,
+    thirdPartyDeliverySubsiding: input.thirdPartyDeliverySubsiding,
     scPct: input.scPct,
     tip: input.tip ?? { custom: false, pct: 0 },
     discountPct: input.discountPct,
@@ -147,18 +149,21 @@ export async function priceNativeFmDto(body: Record<string, unknown>): Promise<R
   const subtotal = fmDtoSubtotal(body?.items as FmDtoItem[])
   const scPct = await loadRestaurantServiceChargePct(restaurantRef)
 
-  // Delivery fee for the PREVIEW must match what place charges. Third-party is the
-  // fixed platform rule (15%/$85, no config) and needs only the subtotal, so include
-  // it here. Own-delivery is distance-based; the client gets that from validate-address.
+  // Delivery fee for the PREVIEW must match what place charges. Third-party needs only
+  // the subtotal + subsidy % (fixed platform rule), so include it here; the customer
+  // pays the subsidy-reduced fee. Own-delivery is distance-based → validate-address.
   let fulfillment: Fulfillment = 'PICKUP'
   let deliveryFee = 0
+  let thirdPartyDeliverySubsiding = 0
   if (orderType === 'DELIVERY') {
     const del = await loadRestaurantDeliverySettings(restaurantRef)
     if (del?.method === 'OWN_DELIVERY') {
       fulfillment = 'OWN_DELIVERY' // fee is address-dependent → supplied by validate-address
     } else {
       fulfillment = 'THIRD_PARTY_DELIVERY'
-      deliveryFee = computeThirdPartyDeliveryFee(subtotal)
+      const tp = computeThirdPartyDelivery(subtotal, del?.thirdPartySubsidyPct ?? 0)
+      deliveryFee = tp.customerFee
+      thirdPartyDeliverySubsiding = tp.subsidy
     }
   }
 
@@ -168,6 +173,7 @@ export async function priceNativeFmDto(body: Record<string, unknown>): Promise<R
     subtotal,
     fulfillment,
     deliveryFee,
+    thirdPartyDeliverySubsiding,
     scPct,
     tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
   })
@@ -222,6 +228,7 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   const fee = input.deliveryFee ?? 0
   const ownDeliveryFee = input.fulfillment === 'OWN_DELIVERY' ? fee : 0
   const thirdPartyDeliveryFee = input.fulfillment === 'THIRD_PARTY_DELIVERY' ? fee : 0
+  const thirdPartyDeliverySubsiding = input.fulfillment === 'THIRD_PARTY_DELIVERY' ? round2(input.thirdPartyDeliverySubsiding ?? 0) : 0
   const tipsTotal = round2(b.tipsInPrice + b.thirdPartyDeliveryTips)
   const da = input.deliveryAddress ?? {}
   const daZip = da.zip ?? da.zipcode ?? null
@@ -257,7 +264,7 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
     ) VALUES (
       ${order.id}, 'INITIATED', 'ORIGINAL', ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${b.serviceCharge}, ${b.stripeFee},
       ${b.stateTax}, ${b.localTax}, ${b.otherTax}, ${b.tipsInPrice}, ${b.thirdPartyDeliveryTips},
-      ${ownDeliveryFee}, ${thirdPartyDeliveryFee}, ${0}, ${b.discount},
+      ${ownDeliveryFee}, ${thirdPartyDeliveryFee}, ${thirdPartyDeliverySubsiding}, ${b.discount},
       ${b.leadGenTier === 1 ? b.leadGen : 0}, ${b.leadGenTier === 2 ? b.leadGen : 0}, 'DIRECT', NOW(), NOW()
     )
   `

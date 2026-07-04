@@ -83,6 +83,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const [ownSecondaryRadius, setOwnSecondaryRadius] = useState('')
   const [ownSecondaryFeeType, setOwnSecondaryFeeType] = useState<'FIXED' | 'PERCENT'>('FIXED')
   const [ownSecondaryFeeValue, setOwnSecondaryFeeValue] = useState('')
+  const [thirdPartySubsidyPct, setThirdPartySubsidyPct] = useState('0')
 
   // Skipped / blackout days (Stage 7)
   const [skippedDays, setSkippedDays] = useState<{ name: string; fromDate: string; toDate: string }[]>([])
@@ -131,6 +132,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         setIncludeUtensils(d.include_utensils === true)
         const del = d.delivery_settings || {}
         setDeliveryMethod(del.method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY')
+        setThirdPartySubsidyPct(String(del.thirdPartySubsidyPct ?? 0))
         const p = del.own?.primary, sec = del.own?.secondary
         if (p) { setOwnPrimaryRadius(String(p.radiusMiles ?? '')); setOwnPrimaryFeeType(p.feeType === 'PERCENT' ? 'PERCENT' : 'FIXED'); setOwnPrimaryFeeValue(String(p.feeValue ?? '')) }
         if (sec) { setOwnSecondaryRadius(String(sec.radiusMiles ?? '')); setOwnSecondaryFeeType(sec.feeType === 'PERCENT' ? 'PERCENT' : 'FIXED'); setOwnSecondaryFeeValue(String(sec.feeValue ?? '')) }
@@ -184,6 +186,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
       includeUtensils,
       deliverySettings: {
         method: deliveryMethod,
+        thirdPartySubsidyPct: Math.max(0, Math.min(15, parseFloat(thirdPartySubsidyPct) || 0)),
         own: deliveryMethod === 'OWN_DELIVERY' ? {
           ...(ownPrimaryRadius.trim() ? { primary: { radiusMiles: parseFloat(ownPrimaryRadius) || 0, feeType: ownPrimaryFeeType, feeValue: parseFloat(ownPrimaryFeeValue) || 0 } } : {}),
           ...(ownSecondaryRadius.trim() ? { secondary: { radiusMiles: parseFloat(ownSecondaryRadius) || 0, feeType: ownSecondaryFeeType, feeValue: parseFloat(ownSecondaryFeeValue) || 0 } } : {}),
@@ -396,8 +399,15 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
               </div>
             </>
           ) : (
-            <div style={{ fontSize: 12.5, color: '#888', background: '#f7f7fb', borderRadius: 8, padding: '10px 14px' }}>
-              Disco arranges the courier. The delivery fee is a flat <strong>15% of the order subtotal, capped at $85</strong> — paid by the customer, set platform-wide (not configurable).
+            <div>
+              <div style={{ fontSize: 12.5, color: '#888', background: '#f7f7fb', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
+                Disco arranges the courier. The delivery fee is a flat <strong>15% of subtotal, capped at $85</strong> (set platform-wide). By default the customer pays it in full.
+              </div>
+              <label style={label}>Delivery subsidy (0–15%)</label>
+              <input value={thirdPartySubsidyPct} onChange={e => setThirdPartySubsidyPct(e.target.value)} inputMode="decimal" style={{ ...inputStyle, maxWidth: 160 }} />
+              <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>
+                How much of the 15% fee your restaurant covers, lowering the customer’s delivery cost. At 15% the customer pays $0 and you cover the whole fee. Comes out of your payout.
+              </div>
             </div>
           )}
         </div>

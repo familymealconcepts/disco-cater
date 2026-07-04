@@ -286,11 +286,13 @@ export async function POST(req: NextRequest) {
       // settings + the real distance/subtotal (the client never dictates them).
       let fulfillment: Fulfillment = 'PICKUP'
       let deliveryFee = 0
+      let thirdPartyDeliverySubsiding = 0
       if (orderTypeRaw === 'DELIVERY') {
         const dv = await validateNativeDelivery(body.restaurantRef, body?.deliveryAddress || {}, cartSubtotal(items))
         if (!dv.valid) return NextResponse.json({ error: dv.message || 'That delivery address is not serviceable.' }, { status: 400 })
         fulfillment = dv.fulfillment
-        deliveryFee = dv.deliveryFee
+        deliveryFee = dv.deliveryFee // customer-facing (third-party: net of subsidy)
+        thirdPartyDeliverySubsiding = dv.thirdPartyDeliverySubsiding
       }
       // Normalize orderDate: the checkout DTO sends DD.MM.YYYY; disco_orders wants ISO.
       const rawDate = String(cd.orderDate ?? body?.orderDate ?? '')
@@ -307,6 +309,7 @@ export async function POST(req: NextRequest) {
         items,
         tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
         deliveryFee, // resolved above from the menu's delivery settings + distance
+        thirdPartyDeliverySubsiding, // restaurant's subsidy share → withheld from its payout
         scPct: await loadRestaurantServiceChargePct(body.restaurantRef), // authoritative: from the menu, not the client
 
         orderDate,
