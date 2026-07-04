@@ -234,7 +234,9 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   (fixed or % of subtotal); place resolves fulfillment (own vs third-party) + fee authoritatively
   from the menu + distance (restaurant keeps own-delivery fee, Disco keeps third-party — per Stage 1f).
   Emitted FM-shaped to the customer page. UI: "Delivery" section in the menu form. Zero FM.
-  (Third-party courier fee is settled at Expedite dispatch; $0 in the customer preview — runtime follow-up.)
+  Third-party delivery fee = flat 15% of subtotal capped at $85 (`computeThirdPartyDeliveryFee`,
+  confirmed by Peter 2026-07-04 — no live Expedite quote); customer pays it, Disco keeps it and pays
+  the courier. Tested 8/8. ✅ FOLLOW-UP CLOSED.
 - **Stage 7 — Skipped days (menu) + Closed Days (restaurant)** ✅ DONE & TESTED (9/9).
   disco_menus.skipped_days JSONB (per-menu blackout ranges) + disco_restaurant_closed_days table
   (restaurant-wide) with `/api/restaurant/disco-closed-days` CRUD. Both merged into

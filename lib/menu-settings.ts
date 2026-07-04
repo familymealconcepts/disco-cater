@@ -112,6 +112,15 @@ function tierFee(t: DeliveryTier, subtotal: number): number {
   return t.feeType === 'PERCENT' ? round2d(subtotal * t.feeValue / 100) : round2d(t.feeValue)
 }
 
+// THIRD_PARTY delivery fee: a flat 15% of the subtotal, capped at $85 (the fixed
+// formula used across the system; Disco keeps it and pays the courier — no live
+// Expedite quote). Confirmed by Peter 2026-07-04.
+export const THIRD_PARTY_DELIVERY_FEE_PCT = 15
+export const THIRD_PARTY_DELIVERY_FEE_CAP = 85
+export function computeThirdPartyDeliveryFee(subtotal: number): number {
+  return Math.min(round2d(subtotal * THIRD_PARTY_DELIVERY_FEE_PCT / 100), THIRD_PARTY_DELIVERY_FEE_CAP)
+}
+
 // OWN_DELIVERY serviceability + fee for a distance: primary ring first, then the
 // (optional) secondary ring, else out of range.
 export function computeOwnDeliveryFee(own: DeliverySettings['own'], distanceMiles: number, subtotal: number): { serviceable: boolean; fee: number } {

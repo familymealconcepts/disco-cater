@@ -6,7 +6,7 @@
 
 import { sql } from '../db'
 import { geocodeAddress, haversineMiles, type LatLng } from '../geocode'
-import { computeOwnDeliveryFee, type DeliverySettings } from '../menu-settings'
+import { computeOwnDeliveryFee, computeThirdPartyDeliveryFee, type DeliverySettings } from '../menu-settings'
 import type { Fulfillment } from '../pricing/native-order'
 
 export interface NativeDeliveryAddress {
@@ -73,14 +73,17 @@ export async function validateNativeDelivery(
     : null
 
   // OWN_DELIVERY: enforce the radius tiers + compute the fee (restaurant keeps it).
-  // THIRD_PARTY: Disco dispatches a courier (Expedite) — serviceable wherever we can
-  // geocode; the courier fee is settled at dispatch (fee 0 in the customer preview).
+  // THIRD_PARTY: Disco dispatches a courier — serviceable wherever we can geocode;
+  // the customer pays a flat 15% of subtotal capped at $85 (Disco keeps it, pays the
+  // courier — no live quote).
   let deliveryFee = 0
   let serviceable = true
   if (method === 'OWN_DELIVERY' && del?.own && distanceMiles != null) {
     const r = computeOwnDeliveryFee(del.own, distanceMiles, subtotal)
     serviceable = r.serviceable
     deliveryFee = r.fee
+  } else if (method === 'THIRD_PARTY') {
+    deliveryFee = computeThirdPartyDeliveryFee(subtotal)
   }
 
   return {
