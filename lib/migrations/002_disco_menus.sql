@@ -34,6 +34,16 @@ CREATE TABLE IF NOT EXISTS disco_menu_items (
 CREATE INDEX IF NOT EXISTS idx_disco_menu_items_restaurant ON disco_menu_items(restaurant_reference);
 CREATE INDEX IF NOT EXISTS idx_disco_menu_categories_restaurant ON disco_menu_categories(restaurant_reference);
 
+-- Item fields (Stage 8): free-text display price, minimum order quantity, allow
+-- special instructions, and dietary flags. Additive with safe defaults.
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS display_price VARCHAR(120);
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS min_quantity INTEGER;
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS allow_special_instructions BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS vegetarian BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS contains_nuts BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS gluten_free BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS vegan BOOLEAN NOT NULL DEFAULT false;
+
 -- One category name per restaurant — lets POST /api/restaurant/menu upsert a
 -- category by (restaurant_reference, name) when creating an item.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_disco_menu_categories_rest_name ON disco_menu_categories(restaurant_reference, name);

@@ -241,7 +241,11 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   scheduleOption.skippedDays by loadDiscoNativeRestaurant → the availability engine excludes them.
   UI: "Blackout Dates" editor in the menu form. (Restaurant Closed-Days admin UI pairs with Stage 9
   restaurant settings; the API + consumption are done.) Zero FM.
-- **Stage 8 — Item fields (display price, min qty, dietary, special instructions)** ⬜
+- **Stage 8 — Item fields (display price, min qty, dietary, special instructions)** ✅ DONE & TESTED (6/6).
+  disco_menu_items gains display_price, min_quantity, allow_special_instructions, vegetarian,
+  contains_nuts, gluten_free, vegan. Stored via disco-menu-items create/edit; returned by the menu
+  editor (categories GET); emitted by loadDiscoNativeRestaurant on each package. UI: fields in the
+  item editor dialog. Zero FM.
 - **Stage 9 — Restaurant-level settings (delivery time-window granularity, online-ordering, tax, notifications)** ⬜
 - **Stage 10 — Location-level (fulfillment options offered)** ⬜
 - **Stage 11 — Small extras (utensils toggle, category visibility)** ⬜

@@ -341,11 +341,17 @@ async function loadDiscoNativeRestaurant(slug: string) {
       ORDER BY position, id
     `) as { reference: string; name: string; description: string | null }[]
     const items = (await sql`
-      SELECT reference, category_reference, name, description, price, serves
+      SELECT reference, category_reference, name, description, price, serves,
+             display_price, min_quantity, allow_special_instructions,
+             vegetarian, contains_nuts, gluten_free, vegan
       FROM disco_menu_items
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
       ORDER BY position, id
-    `) as { reference: string; category_reference: string | null; name: string; description: string | null; price: string | number; serves: string | null }[]
+    `) as {
+      reference: string; category_reference: string | null; name: string; description: string | null
+      price: string | number; serves: string | null; display_price: string | null; min_quantity: number | null
+      allow_special_instructions: boolean; vegetarian: boolean; contains_nuts: boolean; gluten_free: boolean; vegan: boolean
+    }[]
 
     // Attached modifier groups per item (Stage 4 consumption). Shaped into the
     // FM `extraItemsGroups` structure RestaurantClient already renders + prices, so
@@ -394,6 +400,11 @@ async function loadDiscoNativeRestaurant(slug: string) {
     const toPkg = (it: typeof items[number]) => ({
       reference: it.reference, name: it.name, description: it.description,
       price: Number(it.price) || 0, serves: it.serves,
+      displayPrice: it.display_price || undefined,
+      minQuantity: it.min_quantity ?? undefined,
+      allowedSpecialInstructions: it.allow_special_instructions === true,
+      vegetarian: it.vegetarian === true, containsNuts: it.contains_nuts === true,
+      glutenFree: it.gluten_free === true, vegan: it.vegan === true,
       extraItemsGroups: groupsByItem.get(it.reference) ?? [],
     })
     const categories = cats.map(c => ({

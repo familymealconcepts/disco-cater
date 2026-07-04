@@ -43,6 +43,29 @@ export function parseMenuSettingsInput(body: Record<string, unknown>): MenuSetti
   }
 }
 
+// ── Item fields (Stage 8) ────────────────────────────────────────────────────
+export interface ItemFields {
+  displayPrice: string | null
+  minQuantity: number | null
+  allowSpecialInstructions: boolean
+  vegetarian: boolean
+  containsNuts: boolean
+  glutenFree: boolean
+  vegan: boolean
+}
+export function parseItemFields(body: Record<string, unknown>): ItemFields {
+  const mq = body?.minQuantity
+  return {
+    displayPrice: String(body?.displayPrice || '').trim().slice(0, 120) || null,
+    minQuantity: mq == null || mq === '' ? null : Math.max(1, Math.trunc(Number(mq)) || 1),
+    allowSpecialInstructions: body?.allowedSpecialInstructions === true || body?.allowSpecialInstructions === true,
+    vegetarian: body?.vegetarian === true,
+    containsNuts: body?.containsNuts === true,
+    glutenFree: body?.glutenFree === true,
+    vegan: body?.vegan === true,
+  }
+}
+
 // ── Skipped / blackout days (Stage 7) ────────────────────────────────────────
 export interface SkippedDay { name?: string; fromDate: string; toDate: string }
 const ISO = /^\d{4}-\d{2}-\d{2}$/

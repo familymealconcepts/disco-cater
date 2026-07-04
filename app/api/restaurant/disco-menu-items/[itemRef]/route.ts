@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
+import { parseItemFields } from '../../../../../lib/menu-settings'
 import { sql, runDiscoMenuMigrations } from '../../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -50,12 +51,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ item
     // Full edit.
     const name = String(body?.name ?? '').trim()
     if (!name) return NextResponse.json({ error: 'Item name is required.' }, { status: 400 })
+    const f = parseItemFields(body)
     await sql`
       UPDATE disco_menu_items SET
         name = ${name}, description = ${String(body?.description || '') || null},
         price = ${num(body?.price)}, serves = ${String(body?.serves || '') || null},
         image_url = COALESCE(${String(body?.imageUrl || '') || null}, image_url),
         visible = ${body?.visible === false ? false : true},
+        display_price = ${f.displayPrice}, min_quantity = ${f.minQuantity},
+        allow_special_instructions = ${f.allowSpecialInstructions},
+        vegetarian = ${f.vegetarian}, contains_nuts = ${f.containsNuts},
+        gluten_free = ${f.glutenFree}, vegan = ${f.vegan},
         updated_at = NOW()
       WHERE reference = ${itemRef}::uuid
     `

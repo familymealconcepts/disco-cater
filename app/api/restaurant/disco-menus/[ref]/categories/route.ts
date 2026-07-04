@@ -29,7 +29,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   `) as Record<string, unknown>[]
   const items = (await sql`
     SELECT i.reference, i.category_reference, i.name, i.description, i.price, i.serves,
-           i.visible, i.position, i.image_url
+           i.visible, i.position, i.image_url,
+           i.display_price, i.min_quantity, i.allow_special_instructions,
+           i.vegetarian, i.contains_nuts, i.gluten_free, i.vegan
     FROM disco_menu_items i
     JOIN disco_menu_categories c ON c.reference = i.category_reference
     WHERE c.menu_reference = ${ref}::uuid

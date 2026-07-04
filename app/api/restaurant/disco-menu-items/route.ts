@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { parseItemFields } from '../../../../lib/menu-settings'
 import { sql, runDiscoMenuMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -25,11 +26,15 @@ export async function POST(req: NextRequest) {
   `.catch(() => [])) as unknown[]
   if (!owns.length) return NextResponse.json({ error: 'Category not found' }, { status: 404 })
   try {
+    const f = parseItemFields(body)
     const rows = (await sql`
-      INSERT INTO disco_menu_items (restaurant_reference, category_reference, name, description, price, serves, image_url, visible, position)
+      INSERT INTO disco_menu_items (
+        restaurant_reference, category_reference, name, description, price, serves, image_url, visible,
+        display_price, min_quantity, allow_special_instructions, vegetarian, contains_nuts, gluten_free, vegan, position)
       VALUES (${scopeRef}::uuid, ${categoryReference}::uuid, ${name},
               ${String(body?.description || '') || null}, ${num(body?.price)}, ${String(body?.serves || '') || null},
               ${String(body?.imageUrl || '') || null}, ${body?.visible === false ? false : true},
+              ${f.displayPrice}, ${f.minQuantity}, ${f.allowSpecialInstructions}, ${f.vegetarian}, ${f.containsNuts}, ${f.glutenFree}, ${f.vegan},
               (SELECT COALESCE(MAX(position), -1) + 1 FROM disco_menu_items WHERE category_reference = ${categoryReference}::uuid))
       RETURNING reference
     `) as { reference: string }[]

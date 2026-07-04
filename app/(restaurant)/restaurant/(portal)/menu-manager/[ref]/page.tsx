@@ -240,6 +240,16 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   const [err, setErr] = useState('')
   const isEdit = mode === 'edit'
 
+  // Item fields (Stage 8)
+  const ex = (item ?? {}) as Record<string, unknown>
+  const [displayPrice, setDisplayPrice] = useState(String(ex.display_price || ''))
+  const [minQuantity, setMinQuantity] = useState(ex.min_quantity != null ? String(ex.min_quantity) : '')
+  const [allowSI, setAllowSI] = useState(ex.allow_special_instructions === true)
+  const [vegetarian, setVegetarian] = useState(ex.vegetarian === true)
+  const [containsNuts, setContainsNuts] = useState(ex.contains_nuts === true)
+  const [glutenFree, setGlutenFree] = useState(ex.gluten_free === true)
+  const [vegan, setVegan] = useState(ex.vegan === true)
+
   // Modifier groups attached to this item (edit mode only — the item must exist).
   const [libGroups, setLibGroups] = useState<{ reference: string; name: string; external_name: string | null }[]>([])
   const [attached, setAttached] = useState<{ reference: string; enabled: boolean }[]>([])
@@ -273,7 +283,11 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
     setSaving(true); setErr('')
     const res = await fetch(isEdit ? `/api/restaurant/disco-menu-items/${item!.reference}` : '/api/restaurant/disco-menu-items', {
       method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ categoryReference: categoryRef, name: name.trim(), description: desc, price, serves, imageUrl, visible }),
+      body: JSON.stringify({
+        categoryReference: categoryRef, name: name.trim(), description: desc, price, serves, imageUrl, visible,
+        displayPrice, minQuantity: minQuantity.trim() === '' ? null : parseInt(minQuantity, 10) || 1,
+        allowedSpecialInstructions: allowSI, vegetarian, containsNuts, glutenFree, vegan,
+      }),
     })
     if (!res.ok) { setSaving(false); const d = await res.json().catch(() => ({})); setErr(d.error || 'Could not save item'); return }
     // Persist attached modifier groups (edit mode only — the item exists).
@@ -298,6 +312,22 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
           <div><label style={dlgLabel}>Price</label><input value={price} onChange={e => setPrice(e.target.value)} inputMode="decimal" style={dlgInput} /></div>
           <div><label style={dlgLabel}>Serves</label><input value={serves} onChange={e => setServes(e.target.value)} style={dlgInput} /></div>
         </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div><label style={dlgLabel}>Display price (optional)</label><input value={displayPrice} onChange={e => setDisplayPrice(e.target.value)} placeholder="e.g. Starting at $45" style={dlgInput} /></div>
+          <div><label style={dlgLabel}>Min quantity</label><input value={minQuantity} onChange={e => setMinQuantity(e.target.value)} inputMode="numeric" placeholder="1" style={dlgInput} /></div>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: DARK, cursor: 'pointer' }}>
+          <input type="checkbox" checked={allowSI} onChange={e => setAllowSI(e.target.checked)} style={{ accentColor: BLUE }} /> Allow special instructions
+        </label>
+        <label style={dlgLabel}>Dietary</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14 }}>
+          {([['Vegetarian', vegetarian, setVegetarian], ['Contains nuts', containsNuts, setContainsNuts], ['Gluten-free', glutenFree, setGlutenFree], ['Vegan', vegan, setVegan]] as [string, boolean, (v: boolean) => void][]).map(([lbl, val, set]) => (
+            <label key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: DARK, cursor: 'pointer' }}>
+              <input type="checkbox" checked={val} onChange={e => set(e.target.checked)} style={{ accentColor: BLUE }} /> {lbl}
+            </label>
+          ))}
+        </div>
+
         <label style={dlgLabel}>Image</label>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {imageUrl ? <img src={imageUrl} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', border: '1px solid #eee' }} /> : <div style={{ width: 56, height: 56, borderRadius: 8, background: '#f4f4f8', border: '1px solid #eee' }} />}
