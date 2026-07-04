@@ -41,7 +41,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
            max_orders_per_day, lead_time_hours, rolling_availability_days,
            to_char(daily_cutoff_time,'HH24:MI') AS daily_cutoff_time,
            to_char(hard_cutoff_date,'YYYY-MM-DD') AS hard_cutoff_date,
-           delivery_settings, skipped_days, created_at, updated_at
+           delivery_settings, skipped_days, include_utensils, created_at, updated_at
     FROM disco_menus WHERE reference = ${ref}::uuid LIMIT 1
   `) as Record<string, unknown>[]
   return NextResponse.json({ menu: rows[0] || null })
@@ -99,6 +99,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         daily_cutoff_time = ${s.dailyCutoffTime}::time, hard_cutoff_date = ${s.hardCutoffDate}::date,
         delivery_settings = ${JSON.stringify(parseDeliverySettings(body))}::jsonb,
         skipped_days = ${JSON.stringify(parseSkippedDays(body))}::jsonb,
+        include_utensils = ${s.includeUtensils},
         updated_at = NOW()
       WHERE reference = ${ref}::uuid
     `

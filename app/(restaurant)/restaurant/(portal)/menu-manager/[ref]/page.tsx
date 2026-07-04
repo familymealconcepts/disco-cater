@@ -50,12 +50,12 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
   const catItems = items.filter(i => i.category_reference === selCat).sort((a, b) => a.position - b.position)
 
   // ── Category actions ──
-  async function saveCat(name: string, description: string) {
+  async function saveCat(name: string, description: string, visible: boolean) {
     if (!catDlg) return
     const isEdit = catDlg.mode === 'edit'
     const res = await fetch(isEdit ? `/api/restaurant/disco-menu-categories/${catDlg.cat!.reference}` : `/api/restaurant/disco-menus/${ref}/categories`, {
       method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify({ name, description, visible }),
     })
     if (res.ok) { setCatDlg(null); await load(); flash('Saved') }
     else { const d = await res.json().catch(() => ({})); flash(d.error || 'Could not save category') }
@@ -208,9 +208,10 @@ const dlgCard: React.CSSProperties = { background: '#fff', borderRadius: 14, pad
 const dlgInput: React.CSSProperties = { width: '100%', padding: '10px 12px', fontSize: 13, fontFamily: F, border: '1px solid #ddd', borderRadius: 8, color: DARK, boxSizing: 'border-box', outline: 'none' }
 const dlgLabel: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#555', margin: '12px 0 6px' }
 
-function CategoryDialog({ mode, cat, onCancel, onSave }: { mode: 'create' | 'edit'; cat?: Cat; onCancel: () => void; onSave: (n: string, d: string) => void }) {
+function CategoryDialog({ mode, cat, onCancel, onSave }: { mode: 'create' | 'edit'; cat?: Cat; onCancel: () => void; onSave: (n: string, d: string, visible: boolean) => void }) {
   const [name, setName] = useState(cat?.name || '')
   const [desc, setDesc] = useState(cat?.description || '')
+  const [visible, setVisible] = useState(cat?.visible !== false)
   return (
     <div style={dlgOverlay} onClick={onCancel}>
       <div style={dlgCard} onClick={e => e.stopPropagation()}>
@@ -219,8 +220,11 @@ function CategoryDialog({ mode, cat, onCancel, onSave }: { mode: 'create' | 'edi
         <input value={name} onChange={e => setName(e.target.value)} style={dlgInput} autoFocus />
         <label style={dlgLabel}>Description</label>
         <input value={desc} onChange={e => setDesc(e.target.value)} style={dlgInput} />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 13, color: DARK, cursor: 'pointer' }}>
+          <input type="checkbox" checked={visible} onChange={e => setVisible(e.target.checked)} style={{ accentColor: BLUE }} /> Visible to customers
+        </label>
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-          <button onClick={() => name.trim() && onSave(name.trim(), desc)} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>Save</button>
+          <button onClick={() => name.trim() && onSave(name.trim(), desc, visible)} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>Save</button>
           <button onClick={onCancel} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, color: '#555', cursor: 'pointer', fontFamily: F }}>Cancel</button>
         </div>
       </div>

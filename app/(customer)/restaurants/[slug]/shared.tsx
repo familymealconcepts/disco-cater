@@ -424,7 +424,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
              max_orders_per_day, lead_time_hours, rolling_availability_days,
              to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
              to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
-             delivery_settings, skipped_days
+             delivery_settings, skipped_days, include_utensils
       FROM disco_menus
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true AND archived = false
       ORDER BY position, id LIMIT 1
@@ -457,7 +457,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
         isDisco: true, location: r.location || undefined,
       },
       menuData: [{
-        menu: { reference: primary?.reference || 'disco-catering', name: primary?.name || 'Catering Menu', scheduleOption, settings },
+        menu: { reference: primary?.reference || 'disco-catering', name: primary?.name || 'Catering Menu', scheduleOption, settings, includeUtensils: (primary as { include_utensils?: boolean })?.include_utensils === true },
         categories,
       }],
       reference: r.restaurant_reference,

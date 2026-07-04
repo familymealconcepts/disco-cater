@@ -252,7 +252,14 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   Settings" page (`/restaurant/menu-manager/settings`) incl. the Closed-Days admin UI; "Settings"
   nav repointed to it for Disco users. Tax set here flows into the order total ($112.88 verified).
   Zero FM. (Online-ordering hard gate deferred — needs go-live to default it true; value is stored.)
-- **Stage 10 — Location-level (fulfillment options offered)** ⬜
+- **Stage 10 — Location-level (fulfillment options offered)** ✅ COVERED BY STAGE 5. Disco-native
+  restaurants have no separate FM location record — fulfillment types are menu-scoped
+  (offers_pickup/offers_delivery, Stage 5); "shipping" = the NATIONWIDE_SHIPPING menu type. No
+  separate location-level setting to build.
+- **Small extras** ✅ DONE & TESTED (6/6). Per-menu "Include Utensils" toggle
+  (disco_menus.include_utensils → stored, emitted to the customer page, menu-form toggle) +
+  category visibility (disco-menu-categories PUT accepts `visible`; toggle in the category dialog;
+  hidden categories drop off the customer menu — already filtered in loadDiscoNativeRestaurant).
 - **Stage 11 — Small extras (utensils toggle, category visibility)** ⬜
 - **Stage 12 — Bulk Menu Editor (SYSTEM_ADMIN, cross-location)** ⬜
 - **Stage 13 — Multi-Unit Links** ⬜

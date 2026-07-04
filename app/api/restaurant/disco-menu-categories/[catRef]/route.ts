@@ -43,10 +43,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ catR
       }
       return NextResponse.json({ ok: true })
     }
+    // Visibility-only toggle (fast path).
+    if (typeof body?.visible === 'boolean' && body?.name === undefined) {
+      await sql`UPDATE disco_menu_categories SET visible = ${body.visible}, updated_at = NOW() WHERE reference = ${catRef}::uuid`
+      return NextResponse.json({ ok: true })
+    }
     const name = String(body?.name ?? '').trim()
     if (!name) return NextResponse.json({ error: 'Category name is required.' }, { status: 400 })
     await sql`
-      UPDATE disco_menu_categories SET name = ${name}, description = ${String(body?.description || '') || null}, updated_at = NOW()
+      UPDATE disco_menu_categories SET name = ${name}, description = ${String(body?.description || '') || null},
+        visible = ${body?.visible === false ? false : true}, updated_at = NOW()
       WHERE reference = ${catRef}::uuid
     `
     return NextResponse.json({ ok: true })

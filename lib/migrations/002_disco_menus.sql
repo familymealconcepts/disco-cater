@@ -169,6 +169,10 @@ ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS rolling_availability_days INTEG
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS daily_cutoff_time TIME; -- NULL = none
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS hard_cutoff_date DATE; -- NULL = none
 
+-- Per-menu "Include Utensils" toggle (small extra). When on, the customer ordering
+-- page offers an optional utensils checkbox that writes "Include utensils" to the note.
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS include_utensils BOOLEAN NOT NULL DEFAULT false;
+
 -- Delivery settings (Stage 6). JSONB (nested tiers):
 --   { method: 'OWN_DELIVERY'|'THIRD_PARTY',
 --     own: { primary:{radiusMiles,feeType:'FIXED'|'PERCENT',feeValue},

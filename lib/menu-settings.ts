@@ -16,6 +16,7 @@ export interface MenuSettingsInput {
   rollingAvailabilityDays: number
   dailyCutoffTime: string | null // 'HH:mm'
   hardCutoffDate: string | null  // 'yyyy-mm-dd'
+  includeUtensils: boolean
 }
 
 const n = (v: unknown, d = 0): number => { const x = Number(v); return Number.isFinite(x) ? x : d }
@@ -40,6 +41,7 @@ export function parseMenuSettingsInput(body: Record<string, unknown>): MenuSetti
     rollingAvailabilityDays: clampInt(body?.rollingAvailabilityDays, 1, 365, 90),
     dailyCutoffTime: String(body?.dailyCutoffTime || '').trim() || null,
     hardCutoffDate: String(body?.hardCutoffDate || '').trim() || null,
+    includeUtensils: body?.includeUtensils === true,
   }
 }
 

@@ -73,6 +73,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const [rollingAvailabilityDays, setRollingAvailabilityDays] = useState('90')
   const [dailyCutoffTime, setDailyCutoffTime] = useState('')
   const [hardCutoffDate, setHardCutoffDate] = useState('')
+  const [includeUtensils, setIncludeUtensils] = useState(false)
 
   // Delivery settings (Stage 6)
   const [deliveryMethod, setDeliveryMethod] = useState<'OWN_DELIVERY' | 'THIRD_PARTY'>('THIRD_PARTY')
@@ -128,6 +129,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         setMaxOrdersPerDay(d.max_orders_per_day != null ? String(d.max_orders_per_day) : '')
         setLeadTimeHours(String(d.lead_time_hours ?? 24)); setRollingAvailabilityDays(String(d.rolling_availability_days ?? 90))
         setDailyCutoffTime(d.daily_cutoff_time || ''); setHardCutoffDate(d.hard_cutoff_date || '')
+        setIncludeUtensils(d.include_utensils === true)
         const del = d.delivery_settings || {}
         setDeliveryMethod(del.method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY')
         setThirdPartySubsidyPct(String(del.thirdPartySubsidyPct ?? 0))
@@ -181,6 +183,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
       maxOrdersPerDay: maxOrdersPerDay.trim() === '' ? null : (parseInt(maxOrdersPerDay, 10) || 0),
       leadTimeHours: parseInt(leadTimeHours, 10) || 0, rollingAvailabilityDays: parseInt(rollingAvailabilityDays, 10) || 90,
       dailyCutoffTime: dailyCutoffTime || undefined, hardCutoffDate: hardCutoffDate || undefined,
+      includeUtensils,
       deliverySettings: {
         method: deliveryMethod,
         thirdPartySubsidyPct: parseFloat(thirdPartySubsidyPct) || 0,
@@ -361,6 +364,14 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
             <div><label style={label}>Daily cutoff time</label><input type="time" value={dailyCutoffTime} onChange={e => setDailyCutoffTime(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Same-day orders stop at this time.</div></div>
             <div><label style={label}>Hard cutoff date</label><input type="date" value={hardCutoffDate} onChange={e => setHardCutoffDate(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Ordering closes after this date.</div></div>
           </div>
+        </div>
+
+        {/* Utensils (small extra) */}
+        <div style={card}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, color: DARK }}>
+            <input type="checkbox" checked={includeUtensils} onChange={e => setIncludeUtensils(e.target.checked)} style={{ width: 16, height: 16, accentColor: BLUE, cursor: 'pointer' }} />
+            Offer an “Include utensils” option at checkout
+          </label>
         </div>
 
         {/* Delivery settings (Stage 6) */}
