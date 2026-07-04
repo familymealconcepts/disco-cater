@@ -2,14 +2,64 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantUserRef, getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow } from '../../../../lib/location-links'
+import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getDiscoGroupAccounts } from '../../../../lib/disco-restaurant-auth'
+import { listNativeLinks, createNativeLink, slugTaken } from '../../../../lib/multi-unit-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
+
+// The location refs a disco SA may put in a link = their group (+ home).
+async function allowedRefs(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>): Promise<Set<string>> {
+  const set = new Set<string>()
+  if (ctx.restaurantReference) set.add(ctx.restaurantReference)
+  try { for (const g of await getDiscoGroupAccounts(ctx.businessName, ctx.email)) set.add(g.restaurant_reference) } catch { /* home only */ }
+  return set
+}
+
+// Read the multipart `request` JSON part (FM shape) the client sends.
+async function readRequestPart(req: NextRequest): Promise<Record<string, unknown>> {
+  const fd = await req.formData()
+  const raw = fd.get('request')
+  if (raw && typeof (raw as Blob).text === 'function') {
+    try { return JSON.parse(await (raw as Blob).text()) } catch { return {} }
+  }
+  return {}
+}
+
+// Disco-native listing: the SA's own links from Neon, in FM's page shape.
+async function nativeList(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>) {
+  if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return NextResponse.json({ content: [], totalElements: 0 })
+  const content = await listNativeLinks(ctx.email)
+  return NextResponse.json({ content, totalElements: content.length })
+}
+
+async function nativeCreate(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, req: NextRequest) {
+  if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'System admin only' }, { status: 403 })
+  const json = await readRequestPart(req)
+  const slug = String(json.url || '').trim().toLowerCase()
+  const title = String(json.header || '').trim()
+  const memberRefs = Array.isArray(json.restaurantReferences) ? (json.restaurantReferences as unknown[]).map(String) : []
+  if (!title) return NextResponse.json({ error: 'Title is required', description: 'Title is required' }, { status: 400 })
+  if (!SLUG_RE.test(slug)) return NextResponse.json({ error: 'Invalid URL slug', description: 'URL may contain only lowercase letters, numbers, and hyphens.' }, { status: 400 })
+  if (!memberRefs.length) return NextResponse.json({ error: 'Pick at least one location', description: 'Choose at least one location.' }, { status: 400 })
+  const allow = await allowedRefs(ctx)
+  const members = memberRefs.filter(r => allow.has(r))
+  if (!members.length) return NextResponse.json({ error: 'Locations not in your group', description: 'Those locations are not in your group.' }, { status: 403 })
+  if (await slugTaken(slug)) return NextResponse.json({ error: 'URL already in use', description: 'That URL is already in use — pick another.' }, { status: 409 })
+  const { reference } = await createNativeLink({ slug, title, ownerEmail: ctx.email, memberRefs: members })
+  return NextResponse.json({ reference, url: slug, header: title })
+}
 
 // Mirrors FM's getLinksData(): the listing call carries page/size/sort PLUS
 // `dashboardUrl` (the restaurant's own group url, fetched from /groups) and
 // `userReference`. We inject userReference from the JWT here — FM reads it from
 // the same token, and the client (httpOnly cookie) can't decode it.
 export async function GET(req: NextRequest) {
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') return nativeList(ctx)
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -38,6 +88,9 @@ export async function GET(req: NextRequest) {
 // legacy JSON body is still accepted (wrapped into the `request` part) so older
 // callers keep working.
 export async function POST(req: NextRequest) {
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') return nativeCreate(ctx, req)
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

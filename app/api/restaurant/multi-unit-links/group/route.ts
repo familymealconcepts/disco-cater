@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
+import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -14,6 +15,11 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // GET -> { name, url, ... }
 export async function GET() {
+  // Disco-native has no FM auto-managed "Dashboard" group — return empty so the
+  // client pins no Dashboard row and never sends a dashboardUrl. Zero FM.
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') return NextResponse.json({})
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -34,6 +40,10 @@ export async function GET() {
 // the auto-managed Dashboard row (urlFrom === 'Dashboard'), used INSTEAD of the
 // links PUT. Same multipart contract (request JSON part + optional image part).
 export async function PUT(req: NextRequest) {
+  // Native sessions have no Dashboard row to edit — no-op without touching FM.
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') return NextResponse.json({ ok: true })
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

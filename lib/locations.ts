@@ -1,6 +1,8 @@
 import { cache } from 'react'
 import { createClient } from '@sanity/client'
 import { sql } from './db'
+import { getNativeLinkBySlug } from './multi-unit-links'
+import { stateFromAddress } from './us-states'
 
 // Resolves a restaurant-portal "Links" shareable slug (discocater.com/locations/
 // {slug}) to the underlying FM locations and their Disco ordering pages.
@@ -89,6 +91,28 @@ async function resolveLinkBanner(slug: string): Promise<{ image: string | null; 
  * generateMetadata + the page render within a single request.
  */
 export const getLocationLink = cache(async (slug: string): Promise<LocationLink | null> => {
+  // Native link? Resolve entirely from Neon (zero FM). Members → disco_restaurant_cache
+  // (live only, mirroring FM's onlineOrderingAllowed filter) → grouped by state on the
+  // page. Native restaurants have their own /restaurants/{slug} pages.
+  const nativeLink = await getNativeLinkBySlug(slug).catch(() => null)
+  if (nativeLink) {
+    if (!nativeLink.memberRefs.length) return null
+    const rows = (await sql`
+      SELECT restaurant_reference, name, slug, address, location FROM disco_restaurant_cache
+      WHERE restaurant_reference = ANY(${nativeLink.memberRefs}) AND is_live = true
+    `.catch(() => [])) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null }[]
+    if (!rows.length) return null
+    const locations: LocationItem[] = rows.map(r => ({
+      restaurantReference: r.restaurant_reference,
+      businessName: r.name || 'Restaurant',
+      address: r.address || r.location || '',
+      state: stateFromAddress(r.address) || stateFromAddress(r.location) || '',
+      slug: r.slug || null,
+    }))
+    const banner = await resolveLinkBanner(slug)
+    return { title: nativeLink.title || titleFromSlug(slug), image: banner.image, locations }
+  }
+
   let res: Response
   try {
     res = await fetch(`${FM}/public-api/restaurants/group/${encodeURIComponent(slug)}`, {

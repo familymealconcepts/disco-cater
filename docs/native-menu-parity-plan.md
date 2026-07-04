@@ -280,12 +280,19 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   updates one disco_menu_items row (price/display/name/desc/serves) with a cross-group guard; and
   `selected-restaurant` now skips FM for disco sessions (cookie only). Tested 13/13 incl. cross-location
   search, single-location apply, group guard, and ZERO FM contact proven against a dead FM host.
-- **Stage 13 — Multi-Unit Links (NATIVE, zero FM)** 🟨 IN PROGRESS. FM feature is real
-  (tbl_multi_unit_links + join + public `/locations/{slug}` grouped by state). Disco already had a
-  management + customer page, but they PROXY FM (membership/slug-uniqueness/grouping live in FM;
-  Neon mirrored only slug/title/image) — unusable for disco-native locations FM never saw. Rebuild:
-  native Neon link entity + membership, native SA CRUD branch (disco session), native customer
-  `/locations/{slug}` resolution (group by state), zero FM. Crop ratio kept at Disco's current 16:9.
+- **Stage 13 — Multi-Unit Links (NATIVE, zero FM)** ✅ DONE & TESTED (17/17). Disco's link stack
+  PROXIED FM (membership/slug-uniqueness/grouping in FM; Neon mirrored only slug/title/image) —
+  unusable for disco-native locations. Rebuilt native for disco sessions (FM path untouched):
+  - Neon store `lib/multi-unit-links.ts` — `disco_multi_unit_links` (slug unique-ci, title, owner) +
+    `disco_multi_unit_link_members`; CRUD + `getNativeLinkBySlug`.
+  - SA CRUD branches: `multi-unit-links` GET(list)/POST(create), `[ref]` PUT/DELETE (owner+group
+    guard, slug regex + uniqueness), `group` returns {} (no FM Dashboard row), `live-count` counts
+    live native members. Image reuses the slug-keyed disco_location_links mirror (Vercel Blob).
+  - Customer `/locations/{slug}` (`lib/locations.ts`) resolves native first → members from
+    disco_restaurant_cache (live only) → grouped by FULL state name (`lib/us-states.ts`) → native
+    `/restaurants/{slug}` order links; falls back to FM for FM slugs. Single-location auto-redirect kept.
+  Tested 17/17 incl. CRUD, slug-uniqueness/validation/guards, live-count, the customer page
+  (state grouping, offline excluded, native order links), and ZERO FM contact vs a dead FM host.
 - **Stage 14 — Consumption wiring for money/timing settings at order time** ⬜ (may fold into Stage 5–7)
 
 ---
