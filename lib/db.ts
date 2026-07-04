@@ -141,6 +141,10 @@ export async function runMigrations(): Promise<void> {
     // in the platform account (mirrors FM's payout hold); the intended payout is
     // still recorded so it can be released later. Enforced in the native place route.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS withhold_payouts BOOLEAN NOT NULL DEFAULT false`,
+    // Delivery order time-window granularity (Stage 9): how a delivery order's time
+    // is shown to the customer — 'exact' | '30_min' | '1_hour'. Mirrors FM's
+    // feesAndTips.deliveryOrderTimeWindows; read by the customer flow for disco-native.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS delivery_order_time_windows VARCHAR(12) NOT NULL DEFAULT 'exact'`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.

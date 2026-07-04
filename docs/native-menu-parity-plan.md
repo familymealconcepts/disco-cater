@@ -246,7 +246,12 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   contains_nuts, gluten_free, vegan. Stored via disco-menu-items create/edit; returned by the menu
   editor (categories GET); emitted by loadDiscoNativeRestaurant on each package. UI: fields in the
   item editor dialog. Zero FM.
-- **Stage 9 — Restaurant-level settings (delivery time-window granularity, online-ordering, tax, notifications)** ⬜
+- **Stage 9 — Restaurant-level settings** ✅ DONE & TESTED (5/5). `/api/restaurant/disco-settings`
+  (GET/PUT over disco_restaurant_overrides): online-ordering toggle, delivery time-window
+  granularity (new column), tax rates, notification emails/SMS + reminders. Native "Restaurant
+  Settings" page (`/restaurant/menu-manager/settings`) incl. the Closed-Days admin UI; "Settings"
+  nav repointed to it for Disco users. Tax set here flows into the order total ($112.88 verified).
+  Zero FM. (Online-ordering hard gate deferred — needs go-live to default it true; value is stored.)
 - **Stage 10 — Location-level (fulfillment options offered)** ⬜
 - **Stage 11 — Small extras (utensils toggle, category visibility)** ⬜
 - **Stage 12 — Bulk Menu Editor (SYSTEM_ADMIN, cross-location)** ⬜

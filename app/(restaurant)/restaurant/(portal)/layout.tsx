@@ -166,18 +166,21 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   // libraries) that would 404. FM sessions are untouched (isDiscoSession stays
   // false unless /me confirms Disco).
   const NAV: NavItem[] = isDiscoSession
-    ? baseNav.map(item =>
-        item.title === 'Manage Menus'
-          ? {
-              ...item, path: '/restaurant/menu-manager',
-              children: [
-                { title: 'Menus', path: '/restaurant/menu-manager' },
-                { title: 'Modifiers', path: '/restaurant/menu-manager/modifiers' },
-                { title: 'Modifier Groups', path: '/restaurant/menu-manager/groups' },
-              ],
-            }
-          : item,
-      )
+    ? baseNav.map(item => {
+        if (item.title === 'Manage Menus') {
+          return {
+            ...item, path: '/restaurant/menu-manager',
+            children: [
+              { title: 'Menus', path: '/restaurant/menu-manager' },
+              { title: 'Modifiers', path: '/restaurant/menu-manager/modifiers' },
+              { title: 'Modifier Groups', path: '/restaurant/menu-manager/groups' },
+            ],
+          }
+        }
+        // Disco-native restaurants have no FM order-settings — use the native page.
+        if (item.title === 'Settings') return { ...item, path: '/restaurant/menu-manager/settings', children: undefined }
+        return item
+      })
     : baseNav
 
   const refreshBadge = useCallback(async () => {
