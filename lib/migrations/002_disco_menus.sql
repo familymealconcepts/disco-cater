@@ -173,13 +173,13 @@ ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS hard_cutoff_date DATE; -- NULL 
 -- page offers an optional utensils checkbox that writes "Include utensils" to the note.
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS include_utensils BOOLEAN NOT NULL DEFAULT false;
 
--- Delivery settings (Stage 6). JSONB (nested tiers):
+-- Delivery settings (Stage 6). JSONB:
 --   { method: 'OWN_DELIVERY'|'THIRD_PARTY',
 --     own: { primary:{radiusMiles,feeType:'FIXED'|'PERCENT',feeValue},
---            secondary?:{radiusMiles,feeType,feeValue} },
---     thirdPartySubsidyPct: number }
--- OWN_DELIVERY: restaurant delivers + keeps the fee; THIRD_PARTY: Disco dispatches a
--- courier (Expedite) + keeps the fee. Fee is computed server-side from distance.
+--            secondary?:{radiusMiles,feeType,feeValue} } }
+-- OWN_DELIVERY: restaurant delivers + keeps its configurable distance-based fee.
+-- THIRD_PARTY: Disco dispatches a courier + keeps the fee, which is a FIXED platform
+-- rule (15% of subtotal capped at $85) — NO per-restaurant configuration.
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS delivery_settings JSONB;
 
 -- Skipped / blackout days (Stage 7). Per-menu closures — JSONB array of

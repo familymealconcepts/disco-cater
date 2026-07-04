@@ -7,6 +7,7 @@ import type Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig } from './native-payment'
+import { computeThirdPartyDeliveryFee, type DeliverySettings } from '../menu-settings'
 
 export interface NativeCartItem { reference?: string; name: string; price: number; quantity: number }
 export interface NativeTip { custom: boolean; amount?: number; pct?: number }
@@ -61,6 +62,17 @@ export async function loadRestaurantServiceChargePct(restaurantReference: string
   `.catch(() => [])) as { service_charge_pct: string | number | null }[]
   const v = rows[0]?.service_charge_pct
   return v != null && Number.isFinite(Number(v)) ? Number(v) : 0
+}
+
+// The primary menu's delivery method (OWN_DELIVERY vs THIRD_PARTY) — decides how
+// a delivery order's fee is computed. Defaults to THIRD_PARTY when unset.
+export async function loadRestaurantDeliverySettings(restaurantReference: string): Promise<DeliverySettings | null> {
+  const rows = (await sql`
+    SELECT delivery_settings FROM disco_menus
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+    ORDER BY position, id LIMIT 1
+  `.catch(() => [])) as { delivery_settings: DeliverySettings | null }[]
+  return rows[0]?.delivery_settings || null
 }
 
 export function cartSubtotal(items: NativeCartItem[]): number {
@@ -134,16 +146,31 @@ export async function priceNativeFmDto(body: Record<string, unknown>): Promise<R
   const tips = Number(body?.tips) || 0
   const subtotal = fmDtoSubtotal(body?.items as FmDtoItem[])
   const scPct = await loadRestaurantServiceChargePct(restaurantRef)
+
+  // Delivery fee for the PREVIEW must match what place charges. Third-party is the
+  // fixed platform rule (15%/$85, no config) and needs only the subtotal, so include
+  // it here. Own-delivery is distance-based; the client gets that from validate-address.
+  let fulfillment: Fulfillment = 'PICKUP'
+  let deliveryFee = 0
+  if (orderType === 'DELIVERY') {
+    const del = await loadRestaurantDeliverySettings(restaurantRef)
+    if (del?.method === 'OWN_DELIVERY') {
+      fulfillment = 'OWN_DELIVERY' // fee is address-dependent → supplied by validate-address
+    } else {
+      fulfillment = 'THIRD_PARTY_DELIVERY'
+      deliveryFee = computeThirdPartyDeliveryFee(subtotal)
+    }
+  }
+
   const b = await priceNativeOrder({
     restaurantReference: restaurantRef,
     customerEmail: '', // total is lead-gen-independent; place() resolves the real customer
     subtotal,
-    fulfillment: orderType === 'DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP',
-    deliveryFee: 0,
+    fulfillment,
+    deliveryFee,
     scPct,
     tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
   })
-  const deliveryFee = 0
   const tipsInPrice = round2(b.tipsInPrice + b.thirdPartyDeliveryTips)
   return {
     native: true,

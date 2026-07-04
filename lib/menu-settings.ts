@@ -81,10 +81,12 @@ export function parseSkippedDays(body: Record<string, unknown>): SkippedDay[] {
 // ── Delivery settings (Stage 6) ──────────────────────────────────────────────
 export type DeliveryFeeType = 'FIXED' | 'PERCENT'
 export interface DeliveryTier { radiusMiles: number; feeType: DeliveryFeeType; feeValue: number }
+// method OWN_DELIVERY: restaurant delivers with its own configurable radius/fee.
+// method THIRD_PARTY: Disco dispatches a courier; the fee is a FIXED platform rule
+// (15% of subtotal, capped at $85) — NO per-restaurant configuration.
 export interface DeliverySettings {
   method: 'OWN_DELIVERY' | 'THIRD_PARTY'
   own?: { primary?: DeliveryTier; secondary?: DeliveryTier }
-  thirdPartySubsidyPct: number
 }
 
 function parseTier(t: unknown): DeliveryTier | undefined {
@@ -103,7 +105,6 @@ export function parseDeliverySettings(body: Record<string, unknown>): DeliverySe
   return {
     method,
     own: own ? { primary: parseTier(own.primary), secondary: parseTier(own.secondary) } : undefined,
-    thirdPartySubsidyPct: Math.max(0, Math.min(100, n(raw.thirdPartySubsidyPct))),
   }
 }
 
@@ -173,7 +174,9 @@ export function menuRowToSettings(row: MenuSettingsRow) {
     secondaryOwnDeliveryRadius: secondary?.radiusMiles ?? null,
     secondaryOwnDeliveryFee: feeCurrency(secondary),
     secondaryOwnDeliveryFeePercent: feePercent(secondary),
-    thirdPartyDeliverySubsidingPercent: del?.thirdPartySubsidyPct ?? 0,
+    // Third-party fee is a fixed platform rule (15%/$85) computed at order time —
+    // never a per-restaurant subsidy. Emit 0 so nothing downstream reduces the payout.
+    thirdPartyDeliverySubsidingPercent: 0,
   }
 }
 
