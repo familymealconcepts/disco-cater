@@ -228,7 +228,13 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   loadDiscoNativeRestaurant (settings + scheduleOption); service charge applied to the order total
   FROM THE MENU (client never dictates it) — verified $117.32 cent-exact. UI: "Order Settings"
   section in the menu form. Zero FM.
-- **Stage 6 — Menu delivery settings** ⬜
+- **Stage 6 — Menu delivery settings** ✅ DONE & TESTED (6/6). disco_menus.delivery_settings JSONB
+  (method own/third-party, own primary+secondary radius tiers with $/% fees, third-party subsidy %).
+  Stored via disco-menus; validateNativeDelivery enforces the own-delivery radius + computes the fee
+  (fixed or % of subtotal); place resolves fulfillment (own vs third-party) + fee authoritatively
+  from the menu + distance (restaurant keeps own-delivery fee, Disco keeps third-party — per Stage 1f).
+  Emitted FM-shaped to the customer page. UI: "Delivery" section in the menu form. Zero FM.
+  (Third-party courier fee is settled at Expedite dispatch; $0 in the customer preview — runtime follow-up.)
 - **Stage 7 — Skipped days (menu) + Closed Days (restaurant)** ⬜
 - **Stage 8 — Item fields (display price, min qty, dietary, special instructions)** ⬜
 - **Stage 9 — Restaurant-level settings (delivery time-window granularity, online-ordering, tax, notifications)** ⬜

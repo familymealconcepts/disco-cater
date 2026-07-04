@@ -20,9 +20,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const ref: string = body?.restaurantReference || body?.restaurantRef || ''
 
-    // ── Disco-native path: geocode + distance in Neon, zero FM. ──
+    // ── Disco-native path: geocode + distance + fee in Neon, zero FM. ──
     if (await isDiscoNative(ref)) {
-      const result = await validateNativeDelivery(ref, body?.deliveryAddress || {})
+      const result = await validateNativeDelivery(ref, body?.deliveryAddress || {}, Number(body?.subtotal) || 0)
       return NextResponse.json(result)
     }
 

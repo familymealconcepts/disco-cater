@@ -74,6 +74,16 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const [dailyCutoffTime, setDailyCutoffTime] = useState('')
   const [hardCutoffDate, setHardCutoffDate] = useState('')
 
+  // Delivery settings (Stage 6)
+  const [deliveryMethod, setDeliveryMethod] = useState<'OWN_DELIVERY' | 'THIRD_PARTY'>('THIRD_PARTY')
+  const [ownPrimaryRadius, setOwnPrimaryRadius] = useState('')
+  const [ownPrimaryFeeType, setOwnPrimaryFeeType] = useState<'FIXED' | 'PERCENT'>('FIXED')
+  const [ownPrimaryFeeValue, setOwnPrimaryFeeValue] = useState('')
+  const [ownSecondaryRadius, setOwnSecondaryRadius] = useState('')
+  const [ownSecondaryFeeType, setOwnSecondaryFeeType] = useState<'FIXED' | 'PERCENT'>('FIXED')
+  const [ownSecondaryFeeValue, setOwnSecondaryFeeValue] = useState('')
+  const [thirdPartySubsidyPct, setThirdPartySubsidyPct] = useState('0')
+
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -115,6 +125,12 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         setMaxOrdersPerDay(d.max_orders_per_day != null ? String(d.max_orders_per_day) : '')
         setLeadTimeHours(String(d.lead_time_hours ?? 24)); setRollingAvailabilityDays(String(d.rolling_availability_days ?? 90))
         setDailyCutoffTime(d.daily_cutoff_time || ''); setHardCutoffDate(d.hard_cutoff_date || '')
+        const del = d.delivery_settings || {}
+        setDeliveryMethod(del.method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY')
+        setThirdPartySubsidyPct(String(del.thirdPartySubsidyPct ?? 0))
+        const p = del.own?.primary, sec = del.own?.secondary
+        if (p) { setOwnPrimaryRadius(String(p.radiusMiles ?? '')); setOwnPrimaryFeeType(p.feeType === 'PERCENT' ? 'PERCENT' : 'FIXED'); setOwnPrimaryFeeValue(String(p.feeValue ?? '')) }
+        if (sec) { setOwnSecondaryRadius(String(sec.radiusMiles ?? '')); setOwnSecondaryFeeType(sec.feeType === 'PERCENT' ? 'PERCENT' : 'FIXED'); setOwnSecondaryFeeValue(String(sec.feeValue ?? '')) }
       } finally { setLoading(false) }
     })()
   }, [menuRef])
@@ -161,6 +177,14 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
       maxOrdersPerDay: maxOrdersPerDay.trim() === '' ? null : (parseInt(maxOrdersPerDay, 10) || 0),
       leadTimeHours: parseInt(leadTimeHours, 10) || 0, rollingAvailabilityDays: parseInt(rollingAvailabilityDays, 10) || 90,
       dailyCutoffTime: dailyCutoffTime || undefined, hardCutoffDate: hardCutoffDate || undefined,
+      deliverySettings: {
+        method: deliveryMethod,
+        thirdPartySubsidyPct: parseFloat(thirdPartySubsidyPct) || 0,
+        own: deliveryMethod === 'OWN_DELIVERY' ? {
+          ...(ownPrimaryRadius.trim() ? { primary: { radiusMiles: parseFloat(ownPrimaryRadius) || 0, feeType: ownPrimaryFeeType, feeValue: parseFloat(ownPrimaryFeeValue) || 0 } } : {}),
+          ...(ownSecondaryRadius.trim() ? { secondary: { radiusMiles: parseFloat(ownSecondaryRadius) || 0, feeType: ownSecondaryFeeType, feeValue: parseFloat(ownSecondaryFeeValue) || 0 } } : {}),
+        } : undefined,
+      },
     }
     setSaving(true)
     try {
@@ -332,6 +356,35 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
             <div><label style={label}>Daily cutoff time</label><input type="time" value={dailyCutoffTime} onChange={e => setDailyCutoffTime(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Same-day orders stop at this time.</div></div>
             <div><label style={label}>Hard cutoff date</label><input type="date" value={hardCutoffDate} onChange={e => setHardCutoffDate(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Ordering closes after this date.</div></div>
           </div>
+        </div>
+
+        {/* Delivery settings (Stage 6) */}
+        <div style={card}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 14 }}>Delivery</div>
+          <label style={label}>Delivery method</label>
+          <div style={{ display: 'flex', gap: 20, marginBottom: 16 }}>
+            <label style={radioRow(deliveryMethod === 'THIRD_PARTY')}><input type="radio" checked={deliveryMethod === 'THIRD_PARTY'} onChange={() => setDeliveryMethod('THIRD_PARTY')} style={{ accentColor: BLUE }} /> Third-party (Disco arranges a courier)</label>
+            <label style={radioRow(deliveryMethod === 'OWN_DELIVERY')}><input type="radio" checked={deliveryMethod === 'OWN_DELIVERY'} onChange={() => setDeliveryMethod('OWN_DELIVERY')} style={{ accentColor: BLUE }} /> Self-delivery</label>
+          </div>
+
+          {deliveryMethod === 'OWN_DELIVERY' ? (
+            <>
+              <label style={label}>Primary zone</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+                <div><input value={ownPrimaryRadius} onChange={e => setOwnPrimaryRadius(e.target.value)} inputMode="decimal" placeholder="Radius (mi)" style={inputStyle} /></div>
+                <select value={ownPrimaryFeeType} onChange={e => setOwnPrimaryFeeType(e.target.value as 'FIXED' | 'PERCENT')} style={inputStyle}><option value="FIXED">$ fixed</option><option value="PERCENT">% of order</option></select>
+                <div><input value={ownPrimaryFeeValue} onChange={e => setOwnPrimaryFeeValue(e.target.value)} inputMode="decimal" placeholder={ownPrimaryFeeType === 'PERCENT' ? 'Fee %' : 'Fee $'} style={inputStyle} /></div>
+              </div>
+              <label style={label}>Secondary zone (optional)</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div><input value={ownSecondaryRadius} onChange={e => setOwnSecondaryRadius(e.target.value)} inputMode="decimal" placeholder="Radius (mi)" style={inputStyle} /></div>
+                <select value={ownSecondaryFeeType} onChange={e => setOwnSecondaryFeeType(e.target.value as 'FIXED' | 'PERCENT')} style={inputStyle}><option value="FIXED">$ fixed</option><option value="PERCENT">% of order</option></select>
+                <div><input value={ownSecondaryFeeValue} onChange={e => setOwnSecondaryFeeValue(e.target.value)} inputMode="decimal" placeholder={ownSecondaryFeeType === 'PERCENT' ? 'Fee %' : 'Fee $'} style={inputStyle} /></div>
+              </div>
+            </>
+          ) : (
+            <div><label style={label}>Third-party subsidy (%)</label><input value={thirdPartySubsidyPct} onChange={e => setThirdPartySubsidyPct(e.target.value)} inputMode="decimal" style={{ ...inputStyle, maxWidth: 160 }} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Portion of the courier fee your restaurant covers.</div></div>
+          )}
         </div>
 
         {/* Visible */}

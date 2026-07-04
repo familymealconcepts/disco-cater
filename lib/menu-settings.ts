@@ -43,8 +43,51 @@ export function parseMenuSettingsInput(body: Record<string, unknown>): MenuSetti
   }
 }
 
+// ── Delivery settings (Stage 6) ──────────────────────────────────────────────
+export type DeliveryFeeType = 'FIXED' | 'PERCENT'
+export interface DeliveryTier { radiusMiles: number; feeType: DeliveryFeeType; feeValue: number }
+export interface DeliverySettings {
+  method: 'OWN_DELIVERY' | 'THIRD_PARTY'
+  own?: { primary?: DeliveryTier; secondary?: DeliveryTier }
+  thirdPartySubsidyPct: number
+}
+
+function parseTier(t: unknown): DeliveryTier | undefined {
+  const o = t as Record<string, unknown> | null
+  if (!o || o.radiusMiles == null) return undefined
+  const feeType = String(o.feeType || 'FIXED').toUpperCase() === 'PERCENT' ? 'PERCENT' : 'FIXED'
+  return { radiusMiles: Math.max(0, n(o.radiusMiles)), feeType, feeValue: Math.max(0, n(o.feeValue)) }
+}
+
+// Normalize the admin form's delivery settings for storage. Null when absent.
+export function parseDeliverySettings(body: Record<string, unknown>): DeliverySettings | null {
+  const raw = body?.deliverySettings as Record<string, unknown> | undefined
+  if (!raw) return null
+  const method = String(raw.method || 'THIRD_PARTY').toUpperCase() === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY'
+  const own = raw.own as Record<string, unknown> | undefined
+  return {
+    method,
+    own: own ? { primary: parseTier(own.primary), secondary: parseTier(own.secondary) } : undefined,
+    thirdPartySubsidyPct: Math.max(0, Math.min(100, n(raw.thirdPartySubsidyPct))),
+  }
+}
+
+const round2d = (x: number) => Math.round(x * 100) / 100
+function tierFee(t: DeliveryTier, subtotal: number): number {
+  return t.feeType === 'PERCENT' ? round2d(subtotal * t.feeValue / 100) : round2d(t.feeValue)
+}
+
+// OWN_DELIVERY serviceability + fee for a distance: primary ring first, then the
+// (optional) secondary ring, else out of range.
+export function computeOwnDeliveryFee(own: DeliverySettings['own'], distanceMiles: number, subtotal: number): { serviceable: boolean; fee: number } {
+  if (own?.primary && distanceMiles <= own.primary.radiusMiles) return { serviceable: true, fee: tierFee(own.primary, subtotal) }
+  if (own?.secondary && distanceMiles <= own.secondary.radiusMiles) return { serviceable: true, fee: tierFee(own.secondary, subtotal) }
+  return { serviceable: false, fee: 0 }
+}
+
 // The disco_menus columns as read back (snake_case).
 export interface MenuSettingsRow {
+  delivery_settings?: DeliverySettings | null
   offers_pickup?: boolean
   offers_delivery?: boolean
   service_charge_pct?: string | number | null
@@ -66,6 +109,11 @@ export function menuRowToSettings(row: MenuSettingsRow) {
   if (row.offers_pickup !== false) menuAvailability.push('PICKUP')
   if (row.offers_delivery !== false) menuAvailability.push('DELIVERY')
   const tipType = String(row.tip_default_type || 'PERCENTAGE').toUpperCase()
+  const del = row.delivery_settings || undefined
+  const primary = del?.own?.primary
+  const secondary = del?.own?.secondary
+  const feeCurrency = (t?: DeliveryTier) => t && t.feeType === 'FIXED' ? t.feeValue : null
+  const feePercent = (t?: DeliveryTier) => t && t.feeType === 'PERCENT' ? t.feeValue : null
   return {
     menuAvailability: menuAvailability.length ? menuAvailability : ['PICKUP', 'DELIVERY'],
     serviceCharge: n(row.service_charge_pct),
@@ -73,6 +121,15 @@ export function menuRowToSettings(row: MenuSettingsRow) {
     ...(tipType === 'NONE' ? {} : { tipOption: { tipsPrice: n(row.tip_default_value, 15), tipsType: tipType === 'CUSTOM' ? 'CUSTOM' : 'PERCENTAGE' } }),
     pickupOrderMinimum: n(row.pickup_order_minimum),
     deliveryOrderMinimum: n(row.delivery_order_minimum),
+    // Delivery (FM-shaped) — drives the customer delivery UI + fee display.
+    deliveryType: del?.method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'NASH_DELIVERY',
+    ownDeliveryRadius: primary?.radiusMiles ?? null,
+    ownDeliveryFee: feeCurrency(primary),
+    ownDeliveryFeePercent: feePercent(primary),
+    secondaryOwnDeliveryRadius: secondary?.radiusMiles ?? null,
+    secondaryOwnDeliveryFee: feeCurrency(secondary),
+    secondaryOwnDeliveryFeePercent: feePercent(secondary),
+    thirdPartyDeliverySubsidingPercent: del?.thirdPartySubsidyPct ?? 0,
   }
 }
 

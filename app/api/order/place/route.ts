@@ -8,8 +8,9 @@ import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib/promo-apply'
 import { geocodeAddress } from '../../../../lib/geocode'
-import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart, loadRestaurantServiceChargePct } from '../../../../lib/order/native-checkout'
+import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart, loadRestaurantServiceChargePct, cartSubtotal } from '../../../../lib/order/native-checkout'
 import { getCustomerSession } from '../../../../lib/customer-auth'
+import { validateNativeDelivery } from '../../../../lib/order/native-delivery'
 import type { Fulfillment } from '../../../../lib/pricing/native-order'
 
 export const runtime = 'nodejs'
@@ -276,10 +277,21 @@ export async function POST(req: NextRequest) {
 
       const cd = (body?.checkoutDetails ?? {}) as Record<string, unknown>
       const orderTypeRaw = String(cd.orderType ?? body?.orderType ?? (body?.deliveryAddress ? 'DELIVERY' : 'PICKUP'))
-      const fulfillment: Fulfillment = orderTypeRaw === 'DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'
       const tips = Number(cd.tips ?? body?.tips) || 0
       const tipsType = String(cd.tipsType ?? body?.tipsType ?? 'PERCENTAGE')
       const items = fmItemsToNativeCart((cd.items ?? body?.items) as Parameters<typeof fmItemsToNativeCart>[0])
+
+      // Fulfillment + delivery fee: for a delivery order, resolve the method
+      // (own vs third-party) + fee authoritatively from the menu's delivery
+      // settings + the real distance/subtotal (the client never dictates them).
+      let fulfillment: Fulfillment = 'PICKUP'
+      let deliveryFee = 0
+      if (orderTypeRaw === 'DELIVERY') {
+        const dv = await validateNativeDelivery(body.restaurantRef, body?.deliveryAddress || {}, cartSubtotal(items))
+        if (!dv.valid) return NextResponse.json({ error: dv.message || 'That delivery address is not serviceable.' }, { status: 400 })
+        fulfillment = dv.fulfillment
+        deliveryFee = dv.deliveryFee
+      }
       // Normalize orderDate: the checkout DTO sends DD.MM.YYYY; disco_orders wants ISO.
       const rawDate = String(cd.orderDate ?? body?.orderDate ?? '')
       const dm = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(rawDate)
@@ -294,7 +306,7 @@ export async function POST(req: NextRequest) {
         fulfillment,
         items,
         tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
-        deliveryFee: 0, // real delivery fee arrives with Stage 6 delivery settings
+        deliveryFee, // resolved above from the menu's delivery settings + distance
         scPct: await loadRestaurantServiceChargePct(body.restaurantRef), // authoritative: from the menu, not the client
 
         orderDate,

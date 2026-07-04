@@ -158,3 +158,12 @@ ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS lead_time_hours INTEGER NOT NUL
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS rolling_availability_days INTEGER NOT NULL DEFAULT 90;
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS daily_cutoff_time TIME; -- NULL = none
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS hard_cutoff_date DATE; -- NULL = none
+
+-- Delivery settings (Stage 6). JSONB (nested tiers):
+--   { method: 'OWN_DELIVERY'|'THIRD_PARTY',
+--     own: { primary:{radiusMiles,feeType:'FIXED'|'PERCENT',feeValue},
+--            secondary?:{radiusMiles,feeType,feeValue} },
+--     thirdPartySubsidyPct: number }
+-- OWN_DELIVERY: restaurant delivers + keeps the fee; THIRD_PARTY: Disco dispatches a
+-- courier (Expedite) + keeps the fee. Fee is computed server-side from distance.
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS delivery_settings JSONB;

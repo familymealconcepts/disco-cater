@@ -6,6 +6,8 @@
 
 import { sql } from '../db'
 import { geocodeAddress, haversineMiles, type LatLng } from '../geocode'
+import { computeOwnDeliveryFee, type DeliverySettings } from '../menu-settings'
+import type { Fulfillment } from '../pricing/native-order'
 
 export interface NativeDeliveryAddress {
   addressLine1?: string
@@ -21,6 +23,8 @@ export interface NativeDeliveryAddress {
 export interface NativeDeliveryResult {
   valid: boolean
   deliveryFee: number
+  method: 'OWN_DELIVERY' | 'THIRD_PARTY'
+  fulfillment: Fulfillment
   distanceMiles: number | null
   latitude: number | null
   longitude: number | null
@@ -36,14 +40,23 @@ function fullAddress(a: NativeDeliveryAddress): string {
 export async function validateNativeDelivery(
   restaurantReference: string,
   address: NativeDeliveryAddress,
+  subtotal = 0,
   geocoder: (addr: string) => Promise<LatLng> = geocodeAddress,
 ): Promise<NativeDeliveryResult> {
-  // Restaurant coordinates from Neon (no FM).
+  // Restaurant coordinates + the primary menu's delivery settings, from Neon (no FM).
   const rows = (await sql`
     SELECT lat, lng FROM disco_restaurant_cache WHERE restaurant_reference = ${restaurantReference} LIMIT 1
   `.catch(() => [])) as { lat: number | string | null; lng: number | string | null }[]
   const rLat = rows[0]?.lat != null ? Number(rows[0].lat) : null
   const rLng = rows[0]?.lng != null ? Number(rows[0].lng) : null
+  const menuRows = (await sql`
+    SELECT delivery_settings FROM disco_menus
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+    ORDER BY position, id LIMIT 1
+  `.catch(() => [])) as { delivery_settings: DeliverySettings | null }[]
+  const del = menuRows[0]?.delivery_settings || null
+  const method: 'OWN_DELIVERY' | 'THIRD_PARTY' = del?.method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY'
+  const fulfillment: Fulfillment = method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY_DELIVERY'
 
   // Customer coordinates: trust client-provided (Mapbox autocomplete) when present,
   // else geocode the typed address.
@@ -54,29 +67,33 @@ export async function validateNativeDelivery(
     cLat = geo.lat
     cLng = geo.lng
   }
-
+  const geocoded = cLat != null && cLng != null
   const distanceMiles = rLat != null && rLng != null && cLat != null && cLng != null
     ? Math.round(haversineMiles(rLat, rLng, cLat, cLng) * 100) / 100
     : null
 
-  // Delivery radius + fee come from native menu delivery settings (Stage 6). Until
-  // authored, delivery is permissive with a $0 fee.
-  // TODO(Stage 6): read own-delivery radius + fee ($/%) from Neon and enforce here.
-  const radiusMiles: number | null = null
-  const deliveryFee = 0
-
-  const geocoded = cLat != null && cLng != null
-  const withinRadius = radiusMiles == null || (distanceMiles != null && distanceMiles <= radiusMiles)
+  // OWN_DELIVERY: enforce the radius tiers + compute the fee (restaurant keeps it).
+  // THIRD_PARTY: Disco dispatches a courier (Expedite) — serviceable wherever we can
+  // geocode; the courier fee is settled at dispatch (fee 0 in the customer preview).
+  let deliveryFee = 0
+  let serviceable = true
+  if (method === 'OWN_DELIVERY' && del?.own && distanceMiles != null) {
+    const r = computeOwnDeliveryFee(del.own, distanceMiles, subtotal)
+    serviceable = r.serviceable
+    deliveryFee = r.fee
+  }
 
   return {
-    valid: geocoded && withinRadius,
+    valid: geocoded && serviceable,
     deliveryFee,
+    method,
+    fulfillment,
     distanceMiles,
     latitude: cLat,
     longitude: cLng,
     message: !geocoded
       ? 'We could not locate that address — please check it and try again.'
-      : !withinRadius
+      : !serviceable
         ? 'That address is outside this restaurant’s delivery area.'
         : undefined,
   }

@@ -412,7 +412,8 @@ async function loadDiscoNativeRestaurant(slug: string) {
              tip_default_type, tip_default_value, pickup_order_minimum, delivery_order_minimum,
              max_orders_per_day, lead_time_hours, rolling_availability_days,
              to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
-             to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date
+             to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
+             delivery_settings
       FROM disco_menus
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true AND archived = false
       ORDER BY position, id LIMIT 1
