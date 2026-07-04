@@ -19,11 +19,55 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRole } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { getDiscoGroupAccounts } from '../../../../../lib/disco-restaurant-auth'
+import { sql, runDiscoMenuMigrations } from '../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+interface ApplyBody { pkgRef?: string; restaurantRef?: string; price?: number | string; displayPrice?: string | null; newName?: string; newDescription?: string; newServes?: string }
+
+// Disco-native apply: update one disco_menu_items row's price (+ optional display
+// price / name / description / serves) at a location in the SA's group. Zero FM.
+// Mirrors the FM path's field semantics: name set only when non-empty; display
+// price set only when non-empty (blank preserves); description/serves may clear.
+async function nativeApply(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, body: ApplyBody) {
+  if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') {
+    return NextResponse.json({ ok: false, error: 'System admin only' }, { status: 403 })
+  }
+  const { pkgRef, restaurantRef } = body
+  if (!pkgRef || !restaurantRef) return NextResponse.json({ ok: false, error: 'pkgRef and restaurantRef required' }, { status: 400 })
+  const priceNum = typeof body.price === 'number' ? body.price : parseFloat(String(body.price ?? ''))
+  if (!isFinite(priceNum) || priceNum < 0) return NextResponse.json({ ok: false, error: 'Invalid price' }, { status: 400 })
+
+  // The target location must be inside the SA's own group (never trust the client).
+  const allowed = new Set<string>([ctx.restaurantReference])
+  try { for (const g of await getDiscoGroupAccounts(ctx.businessName, ctx.email)) allowed.add(g.restaurant_reference) } catch { /* home only */ }
+  if (!allowed.has(restaurantRef)) return NextResponse.json({ ok: false, error: 'Location not in your group' }, { status: 403 })
+
+  await runDiscoMenuMigrations()
+  const cur = (await sql`
+    SELECT name, description, price, display_price, serves FROM disco_menu_items
+    WHERE reference = ${pkgRef}::uuid AND restaurant_reference::text = ${restaurantRef} LIMIT 1
+  `) as { name: string; description: string | null; price: string | number; display_price: string | null; serves: string | null }[]
+  if (!cur.length) return NextResponse.json({ ok: false, error: 'Item not found at that location' }, { status: 404 })
+  const c = cur[0]
+
+  const name = typeof body.newName === 'string' && body.newName.trim() !== '' ? body.newName.trim() : c.name
+  const description = typeof body.newDescription === 'string' ? (body.newDescription.trim() || null) : c.description
+  const serves = typeof body.newServes === 'string' ? (body.newServes.trim() || null) : c.serves
+  const displayPrice = typeof body.displayPrice === 'string' && body.displayPrice.trim() !== '' ? body.displayPrice.trim() : c.display_price
+
+  await sql`
+    UPDATE disco_menu_items SET
+      price = ${priceNum}, display_price = ${displayPrice}, name = ${name}, description = ${description}, serves = ${serves}, updated_at = NOW()
+    WHERE reference = ${pkgRef}::uuid AND restaurant_reference::text = ${restaurantRef}
+  `
+  return NextResponse.json({ ok: true })
+}
 
 // FM's PUT parses scheduleOption dates as DD.MM.YYYY but its GET returns ISO
 // YYYY-MM-DD; forwarding ISO 500s ("Text '2025-11-01' could not be parsed").
@@ -46,13 +90,6 @@ function convertDatesDeep(v: any): any {
 }
 
 export async function POST(req: NextRequest) {
-  const role = await getRestaurantRole()
-  if (role !== 'SYSTEM_ADMIN' && role !== 'SUPER_ADMIN') {
-    return NextResponse.json({ ok: false, error: 'System admin only' }, { status: 403 })
-  }
-  let h: Record<string, string>
-  try { h = await getRestaurantAuthHeader() } catch { return NextResponse.json({ ok: false, error: 'Not authenticated' }, { status: 401 }) }
-
   let body: {
     pkgRef?: string; restaurantRef?: string; price?: number | string; displayPrice?: string | null
     // Optional bulk-editable text fields. The client only sends a field when it
@@ -62,6 +99,17 @@ export async function POST(req: NextRequest) {
     newName?: string; newDescription?: string; newServes?: string
   }
   try { body = await req.json() } catch { return NextResponse.json({ ok: false, error: 'Bad request' }, { status: 400 }) }
+
+  // Disco-native SYSTEM_ADMINs write to Neon — never touch FM.
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') return nativeApply(ctx, body)
+
+  const role = await getRestaurantRole()
+  if (role !== 'SYSTEM_ADMIN' && role !== 'SUPER_ADMIN') {
+    return NextResponse.json({ ok: false, error: 'System admin only' }, { status: 403 })
+  }
+  let h: Record<string, string>
+  try { h = await getRestaurantAuthHeader() } catch { return NextResponse.json({ ok: false, error: 'Not authenticated' }, { status: 401 }) }
 
   const { pkgRef, restaurantRef } = body
   if (!pkgRef || !restaurantRef) return NextResponse.json({ ok: false, error: 'pkgRef and restaurantRef required' }, { status: 400 })

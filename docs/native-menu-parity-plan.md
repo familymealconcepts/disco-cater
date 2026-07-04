@@ -271,8 +271,21 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   category visibility (disco-menu-categories PUT accepts `visible`; toggle in the category dialog;
   hidden categories drop off the customer menu — already filtered in loadDiscoNativeRestaurant).
 - **Stage 11 — Small extras (utensils toggle, category visibility)** ⬜
-- **Stage 12 — Bulk Menu Editor (SYSTEM_ADMIN, cross-location)** ⬜
-- **Stage 13 — Multi-Unit Links** ⬜
+- **Stage 12 — Bulk Menu Editor (SYSTEM_ADMIN, cross-location)** ✅ DONE & TESTED (13/13). This is a
+  DISCO-built feature (`manage/bulk-pricing`), NOT an FM one (FM has no bulk price editor — its only
+  "bulk" is a menu scraper). It was fully FM-backed: search hit FM's admin list + public menu
+  endpoints, apply hit FM's mealPackages PUT, and the client's post-apply re-sync hit FM via
+  `selected-restaurant`. Rebuilt native for disco sessions (FM path untouched): `bulk-pricing/search`
+  fans out over disco_menu_items across the SA's group (getDiscoGroupAccounts); `bulk-pricing/apply-one`
+  updates one disco_menu_items row (price/display/name/desc/serves) with a cross-group guard; and
+  `selected-restaurant` now skips FM for disco sessions (cookie only). Tested 13/13 incl. cross-location
+  search, single-location apply, group guard, and ZERO FM contact proven against a dead FM host.
+- **Stage 13 — Multi-Unit Links (NATIVE, zero FM)** 🟨 IN PROGRESS. FM feature is real
+  (tbl_multi_unit_links + join + public `/locations/{slug}` grouped by state). Disco already had a
+  management + customer page, but they PROXY FM (membership/slug-uniqueness/grouping live in FM;
+  Neon mirrored only slug/title/image) — unusable for disco-native locations FM never saw. Rebuild:
+  native Neon link entity + membership, native SA CRUD branch (disco session), native customer
+  `/locations/{slug}` resolution (group by state), zero FM. Crop ratio kept at Disco's current 16:9.
 - **Stage 14 — Consumption wiring for money/timing settings at order time** ⬜ (may fold into Stage 5–7)
 
 ---
