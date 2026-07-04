@@ -413,17 +413,29 @@ async function loadDiscoNativeRestaurant(slug: string) {
              max_orders_per_day, lead_time_hours, rolling_availability_days,
              to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
              to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
-             delivery_settings
+             delivery_settings, skipped_days
       FROM disco_menus
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true AND archived = false
       ORDER BY position, id LIMIT 1
-    `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; end_date: string | null })[]
+    `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string }[] | null })[]
     const primary = menuRows[0]
+    // Skipped/blackout days: per-menu skipped days + restaurant-wide Closed Days,
+    // merged into scheduleOption.skippedDays (the availability engine excludes them).
+    const closedRows = (await sql`
+      SELECT to_char(from_date, 'YYYY-MM-DD') AS from_date, to_char(to_date, 'YYYY-MM-DD') AS to_date
+      FROM disco_restaurant_closed_days WHERE restaurant_reference = ${r.restaurant_reference}::uuid
+    `.catch(() => [])) as { from_date: string; to_date: string }[]
+    const menuSkipped = Array.isArray(primary?.skipped_days) ? (primary!.skipped_days as { fromDate: string; toDate: string }[]) : []
+    const skippedDays = [
+      ...menuSkipped.map(s => ({ fromDate: s.fromDate, toDate: s.toDate })),
+      ...closedRows.map(c => ({ fromDate: c.from_date, toDate: c.to_date })),
+    ]
     // Schedule = pickup windows (schedule_config) + timing settings (lead time,
-    // cutoffs, rolling window, max/day). Settings = money + fulfillment types.
+    // cutoffs, rolling window, max/day) + skipped days. Settings = money + fulfillment.
     const scheduleOption = {
       ...buildNativeScheduleOption(primary?.schedule_config ?? null, primary?.availability_mode ?? null, primary?.end_date ?? null),
       ...(primary ? menuRowToScheduleExtras(primary) : {}),
+      ...(skippedDays.length ? { skippedDays } : {}),
     }
     const settings = primary ? menuRowToSettings(primary) : { menuAvailability: ['PICKUP', 'DELIVERY'] }
 

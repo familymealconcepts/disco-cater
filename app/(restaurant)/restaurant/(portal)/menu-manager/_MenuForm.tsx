@@ -84,6 +84,9 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const [ownSecondaryFeeValue, setOwnSecondaryFeeValue] = useState('')
   const [thirdPartySubsidyPct, setThirdPartySubsidyPct] = useState('0')
 
+  // Skipped / blackout days (Stage 7)
+  const [skippedDays, setSkippedDays] = useState<{ name: string; fromDate: string; toDate: string }[]>([])
+
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -131,6 +134,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         const p = del.own?.primary, sec = del.own?.secondary
         if (p) { setOwnPrimaryRadius(String(p.radiusMiles ?? '')); setOwnPrimaryFeeType(p.feeType === 'PERCENT' ? 'PERCENT' : 'FIXED'); setOwnPrimaryFeeValue(String(p.feeValue ?? '')) }
         if (sec) { setOwnSecondaryRadius(String(sec.radiusMiles ?? '')); setOwnSecondaryFeeType(sec.feeType === 'PERCENT' ? 'PERCENT' : 'FIXED'); setOwnSecondaryFeeValue(String(sec.feeValue ?? '')) }
+        if (Array.isArray(d.skipped_days)) setSkippedDays(d.skipped_days.map((s: { name?: string; fromDate?: string; toDate?: string }) => ({ name: s.name || '', fromDate: s.fromDate || '', toDate: s.toDate || s.fromDate || '' })))
       } finally { setLoading(false) }
     })()
   }, [menuRef])
@@ -185,6 +189,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
           ...(ownSecondaryRadius.trim() ? { secondary: { radiusMiles: parseFloat(ownSecondaryRadius) || 0, feeType: ownSecondaryFeeType, feeValue: parseFloat(ownSecondaryFeeValue) || 0 } } : {}),
         } : undefined,
       },
+      skippedDays: skippedDays.filter(s => s.fromDate).map(s => ({ name: s.name || undefined, fromDate: s.fromDate, toDate: s.toDate || s.fromDate })),
     }
     setSaving(true)
     try {
@@ -385,6 +390,21 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
           ) : (
             <div><label style={label}>Third-party subsidy (%)</label><input value={thirdPartySubsidyPct} onChange={e => setThirdPartySubsidyPct(e.target.value)} inputMode="decimal" style={{ ...inputStyle, maxWidth: 160 }} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Portion of the courier fee your restaurant covers.</div></div>
           )}
+        </div>
+
+        {/* Blackout dates (Stage 7) */}
+        <div style={card}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 4 }}>Blackout Dates</div>
+          <div style={{ fontSize: 12, color: '#999', marginBottom: 14 }}>Dates this menu is unavailable (holidays, closures). For restaurant-wide closures, use Closed Days.</div>
+          {skippedDays.map((s, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1.4fr 1.4fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <input value={s.name} onChange={e => setSkippedDays(a => a.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder="Name (e.g. Thanksgiving)" style={inputStyle} />
+              <input type="date" value={s.fromDate} onChange={e => setSkippedDays(a => a.map((x, j) => j === i ? { ...x, fromDate: e.target.value, toDate: x.toDate || e.target.value } : x))} style={inputStyle} />
+              <input type="date" value={s.toDate} onChange={e => setSkippedDays(a => a.map((x, j) => j === i ? { ...x, toDate: e.target.value } : x))} style={inputStyle} />
+              <button type="button" onClick={() => setSkippedDays(a => a.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: RED, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+          ))}
+          <button type="button" onClick={() => setSkippedDays(a => [...a, { name: '', fromDate: '', toDate: '' }])} style={{ background: 'none', border: '1px dashed #ccc', borderRadius: 8, padding: '8px 14px', fontSize: 13, color: BLUE, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>+ Add blackout date</button>
         </div>
 
         {/* Visible */}

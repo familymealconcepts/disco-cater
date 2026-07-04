@@ -167,3 +167,20 @@ ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS hard_cutoff_date DATE; -- NULL 
 -- OWN_DELIVERY: restaurant delivers + keeps the fee; THIRD_PARTY: Disco dispatches a
 -- courier (Expedite) + keeps the fee. Fee is computed server-side from distance.
 ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS delivery_settings JSONB;
+
+-- Skipped / blackout days (Stage 7). Per-menu closures — JSONB array of
+--   { name, fromDate 'yyyy-mm-dd', toDate 'yyyy-mm-dd' }.
+ALTER TABLE disco_menus ADD COLUMN IF NOT EXISTS skipped_days JSONB;
+
+-- Restaurant-wide Closed Days (Stage 7) — holidays + one-off closures that apply
+-- across all of a restaurant's menus (distinct from per-menu skipped days).
+CREATE TABLE IF NOT EXISTS disco_restaurant_closed_days (
+  id SERIAL PRIMARY KEY,
+  reference UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+  restaurant_reference UUID NOT NULL,
+  name VARCHAR(255),
+  from_date DATE NOT NULL,
+  to_date DATE NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_disco_closed_days_restaurant ON disco_restaurant_closed_days(restaurant_reference);

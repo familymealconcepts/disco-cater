@@ -43,6 +43,16 @@ export function parseMenuSettingsInput(body: Record<string, unknown>): MenuSetti
   }
 }
 
+// ── Skipped / blackout days (Stage 7) ────────────────────────────────────────
+export interface SkippedDay { name?: string; fromDate: string; toDate: string }
+const ISO = /^\d{4}-\d{2}-\d{2}$/
+export function parseSkippedDays(body: Record<string, unknown>): SkippedDay[] {
+  const raw = Array.isArray(body?.skippedDays) ? (body.skippedDays as Record<string, unknown>[]) : []
+  return raw
+    .map(d => ({ name: (String(d?.name || '').trim().slice(0, 255)) || undefined, fromDate: String(d?.fromDate || ''), toDate: String(d?.toDate || d?.fromDate || '') }))
+    .filter(d => ISO.test(d.fromDate) && ISO.test(d.toDate))
+}
+
 // ── Delivery settings (Stage 6) ──────────────────────────────────────────────
 export type DeliveryFeeType = 'FIXED' | 'PERCENT'
 export interface DeliveryTier { radiusMiles: number; feeType: DeliveryFeeType; feeValue: number }
