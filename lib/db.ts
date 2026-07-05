@@ -122,6 +122,13 @@ export async function runMigrations(): Promise<void> {
     // disco_restaurant_accounts.sms_phone going forward; that column is kept as a
     // back-compat fallback when this is empty for a restaurant.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS notification_sms_numbers TEXT`,
+    // General Settings parity (Disco-native): a customer-facing menu search toggle
+    // (RestaurantClient reads restaurantSettings.enableMenuSearch), an announcement
+    // banner shown on the native customer page, and an SMS-notifications on/off
+    // (mirrors FM's phoneNotificationType). All default off/empty → no visible change.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS enable_menu_search BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS announcement TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS text_notifications_enabled BOOLEAN NOT NULL DEFAULT false`,
     // Disco-side mirror of FM's per-restaurant `moneyFlow` (DIRECT | FAMILY_MEAL),
     // written alongside the FM money-flow PUT.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS money_flow TEXT`,

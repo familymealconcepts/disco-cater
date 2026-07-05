@@ -239,7 +239,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // rather than read off menu.settings (which never carries them).
   // onlineOrderingAllowed=false → the restaurant has paused online ordering; the
   // checkout CTA is disabled and a notice is shown (the server also hard-gates it).
-  restaurantSettings?: { enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string; onlineOrderingAllowed?: boolean }
+  restaurantSettings?: { enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string; onlineOrderingAllowed?: boolean; announcement?: string }
 }) {
   // ── UI state ──────────────────────────────────────────────────────────────
   // Auth — used to gate the checkout action behind login (browsing/cart-building
@@ -864,6 +864,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // fallback).
   // Online ordering paused → no checkout, regardless of cart/date/etc.
   const orderingPaused = restaurantSettings?.onlineOrderingAllowed === false
+  const announcement = (restaurantSettings?.announcement || '').trim()
   const canCheckout = !orderingPaused && cart.length > 0 && !belowMin && !!selDate && !!selTime &&
     (orderType === 'PICKUP' || (!!addr.line1 && addr.lat != null && addr.lng != null))
 
@@ -1412,6 +1413,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               {orderingPaused && (
                 <div style={{ marginTop: 10, background: '#FFF4E5', border: '1px solid #FFD8A8', color: '#8A5A00', fontSize: 12.5, fontWeight: 600, padding: '9px 13px', borderRadius: 10 }}>
                   ⏸ This restaurant is not currently accepting online orders.
+                </div>
+              )}
+              {announcement && (
+                <div style={{ marginTop: 10, background: '#EEF2FF', border: '1px solid #C7D2FE', color: '#3730A3', fontSize: 12.5, padding: '9px 13px', borderRadius: 10, whiteSpace: 'pre-wrap' }}>
+                  {announcement}
                 </div>
               )}
               {/* 1P-only cue: confirms the restaurant is on the commission-free

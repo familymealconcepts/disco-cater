@@ -274,13 +274,6 @@ export default function OrderSettingsPage() {
         )}
       </Section>
 
-      {/* Disco Cater Marketplace */}
-      <Section title="Disco Cater Marketplace">
-        <Row label="Show your restaurant on the Disco Cater discovery map">
-          <Toggle checked={marketplaceVisible} onChange={toggleMarketplace} />
-        </Row>
-      </Section>
-
       {/* Public Page URL — primary Disco Cater URL with secondary FM ref */}
       <Section title="Public Page URL">
         <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px', lineHeight: 1.55 }}>
@@ -415,6 +408,9 @@ export default function OrderSettingsPage() {
       {/* Delivery Order Time Windows */}
       {feesAndTips && (
         <Section title="Delivery & Display Settings">
+          <Row label="Enable Menu Search">
+            <Toggle checked={feesAndTips.enableMenuSearch ?? false} onChange={v => saveFeesAndTips({ enableMenuSearch: v })} />
+          </Row>
           <Row label="Delivery Order Time Windows">
             <select
               value={feesAndTips.deliveryOrderTimeWindows || 'exact'}
@@ -425,9 +421,6 @@ export default function OrderSettingsPage() {
               <option value="30_min">30 Minutes</option>
               <option value="1_hour">1 Hour</option>
             </select>
-          </Row>
-          <Row label="Enable Menu Search">
-            <Toggle checked={feesAndTips.enableMenuSearch ?? false} onChange={v => saveFeesAndTips({ enableMenuSearch: v })} />
           </Row>
         </Section>
       )}
@@ -487,6 +480,14 @@ export default function OrderSettingsPage() {
             Add Date
           </button>
         </div>
+      </Section>
+
+      {/* Disco Cater Marketplace — not part of the core General Settings list; kept
+          at the bottom (fullmap discovery-map visibility). */}
+      <Section title="Disco Cater Marketplace">
+        <Row label="Show your restaurant on the Disco Cater discovery map">
+          <Toggle checked={marketplaceVisible} onChange={toggleMarketplace} />
+        </Row>
       </Section>
 
     </div>

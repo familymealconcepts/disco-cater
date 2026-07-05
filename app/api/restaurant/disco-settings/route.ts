@@ -17,10 +17,13 @@ export async function GET() {
   const rows = (await sql`
     SELECT online_ordering_enabled, delivery_order_time_windows, tax_rates,
            notification_emails, notification_sms_numbers,
-           order_reminder_emails_enabled, admin_order_reminder_emails_enabled, withhold_payouts
+           order_reminder_emails_enabled, admin_order_reminder_emails_enabled, withhold_payouts,
+           enable_menu_search, announcement, text_notifications_enabled
     FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
   `) as Record<string, unknown>[]
-  return NextResponse.json({ settings: rows[0] || {} })
+  // The restaurant's public slug (for the "Disco Cater URL" row) lives on the cache.
+  const cacheRows = (await sql`SELECT slug FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { slug: string | null }[]
+  return NextResponse.json({ settings: rows[0] || {}, slug: cacheRows[0]?.slug || null })
 }
 
 const WINDOWS = new Set(['exact', '30_min', '1_hour'])
@@ -40,13 +43,18 @@ export async function PUT(req: NextRequest) {
   const sms = String(body?.notificationSmsNumbers || '').trim() || null
   const orderReminders = body?.orderReminderEmailsEnabled === true
   const adminReminders = body?.adminOrderReminderEmailsEnabled === true
+  const enableMenuSearch = body?.enableMenuSearch === true
+  const announcement = String(body?.announcement || '').trim().slice(0, 500) || null
+  const textNotifications = body?.textNotificationsEnabled === true
 
   await runMigrations()
   await sql`
     INSERT INTO disco_restaurant_overrides (
       restaurant_reference, online_ordering_enabled, delivery_order_time_windows, tax_rates,
-      notification_emails, notification_sms_numbers, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, updated_at)
-    VALUES (${ref}, ${onlineOrdering}, ${window}, ${taxRates}::jsonb, ${emails}, ${sms}, ${orderReminders}, ${adminReminders}, NOW())
+      notification_emails, notification_sms_numbers, order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
+      enable_menu_search, announcement, text_notifications_enabled, updated_at)
+    VALUES (${ref}, ${onlineOrdering}, ${window}, ${taxRates}::jsonb, ${emails}, ${sms}, ${orderReminders}, ${adminReminders},
+      ${enableMenuSearch}, ${announcement}, ${textNotifications}, NOW())
     ON CONFLICT (restaurant_reference) DO UPDATE SET
       online_ordering_enabled = EXCLUDED.online_ordering_enabled,
       delivery_order_time_windows = EXCLUDED.delivery_order_time_windows,
@@ -55,6 +63,9 @@ export async function PUT(req: NextRequest) {
       notification_sms_numbers = EXCLUDED.notification_sms_numbers,
       order_reminder_emails_enabled = EXCLUDED.order_reminder_emails_enabled,
       admin_order_reminder_emails_enabled = EXCLUDED.admin_order_reminder_emails_enabled,
+      enable_menu_search = EXCLUDED.enable_menu_search,
+      announcement = EXCLUDED.announcement,
+      text_notifications_enabled = EXCLUDED.text_notifications_enabled,
       updated_at = NOW()
   `
   return NextResponse.json({ ok: true })

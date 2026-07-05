@@ -327,12 +327,14 @@ async function loadDiscoNativeRestaurant(slug: string) {
     await runMigrations()
     const rows = (await sql`
       SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description, c.image_url,
-             COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled
+             COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled,
+             COALESCE(o.enable_menu_search, false) AS enable_menu_search,
+             o.announcement, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE c.slug = ${slug} AND c.is_disco_native = true AND c.is_live = true
       LIMIT 1
-    `) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; online_ordering_enabled: boolean }[]
+    `) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; announcement: string | null; delivery_order_time_windows: string }[]
     const r = rows[0]
     if (!r) return null
 
@@ -464,6 +466,9 @@ async function loadDiscoNativeRestaurant(slug: string) {
       }],
       reference: r.restaurant_reference,
       acceptingOrders: r.online_ordering_enabled !== false,
+      enableMenuSearch: r.enable_menu_search === true,
+      deliveryOrderTimeWindows: r.delivery_order_time_windows || 'exact',
+      announcement: (r.announcement || '').trim() || null,
     }
   } catch (err) {
     console.error('[shared] loadDiscoNativeRestaurant failed:', err instanceof Error ? err.message : err)
@@ -503,7 +508,7 @@ export async function RestaurantView({
           menuData={native.menuData}
           slug={slug}
           isFirstParty={isFirstParty}
-          restaurantSettings={{ onlineOrderingAllowed: native.acceptingOrders }}
+          restaurantSettings={{ onlineOrderingAllowed: native.acceptingOrders, enableMenuSearch: native.enableMenuSearch, deliveryOrderTimeWindows: native.deliveryOrderTimeWindows, announcement: native.announcement ?? undefined }}
         />
       </>
     )
