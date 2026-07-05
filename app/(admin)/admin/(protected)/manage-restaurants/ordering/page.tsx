@@ -105,15 +105,18 @@ function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolea
 
 // Stripe Connect status per row. Never-checked (checkedAt === null) shows
 // "Unknown"; a row mid-check shows "Checking…". Green = connected, grey = not.
-function StripeStatus({ status, checking }: { status?: { connected: boolean; checkedAt: string | null }; checking?: boolean }) {
+function StripeStatus({ status, checking }: { status?: { connected: boolean; checkedAt: string | null; hasStripeAccount?: boolean }; checking?: boolean }) {
   if (checking) return <span style={{ color: '#9CA3AF', fontSize: 12, whiteSpace: 'nowrap' }}>Checking…</span>
-  if (!status || !status.checkedAt) return <span style={{ color: '#9CA3AF', fontSize: 12 }}>Unknown</span>
   const dot = (color: string) => (
     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 6, verticalAlign: 'middle' }} />
   )
-  return status.connected
-    ? <span style={{ fontSize: 12, color: '#1D9E75', whiteSpace: 'nowrap' }}>{dot('#1D9E75')}Connected</span>
-    : <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap' }}>{dot('#bbb')}Not connected</span>
+  // A disco Stripe account (connected during Disco onboarding) is authoritative and
+  // needs no FM probe. Otherwise fall back to the probed status (stripe_connected),
+  // which only means anything once it's been checked (checkedAt set).
+  const connected = status?.hasStripeAccount === true || status?.connected === true
+  if (connected) return <span style={{ fontSize: 12, color: '#1D9E75', whiteSpace: 'nowrap' }}>{dot('#1D9E75')}Connected</span>
+  if (!status || !status.checkedAt) return <span style={{ color: '#9CA3AF', fontSize: 12 }}>Unknown</span>
+  return <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap' }}>{dot('#bbb')}Not connected</span>
 }
 
 export default function RestaurantsOrderingPage() {

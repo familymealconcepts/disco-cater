@@ -18,6 +18,18 @@ export const maxDuration = 300
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
+// Refs whose Stripe was connected via Disco onboarding (a disco Connect account +
+// completed onboarding). FM's stripe probe can't see these, so we treat them as
+// connected regardless of the HEAD result.
+async function loadDiscoConnectedRefs(refs: string[]): Promise<Set<string>> {
+  if (!refs.length) return new Set()
+  const rows = (await sql`
+    SELECT restaurant_reference FROM disco_restaurant_accounts
+    WHERE restaurant_reference = ANY(${refs}) AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+  `.catch(() => [])) as { restaurant_reference: string }[]
+  return new Set(rows.map(r => r.restaurant_reference))
+}
+
 export async function POST(req: NextRequest) {
   try { await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
 
@@ -44,6 +56,10 @@ export async function POST(req: NextRequest) {
 
     if (explicitRefs) {
       const statuses: Record<string, boolean> = {}
+      // Restaurants connected via Disco onboarding are authoritative — FM's
+      // HEAD /api/stripe/{ref} doesn't reflect the disco-side Connect account, so
+      // without this the probe would wrongly overwrite stripe_connected=false.
+      const discoConnected = await loadDiscoConnectedRefs(explicitRefs)
       let header = await getFmServiceAuthHeader()
       let connected = 0
       let notConnected = 0
@@ -60,6 +76,7 @@ export async function POST(req: NextRequest) {
           console.error(`[sync-stripe-status] HEAD failed for ${ref}:`, err instanceof Error ? err.message : err)
           isConnected = false
         }
+        if (discoConnected.has(ref)) isConnected = true
         // UPSERT — a restaurant with no overrides row still records its status.
         await sql`
           INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_connected, stripe_checked_at, updated_at)
@@ -99,6 +116,7 @@ export async function POST(req: NextRequest) {
           LIMIT ${batchSize} OFFSET ${offset}
         `)) as { restaurant_reference: string }[]
 
+    const discoConnected = await loadDiscoConnectedRefs(refs.map(r => r.restaurant_reference))
     let header = await getFmServiceAuthHeader()
     let connected = 0
     let notConnected = 0
@@ -118,6 +136,7 @@ export async function POST(req: NextRequest) {
         console.error(`[sync-stripe-status] HEAD failed for ${ref}:`, err instanceof Error ? err.message : err)
         isConnected = false
       }
+      if (discoConnected.has(ref)) isConnected = true
 
       await sql`
         UPDATE disco_restaurant_overrides

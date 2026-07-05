@@ -169,10 +169,17 @@ export async function POST(req: NextRequest) {
       ON CONFLICT (restaurant_reference) DO UPDATE SET stripe_connected = ${stripeConnected}
     `
 
-    // Record the submitted menu reference (best-effort) for the super admin.
+    // Record the submitted menu reference (best-effort) for the super admin — but
+    // only as a fallback. The menu-upload step already stored the durable Blob URL
+    // in menu_upload_url; never clobber that real URL with the bare local filename
+    // (which resolves to nothing in super admin's "View Menu").
     if (menuFileName) {
       try {
-        await sql`UPDATE disco_restaurant_cache SET menu_upload_url = ${menuFileName} WHERE restaurant_reference = ${ref}`
+        await sql`
+          UPDATE disco_restaurant_cache SET menu_upload_url = ${menuFileName}
+          WHERE restaurant_reference = ${ref}
+            AND (menu_upload_url IS NULL OR menu_upload_url NOT LIKE 'http%')
+        `
       } catch (err) {
         console.error('[complete] menu_upload_url save failed:', err instanceof Error ? err.message : err)
       }

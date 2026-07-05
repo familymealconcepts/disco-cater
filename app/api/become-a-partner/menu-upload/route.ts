@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { put } from '@vercel/blob'
+import { sql } from '../../../../lib/db'
 
 // Menu intake for the become-a-partner onboarding (Step 7).
 //
@@ -127,6 +128,18 @@ export async function POST(req: NextRequest) {
     }
   } else {
     console.warn('[menu-upload] BLOB_READ_WRITE_TOKEN not set — menu PDF forwarded by email only.')
+  }
+
+  // Persist the durable Blob URL as the restaurant's menu_upload_url so super-admin's
+  // "View Menu" opens the actual PDF. Previously only the local FILENAME was stored
+  // (via /complete), which resolved to nothing. Best-effort; the row exists by now
+  // (seeded at create-restaurant). complete/route.ts no longer overwrites a URL.
+  if (blobUrl && restaurantReference) {
+    try {
+      await sql`UPDATE disco_restaurant_cache SET menu_upload_url = ${blobUrl} WHERE restaurant_reference = ${restaurantReference}`
+    } catch (err) {
+      console.error('[menu-upload] menu_upload_url persist failed:', err instanceof Error ? err.message : err)
+    }
   }
 
   const emailed = await notifyTeam(
