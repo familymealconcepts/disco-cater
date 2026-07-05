@@ -133,7 +133,7 @@ export function GroupFormDialog({ mode, initial, onSaved, onClose }: {
     if (!name.trim()) { setErr('Group name is required.'); return }
     if (isNaN(mn) || mn < 0) { setErr('Min must be 0 or more.'); return }
     if (isNaN(mx) || mx < 1) { setErr('Max must be at least 1.'); return }
-    if (mn >= mx) { setErr('Min must be less than max.'); return }
+    if (mn > mx) { setErr('Min cannot be greater than max.'); return }
     if (mx > 50) { setErr('Max can be at most 50.'); return }
 
     const body = {

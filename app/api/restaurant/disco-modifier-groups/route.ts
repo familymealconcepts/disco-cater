@@ -6,11 +6,12 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// Validate group selection rules (mirrors FM): min ≥ 0, 1 ≤ max ≤ 50, min < max.
+// Validate group selection rules (mirrors FM): min ≥ 0, 1 ≤ max ≤ 50, min ≤ max.
+// min == max is VALID — it means the customer must select exactly that many.
 export function validateGroupRules(min: number, max: number): string | null {
   if (!Number.isInteger(min) || min < 0) return 'Minimum must be 0 or more.'
   if (!Number.isInteger(max) || max < 1 || max > 50) return 'Maximum must be between 1 and 50.'
-  if (min >= max) return 'Minimum must be less than maximum.'
+  if (min > max) return 'Minimum cannot be greater than maximum.'
   return null
 }
 

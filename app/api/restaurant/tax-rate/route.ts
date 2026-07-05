@@ -9,6 +9,24 @@ export const runtime = 'nodejs'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+// Zero tax rates in the shape the tax-rate page + promo engine consume — returned
+// for a Disco-native restaurant that hasn't saved rates yet.
+const DEFAULT_TAX = {
+  stateSalesTax: { percent: 0, fixedAmount: 0 },
+  localSalesTax: { percent: 0, fixedAmount: 0 },
+  otherSalesTax: { percent: 0, fixedAmount: 0, types: [] },
+}
+
+// Persist tax rates for a Disco-native restaurant entirely in Neon (zero FM).
+async function saveDiscoTaxRates(ref: string, taxRates: unknown): Promise<void> {
+  await runMigrations()
+  await sql`
+    INSERT INTO disco_restaurant_overrides (restaurant_reference, tax_rates, updated_at)
+    VALUES (${ref}, ${JSON.stringify(taxRates)}::jsonb, NOW())
+    ON CONFLICT (restaurant_reference) DO UPDATE SET tax_rates = ${JSON.stringify(taxRates)}::jsonb, updated_at = NOW()
+  `
+}
+
 // Resolve the single restaurant whose tax rates these are: a SYSTEM_ADMIN's
 // selected location, else the ADMIN's own reference. Returns '' if ambiguous.
 async function currentRef(): Promise<string> {
@@ -42,6 +60,20 @@ async function mirrorTaxRates(taxRates: unknown): Promise<void> {
 }
 
 export async function GET() {
+  // Disco-native restaurants store tax rates in Neon — read them directly, no FM.
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') {
+    const ref = await currentRef()
+    if (!ref) return NextResponse.json(DEFAULT_TAX)
+    try {
+      await runMigrations()
+      const rows = (await sql`SELECT tax_rates FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { tax_rates: unknown }[]
+      return NextResponse.json(rows[0]?.tax_rates || DEFAULT_TAX)
+    } catch {
+      return NextResponse.json(DEFAULT_TAX)
+    }
+  }
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -60,6 +92,22 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  // Disco-native restaurants save tax rates entirely in Neon — never touch FM.
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') {
+    const ref = await currentRef()
+    if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
+    let body: unknown
+    try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
+    try {
+      await saveDiscoTaxRates(ref, body)
+      return NextResponse.json(body)
+    } catch (e) {
+      console.error('[tax-rate] disco save failed:', e instanceof Error ? e.message : e)
+      return NextResponse.json({ error: 'Unable to save tax rate' }, { status: 500 })
+    }
+  }
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

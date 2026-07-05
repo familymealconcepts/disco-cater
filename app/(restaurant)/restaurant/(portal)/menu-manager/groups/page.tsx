@@ -45,7 +45,7 @@ export default function GroupLibraryPage() {
     if (!dialog.name.trim()) { setError('Group name is required.'); return }
     const min = parseInt(dialog.minSelected, 10) || 0
     const max = parseInt(dialog.maxSelected, 10) || 1
-    if (min >= max) { setError('Minimum must be less than maximum.'); return }
+    if (min > max) { setError('Minimum cannot be greater than maximum.'); return }
     if (max < 1 || max > 50) { setError('Maximum must be between 1 and 50.'); return }
     setSaving(true); setError('')
     try {
