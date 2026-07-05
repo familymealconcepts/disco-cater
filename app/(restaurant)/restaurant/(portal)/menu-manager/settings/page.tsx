@@ -20,6 +20,8 @@ export default function RestaurantSettingsPage() {
   const [flash, setFlash] = useState('')
 
   const [slug, setSlug] = useState<string | null>(null)
+  const [urlSlug, setUrlSlug] = useState('')     // editable Disco Cater URL slug
+  const [urlError, setUrlError] = useState('')
   const [onlineOrdering, setOnlineOrdering] = useState(true)
   const [notificationEmails, setNotificationEmails] = useState('')
   const [textNotifications, setTextNotifications] = useState(false)
@@ -41,7 +43,7 @@ export default function RestaurantSettingsPage() {
         fetch('/api/restaurant/disco-closed-days').then(r => r.json()),
       ])
       const set = s.settings || {}
-      setSlug(s.slug || null)
+      setSlug(s.slug || null); setUrlSlug(s.slug || ''); setUrlError('')
       setOnlineOrdering(set.online_ordering_enabled !== false)
       setNotificationEmails(set.notification_emails || '')
       setTextNotifications(set.text_notifications_enabled === true)
@@ -70,6 +72,24 @@ export default function RestaurantSettingsPage() {
       })
       setFlash('Saved'); setTimeout(() => setFlash(''), 2500)
     } finally { setSaving(false) }
+  }
+
+  // Same slug rule as the disco-url route (validate early in the UI).
+  function slugError(s: string): string | null {
+    if (!s) return null
+    if (s.length < 3) return 'URL must be at least 3 characters.'
+    if (s.length > 60) return 'URL must be at most 60 characters.'
+    if (!/^[a-z0-9-]+$/.test(s)) return 'URL can only contain lowercase letters, numbers, and hyphens.'
+    if (s.startsWith('-') || s.endsWith('-')) return 'URL cannot start or end with a hyphen.'
+    return null
+  }
+  async function saveUrl() {
+    const err = slugError(urlSlug)
+    if (err || !urlSlug) { setUrlError(err || 'Enter a URL.'); return }
+    const res = await fetch('/api/restaurant/disco-url', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: urlSlug }) })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) { setUrlError(d.error || 'Could not save URL.'); return }
+    setSlug(urlSlug); setUrlError(''); setFlash('URL updated'); setTimeout(() => setFlash(''), 2000)
   }
 
   async function addClosedDay() {
@@ -108,14 +128,25 @@ export default function RestaurantSettingsPage() {
       {/* 2 — Disco Cater URL */}
       <div style={card}>
         <div style={h2}>Disco Cater URL</div>
-        <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>The link customers use to find your menu on Disco Cater.</div>
-        {publicUrl ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <input readOnly value={publicUrl} style={{ ...input, minWidth: 320, color: '#555', background: '#fafafa' }} />
-            <button onClick={() => { navigator.clipboard?.writeText(publicUrl); setFlash('URL copied'); setTimeout(() => setFlash(''), 2000) }} title="Copy URL" style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: 8, padding: '8px 10px', cursor: 'pointer', fontSize: 13, color: '#555', fontFamily: F }}>⧉</button>
-            <a href={publicUrl} target="_blank" rel="noreferrer" title="Open in new tab" style={{ color: BLUE, fontSize: 16, lineHeight: 1, padding: '8px 10px', textDecoration: 'none', border: '1px solid #e8e8e8', borderRadius: 8 }}>↗</a>
-          </div>
-        ) : <div style={{ fontSize: 13, color: '#aaa' }}>No public URL set yet.</div>}
+        <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>The link customers use to find your menu on Disco Cater. Lowercase letters, numbers, and hyphens; 3–60 characters; unique across all restaurants.</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>https://www.discocater.com/restaurants/</span>
+          <input
+            value={urlSlug}
+            onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''); setUrlSlug(v); setUrlError(slugError(v) || '') }}
+            placeholder="my-restaurant"
+            style={{ ...input, minWidth: 200, maxWidth: 240, borderColor: urlError ? RED : '#ddd' }}
+          />
+          {urlSlug !== (slug || '') ? (
+            <button onClick={saveUrl} disabled={!!urlError} style={{ padding: '9px 16px', background: urlError ? '#ccc' : BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: urlError ? 'not-allowed' : 'pointer', fontFamily: F }}>Save</button>
+          ) : slug ? (
+            <>
+              <button onClick={() => { navigator.clipboard?.writeText(publicUrl); setFlash('URL copied'); setTimeout(() => setFlash(''), 2000) }} title="Copy URL" style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: 8, padding: '8px 10px', cursor: 'pointer', fontSize: 13, color: '#555', fontFamily: F }}>⧉</button>
+              <a href={publicUrl} target="_blank" rel="noreferrer" title="Open in new tab" style={{ color: BLUE, fontSize: 16, lineHeight: 1, padding: '8px 10px', textDecoration: 'none', border: '1px solid #e8e8e8', borderRadius: 8 }}>↗</a>
+            </>
+          ) : null}
+        </div>
+        {urlError && <p style={{ fontSize: 12, color: RED, margin: '6px 0 0' }}>{urlError}</p>}
       </div>
 
       {/* 3 — Email Notification Recipients */}
