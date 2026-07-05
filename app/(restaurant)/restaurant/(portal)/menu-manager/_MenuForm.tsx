@@ -364,7 +364,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
           <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 14 }}>Delivery</div>
           <label style={label}>Delivery method</label>
           <div style={{ display: 'flex', gap: 20, marginBottom: 16 }}>
-            <label style={radioRow(deliveryMethod === 'THIRD_PARTY')}><input type="radio" checked={deliveryMethod === 'THIRD_PARTY'} onChange={() => setDeliveryMethod('THIRD_PARTY')} style={{ accentColor: BLUE }} /> Third-party (Disco arranges a courier)</label>
+            <label style={radioRow(deliveryMethod === 'THIRD_PARTY')}><input type="radio" checked={deliveryMethod === 'THIRD_PARTY'} onChange={() => setDeliveryMethod('THIRD_PARTY')} style={{ accentColor: BLUE }} /> Third-party</label>
             <label style={radioRow(deliveryMethod === 'OWN_DELIVERY')}><input type="radio" checked={deliveryMethod === 'OWN_DELIVERY'} onChange={() => setDeliveryMethod('OWN_DELIVERY')} style={{ accentColor: BLUE }} /> Self-delivery</label>
           </div>
 

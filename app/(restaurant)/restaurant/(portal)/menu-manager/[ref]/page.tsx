@@ -78,10 +78,6 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
   }
 
   // ── Item actions ──
-  async function toggleItemVisible(it: Item) {
-    setItems(prev => prev.map(x => x.reference === it.reference ? { ...x, visible: !x.visible } : x))
-    await fetch(`/api/restaurant/disco-menu-items/${it.reference}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: !it.visible }) })
-  }
   async function deleteItem(it: Item) {
     if (!confirm(`Delete "${it.name}"?`)) return
     const res = await fetch(`/api/restaurant/disco-menu-items/${it.reference}`, { method: 'DELETE' })
@@ -183,9 +179,6 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                       <button title="Duplicate" onClick={() => cloneItem(it)} style={iconBtn}>⧉</button>
                       <button title="Edit" onClick={() => setItemDlg({ mode: 'edit', item: it })} style={iconBtn}>✎</button>
                       <button title="Delete" onClick={() => deleteItem(it)} style={{ ...iconBtn, color: RED }}>🗑</button>
-                      <label title="Visible to customers" style={{ marginLeft: 6, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={it.visible} onChange={() => toggleItemVisible(it)} style={{ accentColor: BLUE, cursor: 'pointer' }} />
-                      </label>
                     </td>
                   </tr>
                 ))}
@@ -238,7 +231,9 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   const [price, setPrice] = useState(item?.price != null ? String(item.price) : '')
   const [serves, setServes] = useState(item?.serves || '')
   const [imageUrl, setImageUrl] = useState(item?.image_url || '')
-  const [visible, setVisible] = useState(item?.visible !== false)
+  // Item visibility has no UI (removed) — preserve the item's current value on edit,
+  // default visible for new items. Still sent so an existing hidden item isn't flipped.
+  const visible = item?.visible !== false
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
@@ -337,9 +332,6 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
           {imageUrl ? <img src={imageUrl} alt="" style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', border: '1px solid #eee' }} /> : <div style={{ width: 56, height: 56, borderRadius: 8, background: '#f4f4f8', border: '1px solid #eee' }} />}
           <label style={{ fontSize: 13, color: BLUE, fontWeight: 600, cursor: 'pointer' }}>{uploading ? 'Uploading…' : (imageUrl ? 'Replace' : 'Upload')}<input type="file" accept="image/jpeg,image/png" onChange={upload} style={{ display: 'none' }} /></label>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 14, fontSize: 13, color: DARK, cursor: 'pointer' }}>
-          <input type="checkbox" checked={visible} onChange={e => setVisible(e.target.checked)} style={{ accentColor: BLUE }} /> Visible to customers
-        </label>
 
         <label style={dlgLabel}>Modifier Groups</label>
         {!isEdit ? (

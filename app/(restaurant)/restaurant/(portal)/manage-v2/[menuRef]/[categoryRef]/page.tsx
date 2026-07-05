@@ -182,10 +182,6 @@ export default function CategoryDetailPage() {
     await loadPackages()
   }
 
-  async function handleToggleVisible(ref: string, current: boolean) {
-    await fetch(`/api/restaurant/meal-packages/${ref}/visible?isVisible=${!current}`, { method: 'PUT' })
-    await loadPackages()
-  }
 
   // ── Drag-to-reorder ──────────────────────────────────────────────────────
   // HTML5 DnD; on drop we optimistically reorder, persist the moved item's new
@@ -368,7 +364,6 @@ export default function CategoryDetailPage() {
                       <th style={thStyle}>Name</th>
                       <th style={thStyle}>Price</th>
                       <th style={thStyle}>Serves</th>
-                      <th style={thStyle}>Visible</th>
                       <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
@@ -408,20 +403,6 @@ export default function CategoryDetailPage() {
                           {pkg.price != null ? `$${Number(pkg.price).toFixed(2)}` : '—'}
                         </td>
                         <td style={tdStyle}>{pkg.serves || '—'}</td>
-                        <td style={tdStyle} onClick={e => e.stopPropagation()}>
-                          <button
-                            title={pkg.visible ? 'Hide' : 'Show'}
-                            onClick={() => handleToggleVisible(pkg.reference, !!pkg.visible)}
-                            style={{
-                              background: pkg.visible ? '#EEF2FF' : '#f5f5f8',
-                              border: `1px solid ${pkg.visible ? '#C7D2FE' : '#e8e8ee'}`,
-                              borderRadius: 6, padding: '4px 10px', fontSize: 11,
-                              color: pkg.visible ? BLUE : '#999', cursor: 'pointer', fontFamily: F, fontWeight: 600,
-                            }}
-                          >
-                            {pkg.visible ? 'Visible' : 'Hidden'}
-                          </button>
-                        </td>
                         <td style={{ ...tdStyle, textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
                             <ActionBtn
