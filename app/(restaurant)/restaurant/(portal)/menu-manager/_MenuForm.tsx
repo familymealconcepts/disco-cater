@@ -8,17 +8,10 @@ const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 const RED = '#E53935'
 
-// FM MenuType (8) with display labels.
-const MENU_TYPES = [
-  { value: 'GENERAL_CATERING', label: 'General Catering' },
-  { value: 'OFFICE_CATERING', label: 'Office Catering' },
-  { value: 'HOLIDAY_CATERING', label: 'Holiday Catering' },
-  { value: 'MEAL_PREP', label: 'Meal Prep' },
-  { value: 'PRIVATE_CHEF', label: 'Private Chef' },
-  { value: 'NATIONWIDE_SHIPPING', label: 'Nationwide Shipping' },
-  { value: 'MERCH', label: 'Merch' },
-  { value: 'POP_UP', label: 'Pop Up' },
-]
+// Menu Category (the per-menu `type`) is intentionally dropped as a Disco concept
+// — same decision as the FM-backed menus (MenuSettingsDialog FM_MENU_TYPE_DEFAULT).
+// The column still exists, so we always store this fixed value; it's never surfaced.
+const MENU_TYPE_DEFAULT = 'GENERAL_CATERING'
 
 // Day pills in FM's Su–Sa order.
 const DAYS: { key: string; label: string }[] = [
@@ -40,7 +33,6 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const isEdit = !!menuRef
 
   const [name, setName] = useState('')
-  const [type, setType] = useState('GENERAL_CATERING')
   const [url, setUrl] = useState('')
   const [urlDirty, setUrlDirty] = useState(false)
   const [imageUrl, setImageUrl] = useState('')
@@ -104,7 +96,6 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         const d = res.ok ? (await res.json()).menu : null
         if (!d) { setError('Menu not found.'); return }
         setName(d.name || '')
-        setType(d.type || 'GENERAL_CATERING')
         setUrl(d.url || ''); setUrlDirty(true)
         setImageUrl(d.image_url || '')
         setVisible(d.visible !== false)
@@ -172,7 +163,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
       perDay: Object.fromEntries(activeDays.map(k => [k, perDay[k] || { from: sameFrom, to: sameTo }])),
     }
     const payload = {
-      name: name.trim(), type, url: effectiveSlug, urlAuto: !urlDirty,
+      name: name.trim(), type: MENU_TYPE_DEFAULT, url: effectiveSlug, urlAuto: !urlDirty,
       imageUrl: imageUrl || undefined, visible,
       availabilityMode, startDate: startDate || undefined, endDate: endDate || undefined,
       scheduleConfig,
@@ -231,12 +222,6 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
           <div style={{ marginBottom: 16 }}>
             <label style={label}>Menu Name <span style={{ color: RED }}>*</span></label>
             <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Summer Catering Menu" style={inputStyle} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={label}>Menu Category <span style={{ color: RED }}>*</span></label>
-            <select value={type} onChange={e => setType(e.target.value)} style={inputStyle}>
-              {MENU_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
           </div>
           <div style={{ marginBottom: 16 }}>
             <label style={label}>Menu URL</label>

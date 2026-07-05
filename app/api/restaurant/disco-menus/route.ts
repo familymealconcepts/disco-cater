@@ -12,10 +12,9 @@ export const dynamic = 'force-dynamic'
 //   POST → create a menu { name, type, url?, description?, imageUrl?, visible?,
 //          availabilityMode, startDate?, endDate?, scheduleConfig }
 
-const MENU_TYPES = new Set([
-  'GENERAL_CATERING', 'OFFICE_CATERING', 'HOLIDAY_CATERING', 'MEAL_PREP',
-  'PRIVATE_CHEF', 'NATIONWIDE_SHIPPING', 'MERCH', 'POP_UP',
-])
+// Menu Category (the per-menu `type`) is dropped as a Disco concept — the column
+// still exists, so we always store this fixed value; it's never chosen by the user.
+const MENU_TYPE_DEFAULT = 'GENERAL_CATERING'
 
 // FM slug rule: lowercase letters/numbers/hyphens only (^[a-z0-9-]+$).
 function slugify(s: string): string {
@@ -61,8 +60,7 @@ export async function POST(req: NextRequest) {
 
   const name = String(body?.name || '').trim()
   if (!name) return NextResponse.json({ error: 'Menu name is required.' }, { status: 400 })
-  const type = String(body?.type || 'GENERAL_CATERING')
-  if (!MENU_TYPES.has(type)) return NextResponse.json({ error: 'Invalid menu category.' }, { status: 400 })
+  const type = MENU_TYPE_DEFAULT
 
   // Slug: derived from name (urlAuto) → append -2,-3… on collision silently.
   // User-typed slug (urlAuto=false) → a collision is a hard 409 with a clear

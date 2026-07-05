@@ -7,10 +7,9 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const MENU_TYPES = new Set([
-  'GENERAL_CATERING', 'OFFICE_CATERING', 'HOLIDAY_CATERING', 'MEAL_PREP',
-  'PRIVATE_CHEF', 'NATIONWIDE_SHIPPING', 'MERCH', 'POP_UP',
-])
+// Menu Category (the per-menu `type`) is dropped as a Disco concept — the column
+// still exists, so we always store this fixed value; it's never chosen by the user.
+const MENU_TYPE_DEFAULT = 'GENERAL_CATERING'
 function slugify(s: string): string {
   return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
 }
@@ -57,8 +56,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
   const name = String(body?.name ?? '').trim()
   if (!name) return NextResponse.json({ error: 'Menu name is required.' }, { status: 400 })
-  const type = String(body?.type || 'GENERAL_CATERING')
-  if (!MENU_TYPES.has(type)) return NextResponse.json({ error: 'Invalid menu category.' }, { status: 400 })
+  const type = MENU_TYPE_DEFAULT
 
   // URL slug — uniqueness per restaurant (excluding self). A user-typed collision
   // is a hard 409; a blank/derived one is auto-suffixed.

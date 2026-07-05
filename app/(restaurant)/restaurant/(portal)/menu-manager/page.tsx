@@ -6,14 +6,8 @@ const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
 
-const TYPE_LABELS: Record<string, string> = {
-  GENERAL_CATERING: 'General Catering', OFFICE_CATERING: 'Office Catering',
-  HOLIDAY_CATERING: 'Holiday Catering', MEAL_PREP: 'Meal Prep', PRIVATE_CHEF: 'Private Chef',
-  NATIONWIDE_SHIPPING: 'Nationwide Shipping', MERCH: 'Merch', POP_UP: 'Pop Up',
-}
-
 interface Menu {
-  reference: string; name: string; type: string; url: string | null
+  reference: string; name: string; url: string | null
   visible: boolean; availability_mode: string
 }
 
@@ -58,7 +52,7 @@ export default function MenuManagerPage() {
                   {!m.visible && <span style={{ fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px' }}>HIDDEN</span>}
                 </div>
                 <div style={{ fontSize: 12, color: '#888', marginTop: 3 }}>
-                  {TYPE_LABELS[m.type] || m.type}{m.availability_mode === 'CUSTOM' ? ' · Custom dates' : ''}
+                  {m.availability_mode === 'CUSTOM' ? 'Custom dates' : 'Always available'}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
