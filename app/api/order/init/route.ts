@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { fmFetch } from '../../../../lib/fm-fetch'
-import { isDiscoNativeRestaurant, priceNativeFmDto } from '../../../../lib/order/native-checkout'
+import { isDiscoNativeRestaurant, priceNativeFmDto, isNativeOrderingOpen } from '../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -14,6 +14,9 @@ export async function POST(req: NextRequest) {
     // ── Disco-native path: price the FM-shaped cart DTO in Neon (zero FM) and
     // return the FM response envelope the client already reads. ──
     if (await isDiscoNativeRestaurant(restaurantRef)) {
+      if (!(await isNativeOrderingOpen(restaurantRef))) {
+        return NextResponse.json({ error: 'This restaurant is not currently accepting online orders.' }, { status: 403 })
+      }
       return NextResponse.json(await priceNativeFmDto(body))
     }
 

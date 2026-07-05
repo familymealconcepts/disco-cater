@@ -45,6 +45,13 @@ export async function POST(req: NextRequest) {
     // Flip live + advance the step.
     await sql`UPDATE disco_restaurant_cache SET is_live = true, is_disco_native = true, cached_at = NOW() WHERE restaurant_reference = ${ref}`
     await sql`UPDATE disco_restaurant_accounts SET onboarding_step = 4, updated_at = NOW() WHERE restaurant_reference = ${ref}`
+    // Going live opens online ordering (the native order gate reads this). Only
+    // sets it when not already chosen — never re-enable a restaurant that paused.
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, online_ordering_enabled, updated_at)
+      VALUES (${ref}, true, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE SET online_ordering_enabled = COALESCE(disco_restaurant_overrides.online_ordering_enabled, true), updated_at = NOW()
+    `.catch(() => {})
 
     const name = cache?.name || acct?.business_name || acct?.restaurant_name || 'New restaurant'
 

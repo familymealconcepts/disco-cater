@@ -76,6 +76,21 @@ export async function loadRestaurantDeliverySettings(restaurantReference: string
   return rows[0]?.delivery_settings || null
 }
 
+// Online-ordering hard gate: a Disco-native restaurant is "open" for orders unless
+// it has explicitly paused online ordering (online_ordering_enabled = false). A
+// missing overrides row counts as open (COALESCE → true) — see lib/db.ts. The
+// native order routes call this before pricing/placing so a paused restaurant can
+// never take an order, even via a direct API call.
+export async function isNativeOrderingOpen(restaurantReference: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT COALESCE(o.online_ordering_enabled, true) AS enabled
+    FROM disco_restaurant_cache c
+    LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+    WHERE c.restaurant_reference = ${restaurantReference} LIMIT 1
+  `.catch(() => [])) as { enabled: boolean }[]
+  return rows.length === 0 ? true : rows[0].enabled !== false
+}
+
 export function cartSubtotal(items: NativeCartItem[]): number {
   return round2((items || []).reduce((s, it) => s + (Number(it.price) || 0) * Math.max(1, Math.trunc(Number(it.quantity) || 1)), 0))
 }

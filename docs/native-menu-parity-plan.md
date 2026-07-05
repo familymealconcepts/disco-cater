@@ -261,7 +261,11 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   granularity (new column), tax rates, notification emails/SMS + reminders. Native "Restaurant
   Settings" page (`/restaurant/menu-manager/settings`) incl. the Closed-Days admin UI; "Settings"
   nav repointed to it for Disco users. Tax set here flows into the order total ($112.88 verified).
-  Zero FM. (Online-ordering hard gate deferred — needs go-live to default it true; value is stored.)
+  Zero FM. Online-ordering HARD GATE now wired (2026-07-04): `online_ordering_enabled` defaults ON
+  (column default true + one-time backfill of the 9 existing native rows; go-live sets it true);
+  `isNativeOrderingOpen` reads COALESCE(online_ordering_enabled, true); `/api/order/init` + `/place`
+  reject a paused restaurant with 403 "not currently accepting online orders" (the checkout drawer
+  surfaces it). Tested 5/5: open-by-default, paused blocks init+place before login/payment, re-enable clears it.
 - **Stage 10 — Location-level (fulfillment options offered)** ✅ COVERED BY STAGE 5. Disco-native
   restaurants have no separate FM location record — fulfillment types are menu-scoped
   (offers_pickup/offers_delivery, Stage 5); "shipping" = the NATIONWIDE_SHIPPING menu type. No

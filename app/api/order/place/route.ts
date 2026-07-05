@@ -8,7 +8,7 @@ import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib/promo-apply'
 import { geocodeAddress } from '../../../../lib/geocode'
-import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart, loadRestaurantServiceChargePct, cartSubtotal } from '../../../../lib/order/native-checkout'
+import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart, loadRestaurantServiceChargePct, cartSubtotal, isNativeOrderingOpen } from '../../../../lib/order/native-checkout'
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { validateNativeDelivery } from '../../../../lib/order/native-delivery'
 import type { Fulfillment } from '../../../../lib/pricing/native-order'
@@ -268,6 +268,10 @@ export async function POST(req: NextRequest) {
     // Disco session (not an FM JWT). Returns the PaymentIntent client_secret for the
     // browser to confirm; the webhook flips RESERVED→DUE on success. ──
     if (body?.restaurantRef && await isDiscoNativeRestaurant(body.restaurantRef)) {
+      // Online-ordering hard gate: a paused restaurant can never take an order.
+      if (!(await isNativeOrderingOpen(body.restaurantRef))) {
+        return NextResponse.json({ error: 'This restaurant is not currently accepting online orders.' }, { status: 403 })
+      }
       const session = await getCustomerSession(req)
       if (!session?.email) {
         return NextResponse.json({ error: 'Please log in to place your order.' }, { status: 401 })
