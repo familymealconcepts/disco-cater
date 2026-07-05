@@ -3,6 +3,8 @@ import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { sendCustomerRefundNotification } from '../../../../../../lib/email/notifications'
+import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
+import { stripeClient } from '../../../../../../lib/order/native-payment'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,18 +37,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // null/0 disco_orders.total doesn't block a legitimate refund.
   let maxRefundable = 0
   let alreadyRefunded = 0
+  let discoReference = ''
   try {
     await runDiscoOrderMigrations()
     const rows = (await sql`
-      SELECT COALESCE(NULLIF(o.total, 0),
+      SELECT o.reference AS disco_reference,
+             COALESCE(NULLIF(o.total, 0),
                (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
              ) AS total,
              COALESCE(o.refund, 0) AS refund
       FROM disco_orders o
       WHERE o.reference = ${ref}::uuid OR o.fm_order_reference = ${ref}::uuid
       LIMIT 1
-    `) as Array<{ total: string | null; refund: string | null }>
+    `) as Array<{ disco_reference: string; total: string | null; refund: string | null }>
     if (!rows.length) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+    discoReference = rows[0].disco_reference
     const total = Number(rows[0].total) || 0
     alreadyRefunded = Number(rows[0].refund) || 0
     maxRefundable = Math.max(0, total - alreadyRefunded)
@@ -58,17 +63,34 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     return NextResponse.json({ error: `Refund amount cannot exceed $${maxRefundable.toFixed(2)}` }, { status: 400 })
   }
 
-  // FM notification (best-effort) — issues the Stripe refund for FM-charged orders.
-  try {
-    const authHeaders = await getRestaurantAuthHeader()
-    const res = await fetch(`${FM}/api/orders/${ref}/refund`, {
-      method: 'PUT',
-      headers: { ...authHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount }),
-    })
-    if (!res.ok) console.error('[restaurant/orders/refund] FM refund failed (non-fatal):', res.status)
-  } catch (e) {
-    console.error('[restaurant/orders/refund] FM refund threw (non-fatal):', e instanceof Error ? e.message : e)
+  // Issue the ACTUAL Stripe refund. For a Disco-native order this goes through
+  // Disco's own Stripe and MUST succeed before we mark the order refunded — no more
+  // flipping the status while the money silently fails to move. FM-charged orders
+  // are still refunded by FM (best-effort; FM owns their Stripe).
+  let stripeRefundId: string | null = null
+  if (ctx.authType === 'disco') {
+    const stripe = stripeClient(process.env.STRIPE_SECRET_KEY)
+    if (!stripe) return NextResponse.json({ error: 'Refunds are temporarily unavailable.' }, { status: 503 })
+    try {
+      const r = await refundNativeOrder(stripe, discoReference, amount)
+      stripeRefundId = r.refundId
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[restaurant/orders/refund] native Stripe refund failed:', msg)
+      return NextResponse.json({ error: `The refund could not be processed: ${msg}` }, { status: 502 })
+    }
+  } else {
+    try {
+      const authHeaders = await getRestaurantAuthHeader()
+      const res = await fetch(`${FM}/api/orders/${ref}/refund`, {
+        method: 'PUT',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount }),
+      })
+      if (!res.ok) console.error('[restaurant/orders/refund] FM refund failed (non-fatal):', res.status)
+    } catch (e) {
+      console.error('[restaurant/orders/refund] FM refund threw (non-fatal):', e instanceof Error ? e.message : e)
+    }
   }
 
   // Neon is the source of truth — mark REFUNDED and store the cumulative refund.
@@ -92,7 +114,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
     await sql`
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-      VALUES (${reference}::uuid, 'REFUNDED', ${JSON.stringify({ amount, totalRefund })}::jsonb, 'DISCO_REFUND')
+      VALUES (${reference}::uuid, 'REFUNDED', ${JSON.stringify({ amount, totalRefund, stripeRefundId })}::jsonb, 'DISCO_REFUND')
     `.catch(e => console.error('[restaurant/orders/refund] event insert:', e))
 
     // Notify the customer of the refund (best-effort — never block the refund).
