@@ -237,7 +237,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // Restaurant-LEVEL FM settings (feesAndTips / RestaurantSimplePublicResponseDto).
   // FM exposes these on the restaurant, not the menu, so they're threaded in here
   // rather than read off menu.settings (which never carries them).
-  restaurantSettings?: { enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string }
+  // onlineOrderingAllowed=false → the restaurant has paused online ordering; the
+  // checkout CTA is disabled and a notice is shown (the server also hard-gates it).
+  restaurantSettings?: { enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string; onlineOrderingAllowed?: boolean }
 }) {
   // ── UI state ──────────────────────────────────────────────────────────────
   // Auth — used to gate the checkout action behind login (browsing/cart-building
@@ -860,7 +862,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // review step, the trigger has to gate on date + time + delivery address
   // upstream instead of the drawer rendering a "complete your selections"
   // fallback).
-  const canCheckout = cart.length > 0 && !belowMin && !!selDate && !!selTime &&
+  // Online ordering paused → no checkout, regardless of cart/date/etc.
+  const orderingPaused = restaurantSettings?.onlineOrderingAllowed === false
+  const canCheckout = !orderingPaused && cart.length > 0 && !belowMin && !!selDate && !!selTime &&
     (orderType === 'PICKUP' || (!!addr.line1 && addr.lat != null && addr.lng != null))
 
   // GA funnel: checkout drawer opened. Fires once per open (covers both the
@@ -879,7 +883,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   }, [checkoutOpen])
   // Subtotal/total are already shown in the order summary above the button, so
   // the label is just the action.
-  const ctaLabel = cartCount > 0 ? 'Continue to Checkout' : 'Browse Menu → Start Order'
+  const ctaLabel = orderingPaused ? 'Not accepting online orders' : cartCount > 0 ? 'Continue to Checkout' : 'Browse Menu → Start Order'
 
   // Login gate: only the checkout action requires auth. Direct Entry (restaurant
   // admin placing on behalf of a customer) is never gated. When logged out, open
@@ -1405,6 +1409,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 {tags.map(t => <span key={t} style={{ background: '#f0f0f0', color: '#555', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
                 {restaurant.tags?.map(t => <span key={t} style={{ background: '#EEEDFE', color: '#3C3489', fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 500 }}>{t}</span>)}
               </div>
+              {orderingPaused && (
+                <div style={{ marginTop: 10, background: '#FFF4E5', border: '1px solid #FFD8A8', color: '#8A5A00', fontSize: 12.5, fontWeight: 600, padding: '9px 13px', borderRadius: 10 }}>
+                  ⏸ This restaurant is not currently accepting online orders.
+                </div>
+              )}
               {/* 1P-only cue: confirms the restaurant is on the commission-free
                   direct link (sourceoforder FAMILYMEAL). Hidden on the 3P page. */}
               {isFirstParty && (

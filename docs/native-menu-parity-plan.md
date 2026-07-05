@@ -266,6 +266,10 @@ fee, convenience fee, stripe fee, lead-gen fee, application-fee total, restauran
   `isNativeOrderingOpen` reads COALESCE(online_ordering_enabled, true); `/api/order/init` + `/place`
   reject a paused restaurant with 403 "not currently accepting online orders" (the checkout drawer
   surfaces it). Tested 5/5: open-by-default, paused blocks init+place before login/payment, re-enable clears it.
+  Front-end polish (tested 7/7): loadDiscoNativeRestaurant emits `acceptingOrders` →
+  restaurantSettings.onlineOrderingAllowed → RestaurantClient shows a "not currently accepting online
+  orders" banner + disables/relabels the checkout CTA ("Not accepting online orders") so a customer
+  sees it up front, not just at checkout.
 - **Stage 10 — Location-level (fulfillment options offered)** ✅ COVERED BY STAGE 5. Disco-native
   restaurants have no separate FM location record — fulfillment types are menu-scoped
   (offers_pickup/offers_delivery, Stage 5); "shipping" = the NATIONWIDE_SHIPPING menu type. No

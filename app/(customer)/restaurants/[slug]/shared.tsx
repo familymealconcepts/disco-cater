@@ -326,11 +326,13 @@ async function loadDiscoNativeRestaurant(slug: string) {
   try {
     await runMigrations()
     const rows = (await sql`
-      SELECT restaurant_reference, name, slug, address, location, cuisine, description, image_url
-      FROM disco_restaurant_cache
-      WHERE slug = ${slug} AND is_disco_native = true AND is_live = true
+      SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description, c.image_url,
+             COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled
+      FROM disco_restaurant_cache c
+      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+      WHERE c.slug = ${slug} AND c.is_disco_native = true AND c.is_live = true
       LIMIT 1
-    `) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null }[]
+    `) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; online_ordering_enabled: boolean }[]
     const r = rows[0]
     if (!r) return null
 
@@ -461,6 +463,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
         categories,
       }],
       reference: r.restaurant_reference,
+      acceptingOrders: r.online_ordering_enabled !== false,
     }
   } catch (err) {
     console.error('[shared] loadDiscoNativeRestaurant failed:', err instanceof Error ? err.message : err)
@@ -500,7 +503,7 @@ export async function RestaurantView({
           menuData={native.menuData}
           slug={slug}
           isFirstParty={isFirstParty}
-          restaurantSettings={{}}
+          restaurantSettings={{ onlineOrderingAllowed: native.acceptingOrders }}
         />
       </>
     )
