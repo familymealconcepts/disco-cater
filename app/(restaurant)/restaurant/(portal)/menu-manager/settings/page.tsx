@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { HOLIDAYS } from '../../../../../../lib/holidays'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -33,6 +34,7 @@ export default function RestaurantSettingsPage() {
   const [announcement, setAnnouncement] = useState('')
 
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
+  const [holidays, setHolidays] = useState<Set<string>>(new Set())
   const [cdName, setCdName] = useState(''); const [cdFrom, setCdFrom] = useState(''); const [cdTo, setCdTo] = useState('')
 
   async function load() {
@@ -54,6 +56,7 @@ export default function RestaurantSettingsPage() {
       setDeliveryWindow(set.delivery_order_time_windows || 'exact')
       setAnnouncement(set.announcement || '')
       setClosedDays(Array.isArray(c.closedDays) ? c.closedDays : [])
+      setHolidays(new Set(Array.isArray(c.holidays) ? c.holidays : []))
     } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
@@ -98,6 +101,12 @@ export default function RestaurantSettingsPage() {
     setCdName(''); setCdFrom(''); setCdTo(''); await load()
   }
   async function removeClosedDay(ref: string) { await fetch(`/api/restaurant/disco-closed-days/${ref}`, { method: 'DELETE' }); await load() }
+  async function toggleHoliday(name: string, on: boolean) {
+    // Optimistic; the server pre-computes/stores (or clears) 50 years of dates.
+    setHolidays(prev => { const n = new Set(prev); on ? n.add(name) : n.delete(name); return n })
+    await fetch('/api/restaurant/disco-closed-days', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ holiday: name, enabled: on }) })
+    await load()
+  }
 
   const card: React.CSSProperties = { background: '#fff', borderRadius: 12, border: '1px solid #eee', padding: '22px 26px', marginBottom: 18 }
   const label: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 6 }
@@ -206,7 +215,20 @@ export default function RestaurantSettingsPage() {
       {/* 11 — Schedule Override (Closed Days) */}
       <div style={card}>
         <div style={h2}>Schedule Override</div>
-        <div style={{ fontSize: 12, color: '#999', marginBottom: 14 }}>Restaurant-wide closures (holidays). Applies across all menus.</div>
+        <div style={{ fontSize: 12, color: '#999', marginBottom: 14 }}>Restaurant-wide closures. Applies across all menus and blocks customers from ordering on those dates.</div>
+
+        {/* Closed Holidays — toggling one blocks that holiday's date every year (pre-computed for 50 years). */}
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#555', marginBottom: 8 }}>Closed Holidays</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 24, rowGap: 2, marginBottom: 18 }}>
+          {HOLIDAYS.map(name => (
+            <label key={name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', fontSize: 13, color: DARK, cursor: 'pointer' }}>
+              <span>{name}</span>
+              <input type="checkbox" checked={holidays.has(name)} onChange={e => toggleHoliday(name, e.target.checked)} style={{ accentColor: BLUE, cursor: 'pointer' }} />
+            </label>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#555', marginBottom: 8, borderTop: '1px solid #f0f0f0', paddingTop: 14 }}>Custom Closed Dates</div>
         {closedDays.map(d => (
           <div key={d.reference} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid #f4f4f8', fontSize: 13 }}>
             <span>{d.name || 'Closed'} · {d.from_date}{d.to_date !== d.from_date ? ` – ${d.to_date}` : ''}</span>

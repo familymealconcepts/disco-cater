@@ -201,3 +201,8 @@ CREATE TABLE IF NOT EXISTS disco_restaurant_closed_days (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_disco_closed_days_restaurant ON disco_restaurant_closed_days(restaurant_reference);
+-- Holiday name when this row was created by toggling a "Closed Holiday" (e.g.
+-- 'Thanksgiving Day'); NULL for a one-off custom date. Toggling a holiday inserts
+-- one row per year's pre-computed date and toggling it off deletes them by name.
+ALTER TABLE disco_restaurant_closed_days ADD COLUMN IF NOT EXISTS holiday VARCHAR(120);
+CREATE INDEX IF NOT EXISTS idx_disco_closed_days_holiday ON disco_restaurant_closed_days(restaurant_reference, holiday);

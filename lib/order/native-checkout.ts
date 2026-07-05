@@ -91,6 +91,21 @@ export async function isNativeOrderingOpen(restaurantReference: string): Promise
   return rows.length === 0 ? true : rows[0].enabled !== false
 }
 
+// Server-side backup for the Closed Days / Closed Holidays block: true when the
+// order date falls inside any restaurant-wide closed-day range (holiday dates are
+// stored as one-day ranges). The customer date picker already hides these; this is
+// the server backstop so a direct API call can't order on a closed date.
+export async function isNativeDateClosed(restaurantReference: string, orderDate: string): Promise<boolean> {
+  if (!orderDate) return false
+  const rows = (await sql`
+    SELECT 1 FROM disco_restaurant_closed_days
+    WHERE restaurant_reference = ${restaurantReference}::uuid
+      AND from_date <= ${orderDate}::date AND to_date >= ${orderDate}::date
+    LIMIT 1
+  `.catch(() => [])) as unknown[]
+  return rows.length > 0
+}
+
 export function cartSubtotal(items: NativeCartItem[]): number {
   return round2((items || []).reduce((s, it) => s + (Number(it.price) || 0) * Math.max(1, Math.trunc(Number(it.quantity) || 1)), 0))
 }

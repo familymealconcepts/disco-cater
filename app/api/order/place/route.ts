@@ -8,7 +8,7 @@ import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib/promo-apply'
 import { geocodeAddress } from '../../../../lib/geocode'
-import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart, loadRestaurantServiceChargePct, cartSubtotal, isNativeOrderingOpen } from '../../../../lib/order/native-checkout'
+import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart, loadRestaurantServiceChargePct, cartSubtotal, isNativeOrderingOpen, isNativeDateClosed } from '../../../../lib/order/native-checkout'
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { validateNativeDelivery } from '../../../../lib/order/native-delivery'
 import type { Fulfillment } from '../../../../lib/pricing/native-order'
@@ -272,6 +272,14 @@ export async function POST(req: NextRequest) {
       if (!(await isNativeOrderingOpen(body.restaurantRef))) {
         return NextResponse.json({ error: 'This restaurant is not currently accepting online orders.' }, { status: 403 })
       }
+      // Reject a closed date up front (before login) — server backup for the Closed
+      // Days / Closed Holidays block (the customer date picker already hides these).
+      const rawDate = String((body?.checkoutDetails as Record<string, unknown> | undefined)?.orderDate ?? body?.orderDate ?? '')
+      const dmDate = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(rawDate)
+      const orderDate = dmDate ? `${dmDate[3]}-${dmDate[2]}-${dmDate[1]}` : rawDate
+      if (await isNativeDateClosed(body.restaurantRef, orderDate)) {
+        return NextResponse.json({ error: 'This restaurant is closed on the selected date.' }, { status: 403 })
+      }
       const session = await getCustomerSession(req)
       if (!session?.email) {
         return NextResponse.json({ error: 'Please log in to place your order.' }, { status: 401 })
@@ -298,11 +306,6 @@ export async function POST(req: NextRequest) {
         deliveryFee = dv.deliveryFee // customer-facing (third-party: net of subsidy)
         thirdPartyDeliverySubsiding = dv.thirdPartyDeliverySubsiding
       }
-      // Normalize orderDate: the checkout DTO sends DD.MM.YYYY; disco_orders wants ISO.
-      const rawDate = String(cd.orderDate ?? body?.orderDate ?? '')
-      const dm = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(rawDate)
-      const orderDate = dm ? `${dm[3]}-${dm[2]}-${dm[1]}` : rawDate
-
       const result = await placeAndPayNativeOrder({
         restaurantReference: body.restaurantRef,
         customerEmail: session.email,
