@@ -190,6 +190,15 @@ export async function runMigrations(): Promise<void> {
     // hourly order-reminders cron to compute the 24h-before-pickup window in the
     // restaurant's local time. NULL falls back to America/New_York in the cron.
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS timezone TEXT`,
+    // Structured address parts + manual marketplace ordering — used by the
+    // Locations management page (native, per disco group). `address` above holds
+    // line 1; these split out the rest so the edit dialog round-trips cleanly and
+    // the list can be drag-reordered.
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS address_line2 TEXT`,
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS city TEXT`,
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS state TEXT`,
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS zipcode TEXT`,
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS location_position INTEGER`,
     // Index the slug so the favorites enrichment can join on slug (some favorites
     // were stored by Sanity slug rather than the restaurant_reference UUID).
     `CREATE INDEX IF NOT EXISTS idx_disco_restaurant_cache_slug ON disco_restaurant_cache(slug)`,

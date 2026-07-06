@@ -249,6 +249,14 @@ export async function getDiscoGroupAccounts(businessName: string | null, email: 
   }
 }
 
+// The set of location refs a disco account may see/manage: their group accounts
+// plus their own home restaurant. Takes primitives (not the auth ctx) to avoid a
+// circular import with restaurant-auth-context. Used by the native Locations routes.
+export async function discoGroupRefs(businessName: string | null, email: string, homeRef: string): Promise<Set<string>> {
+  const group = await getDiscoGroupAccounts(businessName, email)
+  return new Set([homeRef, ...group.map(g => g.restaurant_reference)].filter(Boolean))
+}
+
 // Delete a session (logout)
 export async function deleteDiscoRestaurantSession(token: string): Promise<void> {
   await sql`DELETE FROM disco_restaurant_sessions WHERE token = ${token}`
