@@ -2,6 +2,7 @@
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import Link from 'next/link'
+import { computeActivePath } from '../../../../lib/nav/active-path'
 import { SelectedRestaurantProvider, useSelectedRestaurant } from './_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
@@ -53,9 +54,9 @@ const RESTAURANT_USER_NAV: NavItem[] = [
   {
     title: 'Manage Menus', path: '/restaurant/manage-v2/menus',
     children: [
-      { title: 'Menus', path: '/restaurant/manage-v2/menus' },
-      { title: 'Group Library', path: '/restaurant/manage/groups' },
-      { title: 'Modifier Library', path: '/restaurant/manage/modifiers' },
+      { title: 'Menu Items', path: '/restaurant/manage-v2/menus' },
+      { title: 'Groups', path: '/restaurant/manage/groups' },
+      { title: 'Modifiers', path: '/restaurant/manage/modifiers' },
     ],
   },
   { title: 'Promo Codes', path: '/restaurant/promo-codes' },
@@ -171,9 +172,9 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
           return {
             ...item, path: '/restaurant/menu-manager',
             children: [
-              { title: 'Menus', path: '/restaurant/menu-manager' },
+              { title: 'Menu Items', path: '/restaurant/menu-manager' },
+              { title: 'Groups', path: '/restaurant/menu-manager/groups' },
               { title: 'Modifiers', path: '/restaurant/menu-manager/modifiers' },
-              { title: 'Modifier Groups', path: '/restaurant/menu-manager/groups' },
             ],
           }
         }
@@ -239,8 +240,13 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     router.push('/restaurant/manage/locations')
   }
 
+  // Only the single most-specific matching nav path highlights (see computeActivePath)
+  // — so a parent like "Manage Menus" doesn't stay active on a nested sibling page
+  // such as Settings.
+  const activePath = computeActivePath(NAV, pathname)
+
   function isActive(path: string) {
-    return pathname === path || (pathname.startsWith(path + '/') && path !== '/restaurant')
+    return path === activePath
   }
 
   function isGroupActive(item: NavItem) {
