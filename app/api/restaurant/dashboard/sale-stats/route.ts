@@ -1,10 +1,81 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRole, getRestaurantRef } from '../../../../../lib/restaurant-auth'
-import { getRestaurantAuthContext, getFmHeaderForRestaurant, usesServiceAccount } from '../../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
+import { getDiscoGroupAccounts } from '../../../../../lib/disco-restaurant-auth'
+import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { cookies } from 'next/headers'
 import { SELECTED_RESTAURANT_COOKIE } from '../../../../../lib/restaurant-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Normalize a date filter to ISO (the page sends YYYY-MM-DD; accept DD.MM.YYYY too).
+function toIso(s: string | null): string | null {
+  if (!s) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(s)
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : s
+}
+
+// Financial cards for a Disco-native restaurant — aggregated from Neon
+// (disco_sale_transactions + disco_orders), not FM. Field names match the page's
+// SaleStats shape (subtotalOrdersSum, stateSalesTaxInPriceSum, leadgenonediscofee, …).
+async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, req: NextRequest) {
+  const sp = req.nextUrl.searchParams
+  const from = toIso(sp.get('fromDate'))
+  const to = toIso(sp.get('toDate'))
+  const byCreated = sp.get('dateType') === 'createdDate'
+  const isSA = ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN'
+
+  // Scope: an explicit in-group location wins; else an SA sees their whole group
+  // ("All restaurants"), and a single-location admin sees their own.
+  const queryRef = sp.get('restaurantReference') || ''
+  let refs: string[] = []
+  let group: { restaurant_reference: string }[] = []
+  if (isSA) { try { group = await getDiscoGroupAccounts(ctx.businessName, ctx.email) } catch { group = [] } }
+  if (queryRef && UUID_RE.test(queryRef) && (queryRef === ctx.restaurantReference || group.some(g => g.restaurant_reference === queryRef))) {
+    refs = [queryRef]
+  } else if (isSA && !queryRef) {
+    refs = [...new Set([ctx.restaurantReference, ...group.map(g => g.restaurant_reference)].filter(Boolean))]
+  } else {
+    refs = [await resolveDiscoScopeRef(ctx)]
+  }
+  refs = refs.filter(r => UUID_RE.test(r))
+  if (!refs.length) return NextResponse.json({})
+
+  await runDiscoOrderMigrations()
+  // Only paid/settled orders; one ORIGINAL transaction per order (edits excluded to
+  // avoid double-counting). tips_in_price is restaurant-kept (pickup/own delivery);
+  // third_party_delivery_tips route to Disco.
+  const rows = (await sql`
+    SELECT
+      COUNT(*)::int AS "totalOrdersCount",
+      COALESCE(SUM(st.subtotal), 0)::float8 AS "subtotalOrdersSum",
+      COALESCE(AVG(st.subtotal), 0)::float8 AS "subtotalOrdersAvg",
+      COALESCE(SUM(st.total), 0)::float8 AS "totalOrdersSum",
+      COALESCE(SUM(st.state_tax), 0)::float8 AS "stateSalesTaxInPriceSum",
+      COALESCE(SUM(st.local_tax), 0)::float8 AS "localSalesTaxInPriceSum",
+      COALESCE(SUM(st.other_tax), 0)::float8 AS "otherSalesTaxInPriceSum",
+      COALESCE(SUM(st.lead_gen_one_disco_fee), 0)::float8 AS "leadgenonediscofee",
+      COALESCE(SUM(st.lead_gen_two_disco_fee), 0)::float8 AS "leadgentwodiscofee",
+      COALESCE(SUM(st.service_charge), 0)::float8 AS "serviceChargesSum",
+      COALESCE(SUM(st.stripe_fee), 0)::float8 AS "stripeFeeSum",
+      COALESCE(SUM(st.own_delivery_fee), 0)::float8 AS "ownDeliveryPriceSum",
+      COALESCE(SUM(st.third_party_delivery_tips), 0)::float8 AS "thirdPartyDeliveryTipsOrdersSum",
+      COALESCE(SUM(st.tips_in_price) FILTER (WHERE o.order_type = 'PICKUP'), 0)::float8 AS "pickupTipsInPrice",
+      COALESCE(SUM(st.tips_in_price) FILTER (WHERE o.delivery_type = 'OWN_DELIVERY'), 0)::float8 AS "owndeliveryTipsInPrice",
+      0::float8 AS "doordashTipsOrdersSum",
+      0::float8 AS "doordashDeliveryFeeSum"
+    FROM disco_sale_transactions st
+    JOIN disco_orders o ON o.id = st.order_id
+    WHERE o.restaurant_reference = ANY(${refs}::uuid[])
+      AND st.transaction_type = 'ORIGINAL'
+      AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND','REFUND')
+      AND (${from}::date IS NULL OR (CASE WHEN ${byCreated} THEN o.created_at::date ELSE o.order_date END) >= ${from}::date)
+      AND (${to}::date IS NULL OR (CASE WHEN ${byCreated} THEN o.created_at::date ELSE o.order_date END) <= ${to}::date)
+  `) as Record<string, unknown>[]
+  return NextResponse.json(rows[0] || {})
+}
 
 // FM's dashboard expects dates as DD.MM.YYYY (DateFormatService.formatDate,
 // _system/_services/dateformatting/dateformatting.service.ts:11-17). The
@@ -20,26 +91,9 @@ export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
-  // Disco-only users → SUPER_ADMIN sale stats scoped by restaurantReference. The
-  // DashboardSaleStatisticsResponseDto field names already match the page's
-  // SaleStats shape, so no remapping is needed — just the FM date format.
-  if (usesServiceAccount(ctx)) {
-    const sp = req.nextUrl.searchParams
-    const p = new URLSearchParams()
-    const from = toFmDate(sp.get('fromDate'))
-    const to = toFmDate(sp.get('toDate'))
-    if (from) p.set('fromDate', from)
-    if (to) p.set('toDate', to)
-    if (sp.get('dateType')) p.set('dateType', sp.get('dateType')!)
-    p.set('restaurantReference', ctx.restaurantReference)
-    try {
-      const headers = await getFmHeaderForRestaurant(ctx)
-      const res = await fetch(`${FM}/api/admin/dashboard/sale/stats?${p}`, { headers })
-      if (!res.ok) return NextResponse.json({ error: 'Failed', fmStatus: res.status }, { status: res.status })
-      return NextResponse.json(await res.json())
-    } catch {
-      return NextResponse.json({ error: 'Unable to fetch sale stats' }, { status: 500 })
-    }
+  // Disco-native restaurants: aggregate real numbers from Neon (was FM → always $0).
+  if (ctx.authType === 'disco') {
+    return discoSaleStats(ctx, req)
   }
 
   let authHeaders: Record<string, string>
