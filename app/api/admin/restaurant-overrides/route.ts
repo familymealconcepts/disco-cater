@@ -43,7 +43,21 @@ export async function GET(req: NextRequest) {
         order_url: string | null; online_ordering_enabled: boolean | null; menu_upload_url: string | null
         is_live: boolean | null; is_disco_native: boolean | null; has_stripe_account: boolean | null
       }[]
+
+      // Disco-native restaurants connect Stripe under their Disco reference, which
+      // does NOT match the FM restaurant reference the admin table is keyed by. The
+      // reliable link between an FM row and its Disco record is the admin EMAIL, so
+      // expose every Disco account email that IS Stripe-connected. The table matches
+      // FM rows by adminEmail against this list.
+      const discoRows = (await sql`
+        SELECT DISTINCT LOWER(email) AS email FROM disco_restaurant_accounts
+        WHERE email IS NOT NULL AND email <> ''
+          AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+      `) as { email: string }[]
+      const discoStripeEmails = discoRows.map((r) => r.email)
+
       return NextResponse.json({
+        discoStripeEmails,
         overrides: rows.map((r) => ({
           restaurantReference: r.restaurant_reference,
           isPremium: r.is_premium ?? false,

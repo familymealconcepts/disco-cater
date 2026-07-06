@@ -268,9 +268,22 @@ export default function RestaurantsOrderingPage() {
   // restaurant can't accept orders without a payout account. Disco-native
   // restaurants connect via disco_restaurant_accounts.stripe_account_id, so a
   // present Stripe account counts as connected too (fallback).
+  // A Disco-native restaurant's Stripe account is matched by its admin email (its
+  // own identity), since its Disco reference won't equal the FM row reference.
+  const hasDiscoStripe = (r: Restaurant) => {
+    const email = adminEmailOf(r).toLowerCase()
+    return !!email && discoStripeEmails.has(email)
+  }
   const isStripeConnected = (r: Restaurant) => {
     const s = stripeMap[r.reference]
-    return s?.connected === true || s?.hasStripeAccount === true
+    return s?.connected === true || s?.hasStripeAccount === true || hasDiscoStripe(r)
+  }
+  // Status passed to the Stripe column: OR-in the email-matched Disco connection so
+  // a Disco-native restaurant reads Connected even though its reference differs.
+  const stripeStatusFor = (r: Restaurant) => {
+    const s = stripeMap[r.reference]
+    if (hasDiscoStripe(r)) return { connected: s?.connected ?? false, checkedAt: s?.checkedAt ?? null, hasStripeAccount: true }
+    return s
   }
 
   // Online Ordering = FM onlineOrderingAllowed boolean. Toggling opens a
@@ -396,6 +409,11 @@ export default function RestaurantsOrderingPage() {
   // Per-restaurant Stripe status (keyed by reference) from Neon overrides, shown
   // as a column on each row. checkedAt === null means "never synced".
   const [stripeMap, setStripeMap] = useState<Record<string, { connected: boolean; checkedAt: string | null; hasStripeAccount: boolean }>>({})
+  // Admin emails of Disco-native accounts that ARE Stripe-connected. Disco-native
+  // restaurants connect Stripe under their Disco reference, which never matches the
+  // FM reference this table is keyed by — so we match FM rows to their Disco Stripe
+  // account by admin email (the reliable FM↔Disco link) instead of by reference.
+  const [discoStripeEmails, setDiscoStripeEmails] = useState<Set<string>>(new Set())
   // True once the cached Stripe statuses have loaded — gates the background check
   // so we don't treat everything as "never checked" before the cache arrives.
   const [stripeLoaded, setStripeLoaded] = useState(false)
@@ -455,6 +473,7 @@ export default function RestaurantsOrderingPage() {
       }
       setStripeMap(sMap)
       setOverrideMap(oMap)
+      setDiscoStripeEmails(new Set((Array.isArray(d?.discoStripeEmails) ? d.discoStripeEmails : []).map((e: string) => String(e).toLowerCase())))
     } catch { /* non-fatal: the columns just won't render */ }
     finally { setStripeLoaded(true) }
   }, [])
@@ -776,7 +795,7 @@ export default function RestaurantsOrderingPage() {
                         : '—'
                     })()}
                   </td>
-                  <td style={cell}><StripeStatus status={stripeMap[r.reference]} checking={checkingRefs.has(r.reference)} /></td>
+                  <td style={cell}><StripeStatus status={stripeStatusFor(r)} checking={checkingRefs.has(r.reference)} /></td>
                   {/* Online Ordering: FM onlineOrderingAllowed boolean. Disabled
                       until Stripe is connected (can't accept orders without payouts). */}
                   <td style={cell}>
