@@ -24,16 +24,25 @@ export async function POST(req: NextRequest) {
 
   try {
     await runMigrations()
-    // Candidates: Disco accounts with an FM record (fm_user_reference set) but no
-    // stored FM restaurant reference yet. `email` narrows it to one for testing.
+    // Candidates: EVERY Disco account not yet linked. We do NOT require
+    // fm_user_reference — an account can have an FM restaurant (created at onboarding
+    // and visible in the super-admin list) even when its FM user ref was never
+    // stored in Neon. We need a restaurant_name to search FM by; accounts with no FM
+    // record simply won't match (harmless). `email` narrows it to one for testing.
     const accounts = (onlyEmail
       ? await sql`
           SELECT email, restaurant_name FROM disco_restaurant_accounts
           WHERE fm_restaurant_reference IS NULL AND LOWER(email) = ${onlyEmail}`
       : await sql`
           SELECT email, restaurant_name FROM disco_restaurant_accounts
-          WHERE fm_restaurant_reference IS NULL AND fm_user_reference IS NOT NULL
-            AND email IS NOT NULL AND email <> ''`) as { email: string; restaurant_name: string | null }[]
+          WHERE fm_restaurant_reference IS NULL
+            AND email IS NOT NULL AND email <> ''
+            AND restaurant_name IS NOT NULL AND restaurant_name <> ''
+            -- Either a known FM record (fm_user_reference) OR Stripe-connected (which
+            -- means it onboarded → has an FM record → appears in super-admin and needs
+            -- the link). Excludes abandoned test accounts with neither.
+            AND (fm_user_reference IS NOT NULL
+                 OR (stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true))`) as { email: string; restaurant_name: string | null }[]
 
     if (!accounts.length) return NextResponse.json({ scanned: 0, linked: 0, unmatched: 0, details: [] })
 
