@@ -296,6 +296,11 @@ ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS cuisine TEXT;
 -- (which key off the FM reference) can find the Disco Stripe/account data.
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS fm_restaurant_reference TEXT;
 CREATE INDEX IF NOT EXISTS idx_disco_accounts_fm_restaurant_ref ON disco_restaurant_accounts(fm_restaurant_reference);
+-- Onboarding robustness: set when FM restaurant creation ultimately failed (after
+-- retries), so super-admin can flag the restaurant and the team gets alerted rather
+-- than the failure being silent.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS fm_creation_failed BOOLEAN DEFAULT false;
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS fm_creation_error TEXT;
 
 -- ── Disco-native order editing ───────────────────────────────────────────────
 -- Edit lifecycle on the order row + an audit log of every committed edit. The

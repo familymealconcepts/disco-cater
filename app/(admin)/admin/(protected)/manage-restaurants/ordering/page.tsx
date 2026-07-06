@@ -45,6 +45,12 @@ interface Restaurant {
   // FM address object — spread onto each row from /api/admin/restaurants; used to
   // show the map listing location as "City, State".
   address?: { city?: string; state?: string }
+  // Merged-in Disco-native restaurant that has no FM record (from
+  // /api/admin/disco-native-orphans) — flagged so it's never invisible.
+  discoOnly?: boolean
+  stripeConnected?: boolean
+  fmCreationFailed?: boolean
+  fmCreationError?: string
 }
 
 // Disco-owned per-restaurant overrides (Neon), keyed by reference. Carries the
@@ -121,6 +127,8 @@ function StripeStatus({ status, checking }: { status?: { connected: boolean; che
 
 export default function RestaurantsOrderingPage() {
   const [rows, setRows] = useState<Restaurant[]>([])
+  // Disco-native restaurants with no FM record — merged into the list so they're visible.
+  const [discoOrphans, setDiscoOrphans] = useState<Restaurant[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
@@ -192,6 +200,15 @@ export default function RestaurantsOrderingPage() {
   }, [page, pageSize, search, statusFilter])
 
   useEffect(() => { load() }, [load])
+
+  // Load Disco-native restaurants that have no FM record, once, so they can be
+  // merged into the FM-sourced list below and never stay invisible.
+  useEffect(() => {
+    fetch('/api/admin/disco-native-orphans')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (Array.isArray(d?.orphans)) setDiscoOrphans(d.orphans.map((o: Restaurant) => ({ ...o, discoOnly: true }))) })
+      .catch(() => {})
+  }, [])
 
   function showToast(msg: string) {
     setToast(msg)
@@ -443,14 +460,20 @@ export default function RestaurantsOrderingPage() {
         case 'stripe': return stripeRank(r)
       }
     }
-    return [...rows].sort((a, b) => {
+    // Merge in Disco-native restaurants that have no FM record, deduped by admin
+    // email against the FM rows (so a linked/present restaurant is never doubled).
+    const fmEmails = new Set(rows.map(r => adminEmailOf(r).toLowerCase()).filter(Boolean))
+    const orphanRows = discoOrphans
+      .filter(o => { const e = (o.adminEmail || '').toLowerCase(); return e && !fmEmails.has(e) })
+      .map(o => ({ ...o, _rowId: `disco-only#${o.reference}`, discoOnly: true }))
+    return [...orphanRows, ...rows].sort((a, b) => {
       const va = val(a), vb = val(b)
       const cmp = typeof va === 'number' && typeof vb === 'number'
         ? va - vb
         : String(va).localeCompare(String(vb), undefined, { sensitivity: 'base' })
       return cmp * dir
     })
-  }, [rows, sortKey, sortDir, stripeMap])
+  }, [rows, discoOrphans, sortKey, sortDir, stripeMap])
 
   const loadStripeMap = useCallback(async () => {
     try {
@@ -772,9 +795,14 @@ export default function RestaurantsOrderingPage() {
                   <td style={{ ...cell, fontWeight: 600 }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       {r.businessName}
-                      {overrideMap[r.reference]?.isDiscoNative && (
+                      {r.discoOnly ? (
+                        <span
+                          title={r.fmCreationFailed ? `FamilyMeal record creation failed: ${r.fmCreationError || 'unknown error'}` : 'Live in Disco with no FamilyMeal record'}
+                          style={{ fontSize: 10, fontWeight: 600, color: '#B45309', background: '#FEF3C7', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}
+                        >Disco-only · no FM record</span>
+                      ) : overrideMap[r.reference]?.isDiscoNative ? (
                         <span style={{ fontSize: 10, fontWeight: 400, color: '#6B7280', background: '#F3F4F6', padding: '2px 6px', borderRadius: 4 }}>Disco</span>
-                      )}
+                      ) : null}
                     </span>
                     {(r.address?.city || r.address?.state) && (
                       <div style={{ fontSize: 11, fontWeight: 400, color: '#999', marginTop: 2 }}>

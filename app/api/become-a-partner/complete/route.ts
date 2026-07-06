@@ -23,6 +23,28 @@ const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN
 const SLACK_WEBHOOK_URL = process.env.SLACK_PARTNER_WEBHOOK_URL || process.env.SLACK_NEW_ORDER_WEBHOOK_URL
 const TEAM_EMAIL = 'concierge@discocater.com'
 
+// FM restaurant creation ultimately failed for a signup — mark the account (so
+// super-admin flags it) and alert the team on Slack, so it's never silent.
+async function flagFmCreationFailure(email: string, restaurantName: string, detail: string): Promise<void> {
+  try {
+    await sql`UPDATE disco_restaurant_accounts SET fm_creation_failed = true, fm_creation_error = ${detail.slice(0, 500)} WHERE email = ${email}`
+  } catch (e) { console.error('[complete] mark fm_creation_failed:', e instanceof Error ? e.message : e) }
+  if (!SLACK_WEBHOOK_URL) return
+  try {
+    await fetch(SLACK_WEBHOOK_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: [
+          `:warning: *FamilyMeal record creation FAILED* — ${restaurantName}`,
+          `Email: ${email}`,
+          `Error: ${detail}`,
+          `This restaurant is live in Disco but has no FM record — it shows as "Disco-only (no FM record)" in super-admin until repaired.`,
+        ].join('\n'),
+      }),
+    })
+  } catch (e) { console.error('[complete] Slack fm-fail notify failed:', e instanceof Error ? e.message : e) }
+}
+
 // Server-side geocode (address → lat/lng) via the Google Geocoding API. Returns
 // null on any failure so onboarding never blocks on geocoding.
 async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
@@ -131,17 +153,22 @@ export async function POST(req: NextRequest) {
         // Store BOTH FM references: the admin USER ref (fm_user_reference) and the
         // RESTAURANT ref (fm_restaurant_reference). The restaurant ref links this
         // Disco account to the FM record the super-admin surfaces are keyed by.
+        // Clear any prior failure marker (e.g. a retry that now succeeded).
         await sql`
           UPDATE disco_restaurant_accounts
           SET fm_user_reference = COALESCE(fm_user_reference, ${fm.adminReference}),
-              fm_restaurant_reference = COALESCE(fm_restaurant_reference, ${fm.reference})
+              fm_restaurant_reference = COALESCE(fm_restaurant_reference, ${fm.reference}),
+              fm_creation_failed = false, fm_creation_error = NULL
           WHERE email = ${email}
         `
       } else {
-        console.warn('[complete] FM creation skipped/failed (continuing):', fm.code || fm.status, fm.error)
+        console.warn('[complete] FM creation failed after retries (continuing):', fm.code || fm.status, fm.error)
+        await flagFmCreationFailure(email, restaurantName, `${fm.code || fm.status}: ${fm.error}`)
       }
     } catch (err) {
-      console.error('[complete] FM creation threw (continuing):', err instanceof Error ? err.message : err)
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[complete] FM creation threw (continuing):', msg)
+      await flagFmCreationFailure(email, restaurantName, `threw: ${msg}`)
     }
 
     // ── 4) Upsert the marketplace cache row and flip it live ───────────────────
