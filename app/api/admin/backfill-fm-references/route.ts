@@ -18,8 +18,9 @@ export async function POST(req: NextRequest) {
   try { await getAdminAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
-  const body = await req.json().catch(() => ({})) as { dryRun?: boolean; email?: string }
+  const body = await req.json().catch(() => ({})) as { dryRun?: boolean; email?: string; diagnose?: boolean }
   const dryRun = body?.dryRun === true
+  const diagnose = body?.diagnose === true
   const onlyEmail = String(body?.email || '').trim().toLowerCase()
 
   try {
@@ -45,6 +46,42 @@ export async function POST(req: NextRequest) {
                  OR (stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true))`) as { email: string; restaurant_name: string | null }[]
 
     if (!accounts.length) return NextResponse.json({ scanned: 0, linked: 0, unmatched: 0, details: [] })
+
+    // DIAGNOSE: don't match/update — return exactly what FM's search sends back for
+    // each account so we can see WHY it doesn't match (name not found, email under a
+    // different key, different admin email, reference elsewhere, etc.).
+    if (diagnose) {
+      let dh = await getFmServiceAuthHeader()
+      const out: unknown[] = []
+      for (const acc of accounts) {
+        const name = (acc.restaurant_name || '').trim()
+        const target = acc.email.toLowerCase()
+        const url = `${FM}/api/admin/restaurants?size=50&searchName=${encodeURIComponent(name)}`
+        let res = await fetch(url, { headers: dh, cache: 'no-store' })
+        if (res.status === 401) { dh = await getFmServiceAuthHeader(true); res = await fetch(url, { headers: dh, cache: 'no-store' }) }
+        const data = res.ok ? (await res.json().catch(() => null)) as { content?: Record<string, unknown>[]; totalElements?: number } | null : null
+        const list = Array.isArray(data?.content) ? data!.content! : []
+        const results = list.slice(0, 15).map((r) => {
+          const admin = (r.admin ?? {}) as Record<string, unknown>
+          return {
+            reference: r.reference ?? null,
+            name: r.businessName ?? r.name ?? r.restaurantName ?? null,
+            adminEmail: r.adminEmail ?? null,
+            admin_dot_email: admin.email ?? null,
+            // any other string field whose key looks like an email
+            otherEmailFields: Object.entries(r).filter(([k, v]) => /email/i.test(k) && typeof v === 'string').map(([k, v]) => `${k}=${v}`),
+            topLevelKeys: Object.keys(r),
+          }
+        })
+        out.push({
+          email: acc.email, restaurantName: name, searchName: name,
+          fmStatus: res.status, totalElements: data?.totalElements ?? null, resultCount: list.length,
+          emailMatchFound: list.some((r) => String(r.adminEmail ?? (r.admin as Record<string, unknown>)?.email ?? '').toLowerCase() === target),
+        })
+        ;(out[out.length - 1] as Record<string, unknown>).results = results
+      }
+      return NextResponse.json({ diagnose: true, accounts: out })
+    }
 
     let header = await getFmServiceAuthHeader()
     const linked: { email: string; fmRestaurantReference: string }[] = []
