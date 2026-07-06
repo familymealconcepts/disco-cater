@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
+import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -16,6 +17,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   const ctx = await getRestaurantAuthContext()
   if (!ctx) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
+  // Disco-native: save the note to disco_orders.note (was written to FM).
+  if (ctx.authType === 'disco') {
+    try {
+      const body = await req.json()
+      const note = String(body?.note ?? body?.orderNote ?? '')
+      await runDiscoOrderMigrations()
+      const rows = (await sql`
+        UPDATE disco_orders SET note = ${note || null}, updated_at = NOW()
+        WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
+        RETURNING reference
+      `) as { reference: string }[]
+      if (!rows.length) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+      return NextResponse.json({ ok: true, note })
+    } catch (err) {
+      console.error('[orders/note] disco save failed:', err instanceof Error ? err.message : err)
+      return NextResponse.json({ error: 'Unable to save note' }, { status: 500 })
+    }
   }
 
   let auth: Record<string, string>

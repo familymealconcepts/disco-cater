@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
+import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 
 const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -17,6 +18,32 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   const ctx = await getRestaurantAuthContext()
   if (!ctx) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
+  // Disco-native: read the edit history from disco_order_edits (was read from FM).
+  if (ctx.authType === 'disco') {
+    try {
+      await runDiscoOrderMigrations()
+      const history = (await sql`
+        SELECT edit_number AS "editNumber",
+               editor_email AS "editedBy",
+               to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdAt",
+               original_total::float8 AS "previousTotal",
+               new_total::float8 AS "newTotal",
+               delta::float8 AS "delta",
+               to_char(original_date, 'YYYY-MM-DD') AS "originalDate",
+               to_char(new_date, 'YYYY-MM-DD') AS "newDate",
+               payment_action AS "paymentAction",
+               payment_status AS "paymentStatus"
+        FROM disco_order_edits
+        WHERE fm_order_reference = ${ref}::uuid
+        ORDER BY edit_number ASC
+      `) as Record<string, unknown>[]
+      return NextResponse.json({ history })
+    } catch (err) {
+      console.error('[orders/edit-history] disco read failed:', err instanceof Error ? err.message : err)
+      return NextResponse.json({ error: 'Unable to load edit history' }, { status: 500 })
+    }
   }
 
   let auth: Record<string, string>

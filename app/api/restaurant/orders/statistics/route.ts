@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
+import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -14,6 +16,22 @@ const EMPTY = { unseenByAdmin: 0, newOrdersCount: 0 }
 //  ref here; a true cross-location aggregate would need an FM endpoint that
 //  doesn't exist yet.) Always exposes `newOrdersCount` for the sidebar.
 export async function GET(req: NextRequest) {
+  // Disco-native: unseen new orders from Neon (was FM → always 0 for disco).
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') {
+    const ref = await resolveDiscoScopeRef(ctx)
+    if (!ref) return NextResponse.json(EMPTY)
+    try {
+      await runDiscoOrderMigrations()
+      const rows = (await sql`
+        SELECT COUNT(*)::int AS n FROM disco_orders
+        WHERE restaurant_reference = ${ref}::uuid AND seen_by_admin = false AND order_status = 'DUE'
+      `) as { n: number }[]
+      const n = rows[0]?.n ?? 0
+      return NextResponse.json({ unseenByAdmin: n, newOrdersCount: n })
+    } catch { return NextResponse.json(EMPTY) }
+  }
+
   let authHeaders: Record<string, string>
   try { authHeaders = await getRestaurantAuthHeader() } catch {
     return NextResponse.json(EMPTY)
