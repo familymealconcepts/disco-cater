@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (ctx.authType !== 'disco' || (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN')) {
+  if (ctx.authType !== 'disco') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -27,8 +27,11 @@ export async function POST(req: NextRequest) {
     const firstName = String(body?.firstName || '').trim()
     const lastName = String(body?.lastName || '').trim()
     // Role of the new user: SYSTEM_ADMIN (multi-location) or ADMIN (Restaurant
-    // User, single location). Defaults to SYSTEM_ADMIN for back-compat.
-    const role = String(body?.role || 'SYSTEM_ADMIN').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'SYSTEM_ADMIN'
+    // User, single location). Defaults to SYSTEM_ADMIN for back-compat. A
+    // single-restaurant ADMIN can only ever create ADMIN (Restaurant User)
+    // accounts — never mint a SYSTEM_ADMIN.
+    const isSA = ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN'
+    const role = !isSA || String(body?.role || 'SYSTEM_ADMIN').toUpperCase() === 'ADMIN' ? 'ADMIN' : 'SYSTEM_ADMIN'
     const requested: string[] = Array.isArray(body?.restaurantReferences)
       ? body.restaurantReferences.map((r: unknown) => String(r)).filter(Boolean)
       : []

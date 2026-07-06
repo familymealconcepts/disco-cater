@@ -15,7 +15,7 @@ const SITE_URL = 'https://www.discocater.com'
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ email: string }> }) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (ctx.authType !== 'disco' || (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN')) {
+  if (ctx.authType !== 'disco') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const { email: rawEmail } = await params

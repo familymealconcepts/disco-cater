@@ -13,7 +13,10 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (ctx.authType !== 'disco' || (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN')) {
+  // Any disco session manages a team: an SA over their group's locations, an ADMIN
+  // over just their own restaurant (the queries below scope to what they can access
+  // + the users they created).
+  if (ctx.authType !== 'disco') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
