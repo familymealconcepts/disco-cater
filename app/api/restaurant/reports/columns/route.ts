@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { REPORT_COLUMNS } from '../../../../../lib/reports/native-reports'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export async function GET() {
+  // Disco-native: the report column catalog (was FM → 401).
+  const ctx = await getRestaurantAuthContext()
+  if (ctx?.authType === 'disco') return NextResponse.json(REPORT_COLUMNS)
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

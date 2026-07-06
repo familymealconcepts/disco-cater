@@ -429,3 +429,40 @@ ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS joined_marketplac
 -- order_number, so they draw from this sequence. Started high (900,000,000) so
 -- native numbers never collide with the (smaller) FM order numbers mirrored in.
 CREATE SEQUENCE IF NOT EXISTS disco_native_order_seq START WITH 900000000;
+
+-- Scheduled Reports (native) — a restaurant schedules a recurring emailed CSV of
+-- their orders. Config is stored here; the /api/cron/scheduled-reports cron
+-- generates + emails due reports and records each run in disco_report_runs.
+CREATE TABLE IF NOT EXISTS disco_scheduled_reports (
+  id BIGSERIAL PRIMARY KEY,
+  reference UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+  restaurant_reference UUID NOT NULL,
+  name TEXT NOT NULL,
+  frequency TEXT NOT NULL DEFAULT 'WEEKLY' CHECK (frequency IN ('WEEKLY','MONTHLY')),
+  time TEXT NOT NULL DEFAULT '09:00',
+  timezone TEXT NOT NULL DEFAULT 'America/New_York',
+  file_type TEXT NOT NULL DEFAULT 'CSV',
+  columns JSONB NOT NULL DEFAULT '[]'::jsonb,
+  recipients JSONB NOT NULL DEFAULT '[]'::jsonb,
+  owner_references JSONB NOT NULL DEFAULT '[]'::jsonb,
+  filter JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_by TEXT,
+  active BOOLEAN NOT NULL DEFAULT true,
+  last_run_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_disco_scheduled_reports_restaurant ON disco_scheduled_reports(restaurant_reference);
+
+CREATE TABLE IF NOT EXISTS disco_report_runs (
+  id BIGSERIAL PRIMARY KEY,
+  reference UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+  scheduled_report_reference UUID,
+  restaurant_reference UUID,
+  report_name TEXT,
+  file_type TEXT,
+  run_status TEXT NOT NULL DEFAULT 'SUCCESS',
+  row_count INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_disco_report_runs_restaurant ON disco_report_runs(restaurant_reference, created_at DESC);
