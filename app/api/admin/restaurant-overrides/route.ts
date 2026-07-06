@@ -33,7 +33,8 @@ export async function GET(req: NextRequest) {
         FULL OUTER JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
         LEFT JOIN LATERAL (
           SELECT stripe_account_id FROM disco_restaurant_accounts a2
-          WHERE a2.restaurant_reference = COALESCE(o.restaurant_reference, c.restaurant_reference)
+          WHERE (a2.restaurant_reference = COALESCE(o.restaurant_reference, c.restaurant_reference)
+                 OR a2.fm_restaurant_reference = COALESCE(o.restaurant_reference, c.restaurant_reference))
             AND a2.stripe_account_id IS NOT NULL
           LIMIT 1
         ) a ON true

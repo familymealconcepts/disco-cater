@@ -23,11 +23,18 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // connected regardless of the HEAD result.
 async function loadDiscoConnectedRefs(refs: string[]): Promise<Set<string>> {
   if (!refs.length) return new Set()
+  // A disco account links to an FM row by EITHER its own restaurant_reference OR its
+  // fm_restaurant_reference (the FM restaurant ref stored at onboarding). Return
+  // whichever INPUT ref matched, so an FM-ref-keyed caller still recognizes a
+  // disco-connected restaurant whose Stripe lives under a different Disco reference.
   const rows = (await sql`
-    SELECT restaurant_reference FROM disco_restaurant_accounts
+    SELECT restaurant_reference AS ref FROM disco_restaurant_accounts
     WHERE restaurant_reference = ANY(${refs}) AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
-  `.catch(() => [])) as { restaurant_reference: string }[]
-  return new Set(rows.map(r => r.restaurant_reference))
+    UNION
+    SELECT fm_restaurant_reference AS ref FROM disco_restaurant_accounts
+    WHERE fm_restaurant_reference = ANY(${refs}) AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+  `.catch(() => [])) as { ref: string }[]
+  return new Set(rows.map(r => r.ref))
 }
 
 export async function POST(req: NextRequest) {

@@ -290,6 +290,12 @@ ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS is_disco_native B
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS onboarding_step INTEGER DEFAULT 0;
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS address TEXT;
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS cuisine TEXT;
+-- FM's RESTAURANT reference (distinct from fm_user_reference, the FM admin USER).
+-- Onboarding creates an FM restaurant whose reference differs from the Disco
+-- restaurant_reference; storing it here links the two so super-admin surfaces
+-- (which key off the FM reference) can find the Disco Stripe/account data.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS fm_restaurant_reference TEXT;
+CREATE INDEX IF NOT EXISTS idx_disco_accounts_fm_restaurant_ref ON disco_restaurant_accounts(fm_restaurant_reference);
 
 -- ── Disco-native order editing ───────────────────────────────────────────────
 -- Edit lifecycle on the order row + an audit log of every committed edit. The

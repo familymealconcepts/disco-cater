@@ -128,9 +128,13 @@ export async function POST(req: NextRequest) {
         zipcode: zip, password, addressLine1: street, city, state,
       })
       if (fm.ok) {
+        // Store BOTH FM references: the admin USER ref (fm_user_reference) and the
+        // RESTAURANT ref (fm_restaurant_reference). The restaurant ref links this
+        // Disco account to the FM record the super-admin surfaces are keyed by.
         await sql`
           UPDATE disco_restaurant_accounts
-          SET fm_user_reference = COALESCE(fm_user_reference, ${fm.adminReference})
+          SET fm_user_reference = COALESCE(fm_user_reference, ${fm.adminReference}),
+              fm_restaurant_reference = COALESCE(fm_restaurant_reference, ${fm.reference})
           WHERE email = ${email}
         `
       } else {

@@ -18,6 +18,22 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+// Refs (from the FM list) whose Stripe was connected via Disco onboarding — matched
+// by the Disco restaurant_reference OR the stored fm_restaurant_reference. FM's HEAD
+// probe can't see these, so we treat them as connected regardless of the probe.
+async function loadDiscoConnectedRefs(refs: string[]): Promise<Set<string>> {
+  if (!refs.length) return new Set()
+  const rows = (await sql`
+    SELECT restaurant_reference AS ref FROM disco_restaurant_accounts
+    WHERE restaurant_reference = ANY(${refs}) AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+    UNION
+    SELECT fm_restaurant_reference AS ref FROM disco_restaurant_accounts
+    WHERE fm_restaurant_reference = ANY(${refs}) AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+  `.catch(() => [])) as { ref: string }[]
+  return new Set(rows.map(r => r.ref))
+}
+
 const PAGE_SIZE = 200
 const MAX_PAGES = 200      // safety cap (200 × 200 = 40k restaurants)
 const PROBE_CONCURRENCY = 25
@@ -56,6 +72,10 @@ export async function POST(_req: NextRequest) {
     }
     const refs = [...seen]
 
+    // Disco-connected restaurants are authoritative — never let the FM probe below
+    // overwrite their status to false.
+    const discoConnected = await loadDiscoConnectedRefs(refs)
+
     // 2) Probe Stripe Connect status per restaurant (FM HEAD), bounded concurrency.
     let header = await getFmServiceAuthHeader()
     async function probe(ref: string): Promise<boolean> {
@@ -78,7 +98,7 @@ export async function POST(_req: NextRequest) {
     async function worker() {
       while (cursor < refs.length) {
         const ref = refs[cursor++]
-        const isConnected = await probe(ref)
+        const isConnected = discoConnected.has(ref) || await probe(ref)
         if (isConnected) connected++
         results.push({ ref, connected: isConnected })
       }

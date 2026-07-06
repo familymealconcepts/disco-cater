@@ -17,10 +17,21 @@ export async function GET() {
   }
   try {
     await runMigrations()
+    // A visible restaurant counts as Stripe-connected if its override says so OR it
+    // has a linked, connected Disco account (matched by the FM restaurant reference
+    // or the Disco reference) — so Disco-native restaurants aren't under-counted when
+    // their override's stripe_connected reflects only a stale FM probe.
     const rows = (await sql`
       SELECT COUNT(*)::int AS c
-      FROM disco_restaurant_overrides
-      WHERE stripe_connected = true AND visible = true
+      FROM disco_restaurant_overrides o
+      WHERE o.visible = true AND (
+        o.stripe_connected = true
+        OR EXISTS (
+          SELECT 1 FROM disco_restaurant_accounts a
+          WHERE (a.restaurant_reference = o.restaurant_reference OR a.fm_restaurant_reference = o.restaurant_reference)
+            AND a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true
+        )
+      )
     `) as { c: number }[]
     return NextResponse.json({ activeRestaurants: rows[0]?.c ?? 0 })
   } catch (e) {
