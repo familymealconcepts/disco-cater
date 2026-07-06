@@ -52,33 +52,29 @@ export async function POST(req: NextRequest) {
     // different key, different admin email, reference elsewhere, etc.).
     if (diagnose) {
       let dh = await getFmServiceAuthHeader()
-      const out: unknown[] = []
-      for (const acc of accounts) {
-        const name = (acc.restaurant_name || '').trim()
-        const target = acc.email.toLowerCase()
-        const url = `${FM}/api/admin/restaurants?size=50&searchName=${encodeURIComponent(name)}`
+      async function search(term: string, target: string) {
+        const url = `${FM}/api/admin/restaurants?size=50&searchName=${encodeURIComponent(term)}`
         let res = await fetch(url, { headers: dh, cache: 'no-store' })
         if (res.status === 401) { dh = await getFmServiceAuthHeader(true); res = await fetch(url, { headers: dh, cache: 'no-store' }) }
         const data = res.ok ? (await res.json().catch(() => null)) as { content?: Record<string, unknown>[]; totalElements?: number } | null : null
         const list = Array.isArray(data?.content) ? data!.content! : []
-        const results = list.slice(0, 15).map((r) => {
-          const admin = (r.admin ?? {}) as Record<string, unknown>
-          return {
-            reference: r.reference ?? null,
-            name: r.businessName ?? r.name ?? r.restaurantName ?? null,
-            adminEmail: r.adminEmail ?? null,
-            admin_dot_email: admin.email ?? null,
-            // any other string field whose key looks like an email
-            otherEmailFields: Object.entries(r).filter(([k, v]) => /email/i.test(k) && typeof v === 'string').map(([k, v]) => `${k}=${v}`),
-            topLevelKeys: Object.keys(r),
-          }
-        })
-        out.push({
-          email: acc.email, restaurantName: name, searchName: name,
-          fmStatus: res.status, totalElements: data?.totalElements ?? null, resultCount: list.length,
+        return {
+          term, fmStatus: res.status, resultCount: list.length, totalElements: data?.totalElements ?? null,
           emailMatchFound: list.some((r) => String(r.adminEmail ?? (r.admin as Record<string, unknown>)?.email ?? '').toLowerCase() === target),
-        })
-        ;(out[out.length - 1] as Record<string, unknown>).results = results
+          sampleNames: list.slice(0, 6).map((r) => r.businessName ?? r.name ?? r.restaurantName ?? null),
+          sampleEmails: list.slice(0, 6).map((r) => r.adminEmail ?? (r.admin as Record<string, unknown>)?.email ?? null),
+        }
+      }
+      const out: unknown[] = []
+      for (const acc of accounts) {
+        const name = (acc.restaurant_name || '').trim()
+        const target = acc.email.toLowerCase()
+        const noPunct = name.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim() // "Petey's Test" → "Peteys Test"
+        const firstWord = name.split(/\s+/)[0] || name
+        const searches = [await search(name, target)]                          // exact
+        if (noPunct && noPunct !== name) searches.push(await search(noPunct, target)) // apostrophe-free
+        if (firstWord && firstWord !== name && firstWord !== noPunct) searches.push(await search(firstWord, target)) // broad (first word)
+        out.push({ email: acc.email, restaurantName: name, searches })
       }
       return NextResponse.json({ diagnose: true, accounts: out })
     }
