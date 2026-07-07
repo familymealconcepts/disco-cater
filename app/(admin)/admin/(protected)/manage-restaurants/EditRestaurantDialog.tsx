@@ -298,7 +298,13 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (!putRes.ok) throw new Error('Failed to save restaurant')
+      if (!putRes.ok) {
+        // Surface FM's actual rejection (the route returns it in `raw`) instead of a
+        // bare "Failed to save restaurant" that hides the real cause.
+        const d = await putRes.json().catch(() => null)
+        const rawDetail = d?.raw ? (typeof d.raw === 'string' ? d.raw : JSON.stringify(d.raw)) : ''
+        throw new Error(rawDetail ? `FM rejected the save (${putRes.status}): ${rawDetail.slice(0, 500)}` : (d?.error || `Failed to save restaurant (${putRes.status})`))
+      }
 
       // 2) Premium + visibility → Neon overrides (order_url round-tripped, not edited here).
       const ovRes = await fetch('/api/admin/restaurant-overrides', {
@@ -320,6 +326,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurantReference: restaurantRef,
+          name: restaurantName.trim() || undefined, // for the upsert when no cache row exists yet
           cuisine: cuisines.length ? cuisines.join(', ') : null,
           description: description || null,
           location: location || null,

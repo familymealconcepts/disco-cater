@@ -123,6 +123,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, { method: 'PUT', headers: h, body: fd })
     if (!res.ok) {
       const raw = await res.text().catch(() => '')
+      console.error('[admin/restaurants PUT] FM rejected:', res.status, ref, raw.slice(0, 800))
       return NextResponse.json({ error: 'Failed to update restaurant', raw }, { status: res.status })
     }
     const text = await res.text()

@@ -48,6 +48,7 @@ export async function PATCH(req: NextRequest) {
     const cuisine: string | null = body?.cuisine ? String(body.cuisine) : null
     const description: string | null = body?.description ? String(body.description) : null
     const location: string | null = body?.location ? String(body.location) : null
+    const name: string | null = body?.name ? String(body.name).trim() : null
     const lat = body?.lat === '' || body?.lat == null ? null : Number(body.lat)
     const lng = body?.lng === '' || body?.lng == null ? null : Number(body.lng)
 
@@ -58,18 +59,26 @@ export async function PATCH(req: NextRequest) {
     const imageProvided = body?.image_url !== undefined
     const imageUrl: string | null = body?.image_url === '' ? null : (body?.image_url != null ? String(body.image_url) : null)
 
-    await sql`
-      UPDATE disco_restaurant_cache
-      SET cuisine = ${cuisine},
-          description = ${description},
-          location = ${location},
-          lat = ${Number.isFinite(lat as number) ? lat : null},
-          lng = ${Number.isFinite(lng as number) ? lng : null},
-          image_url = CASE WHEN ${imageProvided}::boolean THEN ${imageUrl}::text ELSE image_url END,
-          cached_at = NOW()
-      WHERE restaurant_reference = ${ref}
-    `
-    return NextResponse.json({ success: true })
+    const latVal = Number.isFinite(lat as number) ? lat : null
+    const lngVal = Number.isFinite(lng as number) ? lng : null
+    // UPSERT so the save never silently no-ops when the restaurant has no cache row
+    // yet (e.g. an FM-backed restaurant not previously synced). A new row needs the
+    // NOT NULL `name`; on conflict we keep the existing name if none was sent.
+    const rows = (await sql`
+      INSERT INTO disco_restaurant_cache (restaurant_reference, name, cuisine, description, location, lat, lng, image_url, cached_at)
+      VALUES (${ref}, ${name || 'Restaurant'}, ${cuisine}, ${description}, ${location}, ${latVal}, ${lngVal}, ${imageProvided ? imageUrl : null}, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE SET
+        cuisine = EXCLUDED.cuisine,
+        description = EXCLUDED.description,
+        location = EXCLUDED.location,
+        lat = EXCLUDED.lat,
+        lng = EXCLUDED.lng,
+        name = COALESCE(${name}, disco_restaurant_cache.name),
+        image_url = CASE WHEN ${imageProvided}::boolean THEN ${imageUrl}::text ELSE disco_restaurant_cache.image_url END,
+        cached_at = NOW()
+      RETURNING restaurant_reference
+    `) as { restaurant_reference: string }[]
+    return NextResponse.json({ success: true, upserted: rows.length })
   } catch (e) {
     console.error('[restaurant-cache] PATCH failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to save cache row' }, { status: 500 })
