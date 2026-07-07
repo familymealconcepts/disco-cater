@@ -45,6 +45,11 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
   const [displayPrice, setDisplayPrice] = useState('')
   const [serves, setServes] = useState('')
   const [minQuantity, setMinQuantity] = useState('')
+  // Preserved from the loaded item so the PUT always carries a non-null `visible`.
+  // FM's updateMealPackage does getVisible().equals(oldVisible), which NPEs (empty
+  // 500) if visible is missing. Visibility itself is toggled elsewhere; we never
+  // flip it here — we just echo the item's current value back.
+  const [visible, setVisible] = useState(true)
 
   // ── Image ──
   const [imageRef, setImageRef] = useState('')
@@ -184,6 +189,7 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
         setDisplayPrice(d.displayPrice || '')
         setServes(d.serves || '')
         setMinQuantity(d.minQuantity != null ? String(d.minQuantity) : '')
+        setVisible(d.visible !== false) // preserve the item's current visibility (default true)
         if (d.image?.reference) {
           setImageRef(d.image.reference)
           setImagePreview(`${IMG_BASE}/${d.image.reference}/download?size=400`)
@@ -266,6 +272,9 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
       glutenFree,
       vegan,
       containsAlcohol,
+      // FM's field is `visible` (not `available`). It MUST be non-null on update —
+      // updateMealPackage calls getVisible().equals(oldVisible) and NPEs otherwise.
+      visible,
       available: true,
       prepTime,
       prepDays,
