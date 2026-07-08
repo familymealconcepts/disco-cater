@@ -12,7 +12,8 @@ import { stateFromAddress } from './us-states'
 //   [{ state, restaurants: [{ reference, businessName, businessNameWithoutSpaces,
 //      address: { addressLine1, city, state, zipcode, latitude, longitude, phoneNumber } }] }]
 // 404 (RESTAURANT_GROUP_NOT_FOUND) when the slug isn't a live locations page.
-// The endpoint carries no link title/image, so the title is derived from the slug.
+// The /group endpoint carries no link title/image; the real title comes from the
+// disco_location_links mirror or, failing that, FM's /links/{url} `header`.
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -81,6 +82,26 @@ async function resolveLinkBanner(slug: string): Promise<{ image: string | null; 
     return { image: row.image_url || null, header: row.title || null }
   } catch {
     return { image: null, header: null }
+  }
+}
+
+// The real link title (FM's `header`). FM's /group/{url} endpoint carries no title,
+// but /links/{url} ("...with header and image") does. Used as a fallback for FM links
+// that were never mirrored into disco_location_links (e.g. created directly in FM), so
+// the page shows the admin-entered title instead of the humanized slug. Best-effort:
+// any failure → null (the caller then falls back to the slug).
+async function fetchFmLinkHeader(slug: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${FM}/public-api/restaurants/links/${encodeURIComponent(slug)}`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    })
+    if (!res.ok) return null
+    const data = (await res.json().catch(() => null)) as { header?: string } | null
+    const header = data?.header?.trim()
+    return header || null
+  } catch {
+    return null
   }
 }
 
@@ -170,11 +191,14 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
   })
 
   // Resolve the uploaded Link Image (and real title) for the header background.
-  // Best-effort — falls back to the slug-derived title and the hero gradient.
+  // Title priority: the mirrored disco_location_links.title (disco-managed links) →
+  // FM's own link header via /links/{url} (links created directly in FM, never
+  // mirrored) → humanized slug. Only hits FM when the mirror has no title.
   const banner = await resolveLinkBanner(slug)
+  const title = banner.header || (await fetchFmLinkHeader(slug)) || titleFromSlug(slug)
 
   return {
-    title: banner.header || titleFromSlug(slug),
+    title,
     image: banner.image,
     locations,
   }
