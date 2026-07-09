@@ -1,50 +1,19 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { sql } from '../../../../lib/db'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// TEMPORARY diagnostic gate (removed after we confirm the prod row count). When
-// ?debug=<key> matches, skip admin auth and return a sanitized count/sample so we
-// can observe exactly what production returns without a super-admin session.
-const DEBUG_KEY = 'x7k9-orphans-probe-3f8a2e'
-
 // Disco-native restaurants with NO FM record (fm_restaurant_reference IS NULL). The
 // super-admin restaurant list is sourced from FM, so these would otherwise be
-// invisible. The ordering page merges these in (deduped by admin email against the
-// FM rows) so a restaurant is never hidden — even if FM creation failed at signup.
-export async function GET(req: NextRequest) {
-  const sp = req.nextUrl.searchParams
-  const isDebug = sp.get('debug') === DEBUG_KEY
-  // TEMP: client-state probe — the ordering page reports its computed values here
-  // (?report=<json>); we stash the latest in a tiny table and read it back (?read=1).
-  if (isDebug && sp.get('read')) {
-    try {
-      await sql`CREATE TABLE IF NOT EXISTS _orphan_debug (id int PRIMARY KEY, payload text, at timestamptz DEFAULT now())`
-      const r = (await sql`SELECT payload, at FROM _orphan_debug WHERE id = 1`) as { payload: string; at: string }[]
-      return NextResponse.json({ stored: r[0] || null })
-    } catch (e) { return NextResponse.json({ error: String(e) }) }
-  }
-  if (isDebug && sp.get('report')) {
-    try {
-      await sql`CREATE TABLE IF NOT EXISTS _orphan_debug (id int PRIMARY KEY, payload text, at timestamptz DEFAULT now())`
-      const payload = sp.get('report')!
-      await sql`INSERT INTO _orphan_debug (id, payload, at) VALUES (1, ${payload}, now())
-                ON CONFLICT (id) DO UPDATE SET payload = ${payload}, at = now()`
-      return NextResponse.json({ ok: true })
-    } catch (e) { return NextResponse.json({ error: String(e) }) }
-  }
-  if (!isDebug) {
-    try { await getAdminAuthHeader() } catch {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-    }
+// invisible. The ordering page merges these in (deduped by reference against the FM
+// rows) so a restaurant is never hidden — even if FM creation failed at signup.
+export async function GET() {
+  try { await getAdminAuthHeader() } catch {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   try {
-    // (Removed a runDiscoOrderMigrations() call here — the orphans query only reads
-    // disco_restaurant_accounts + disco_restaurant_cache, which already exist, so
-    // running the order-migration file on every request was unnecessary work and a
-    // cold-start failure point.)
     // One row per restaurant_reference — a restaurant can have several accounts
     // (e.g. sub-admins, or repeated onboarding), which would otherwise duplicate it
     // in the list (and collide on the React key). DISTINCT ON keeps the most recent
@@ -69,16 +38,6 @@ export async function GET(req: NextRequest) {
       ) sub
       ORDER BY sub."createdDate" DESC
     `) as Record<string, unknown>[]
-    // TEMP diagnostic: confirm what production returns for this feed.
-    console.log('[disco-native-orphans] returning', rows.length, 'rows:',
-      rows.map(r => `${r.businessName}(${String(r.reference).slice(0, 8)})`).join(', '))
-    if (isDebug) {
-      return NextResponse.json({
-        count: rows.length,
-        sample: rows.map(r => ({ name: r.businessName, ref: String(r.reference).slice(0, 8), isLive: r.isLive })),
-        orphans: rows,
-      })
-    }
     return NextResponse.json({ orphans: rows })
   } catch (e) {
     console.error('[admin/disco-native-orphans] failed:', e instanceof Error ? e.message : e)

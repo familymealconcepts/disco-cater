@@ -460,11 +460,16 @@ export default function RestaurantsOrderingPage() {
         case 'stripe': return stripeRank(r)
       }
     }
-    // Merge in Disco-native restaurants that have no FM record, deduped by admin
-    // email against the FM rows (so a linked/present restaurant is never doubled).
-    const fmEmails = new Set(rows.map(r => adminEmailOf(r).toLowerCase()).filter(Boolean))
+    // Merge in Disco-native restaurants that have no FM record, deduped by
+    // REFERENCE against the FM rows. A true orphan has no FM record, so its
+    // reference never appears in the FM list — meaning every orphan is shown.
+    // (Deduping by admin *email* was wrong: it hid a distinct Disco-native
+    // restaurant whenever it happened to share an admin email with an unrelated FM
+    // restaurant — e.g. searching "test" surfaced FM "Test 23"/"Test Bagel" and
+    // suppressed their separate Disco-native twins, hiding the orphans entirely.)
+    const fmRefs = new Set(rows.map(r => r.reference))
     const orphanRows = discoOrphans
-      .filter(o => { const e = (o.adminEmail || '').toLowerCase(); return e && !fmEmails.has(e) })
+      .filter(o => !fmRefs.has(o.reference))
       .map(o => ({ ...o, _rowId: `disco-only#${o.reference}`, discoOnly: true }))
     return [...orphanRows, ...rows].sort((a, b) => {
       const va = val(a), vb = val(b)
@@ -474,25 +479,6 @@ export default function RestaurantsOrderingPage() {
       return cmp * dir
     })
   }, [rows, discoOrphans, sortKey, sortDir, stripeMap])
-
-  // TEMP diagnostic: report the browser's computed state to the server so we can
-  // see whether discoOrphans loaded and how many survive the merge into sortedRows.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      try {
-        const payload = JSON.stringify({
-          discoOrphansLen: discoOrphans.length,
-          orphanSample: discoOrphans.slice(0, 3).map(o => ({ n: o.businessName, e: (o.adminEmail || '').slice(0, 14) })),
-          sortedLen: sortedRows.length,
-          discoOnlyInSorted: sortedRows.filter(r => r.discoOnly).length,
-          fmRowsLen: rows.length,
-          loading, error,
-        })
-        fetch('/api/admin/disco-native-orphans?debug=x7k9-orphans-probe-3f8a2e&report=' + encodeURIComponent(payload))
-      } catch { /* ignore */ }
-    }, 3500)
-    return () => clearTimeout(t)
-  }, [discoOrphans, sortedRows, rows, loading, error])
 
   const loadStripeMap = useCallback(async () => {
     try {
