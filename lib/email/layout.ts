@@ -6,8 +6,11 @@
 // intentionally left untouched.
 //
 // Email-client constraints:
-//   - linear-gradient text is NOT reliably supported in email, so the "disco"
-//     wordmark uses a solid purple (#6B6EF9) instead of the brand gradient.
+//   - The header renders the Disco Cater logo IMAGE (white background baked into
+//     the PNG so transparent-on-black clients render correctly), hosted at
+//     discocater.com. This is a deliberate product decision that OVERRIDES the
+//     "logo is always text" brand rule — do NOT revert to the text wordmark
+//     without an explicit new instruction.
 //   - Everything is inline-styled; the only <head> element is a Google Fonts
 //     <link> for DM Sans (clients that strip it fall back to Helvetica/Arial).
 
@@ -36,8 +39,8 @@ export function layout(content: string): string {
 </head>
 <body style="margin:0;padding:0;background:#ffffff;">
   <div style="max-width:600px;margin:0 auto;padding:24px;font-family:'DM Sans',Helvetica,Arial,sans-serif;color:#1A1028;font-size:16px;line-height:1.6;">
-    <div style="font-size:24px;font-weight:700;margin-bottom:20px;">
-      <span style="color:#6B6EF9;">disco</span><span style="color:#999999;"> cater</span>
+    <div style="margin-bottom:20px;">
+      <img src="https://www.discocater.com/disco-cater-logo-white-bg.png" alt="Disco Cater" width="180" style="width:180px;max-width:180px;height:auto;display:block;border:0;outline:none;background:#ffffff;"/>
     </div>
     ${content}
     <hr style="border:none;border-top:1px solid #eee;margin:24px 0 16px 0;"/>
