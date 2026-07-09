@@ -1,7 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
+import { sql } from '../../../../../lib/db'
+import { deleteDiscoNativeRestaurant } from '../../../../../lib/disco-restaurant-delete'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+// A restaurant is Disco-native (no FamilyMeal record) when its Disco account is
+// flagged is_disco_native with no fm_restaurant_reference. For these, FM has no
+// record at all — calling FM to delete just 404s — so we delete from Neon directly.
+async function isDiscoNativeNoFm(ref: string): Promise<boolean> {
+  try {
+    const rows = (await sql`
+      SELECT is_disco_native, fm_restaurant_reference
+      FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} LIMIT 1
+    `) as { is_disco_native: boolean | null; fm_restaurant_reference: string | null }[]
+    const a = rows[0]
+    return !!a && a.is_disco_native === true && !a.fm_restaurant_reference
+  } catch {
+    return false // on any doubt, fall through to the FM path (unchanged behavior)
+  }
+}
 
 // Deep-merge `patch` onto `base`: nested objects merge recursively; arrays and
 // primitives replace; `undefined` patch values are ignored (keep base). Used to
@@ -40,6 +58,19 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   const { ref } = await params
+
+  // Disco-native restaurants have no FM record — delete from Neon, never call FM
+  // (which would just 404). Everything else deletes through FM as before.
+  if (await isDiscoNativeNoFm(ref)) {
+    try {
+      const summary = await deleteDiscoNativeRestaurant(ref)
+      return NextResponse.json({ ok: true, deletedFrom: 'neon', deleted: summary })
+    } catch (e) {
+      console.error('[admin/restaurants DELETE] Neon delete failed:', e instanceof Error ? e.message : e)
+      return NextResponse.json({ error: 'Unable to delete restaurant' }, { status: 500 })
+    }
+  }
+
   try {
     const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, { method: 'DELETE', headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed to delete restaurant' }, { status: res.status })
