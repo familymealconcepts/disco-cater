@@ -107,6 +107,39 @@ export async function getLinkImages(slugs: string[]): Promise<Record<string, str
   }
 }
 
+// A restaurant's own shareable location links, read from the Neon mirror by
+// restaurant_reference and returned in FM's listing "content" shape so the portal
+// Links page can render them without FamilyMeal. Used for Disco-native restaurants
+// (no FM record) whose links never come back from FM. [ref] on the link routes is
+// routing-only (rows are keyed by slug), so reference = slug is a safe id here.
+export interface PortalLinkRow {
+  reference: string
+  url: string
+  header: string
+  urlFrom: 'Links'
+  numberOfLocations: number
+}
+export async function getRestaurantLocationLinks(restaurantReference: string): Promise<PortalLinkRow[]> {
+  if (!restaurantReference) return []
+  try {
+    await ensureTable()
+    const rows = (await sql`
+      SELECT slug, title FROM disco_location_links
+      WHERE restaurant_reference = ${restaurantReference} AND slug IS NOT NULL AND slug <> ''
+      ORDER BY updated_at DESC
+    `) as { slug: string; title: string | null }[]
+    return rows.map(r => ({
+      reference: r.slug,
+      url: r.slug,
+      header: r.title || r.slug,
+      urlFrom: 'Links' as const,
+      numberOfLocations: 1,
+    }))
+  } catch {
+    return []
+  }
+}
+
 // Map of slug → manual gradient override, for pre-filling the link editor. Best
 // effort — {} on any error.
 export async function getLinkGradientOverrides(slugs: string[]): Promise<Record<string, string>> {

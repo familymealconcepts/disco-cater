@@ -15,21 +15,29 @@ export async function GET() {
   }
   try {
     await runDiscoOrderMigrations()
+    // One row per restaurant_reference — a restaurant can have several accounts
+    // (e.g. sub-admins, or repeated onboarding), which would otherwise duplicate it
+    // in the list (and collide on the React key). DISTINCT ON keeps the most recent
+    // account per restaurant; the outer query restores created-date ordering.
     const rows = (await sql`
-      SELECT a.restaurant_reference AS reference,
-             a.restaurant_name AS "businessName",
-             a.email AS "adminEmail",
-             to_char(a.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdDate",
-             (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true) AS "stripeConnected",
-             COALESCE(a.fm_creation_failed, false) AS "fmCreationFailed",
-             a.fm_creation_error AS "fmCreationError",
-             COALESCE(c.is_live, false) AS "isLive"
-      FROM disco_restaurant_accounts a
-      LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference
-      WHERE a.is_disco_native = true
-        AND a.fm_restaurant_reference IS NULL
-        AND a.restaurant_name IS NOT NULL AND a.restaurant_name <> ''
-      ORDER BY a.created_at DESC
+      SELECT * FROM (
+        SELECT DISTINCT ON (a.restaurant_reference)
+               a.restaurant_reference AS reference,
+               a.restaurant_name AS "businessName",
+               a.email AS "adminEmail",
+               to_char(a.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdDate",
+               (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true) AS "stripeConnected",
+               COALESCE(a.fm_creation_failed, false) AS "fmCreationFailed",
+               a.fm_creation_error AS "fmCreationError",
+               COALESCE(c.is_live, false) AS "isLive"
+        FROM disco_restaurant_accounts a
+        LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference
+        WHERE a.is_disco_native = true
+          AND a.fm_restaurant_reference IS NULL
+          AND a.restaurant_name IS NOT NULL AND a.restaurant_name <> ''
+        ORDER BY a.restaurant_reference, a.created_at DESC
+      ) sub
+      ORDER BY sub."createdDate" DESC
     `) as Record<string, unknown>[]
     return NextResponse.json({ orphans: rows })
   } catch (e) {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantUserRef, getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { buildForwardForm } from '../../../../lib/multi-link-forward'
-import { upsertLocationLink, buildLinkRow } from '../../../../lib/location-links'
+import { upsertLocationLink, buildLinkRow, getRestaurantLocationLinks } from '../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { getDiscoGroupAccounts } from '../../../../lib/disco-restaurant-auth'
 import { listNativeLinks, createNativeLink, slugTaken } from '../../../../lib/multi-unit-links'
@@ -28,10 +28,16 @@ async function readRequestPart(req: NextRequest): Promise<Record<string, unknown
   return {}
 }
 
-// Disco-native listing: the SA's own links from Neon, in FM's page shape.
+// Disco-native listing: the SA's own multi-unit links (SYSTEM_ADMIN) PLUS the
+// restaurant's own shareable location links from the Neon mirror (where
+// single-restaurant /locations/{slug} links live). Merged + deduped by slug so a
+// Disco-native ADMIN sees its links instead of an empty page — and nothing ever
+// calls FamilyMeal for a restaurant that has no FM record.
 async function nativeList(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>) {
-  if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return NextResponse.json({ content: [], totalElements: 0 })
-  const content = await listNativeLinks(ctx.email)
+  const nativeLinks = (ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN') ? await listNativeLinks(ctx.email) : []
+  const neonLinks = ctx.restaurantReference ? await getRestaurantLocationLinks(ctx.restaurantReference) : []
+  const seen = new Set(nativeLinks.map(l => l.url))
+  const content = [...nativeLinks, ...neonLinks.filter(l => !seen.has(l.url))]
   return NextResponse.json({ content, totalElements: content.length })
 }
 
@@ -75,9 +81,21 @@ export async function GET(req: NextRequest) {
   if (userReference) params.set('userReference', userReference)
   try {
     const res = await fetch(`${FM}/api/system-admin/restaurants/links/listing?${params}`, { headers: h })
-    if (!res.ok) return NextResponse.json({ error: 'Failed to fetch links' }, { status: res.status })
+    if (!res.ok) {
+      // FM has no links for this restaurant (e.g. a Disco-native restaurant with no
+      // FM record → FM 404s). Fall back to the Neon mirror by reference so the
+      // restaurant's own links still load instead of showing "Failed to fetch links".
+      const ref = await getRestaurantRef().catch(() => '')
+      const content = ref ? await getRestaurantLocationLinks(ref) : []
+      if (content.length) return NextResponse.json({ content, totalElements: content.length })
+      return NextResponse.json({ error: 'Failed to fetch links' }, { status: res.status })
+    }
     return NextResponse.json(await res.json())
   } catch {
+    // FM unreachable — still try the Neon mirror before failing.
+    const ref = await getRestaurantRef().catch(() => '')
+    const content = ref ? await getRestaurantLocationLinks(ref) : []
+    if (content.length) return NextResponse.json({ content, totalElements: content.length })
     return NextResponse.json({ error: 'Unable to fetch links' }, { status: 500 })
   }
 }
