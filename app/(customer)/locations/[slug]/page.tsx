@@ -97,7 +97,7 @@ function Landing({ link }: { link: LocationLink }) {
         </p>
       </header>
 
-      <main style={{ flex: 1, width: '100%', maxWidth: 680, margin: '0 auto', padding: '40px 20px 80px' }}>
+      <main style={{ flex: 1, width: '100%', maxWidth: 960, margin: '0 auto', padding: '40px 20px 80px' }}>
         {groups.map(({ state, items }) => (
           <section key={state || '_none'} style={{ marginBottom: 32 }}>
             {state && (
@@ -105,7 +105,11 @@ function Landing({ link }: { link: LocationLink }) {
                 {state}
               </h2>
             )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Responsive grid: 3 columns on desktop, collapsing to 2 then 1 on
+                narrower screens via auto-fill + a 260px floor so cards never get
+                squeezed. Still grouped per-state (this grid is inside each state
+                section). */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
               {items.map((loc, i) => (
                 <div
                   key={loc.restaurantReference || i}
