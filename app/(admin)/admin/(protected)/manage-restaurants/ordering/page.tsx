@@ -276,7 +276,16 @@ export default function RestaurantsOrderingPage() {
 
   async function deleteRestaurant(r: Restaurant) {
     if (!confirm(`Delete "${r.businessName}"? This cannot be undone.`)) return
-    const res = await fetch(`/api/admin/restaurants/${r.reference}`, { method: 'DELETE' })
+    let res = await fetch(`/api/admin/restaurants/${r.reference}`, { method: 'DELETE' })
+    // Server safeguard: a restaurant with real order history requires a second,
+    // explicit confirmation before it can be deleted.
+    if (res.status === 409) {
+      const d = await res.json().catch(() => null)
+      if (d?.requiresConfirmation) {
+        if (!confirm(`⚠️ "${r.businessName}" has ${d.orderCount} order(s) in its history. Deleting it permanently removes the restaurant and cannot be undone.\n\nAre you absolutely sure you want to delete it?`)) return
+        res = await fetch(`/api/admin/restaurants/${r.reference}?confirmDeleteWithOrders=${encodeURIComponent(r.reference)}`, { method: 'DELETE' })
+      }
+    }
     if (res.ok) { showToast(`${r.businessName} deleted`); load() }
     else showToast('Delete failed')
   }

@@ -52,12 +52,35 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   }
 }
 
-export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   let h: Record<string, string>
   try { h = await getAdminAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   const { ref } = await params
+
+  // SAFEGUARD: never delete a restaurant that has real order history without an
+  // explicit, restaurant-specific confirmation — regardless of how it's labeled
+  // (FM or Disco-native). The caller must re-send ?confirmDeleteWithOrders=<ref>
+  // (the exact reference), so a blanket/mis-clicked delete can't wipe a live
+  // restaurant. This is exactly what would have protected Test Kitchen (c8322ff4).
+  try {
+    const [fm, disco] = await Promise.all([
+      sql`SELECT count(*)::int n FROM fm_historical_orders WHERE restaurant_reference::text = ${ref}`,
+      sql`SELECT count(*)::int n FROM disco_orders WHERE restaurant_reference::text = ${ref}`,
+    ])
+    const orderCount = ((fm as { n: number }[])[0]?.n || 0) + ((disco as { n: number }[])[0]?.n || 0)
+    if (orderCount > 0 && req.nextUrl.searchParams.get('confirmDeleteWithOrders') !== ref) {
+      return NextResponse.json(
+        { error: `This restaurant has ${orderCount} order(s) in its history. Deletion is destructive and requires explicit confirmation.`, requiresConfirmation: true, orderCount },
+        { status: 409 },
+      )
+    }
+  } catch (guardErr) {
+    // If the history check itself fails, do NOT proceed with a destructive delete.
+    console.error('[admin/restaurants DELETE] order-history guard failed — blocking delete:', guardErr instanceof Error ? guardErr.message : guardErr)
+    return NextResponse.json({ error: 'Could not verify order history; delete blocked for safety.' }, { status: 500 })
+  }
 
   // Disco-native restaurants have no FM record — delete from Neon, never call FM
   // (which would just 404). Everything else deletes through FM as before.

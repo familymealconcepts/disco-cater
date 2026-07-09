@@ -503,10 +503,13 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
 
   const custEmail = `e2e-test-${ts}@discocater.com`
   const password = 'TestPassword123!'
-  // Test Kitchen — an existing FM restaurant we control. Reused instead of
-  // creating a throwaway FM restaurant on every run.
-  const restaurantRef = 'c8322ff4-32dd-47bc-8515-3f0cffc34bbf'
+  // Dedicated E2E fixture — a clearly-fake, Disco-native throwaway reference that
+  // can never collide with a real restaurant. NEVER hardcode a real restaurant
+  // reference here: doing so (previously c8322ff4 = the real "Test Kitchen") lets
+  // this test's account/menu writes silently corrupt a live restaurant.
+  const restaurantRef = 'e2e50000-0000-4000-8000-000000000001'
   const adminCall = (method: string, path: string, body?: unknown) => call(method, `${origin}${path}`, { body, cookie: adminCookie })
+  void adminCall
 
   // STEP 1 — customer (FM /registration; diners are FM-side).
   const su = await call('POST', `${origin}/api/auth/signup`, { body: { email: custEmail, password, firstName: 'E2E', lastName: 'Test' } })
@@ -514,16 +517,23 @@ async function testFullE2E(origin: string, _adminEmail: string, adminCookie: str
   created.push(custEmail)
   ok(`${custEmail} registered (FM-side; no Neon diner table)`)
 
-  // STEP 2 — verify Test Kitchen (no FM creation). Present in Neon overrides and
-  // active (online ordering on) in FM.
-  const ovRows = (await sql`SELECT 1 FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`.catch(() => [])) as unknown[]
-  if (!ovRows.length) return bail('Test Kitchen not found in disco_restaurant_overrides')
-  const rget = await adminCall('GET', `/api/admin/restaurants/${restaurantRef}`)
-  const rgJson = (rget.json || {}) as Record<string, unknown>
-  if (!rget.ok || !rgJson) return bail(errOf(rget))
-  if (rgJson.onlineOrderingAllowed !== true) return bail(`onlineOrderingAllowed is ${rgJson.onlineOrderingAllowed} (expected true)`)
-  created.push(`Restaurant: Test Kitchen (${restaurantRef})`)
-  ok(`Test Kitchen ${restaurantRef} active (onlineOrderingAllowed=true)`)
+  // STEP 2 — ensure the dedicated E2E fixture restaurant exists and is active. It's
+  // seeded here (idempotent) as a Disco-native, non-public (is_live/visible=false)
+  // fixture, so the test is self-contained and never touches real restaurant data.
+  await sql`
+    INSERT INTO disco_restaurant_cache (restaurant_reference, name, slug, is_disco_native, is_live, cached_at)
+    VALUES (${restaurantRef}, ${'[E2E] Test Fixture'}, ${'e2e-test-fixture'}, true, false, NOW())
+    ON CONFLICT (restaurant_reference) DO UPDATE SET is_disco_native = true, is_live = false, cached_at = NOW()
+  `.catch(() => {})
+  await sql`
+    INSERT INTO disco_restaurant_overrides (restaurant_reference, online_ordering_enabled, stripe_connected, money_flow, visible)
+    VALUES (${restaurantRef}, true, true, ${'DIRECT'}, false)
+    ON CONFLICT (restaurant_reference) DO UPDATE SET online_ordering_enabled = true
+  `.catch(() => {})
+  const ovRows = (await sql`SELECT online_ordering_enabled FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`.catch(() => [])) as { online_ordering_enabled?: boolean }[]
+  if (!ovRows.length || ovRows[0].online_ordering_enabled !== true) return bail('E2E fixture restaurant could not be seeded/activated in disco_restaurant_overrides')
+  created.push(`Restaurant: [E2E] Test Fixture (${restaurantRef})`)
+  ok(`E2E fixture ${restaurantRef} active (Disco-native, online ordering on)`)
 
   // STEP 3 — Disco-native menu item (Neon). The menu route is restaurant-scoped,
   // so mint a Disco restaurant session for the new restaurant first.

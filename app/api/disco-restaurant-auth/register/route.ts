@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { runDiscoOrderMigrations } from '../../../../lib/db'
+import { runDiscoOrderMigrations, sql } from '../../../../lib/db'
 import {
   hashPassword,
   verifyPassword,
@@ -35,6 +35,31 @@ export async function POST(req: NextRequest) {
   }
   if (password.length < 8) {
     return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 })
+  }
+
+  // GUARD: never silently relabel an existing FM-backed restaurant as Disco-native.
+  // A Disco-native account here defaults is_disco_native=true. If this reference
+  // already belongs to a real restaurant — it has FamilyMeal order history, or an
+  // existing account already linked to FM — registering on it would corrupt that
+  // restaurant's classification (exactly how Test Kitchen / c8322ff4 was lost).
+  // New onboarding always uses a fresh reference with neither, so this never blocks
+  // legitimate signups. Best-effort: a check failure must not block real onboarding.
+  try {
+    const fmHistory = (await sql`SELECT 1 FROM fm_historical_orders WHERE restaurant_reference::text = ${restaurantReference} LIMIT 1`) as unknown[]
+    const fmBacked = (await sql`
+      SELECT 1 FROM disco_restaurant_accounts
+      WHERE restaurant_reference = ${restaurantReference}
+        AND (fm_restaurant_reference IS NOT NULL OR is_disco_native = false)
+      LIMIT 1`) as unknown[]
+    if (fmHistory.length || fmBacked.length) {
+      console.warn('[disco-register] BLOCKED: reference belongs to an FM-backed restaurant:', restaurantReference, '(email:', email + ')')
+      return NextResponse.json(
+        { error: 'This restaurant is already registered with FamilyMeal and cannot be re-registered as a Disco-native restaurant.' },
+        { status: 409 },
+      )
+    }
+  } catch (guardErr) {
+    console.error('[disco-register] FM-ownership guard check failed (allowing signup):', guardErr instanceof Error ? guardErr.message : guardErr)
   }
 
   // Migrations are best-effort — a failure here must NOT block the insert (the
