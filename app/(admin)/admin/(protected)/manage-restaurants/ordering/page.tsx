@@ -475,6 +475,25 @@ export default function RestaurantsOrderingPage() {
     })
   }, [rows, discoOrphans, sortKey, sortDir, stripeMap])
 
+  // TEMP diagnostic: report the browser's computed state to the server so we can
+  // see whether discoOrphans loaded and how many survive the merge into sortedRows.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const payload = JSON.stringify({
+          discoOrphansLen: discoOrphans.length,
+          orphanSample: discoOrphans.slice(0, 3).map(o => ({ n: o.businessName, e: (o.adminEmail || '').slice(0, 14) })),
+          sortedLen: sortedRows.length,
+          discoOnlyInSorted: sortedRows.filter(r => r.discoOnly).length,
+          fmRowsLen: rows.length,
+          loading, error,
+        })
+        fetch('/api/admin/disco-native-orphans?debug=x7k9-orphans-probe-3f8a2e&report=' + encodeURIComponent(payload))
+      } catch { /* ignore */ }
+    }, 3500)
+    return () => clearTimeout(t)
+  }, [discoOrphans, sortedRows, rows, loading, error])
+
   const loadStripeMap = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/restaurant-overrides')

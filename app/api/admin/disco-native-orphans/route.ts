@@ -15,7 +15,26 @@ const DEBUG_KEY = 'x7k9-orphans-probe-3f8a2e'
 // invisible. The ordering page merges these in (deduped by admin email against the
 // FM rows) so a restaurant is never hidden — even if FM creation failed at signup.
 export async function GET(req: NextRequest) {
-  const isDebug = req.nextUrl.searchParams.get('debug') === DEBUG_KEY
+  const sp = req.nextUrl.searchParams
+  const isDebug = sp.get('debug') === DEBUG_KEY
+  // TEMP: client-state probe — the ordering page reports its computed values here
+  // (?report=<json>); we stash the latest in a tiny table and read it back (?read=1).
+  if (isDebug && sp.get('read')) {
+    try {
+      await sql`CREATE TABLE IF NOT EXISTS _orphan_debug (id int PRIMARY KEY, payload text, at timestamptz DEFAULT now())`
+      const r = (await sql`SELECT payload, at FROM _orphan_debug WHERE id = 1`) as { payload: string; at: string }[]
+      return NextResponse.json({ stored: r[0] || null })
+    } catch (e) { return NextResponse.json({ error: String(e) }) }
+  }
+  if (isDebug && sp.get('report')) {
+    try {
+      await sql`CREATE TABLE IF NOT EXISTS _orphan_debug (id int PRIMARY KEY, payload text, at timestamptz DEFAULT now())`
+      const payload = sp.get('report')!
+      await sql`INSERT INTO _orphan_debug (id, payload, at) VALUES (1, ${payload}, now())
+                ON CONFLICT (id) DO UPDATE SET payload = ${payload}, at = now()`
+      return NextResponse.json({ ok: true })
+    } catch (e) { return NextResponse.json({ error: String(e) }) }
+  }
   if (!isDebug) {
     try { await getAdminAuthHeader() } catch {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -57,6 +76,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         count: rows.length,
         sample: rows.map(r => ({ name: r.businessName, ref: String(r.reference).slice(0, 8), isLive: r.isLive })),
+        orphans: rows,
       })
     }
     return NextResponse.json({ orphans: rows })
