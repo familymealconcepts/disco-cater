@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { createClient } from '@sanity/client'
 import { sql } from './db'
 import { getNativeLinkBySlug } from './multi-unit-links'
+import { getLinkGradient, cacheAutoGradient } from './location-links'
 import { stateFromAddress } from './us-states'
 
 // Resolves a restaurant-portal "Links" shareable slug (discocater.com/locations/
@@ -37,6 +38,12 @@ export interface LocationItem {
 export interface LocationLink {
   title: string
   image: string | null
+  /**
+   * Header brand gradient (CSS) to use when there is no banner `image`. Resolved
+   * by precedence: manual override → cached/lazily-extracted brand gradient. null
+   * when neither applies, so the page falls back to the generic Disco gradient.
+   */
+  gradient: string | null
   locations: LocationItem[]
 }
 
@@ -85,6 +92,44 @@ async function resolveLinkBanner(slug: string): Promise<{ image: string | null; 
   }
 }
 
+// Resolve the header brand gradient for a link (used only when it has no banner
+// image). Precedence: manual override → cached auto gradient (if its source image
+// is unchanged) → lazily extract from the representative restaurant's logo, then
+// marketplace image, and cache the result. Returns null → generic Disco gradient.
+// A negative result (no usable brand color) is cached too (empty string keyed by
+// the same source) so we don't re-download + re-process the image on every view.
+async function resolveGradient(slug: string, representativeRef: string | null): Promise<string | null> {
+  const g = await getLinkGradient(slug)
+  if (g.override) return g.override
+
+  // Representative restaurant's image sources (both FM and native restaurants live
+  // in disco_restaurant_cache, keyed by reference: icon_url = logo, image_url =
+  // marketplace photo).
+  let iconUrl: string | null = null
+  let imageUrl: string | null = null
+  if (representativeRef) {
+    try {
+      const rows = (await sql`
+        SELECT icon_url, image_url FROM disco_restaurant_cache
+        WHERE restaurant_reference = ${representativeRef} LIMIT 1
+      `) as { icon_url: string | null; image_url: string | null }[]
+      iconUrl = rows[0]?.icon_url || null
+      imageUrl = rows[0]?.image_url || null
+    } catch { /* ignore — fall through to cache/generic */ }
+  }
+  if (!iconUrl && !imageUrl) return g.autoGradient // nothing to derive from
+
+  const src = `${iconUrl || ''}|${imageUrl || ''}`
+  // Already computed for this exact source (including a cached negative) → trust it.
+  if (g.autoSrc === src) return g.autoGradient
+
+  const { brandGradient } = await import('./brand-color') // defer sharp load
+  const res = await brandGradient({ iconUrl, imageUrl }).catch(() => null)
+  const css = res ? res.css : '' // '' = negative cache (no usable brand color)
+  await cacheAutoGradient(slug, css, src)
+  return css || null
+}
+
 // The real link title (FM's `header`). FM's /group/{url} endpoint carries no title,
 // but /links/{url} ("...with header and image") does. Used as a fallback for FM links
 // that were never mirrored into disco_location_links (e.g. created directly in FM), so
@@ -131,7 +176,8 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
       slug: r.slug || null,
     }))
     const banner = await resolveLinkBanner(slug)
-    return { title: nativeLink.title || titleFromSlug(slug), image: banner.image, locations }
+    const gradient = banner.image ? null : await resolveGradient(slug, nativeLink.memberRefs[0] || null)
+    return { title: nativeLink.title || titleFromSlug(slug), image: banner.image, gradient, locations }
   }
 
   let res: Response
@@ -196,10 +242,12 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
   // mirrored) → humanized slug. Only hits FM when the mirror has no title.
   const banner = await resolveLinkBanner(slug)
   const title = banner.header || (await fetchFmLinkHeader(slug)) || titleFromSlug(slug)
+  const gradient = banner.image ? null : await resolveGradient(slug, flat[0]?.reference || null)
 
   return {
     title,
     image: banner.image,
+    gradient,
     locations,
   }
 })

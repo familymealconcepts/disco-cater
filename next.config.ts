@@ -4,7 +4,11 @@ const nextConfig: NextConfig = {
   // mupdf ships a WASM binary that must load from node_modules at runtime rather
   // than be bundled by Turbopack — used by the become-a-partner menu import to
   // rasterize PDF pages for Claude vision.
-  serverExternalPackages: ['mupdf'],
+  // mupdf/sharp are native/WASM modules that must load from node_modules at
+  // runtime rather than be bundled by Turbopack. sharp is used server-side by
+  // lib/brand-color.ts to extract a restaurant's brand color for the Multi-Unit
+  // Links header gradient.
+  serverExternalPackages: ['mupdf', 'sharp'],
   // Ensure the SQL migration files are bundled into the serverless functions so
   // runDiscoOrderMigrations() can read them at runtime on Vercel (dynamic
   // process.cwd() reads are not auto-traced).

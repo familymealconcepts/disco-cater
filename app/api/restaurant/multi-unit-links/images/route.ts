@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
-import { getLinkImages } from '../../../../../lib/location-links'
+import { getLinkImages, getLinkGradientOverrides } from '../../../../../lib/location-links'
 
 // Returns { images: { [slug]: blobUrl } } for the requested slugs, read from the
 // Neon mirror (disco_location_links). The portal links table uses this to render
@@ -17,6 +17,6 @@ export async function GET(req: NextRequest) {
     .map(s => s.trim())
     .filter(Boolean)
 
-  const images = await getLinkImages(slugs)
-  return NextResponse.json({ images })
+  const [images, gradients] = await Promise.all([getLinkImages(slugs), getLinkGradientOverrides(slugs)])
+  return NextResponse.json({ images, gradients })
 }

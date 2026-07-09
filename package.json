@@ -38,6 +38,7 @@
     "react-image-crop": "^11.0.10",
     "react-quill-new": "^3.8.3",
     "recharts": "^3.8.1",
+    "sharp": "^0.34.5",
     "stripe": "^22.2.0"
   },
   "devDependencies": {

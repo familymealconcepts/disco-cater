@@ -84,6 +84,12 @@ export default function MultiUnitLinksPage() {
   const [dashboardGroup, setDashboardGroup] = useState<GroupInfo | null>(null)
   // slug → Vercel Blob image URL (from the Neon mirror) for table thumbnails.
   const [imageMap, setImageMap] = useState<Record<string, string>>({})
+  // slug → manual header-gradient override (Neon mirror), for pre-filling the editor.
+  const [gradientMap, setGradientMap] = useState<Record<string, string>>({})
+  // Dialog: manual header gradient override (two color stops + on/off toggle).
+  const [gradEnabled, setGradEnabled] = useState(false)
+  const [gradStart, setGradStart] = useState('#6B6EF9')
+  const [gradEnd, setGradEnd] = useState('#C044C8')
   // slug → number of locations FM serves publicly (what /locations/[slug] shows).
   const [liveCounts, setLiveCounts] = useState<Record<string, number>>({})
 
@@ -143,6 +149,7 @@ export default function MultiUnitLinksPage() {
             if (imgRes.ok) {
               const imgData = await imgRes.json().catch(() => null)
               setImageMap(imgData?.images || {})
+              setGradientMap(imgData?.gradients || {})
             }
           } catch { /* thumbnails fall back to the FM ref */ }
 
@@ -216,6 +223,10 @@ export default function MultiUnitLinksPage() {
     setUrlError(''); setImageError(''); setImageFile(null); setImageUpdated(false)
     // Show the existing image (if any) when editing; nothing for a brand-new link.
     setImagePreview((link.reference || link.urlFrom === 'Dashboard') ? imageUrl(link) : null)
+    // Pre-fill the manual gradient override from the mirror (parse its two hex stops).
+    const stops = (gradientMap[link.url || ''] || '').match(/#[0-9a-fA-F]{3,8}/g)
+    if (stops && stops.length >= 2) { setGradEnabled(true); setGradStart(stops[0]); setGradEnd(stops[1]) }
+    else { setGradEnabled(false); setGradStart('#6B6EF9'); setGradEnd('#C044C8') }
     setEditing(link)
   }
 
@@ -322,6 +333,22 @@ export default function MultiUnitLinksPage() {
     }
   }
 
+  // Store (or clear with null) the link's manual header-gradient override in the
+  // Neon mirror so the public /locations/[slug] header can use it. Best effort.
+  async function patchLinkGradient(slug: string, reference: string, gradient: string | null) {
+    if (!slug) return
+    try {
+      const ref = reference || 'by-slug' // [ref] is routing-only; row is keyed by slug
+      await fetch(`/api/restaurant/multi-unit-links/${encodeURIComponent(ref)}/gradient`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, gradient }),
+      })
+    } catch (e) {
+      console.error('[multi-unit-links] gradient patch failed:', e)
+    }
+  }
+
   async function saveLink() {
     if (!editing || !editing.url || !editing.header) return
     if (!(editing.restaurantReferences || []).length) return // FM requires ≥1 location
@@ -332,6 +359,7 @@ export default function MultiUnitLinksPage() {
     const savedRef = editing.reference || ''
     const imageWasChanged = imageUpdated
     const fileToUpload = imageFile
+    const gradientToSave = gradEnabled ? `linear-gradient(120deg, ${gradStart} 0%, ${gradEnd} 100%)` : null
 
     // Upload the image to Vercel Blob BEFORE the FM call (it's the source of
     // truth for display). FM still gets a copy below for its own compatibility.
@@ -379,6 +407,7 @@ export default function MultiUnitLinksPage() {
         // uploaded, or '' to clear it if the image was removed.
         if (blobUrl) await patchLinkImage(savedSlug, savedRef, blobUrl)
         else if (imageWasChanged && !fileToUpload) await patchLinkImage(savedSlug, savedRef, '')
+        await patchLinkGradient(savedSlug, savedRef, gradientToSave)
         load()
       }
     } finally { setSaving(false) }
@@ -608,6 +637,28 @@ export default function MultiUnitLinksPage() {
                   </label>
                 )}
                 {imageError && <div style={{ color: '#E76F51', fontSize: 12, marginTop: 6 }}>{imageError}</div>}
+              </div>
+
+              <div>
+                <label style={lbl}>Header gradient</label>
+                <p style={{ fontSize: 11, color: '#999', margin: '0 0 8px' }}>
+                  Only shown when there is no Link Image. Leave off to auto-derive the color from the restaurant&apos;s logo/photo (falling back to the generic Disco gradient).
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: DARK, cursor: 'pointer', marginBottom: gradEnabled ? 12 : 0 }}>
+                  <input type="checkbox" checked={gradEnabled} onChange={e => setGradEnabled(e.target.checked)} />
+                  Use a custom header gradient
+                </label>
+                {gradEnabled && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#666' }}>
+                      Start <input type="color" value={gradStart} onChange={e => setGradStart(e.target.value)} style={{ width: 40, height: 28, border: '1px solid #ddd', borderRadius: 6, background: 'none', cursor: 'pointer' }} />
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#666' }}>
+                      End <input type="color" value={gradEnd} onChange={e => setGradEnd(e.target.value)} style={{ width: 40, height: 28, border: '1px solid #ddd', borderRadius: 6, background: 'none', cursor: 'pointer' }} />
+                    </label>
+                    <div style={{ flex: 1, height: 32, borderRadius: 8, border: '1px solid #eee', background: `linear-gradient(120deg, ${gradStart} 0%, ${gradEnd} 100%)` }} />
+                  </div>
+                )}
               </div>
             </div>
 

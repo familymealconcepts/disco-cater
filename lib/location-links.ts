@@ -59,6 +59,13 @@ async function ensureTable(): Promise<void> {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
+  // Header-gradient columns (added later): a manual override the admin sets in the
+  // link editor, plus a lazily-computed brand gradient cache + the source image URL
+  // it was derived from (so we recompute when that image changes). One ALTER per
+  // round-trip — the Neon HTTP driver runs a single statement at a time.
+  await sql`ALTER TABLE disco_location_links ADD COLUMN IF NOT EXISTS gradient_override TEXT`
+  await sql`ALTER TABLE disco_location_links ADD COLUMN IF NOT EXISTS auto_gradient TEXT`
+  await sql`ALTER TABLE disco_location_links ADD COLUMN IF NOT EXISTS auto_gradient_src TEXT`
   ensured = true
 }
 
@@ -98,6 +105,80 @@ export async function getLinkImages(slugs: string[]): Promise<Record<string, str
   } catch {
     return {}
   }
+}
+
+// Map of slug → manual gradient override, for pre-filling the link editor. Best
+// effort — {} on any error.
+export async function getLinkGradientOverrides(slugs: string[]): Promise<Record<string, string>> {
+  const clean = slugs.filter(Boolean)
+  if (!clean.length) return {}
+  try {
+    await ensureTable()
+    const rows = (await sql`
+      SELECT slug, gradient_override FROM disco_location_links
+      WHERE slug = ANY(${clean}::text[]) AND gradient_override IS NOT NULL AND gradient_override <> ''
+    `) as { slug: string; gradient_override: string }[]
+    const out: Record<string, string> = {}
+    for (const r of rows) out[r.slug] = r.gradient_override
+    return out
+  } catch {
+    return {}
+  }
+}
+
+// Header-gradient row for a slug: the manual override + the cached auto gradient
+// and the image URL it was computed from. Best effort — {} shape with nulls on any
+// error (missing table/columns → the page just falls back to the generic gradient).
+export interface LinkGradientRow {
+  override: string | null
+  autoGradient: string | null
+  autoSrc: string | null
+}
+export async function getLinkGradient(slug: string): Promise<LinkGradientRow> {
+  if (!slug) return { override: null, autoGradient: null, autoSrc: null }
+  try {
+    await ensureTable()
+    const rows = (await sql`
+      SELECT gradient_override, auto_gradient, auto_gradient_src
+      FROM disco_location_links WHERE slug = ${slug} LIMIT 1
+    `) as { gradient_override: string | null; auto_gradient: string | null; auto_gradient_src: string | null }[]
+    const r = rows[0]
+    if (!r) return { override: null, autoGradient: null, autoSrc: null }
+    return { override: r.gradient_override || null, autoGradient: r.auto_gradient || null, autoSrc: r.auto_gradient_src || null }
+  } catch {
+    return { override: null, autoGradient: null, autoSrc: null }
+  }
+}
+
+// Set (or clear, with null) the manual gradient override for a slug. Upsert keyed
+// by slug; leaves image/title/auto columns untouched. Written from the link editor.
+export async function upsertLinkGradientOverride(slug: string, override: string | null): Promise<void> {
+  if (!slug) return
+  await ensureTable()
+  await sql`
+    INSERT INTO disco_location_links (slug, gradient_override, updated_at)
+    VALUES (${slug}, ${override}, NOW())
+    ON CONFLICT (slug) DO UPDATE SET
+      gradient_override = EXCLUDED.gradient_override,
+      updated_at = NOW()
+  `
+}
+
+// Cache a lazily-computed auto gradient + the source image URL it came from.
+// Best effort: swallow errors so a failed cache write never breaks page render.
+export async function cacheAutoGradient(slug: string, css: string, src: string): Promise<void> {
+  if (!slug) return
+  try {
+    await ensureTable()
+    await sql`
+      INSERT INTO disco_location_links (slug, auto_gradient, auto_gradient_src, updated_at)
+      VALUES (${slug}, ${css}, ${src}, NOW())
+      ON CONFLICT (slug) DO UPDATE SET
+        auto_gradient = EXCLUDED.auto_gradient,
+        auto_gradient_src = EXCLUDED.auto_gradient_src,
+        updated_at = NOW()
+    `
+  } catch { /* best effort */ }
 }
 
 // Update ONLY the image_url for a slug (leaves title/restaurant_reference as-is).

@@ -81,12 +81,14 @@ function Landing({ link }: { link: LocationLink }) {
           minHeight: 312, // +30% (was 240)
           display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           textAlign: 'center', padding: '62px 20px', // +30% vertical (was 48px)
-          // Uploaded Link Image (image_url from Neon via resolveLinkBanner) as the
-          // header background — cover/center, under a dark overlay so the title
-          // stays readable. Falls back to the brand gradient when null/empty.
+          // Header background precedence:
+          //   banner image (dark overlay for readable title)
+          //   → brand gradient (manual override → auto-extracted from the
+          //     restaurant's logo/marketplace image; resolved in getLocationLink)
+          //   → generic Disco hero gradient.
           background: link.image
             ? `linear-gradient(rgba(0,0,0,0.55),rgba(0,0,0,0.55)), url('${link.image}') center/cover no-repeat`
-            : HERO_GRADIENT,
+            : (link.gradient || HERO_GRADIENT),
         }}
       >
         <h1 style={{ fontSize: 'clamp(2rem, 5vw, 4rem)', fontWeight: 800, color: '#fff', margin: '0 0 8px', letterSpacing: '-0.02em', textShadow: '0 2px 8px rgba(0,0,0,0.4)', lineHeight: 1.1 }}>
