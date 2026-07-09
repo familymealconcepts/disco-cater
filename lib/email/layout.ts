@@ -39,8 +39,8 @@ export function layout(content: string): string {
 </head>
 <body style="margin:0;padding:0;background:#ffffff;">
   <div style="max-width:600px;margin:0 auto;padding:24px;font-family:'DM Sans',Helvetica,Arial,sans-serif;color:#1A1028;font-size:16px;line-height:1.6;">
-    <div style="margin-bottom:20px;">
-      <img src="https://www.discocater.com/disco-cater-logo-white-bg.png" alt="Disco Cater" width="180" style="width:180px;max-width:180px;height:auto;display:block;border:0;outline:none;background:#ffffff;"/>
+    <div style="text-align:center;margin-bottom:20px;">
+      <img src="https://www.discocater.com/disco-cater-logo-white-bg.png" alt="Disco Cater" width="180" style="width:180px;max-width:180px;height:auto;margin:0 auto;border:0;outline:none;background:#ffffff;"/>
     </div>
     ${content}
     <hr style="border:none;border-top:1px solid #eee;margin:24px 0 16px 0;"/>
