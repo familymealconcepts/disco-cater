@@ -209,9 +209,8 @@ export default function HomeClient() {
           .btn-arrow { display: none !important; }
           .search-wrap { width: calc(100vw - 32px) !important; }
           .home-footer { padding-left: 16px !important; padding-right: 16px !important; gap: 14px !important; }
-          /* Mobile: keep only the "For Restaurants" link in the footer. */
+          /* Mobile: hide the "Search by city" row; the legal links remain. */
           .home-footer-city { display: none !important; }
-          .home-footer-secondary { display: none !important; }
         }
         @media (min-width: 769px) {
           .btn-short { display: none; }
@@ -338,15 +337,9 @@ export default function HomeClient() {
             ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
-            <a href="/for-restaurants"
-              style={{ fontSize: 13, color: '#6B6EF9', textDecoration: 'none', transition: 'color 0.15s' }}
-              onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-              onMouseOut={e => (e.currentTarget.style.color = '#6B6EF9')}>
-              For Restaurants
-            </a>
-            {/* Hidden on mobile — only "For Restaurants" remains in the footer. */}
-            <span className="home-footer-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
-              <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+            {/* "For Restaurants" now lives in the site header (GlobalHeader) — on
+                desktop left of Catering Map, on mobile inside the hamburger menu. */}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
               <a href="/privacy"
                 style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
                 onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
