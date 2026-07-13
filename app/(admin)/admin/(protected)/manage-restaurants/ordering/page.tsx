@@ -63,6 +63,10 @@ interface OverrideMeta {
   menuUploadUrl: string | null
   isLive: boolean
   isDiscoNative: boolean
+  // Canonical "Accept online orders" value from Neon disco_restaurant_overrides.
+  // null = no explicit value stored (unset). This is what the restaurant portal
+  // reads/writes — the super admin now reads/writes the same field.
+  onlineOrderingEnabled: boolean | null
 }
 
 function fmtDate(d?: string) {
@@ -83,8 +87,16 @@ function adminEmailOf(r: Restaurant): string {
   return r.adminEmail || r.admin?.email || ''
 }
 
-// Online ordering is controlled by FM's onlineOrderingAllowed boolean.
-const isOnline = (r: Restaurant) => r.onlineOrderingAllowed === true
+// Online ordering — canonical value lives in Neon disco_restaurant_overrides
+// .online_ordering_enabled (what the restaurant portal + native order-gate read).
+// Prefer that; a disco-native restaurant with no explicit value defaults to ON
+// (matches the order gate's COALESCE(...,true)); FM-backed rows fall back to FM's
+// onlineOrderingAllowed. `ov` is the row's OverrideMeta (may be undefined).
+function isOnlineWith(r: Restaurant, ov: OverrideMeta | undefined): boolean {
+  if (ov && ov.onlineOrderingEnabled != null) return ov.onlineOrderingEnabled === true
+  if (ov?.isDiscoNative) return true
+  return r.onlineOrderingAllowed === true
+}
 
 function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolean; onChange: () => void; disabled?: boolean; color?: string }) {
   return (
@@ -323,7 +335,7 @@ export default function RestaurantsOrderingPage() {
       return
     }
     setOrderingWarning(null)
-    setOrderingConfirm({ r, next: !isOnline(r) })
+    setOrderingConfirm({ r, next: !isOnlineWith(r, overrideMap[r.reference]) })
   }
 
   async function confirmOnlineOrdering() {
@@ -331,13 +343,30 @@ export default function RestaurantsOrderingPage() {
     const { r, next } = orderingConfirm
     setOrderingBusy(true)
     try {
-      const res = await fetch(`/api/admin/restaurants/${r.reference}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ onlineOrderingAllowed: next }),
+      // Canonical write: Neon disco_restaurant_overrides.online_ordering_enabled —
+      // the field the restaurant portal + native order-gate read. Writing it here
+      // makes the two sides agree (this was the sync bug: admin read FM's
+      // onlineOrderingAllowed, which the disco-native write path never sets).
+      const ovRes = await fetch('/api/admin/restaurant-overrides', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurantReference: r.reference, onlineOrderingEnabled: next }),
       })
-      if (!res.ok) throw new Error()
+      if (!ovRes.ok) throw new Error()
+      // FM-backed restaurants also carry FM's onlineOrderingAllowed — keep FM in
+      // sync too. Best-effort: a disco-native restaurant has no FM record (404),
+      // which must not fail the toggle.
+      if (!overrideMap[r.reference]?.isDiscoNative) {
+        await fetch(`/api/admin/restaurants/${r.reference}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ onlineOrderingAllowed: next }),
+        }).catch(() => {})
+      }
       setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, onlineOrderingAllowed: next } : x))
+      setOverrideMap(prev => {
+        const cur = prev[r.reference]
+        if (!cur) return prev
+        return { ...prev, [r.reference]: { ...cur, onlineOrderingEnabled: next } }
+      })
       showToast(`${r.businessName}: online ordering ${next ? 'enabled' : 'disabled'}`)
       setOrderingConfirm(null)
     } catch {
@@ -465,7 +494,7 @@ export default function RestaurantsOrderingPage() {
         case 'admin': return adminNameOf(r)
         case 'email': return adminEmailOf(r)
         case 'createdDate': { const t = r.createdDate ? new Date(r.createdDate).getTime() : 0; return Number.isFinite(t) ? t : 0 }
-        case 'status': return r.onlineOrderingAllowed ? 1 : 0
+        case 'status': return isOnlineWith(r, overrideMap[r.reference]) ? 1 : 0
         case 'stripe': return stripeRank(r)
       }
     }
@@ -500,12 +529,14 @@ export default function RestaurantsOrderingPage() {
         restaurantReference: string; stripeConnected: boolean; stripeCheckedAt: string | null
         visible?: boolean; isPremium?: boolean; orderUrl?: string; menuUploadUrl?: string | null
         isLive?: boolean; isDiscoNative?: boolean; hasStripeAccount?: boolean
+        onlineOrderingEnabled?: boolean | null
       }[]) {
         sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt, hasStripeAccount: !!o.hasStripeAccount }
         oMap[o.restaurantReference] = {
           visible: !!o.visible, isPremium: !!o.isPremium,
           orderUrl: o.orderUrl || '', menuUploadUrl: o.menuUploadUrl ?? null,
           isLive: !!o.isLive, isDiscoNative: !!o.isDiscoNative,
+          onlineOrderingEnabled: o.onlineOrderingEnabled ?? null,
         }
       }
       setStripeMap(sMap)
@@ -850,9 +881,9 @@ export default function RestaurantsOrderingPage() {
                             onClick={stripeOk ? undefined : () => requestOnlineOrderingToggle(r)}
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 8, opacity: stripeOk ? 1 : 0.4, cursor: stripeOk ? 'default' : 'not-allowed' }}
                           >
-                            <Toggle checked={isOnline(r)} onChange={() => requestOnlineOrderingToggle(r)} disabled={!stripeOk} color="#1D9E75" />
-                            <span style={{ fontSize: 12, color: isOnline(r) ? '#1D9E75' : '#999', fontWeight: 600 }}>
-                              {isOnline(r) ? 'On' : 'Off'}
+                            <Toggle checked={isOnlineWith(r, overrideMap[r.reference])} onChange={() => requestOnlineOrderingToggle(r)} disabled={!stripeOk} color="#1D9E75" />
+                            <span style={{ fontSize: 12, color: isOnlineWith(r, overrideMap[r.reference]) ? '#1D9E75' : '#999', fontWeight: 600 }}>
+                              {isOnlineWith(r, overrideMap[r.reference]) ? 'On' : 'Off'}
                             </span>
                           </div>
                           {orderingWarning === r._rowId && (

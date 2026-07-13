@@ -9,8 +9,12 @@ export async function GET(req: NextRequest) {
   if (!menuRef) return NextResponse.json({ includeUtensils: false })
   try {
     await runMigrations()
+    // include_utensils is stored on disco_menus (written by the menu-settings save
+    // in /api/restaurant/disco-menus). The old query read disco_menu_settings — a
+    // table that's never populated — so the checkout checkbox never appeared even
+    // when the restaurant had enabled it.
     const rows = (await sql`
-      SELECT include_utensils FROM disco_menu_settings WHERE menu_reference = ${menuRef}::uuid LIMIT 1
+      SELECT include_utensils FROM disco_menus WHERE reference = ${menuRef}::uuid LIMIT 1
     `.catch(() => [])) as { include_utensils: boolean | null }[]
     return NextResponse.json({ includeUtensils: rows[0]?.include_utensils === true })
   } catch {

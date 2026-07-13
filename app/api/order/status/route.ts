@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getToken } from '../../../../lib/auth'
+import { getFmCustomerJwt } from '../../../../lib/customer-auth'
 import { sql } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -29,7 +29,12 @@ function itemsFromFm(data: Record<string, unknown>): ConfirmationItem[] {
 
 export async function GET(req: NextRequest) {
   try {
-    const token = getToken(req)
+    // Resolve the FM JWT from the Disco-native customer session (disco_customer_token),
+    // refreshing it if expired — matching the place/confirm-payment path. Using the
+    // legacy getToken() here (disco_token only, no refresh) caused a successfully
+    // placed native order to fail the confirmation load with "We couldn't load your
+    // order details" whenever disco_token was absent or its FM JWT had expired.
+    const token = await getFmCustomerJwt(req)
     if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
     const orderRef = req.nextUrl.searchParams.get('orderRef')

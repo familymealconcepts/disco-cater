@@ -15,8 +15,9 @@ export interface SendEmailParams {
   from?: string
   replyTo?: string
   bcc?: string
-  /** Optional file attachments (e.g. a scheduled-report CSV). */
-  attachments?: { filename: string; content: string; contentType?: string }[]
+  /** Optional file attachments (e.g. a scheduled-report CSV or the order PDF).
+   *  content may be a string (text/CSV) or binary bytes (PDF). */
+  attachments?: { filename: string; content: string | Uint8Array; contentType?: string }[]
 }
 
 export interface SendResult {
@@ -48,7 +49,10 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
     if (params.replyTo) form.append('h:Reply-To', params.replyTo)
     if (params.bcc) form.append('bcc', params.bcc)
     for (const a of params.attachments || []) {
-      form.append('attachment', new Blob([a.content], { type: a.contentType || 'application/octet-stream' }), a.filename)
+      // Blob accepts both a UTF-8 string and raw bytes (Uint8Array), so binary
+      // attachments like the order PDF are appended without corruption.
+      const part = typeof a.content === 'string' ? a.content : new Uint8Array(a.content)
+      form.append('attachment', new Blob([part], { type: a.contentType || 'application/octet-stream' }), a.filename)
     }
 
     const res = await fetch(`https://api.mailgun.net/v3/${domain}/messages`, {

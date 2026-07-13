@@ -1,29 +1,52 @@
 import { NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../lib/db'
 
-// Public restaurant feed for the fullmap. Reads ONLY Neon now: the
+// Public restaurant feed for the fullmap. Reads ONLY Neon: the
 // disco_restaurant_cache snapshot (refreshed from FM by
 // /api/admin/refresh-restaurant-cache + the daily cron) joined to Disco's
-// overrides. A restaurant appears only when an admin marked it visible AND its
-// Stripe Connect status is connected. No FM call here, so loads are fast —
-// force-dynamic (always fresh from Neon, no ISR needed).
+// overrides. No FM call here, so loads are fast — force-dynamic (always fresh
+// from Neon, no ISR needed).
+//
+// VISIBILITY — a restaurant appears on the public marketplace when:
+//   • FM-backed:    marketplace toggle ON (o.visible) AND Stripe connected
+//                   (o.stripe_connected). Online-ordering is NOT gated here — the
+//                   Neon online_ordering_enabled column is a stale default for
+//                   FM-backed restaurants and doesn't reflect FM's real state
+//                   (a real FM online-ordering mirror is a tracked follow-up).
+//   • Disco-native: FULL 3-part rule — marketplace toggle ON (o.visible) AND
+//                   online ordering ON (COALESCE(o.online_ordering_enabled,true))
+//                   AND Stripe connected (o.stripe_connected OR the Disco account
+//                   finished Stripe onboarding). This hides incomplete/test
+//                   disco-native restaurants that used to surface on is_live alone.
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
     await runMigrations()
 
-    // Two kinds of restaurants surface on the marketplace:
-    //   1. FM-backed: an admin marked it visible AND Stripe is connected.
-    //   2. Disco-native: it completed onboarding and went live (is_live=true).
     const rows = (await sql`
       SELECT c.restaurant_reference, c.name, c.slug, c.cuisine, c.description, c.image_url,
              c.lat, c.lng, c.location, c.address, c.is_live, c.is_disco_native,
              o.is_premium, o.order_url, o.visible, o.stripe_connected, o.featured_order
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-      WHERE (o.visible = true AND o.stripe_connected = true)
-         OR (c.is_live = true AND c.is_disco_native = true)
+      LEFT JOIN LATERAL (
+        SELECT a2.stripe_account_id, a2.stripe_onboarding_complete
+        FROM disco_restaurant_accounts a2
+        WHERE (a2.restaurant_reference = c.restaurant_reference OR a2.fm_restaurant_reference = c.restaurant_reference)
+          AND a2.stripe_account_id IS NOT NULL
+        ORDER BY a2.stripe_onboarding_complete DESC NULLS LAST, a2.id ASC
+        LIMIT 1
+      ) a ON true
+      WHERE
+        (COALESCE(c.is_disco_native, false) = false
+          AND o.visible = true AND o.stripe_connected = true)
+        OR
+        (c.is_disco_native = true
+          AND o.visible = true
+          AND COALESCE(o.online_ordering_enabled, true) = true
+          AND (o.stripe_connected = true
+               OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
     `) as {
       restaurant_reference: string; name: string; slug: string | null; cuisine: string | null
       description: string | null; image_url: string | null; lat: string | null; lng: string | null

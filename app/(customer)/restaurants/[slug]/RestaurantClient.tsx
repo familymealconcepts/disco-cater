@@ -32,10 +32,16 @@ interface FmSchedule {
   rollingAvailability?: number; cutOff?: string; cutOffDate?: string; cutOffType?: string
   repeatWeekDays?: RepeatWeekDay[]
   skippedDays?: (string | { fromDate?: string; toDate?: string })[]
+  // Native path: true only when a lead time was actually set (vs the 24h default).
+  // Undefined on the FM path (treated as explicit → shown, unchanged).
+  prepTimeExplicit?: boolean
 }
 interface FmSettings {
   deliveryType?: string; pickupOrderMinimum?: number; deliveryOrderMinimum?: number
   menuAvailability?: string[]; serviceCharge?: number | null; serviceChargeName?: string | null
+  // Native path: true only when pickup/delivery were actually configured (vs the
+  // default). Undefined on the FM path (treated as explicit → shown, unchanged).
+  menuAvailabilityExplicit?: boolean
   tipOption?: { tipsType: string; tipsPrice: number }
   // Restaurant's "Enable Menu Search" toggle (order-settings → FM feesAndTips).
   // When true the ordering page shows a search box that filters menu items.
@@ -839,15 +845,18 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     : null
 
   const notices: string[] = []
-  if (sched?.prepTime) notices.push(`${sched.prepTime}hr lead time`)
+  // Lead time: show only when actually configured. Native restaurants get a 24h
+  // engine default that must NOT be advertised as if the restaurant chose it —
+  // prepTimeExplicit is false in that case (undefined on the FM path → shown).
+  if (sched?.prepTime && sched?.prepTimeExplicit !== false) notices.push(`${sched.prepTime}hr lead time`)
   if (minOrder) notices.push(`${formatPrice(minOrder)} minimum`)
-  // Only surface fulfillment in the notice bar when FM EXPLICITLY returned
-  // menuAvailability — the order-flow fallback to [PICKUP, DELIVERY] (used
-  // elsewhere) is a sensible default for the cart, but in the announcement
-  // bar it would falsely advertise delivery for restaurants that may only
-  // offer pickup. Skip the line when FM is silent rather than claim both.
+  // Fulfillment: same rule. The order-flow fallback to [PICKUP, DELIVERY] is a
+  // sensible cart default, but advertising it in the notices bar would falsely
+  // claim delivery for a restaurant that never configured either. Native path
+  // flags this via menuAvailabilityExplicit (undefined on the FM path → shown,
+  // preserving the prior FM behavior of trusting an explicitly-returned array).
   const fmFulfillment = settings?.menuAvailability
-  if (Array.isArray(fmFulfillment) && fmFulfillment.length) {
+  if (Array.isArray(fmFulfillment) && fmFulfillment.length && settings?.menuAvailabilityExplicit !== false) {
     notices.push(fmFulfillment.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & '))
   }
 

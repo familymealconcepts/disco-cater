@@ -20,6 +20,8 @@ export default function GroupLibraryPage() {
   const [dialog, setDialog] = useState<null | Draft>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  // Search/filter for the "Options in this group" picker (many modifiers to scan).
+  const [modSearch, setModSearch] = useState('')
 
   async function load() {
     setLoading(true)
@@ -34,9 +36,9 @@ export default function GroupLibraryPage() {
   }
   useEffect(() => { load() }, [])
 
-  function openNew() { setError(''); setDialog({ name: '', externalName: '', subExternalName: '', minSelected: '0', maxSelected: '1', modifierReferences: [] }) }
+  function openNew() { setError(''); setModSearch(''); setDialog({ name: '', externalName: '', subExternalName: '', minSelected: '0', maxSelected: '1', modifierReferences: [] }) }
   function openEdit(g: Group) {
-    setError('')
+    setError(''); setModSearch('')
     setDialog({ reference: g.reference, name: g.name, externalName: g.external_name || '', subExternalName: g.sub_external_name || '', minSelected: String(g.min_selected), maxSelected: String(g.max_selected), modifierReferences: g.modifiers.map(m => m.reference) })
   }
 
@@ -119,20 +121,34 @@ export default function GroupLibraryPage() {
               <div style={{ flex: 1 }}><label style={lbl}>Min selected</label><input value={dialog.minSelected} onChange={e => setDialog({ ...dialog, minSelected: e.target.value })} inputMode="numeric" style={input} /></div>
               <div style={{ flex: 1 }}><label style={lbl}>Max selected</label><input value={dialog.maxSelected} onChange={e => setDialog({ ...dialog, maxSelected: e.target.value })} inputMode="numeric" style={input} /></div>
             </div>
-            <label style={lbl}>Options in this group</label>
+            <label style={lbl}>Options in this group{dialog.modifierReferences.length > 0 ? ` (${dialog.modifierReferences.length} selected)` : ''}</label>
             {library.length === 0 ? (
               <div style={{ fontSize: 13, color: '#999', padding: '8px 0' }}>No modifiers yet — create some in the Modifiers tab first.</div>
-            ) : (
-              <div style={{ border: '1px solid #eee', borderRadius: 10, maxHeight: 200, overflowY: 'auto' }}>
-                {library.map(m => (
-                  <label key={m.reference} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: '1px solid #f4f4f8', cursor: 'pointer', fontSize: 14 }}>
-                    <input type="checkbox" checked={dialog.modifierReferences.includes(m.reference)} onChange={() => toggleMod(m.reference)} />
-                    <span style={{ flex: 1 }}>{m.name}</span>
-                    <span style={{ color: '#999' }}>${Number(m.price).toFixed(2)}</span>
-                  </label>
-                ))}
-              </div>
-            )}
+            ) : (() => {
+              const q = modSearch.trim().toLowerCase()
+              const shown = q ? library.filter(m => m.name.toLowerCase().includes(q)) : library
+              return (
+                <>
+                  <input
+                    value={modSearch}
+                    onChange={e => setModSearch(e.target.value)}
+                    placeholder="Search modifiers…"
+                    style={{ ...input, marginBottom: 8 }}
+                  />
+                  <div style={{ border: '1px solid #eee', borderRadius: 10, maxHeight: 340, overflowY: 'auto' }}>
+                    {shown.length === 0 ? (
+                      <div style={{ fontSize: 13, color: '#999', padding: '12px' }}>No modifiers match “{modSearch}”.</div>
+                    ) : shown.map(m => (
+                      <label key={m.reference} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: '1px solid #f4f4f8', cursor: 'pointer', fontSize: 14 }}>
+                        <input type="checkbox" checked={dialog.modifierReferences.includes(m.reference)} onChange={() => toggleMod(m.reference)} />
+                        <span style={{ flex: 1 }}>{m.name}</span>
+                        <span style={{ color: '#999' }}>${Number(m.price).toFixed(2)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 22 }}>
               <button onClick={() => setDialog(null)} style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '9px 18px', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
               <button onClick={save} disabled={saving} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Save'}</button>

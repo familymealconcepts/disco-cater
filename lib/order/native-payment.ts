@@ -50,10 +50,42 @@ export interface NativePaymentParams {
   connectedAccountId: string | null
   withholdPayouts: boolean
   customerId?: string
+  receiptEmail?: string      // diner email → shown on the charge + Stripe receipt
   paymentMethodId?: string  // set for server-side confirm (tests); omit for client-side confirm
   onBehalfOf?: boolean       // restaurant as merchant-of-record (production); omit for the test account
   metadata?: Record<string, string>
   description?: string
+}
+
+// Resolve (or create) the platform-account Stripe Customer for a diner, keyed by
+// email, so the destination charge is attached to a real Customer object instead
+// of showing no customer in the Stripe dashboard. Reuses a stored id when we have
+// one, else an existing Stripe customer with that email, else creates a new one.
+// Best-effort and never throws — returns null if Stripe/Neon are unavailable so
+// order placement still proceeds (the charge just won't carry a Customer).
+export async function getOrCreateStripeCustomer(stripe: Stripe, email: string | null | undefined, name?: string | null): Promise<string | null> {
+  const e = String(email || '').trim().toLowerCase()
+  if (!e) return null
+  // 1) Reuse a previously-stored Stripe customer id for this diner.
+  try {
+    const rows = (await sql`SELECT stripe_customer_id FROM disco_customers WHERE email = ${e} AND stripe_customer_id IS NOT NULL LIMIT 1`) as { stripe_customer_id: string | null }[]
+    if (rows[0]?.stripe_customer_id) return rows[0].stripe_customer_id
+  } catch { /* column may not exist yet — fall through to Stripe */ }
+  // 2) Reuse an existing Stripe customer with this email, else create one.
+  let id: string | null = null
+  try {
+    const found = await stripe.customers.list({ email: e, limit: 1 })
+    id = found.data[0]?.id ?? null
+  } catch { /* fall through to create */ }
+  if (!id) {
+    try {
+      const c = await stripe.customers.create({ email: e, ...(name ? { name } : {}) })
+      id = c.id
+    } catch { return null }
+  }
+  // 3) Persist for reuse (best-effort; no-op if the column isn't there yet).
+  if (id) { try { await sql`UPDATE disco_customers SET stripe_customer_id = ${id} WHERE email = ${e}` } catch { /* best-effort */ } }
+  return id
 }
 
 // Build the destination-charge PaymentIntent. When withheld (or no connected
@@ -66,6 +98,7 @@ export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePa
     ...(p.description ? { description: p.description } : {}),
     ...(p.metadata ? { metadata: p.metadata } : {}),
     ...(p.customerId ? { customer: p.customerId } : {}),
+    ...(p.receiptEmail ? { receipt_email: p.receiptEmail } : {}),
     ...(p.paymentMethodId ? { payment_method: p.paymentMethodId } : {}),
     ...(routeToRestaurant
       ? { transfer_data: { destination: p.connectedAccountId as string, amount: cents(p.transferDollars) } }

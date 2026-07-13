@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
         (restaurant_reference, name, slug, address, location, lat, lng, cuisine, phone, image_url, icon_url, is_disco_native, is_live, cached_at)
       VALUES (${ref}, ${restaurantName}, ${slug}, ${address || null}, ${location || null},
               ${coords?.lat ?? null}, ${coords?.lng ?? null}, ${'Other'}, ${phone || null}, ${logoUrl}, ${iconUrl},
-              true, true, NOW())
+              true, ${joinedMarketplace}, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE SET
         name = EXCLUDED.name,
         slug = COALESCE(EXCLUDED.slug, disco_restaurant_cache.slug),
@@ -190,15 +190,24 @@ export async function POST(req: NextRequest) {
         image_url = COALESCE(EXCLUDED.image_url, disco_restaurant_cache.image_url),
         icon_url = COALESCE(EXCLUDED.icon_url, disco_restaurant_cache.icon_url),
         is_disco_native = true,
-        is_live = true,
+        is_live = ${joinedMarketplace},
         cached_at = NOW()
     `
-    // Ensure an overrides row exists (visibility is admin-controlled; default false).
+    // Persist the marketplace opt-in the restaurant made at onboarding: setting the
+    // Marketplace toggle (disco_restaurant_overrides.visible) ON when they chose to
+    // join, plus the joined_marketplace mirror. Actual public visibility is still
+    // gated by the 3-part rule in /api/restaurants (Stripe connected + this toggle +
+    // online ordering), so auto-enabling here bypasses no safety check — it just
+    // avoids a manual admin step after they've already told us they want to list.
     await sql`
       INSERT INTO disco_restaurant_overrides (restaurant_reference, visible, is_premium, stripe_connected)
-      VALUES (${ref}, false, false, ${stripeConnected})
-      ON CONFLICT (restaurant_reference) DO UPDATE SET stripe_connected = ${stripeConnected}
+      VALUES (${ref}, ${joinedMarketplace}, false, ${stripeConnected})
+      ON CONFLICT (restaurant_reference) DO UPDATE SET visible = ${joinedMarketplace}, stripe_connected = ${stripeConnected}
     `
+    await sql`
+      UPDATE disco_restaurant_accounts SET joined_marketplace = ${joinedMarketplace}, updated_at = NOW()
+      WHERE restaurant_reference = ${ref}
+    `.catch((e: unknown) => console.error('[complete] joined_marketplace persist failed:', e instanceof Error ? e.message : e))
 
     // Record the submitted menu reference (best-effort) for the super admin — but
     // only as a fallback. The menu-upload step already stored the durable Blob URL

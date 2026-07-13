@@ -169,13 +169,15 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                     onDragStart={() => setDragItem(it.reference)}
                     onDragOver={e => e.preventDefault()}
                     onDrop={() => { reorderItems(dragItem, it.reference); setDragItem('') }}
-                    style={{ borderTop: '1px solid #f2f2f2', opacity: it.visible ? 1 : 0.5 }}>
+                    onClick={() => setItemDlg({ mode: 'edit', item: it })}
+                    style={{ borderTop: '1px solid #f2f2f2', opacity: it.visible ? 1 : 0.5, cursor: 'pointer' }}>
                     <td style={{ padding: '10px 8px', color: '#ccc', cursor: 'grab' }}>⠿</td>
                     <td style={{ padding: '10px 8px', fontWeight: 600, color: DARK }}>{it.name}</td>
                     <td style={{ padding: '10px 8px', color: '#888', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.description || '—'}</td>
                     <td style={{ padding: '10px 8px', color: DARK }}>{money(it.price)}</td>
                     <td style={{ padding: '10px 8px' }}>{it.image_url ? <img src={it.image_url} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover' }} /> : <div style={{ width: 36, height: 36, borderRadius: 6, background: '#f4f4f8' }} />}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    {/* stopPropagation so the row-level click-to-edit doesn't also fire. */}
+                    <td style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                       <button title="Duplicate" onClick={() => cloneItem(it)} style={iconBtn}>⧉</button>
                       <button title="Edit" onClick={() => setItemDlg({ mode: 'edit', item: it })} style={iconBtn}>✎</button>
                       <button title="Delete" onClick={() => deleteItem(it)} style={{ ...iconBtn, color: RED }}>🗑</button>
@@ -243,7 +245,8 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   const ex = (item ?? {}) as Record<string, unknown>
   const [displayPrice, setDisplayPrice] = useState(String(ex.display_price || ''))
   const [minQuantity, setMinQuantity] = useState(ex.min_quantity != null ? String(ex.min_quantity) : '')
-  const [allowSI, setAllowSI] = useState(ex.allow_special_instructions === true)
+  // New items default "Allow special instructions" ON; edits reflect the stored value.
+  const [allowSI, setAllowSI] = useState(isEdit ? ex.allow_special_instructions === true : true)
   const [vegetarian, setVegetarian] = useState(ex.vegetarian === true)
   const [containsNuts, setContainsNuts] = useState(ex.contains_nuts === true)
   const [glutenFree, setGlutenFree] = useState(ex.gluten_free === true)
@@ -252,6 +255,7 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   // Modifier groups attached to this item (edit mode only — the item must exist).
   const [libGroups, setLibGroups] = useState<{ reference: string; name: string; external_name: string | null }[]>([])
   const [attached, setAttached] = useState<{ reference: string; enabled: boolean }[]>([])
+  const [groupSearch, setGroupSearch] = useState('') // filter the (potentially long) group list
   useEffect(() => {
     if (!isEdit || !item?.reference) return
     Promise.all([
@@ -338,9 +342,16 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
           <div style={{ fontSize: 12.5, color: '#999' }}>Save the item first, then reopen it to attach modifier groups.</div>
         ) : libGroups.length === 0 ? (
           <div style={{ fontSize: 12.5, color: '#999' }}>No modifier groups yet — create some under Manage Menus → Modifier Groups.</div>
-        ) : (
-          <div style={{ border: '1px solid #eee', borderRadius: 8, maxHeight: 180, overflowY: 'auto' }}>
-            {libGroups.map(g => {
+        ) : (() => {
+          const gq = groupSearch.trim().toLowerCase()
+          const shownGroups = gq ? libGroups.filter(g => g.name.toLowerCase().includes(gq) || (g.external_name || '').toLowerCase().includes(gq)) : libGroups
+          return (
+          <>
+          <input value={groupSearch} onChange={e => setGroupSearch(e.target.value)} placeholder="Search groups…" style={{ ...dlgInput, marginBottom: 8 }} />
+          <div style={{ border: '1px solid #eee', borderRadius: 8, maxHeight: 300, overflowY: 'auto' }}>
+            {shownGroups.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: '#999', padding: '12px' }}>No groups match “{groupSearch}”.</div>
+            ) : shownGroups.map(g => {
               const on = isAttached(g.reference)
               const enabled = attached.find(a => a.reference === g.reference)?.enabled !== false
               return (
@@ -357,7 +368,9 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
               )
             })}
           </div>
-        )}
+          </>
+          )
+        })()}
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button onClick={save} disabled={saving} style={{ background: saving ? '#aaa' : BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: F }}>{saving ? 'Saving…' : 'Save'}</button>

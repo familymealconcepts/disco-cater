@@ -11,6 +11,7 @@
 
 import { sql } from './db'
 import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage } from './email/notifications'
+import { buildOrderPdfByReference } from './order/order-pdf'
 import { sendSms } from './sms'
 import { formatTimeWindow } from './utils/deliveryTimeWindow'
 import { sanitizePhone } from './utils/phone'
@@ -300,11 +301,23 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
     } catch { /* fall back to the single order email */ }
     const recipientList = notificationEmails.length ? notificationEmails : (restaurantEmail ? [restaurantEmail] : [])
     const uniqueRecipients = Array.from(new Set(recipientList.map((e) => e.toLowerCase())))
+    // Build the order PDF once and attach it to every restaurant email. Best-effort:
+    // a PDF failure must never block the confirmation email from going out.
+    let pdfAttachments: { filename: string; content: Uint8Array; contentType: string }[] | undefined
+    if (reference && uniqueRecipients.length) {
+      try {
+        const pdf = await buildOrderPdfByReference(reference)
+        if (pdf) pdfAttachments = [{ filename: `disco-cater-order-${shared.orderNumber}.pdf`, content: pdf, contentType: 'application/pdf' }]
+      } catch (err) {
+        console.error('[order-notifications] order PDF build failed (sending email without it):', err instanceof Error ? err.message : err)
+      }
+    }
     for (const to of uniqueRecipients) {
       sendRestaurantOrderNotification({
         restaurantEmail: to,
         deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
         sourceOfOrder,
+        attachments: pdfAttachments,
         ...shared,
       }).catch((err) => console.error('[order-notifications] restaurant notification email failed:', err))
     }
@@ -333,7 +346,9 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
       }
       if (smsNumbers.length) {
         const customerName = [shared.firstName, shared.lastName].filter(Boolean).join(' ')
-        const smsBody = `New Disco Cater order! #${shared.orderNumber} — ${customerName} — ${shared.orderService} on ${shared.orderDate} at ${shared.orderTime} — $${totalPrice.toFixed(2)}. Log in to view: discocater.com/restaurant/orders`
+        // Link to the downloadable order PDF (matches FM's texts). UUID-gated route.
+        const pdfLink = reference ? `discocater.com/api/order/${reference}/pdf` : ''
+        const smsBody = `New Disco Cater order! #${shared.orderNumber} — ${customerName} — ${shared.orderService} on ${shared.orderDate} at ${shared.orderTime} — $${totalPrice.toFixed(2)}.${pdfLink ? ` View/download PDF: ${pdfLink}` : ''} Log in: discocater.com/restaurant/orders`
         const sent = new Set<string>()
         for (const num of smsNumbers) {
           const to = toE164(num)

@@ -66,7 +66,10 @@ export async function GET(req: NextRequest) {
           stripeConnected: r.stripe_connected ?? false,
           stripeCheckedAt: r.stripe_checked_at,
           orderUrl: r.order_url ?? '',
-          onlineOrderingEnabled: r.online_ordering_enabled ?? false,
+          // Raw nullable value so the client can tell "explicitly set" from "unset":
+          // an unset disco-native restaurant defaults to ON (matches the order gate's
+          // COALESCE(online_ordering_enabled, true) and the portal settings default).
+          onlineOrderingEnabled: r.online_ordering_enabled,
           menuUploadUrl: r.menu_upload_url ?? null,
           isLive: r.is_live ?? false,
           isDiscoNative: r.is_disco_native ?? false,
@@ -107,6 +110,22 @@ export async function PATCH(req: NextRequest) {
     if (!restaurantReference) return NextResponse.json({ error: 'restaurantReference required' }, { status: 400 })
 
     await runMigrations()
+
+    // online_ordering_enabled — the canonical "Accept online orders" flag both the
+    // restaurant portal (disco-settings / online-ordering) and the native order-gate
+    // read. Handled independently so an ordering-only PATCH from the admin toggle
+    // doesn't clobber visible / is_premium / order_url on the same row.
+    if (typeof body?.onlineOrderingEnabled === 'boolean') {
+      await sql`
+        INSERT INTO disco_restaurant_overrides (restaurant_reference, online_ordering_enabled, updated_at)
+        VALUES (${restaurantReference}, ${body.onlineOrderingEnabled}, NOW())
+        ON CONFLICT (restaurant_reference) DO UPDATE
+          SET online_ordering_enabled = EXCLUDED.online_ordering_enabled, updated_at = NOW()
+      `
+      if (body?.isPremium === undefined && body?.visible === undefined && body?.orderUrl === undefined && body?.isLive === undefined) {
+        return NextResponse.json({ ok: true, restaurantReference, onlineOrderingEnabled: body.onlineOrderingEnabled })
+      }
+    }
 
     // is_live is a disco-native marketplace toggle living on the cache row — a
     // super admin can flip a disco-native restaurant live/offline directly.

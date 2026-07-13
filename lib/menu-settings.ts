@@ -186,6 +186,12 @@ export function menuRowToSettings(row: MenuSettingsRow) {
   const feePercent = (t?: DeliveryTier) => t && t.feeType === 'PERCENT' ? t.feeValue : null
   return {
     menuAvailability: menuAvailability.length ? menuAvailability : ['PICKUP', 'DELIVERY'],
+    // Whether fulfillment is worth surfacing in the customer notices bar. The menu
+    // save ALWAYS persists offers_pickup/offers_delivery (defaulting BOTH true), so
+    // a null-check can't tell "chose both" from "never configured". Treat "both
+    // offered" as the default (don't advertise "Pickup & Delivery" as if it were a
+    // deliberate constraint); surface it only when the restaurant RESTRICTED to one.
+    menuAvailabilityExplicit: row.offers_pickup === false || row.offers_delivery === false,
     serviceCharge: n(row.service_charge_pct),
     serviceChargeName: row.service_charge_name || null,
     ...(tipType === 'NONE' ? {} : { tipOption: { tipsPrice: n(row.tip_default_value, 15), tipsType: tipType === 'CUSTOM' ? 'CUSTOM' : 'PERCENTAGE' } }),
@@ -209,6 +215,11 @@ export function menuRowToSettings(row: MenuSettingsRow) {
 export function menuRowToScheduleExtras(row: MenuSettingsRow) {
   return {
     prepTime: row.lead_time_hours != null ? Number(row.lead_time_hours) : 24,
+    // Gates the "Nhr lead time" line in the customer notices bar. The menu save
+    // ALWAYS persists lead_time_hours (defaulting to 24), so a null-check can't
+    // detect "never configured". Surface the line only when the restaurant set a
+    // NON-default lead time; the ubiquitous 24h default is treated as noise.
+    prepTimeExplicit: row.lead_time_hours != null && Number(row.lead_time_hours) !== 24,
     rollingAvailability: row.rolling_availability_days != null ? Number(row.rolling_availability_days) : 90,
     ...(row.daily_cutoff_time ? { cutOff: row.daily_cutoff_time } : {}),
     ...(row.hard_cutoff_date ? { cutOffDate: row.hard_cutoff_date } : {}),

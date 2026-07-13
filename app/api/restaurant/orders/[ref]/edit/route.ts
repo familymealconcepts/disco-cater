@@ -12,6 +12,7 @@ import {
   sendOrderUpdated, sendOrderUpdatedRestaurant, sendOrderEditRefundIssued,
   sendOrderEditPaymentRequired, sendOrderEditPendingRestaurant, type EditItem,
 } from '../../../../../../lib/email/notifications'
+import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -258,7 +259,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     }
     const restaurantEmail = discoOrder?.restaurant_email || ''
     if (restaurantEmail) {
-      sendOrderUpdatedRestaurant({ to: restaurantEmail, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, items: newItems, newTotal, delta }).catch(() => {})
+      // Attach the updated order PDF (best-effort — never blocks the email).
+      let attachments: { filename: string; content: Uint8Array; contentType: string }[] | undefined
+      if (discoOrder?.reference) {
+        try {
+          const pdf = await buildOrderPdfByReference(discoOrder.reference)
+          if (pdf) attachments = [{ filename: `disco-cater-order-${orderNumber}.pdf`, content: pdf, contentType: 'application/pdf' }]
+        } catch (e) { console.error('[orders/edit] order PDF build failed:', e instanceof Error ? e.message : e) }
+      }
+      sendOrderUpdatedRestaurant({ to: restaurantEmail, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, items: newItems, newTotal, delta, attachments }).catch(() => {})
     }
 
     // Expedite — push the updated date/time/items to the courier (best-effort).

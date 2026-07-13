@@ -35,6 +35,11 @@ export default function RestaurantSettingsPage() {
 
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
   const [holidays, setHolidays] = useState<Set<string>>(new Set())
+  // Baseline of holidays as last loaded/saved — holiday checkboxes are edited
+  // purely in-memory (no fetch) and only persisted on Save, by diffing against
+  // this. Prevents a checkbox click from reloading the page and wiping other
+  // unsaved edits.
+  const [initialHolidays, setInitialHolidays] = useState<Set<string>>(new Set())
   const [cdName, setCdName] = useState(''); const [cdFrom, setCdFrom] = useState(''); const [cdTo, setCdTo] = useState('')
 
   async function load() {
@@ -56,10 +61,20 @@ export default function RestaurantSettingsPage() {
       setDeliveryWindow(set.delivery_order_time_windows || 'exact')
       setAnnouncement(set.announcement || '')
       setClosedDays(Array.isArray(c.closedDays) ? c.closedDays : [])
-      setHolidays(new Set(Array.isArray(c.holidays) ? c.holidays : []))
+      const hol = new Set<string>(Array.isArray(c.holidays) ? c.holidays : [])
+      setHolidays(hol)
+      setInitialHolidays(new Set(hol))
     } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
+
+  // Reload ONLY the closed-days list (custom dates) without touching holidays or
+  // any settings state — used after Add/Remove of a custom closed date so those
+  // discrete actions don't wipe unsaved edits elsewhere on the page.
+  async function loadClosedDays() {
+    const c = await fetch('/api/restaurant/disco-closed-days').then(r => r.json())
+    setClosedDays(Array.isArray(c.closedDays) ? c.closedDays : [])
+  }
 
   async function save() {
     setSaving(true); setFlash('')
@@ -73,6 +88,17 @@ export default function RestaurantSettingsPage() {
           enableMenuSearch, deliveryOrderTimeWindows: deliveryWindow, announcement,
         }),
       })
+      // Persist holiday checkbox changes (edited in-memory since load) by diffing
+      // against the baseline. The server pre-computes/clears 50 years of dates.
+      const toEnable = [...holidays].filter(h => !initialHolidays.has(h))
+      const toDisable = [...initialHolidays].filter(h => !holidays.has(h))
+      for (const name of [...toEnable, ...toDisable]) {
+        await fetch('/api/restaurant/disco-closed-days', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ holiday: name, enabled: holidays.has(name) }),
+        })
+      }
+      setInitialHolidays(new Set(holidays))
       setFlash('Saved'); setTimeout(() => setFlash(''), 2500)
     } finally { setSaving(false) }
   }
@@ -98,14 +124,13 @@ export default function RestaurantSettingsPage() {
   async function addClosedDay() {
     if (!cdFrom) return
     await fetch('/api/restaurant/disco-closed-days', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: cdName, fromDate: cdFrom, toDate: cdTo || cdFrom }) })
-    setCdName(''); setCdFrom(''); setCdTo(''); await load()
+    setCdName(''); setCdFrom(''); setCdTo(''); await loadClosedDays()
   }
-  async function removeClosedDay(ref: string) { await fetch(`/api/restaurant/disco-closed-days/${ref}`, { method: 'DELETE' }); await load() }
-  async function toggleHoliday(name: string, on: boolean) {
-    // Optimistic; the server pre-computes/stores (or clears) 50 years of dates.
+  async function removeClosedDay(ref: string) { await fetch(`/api/restaurant/disco-closed-days/${ref}`, { method: 'DELETE' }); await loadClosedDays() }
+  function toggleHoliday(name: string, on: boolean) {
+    // Local/in-memory only — no fetch, no reload. Persisted on Save (see save()),
+    // so toggling a holiday can't wipe other unsaved changes on the page.
     setHolidays(prev => { const n = new Set(prev); on ? n.add(name) : n.delete(name); return n })
-    await fetch('/api/restaurant/disco-closed-days', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ holiday: name, enabled: on }) })
-    await load()
   }
 
   const card: React.CSSProperties = { background: '#fff', borderRadius: 12, border: '1px solid #eee', padding: '22px 26px', marginBottom: 18 }
@@ -117,15 +142,18 @@ export default function RestaurantSettingsPage() {
       <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} style={{ accentColor: BLUE }} /> {text}
     </label>
   )
-  const publicUrl = slug ? `https://www.discocater.com/restaurants/${slug}` : ''
+  // The Disco Cater URL is the restaurant's direct 1P (first-party) ordering
+  // link — /order/{slug} — NOT the /restaurants/{slug} marketplace listing.
+  const publicUrl = slug ? `https://www.discocater.com/order/${slug}` : ''
 
   if (loading) return <div style={{ padding: 40, color: '#aaa', fontFamily: F }}>Loading…</div>
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, maxWidth: 680 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+      {/* Sticky header keeps Save reachable no matter how far the page scrolls. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: '#F7F8FC', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0 14px', marginBottom: 8, borderBottom: '1px solid #ececf2' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>General Settings</h1>
-        <button onClick={save} disabled={saving} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Save'}{flash && <span style={{ marginLeft: 8 }}>✓</span>}</button>
+        <button onClick={save} disabled={saving} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: saving ? 0.6 : 1, boxShadow: '0 2px 8px rgba(107,110,249,0.25)' }}>{saving ? 'Saving…' : 'Save'}{flash && <span style={{ marginLeft: 8 }}>✓ {flash}</span>}</button>
       </div>
 
       {/* 1 — Online Ordering */}
@@ -139,7 +167,7 @@ export default function RestaurantSettingsPage() {
         <div style={h2}>Disco Cater URL</div>
         <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>The link customers use to find your menu on Disco Cater. Lowercase letters, numbers, and hyphens; 3–60 characters; unique across all restaurants.</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>https://www.discocater.com/restaurants/</span>
+          <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>https://www.discocater.com/order/</span>
           <input
             value={urlSlug}
             onChange={e => { const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''); setUrlSlug(v); setUrlError(slugError(v) || '') }}

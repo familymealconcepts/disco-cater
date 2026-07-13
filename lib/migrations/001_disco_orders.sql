@@ -234,6 +234,9 @@ CREATE INDEX IF NOT EXISTS idx_disco_customers_email ON disco_customers(email);
 -- payload (the integer fm_customer_number above is null when FM omits it).
 ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS needs_password_reset BOOLEAN DEFAULT false;
 ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS fm_reference TEXT;
+-- Platform-account Stripe Customer id for the diner, so native-order charges are
+-- attached to a real Customer (not customer-less). Set lazily at first charge.
+ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
 
 -- Disco-native role + restaurant-group columns. ADMIN = single-location access
 -- (own restaurant_reference); SYSTEM_ADMIN = all locations in the same group

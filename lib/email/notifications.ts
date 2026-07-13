@@ -119,6 +119,8 @@ export interface RestaurantOrderNotificationParams extends BaseOrderParams {
   restaurantEmail: string
   /** FM sourceoforder: "DISCO" → 3P (marketplace), "FAMILYMEAL" → 1P (direct). */
   sourceOfOrder?: string
+  /** Optional file attachments (e.g. the order PDF) forwarded to Mailgun. */
+  attachments?: { filename: string; content: string | Uint8Array; contentType?: string }[]
 }
 
 export type CustomerOrderReminderParams = BaseOrderParams & { to: string }
@@ -308,6 +310,7 @@ ${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track this delive
       to: p.restaurantEmail,
       subject: `New Disco Cater Order — ${p.businessName} #${p.orderNumber}`,
       html: layout(content),
+      attachments: p.attachments,
     })
   } catch (err) {
     console.error('[email/notifications] sendRestaurantOrderNotification failed:', err instanceof Error ? err.message : err)
@@ -672,6 +675,7 @@ ${p.updatePaymentUrl ? button('Update payment method', p.updatePaymentUrl) : ''}
 export async function sendOrderUpdatedRestaurant(params: {
   to: string; orderNumber: string | number; businessName: string
   orderDate?: string; orderTime?: string; items: EditItem[]; newTotal: number; delta: number; changeSummary?: string
+  attachments?: { filename: string; content: string | Uint8Array; contentType?: string }[]
 }): Promise<{ success: boolean }> {
   try {
     const p = params
@@ -685,7 +689,7 @@ ${HR}
 <p style="margin:0;"><strong>New total: ${money(p.newTotal)}</strong></p>
 <p style="margin:6px 0 0 0;">${paymentSummary(p.delta)}</p>
 `
-    return await sendEmail({ to: p.to, subject: `Order #${p.orderNumber} has been updated | Disco Cater`, html: layout(content) })
+    return await sendEmail({ to: p.to, subject: `Order #${p.orderNumber} has been updated | Disco Cater`, html: layout(content), attachments: p.attachments })
   } catch (err) {
     console.error('[email/notifications] sendOrderUpdatedRestaurant failed:', err instanceof Error ? err.message : err)
     return { success: false }

@@ -452,7 +452,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       ...(primary ? menuRowToScheduleExtras(primary) : {}),
       ...(skippedDays.length ? { skippedDays } : {}),
     }
-    const settings = primary ? menuRowToSettings(primary) : { menuAvailability: ['PICKUP', 'DELIVERY'] }
+    const settings = primary ? menuRowToSettings(primary) : { menuAvailability: ['PICKUP', 'DELIVERY'], menuAvailabilityExplicit: false }
 
     return {
       restaurant: {

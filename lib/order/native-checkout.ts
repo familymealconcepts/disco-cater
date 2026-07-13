@@ -6,7 +6,7 @@
 import type Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
-import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig } from './native-payment'
+import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
 import { computeThirdPartyDelivery, type DeliverySettings } from '../menu-settings'
 
 export interface NativeCartItem { reference?: string; name: string; price: number; quantity: number }
@@ -319,12 +319,18 @@ export async function placeAndPayNativeOrder(
 ): Promise<NativePlaceAndPayResult> {
   const placed = await placeNativeOrder(input)
   const pay = await getRestaurantPayoutConfig(input.restaurantReference)
+  // Attach the diner to the charge: prefer an explicit test-supplied customerId,
+  // otherwise resolve/create a real Stripe Customer from the diner's email so the
+  // charge is never customer-less in the Stripe dashboard.
+  const dinerName = [input.customerFirstName, input.customerLastName].filter(Boolean).join(' ').trim() || null
+  const customerId = opts?.customerId ?? (await getOrCreateStripeCustomer(stripe, input.customerEmail, dinerName)) ?? undefined
   const pi = await createNativeOrderPaymentIntent(stripe, {
     totalDollars: placed.breakdown.total,
     transferDollars: placed.breakdown.transfer,
     connectedAccountId: pay.connectedAccountId,
     withholdPayouts: pay.withholdPayouts,
-    customerId: opts?.customerId,
+    customerId,
+    receiptEmail: input.customerEmail || undefined,
     onBehalfOf: opts?.onBehalfOf ?? true, // production: restaurant is merchant-of-record
     metadata: { orderReference: placed.orderReference, orderNumber: String(placed.orderNumber), kind: 'native_order' },
     description: `Disco Cater order #${placed.orderNumber}`,
