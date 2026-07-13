@@ -53,8 +53,17 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  // Customer portal — protect /account and /portal
-  const customerToken = req.cookies.get('disco_token')?.value
+  // Customer portal — protect /account and /portal.
+  // The source of truth is the Disco-native session cookie (disco_customer_token,
+  // an opaque Neon token). disco_token (the legacy FM JWT) is only set when FM
+  // hands back a JWT at login/signup — so gating on it alone silently locks out
+  // any brand-new signup where FM returned no JWT, even though the Neon session
+  // is valid (header + /api/fm-user work fine). Check the real session cookie
+  // first; keep disco_token as a fallback for legacy sessions. Presence is enough
+  // at the edge (next/headers + Neon aren't available here); full validation
+  // happens in /api/fm-user, mirroring the restaurant-portal pattern above.
+  const customerToken = req.cookies.get('disco_customer_token')?.value
+    || req.cookies.get('disco_token')?.value
   if (['/account', '/portal'].some(p => pathname.startsWith(p)) && !customerToken) {
     const url = req.nextUrl.clone()
     url.pathname = '/'
