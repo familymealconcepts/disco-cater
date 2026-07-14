@@ -145,6 +145,12 @@ export async function GET(req: NextRequest) {
       WHERE ov.order_reminder_emails_enabled = true
         AND o.order_status = 'DUE'
         AND o.is_deleted = false
+        -- DISCO-source only. disco_orders also mirrors FAMILYMEAL-direct orders
+        -- (synced in so the portal can display them). FamilyMeal sends those
+        -- customers their own reminder from noreply@mg.familymeal.com — Disco must
+        -- NOT also email them from orders@discocater.com. source_of_order is
+        -- NOT NULL DEFAULT 'DISCO', so this keeps all native + DISCO orders.
+        AND o.source_of_order = 'DISCO'
         AND o.customer_email IS NOT NULL AND o.customer_email <> ''
         AND ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))
               BETWEEN NOW() + INTERVAL '23 hours 30 minutes' AND NOW() + INTERVAL '24 hours 30 minutes'
