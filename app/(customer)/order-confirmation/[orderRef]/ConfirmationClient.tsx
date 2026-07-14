@@ -282,7 +282,9 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
             {/* Invoice download */}
             <div style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #f0f0f0', padding: '14px 20px', marginBottom: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 14, color: '#555', fontWeight: 500 }}>Order invoice</span>
-              <a href={`${FM_PUBLIC}/public-api/order/${orderRef}/pdf`} target="_blank" rel="noopener noreferrer"
+              {/* Native orders aren't on FamilyMeal — use Disco's own PDF route
+                  (api/order/[ref]/pdf). FM-backed orders keep the FM invoice. */}
+              <a href={order?.native ? `/api/order/${orderRef}/pdf` : `${FM_PUBLIC}/public-api/order/${orderRef}/pdf`} target="_blank" rel="noopener noreferrer"
                 style={{ fontSize: 13, fontWeight: 700, color: BLUE, textDecoration: 'none' }}>
                 Download PDF ↓
               </a>

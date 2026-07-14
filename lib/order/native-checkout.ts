@@ -283,6 +283,19 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   `) as { id: number; reference: string; order_number: string | number }[]
   const order = orderRows[0]
 
+  // Line items → disco_order_items. The confirmation page, account order-detail
+  // panel, and invoice PDF all read these; native placement previously skipped
+  // them, leaving native orders with empty item lists. Runs before payment, so a
+  // failure here aborts placeAndPayNativeOrder before any charge is created.
+  for (const it of input.items || []) {
+    const qty = Math.max(1, Math.trunc(Number(it.quantity) || 1))
+    const unit = round2(Number(it.price) || 0)
+    await sql`
+      INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
+      VALUES (${order.id}, ${it.reference ?? null}, ${it.name || 'Item'}, ${qty}, ${unit}, ${round2(unit * qty)})
+    `
+  }
+
   // Full breakdown → disco_sale_transactions (the money-of-record row the portal
   // dashboards read). money_flow DIRECT: restaurant is merchant-of-record.
   await sql`

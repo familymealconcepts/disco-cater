@@ -762,6 +762,10 @@ export default function CheckoutDrawer({
             // FM requires a digits-only phone ("Phone number has wrong format"
             // otherwise) — "732-239-7055" → "7322397055".
             customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: sanitizePhone(contactPhone) },
+            // Saved-card native checkout: tells /api/order/place to build the
+            // PaymentIntent with the vault card's Stripe customer so the browser
+            // can confirm with that saved PaymentMethod. Ignored by the FM path.
+            ...(usingSavedCard ? { useSavedCard: true } : {}),
             // FM has no order-level headcount field, so send it alongside (not in
             // the FM DTO) for the Neon mirror to persist on disco_orders.persons.
             ...(headcount != null ? { headcount } : {}),
@@ -794,12 +798,17 @@ export default function CheckoutDrawer({
         // Withheld payouts still charge the customer (only the transfer is omitted),
         // so a client_secret is always returned.
         if (placeData.native) {
-          if (!placeData.clientSecret || !paymentMethodId) {
+          // Fresh card → the PaymentMethod tokenized above. Saved card → the vault
+          // PaymentMethod the server resolved (attached to the PI's customer), so
+          // the client can confirm without re-tokenizing. Prefer the server value.
+          const nativePm = paymentMethodId
+            || (usingSavedCard ? (placeData.savedPaymentMethodId || (savedCard as any)?.stripePaymentMethodId) : null)
+          if (!placeData.clientSecret || !nativePm) {
             trackPaymentFailed('native_payment_unavailable')
             setError('Payment could not be processed. Please try again.')
             setStep('payment'); return
           }
-          const nativeConfirm = await stripeRef.current!.confirmCardPayment(placeData.clientSecret, { payment_method: paymentMethodId })
+          const nativeConfirm = await stripeRef.current!.confirmCardPayment(placeData.clientSecret, { payment_method: nativePm })
           if (nativeConfirm.error || nativeConfirm.paymentIntent?.status !== 'succeeded') {
             trackPaymentFailed(nativeConfirm.error ? 'native_confirm_error' : 'native_confirm_failed')
             setError(nativeConfirm.error?.message || 'Payment could not be completed. Please try again.')

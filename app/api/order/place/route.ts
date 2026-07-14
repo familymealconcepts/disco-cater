@@ -306,6 +306,27 @@ export async function POST(req: NextRequest) {
         deliveryFee = dv.deliveryFee // customer-facing (third-party: net of subsidy)
         thirdPartyDeliverySubsiding = dv.thirdPartyDeliverySubsiding
       }
+      // Saved card (Disco vault): resolve the customer's default vault card
+      // server-side — never trust client-supplied Stripe ids. The native PI is
+      // created with THIS customer so the browser can confirm with the vault
+      // PaymentMethod (which is attached to that same customer).
+      let savedOpts: { customerId?: string } | undefined
+      let savedPaymentMethodId: string | undefined
+      if (body?.useSavedCard === true) {
+        const cardRows = (await sql`
+          SELECT stripe_customer_id, stripe_payment_method_id
+          FROM disco_customer_payment_methods
+          WHERE customer_email = ${session.email} AND is_default = true
+          LIMIT 1
+        `) as Array<{ stripe_customer_id: string; stripe_payment_method_id: string }>
+        const card = cardRows[0]
+        if (!card?.stripe_customer_id || !card?.stripe_payment_method_id) {
+          return NextResponse.json({ error: 'No saved card on file. Please enter a card.' }, { status: 400 })
+        }
+        savedOpts = { customerId: card.stripe_customer_id }
+        savedPaymentMethodId = card.stripe_payment_method_id
+      }
+
       const result = await placeAndPayNativeOrder({
         restaurantReference: body.restaurantRef,
         customerEmail: session.email,
@@ -325,7 +346,7 @@ export async function POST(req: NextRequest) {
         note: body?.note ?? null,
         companyName: body?.companyName ?? null,
         persons: (body?.headcount ?? cd.headcount ?? null) as number | null,
-      }, stripe)
+      }, stripe, savedOpts)
 
       return NextResponse.json({
         native: true,
@@ -335,6 +356,9 @@ export async function POST(req: NextRequest) {
         clientSecret: result.clientSecret,
         withheld: result.withheld,
         breakdown: result.breakdown,
+        // Present only for the saved-card flow — the browser confirms the native
+        // PaymentIntent with this vault PaymentMethod (attached to the PI's customer).
+        ...(savedPaymentMethodId ? { savedPaymentMethodId } : {}),
       })
     }
 
