@@ -2,6 +2,7 @@
 import Link from 'next/link'
 import { useFavorites } from '../../../../hooks/useFavorites'
 import FavoriteHeart from '../components/FavoriteHeart'
+import { sizedImage } from '../../../../lib/sanity-image'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -9,13 +10,9 @@ const INDIGO = '#6B6EF9'
 const BLUE = '#5B6FE8'
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 
-const FM_IMG_BASE = 'https://api.familymeal.com/public-api/images'
-
+// Card photo is ~full grid-column wide × 130px; request a 500×300 crop (retina).
 function resolveImage(src?: string): string | undefined {
-  if (!src) return undefined
-  if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')) return src
-  // Treat any other string as a FM image reference UUID
-  return `${FM_IMG_BASE}/${src}/download?size=300`
+  return sizedImage(src, 500, 300)
 }
 
 function locationText(city?: string, state?: string, fallback?: string): string {
@@ -90,14 +87,16 @@ export default function FavoritesPage() {
                   style={{ position: 'absolute', top: 8, right: 8, zIndex: 2, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}
                 />
 
-                {/* Photo */}
+                {/* Photo — lazy <img> (not a CSS background) so off-screen cards
+                    defer loading; GRAD shows behind it while it loads / as fallback. */}
                 <div style={{
-                  width: '100%', height: 130,
-                  background: img ? `center/cover no-repeat url(${img})` : GRAD,
+                  width: '100%', height: 130, background: GRAD, overflow: 'hidden',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 32, color: 'rgba(255,255,255,0.85)',
                 }}>
-                  {!img && '🪩'}
+                  {img
+                    ? <img src={img} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    : '🪩'}
                 </div>
 
                 {/* Body */}

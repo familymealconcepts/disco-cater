@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import Script from 'next/script'
+import { sizedImage } from '../../../lib/sanity-image'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import FavoriteHeart from '../account/components/FavoriteHeart'
@@ -482,7 +483,7 @@ function FullMapInner() {
         }).setHTML(`
           <div style="font-family:'DM Sans',sans-serif;width:270px;border-radius:12px;overflow:hidden;position:relative;box-shadow:0 4px 24px rgba(0,0,0,0.13)">
             <button onclick="this.closest('.mapboxgl-popup').remove()" style="position:absolute;top:8px;right:8px;z-index:10;width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,0.55);color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;backdrop-filter:blur(4px);">×</button>
-            ${r.image ? `<div style="height:140px;overflow:hidden"><img src="${r.image}" style="width:100%;height:100%;object-fit:cover"/></div>` : ''}
+            ${r.image ? `<div style="height:140px;overflow:hidden"><img src="${sizedImage(r.image, 400, 280)}" style="width:100%;height:100%;object-fit:cover"/></div>` : ''}
             <div style="padding:14px 16px 16px">
               <div style="font-size:14px;font-weight:700;margin-bottom:2px;color:#111">✦ ${r.name}${r.isDisco ? ' 🪩' : ''}</div>
               <div style="font-size:11px;color:#999;margin-bottom:8px">${r.location}</div>
@@ -958,7 +959,7 @@ function FullMapInner() {
           return (
           <div key={r._id} style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #e8e8e8', overflow: 'hidden', marginBottom: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.06)' }}>
             {r.image && (
-              <img src={r.image} alt={r.name} style={{ width: '100%', height: cardImgH, objectFit: 'cover', display: 'block' }} />
+              <img src={sizedImage(r.image, 400, 260)} alt={r.name} loading="lazy" decoding="async" style={{ width: '100%', height: cardImgH, objectFit: 'cover', display: 'block' }} />
             )}
             <div style={{ padding: compact ? '10px 12px 13px' : '13px 14px 15px' }}>
               <div style={{ fontSize: compact ? 13 : 14, fontWeight: 700, color: '#111', marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>
@@ -1214,7 +1215,7 @@ function FullMapInner() {
                               }}
                             />
                             {r.image
-                              ? <img src={r.image} alt={r.name} style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
+                              ? <img src={sizedImage(r.image, 320, 192)} alt={r.name} loading="lazy" decoding="async" style={{ width: '100%', height: 96, objectFit: 'cover', display: 'block' }} />
                               : <div style={{ height: 96, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>✦</div>
                             }
                             <div style={{ padding: '8px 12px 10px' }}>
@@ -1308,7 +1309,7 @@ function FullMapInner() {
                       location: r.location,
                     }}
                   />
-                  {r.image ? <img src={r.image} alt={r.name} style={{ width: 80, height: 80, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 80, height: 80, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✦</div>}
+                  {r.image ? <img src={sizedImage(r.image, 160, 160)} alt={r.name} loading="lazy" decoding="async" style={{ width: 80, height: 80, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 80, height: 80, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✦</div>}
                   <div style={{ flex: 1, padding: '12px 14px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                       <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#999', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
@@ -1474,7 +1475,7 @@ function FullMapInner() {
                       location: r.location,
                     }}
                   />
-                  {r.image ? <img src={r.image} alt={r.name} style={{ width: 74, height: 74, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 74, height: 74, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>✦</div>}
+                  {r.image ? <img src={sizedImage(r.image, 150, 150)} alt={r.name} loading="lazy" decoding="async" style={{ width: 74, height: 74, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 74, height: 74, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>✦</div>}
                   <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                       <div style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#999', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>

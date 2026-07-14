@@ -2,13 +2,13 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useFavorites, type FavoriteRestaurant } from '../../../../../hooks/useFavorites'
+import { sizedImage } from '../../../../../lib/sanity-image'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
 const INDIGO = '#6B6EF9'
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
-const FM_IMG_BASE = 'https://api.familymeal.com/public-api/images'
 
 interface Props {
   /** YYYY-MM-DD for the calendar cell the user clicked. */
@@ -19,10 +19,9 @@ interface Props {
   onOrderPlaced: () => void
 }
 
+// Picker card photo is ~220px wide × 130px; request a 440×260 crop (retina).
 function resolveImage(src?: string): string | undefined {
-  if (!src) return undefined
-  if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')) return src
-  return `${FM_IMG_BASE}/${src}/download?size=300`
+  return sizedImage(src, 440, 260)
 }
 
 function fmtDayLong(s: string): string {
@@ -183,11 +182,12 @@ function FavoritesPicker({ date, favorites, loading, onPick, onBrowseAll }: {
                   onMouseOut={e => { (e.currentTarget as HTMLElement).style.borderColor = '#ebebeb'; (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}
                 >
                   <div style={{
-                    width: '100%', height: 130,
-                    background: img ? `center/cover no-repeat url(${img})` : GRAD,
+                    width: '100%', height: 130, background: GRAD, overflow: 'hidden',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 32, color: 'rgba(255,255,255,0.85)',
-                  }}>{!img && '🪩'}</div>
+                  }}>{img
+                    ? <img src={img} alt="" loading="lazy" decoding="async" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    : '🪩'}</div>
                   <div style={{ padding: '12px 14px 14px', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {f.name || 'Restaurant'}
