@@ -59,9 +59,9 @@ export async function POST(req: NextRequest) {
     const merged = { ...before, admin: { ...admin, phoneNumber: businessPhone } }
     const fd = new FormData()
     fd.append('restaurant', new Blob([JSON.stringify(merged)], { type: 'application/json' }), 'restaurant.json')
-    let putStatus = 0
-    try { const pr = await fetch(`${FM}/api/admin/restaurants/${ref}`, { method: 'PUT', headers: h, body: fd }); putStatus = pr.status } catch { putStatus = 0 }
-    if (putStatus < 200 || putStatus >= 300) { results.push({ ref, name, status: 'ANOMALY', reason: `PUT failed (HTTP ${putStatus})`, ooaBefore }); stopped = true; stopReason = `save failed for ${name} (${ref})`; break }
+    let putStatus = 0, putBody = ''
+    try { const pr = await fetch(`${FM}/api/admin/restaurants/${ref}`, { method: 'PUT', headers: h, body: fd }); putStatus = pr.status; if (!pr.ok) putBody = (await pr.text().catch(() => '')).slice(0, 500) } catch (e) { putStatus = 0; putBody = String(e) }
+    if (putStatus < 200 || putStatus >= 300) { results.push({ ref, name, status: 'ANOMALY', reason: `PUT failed (HTTP ${putStatus})`, fmError: putBody, ooaBefore }); stopped = true; stopReason = `save failed for ${name} (${ref})`; break }
 
     // ── Verify ──
     const after = await getDetail(ref)
