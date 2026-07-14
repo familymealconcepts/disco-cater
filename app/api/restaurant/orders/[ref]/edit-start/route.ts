@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantRef } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
 
 const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -18,6 +19,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ re
   if (!ctx) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
+
+  // Ownership: only start an edit session on the caller's own order.
+  const scope = await assertOrderInScope(ref, ctx)
+  if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+
   // Restaurant ref: Disco sessions carry it; FM users resolve it from the token.
   const restaurantRef = ctx.restaurantReference || (await getRestaurantRef())
   if (!restaurantRef) {

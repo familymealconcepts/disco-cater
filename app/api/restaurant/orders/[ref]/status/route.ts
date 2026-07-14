@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, getFmHeaderForRestaurant } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
 import { fmFetch } from '../../../../../../lib/fm-fetch'
 
@@ -40,6 +41,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   const raw = req.nextUrl.searchParams.get('orderStatus') || ''
   const status = normStatus(raw)
   if (!ALLOWED.has(status)) return NextResponse.json({ error: 'Unsupported status' }, { status: 400 })
+
+  // Ownership: enforce BEFORE the FM proxy so a foreign ref can't mutate FM state either.
+  const scope = await assertOrderInScope(ref, ctx)
+  if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
   // Best-effort FM proxy (FM-synced orders). Uses the user's FM token when present,
   // else the SUPER_ADMIN service account. Never fatal.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
 import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import {
@@ -60,6 +61,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   if (!ctx) {
     try { await getAdminAuthHeader(); isAdminEdit = true }
     catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
+  } else {
+    // Restaurant session: only edit (and charge/refund) its own order. Admin
+    // portal (isAdminEdit) is exempt — it resolves the restaurant from the order.
+    const scope = await assertOrderInScope(ref, ctx)
+    if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   }
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 

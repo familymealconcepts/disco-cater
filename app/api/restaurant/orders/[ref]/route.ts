@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { loadFmOrderDetails, fmDateToIso, isUuid } from '../../../../../lib/order-edit'
 
@@ -65,6 +66,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   const { ref } = await params
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  // Ownership: don't disclose another restaurant's order / customer PII.
+  const scope = await assertOrderInScope(ref, ctx)
+  if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 
   // FM details (best-effort) — supplies the rich fields Neon doesn't store.

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 
@@ -19,6 +20,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (!ctx) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
+
+  // Ownership: don't disclose another restaurant's edit/money history.
+  const scope = await assertOrderInScope(ref, ctx)
+  if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
   // Disco-native: read the edit history from disco_order_edits (was read from FM).
   if (ctx.authType === 'disco') {

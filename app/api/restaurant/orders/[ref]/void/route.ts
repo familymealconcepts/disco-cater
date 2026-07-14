@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { cancelDelivery } from '../../../../../../lib/expedite'
 import { sendCustomerOrderCancellation } from '../../../../../../lib/email/notifications'
@@ -23,6 +24,10 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref
 
   const { ref } = await params
   if (!UUID_RE.test(ref)) return NextResponse.json({ error: 'Invalid order reference' }, { status: 400 })
+
+  // Ownership: the order must belong to a restaurant this caller may act on.
+  const scope = await assertOrderInScope(ref, ctx)
+  if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
   try {
     await runDiscoOrderMigrations() // ensures VOIDED is an allowed order_status

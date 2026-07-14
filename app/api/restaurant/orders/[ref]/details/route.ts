@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { loadFmOrderDetails, isoToFmDate, isUuid } from '../../../../../../lib/order-edit'
@@ -44,6 +45,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (!ctx) {
     try { await getAdminAuthHeader() }
     catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
+  } else {
+    // Restaurant session: scope to its own orders. (Admin portal — no ctx — is
+    // exempt: it legitimately loads any order for the full edit page.)
+    const scope = await assertOrderInScope(ref, ctx)
+    if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   }
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 

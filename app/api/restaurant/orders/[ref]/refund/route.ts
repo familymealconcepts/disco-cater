@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { sendCustomerRefundNotification } from '../../../../../../lib/email/notifications'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
@@ -31,6 +32,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     amount = Math.max(0, Number(body?.amount) || 0)
   } catch { /* amount stays 0 */ }
   if (!(amount > 0)) return NextResponse.json({ error: 'Refund amount required' }, { status: 400 })
+
+  // Ownership: a restaurant may only refund its OWN order. Enforced before any
+  // Stripe refund / reverse_transfer so funds can't be clawed from another tenant.
+  const scope = await assertOrderInScope(ref, ctx)
+  if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
   // Validate against the order total minus anything already refunded. Effective
   // total falls back to the Stripe payment total (matching the orders list) so a

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -8,9 +9,15 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
 
-  // Disco-native: mark the order seen in Neon (was FM → 401).
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') {
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  // Ownership: the order must belong to a restaurant this caller may act on.
+  const scope = await assertOrderInScope(ref, ctx)
+  if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+
+  // Disco-native: mark the order seen in Neon (was FM → 401).
+  if (ctx.authType === 'disco') {
     try {
       await runDiscoOrderMigrations()
       await sql`UPDATE disco_orders SET seen_by_admin = true, updated_at = NOW() WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid`

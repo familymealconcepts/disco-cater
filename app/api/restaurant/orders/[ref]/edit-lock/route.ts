@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
 
 const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -16,6 +17,11 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   // No authenticated restaurant session → nothing to release.
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ success: true })
+
+  // Ownership: never release another restaurant's edit lock. Return the same
+  // best-effort success shape rather than 404 (no state change happens).
+  const scope = await assertOrderInScope(ref, ctx)
+  if (!scope.ok) return NextResponse.json({ success: true })
 
   try {
     const auth = await getFmServiceAuthHeader()

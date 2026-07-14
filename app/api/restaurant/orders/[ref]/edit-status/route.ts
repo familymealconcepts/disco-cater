@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
 import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
@@ -31,6 +32,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (!ctx) {
     try { await getAdminAuthHeader(); isAdminEdit = true }
     catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
+  } else {
+    // Restaurant session: scope to its own order (this GET can auto-apply a
+    // pending edit + settle a Stripe invoice). Admin portal is exempt.
+    const scope = await assertOrderInScope(ref, ctx)
+    if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   }
 
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
