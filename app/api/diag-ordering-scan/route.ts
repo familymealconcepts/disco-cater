@@ -21,18 +21,27 @@ export async function GET(req: NextRequest) {
   if (req.nextUrl.searchParams.get('key') !== TOKEN) return NextResponse.json({ error: 'nope' }, { status: 401 })
   const h = await getFmServiceAuthHeader()
 
-  // Fetch all restaurants (paginated).
-  const all: R[] = []
-  for (let page = 0; page < 1000; page++) {
-    const p = new URLSearchParams(); if (page > 0) p.set('page', String(page)); p.set('size', '200')
+  // Fetch all restaurants — page 0 first to learn totalPages, then the rest in
+  // parallel batches (sequential over ~22 pages timed out).
+  const SIZE = 200
+  const fetchPage = async (page: number): Promise<{ content: R[]; raw: R }> => {
+    const p = new URLSearchParams(); if (page > 0) p.set('page', String(page)); p.set('size', String(SIZE))
     const res = await fetch(`${FM}/api/admin/restaurants?${p}`, { headers: { ...h, Accept: 'application/json' }, cache: 'no-store' })
-    if (!res.ok) return NextResponse.json({ error: `list page ${page} HTTP ${res.status}` }, { status: 502 })
+    if (!res.ok) throw new Error(`list page ${page} HTTP ${res.status}`)
     const d = await res.json().catch(() => null)
-    const content: R[] = Array.isArray(d) ? d : ((d?.content || d?.data || []) as R[])
-    all.push(...content)
-    const totalPages = typeof d?.totalPages === 'number' ? d.totalPages : (typeof d?.totalElements === 'number' ? Math.ceil(d.totalElements / 200) : null)
-    if (content.length === 0) break
-    if (totalPages != null) { if (page + 1 >= totalPages) break } else if (content.length < 200) break
+    return { content: Array.isArray(d) ? d : ((d?.content || d?.data || []) as R[]), raw: (d || {}) as R }
+  }
+  const all: R[] = []
+  let p0: { content: R[]; raw: R }
+  try { p0 = await fetchPage(0) } catch (e) { return NextResponse.json({ error: String(e) }, { status: 502 }) }
+  all.push(...p0.content)
+  const totalPages = typeof p0.raw.totalPages === 'number' ? p0.raw.totalPages
+    : typeof p0.raw.totalElements === 'number' ? Math.ceil(p0.raw.totalElements / SIZE)
+    : (p0.content.length < SIZE ? 1 : null)
+  const remaining = totalPages != null ? Array.from({ length: totalPages - 1 }, (_, i) => i + 1) : []
+  for (let i = 0; i < remaining.length; i += 8) {
+    const batch = await Promise.all(remaining.slice(i, i + 8).map(pg => fetchPage(pg).then(r => r.content).catch(() => [] as R[])))
+    for (const b of batch) all.push(...b)
   }
 
   const matches = all.filter(fp)
