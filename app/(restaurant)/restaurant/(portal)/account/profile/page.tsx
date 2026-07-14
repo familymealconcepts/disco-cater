@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { checkOrderingWouldDisable } from '../../../../../../lib/ordering-validation'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -416,6 +417,29 @@ export default function ProfilePage() {
     setDdError('')
     setDdSuccess('')
     try {
+      // Pre-save guard (WARN only, never block): this PUT hits FM's updateRestaurant,
+      // which re-validates and auto-disables online ordering if the restaurant is
+      // missing a complete address, a contact phone, or a connected Stripe account.
+      // The restaurant's own session can read its notification phone, so the contact
+      // check is fully accurate here.
+      let notificationPhones: string[] = []
+      try {
+        const n = await fetch('/api/restaurant/notifications').then(r => r.ok ? r.json() : null)
+        if (Array.isArray(n?.phoneNumber)) notificationPhones = n.phoneNumber
+      } catch { /* best-effort — fall back to admin-phone-only contact check */ }
+      const chk = checkOrderingWouldDisable({
+        onlineOrderingAllowed: (restaurant as { onlineOrderingAllowed?: boolean } | null)?.onlineOrderingAllowed,
+        address,
+        adminPhone: admin.phoneNumber,
+        notificationPhones,
+        stripeConnected,
+        canCheckContactFully: true,
+      })
+      if (chk.wouldDisable && typeof window !== 'undefined' && !window.confirm(chk.message!)) {
+        setDdSaving(false)
+        return
+      }
+
       const payload = buildRestaurantPayload({ pickupInstructions })
       const res = await fetch('/api/restaurant/profile', {
         method: 'PUT',

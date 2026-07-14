@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { checkOrderingWouldDisable } from '../../../../../lib/ordering-validation'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -19,7 +20,8 @@ interface FmRestaurant {
   businessName?: string
   businessNameWithoutSpaces?: string
   address?: FmAddress
-  admin?: { firstName?: string; lastName?: string; email?: string }
+  admin?: { firstName?: string; lastName?: string; email?: string; phoneNumber?: string }
+  onlineOrderingAllowed?: boolean
   categories?: string[]
   fulfillmentOptions?: string[]
   timezone?: string
@@ -115,6 +117,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   // value on save so the overrides PATCH (which overwrites order_url) doesn't
   // wipe it.
   const [orderUrlOverride, setOrderUrlOverride] = useState('')
+  const [stripeConnected, setStripeConnected] = useState<boolean | null>(null)
 
   // Google Places description fetch.
   const [fetchingDesc, setFetchingDesc] = useState(false)
@@ -147,7 +150,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       fetch(`/api/admin/restaurants/${restaurantRef}`).then(r => r.ok ? r.json() : null),
       fetch(`/api/admin/restaurant-cache?restaurantReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`/api/admin/restaurant-overrides?restaurantReference=${restaurantRef}`).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([fm, cache, ov]: [FmRestaurant | null, CacheRow | null, { isPremium?: boolean; visible?: boolean; orderUrl?: string } | null]) => {
+    ]).then(([fm, cache, ov]: [FmRestaurant | null, CacheRow | null, { isPremium?: boolean; visible?: boolean; orderUrl?: string; stripeConnected?: boolean } | null]) => {
       if (cancel) return
       if (fm) {
         setExisting(fm)
@@ -178,6 +181,7 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
         setIsDisco(!!ov.isPremium)
         setVisible(!!ov.visible)
         setOrderUrlOverride(ov.orderUrl || '')
+        setStripeConnected(typeof ov.stripeConnected === 'boolean' ? ov.stripeConnected : null)
       }
     }).catch(() => { if (!cancel) setErr('Failed to load restaurant') })
       .finally(() => { if (!cancel) setLoading(false) })
@@ -270,6 +274,21 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
     // provided (INVALID_ADMIN_EMAIL_IF_NAME_PROVIDED) — mirror that here.
     if ((firstName.trim() || lastName.trim()) && !email.trim()) return setErr('Email is required when a name is provided')
     if (!addr1.trim()) return setErr('Address line 1 is required')
+
+    // Pre-save guard (WARN only, never block): this save re-triggers FM's ordering
+    // validation, which auto-disables online ordering when a restaurant is missing a
+    // complete address or a contact phone. The admin can't see the notification phone,
+    // so the contact check may over-warn (acceptable). Stripe only flags on a
+    // confident "not connected" to avoid stale false positives.
+    const chk = checkOrderingWouldDisable({
+      onlineOrderingAllowed: existing?.onlineOrderingAllowed,
+      address: { addressLine1: addr1, city, state: stateVal, zipcode, latitude: existing?.address?.latitude ?? null, longitude: existing?.address?.longitude ?? null },
+      adminPhone: existing?.admin?.phoneNumber,
+      notificationPhones: undefined,
+      stripeConnected: stripeConnected !== false,
+      canCheckContactFully: false,
+    })
+    if (chk.wouldDisable && typeof window !== 'undefined' && !window.confirm(chk.message!)) return
 
     setSaving(true)
     try {
