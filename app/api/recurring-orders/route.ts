@@ -3,7 +3,6 @@ import { sql } from '../../../lib/db'
 import {
   getCustomer,
   generateOccurrences,
-  extractStripeIds,
   type FrequencyType,
   type EndKind,
 } from '../../../lib/recurring'
@@ -126,23 +125,27 @@ export async function POST(req: NextRequest) {
     }
 
     // Capture the diner's saved Stripe customer + payment method so the cron can
-    // charge off-session. We reuse the existing payment-source endpoint (forwarding
-    // the caller's cookies for its FM auth). No card on file → store nulls; the
-    // cron's "no card" path then handles the payment-reminder flow.
+    // charge off-session. Read the DISCO vault (disco_customer_payment_methods) —
+    // the same Stripe account (STRIPE_SECRET_KEY) the cron charges against, and
+    // where portal-added cards actually live. Keyed by the customer's email, so
+    // it works for FM-less/native accounts too (the old /api/fm-payment-source
+    // path read FamilyMeal's Stripe vault and 401'd for native accounts, storing
+    // nulls and charging FM-account ids against the Disco account → CHARGE_FAILED).
+    // Genuinely no card on file → nulls; the cron's "no card" path emails a
+    // payment reminder as before.
     let stripeCustomerId: string | null = null
     let stripePaymentMethodId: string | null = null
     try {
-      const psRes = await fetch(new URL('/api/fm-payment-source', req.url), {
-        headers: { cookie: req.headers.get('cookie') || '' },
-      })
-      if (psRes.ok) {
-        const source = await psRes.json()
-        const ids = extractStripeIds(source)
-        stripeCustomerId = ids.stripeCustomerId
-        stripePaymentMethodId = ids.stripePaymentMethodId
-      }
+      const cardRows = (await sql`
+        SELECT stripe_customer_id, stripe_payment_method_id
+        FROM disco_customer_payment_methods
+        WHERE customer_email = ${customer.email} AND is_default = true
+        LIMIT 1
+      `) as Array<{ stripe_customer_id: string | null; stripe_payment_method_id: string | null }>
+      stripeCustomerId = cardRows[0]?.stripe_customer_id ?? null
+      stripePaymentMethodId = cardRows[0]?.stripe_payment_method_id ?? null
     } catch (e) {
-      console.warn('[recurring-orders POST] could not fetch payment source:', e)
+      console.warn('[recurring-orders POST] could not read Disco vault card:', e)
     }
 
     const created = (await sql`

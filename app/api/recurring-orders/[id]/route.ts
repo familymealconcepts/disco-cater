@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql } from '../../../../lib/db'
-import { getCustomer, extractStripeIds } from '../../../../lib/recurring'
+import { getCustomer } from '../../../../lib/recurring'
 
 export const runtime = 'nodejs'
 
@@ -52,17 +52,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // Refresh the saved Stripe payment method from the diner's current default
   // card (used by the "Update payment method" action after a failed charge).
+  // Read the DISCO vault (same Stripe account the cron charges, keyed by email so
+  // native accounts work) — NOT FamilyMeal's Stripe vault.
   if (body.refreshPayment === true) {
-    let source: unknown = null
+    let stripeCustomerId: string | null = null
+    let stripePaymentMethodId: string | null = null
     try {
-      const psRes = await fetch(new URL('/api/fm-payment-source', req.url), {
-        headers: { cookie: req.headers.get('cookie') || '' },
-      })
-      if (psRes.ok) source = await psRes.json()
+      const cardRows = (await sql`
+        SELECT stripe_customer_id, stripe_payment_method_id
+        FROM disco_customer_payment_methods
+        WHERE customer_email = ${customer.email} AND is_default = true
+        LIMIT 1
+      `) as Array<{ stripe_customer_id: string | null; stripe_payment_method_id: string | null }>
+      stripeCustomerId = cardRows[0]?.stripe_customer_id ?? null
+      stripePaymentMethodId = cardRows[0]?.stripe_payment_method_id ?? null
     } catch (e) {
-      console.warn('[recurring-orders PATCH] could not fetch payment source:', e)
+      console.warn('[recurring-orders PATCH] could not read Disco vault card:', e)
     }
-    const { stripeCustomerId, stripePaymentMethodId } = extractStripeIds(source)
     if (!stripePaymentMethodId) {
       return NextResponse.json({ error: 'No saved payment method found. Please add a card in Payment settings first.' }, { status: 400 })
     }

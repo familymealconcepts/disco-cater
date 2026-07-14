@@ -188,9 +188,12 @@ export default function RecurringOrderSetupModal({ isOpen, onClose, sourceOrder 
     if (!isOpen) return
     let cancelled = false
     setCardStatus('checking')
-    fetch('/api/fm-payment-source', { credentials: 'include' })
+    // Read the DISCO vault (same card the cron charges) — keyed by the session's
+    // email, so FM-less/native accounts detect their card instead of 401'ing on
+    // FamilyMeal's payment-source endpoint and slipping through as 'unknown'.
+    fetch('/api/order/saved-card-disco', { credentials: 'include' })
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(d => { if (!cancelled) setCardStatus(d ? 'has' : 'none') })
+      .then(d => { if (!cancelled) setCardStatus(d && (d.stripePaymentMethodId || d.last4) ? 'has' : 'none') })
       .catch(() => { if (!cancelled) setCardStatus('unknown') })
     return () => { cancelled = true }
   }, [isOpen])

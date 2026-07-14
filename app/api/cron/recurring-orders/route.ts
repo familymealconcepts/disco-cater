@@ -520,7 +520,27 @@ export async function GET(req: NextRequest) {
           continue
         }
 
+        // ── Atomic claim before charging ────────────────────────────────────
+        // Flip the occurrence out of the chargeable set (REMINDER_SENT/SCHEDULED)
+        // to CHARGE_ATTEMPTED in a single conditional UPDATE, and only proceed if
+        // THIS run won the claim. Without it, a crash/timeout between the Stripe
+        // charge and the status write — or two overlapping hourly runs — would
+        // re-select the same occurrence and charge the card again.
+        const claim = (await sql`
+          UPDATE recurring_order_occurrences
+          SET status = 'CHARGE_ATTEMPTED', charge_attempted_at = NOW(), updated_at = NOW()
+          WHERE id = ${occ.id} AND status = ANY(${['REMINDER_SENT', 'SCHEDULED']})
+          RETURNING id
+        `) as { id: number }[]
+        if (!claim.length) {
+          // Another concurrent run already claimed/charged this occurrence.
+          continue
+        }
+
         // ── Off-session charge ──────────────────────────────────────────────
+        // idempotencyKey is stable per occurrence, so even if this occurrence were
+        // ever retried at Stripe, the same PaymentIntent is returned instead of a
+        // second charge (belt-and-suspenders alongside the claim above).
         let paymentIntent: Stripe.PaymentIntent
         try {
           paymentIntent = await stripe.paymentIntents.create({
@@ -536,7 +556,7 @@ export async function GET(req: NextRequest) {
               occurrence_id: occ.id,
               customer_email: occ.customer_email,
             },
-          })
+          }, { idempotencyKey: `recurring-occ-${occ.id}` })
         } catch (stripeErr) {
           // Card declined / authentication_required / etc.
           const code = (stripeErr as Stripe.StripeRawError)?.code
