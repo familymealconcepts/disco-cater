@@ -109,6 +109,8 @@ export interface CustomerOrderConfirmationParams extends BaseOrderParams {
   to: string
   orderEditNotice?: string
   additionalInvoiceDue?: number
+  /** Optional file attachments (e.g. the order PDF) forwarded to Mailgun. */
+  attachments?: { filename: string; content: string | Uint8Array; contentType?: string }[]
 }
 
 export interface RestaurantOrderNotificationParams extends BaseOrderParams {
@@ -255,6 +257,7 @@ ${anyQuestions(p)}
       to: p.to,
       subject,
       html: layout(content),
+      ...(p.attachments && p.attachments.length ? { attachments: p.attachments } : {}),
     })
   } catch (err) {
     console.error('[email/notifications] sendCustomerOrderConfirmation failed:', err instanceof Error ? err.message : err)

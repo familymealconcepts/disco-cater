@@ -104,9 +104,13 @@ export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePa
       ? { transfer_data: { destination: p.connectedAccountId as string, amount: cents(p.transferDollars) } }
       : {}),
     ...(routeToRestaurant && p.onBehalfOf ? { on_behalf_of: p.connectedAccountId as string } : {}),
-    // Client-side confirm flow (no payment_method supplied) needs a client_secret
-    // with automatic payment methods; server-side confirm (tests) supplies the PM.
-    ...(p.paymentMethodId ? {} : { automatic_payment_methods: { enabled: true } }),
+    // Native checkout is ALWAYS a card charge — confirmed client-side via Stripe.js
+    // confirmCardPayment, or server-side with a supplied payment_method (tests).
+    // Use an explicit card-only PaymentIntent: automatic_payment_methods breaks the
+    // legacy confirmCardPayment on an on_behalf_of PI (it returns an error even
+    // though the charge succeeds, so the client showed a false failure and never
+    // reached the confirmation screen — Bug 1).
+    payment_method_types: ['card'],
   }
   return stripe.paymentIntents.create(params)
 }

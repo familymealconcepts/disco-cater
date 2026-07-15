@@ -288,9 +288,22 @@ export async function dispatchOrderConfirmations(
       addressLine1: cacheAddress || undefined,
     }
 
+    // Build the order PDF once and attach it to BOTH the customer and restaurant
+    // confirmation emails (was restaurant-only — the customer email never carried
+    // the PDF, Bug 2). Best-effort: a PDF failure must never block the emails.
+    let pdfAttachments: { filename: string; content: Uint8Array; contentType: string }[] | undefined
+    if (reference) {
+      try {
+        const pdf = await buildOrderPdfByReference(reference)
+        if (pdf) pdfAttachments = [{ filename: `disco-cater-order-${shared.orderNumber}.pdf`, content: pdf, contentType: 'application/pdf' }]
+      } catch (err) {
+        console.error('[order-notifications] order PDF build failed (sending email without it):', err instanceof Error ? err.message : err)
+      }
+    }
+
     // Customer confirmation — needs a recipient.
     if (shared.userEmail) {
-      const sendP = sendCustomerOrderConfirmation({ to: shared.userEmail, ...shared }).catch((err) => {
+      const sendP = sendCustomerOrderConfirmation({ to: shared.userEmail, attachments: pdfAttachments, ...shared }).catch((err) => {
         console.error('[order-notifications] customer confirmation email failed:', err)
         return { success: false }
       })
@@ -313,17 +326,7 @@ export async function dispatchOrderConfirmations(
     } catch { /* fall back to the single order email */ }
     const recipientList = notificationEmails.length ? notificationEmails : (restaurantEmail ? [restaurantEmail] : [])
     const uniqueRecipients = Array.from(new Set(recipientList.map((e) => e.toLowerCase())))
-    // Build the order PDF once and attach it to every restaurant email. Best-effort:
-    // a PDF failure must never block the confirmation email from going out.
-    let pdfAttachments: { filename: string; content: Uint8Array; contentType: string }[] | undefined
-    if (reference && uniqueRecipients.length) {
-      try {
-        const pdf = await buildOrderPdfByReference(reference)
-        if (pdf) pdfAttachments = [{ filename: `disco-cater-order-${shared.orderNumber}.pdf`, content: pdf, contentType: 'application/pdf' }]
-      } catch (err) {
-        console.error('[order-notifications] order PDF build failed (sending email without it):', err instanceof Error ? err.message : err)
-      }
-    }
+    // pdfAttachments was built once above (shared by the customer + restaurant emails).
     for (const to of uniqueRecipients) {
       sendRestaurantOrderNotification({
         restaurantEmail: to,
