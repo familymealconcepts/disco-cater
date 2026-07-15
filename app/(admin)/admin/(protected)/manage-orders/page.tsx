@@ -42,6 +42,8 @@ interface Order {
   // pill; never show the raw value. Also used to detect Direct Entry orders
   // (FAMILYMEAL) for the (DE) type badge.
   sourceoforder?: string
+  // True for Disco-native orders surfaced from Neon (not present in FM's list).
+  native?: boolean
   // Third-party-delivery signals. FM doesn't always type these on the list
   // shape, so they're optional; we also fall back to the Nash courier ETAs
   // (nashDelivery*Eta) which only exist on third-party (dispatched) deliveries.
@@ -689,7 +691,7 @@ function AdminOrdersContent() {
                   </span>
                 </td>
                 <td style={cell}><TypeBadges order={o} /></td>
-                <td style={cell}>{getOrderSourceBadge(o.sourceoforder || '')}</td>
+                <td style={cell}>{getOrderSourceBadge(o.sourceoforder || '')}{o.native ? <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#6B6EF9', background: '#EEF0FF', borderRadius: 4, padding: '1px 5px' }}>Native</span> : null}</td>
                 <td style={cell}>
                   {promos[o.orderReference] ? (() => {
                     const p = promos[o.orderReference]

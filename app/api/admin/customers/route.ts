@@ -1,7 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
+import { sql } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+// Disco-native customers (disco_customers with no FamilyMeal reference) exist only
+// in Neon and are absent from FM's customer list. Map them into FM's list shape —
+// order count + spend computed from their native orders — tagged native:true so the
+// UI can badge them. Honors the date range; caller gates the source filter.
+async function fetchNativeCustomers(fromIso: string | null, toIso: string | null): Promise<Record<string, unknown>[]> {
+  try {
+    const rows = (await sql`
+      SELECT c.email AS "customerReference",
+             COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''), c.email) AS username,
+             c.email AS email, c.phone AS phone,
+             (SELECT count(*) FROM disco_orders o WHERE o.customer_email = c.email AND o.fm_order_reference IS NULL AND o.is_deleted = false) AS "numberOfOrders",
+             COALESCE((SELECT sum(o.total) FROM disco_orders o WHERE o.customer_email = c.email AND o.fm_order_reference IS NULL AND o.is_deleted = false), 0) AS totalspend,
+             'DISCO' AS sourceoforder, true AS native
+      FROM disco_customers c
+      WHERE c.fm_reference IS NULL
+        AND (${fromIso}::date IS NULL OR c.created_at::date >= ${fromIso}::date)
+        AND (${toIso}::date IS NULL OR c.created_at::date <= ${toIso}::date)
+      ORDER BY c.created_at DESC
+      LIMIT 500
+    `) as Record<string, unknown>[]
+    return rows
+  } catch (e) {
+    console.error('[admin/customers] native customers fetch failed (non-fatal):', e instanceof Error ? e.message : e)
+    return []
+  }
+}
 
 // FM filters customers by fromDate/toDate formatted DD.MM.YYYY
 // (customers.service.ts:38-43). Convert the ISO date the picker sends.
@@ -34,7 +62,17 @@ export async function GET(req: NextRequest) {
   try {
     const res = await fetch(`${FM}/api/customer/users?${params}`, { headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed to fetch customers' }, { status: res.status })
-    return NextResponse.json(await res.json())
+    const data = await res.json()
+
+    // Prepend native customers on the FIRST page only (client concatenates all
+    // pages). Skip when a non-DISCO source filter is active. totalElements stays FM's.
+    const isFirstPage = !page || page === '0'
+    const sourceFilter = (sp.get('source') || '').toUpperCase()
+    if (isFirstPage && data && Array.isArray(data.content) && (!sourceFilter || sourceFilter === 'DISCO')) {
+      const native = await fetchNativeCustomers(sp.get('fromDate') || null, sp.get('toDate') || null)
+      if (native.length) data.content = [...native, ...data.content]
+    }
+    return NextResponse.json(data)
   } catch {
     return NextResponse.json({ error: 'Unable to fetch customers' }, { status: 500 })
   }

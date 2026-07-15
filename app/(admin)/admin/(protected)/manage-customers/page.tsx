@@ -20,6 +20,8 @@ interface Customer {
   numberOfOrders: number
   totalspend: number
   sourceoforder?: string
+  // True for Disco-native customers surfaced from Neon (not in FM's list).
+  native?: boolean
 }
 
 // Phone is NOT a column on FM's own customers table and the /api/customer/users
@@ -536,7 +538,7 @@ function CustomersInner() {
                 <td style={{ ...cell, fontWeight: 500 }}>{r.username}</td>
                 <td style={{ ...cell, color: '#555' }}>{r.email}</td>
                 <td style={{ ...cell, color: '#666' }}>{customerPhone(r) || '—'}</td>
-                <td style={{ ...cell, color: '#666' }}>{r.sourceoforder || '—'}</td>
+                <td style={{ ...cell, color: '#666' }}>{r.sourceoforder || '—'}{r.native ? <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#6B6EF9', background: '#EEF0FF', borderRadius: 4, padding: '1px 5px' }}>Native</span> : null}</td>
                 <td style={{ ...cell, color: '#666' }}>{custType(r.email)}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>{r.numberOfOrders ?? 0}</td>
                 <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>{fmtCurrency(r.totalspend)}</td>

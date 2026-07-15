@@ -1,7 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
+import { sql } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+// Disco-native orders (fm_order_reference IS NULL) exist only in Neon and are
+// absent from FM's admin list. Fetch them mapped into FM's list shape so the admin
+// Orders page shows them alongside FM orders. Tagged native:true (+ sourceoforder
+// 'DISCO') so the UI can badge them. Honors the same date range as the FM call.
+async function fetchNativeOrders(fromIso: string | null, toIso: string | null): Promise<Record<string, unknown>[]> {
+  try {
+    const rows = (await sql`
+      SELECT o.reference::text AS "orderReference",
+             o.restaurant_reference::text AS "restaurantReference",
+             COALESCE(o.restaurant_name, rc.name, '') AS "restaurantName",
+             rc.timezone AS "restaurantTimezone",
+             to_char(o.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdDate",
+             to_char(o.order_date, 'YYYY-MM-DD') AS "orderDate",
+             o.order_time::text AS "orderTime",
+             o.order_type AS "orderType", o.order_status AS "orderStatus",
+             COALESCE(o.total, 0) AS total,
+             o.customer_first_name AS "firstName", o.customer_last_name AS "lastName", o.customer_email AS email,
+             o.order_number AS "orderNumber", o.delivery_type AS "deliveryType",
+             'DISCO' AS sourceoforder, true AS native
+      FROM disco_orders o
+      LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
+      WHERE o.fm_order_reference IS NULL AND o.is_deleted = false
+        AND (${fromIso}::date IS NULL OR o.order_date >= ${fromIso}::date)
+        AND (${toIso}::date IS NULL OR o.order_date <= ${toIso}::date)
+      ORDER BY o.created_at DESC
+      LIMIT 500
+    `) as Record<string, unknown>[]
+    return rows
+  } catch (e) {
+    console.error('[admin/orders] native orders fetch failed (non-fatal):', e instanceof Error ? e.message : e)
+    return []
+  }
+}
 
 // FM filters orders by fromDate/toDate formatted DD.MM.YYYY (known FM gotcha —
 // same as the customers endpoint). The date inputs send ISO YYYY-MM-DD, so
@@ -37,6 +72,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch orders' }, { status: res.status })
     }
     const data = await res.json()
+
+    // Prepend Disco-native orders on the FIRST page only (the client loads every
+    // page and concatenates, so page 0 shows them once at the top). totalElements
+    // is left as FM's, so pagination is unaffected.
+    const isFirstPage = !page || page === '0'
+    if (isFirstPage && data && Array.isArray(data.content)) {
+      const native = await fetchNativeOrders(sp.get('fromDate') || null, sp.get('toDate') || null)
+      if (native.length) data.content = [...native, ...data.content]
+    }
+
     const count = Array.isArray(data?.content) ? data.content.length : (Array.isArray(data) ? data.length : 0)
     // Diagnostic: how the FM pagination envelope looks per page fetch.
     console.log(`[admin/orders] page=${page || '0'} size=${params.get('size')} → ${count} orders (totalElements=${data?.totalElements ?? data?.total_elements ?? 'n/a'}, totalPages=${data?.totalPages ?? data?.total_pages ?? 'n/a'})`)
