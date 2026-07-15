@@ -51,3 +51,6 @@ scripts/output/restaurant-summary.json
 
 # Local-only one-off migration runner (not committed)
 scripts/run-migration.ts
+
+# stray working CSVs (never commit)
+/*.csv
