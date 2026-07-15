@@ -128,7 +128,7 @@ const NAV: NavEntry[] = [
   { href: '/account/profile', label: 'Profile', icon: <SvgProfile />, section: 'Account' },
   { href: '/account/addresses', label: 'Addresses', icon: <SvgAddresses /> },
   { href: '/account/payment', label: 'Payment', icon: <SvgPayment /> },
-  { href: '/account/notifications', label: 'Notifications', icon: <SvgNotifications /> },
+  // Notifications is a "coming soon" stub — hidden from nav until it's real (C14).
   { href: '/account/security', label: 'Security', icon: <SvgSecurity /> },
 ]
 

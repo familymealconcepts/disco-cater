@@ -10,15 +10,22 @@ export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
     const scope = await resolveDiscoScopeRef(ctx)
-    if (!scope) return NextResponse.json({ content: [], totalElements: 0 })
+    if (!scope) return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 25 })
     await runDiscoOrderMigrations()
+    // Honor the page/size the UI's pager sends (was hardcoded LIMIT 100 with a
+    // rows.length total, so pages past the first were unreachable — RL8).
+    const sp = req.nextUrl.searchParams
+    const page = Math.max(0, parseInt(sp.get('page') || '0', 10) || 0)
+    const size = Math.min(200, Math.max(1, parseInt(sp.get('size') || '25', 10) || 25))
+    const totalRows = (await sql`SELECT count(*)::int AS n FROM disco_report_runs WHERE restaurant_reference = ${scope}::uuid`) as { n: number }[]
+    const total = totalRows[0]?.n ?? 0
     const rows = (await sql`
       SELECT reference, report_name AS "reportName", file_type AS "fileType",
              run_status AS "runStatus", to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdDate"
       FROM disco_report_runs WHERE restaurant_reference = ${scope}::uuid
-      ORDER BY created_at DESC LIMIT 100
+      ORDER BY created_at DESC LIMIT ${size} OFFSET ${page * size}
     `) as Record<string, unknown>[]
-    return NextResponse.json({ content: rows, totalElements: rows.length })
+    return NextResponse.json({ content: rows, totalElements: total, totalPages: Math.ceil(total / size), number: page, size })
   }
 
   let h: Record<string, string>
