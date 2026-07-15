@@ -32,6 +32,14 @@ const ALLOWED_STATUS = new Set([
   'PARTIAL_REFUND', 'EXPIRED', 'VOID', 'VOIDED', 'UNPAID', 'PAID', 'PAYMENT_FAILED', 'REOPEN',
 ])
 
+// Must match the disco_orders_delivery_type_check constraint. An unrecognized FM
+// value is stored as NULL (which the CHECK allows) rather than failing the insert
+// and silently dropping the order — the exact class of bug that hid DoorDash orders.
+const ALLOWED_DELIVERY_TYPES = new Set([
+  'NASH_DELIVERY', 'OWN_DELIVERY', 'DOORDASH', 'SHIPDAY', 'THIRD_PARTY',
+  'THIRD_PARTY_DELIVERY', 'PICKUP', 'DLIVRD', 'DOOR_DASH_DELIVERY', 'DLIVRD_DELIVERY',
+])
+
 function n(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
 function s(v: unknown): string { return typeof v === 'string' ? v : (v == null ? '' : String(v)) }
 
@@ -79,9 +87,13 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
   const statusRaw = statusRaw0 === 'VOID' ? 'VOIDED' : statusRaw0
   const status = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
 
-  const deliveryType = s(o.deliveryType) || null
+  const rawDeliveryType = s(o.deliveryType) || null
+  // Derive PICKUP vs DELIVERY from the RAW value (before coercion) so an
+  // unrecognized delivery value still classifies the order correctly.
   const orderType: 'PICKUP' | 'DELIVERY' =
-    (s(o.orderType).toUpperCase() === 'DELIVERY' || (deliveryType || '').toUpperCase().includes('DELIVERY')) ? 'DELIVERY' : 'PICKUP'
+    (s(o.orderType).toUpperCase() === 'DELIVERY' || (rawDeliveryType || '').toUpperCase().includes('DELIVERY')) ? 'DELIVERY' : 'PICKUP'
+  // Store only constraint-valid values; anything else → NULL (never drops the order).
+  const deliveryType = rawDeliveryType && ALLOWED_DELIVERY_TYPES.has(rawDeliveryType) ? rawDeliveryType : null
 
   const sourceRaw = (s(o.sourceoforder) || s(o.sourceOfOrder)).toUpperCase()
   const source: 'DISCO' | 'FAMILYMEAL' = sourceRaw === 'DISCO' ? 'DISCO' : 'FAMILYMEAL'

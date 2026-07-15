@@ -371,10 +371,16 @@ ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_order_status_check CHECK (o
 
 -- Widen delivery_type to accept all known FM delivery types — the FM→Neon orders
 -- sync was failing the original CHECK ('OWN_DELIVERY','THIRD_PARTY','DLIVRD').
--- NULL is allowed automatically (a CHECK passes on NULL/UNKNOWN). DLIVRD is kept
--- so any pre-existing rows still validate. Drop + re-add is idempotent.
+-- NULL is allowed automatically (a CHECK passes on NULL/UNKNOWN). Drop + re-add
+-- is idempotent.
+--
+-- IMPORTANT: FM's DeliveryType enum sends the FULL names DOOR_DASH_DELIVERY and
+-- DLIVRD_DELIVERY (com.familymeal.common.enums.DeliveryType). A prior widen used
+-- the abbreviated 'DOORDASH'/'DLIVRD', so every DoorDash/Dlivrd delivery order
+-- silently failed this CHECK and was skipped by the sync. The FM names are added
+-- here; the abbreviations are kept so any internally-written rows still validate.
 ALTER TABLE disco_orders DROP CONSTRAINT IF EXISTS disco_orders_delivery_type_check;
-ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_delivery_type_check CHECK (delivery_type IN ('NASH_DELIVERY','OWN_DELIVERY','DOORDASH','SHIPDAY','THIRD_PARTY','THIRD_PARTY_DELIVERY','PICKUP','DLIVRD'));
+ALTER TABLE disco_orders ADD CONSTRAINT disco_orders_delivery_type_check CHECK (delivery_type IN ('NASH_DELIVERY','OWN_DELIVERY','DOORDASH','SHIPDAY','THIRD_PARTY','THIRD_PARTY_DELIVERY','PICKUP','DLIVRD','DOOR_DASH_DELIVERY','DLIVRD_DELIVERY'));
 
 -- Expedite (formerly dlivrd) third-party delivery integration. We create a
 -- delivery on successful payment, modify it on edit/transfer, and cancel it on
