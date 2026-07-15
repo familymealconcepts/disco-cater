@@ -10,12 +10,17 @@ export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
     await runDiscoOrderMigrations()
+    // Honor page/size like the FM path (was: all rows with rows.length total — RL8).
+    const sp = req.nextUrl.searchParams
+    const page = Math.max(0, parseInt(sp.get('page') || '0', 10) || 0)
+    const size = Math.min(200, Math.max(1, parseInt(sp.get('size') || '25', 10) || 25))
+    const total = ((await sql`SELECT count(*)::int AS n FROM disco_scheduled_reports WHERE created_by = ${ctx.email}`) as { n: number }[])[0]?.n ?? 0
     const rows = (await sql`
       SELECT reference, name, frequency, time, timezone
       FROM disco_scheduled_reports WHERE created_by = ${ctx.email}
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC LIMIT ${size} OFFSET ${page * size}
     `) as Record<string, unknown>[]
-    return NextResponse.json({ content: rows, totalElements: rows.length })
+    return NextResponse.json({ content: rows, totalElements: total, totalPages: Math.ceil(total / size), number: page, size })
   }
 
   let h: Record<string, string>
