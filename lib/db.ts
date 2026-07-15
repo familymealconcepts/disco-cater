@@ -112,6 +112,11 @@ export async function runMigrations(): Promise<void> {
     // so a missing row is also "open"; a stored FALSE means an intentional pause.)
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS online_ordering_enabled BOOLEAN DEFAULT true`,
     `ALTER TABLE disco_restaurant_overrides ALTER COLUMN online_ordering_enabled SET DEFAULT true`,
+    // Neon mirror of FM's nashAllowed / shipdayEnabled third-party-delivery
+    // provider toggles, so the super-admin row toggles persist for Disco-native
+    // restaurants (no FM record). Written by the admin nash/shipday routes (S5).
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS nash_allowed BOOLEAN DEFAULT false`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS shipday_enabled BOOLEAN DEFAULT false`,
     // Neon mirror of FM's session-scoped notification settings (PUT /api/notifications),
     // written on every order-settings save. A daily cron + the server-side order
     // dispatch have no restaurant session, so they read these instead of FM.

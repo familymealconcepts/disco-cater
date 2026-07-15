@@ -28,9 +28,14 @@ export async function GET() {
                (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true) AS "stripeConnected",
                COALESCE(a.fm_creation_failed, false) AS "fmCreationFailed",
                a.fm_creation_error AS "fmCreationError",
-               COALESCE(c.is_live, false) AS "isLive"
+               COALESCE(c.is_live, false) AS "isLive",
+               -- Neon-backed row toggles so they reflect persisted state on reload (S5)
+               COALESCE(o.money_flow, 'DIRECT') AS "moneyFlow",
+               COALESCE(o.nash_allowed, false) AS "nashAllowed",
+               COALESCE(o.shipday_enabled, false) AS "shipdayEnabled"
         FROM disco_restaurant_accounts a
         LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference
+        LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference
         WHERE a.is_disco_native = true
           AND a.fm_restaurant_reference IS NULL
           AND a.restaurant_name IS NOT NULL AND a.restaurant_name <> ''
