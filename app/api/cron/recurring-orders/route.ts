@@ -18,7 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql } from '../../../../lib/db'
-import { checkMenuAvailability, type CartItem } from '../../../../lib/recurring'
+import { checkMenuAvailability, repriceCart, type CartItem } from '../../../../lib/recurring'
 import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -507,7 +507,11 @@ export async function GET(req: NextRequest) {
           continue
         }
 
-        const amount = computeAmount(occ.cart_snapshot, occ.source_order_total)
+        // Re-price the cart against the CURRENT menu before charging (I5), so a
+        // menu price change since setup is reflected. Falls back to the snapshot
+        // prices on any fetch issue, so a transient error never mis-charges.
+        const repricedCart = await repriceCart(occ.restaurant_reference, occ.cart_snapshot || []).catch(() => occ.cart_snapshot || [])
+        const amount = computeAmount(repricedCart, occ.source_order_total)
         if (amount <= 0) {
           await sql`
             UPDATE recurring_order_occurrences

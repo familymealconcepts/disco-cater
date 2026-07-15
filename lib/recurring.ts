@@ -243,6 +243,47 @@ async function fetchMenuItemNames(restaurantReference: string): Promise<string[]
   return names
 }
 
+// Current price for each meal-package name on the restaurant's menu. Reads the
+// same public mealPackages endpoint as the availability check, capturing the
+// per-package price (FM uses `price`, sometimes `pricePerUnit`).
+async function fetchMenuItemPrices(restaurantReference: string): Promise<Map<string, number>> {
+  const res = await fetch(`${FM_API}/public-api/restaurants/${restaurantReference}/mealPackages`, {
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  })
+  if (!res.ok) throw new Error(`FM mealPackages ${res.status}`)
+  const data = (await res.json()) as unknown
+  const prices = new Map<string, number>()
+  const collect = (pkg: Record<string, unknown>) => {
+    const raw = pkg?.price ?? pkg?.pricePerUnit
+    const price = typeof raw === 'number' ? raw : parseFloat(String(raw ?? ''))
+    if (pkg?.name && Number.isFinite(price)) prices.set(normName(String(pkg.name)), price)
+    if (Array.isArray((pkg as { mealPackages?: unknown })?.mealPackages)) {
+      (pkg as { mealPackages: Record<string, unknown>[] }).mealPackages.forEach(collect)
+    }
+  }
+  if (Array.isArray(data)) (data as Record<string, unknown>[]).forEach(collect)
+  return prices
+}
+
+// Re-price a cart against the CURRENT menu (I5): each item matched by name gets
+// the current price; an unmatched item — or any fetch failure / empty menu —
+// keeps its snapshot price, so a transient issue or a renamed item never wildly
+// mis-charges. Returns the (possibly) re-priced cart; the caller then sums it.
+export async function repriceCart(restaurantReference: string, cart: CartItem[]): Promise<CartItem[]> {
+  let prices: Map<string, number>
+  try {
+    prices = await fetchMenuItemPrices(restaurantReference)
+  } catch {
+    return cart || [] // couldn't fetch → charge the snapshot, never guess
+  }
+  if (prices.size === 0) return cart || []
+  return (cart || []).map((it) => {
+    const cur = it?.name ? prices.get(normName(it.name)) : undefined
+    return cur != null ? { ...it, price: cur } : it
+  })
+}
+
 /**
  * Compare a cart against the restaurant's current menu.
  *
