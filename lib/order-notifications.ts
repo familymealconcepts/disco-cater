@@ -324,7 +324,21 @@ export async function dispatchOrderConfirmations(
       `) as { notification_emails: string | null }[]
       notificationEmails = String(ov[0]?.notification_emails || '').split(',').map((e) => e.trim()).filter(Boolean)
     } catch { /* fall back to the single order email */ }
-    const recipientList = notificationEmails.length ? notificationEmails : (restaurantEmail ? [restaurantEmail] : [])
+    let recipientList = notificationEmails.length ? notificationEmails : (restaurantEmail ? [restaurantEmail] : [])
+    // Fallback: a restaurant with no configured notification_emails AND no order
+    // restaurant_email (common for Disco-native restaurants — Test 34) would
+    // otherwise get ZERO notification about its own order. Default to the
+    // restaurant admin's own account email so the restaurant is always notified.
+    if (recipientList.length === 0 && restRef) {
+      try {
+        const acct = (await sql`
+          SELECT email FROM disco_restaurant_accounts
+          WHERE restaurant_reference = ${restRef} AND email IS NOT NULL
+          ORDER BY created_at ASC LIMIT 1
+        `) as { email: string }[]
+        if (acct[0]?.email) recipientList = [acct[0].email]
+      } catch { /* best-effort — leave empty rather than block the customer email */ }
+    }
     const uniqueRecipients = Array.from(new Set(recipientList.map((e) => e.toLowerCase())))
     // pdfAttachments was built once above (shared by the customer + restaurant emails).
     for (const to of uniqueRecipients) {
