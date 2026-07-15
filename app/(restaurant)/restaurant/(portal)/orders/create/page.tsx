@@ -1,8 +1,11 @@
 import { redirect } from 'next/navigation'
 import { getRestaurantRef, getRestaurantRole } from '../../../../../../lib/restaurant-auth'
+import { sql } from '../../../../../../lib/db'
 import CreateOrderMethodModal from './CreateOrderClient'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+export const dynamic = 'force-dynamic'
 
 // Direct Entry / Create Order — entry point. Mirrors FM exactly: the method
 // choice (Payment vs Invoice) just routes the admin into the normal 1st-party
@@ -27,6 +30,21 @@ export default async function CreateOrderPage() {
       fmSlug = list.find(r => r.reference === restaurantRef)?.businessNameWithoutSpaces ?? null
     }
   } catch {}
+
+  // Disco-native restaurants aren't in FM's public list, so the lookup above finds
+  // nothing and Create Order was dead-ended (RH4). Resolve their ordering slug from
+  // Neon instead — /order/[slug] renders native restaurants directly from Neon
+  // (RestaurantView → loadDiscoNativeRestaurant), so direct-entry works for them.
+  if (!fmSlug) {
+    try {
+      const rows = (await sql`
+        SELECT slug FROM disco_restaurant_cache
+        WHERE restaurant_reference = ${restaurantRef} AND slug IS NOT NULL AND is_disco_native = true
+        LIMIT 1
+      `) as { slug: string | null }[]
+      fmSlug = rows[0]?.slug ?? null
+    } catch { /* leave null → the modal shows the not-found notice */ }
+  }
 
   return <CreateOrderMethodModal fmSlug={fmSlug} />
 }
