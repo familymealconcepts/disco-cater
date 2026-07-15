@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
-import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../../lib/restaurant-auth-context'
+import { sanitizeReportFilter } from '../../../../../../lib/reports/report-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -14,10 +15,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (ctx?.authType === 'disco') {
     if (!UUID_RE.test(ref)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     await runDiscoOrderMigrations()
+    // Restaurant-scoped, not creator-scoped (RM7): any authorized user of the
+    // selected location can view the report.
+    const scope = await resolveDiscoScopeRef(ctx)
+    if (!scope) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const rows = (await sql`
       SELECT reference, name, frequency, time, timezone, file_type AS "fileType",
              columns, recipients, owner_references AS "ownerReferences", filter
-      FROM disco_scheduled_reports WHERE reference = ${ref}::uuid AND created_by = ${ctx.email} LIMIT 1
+      FROM disco_scheduled_reports WHERE reference = ${ref}::uuid AND restaurant_reference = ${scope}::uuid LIMIT 1
     `) as Record<string, unknown>[]
     if (!rows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     return NextResponse.json(rows[0])
@@ -45,6 +50,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     if (!UUID_RE.test(ref)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const body = await req.json().catch(() => ({}))
     await runDiscoOrderMigrations()
+    // Restaurant-scoped edit (RM7) + constrain the location filter to the caller's
+    // own restaurants (RM8) so it can't be pointed at another restaurant's orders.
+    const scope = await resolveDiscoScopeRef(ctx)
+    if (!scope) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const filter = await sanitizeReportFilter(ctx, scope, body?.filter)
     const rows = (await sql`
       UPDATE disco_scheduled_reports SET
         name = COALESCE(NULLIF(${String(body?.name || '')}, ''), name),
@@ -55,9 +65,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         columns = ${JSON.stringify(body?.columns ?? [])}::jsonb,
         recipients = ${JSON.stringify(body?.recipients ?? [])}::jsonb,
         owner_references = ${JSON.stringify(body?.ownerReferences ?? [])}::jsonb,
-        filter = ${JSON.stringify(body?.filter ?? {})}::jsonb,
+        filter = ${JSON.stringify(filter)}::jsonb,
         updated_at = NOW()
-      WHERE reference = ${ref}::uuid AND created_by = ${ctx.email}
+      WHERE reference = ${ref}::uuid AND restaurant_reference = ${scope}::uuid
       RETURNING reference
     `) as { reference: string }[]
     if (!rows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -89,7 +99,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (ctx?.authType === 'disco') {
     if (!UUID_RE.test(ref)) return NextResponse.json({ ok: true })
     await runDiscoOrderMigrations()
-    await sql`DELETE FROM disco_scheduled_reports WHERE reference = ${ref}::uuid AND created_by = ${ctx.email}`
+    // Restaurant-scoped delete (RM7).
+    const scope = await resolveDiscoScopeRef(ctx)
+    if (scope) await sql`DELETE FROM disco_scheduled_reports WHERE reference = ${ref}::uuid AND restaurant_reference = ${scope}::uuid`
     return NextResponse.json({ ok: true })
   }
 

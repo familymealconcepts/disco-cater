@@ -18,16 +18,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   await runDiscoOrderMigrations()
   const scope = await resolveDiscoScopeRef(ctx)
 
+  if (!scope) return NextResponse.json({ error: 'Report not found' }, { status: 404 })
   const rows = (await sql`
-    SELECT reference, name, frequency, time, timezone, file_type,
-           columns, owner_references, filter
+    SELECT reference, restaurant_reference, name, frequency, time, timezone, file_type,
+           columns, filter
     FROM disco_scheduled_reports
-    WHERE reference = ${ref}::uuid
-      AND (created_by = ${ctx.email} OR restaurant_reference = ${scope}::uuid)
+    WHERE reference = ${ref}::uuid AND restaurant_reference = ${scope}::uuid
     LIMIT 1
   `) as Array<{
-    name: string; frequency: string; time: string; timezone: string; file_type: string
-    columns: unknown; owner_references: unknown; filter: unknown
+    restaurant_reference: string; name: string; frequency: string; time: string; timezone: string; file_type: string
+    columns: unknown; filter: unknown
   }>
   if (!rows.length) return NextResponse.json({ error: 'Report not found' }, { status: 404 })
   const r = rows[0]
@@ -37,7 +37,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     frequency: r.frequency === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY',
     time: r.time, timezone: r.timezone,
     columns: Array.isArray(r.columns) ? (r.columns as string[]) : [],
-    ownerReferences: Array.isArray(r.owner_references) ? (r.owner_references as string[]) : [],
+    restaurantReference: r.restaurant_reference,
     filter: (r.filter && typeof r.filter === 'object' ? r.filter : {}) as ScheduledReportConfig['filter'],
   }
   const period = reportPeriod(cfg.frequency, new Date())

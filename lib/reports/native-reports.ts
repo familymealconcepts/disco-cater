@@ -36,7 +36,11 @@ export interface ScheduledReportConfig {
   time: string          // 'HH:MM'
   timezone: string
   columns: string[]
-  ownerReferences: string[]
+  // The report's own restaurant — the base scope for the disco_orders query.
+  // (`ownerReferences` is FM-parity owner metadata — the creating USER's ref —
+  //  and must NEVER be used to scope orders; it isn't a restaurant reference.)
+  restaurantReference: string
+  ownerReferences?: string[]
   filter: ReportFilter
 }
 
@@ -65,9 +69,11 @@ async function fetchReportRows(
   const cols = (cfg.columns || []).filter(k => COLUMN_LABEL[k])
   const useCols = cols.length ? cols : REPORT_COLUMNS.map(c => c.key)
 
-  const refs = (cfg.ownerReferences || []).filter(Boolean)
+  // Scope the orders to the report's restaurant(s): the explicit location filter
+  // if the user set one, otherwise the report's own restaurant. Never falls back
+  // to ownerReferences (that's a USER ref and would match no orders — RM8).
   const locFilter = (cfg.filter?.locationReferenceIds || []).filter(Boolean)
-  const scopeRefs = locFilter.length ? locFilter : refs
+  const scopeRefs = (locFilter.length ? locFilter : [cfg.restaurantReference]).filter(Boolean)
   if (!scopeRefs.length) return { rows: [], useCols }
 
   const byCreated = cfg.filter?.dateType === 'createdDate'

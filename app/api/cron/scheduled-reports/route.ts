@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
       frequency: r.frequency === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY',
       time: r.time, timezone: r.timezone,
       columns: Array.isArray(r.columns) ? (r.columns as string[]) : [],
-      ownerReferences: Array.isArray(r.owner_references) ? (r.owner_references as string[]) : [],
+      restaurantReference: r.restaurant_reference,
       filter: (r.filter && typeof r.filter === 'object' ? r.filter : {}) as ScheduledReportConfig['filter'],
     }
     const recipients = (Array.isArray(r.recipients) ? (r.recipients as string[]) : []).filter(Boolean)

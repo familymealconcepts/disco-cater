@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
+import { sanitizeReportFilter } from '../../../../../lib/reports/report-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -10,14 +11,20 @@ export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
     await runDiscoOrderMigrations()
+    // Reports are a restaurant-level resource: scope to the selected location, like
+    // the runs list — not to the individual creator's email (RM7). So any authorized
+    // user of the restaurant sees its reports, and a multi-location SA sees the
+    // reports for the location they've selected.
+    const scope = await resolveDiscoScopeRef(ctx)
     // Honor page/size like the FM path (was: all rows with rows.length total — RL8).
     const sp = req.nextUrl.searchParams
     const page = Math.max(0, parseInt(sp.get('page') || '0', 10) || 0)
     const size = Math.min(200, Math.max(1, parseInt(sp.get('size') || '25', 10) || 25))
-    const total = ((await sql`SELECT count(*)::int AS n FROM disco_scheduled_reports WHERE created_by = ${ctx.email}`) as { n: number }[])[0]?.n ?? 0
+    if (!scope) return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: page, size })
+    const total = ((await sql`SELECT count(*)::int AS n FROM disco_scheduled_reports WHERE restaurant_reference = ${scope}::uuid`) as { n: number }[])[0]?.n ?? 0
     const rows = (await sql`
       SELECT reference, name, frequency, time, timezone
-      FROM disco_scheduled_reports WHERE created_by = ${ctx.email}
+      FROM disco_scheduled_reports WHERE restaurant_reference = ${scope}::uuid
       ORDER BY created_at DESC LIMIT ${size} OFFSET ${page * size}
     `) as Record<string, unknown>[]
     return NextResponse.json({ content: rows, totalElements: total, totalPages: Math.ceil(total / size), number: page, size })
@@ -53,7 +60,9 @@ export async function POST(req: NextRequest) {
     const name = String(body?.name || '').trim()
     if (!name) return NextResponse.json({ error: 'Report name is required.' }, { status: 400 })
     const scope = await resolveDiscoScopeRef(ctx)
-    const owners = Array.isArray(body?.ownerReferences) && body.ownerReferences.length ? body.ownerReferences.map(String) : [scope].filter(Boolean)
+    if (!scope) return NextResponse.json({ error: 'No restaurant selected.' }, { status: 400 })
+    const owners = Array.isArray(body?.ownerReferences) && body.ownerReferences.length ? body.ownerReferences.map(String) : [scope]
+    const filter = await sanitizeReportFilter(ctx, scope, body?.filter)
     await runDiscoOrderMigrations()
     const rows = (await sql`
       INSERT INTO disco_scheduled_reports (
@@ -65,7 +74,7 @@ export async function POST(req: NextRequest) {
         ${String(body?.time || '09:00')}, ${String(body?.timezone || 'America/New_York')},
         ${body?.fileType === 'PDF' ? 'PDF' : 'CSV'},
         ${JSON.stringify(body?.columns ?? [])}::jsonb, ${JSON.stringify(body?.recipients ?? [])}::jsonb,
-        ${JSON.stringify(owners)}::jsonb, ${JSON.stringify(body?.filter ?? {})}::jsonb, ${ctx.email}
+        ${JSON.stringify(owners)}::jsonb, ${JSON.stringify(filter)}::jsonb, ${ctx.email}
       ) RETURNING reference
     `) as { reference: string }[]
     return NextResponse.json({ reference: rows[0]?.reference }, { status: 201 })
