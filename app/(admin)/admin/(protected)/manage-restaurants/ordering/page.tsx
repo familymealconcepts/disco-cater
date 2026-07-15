@@ -379,7 +379,13 @@ export default function RestaurantsOrderingPage() {
   async function resetPassword(r: Restaurant) {
     if (!confirm(`Send password reset for ${r.adminEmail || r.admin?.email}?`)) return
     const res = await fetch(`/api/admin/restaurants/${r.reference}/reset-password`, { method: 'PUT' })
-    if (res.ok) showToast('Password reset email sent')
+    const data = await res.json().catch(() => ({} as { emailed?: boolean }))
+    if (!res.ok) { showToast('Could not reset the password'); return }
+    // The password IS reset even when the email fails (native path returns
+    // emailed:false) — say so instead of falsely claiming the email was sent. The
+    // FM path omits `emailed`, so undefined = sent.
+    if (data?.emailed === false) showToast('Password reset, but the email could not be sent — share the new password manually')
+    else showToast('Password reset email sent')
   }
 
   // Promote the restaurant's Disco account (and its group) to SYSTEM_ADMIN.
