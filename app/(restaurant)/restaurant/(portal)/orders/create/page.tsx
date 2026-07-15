@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
-import { getRestaurantRef, getRestaurantRole } from '../../../../../../lib/restaurant-auth'
+import { getRestaurantRef } from '../../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../../lib/restaurant-auth-context'
 import { sql } from '../../../../../../lib/db'
 import CreateOrderMethodModal from './CreateOrderClient'
 
@@ -16,10 +17,17 @@ export const dynamic = 'force-dynamic'
 // businessNameWithoutSpaces), not by UUID, so we reverse-look-up the portal's
 // restaurant reference against the public list to get its slug.
 export default async function CreateOrderPage() {
-  const role = await getRestaurantRole()
-  if (!role) redirect('/restaurant/login')
+  // Auth must accept BOTH session types: FM restaurants use the fm_restaurant_token
+  // JWT, Disco-native restaurants use the disco_restaurant_token session.
+  // getRestaurantRole() only reads the FM token, so a Disco-native session was
+  // bounced to /login (flash-login → back to Orders). getRestaurantAuthContext()
+  // understands both; the scope ref is resolved per session type.
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) redirect('/restaurant/login')
 
-  const restaurantRef = await getRestaurantRef()
+  const restaurantRef = ctx.authType === 'disco'
+    ? await resolveDiscoScopeRef(ctx)
+    : await getRestaurantRef()
   if (!restaurantRef) redirect('/restaurant/select-location')
 
   let fmSlug: string | null = null
