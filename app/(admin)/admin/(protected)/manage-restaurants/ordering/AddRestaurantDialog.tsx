@@ -67,6 +67,9 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
   const [leadGenOne, setLeadGenOne] = useState('15')
   const [leadGenTwo, setLeadGenTwo] = useState('5')
 
+  // Create a Disco-native (Neon-only) restaurant instead of a FamilyMeal one.
+  const [discoNative, setDiscoNative] = useState(false)
+
   const [menuFile, setMenuFile] = useState<File | null>(null)
 
   const [submitting, setSubmitting] = useState(false)
@@ -123,6 +126,8 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
         // Stored as numbers (0-100), defaulting to 15 / 5.
         leadGenOne: pctOrDefault(leadGenOne, 15),
         leadGenTwo: pctOrDefault(leadGenTwo, 5),
+        // When set, /api/admin/restaurants creates a Neon-only restaurant (zero FM).
+        ...(discoNative ? { discoNative: true } : {}),
       }
       const fd = new FormData()
       fd.append('restaurant', new Blob([JSON.stringify(restaurant)], { type: 'application/json' }))
@@ -160,6 +165,12 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
           )}
 
           <SectionTitle>Restaurant</SectionTitle>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 12px', border: '1px solid #e6e6ef', borderRadius: 8, marginBottom: 14, cursor: 'pointer', background: discoNative ? '#f4f2fb' : '#fafafd' }}>
+            <input type="checkbox" checked={discoNative} onChange={e => setDiscoNative(e.target.checked)} style={{ marginTop: 2 }} />
+            <span style={{ fontSize: 12.5, color: '#444', lineHeight: 1.4 }}>
+              <strong style={{ color: DARK }}>Create as Disco-native</strong> — a Neon-only restaurant with no FamilyMeal record. Leave unchecked to create a FamilyMeal-backed restaurant (the default).
+            </span>
+          </label>
           <Field label="Business name *"><input style={input} value={businessName} onChange={e => setBusinessName(e.target.value)} /></Field>
           <Field label="Street address *"><input style={input} value={addressLine1} onChange={e => setAddressLine1(e.target.value)} placeholder="123 Main St" /></Field>
           <Field label="Suite / unit"><input style={input} value={addressLine2} onChange={e => setAddressLine2(e.target.value)} placeholder="Optional" /></Field>

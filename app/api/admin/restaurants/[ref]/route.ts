@@ -42,6 +42,33 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   const { ref } = await params
+
+  // Disco-native restaurants have no FM record — serve the edit form from Neon in
+  // the FM-shaped envelope the dialog reads (admin/address/businessName/leadGen).
+  // lat/lng/cuisine/description/image load separately from the restaurant-cache GET.
+  if (await isDiscoNativeNoFm(ref)) {
+    try {
+      const acc = (await sql`SELECT first_name, last_name, email, phone, restaurant_name, business_name, address FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
+      const cache = (await sql`SELECT name, slug, address, address_line2, city, state, zipcode, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
+      const ov = (await sql`SELECT lead_gen_one_pct, lead_gen_two_pct FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
+      const a = acc[0] || {}, c = cache[0] || {}, o = ov[0] || {}
+      return NextResponse.json({
+        businessName: c.name || a.restaurant_name || '',
+        businessNameWithoutSpaces: c.slug || '',
+        admin: { firstName: a.first_name || '', lastName: a.last_name || '', email: a.email || '', phoneNumber: a.phone || '' },
+        address: {
+          addressLine1: c.address || a.address || '', addressLine2: c.address_line2 || '',
+          city: c.city || '', state: c.state || '', zipcode: c.zipcode || '', phoneNumber: c.phone || a.phone || '',
+        },
+        leadGenOne: o.lead_gen_one_pct ?? 15,
+        leadGenTwo: o.lead_gen_two_pct ?? 5,
+      })
+    } catch (e) {
+      console.error('[admin/restaurants GET] native load failed:', e instanceof Error ? e.message : e)
+      return NextResponse.json({ error: 'Unable to load restaurant' }, { status: 500 })
+    }
+  }
+
   try {
     const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, { headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed to fetch restaurant' }, { status: res.status })
@@ -126,6 +153,49 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       incoming = JSON.parse(txt || '{}')
     } else {
       incoming = await req.json()
+    }
+
+    // Disco-native: write identity/address/lead-gen straight to Neon and return —
+    // FM has no record, so the FM GET→merge→PUT below would 404 and abort the save.
+    // (Premium/visibility, cuisine/description/image, and lat/lng are written by the
+    // dialog's follow-up overrides + cache PATCH calls, exactly as for FM-backed.)
+    if (await isDiscoNativeNoFm(ref)) {
+      const admin = (incoming.admin || {}) as Record<string, unknown>
+      const addr = (incoming.address || {}) as Record<string, unknown>
+      const s = (v: unknown) => (typeof v === 'string' ? v.trim() : v == null ? null : String(v))
+      const name = typeof incoming.businessName === 'string' ? incoming.businessName.trim() : null
+      const leadOne = incoming.leadGenOne != null ? Number(incoming.leadGenOne) : null
+      const leadTwo = incoming.leadGenTwo != null ? Number(incoming.leadGenTwo) : null
+      try {
+        await sql`
+          UPDATE disco_restaurant_accounts SET
+            first_name = ${s(admin.firstName)}, last_name = ${s(admin.lastName)},
+            email = COALESCE(${s(admin.email)}, email), phone = ${s(addr.phoneNumber)},
+            restaurant_name = COALESCE(${name}, restaurant_name), business_name = COALESCE(${name}, business_name),
+            address = ${s(addr.addressLine1)}
+          WHERE restaurant_reference = ${ref}
+        `
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (/unique|duplicate/i.test(msg)) return NextResponse.json({ error: 'That email is already used by another account.' }, { status: 409 })
+        throw e
+      }
+      await sql`
+        INSERT INTO disco_restaurant_cache (restaurant_reference, name, phone, address, address_line2, city, state, zipcode, cached_at)
+        VALUES (${ref}, ${name ?? 'Restaurant'}, ${s(addr.phoneNumber)}, ${s(addr.addressLine1)}, ${s(addr.addressLine2)}, ${s(addr.city)}, ${s(addr.state)}, ${s(addr.zipcode)}, NOW())
+        ON CONFLICT (restaurant_reference) DO UPDATE SET
+          name = COALESCE(${name}, disco_restaurant_cache.name),
+          phone = EXCLUDED.phone, address = EXCLUDED.address, address_line2 = EXCLUDED.address_line2,
+          city = EXCLUDED.city, state = EXCLUDED.state, zipcode = EXCLUDED.zipcode, cached_at = NOW()
+      `
+      await sql`
+        INSERT INTO disco_restaurant_overrides (restaurant_reference, lead_gen_one_pct, lead_gen_two_pct)
+        VALUES (${ref}, ${leadOne ?? 15}, ${leadTwo ?? 5})
+        ON CONFLICT (restaurant_reference) DO UPDATE SET
+          lead_gen_one_pct = COALESCE(${leadOne}, disco_restaurant_overrides.lead_gen_one_pct),
+          lead_gen_two_pct = COALESCE(${leadTwo}, disco_restaurant_overrides.lead_gen_two_pct)
+      `
+      return NextResponse.json({ ok: true })
     }
 
     // 1) GET the current full FM restaurant object.
