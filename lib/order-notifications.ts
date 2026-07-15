@@ -139,7 +139,14 @@ async function claimSlackNotified(orderReference: string): Promise<boolean> {
 // Dispatch all confirmations for a paid order. Fire-and-forget at the call site
 // (waitUntil). Does its own fetching; never throws. Sends at most once per order
 // thanks to claimConfirmationSend.
-export async function dispatchOrderConfirmations(orderId: number, source: string = 'STRIPE_WEBHOOK'): Promise<void> {
+// opts.force skips the once-only claim (for a deliberate admin resend);
+// opts.customerOnly sends just the customer confirmation email (no restaurant
+// email / SMS / Slack) and awaits it. Both default off — normal dispatch unchanged.
+export async function dispatchOrderConfirmations(
+  orderId: number,
+  source: string = 'STRIPE_WEBHOOK',
+  opts?: { force?: boolean; customerOnly?: boolean },
+): Promise<void> {
   try {
     const orders = (await sql`
       SELECT reference, order_number, order_type, delivery_type, source_of_order, order_date, order_time, delivery_time_window, note, created_at,
@@ -153,8 +160,9 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
     const o = orders[0]
 
     // One-time guard — skip if confirmations were already sent for this order.
+    // A forced resend (admin) deliberately bypasses the guard.
     const reference = o.reference ? String(o.reference) : ''
-    if (reference) {
+    if (reference && !opts?.force) {
       const won = await claimConfirmationSend(reference, source)
       if (!won) {
         console.log('[order-notifications] confirmations already sent, skipping:', reference)
@@ -282,9 +290,13 @@ export async function dispatchOrderConfirmations(orderId: number, source: string
 
     // Customer confirmation — needs a recipient.
     if (shared.userEmail) {
-      sendCustomerOrderConfirmation({ to: shared.userEmail, ...shared }).catch((err) =>
-        console.error('[order-notifications] customer confirmation email failed:', err),
-      )
+      const sendP = sendCustomerOrderConfirmation({ to: shared.userEmail, ...shared }).catch((err) => {
+        console.error('[order-notifications] customer confirmation email failed:', err)
+        return { success: false }
+      })
+      // Admin resend: send ONLY the customer email (await it so the caller knows it
+      // went) and skip the restaurant email / SMS / Slack below.
+      if (opts?.customerOnly) { await sendP; return }
     }
 
     // Restaurant notification — sent to EVERY address in the FM "Email Notification

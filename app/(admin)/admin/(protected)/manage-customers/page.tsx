@@ -163,6 +163,21 @@ function CustomersInner() {
   // Click-to-sort: null = FM's natural return order. One column at a time;
   // click cycles asc → desc → off.
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null)
+  const [resending, setResending] = useState<string | null>(null) // S7: email being re-sent
+
+  // S7: re-send the Disco order confirmation to a customer (their most recent order).
+  async function resendConfirmation(email: string) {
+    if (!email || resending) return
+    setResending(email)
+    try {
+      const res = await fetch('/api/admin/customers/resend-confirmation', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+      })
+      const d = await res.json().catch(() => ({}))
+      window.alert(res.ok ? `Confirmation re-sent to ${d.sentTo || email}.` : (d.error || 'Could not resend the confirmation.'))
+    } catch { window.alert('Could not resend the confirmation.') }
+    finally { setResending(null) }
+  }
 
   // Location filter: a Google Place selection → city+state we match against
   // each customer's LAST order's restaurant. FM returns no customer address, so
@@ -528,11 +543,12 @@ function CustomersInner() {
               <SortTh label="Type" k="type" sort={sort} onSort={toggleSort} />
               <SortTh label="# Orders" k="numberOfOrders" sort={sort} onSort={toggleSort} align="right" />
               <SortTh label="Total Spend" k="totalspend" sort={sort} onSort={toggleSort} align="right" />
+              <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 12, fontWeight: 600, color: '#888', borderBottom: '1px solid #eee' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !pageRows.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No customers.</td></tr>}
+            {loading && <tr><td colSpan={8} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !pageRows.length && <tr><td colSpan={8} style={{ ...cell, textAlign: 'center', color: '#999' }}>No customers.</td></tr>}
             {!loading && pageRows.map(r => (
               <tr key={r.customerReference}>
                 <td style={{ ...cell, fontWeight: 500 }}>{r.username}</td>
@@ -542,6 +558,15 @@ function CustomersInner() {
                 <td style={{ ...cell, color: '#666' }}>{custType(r.email)}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>{r.numberOfOrders ?? 0}</td>
                 <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>{fmtCurrency(r.totalspend)}</td>
+                <td style={{ ...cell, textAlign: 'right' }}>
+                  <button
+                    onClick={() => resendConfirmation(r.email)}
+                    disabled={!r.email || !(r.numberOfOrders > 0) || resending === r.email}
+                    title={!(r.numberOfOrders > 0) ? 'No orders to resend a confirmation for' : 'Re-send the confirmation email for this customer’s most recent order'}
+                    style={{ padding: '5px 10px', border: '1px solid #d7dbef', borderRadius: 7, background: '#fff', color: '#5B6FE8', fontSize: 12, fontWeight: 600, cursor: (!r.email || !(r.numberOfOrders > 0)) ? 'not-allowed' : 'pointer', opacity: (!r.email || !(r.numberOfOrders > 0)) ? 0.45 : 1, whiteSpace: 'nowrap' }}>
+                    {resending === r.email ? 'Sending…' : 'Resend confirmation'}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
