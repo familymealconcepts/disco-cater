@@ -298,6 +298,29 @@ function fmtTime(t?: string) {
 // row. Shows the order summary and (SUPER_ADMIN only) a "Transfer Order" action.
 function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { order: Order; isSuperAdmin: boolean; onClose: () => void; onTransferred: () => void }) {
   const [transferOpen, setTransferOpen] = useState(false)
+  const [refunding, setRefunding] = useState(false)
+
+  // Native orders only: a REAL Stripe refund via /api/admin/orders/{ref}/refund
+  // (FM orders are refunded on FM's side, unchanged). Minimal prompt-based flow —
+  // this is a rare, super-admin financial action.
+  async function doRefund() {
+    const max = order.total ?? order.transactionsTotal ?? 0
+    const input = window.prompt(`Refund amount for order ${order.orderNumber ? `#${order.orderNumber}` : ''} (max $${max.toFixed(2)}):`, max.toFixed(2))
+    if (input == null) return
+    const amount = Number(input)
+    if (!(amount > 0)) { window.alert('Enter a valid amount greater than 0.'); return }
+    if (!window.confirm(`Issue a REAL $${amount.toFixed(2)} refund to the customer? This moves money via Stripe and can't be undone here.`)) return
+    setRefunding(true)
+    try {
+      const res = await fetch(`/api/admin/orders/${order.orderReference}/refund`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (res.ok) { window.alert(d?.warning || `Refunded $${amount.toFixed(2)}.`); onTransferred(); onClose() }
+      else window.alert(d?.error || 'Refund failed.')
+    } catch { window.alert('Refund failed.') }
+    finally { setRefunding(false) }
+  }
   const detailRow = (label: string, value: React.ReactNode) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, padding: '10px 0', borderBottom: '1px solid #f2f2f5' }}>
       <span style={{ fontSize: 12, fontWeight: 600, color: '#888' }}>{label}</span>
@@ -322,11 +345,17 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
           {detailRow('Total', fmtCurrency(order.total ?? order.transactionsTotal ?? 0))}
         </div>
         {isSuperAdmin && (
-          <div style={{ padding: '16px 24px', borderTop: '1px solid #f0f0f0' }}>
+          <div style={{ padding: '16px 24px', borderTop: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button onClick={() => setTransferOpen(true)}
               style={{ width: '100%', padding: '11px 18px', border: 'none', borderRadius: 8, background: BLUE, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
               Transfer Order
             </button>
+            {order.native && order.orderStatus !== 'REFUNDED' && (
+              <button onClick={doRefund} disabled={refunding}
+                style={{ width: '100%', padding: '11px 18px', border: '1px solid #E7B4B6', borderRadius: 8, background: '#fff', color: '#C42A30', fontSize: 14, fontWeight: 700, cursor: refunding ? 'wait' : 'pointer', opacity: refunding ? 0.7 : 1, fontFamily: F }}>
+                {refunding ? 'Refunding…' : 'Refund (Stripe)'}
+              </button>
+            )}
           </div>
         )}
       </div>
