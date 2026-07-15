@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext, getFmHeaderForRestaurant, usesServiceAccount } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, getFmHeaderForRestaurant, usesServiceAccount, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
+import { sql } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -22,6 +24,43 @@ function deepMerge(base: unknown, patch: unknown): unknown {
 export async function GET() {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  // Disco-native restaurant: no FM record — the FM proxy below 404s, so the
+  // dashboard got an empty profile and its "your restaurant appears at …"
+  // marketplace link fell back to the generic list (RM9). Build the profile from
+  // Neon so the slug (and name) point at the restaurant's own marketplace page.
+  if (ctx.authType === 'disco') {
+    const scope = await resolveDiscoScopeRef(ctx)
+    if (scope && await isDiscoNativeRestaurant(scope)) {
+      const rows = (await sql`
+        SELECT c.name, c.slug, c.phone, c.address, c.city, c.state, c.zipcode,
+               a.email, a.first_name, a.last_name, a.business_name
+        FROM disco_restaurant_cache c
+        LEFT JOIN disco_restaurant_accounts a ON a.restaurant_reference = c.restaurant_reference
+        WHERE c.restaurant_reference = ${scope} LIMIT 1
+      `) as Array<Record<string, unknown>>
+      const r = rows[0] ?? {}
+      const slug = (r.slug as string) || ''
+      const name = (r.name as string) || (r.business_name as string) || ''
+      return NextResponse.json({
+        reference: scope,
+        name,
+        businessName: (r.business_name as string) || name,
+        businessNameWithoutSpaces: slug, // dashboard slug fallback + FM-shape parity
+        slug,
+        email: r.email ?? null,
+        firstName: r.first_name ?? null,
+        lastName: r.last_name ?? null,
+        phone: r.phone ?? null,
+        address: r.address ?? null,
+        city: r.city ?? null,
+        state: r.state ?? null,
+        zipcode: r.zipcode ?? null,
+        isDiscoNative: true,
+      })
+    }
+  }
+
   const authHeaders = await getFmHeaderForRestaurant(ctx)
 
   // Disco-only users hit the SUPER_ADMIN by-reference endpoint; FM users keep the
