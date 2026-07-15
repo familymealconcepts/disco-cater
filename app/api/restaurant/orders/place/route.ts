@@ -203,19 +203,27 @@ export async function POST(req: NextRequest) {
     const email = String(cust.email ?? '').trim()
     if (!email) return NextResponse.json({ error: 'A customer email is required.' }, { status: 400 })
 
-    const outcome = await placeNativeCheckout({
-      restaurantReference: restaurantRef,
-      customerEmail: email,
-      customerFirstName: (cust.firstName as string) ?? null,
-      customerLastName: (cust.lastName as string) ?? null,
-      customerPhone: (cust.phoneNumber as string) ?? null,
-      checkoutDetails: cd,
-      deliveryAddress: placeBody.deliveryAddress,
-      note: (placeBody.note as string) ?? null,
-      companyName: (placeBody.companyName as string) ?? null,
-      headcount: (placeBody.headcount ?? cd.headcount ?? null) as number | null,
-      stripe,
-    })
+    let outcome
+    try {
+      outcome = await placeNativeCheckout({
+        restaurantReference: restaurantRef,
+        customerEmail: email,
+        customerFirstName: (cust.firstName as string) ?? null,
+        customerLastName: (cust.lastName as string) ?? null,
+        customerPhone: (cust.phoneNumber as string) ?? null,
+        checkoutDetails: cd,
+        deliveryAddress: placeBody.deliveryAddress,
+        note: (placeBody.note as string) ?? null,
+        companyName: (placeBody.companyName as string) ?? null,
+        headcount: (placeBody.headcount ?? cd.headcount ?? null) as number | null,
+        stripe,
+      })
+    } catch (e) {
+      // Never swallow a native-placement failure — surface it so a live failure is
+      // diagnosable instead of a bare 500 (RM4 debugging).
+      console.error('[restaurant/orders/place] native placement threw:', restaurantRef, e instanceof Error ? (e.stack || e.message) : e)
+      return NextResponse.json({ error: 'Failed to place order', detail: e instanceof Error ? e.message : String(e) }, { status: 500 })
+    }
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status })
     const result = outcome.result
     return NextResponse.json({
@@ -277,8 +285,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (!res.ok) {
+      console.error('[restaurant/orders/place] FM rejected place:', res.status, restaurantRef, JSON.stringify(data).slice(0, 500))
+    }
     return NextResponse.json(data, { status: res.status })
-  } catch {
-    return NextResponse.json({ error: 'Failed to place order' }, { status: 500 })
+  } catch (e) {
+    console.error('[restaurant/orders/place] FM path threw:', e instanceof Error ? (e.stack || e.message) : e)
+    return NextResponse.json({ error: 'Failed to place order', detail: e instanceof Error ? e.message : String(e) }, { status: 500 })
   }
 }
