@@ -1305,13 +1305,19 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   {formatPrice(minOrder - subtotal)} more to meet the {formatPrice(minOrder)} minimum
                 </div>
               )}
-              {/* Order fallback (no fmRef): keep the customer on Disco Cater — the
-                  1P order page (/order/[slug]) — never hand off to familymeal.com. */}
+              {/* Order fallback (no fmRef): ordering can't be resolved for this
+                  restaurant, so show a friendly message + a browse link rather than
+                  a dead-end order button. Never hand off to familymeal.com. */}
               {!fmRef && (
-                <a href={slug ? `/order/${slug}` : '/fullmap'}
-                  style={{ display: 'block', textAlign: 'center', padding: '13px', background: BLUE, color: '#fff', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: F }}>
-                  Order Catering →
-                </a>
+                <div style={{ textAlign: 'center' }}>
+                  <p style={{ fontSize: 13, color: '#666', margin: '0 0 10px', lineHeight: 1.5 }}>
+                    This restaurant&apos;s ordering isn&apos;t available right now.
+                  </p>
+                  <a href="/fullmap"
+                    style={{ display: 'block', textAlign: 'center', padding: '13px', background: BLUE, color: '#fff', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: F }}>
+                    Browse other restaurants →
+                  </a>
+                </div>
               )}
             </div>
           </>
