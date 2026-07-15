@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendEmail } from '../../../../lib/email/send'
-import { generateReportCsv, isReportDue, reportPeriod, type ScheduledReportConfig } from '../../../../lib/reports/native-reports'
+import { buildReport, isReportDue, reportPeriod, type ScheduledReportConfig } from '../../../../lib/reports/native-reports'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -60,15 +60,15 @@ export async function GET(req: NextRequest) {
     let error = ''
     try {
       const period = reportPeriod(cfg.frequency, now)
-      const gen = await generateReportCsv(cfg, period)
+      const gen = await buildReport(cfg, period, r.file_type)
       rowCount = gen.rowCount
       if (recipients.length) {
-        const filename = `${r.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}_${period.from}_${period.to}.csv`
+        const filename = `${r.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}_${period.from}_${period.to}.${gen.ext}`
         const res = await sendEmail({
           to: recipients.join(','),
           subject: `${r.name} — ${period.from} to ${period.to} | Disco Cater`,
           html: `<p>Your scheduled report <strong>${r.name}</strong> for ${period.from} to ${period.to} is attached (${gen.rowCount} order${gen.rowCount === 1 ? '' : 's'}).</p>`,
-          attachments: [{ filename, content: gen.csv || 'No data for this period.', contentType: 'text/csv' }],
+          attachments: [{ filename, content: gen.body, contentType: gen.contentType }],
         })
         if (!res.success) { status = 'FAILED'; error = res.error || 'email failed' }
       }

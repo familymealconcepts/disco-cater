@@ -206,7 +206,7 @@ function ScheduledTab({ onEdit, onCreate }: { onEdit: (r: ReportPayload) => void
               <th style={colHead}>Frequency</th>
               <th style={colHead}>Time</th>
               <th style={colHead}>Timezone</th>
-              <th style={{ ...colHead, textAlign: 'right', width: 140 }}>Actions</th>
+              <th style={{ ...colHead, textAlign: 'right', width: 210 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -219,6 +219,7 @@ function ScheduledTab({ onEdit, onCreate }: { onEdit: (r: ReportPayload) => void
                 <td style={cell}>{fmtTime12(r.time)}</td>
                 <td style={{ ...cell, color: '#666' }}>{r.timezone}</td>
                 <td style={{ ...cell, textAlign: 'right' }}>
+                  <a href={`/api/restaurant/reports/scheduled/${r.reference}/download`} target="_blank" rel="noopener noreferrer" style={{ ...linkBtn, textDecoration: 'none', display: 'inline-block' }}>Download</a>
                   <button onClick={() => startEdit(r.reference)} style={linkBtn}>Edit</button>
                   <button onClick={() => deleteReport(r.reference, r.name)} style={{ ...linkBtn, color: '#E76F51' }}>Delete</button>
                 </td>

@@ -1,6 +1,7 @@
 // Native Scheduled Reports for disco — the report column catalog, CSV generation
 // from disco_orders, and the "is this report due now?" scheduling check. Used by
 // the reports CRUD routes and the /api/cron/scheduled-reports cron. Zero FM.
+import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib'
 import { sql } from '../db'
 
 export interface ReportColumn { category: string; key: string; displayLabel: string }
@@ -52,15 +53,22 @@ export function reportPeriod(frequency: string, now: Date): { from: string; to: 
   return { from, to }
 }
 
-// Generate the report CSV from disco_orders for the given config + period.
-export async function generateReportCsv(
+const MONEY_KEYS = new Set(['subtotal', 'tax', 'total'])
+
+// Fetch the report rows + resolved column list from disco_orders for the given
+// config + period. Shared by both the CSV and PDF generators so the two formats
+// always contain identical data.
+async function fetchReportRows(
   cfg: ScheduledReportConfig,
   period: { from: string; to: string },
-): Promise<{ csv: string; rowCount: number }> {
+): Promise<{ rows: OrderRow[]; useCols: string[] }> {
+  const cols = (cfg.columns || []).filter(k => COLUMN_LABEL[k])
+  const useCols = cols.length ? cols : REPORT_COLUMNS.map(c => c.key)
+
   const refs = (cfg.ownerReferences || []).filter(Boolean)
   const locFilter = (cfg.filter?.locationReferenceIds || []).filter(Boolean)
   const scopeRefs = locFilter.length ? locFilter : refs
-  if (!scopeRefs.length) return { csv: '', rowCount: 0 }
+  if (!scopeRefs.length) return { rows: [], useCols }
 
   const byCreated = cfg.filter?.dateType === 'createdDate'
   const statuses = (cfg.filter?.orderStatuses || []).filter(Boolean)
@@ -90,12 +98,113 @@ export async function generateReportCsv(
     ORDER BY o.order_date DESC NULLS LAST, o.created_at DESC
   `) as OrderRow[]
 
-  const cols = (cfg.columns || []).filter(k => COLUMN_LABEL[k])
-  const useCols = cols.length ? cols : REPORT_COLUMNS.map(c => c.key)
-  const moneyKeys = new Set(['subtotal', 'tax', 'total'])
+  return { rows, useCols }
+}
+
+// Generate the report CSV from disco_orders for the given config + period.
+export async function generateReportCsv(
+  cfg: ScheduledReportConfig,
+  period: { from: string; to: string },
+): Promise<{ csv: string; rowCount: number }> {
+  const { rows, useCols } = await fetchReportRows(cfg, period)
   const header = useCols.map(k => csvCell(COLUMN_LABEL[k])).join(',')
-  const lines = rows.map(r => useCols.map(k => csvCell(moneyKeys.has(k) ? money(r[k]) : r[k])).join(','))
+  const lines = rows.map(r => useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(r[k]) : r[k])).join(','))
   return { csv: [header, ...lines].join('\n'), rowCount: rows.length }
+}
+
+// ── PDF generation (pure-JS via pdf-lib — no native deps, serverless-safe; same
+// approach as lib/order/order-pdf.ts). Renders the selected columns as a
+// landscape table that auto-paginates. ──
+const PDF_GRAD = rgb(0.42, 0.43, 0.98) // #6B6EF9
+const PDF_DARK = rgb(0.10, 0.06, 0.16) // #1A1028
+const PDF_GREY = rgb(0.42, 0.42, 0.42)
+const PDF_RULE = rgb(0.85, 0.85, 0.88)
+const PDF_ZEBRA = rgb(0.96, 0.96, 0.98)
+
+// Relative column widths so wide fields (name/email) get room and money stays tight.
+const PDF_COL_WEIGHT: Record<string, number> = {
+  orderNumber: 1.1, orderDate: 1, createdDate: 1, orderType: 0.9, deliveryType: 1.3,
+  orderStatus: 1, customerName: 1.7, customerEmail: 2.2, customerPhone: 1.3,
+  subtotal: 0.9, tax: 0.8, total: 0.9,
+}
+
+function truncateToWidth(text: string, font: PDFFont, size: number, maxW: number): string {
+  if (maxW <= 0 || font.widthOfTextAtSize(text, size) <= maxW) return text
+  let t = text
+  while (t.length > 1 && font.widthOfTextAtSize(t + '…', size) > maxW) t = t.slice(0, -1)
+  return t + '…'
+}
+
+// Generate the report PDF from disco_orders for the given config + period.
+export async function generateReportPdf(
+  cfg: ScheduledReportConfig,
+  period: { from: string; to: string },
+): Promise<{ pdf: Uint8Array; rowCount: number }> {
+  const { rows, useCols } = await fetchReportRows(cfg, period)
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
+
+  const W = 792, H = 612, M = 40, availW = W - 2 * M // US Letter landscape
+  const SIZE = 8, PAD = 4, ROW_H = 15, BOTTOM = M + 4
+  const totalWeight = useCols.reduce((s, k) => s + (PDF_COL_WEIGHT[k] ?? 1), 0) || 1
+  const colW = useCols.map(k => (PDF_COL_WEIGHT[k] ?? 1) / totalWeight * availW)
+  const colX: number[] = []
+  let acc = M
+  for (const w of colW) { colX.push(acc); acc += w }
+
+  let page = doc.addPage([W, H])
+  let y = H - M
+
+  const cell = (text: string, i: number, atY: number, opts: { font?: PDFFont; align?: 'l' | 'r'; color?: ReturnType<typeof rgb> } = {}) => {
+    const f = opts.font ?? font
+    const t = truncateToWidth(text, f, SIZE, colW[i] - PAD * 2)
+    const x = opts.align === 'r' ? colX[i] + colW[i] - PAD - f.widthOfTextAtSize(t, SIZE) : colX[i] + PAD
+    page.drawText(t, { x, y: atY, size: SIZE, font: f, color: opts.color ?? PDF_DARK })
+  }
+
+  const drawTableHead = () => {
+    page.drawText('disco cater', { x: M, y, size: 13, font: bold, color: PDF_GRAD })
+    const meta = `${period.from} to ${period.to}  ·  ${rows.length} order${rows.length === 1 ? '' : 's'}`
+    page.drawText(meta, { x: W - M - font.widthOfTextAtSize(meta, 9), y, size: 9, font, color: PDF_GREY })
+    y -= 18
+    page.drawText(truncateToWidth(cfg.name || 'Report', bold, 12, availW * 0.7), { x: M, y, size: 12, font: bold, color: PDF_DARK })
+    y -= 16
+    useCols.forEach((k, i) => cell(COLUMN_LABEL[k], i, y, { font: bold, align: MONEY_KEYS.has(k) ? 'r' : 'l' }))
+    y -= 6
+    page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.8, color: PDF_RULE })
+    y -= 12
+  }
+
+  drawTableHead()
+  rows.forEach((r, idx) => {
+    if (y < BOTTOM) { page = doc.addPage([W, H]); y = H - M; drawTableHead() }
+    if (idx % 2 === 1) page.drawRectangle({ x: M, y: y - 4, width: availW, height: ROW_H, color: PDF_ZEBRA })
+    useCols.forEach((k, i) => {
+      const isMoney = MONEY_KEYS.has(k)
+      const raw = isMoney ? (r[k] == null || r[k] === '' ? '' : `$${Number(r[k]).toFixed(2)}`) : String(r[k] ?? '')
+      cell(raw, i, y, { align: isMoney ? 'r' : 'l' })
+    })
+    y -= ROW_H
+  })
+  if (!rows.length) page.drawText('No data for this period.', { x: M, y: y - 4, size: 10, font, color: PDF_GREY })
+
+  return { pdf: await doc.save(), rowCount: rows.length }
+}
+
+// Unified entry: build the report body in the requested format, with the right
+// content-type + file extension. Used by the cron email + the on-demand download.
+export async function buildReport(
+  cfg: ScheduledReportConfig,
+  period: { from: string; to: string },
+  fileType: string,
+): Promise<{ body: string | Uint8Array; contentType: string; ext: 'pdf' | 'csv'; rowCount: number }> {
+  if (fileType === 'PDF') {
+    const { pdf, rowCount } = await generateReportPdf(cfg, period)
+    return { body: pdf, contentType: 'application/pdf', ext: 'pdf', rowCount }
+  }
+  const { csv, rowCount } = await generateReportCsv(cfg, period)
+  return { body: csv || 'No data for this period.', contentType: 'text/csv', ext: 'csv', rowCount }
 }
 
 // Local wall-clock parts (weekday 0=Sun..6=Sat, day-of-month, hour) in a timezone.
