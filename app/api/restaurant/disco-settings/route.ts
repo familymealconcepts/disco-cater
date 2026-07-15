@@ -36,7 +36,18 @@ export async function PUT(req: NextRequest) {
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
-  const onlineOrdering = body?.onlineOrderingEnabled === true
+  let onlineOrdering = body?.onlineOrderingEnabled === true
+  // RM2: online ordering requires a connected + onboarding-complete Stripe account
+  // (mirrors the FM-backed settings gate). Enforced server-side so a direct API call
+  // can't enable it without a payout path — force it off when Stripe isn't ready.
+  if (onlineOrdering) {
+    const acct = (await sql`
+      SELECT stripe_account_id, stripe_onboarding_complete
+      FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
+    `.catch(() => [])) as { stripe_account_id: string | null; stripe_onboarding_complete: boolean | null }[]
+    const stripeReady = !!acct[0]?.stripe_account_id && acct[0]?.stripe_onboarding_complete === true
+    if (!stripeReady) onlineOrdering = false
+  }
   const window = WINDOWS.has(String(body?.deliveryOrderTimeWindows)) ? String(body.deliveryOrderTimeWindows) : 'exact'
   const taxRates = body?.taxRates != null ? JSON.stringify(body.taxRates) : null
   const emails = String(body?.notificationEmails || '').trim() || null

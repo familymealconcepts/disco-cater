@@ -24,6 +24,8 @@ export default function RestaurantSettingsPage() {
   const [urlSlug, setUrlSlug] = useState('')     // editable Disco Cater URL slug
   const [urlError, setUrlError] = useState('')
   const [onlineOrdering, setOnlineOrdering] = useState(true)
+  const [stripeConnected, setStripeConnected] = useState(false)   // RM2 gate
+  const [marketplaceVisible, setMarketplaceVisible] = useState(false) // RM3
   const [notificationEmails, setNotificationEmails] = useState('')
   const [textNotifications, setTextNotifications] = useState(false)
   const [notificationSms, setNotificationSms] = useState('')
@@ -45,12 +47,16 @@ export default function RestaurantSettingsPage() {
   async function load() {
     setLoading(true)
     try {
-      const [s, c] = await Promise.all([
+      const [s, c, st, mv] = await Promise.all([
         fetch('/api/restaurant/disco-settings').then(r => r.json()),
         fetch('/api/restaurant/disco-closed-days').then(r => r.json()),
+        fetch('/api/restaurant/stripe-status').then(r => r.ok ? r.json() : { connected: false }).catch(() => ({ connected: false })),
+        fetch('/api/restaurant/marketplace-visibility').then(r => r.ok ? r.json() : { visible: false }).catch(() => ({ visible: false })),
       ])
       const set = s.settings || {}
       setSlug(s.slug || null); setUrlSlug(s.slug || ''); setUrlError('')
+      setStripeConnected(!!st.connected)
+      setMarketplaceVisible(!!mv.visible)
       setOnlineOrdering(set.online_ordering_enabled !== false)
       setNotificationEmails(set.notification_emails || '')
       setTextNotifications(set.text_notifications_enabled === true)
@@ -133,6 +139,18 @@ export default function RestaurantSettingsPage() {
     setHolidays(prev => { const n = new Set(prev); on ? n.add(name) : n.delete(name); return n })
   }
 
+  // RM3: marketplace visibility is an immediate action (not part of the batch
+  // Save), matching the FM settings page. Optimistic with revert on failure.
+  async function toggleMarketplace(v: boolean) {
+    setMarketplaceVisible(v)
+    try {
+      const res = await fetch('/api/restaurant/marketplace-visibility', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: v }),
+      })
+      if (!res.ok) setMarketplaceVisible(!v)
+    } catch { setMarketplaceVisible(!v) }
+  }
+
   const card: React.CSSProperties = { background: '#fff', borderRadius: 12, border: '1px solid #eee', padding: '22px 26px', marginBottom: 18 }
   const label: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 6 }
   const input: React.CSSProperties = { width: '100%', padding: '10px 12px', fontSize: 13, fontFamily: F, border: '1px solid #ddd', borderRadius: 8, boxSizing: 'border-box' }
@@ -156,10 +174,24 @@ export default function RestaurantSettingsPage() {
         <button onClick={save} disabled={saving} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: saving ? 0.6 : 1, boxShadow: '0 2px 8px rgba(107,110,249,0.25)' }}>{saving ? 'Saving…' : 'Save'}{flash && <span style={{ marginLeft: 8 }}>✓ {flash}</span>}</button>
       </div>
 
-      {/* 1 — Online Ordering */}
+      {/* 1 — Online Ordering (RM2: requires a connected Stripe account) */}
       <div style={card}>
         <div style={h2}>Online Ordering</div>
-        {toggle(onlineOrdering, setOnlineOrdering, 'Accept online orders')}
+        {toggle(onlineOrdering, (v) => { if (v && !stripeConnected) return; setOnlineOrdering(v) }, 'Accept online orders')}
+        {!stripeConnected && (
+          <p style={{ fontSize: 12, color: '#E76F51', margin: '8px 0 0' }}>
+            Connect a Stripe account in Banking to enable online ordering.
+          </p>
+        )}
+      </div>
+
+      {/* Disco Cater Marketplace visibility (RM3) — immediate toggle. */}
+      <div style={card}>
+        <div style={h2}>Disco Cater Marketplace</div>
+        {toggle(marketplaceVisible, toggleMarketplace, 'List my restaurant on the Disco Cater marketplace')}
+        <p style={{ fontSize: 12, color: '#999', margin: '8px 0 0' }}>
+          You appear on the marketplace only when this is on, online ordering is enabled, and your Stripe account is connected.
+        </p>
       </div>
 
       {/* 2 — Disco Cater URL */}
