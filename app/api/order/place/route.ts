@@ -501,7 +501,12 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json(data, { status: res.status })
-  } catch {
-    return NextResponse.json({ error: 'Failed to place order' }, { status: 500 })
+  } catch (e) {
+    // DIAGNOSTIC: surface the real error instead of swallowing it. The previous
+    // empty catch hid FM/JSON failures behind a bare 500, making live order
+    // failures impossible to diagnose. Log the full error + return its message.
+    const detail = e instanceof Error ? e.message : String(e)
+    console.error('[order/place] FAILED:', detail, e instanceof Error ? e.stack : '')
+    return NextResponse.json({ error: 'Failed to place order', detail }, { status: 500 })
   }
 }
