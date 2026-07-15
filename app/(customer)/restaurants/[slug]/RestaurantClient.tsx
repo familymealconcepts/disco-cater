@@ -1305,9 +1305,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   {formatPrice(minOrder - subtotal)} more to meet the {formatPrice(minOrder)} minimum
                 </div>
               )}
-              {/* FM link fallback (no fmRef) */}
+              {/* Order fallback (no fmRef): keep the customer on Disco Cater — the
+                  1P order page (/order/[slug]) — never hand off to familymeal.com. */}
               {!fmRef && (
-                <a href={fmSlug ? `https://www.familymeal.com/disco/${fmSlug}` : '#'} target="_blank" rel="noopener noreferrer"
+                <a href={slug ? `/order/${slug}` : '/fullmap'}
                   style={{ display: 'block', textAlign: 'center', padding: '13px', background: BLUE, color: '#fff', borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: F }}>
                   Order Catering →
                 </a>

@@ -581,7 +581,10 @@ export async function RestaurantView({
     image: fmRestaurant.image?.reference
       ? { asset: { url: `${FM_IMG}/public-api/images/${fmRestaurant.image.reference}/download?size=600` } }
       : undefined,
-    orderUrl: `https://www.familymeal.com/${fmRestaurant.businessNameWithoutSpaces || slug}`,
+    // Keep every order/link button on Disco Cater — never hand off to
+    // familymeal.com. Ordering itself still uses the FM reference passed to
+    // RestaurantClient; this only controls where the list/map "Order" buttons point.
+    orderUrl: `/restaurants/${slug}`,
     isDisco: false,
     // City/State so the header never renders blank if the full address is empty.
     location: cityState(fmDetail?.address) || undefined,
