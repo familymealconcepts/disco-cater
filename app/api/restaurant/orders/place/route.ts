@@ -1,13 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { randomUUID } from 'node:crypto'
+import Stripe from 'stripe'
 import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { getCallerScopeRefs } from '../../../../../lib/order/order-scope'
+import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
+import { placeNativeCheckout } from '../../../../../lib/order/native-place-checkout'
 import { sanitizePhoneFields } from '../../../../../lib/utils/phone'
 import { sql } from '../../../../../lib/db'
 
 export const runtime = 'nodejs'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+function stripeClient(): Stripe | null {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key) return null
+  return new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
+}
 
 // disco_orders.order_status CHECK set (001_disco_orders.sql).
 const ALLOWED_STATUS = new Set([
@@ -155,21 +166,76 @@ async function sendOrderUpdatedSlack(o: {
 // app/api/order/place is auth: restaurant token (cookie) instead of the
 // customer token, so portal staff can place on behalf of a customer.
 export async function POST(req: NextRequest) {
+  const ctx = await getRestaurantAuthContext()
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  let body: Record<string, unknown>
+  try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid request body' }, { status: 400 }) }
+  // editSlack is a Disco-only marker for the edit-commit flow — pull it out so
+  // it's never forwarded to FM, and so its presence gates the "Order Updated"
+  // Slack ping (the new-order direct-entry flow never sends it).
+  const { restaurantRef, orderRef, editSlack, ...placeBody } = body as {
+    restaurantRef?: string; orderRef?: string; editSlack?: unknown; [k: string]: unknown
+  }
+  if (!restaurantRef || !orderRef) {
+    return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
+  }
+
+  // ── Disco-native Direct Entry: place in Neon/Stripe (zero FM) — RM4. The FM
+  // proxy below has no native record and fails; the restaurant admin places on
+  // behalf of a walk-in/phone customer, so the customer identity comes from the
+  // entered form (not a diner session). Uses the SAME placeNativeCheckout helper
+  // as the customer flow, and only for a restaurant the caller actually owns.
+  if (await isDiscoNativeRestaurant(restaurantRef)) {
+    const scope = await getCallerScopeRefs(ctx)
+    if (!scope.has(restaurantRef.toLowerCase())) {
+      return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+    }
+    const cd = (placeBody.checkoutDetails ?? {}) as Record<string, unknown>
+    // Invoice (unpaid + emailed payment link) isn't built for native yet — be
+    // explicit rather than silently failing at FM.
+    if (String(cd.paymentMethod ?? '').toUpperCase() === 'INVOICE') {
+      return NextResponse.json({ error: 'Invoice orders aren’t available for Disco-native restaurants yet — use the Payment method.' }, { status: 400 })
+    }
+    const stripe = stripeClient()
+    if (!stripe) return NextResponse.json({ error: 'Payment is temporarily unavailable.' }, { status: 503 })
+    const cust = (placeBody.customer ?? {}) as Record<string, unknown>
+    const email = String(cust.email ?? '').trim()
+    if (!email) return NextResponse.json({ error: 'A customer email is required.' }, { status: 400 })
+
+    const outcome = await placeNativeCheckout({
+      restaurantReference: restaurantRef,
+      customerEmail: email,
+      customerFirstName: (cust.firstName as string) ?? null,
+      customerLastName: (cust.lastName as string) ?? null,
+      customerPhone: (cust.phoneNumber as string) ?? null,
+      checkoutDetails: cd,
+      deliveryAddress: placeBody.deliveryAddress,
+      note: (placeBody.note as string) ?? null,
+      companyName: (placeBody.companyName as string) ?? null,
+      headcount: (placeBody.headcount ?? cd.headcount ?? null) as number | null,
+      stripe,
+    })
+    if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status })
+    const result = outcome.result
+    return NextResponse.json({
+      native: true,
+      orderReference: result.orderReference,
+      orderNumber: result.orderNumber,
+      paymentIntentId: result.paymentIntentId,
+      clientSecret: result.clientSecret,
+      withheld: result.withheld,
+      breakdown: result.breakdown,
+    })
+  }
+
+  // ── FM-backed Direct Entry (existing) ──
   let authHeaders: Record<string, string>
   try { authHeaders = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
   try {
-    const body = await req.json()
-    // editSlack is a Disco-only marker for the edit-commit flow — pull it out so
-    // it's never forwarded to FM, and so its presence gates the "Order Updated"
-    // Slack ping (the new-order direct-entry flow never sends it).
-    const { restaurantRef, orderRef, editSlack, ...placeBody } = body
-    if (!restaurantRef || !orderRef) {
-      return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
-    }
-
     // FM rejects formatted phone numbers — digits only. Sanitize every phone
     // field in the place payload before FM (mutates placeBody → Neon mirror too).
     sanitizePhoneFields(placeBody)

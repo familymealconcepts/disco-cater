@@ -8,10 +8,9 @@ import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib/promo-apply'
 import { geocodeAddress } from '../../../../lib/geocode'
-import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart, loadRestaurantServiceChargePct, cartSubtotal, isNativeOrderingOpen, isNativeDateClosed } from '../../../../lib/order/native-checkout'
+import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
+import { placeNativeCheckout } from '../../../../lib/order/native-place-checkout'
 import { getCustomerSession } from '../../../../lib/customer-auth'
-import { validateNativeDelivery } from '../../../../lib/order/native-delivery'
-import type { Fulfillment } from '../../../../lib/pricing/native-order'
 import { alertOps } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
@@ -276,18 +275,6 @@ export async function POST(req: NextRequest) {
     // Disco session (not an FM JWT). Returns the PaymentIntent client_secret for the
     // browser to confirm; the webhook flips RESERVED→DUE on success. ──
     if (body?.restaurantRef && await isDiscoNativeRestaurant(body.restaurantRef)) {
-      // Online-ordering hard gate: a paused restaurant can never take an order.
-      if (!(await isNativeOrderingOpen(body.restaurantRef))) {
-        return NextResponse.json({ error: 'This restaurant is not currently accepting online orders.' }, { status: 403 })
-      }
-      // Reject a closed date up front (before login) — server backup for the Closed
-      // Days / Closed Holidays block (the customer date picker already hides these).
-      const rawDate = String((body?.checkoutDetails as Record<string, unknown> | undefined)?.orderDate ?? body?.orderDate ?? '')
-      const dmDate = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(rawDate)
-      const orderDate = dmDate ? `${dmDate[3]}-${dmDate[2]}-${dmDate[1]}` : rawDate
-      if (await isNativeDateClosed(body.restaurantRef, orderDate)) {
-        return NextResponse.json({ error: 'This restaurant is closed on the selected date.' }, { status: 403 })
-      }
       const session = await getCustomerSession(req)
       if (!session?.email) {
         return NextResponse.json({ error: 'Please log in to place your order.' }, { status: 401 })
@@ -295,25 +282,6 @@ export async function POST(req: NextRequest) {
       const stripe = stripeClient()
       if (!stripe) return NextResponse.json({ error: 'Payment is temporarily unavailable.' }, { status: 503 })
 
-      const cd = (body?.checkoutDetails ?? {}) as Record<string, unknown>
-      const orderTypeRaw = String(cd.orderType ?? body?.orderType ?? (body?.deliveryAddress ? 'DELIVERY' : 'PICKUP'))
-      const tips = Number(cd.tips ?? body?.tips) || 0
-      const tipsType = String(cd.tipsType ?? body?.tipsType ?? 'PERCENTAGE')
-      const items = fmItemsToNativeCart((cd.items ?? body?.items) as Parameters<typeof fmItemsToNativeCart>[0])
-
-      // Fulfillment + delivery fee: for a delivery order, resolve the method
-      // (own vs third-party) + fee authoritatively from the menu's delivery
-      // settings + the real distance/subtotal (the client never dictates them).
-      let fulfillment: Fulfillment = 'PICKUP'
-      let deliveryFee = 0
-      let thirdPartyDeliverySubsiding = 0
-      if (orderTypeRaw === 'DELIVERY') {
-        const dv = await validateNativeDelivery(body.restaurantRef, body?.deliveryAddress || {}, cartSubtotal(items))
-        if (!dv.valid) return NextResponse.json({ error: dv.message || 'That delivery address is not serviceable.' }, { status: 400 })
-        fulfillment = dv.fulfillment
-        deliveryFee = dv.deliveryFee // customer-facing (third-party: net of subsidy)
-        thirdPartyDeliverySubsiding = dv.thirdPartyDeliverySubsiding
-      }
       // Saved card (Disco vault): resolve the customer's default vault card
       // server-side — never trust client-supplied Stripe ids. The native PI is
       // created with THIS customer so the browser can confirm with the vault
@@ -335,26 +303,26 @@ export async function POST(req: NextRequest) {
         savedPaymentMethodId = card.stripe_payment_method_id
       }
 
-      const result = await placeAndPayNativeOrder({
+      // Place natively via the shared helper (gates → items → delivery → priced
+      // PaymentIntent-backed placement) — identical to Direct Entry so the two
+      // money paths can't drift. Customer identity comes from the Disco session.
+      const cd = (body?.checkoutDetails ?? {}) as Record<string, unknown>
+      const outcome = await placeNativeCheckout({
         restaurantReference: body.restaurantRef,
         customerEmail: session.email,
         customerFirstName: session.firstName ?? body?.customer?.firstName ?? null,
         customerLastName: session.lastName ?? body?.customer?.lastName ?? null,
         customerPhone: body?.customer?.phoneNumber ?? null,
-        fulfillment,
-        items,
-        tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
-        deliveryFee, // resolved above from the menu's delivery settings + distance
-        thirdPartyDeliverySubsiding, // restaurant's subsidy share → withheld from its payout
-        scPct: await loadRestaurantServiceChargePct(body.restaurantRef), // authoritative: from the menu, not the client
-
-        orderDate,
-        orderTime: String(cd.orderTime ?? body?.orderTime ?? ''),
+        checkoutDetails: cd,
         deliveryAddress: body?.deliveryAddress,
         note: body?.note ?? null,
         companyName: body?.companyName ?? null,
-        persons: (body?.headcount ?? cd.headcount ?? null) as number | null,
-      }, stripe, savedOpts)
+        headcount: (body?.headcount ?? cd.headcount ?? null) as number | null,
+        stripe,
+        savedOpts,
+      })
+      if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status })
+      const result = outcome.result
 
       return NextResponse.json({
         native: true,
