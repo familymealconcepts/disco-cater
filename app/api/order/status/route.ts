@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getFmCustomerJwt, getCustomerSession } from '../../../../lib/customer-auth'
+import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getCallerScopeRefs } from '../../../../lib/order/order-scope'
 import { sql } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -54,9 +56,23 @@ export async function GET(req: NextRequest) {
       `) as Array<Record<string, unknown>>
       const nr = nativeRows[0]
       if (nr) {
+        // Authorize the viewer: EITHER the order's own customer (a diner viewing
+        // their confirmation) OR the restaurant that owns the order (Direct Entry —
+        // the admin placed it on a walk-in's behalf and views the confirmation with
+        // a restaurant session, not a customer session — so the C4 customer-only
+        // check 401'd and the page showed "couldn't load your order details").
         const session = await getCustomerSession(req)
-        if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-        if ((session.email || '').toLowerCase() !== String(nr.customer_email || '').toLowerCase()) {
+        const customerOwns = !!session
+          && (session.email || '').toLowerCase() === String(nr.customer_email || '').toLowerCase()
+        let restaurantOwns = false
+        if (!customerOwns) {
+          const ctx = await getRestaurantAuthContext()
+          if (ctx) {
+            const scope = await getCallerScopeRefs(ctx)
+            restaurantOwns = scope.has(String(nr.restaurant_reference || '').toLowerCase())
+          }
+        }
+        if (!customerOwns && !restaurantOwns) {
           return NextResponse.json({ error: 'Order not found' }, { status: 404 })
         }
         const stRows = (await sql`
