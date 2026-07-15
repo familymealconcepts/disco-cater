@@ -404,14 +404,16 @@ export async function applyPendingEdit(args: {
 
   // Replace disco_order_items from the edited lines (best-effort).
   if (lines.length) {
-    await sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`.catch(e => console.error('[applyPendingEdit] items delete:', e))
+    // Atomic replace so a failed insert can't leave the order with missing items (I4).
+    const stmts = [sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`]
     for (const l of lines) {
       const unit = n(l.price); const qty = Math.max(1, Math.trunc(n(l.quantity) || 1))
-      await sql`
+      stmts.push(sql`
         INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
         VALUES (${orderId}, ${l.reference || null}, ${String(l.name || l.reference || 'Item')}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100})
-      `.catch(e => console.error('[applyPendingEdit] item insert:', e))
+      `)
     }
+    await sql.transaction(stmts).catch(e => console.error('[applyPendingEdit] items replace failed:', e))
   }
 
   // Mark the pending edit row succeeded; record the invoice payment.

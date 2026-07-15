@@ -120,16 +120,19 @@ async function syncOrderItems(orderId: number, fmRef: string): Promise<void> {
   if (!details) return
   const items = parseFmOrder(details).items
   if (!items.length) return
-  await sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`.catch(() => {})
+  // Atomic replace: DELETE + all INSERTs in one transaction, so a failed insert
+  // can never leave the order with missing items (I4).
+  const stmts = [sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`]
   for (const it of items) {
     const unit = n(it.price)
     const qty = Math.max(1, Math.trunc(n(it.count) || 1))
     const serves = it.serves != null ? (parseInt(String(it.serves).match(/\d+/)?.[0] || '', 10) || null) : null
-    await sql`
+    stmts.push(sql`
       INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, serves)
       VALUES (${orderId}, ${it.reference || null}, ${it.name || it.reference || 'Item'}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100}, ${serves})
-    `.catch(e => console.error('[fm-orders-sync] item insert:', e instanceof Error ? e.message : e))
+    `)
   }
+  await sql.transaction(stmts).catch(e => console.error('[fm-orders-sync] items replace failed:', e instanceof Error ? e.message : e))
 }
 
 interface ExistingRow { id: number; source_of_order: string; edit_count: number | null; edit_status: string | null }

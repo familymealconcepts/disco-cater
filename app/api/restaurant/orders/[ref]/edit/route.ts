@@ -182,15 +182,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // edited items right away, even while the delta invoice is outstanding).
   async function writeNeonItems(): Promise<void> {
     if (!discoOrder) return
-    await sql`DELETE FROM disco_order_items WHERE order_id = ${discoOrder.id}`.catch(e => console.error('[orders/edit] items delete:', e))
+    // Atomic replace so a failed insert can't leave the order with missing items (I4).
+    const stmts = [sql`DELETE FROM disco_order_items WHERE order_id = ${discoOrder.id}`]
     for (const l of activeLines) {
       const unit = Number(l.price) || 0
-      await sql`
+      stmts.push(sql`
         INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price, serves)
         VALUES (${discoOrder.id}, ${l.reference || null}, ${l.name}, ${Math.max(1, Math.trunc(Number(l.quantity) || 1))},
                 ${unit}, ${round2(unit * (Number(l.quantity) || 0))}, ${servesToInt(l.serves)})
-      `.catch(e => console.error('[orders/edit] item insert:', e))
+      `)
     }
+    await sql.transaction(stmts).catch(e => console.error('[orders/edit] items replace failed:', e))
   }
 
   // Persist the edited items into disco_order_items (replace) + the recalculated

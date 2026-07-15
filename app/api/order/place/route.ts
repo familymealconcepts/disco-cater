@@ -244,16 +244,18 @@ async function mirrorOrderToNeon(args: {
     // (c) disco_order_items — replace (no natural unique key for ON CONFLICT, so
     // delete-then-insert keeps the mirror idempotent across retries).
     if (items.length) {
-      await sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`
+      // Atomic replace so a failed insert can't leave the order with missing items (I4).
+      const stmts = [sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`]
       for (const it of items) {
         const name = str(it.name) || str(it.reference) || 'Item'
         const qty = Math.max(1, Math.trunc(num(it.count ?? it.quantity) || 1))
         const unit = num(it.price)
-        await sql`
+        stmts.push(sql`
           INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
           VALUES (${orderId}, ${str(it.reference)}, ${name}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100})
-        `
+        `)
       }
+      await sql.transaction(stmts)
     }
   } catch (e) {
     // A paid FM order that failed to mirror can go invisible on Disco's side.

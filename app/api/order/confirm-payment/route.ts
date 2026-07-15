@@ -97,15 +97,17 @@ async function ensureRowFromPlaced(orderReference: string, p: PlacedOrderFallbac
     `.catch(e => { console.error('[order/confirm-payment] fallback insert failed:', e instanceof Error ? e.message : e); return [] })) as { id: number }[]
     const id = rows[0]?.id ?? null
     if (id && Array.isArray(p.items) && p.items.length) {
-      await sql`DELETE FROM disco_order_items WHERE order_id = ${id}`.catch(() => {})
+      // Atomic replace so a failed insert can't leave the order with missing items (I4).
+      const stmts = [sql`DELETE FROM disco_order_items WHERE order_id = ${id}`]
       for (const it of p.items) {
         const qty = Math.max(1, Math.trunc(Number(it.count) || 1))
         const unit = Number(it.price) || 0
-        await sql`
+        stmts.push(sql`
           INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
           VALUES (${id}, ${it.reference || null}, ${it.name || 'Item'}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100})
-        `.catch(() => {})
+        `)
       }
+      await sql.transaction(stmts).catch(() => {})
     }
     return id
   } catch (e) {
