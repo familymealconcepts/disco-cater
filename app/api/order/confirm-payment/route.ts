@@ -5,6 +5,7 @@ import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
 import { sql } from '../../../../lib/db'
 import { createDelivery, buildPayloadFromNeon } from '../../../../lib/expedite'
 import { fmFetch } from '../../../../lib/fm-fetch'
+import { alertOps } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 
@@ -135,7 +136,13 @@ async function dispatchAfterConfirm(orderReference: string, placedOrder?: Placed
     orderId = await ensureRowFromPlaced(orderReference, placedOrder)
   }
   if (!orderId) {
-    console.warn('[order/confirm-payment] order not mirrored and no usable fallback — confirmations not dispatched:', orderReference)
+    // Worst case: the customer paid on FM, the mirror never landed, and there's no
+    // fallback data — so Disco has no order row, no confirmation, no Expedite. Make
+    // it LOUD (the sync-fm-orders backstop should still pull the order later, and
+    // its DISCO-order backfill will then fire the confirmation).
+    await alertOps('order/confirm-payment: paid order not recorded on Disco — no confirmation dispatched (awaiting sync backfill)', {
+      orderReference,
+    })
     return
   }
 

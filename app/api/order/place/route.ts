@@ -12,6 +12,7 @@ import { isDiscoNativeRestaurant, placeAndPayNativeOrder, fmItemsToNativeCart, l
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { validateNativeDelivery } from '../../../../lib/order/native-delivery'
 import type { Fulfillment } from '../../../../lib/pricing/native-order'
+import { alertOps } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 
@@ -165,9 +166,9 @@ async function mirrorOrderToNeon(args: {
     // Bail (no row) if any NOT-NULL-without-default column is missing — better
     // than a guaranteed constraint error. Logged so gaps are visible.
     if (!customerEmail || !restaurantRef || !orderDate || !orderTime || !orderNumber) {
-      console.warn('[order/place] skip Neon mirror — missing required field:', {
-        hasEmail: !!customerEmail, hasRestaurantRef: !!restaurantRef,
-        hasDate: !!orderDate, hasTime: !!orderTime, hasOrderNumber: !!orderNumber,
+      await alertOps('order/place: Neon mirror skipped — missing required field (order not recorded)', {
+        orderNumber: orderNumber || null, restaurantRef: restaurantRef || null,
+        hasEmail: !!customerEmail, hasDate: !!orderDate, hasTime: !!orderTime,
       })
       return
     }
@@ -255,7 +256,12 @@ async function mirrorOrderToNeon(args: {
       }
     }
   } catch (e) {
-    console.error('[order/place] Neon mirror failed:', e instanceof Error ? e.message : e)
+    // A paid FM order that failed to mirror can go invisible on Disco's side.
+    // The confirm-payment fallback + the sync-fm-orders backstop may still recover
+    // it, but make the failure loud rather than a swallowed console line.
+    await alertOps('order/place: Neon mirror failed (paid order may be unrecorded until backfill)', {
+      error: e instanceof Error ? e.message : String(e),
+    })
   }
 }
 

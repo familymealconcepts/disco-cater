@@ -13,6 +13,16 @@ import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { loadFmOrderDetails, parseFmOrder, fmDateToIso, isUuid } from './order-edit'
 import { fmFetch } from './fm-fetch'
+import { dispatchOrderConfirmations } from './order-notifications'
+import { alertOps } from './ops-alert'
+
+// A backfilled order is worth confirming only if its pickup is still upcoming —
+// a full-cycle sync also inserts historical orders, which must NOT trigger emails.
+function isUpcomingIso(iso: string | null | undefined): boolean {
+  if (!iso) return false
+  const today = new Date().toISOString().slice(0, 10) // UTC day is fine for an "not weeks old" gate
+  return iso >= today
+}
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -151,11 +161,31 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
         RETURNING id
       `) as { id: number }[]
     } catch (e) {
-      // order_number UNIQUE collision or a bad cast → skip this order, keep going.
-      console.error('[fm-orders-sync] insert skipped:', e instanceof Error ? e.message : e)
+      // order_number UNIQUE collision or a bad cast → skip this order. Alert so a
+      // silently-dropped order is visible rather than lost in the skip counter.
+      await alertOps('fm-orders-sync: order insert skipped (dropped)', {
+        orderNumber: o.orderNumber ?? null, restaurantReference,
+        error: e instanceof Error ? e.message : String(e),
+      })
       return 'skipped'
     }
     if (withItems && inserted[0]?.id) await syncOrderItems(inserted[0].id, o.fmRef)
+
+    // Backfill notification: this DISCO order was pulled by the sync, meaning the
+    // real-time mirror missed it (an already-mirrored DISCO order has an existing
+    // row and is skipped below). Fire Disco's confirmation for UPCOMING orders only
+    // (idempotent via claimConfirmationSend, so a later real-time retry can't double
+    // it). FAMILYMEAL-source orders are excluded — FamilyMeal notifies those itself.
+    if (inserted[0]?.id && o.source === 'DISCO' && isUpcomingIso(o.dateIso)) {
+      try {
+        if (!withItems) await syncOrderItems(inserted[0].id, o.fmRef) // ensure the email has line items
+        await dispatchOrderConfirmations(inserted[0].id, 'FM_SYNC_BACKFILL')
+      } catch (e) {
+        await alertOps('fm-orders-sync: backfill confirmation failed', {
+          orderNumber: o.orderNumber ?? null, error: e instanceof Error ? e.message : String(e),
+        })
+      }
+    }
     return 'inserted'
   }
 

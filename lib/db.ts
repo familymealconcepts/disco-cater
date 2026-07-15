@@ -76,6 +76,12 @@ export async function runMigrations(): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_promo_code_uses_charge ON promo_code_uses(stripe_charge_id)`,
     // Generic key/value store for cross-run cursors (e.g. the FM→Sanity sync offset).
     `CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+    // Dedicated integer cursor for the FM→Neon orders rotation. Kept SEPARATE from
+    // sync_state because lib/syncState.ts (Sanity coordination) created sync_state
+    // with a TIMESTAMPTZ `value` and no `updated_at`, so the orders cron's
+    // text/updated_at writes silently failed and the cursor never advanced (only
+    // the first BATCH restaurants were ever synced).
+    `CREATE TABLE IF NOT EXISTS fm_orders_sync_cursor (key TEXT PRIMARY KEY, offset_value INTEGER NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
     // Disco-owned per-restaurant overrides layered on top of the FM restaurant
     // record: Premium (isDisco) flag + an order-URL override, set in the super
     // admin edit dialog and read by the public /api/restaurants (fullmap).

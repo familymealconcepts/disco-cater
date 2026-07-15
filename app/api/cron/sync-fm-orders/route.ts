@@ -11,12 +11,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { syncAllRestaurantOrders } from '../../../../lib/fm-orders-sync'
+import { alertOps } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-const BATCH = 25
+const BATCH = 50
 const CURSOR_KEY = 'fm_orders_sync_offset'
 
 function hasCronSecret(req: NextRequest): boolean {
@@ -28,18 +29,23 @@ function hasCronSecret(req: NextRequest): boolean {
 
 async function readCursor(): Promise<number> {
   try {
-    const rows = (await sql`SELECT value FROM sync_state WHERE key = ${CURSOR_KEY}`) as { value: string }[]
-    const n = rows[0] ? parseInt(rows[0].value, 10) : 0
+    const rows = (await sql`SELECT offset_value FROM fm_orders_sync_cursor WHERE key = ${CURSOR_KEY}`) as { offset_value: number }[]
+    const n = rows[0] ? Number(rows[0].offset_value) : 0
     return Number.isFinite(n) && n >= 0 ? n : 0
   } catch { return 0 }
 }
 async function writeCursor(offset: number): Promise<void> {
+  // NOT best-effort-silent: a failed cursor write means the rotation never
+  // advances (the bug this replaced). Surface it loudly if it ever fails again.
   try {
     await sql`
-      INSERT INTO sync_state (key, value, updated_at) VALUES (${CURSOR_KEY}, ${String(offset)}, NOW())
-      ON CONFLICT (key) DO UPDATE SET value = ${String(offset)}, updated_at = NOW()
+      INSERT INTO fm_orders_sync_cursor (key, offset_value, updated_at) VALUES (${CURSOR_KEY}, ${offset}, NOW())
+      ON CONFLICT (key) DO UPDATE SET offset_value = ${offset}, updated_at = NOW()
     `
-  } catch { /* best-effort */ }
+  } catch (e) {
+    console.error('[cron/sync-fm-orders] CURSOR WRITE FAILED — rotation will stall:', e instanceof Error ? e.message : e)
+    await alertOps(`FM orders sync cursor write failed (rotation stalled): ${e instanceof Error ? e.message : e}`)
+  }
 }
 
 async function handle(req: NextRequest): Promise<NextResponse> {
