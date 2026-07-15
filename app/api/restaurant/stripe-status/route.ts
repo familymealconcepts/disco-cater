@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../lib/restaurant-auth'
-import { validateDiscoRestaurantSession, DISCO_RESTAURANT_COOKIE } from '../../../../lib/disco-restaurant-auth'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { isChargesEnabled } from '../../../../lib/stripe-connect'
 import { sql } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -9,29 +10,45 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // "connect your bank account" warning in the portal (layout sidebar dot + Banking
 // page).
 //
-// Disco-native partners connect Stripe during become-a-partner onboarding, which
-// stores the account in Neon (disco_restaurant_accounts) — FM never learns about
-// it. So we MUST check Neon first for a Disco session; falling straight through to
-// FM would always report "not connected" for these restaurants. Legacy
-// FM-authenticated restaurants (no Disco session) still use the FM check.
+// Disco-native partners connect Stripe via Disco's own Stripe (stored in Neon —
+// FM never learns about it), so a Disco session checks Neon. Two fixes here:
+//   RH6 — scope to the currently-SELECTED location (resolveDiscoScopeRef), the same
+//         ref the Connect/Disconnect actions use, so status and actions never
+//         disagree for a multi-location SYSTEM_ADMIN (was: the home location).
+//   RH5 — lazily confirm onboarding: /stripe/connect stores the account id but
+//         never sets stripe_onboarding_complete, so a freshly-connected restaurant
+//         showed "disconnected" forever. When an account exists but completion
+//         isn't recorded yet, do the live charges-enabled check (same as
+//         become-a-partner/stripe-status) and persist it.
+// Legacy FM-authenticated restaurants (no Disco session) still use the FM check.
 export async function GET(req: NextRequest) {
-  // ── Disco-native path: read Stripe status straight from Neon. ──
-  const discoToken = req.cookies.get(DISCO_RESTAURANT_COOKIE)?.value
-  if (discoToken) {
+  const ctx = await getRestaurantAuthContext()
+
+  // ── Disco-native path ──
+  if (ctx?.authType === 'disco') {
     try {
-      const session = await validateDiscoRestaurantSession(discoToken)
-      if (session?.restaurantReference) {
+      const ref = await resolveDiscoScopeRef(ctx)
+      if (ref) {
         const rows = (await sql`
           SELECT stripe_account_id, stripe_onboarding_complete
           FROM disco_restaurant_accounts
-          WHERE restaurant_reference = ${session.restaurantReference}
+          WHERE restaurant_reference = ${ref}
           ORDER BY id ASC LIMIT 1
         `) as { stripe_account_id: string | null; stripe_onboarding_complete: boolean | null }[]
         const acct = rows[0]
-        // Matches the become-a-partner/stripe-status semantics: connected once an
-        // account exists AND onboarding completed (charges enabled).
-        const connected = !!acct?.stripe_account_id && acct?.stripe_onboarding_complete === true
-        return NextResponse.json({ connected })
+        if (!acct?.stripe_account_id) return NextResponse.json({ connected: false })
+        // Already confirmed — no need to hit Stripe again.
+        if (acct.stripe_onboarding_complete === true) return NextResponse.json({ connected: true })
+        // Account exists but completion isn't recorded (RH5): confirm live and persist.
+        const enabled = await isChargesEnabled(acct.stripe_account_id).catch(() => false)
+        if (enabled) {
+          await sql`
+            UPDATE disco_restaurant_accounts
+            SET stripe_onboarding_complete = true, updated_at = NOW()
+            WHERE restaurant_reference = ${ref}
+          `.catch((e) => console.error('[restaurant/stripe-status] complete persist failed:', e instanceof Error ? e.message : e))
+        }
+        return NextResponse.json({ connected: enabled })
       }
     } catch (err) {
       console.error('[restaurant/stripe-status] disco lookup failed:', err instanceof Error ? err.message : err)
