@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
 import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
+import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../lib/expedite'
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { waitUntil } from '@vercel/functions'
 
@@ -167,6 +168,12 @@ export async function POST(request: NextRequest) {
           // dispatch — native orders also trigger it from /api/order/confirm-
           // payment, and the guard ensures it only ever fires once per order.
           waitUntil(dispatchOrderConfirmations(order.id, 'STRIPE_WEBHOOK'))
+
+          // Native third-party-delivery orders complete here (not via the FM
+          // confirm-payment path), so dispatch their courier here too. OFF by
+          // default — gated on EXPEDITE_NATIVE_DISPATCH_ENABLED (real courier
+          // cost). Idempotent + strict THIRD_PARTY_DELIVERY guard inside.
+          if (nativeDispatchEnabled()) waitUntil(dispatchExpediteForOrder(order.id))
         } else {
           // Payment row exists but order is missing — still log against the ref.
           console.warn('[Webhook] payment_intent.succeeded — payment found but order missing:', orderReference)

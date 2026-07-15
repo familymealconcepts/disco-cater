@@ -15,6 +15,7 @@
 import { createHmac } from 'crypto'
 import { sql } from './db'
 import { sanitizePhone } from './utils/phone'
+import { alertOps } from './ops-alert'
 
 export const BASE_URL = 'https://api.dlivrd.app/batch/deliveries'
 
@@ -270,6 +271,60 @@ export async function createDelivery(payload: ExpediteOrder): Promise<{ success:
     const error = err instanceof Error ? err.message : String(err)
     console.error('[expedite] createDelivery error:', error)
     return { success: false, error }
+  }
+}
+
+// Native third-party-delivery courier dispatch is OFF by default — dispatching a
+// courier spends real money. Enable with EXPEDITE_NATIVE_DISPATCH_ENABLED=true
+// once the fee economics are signed off. (createDelivery is also gated on the
+// Expedite creds via configured(), so both must be present to spend.)
+export function nativeDispatchEnabled(): boolean {
+  const v = (process.env.EXPEDITE_NATIVE_DISPATCH_ENABLED || '').toLowerCase()
+  return v === 'true' || v === '1' || v === 'yes'
+}
+
+// Dispatch a courier for a completed Disco-native order. Gated strictly on
+// THIRD_PARTY_DELIVERY (never OWN_DELIVERY or PICKUP), and idempotent against
+// Stripe-webhook retries via an atomic claim on expedite_delivery_id: exactly one
+// caller flips NULL → 'PENDING', dispatches, then writes the real id (or resets to
+// NULL on failure so a retry can try again). Best-effort — never throws.
+export async function dispatchExpediteForOrder(orderId: number): Promise<void> {
+  try {
+    if (!configured()) return // no Expedite creds → no-op
+    const claim = (await sql`
+      UPDATE disco_orders SET expedite_delivery_id = 'PENDING', updated_at = NOW()
+      WHERE id = ${orderId}
+        AND expedite_delivery_id IS NULL
+        AND order_type = 'DELIVERY'
+        AND delivery_type = 'THIRD_PARTY_DELIVERY'
+      RETURNING reference
+    `.catch(() => [])) as { reference: string }[]
+    if (!claim.length) return // not eligible (pickup/own-delivery) or already dispatched
+    const reference = claim[0].reference
+
+    const payload = await buildPayloadFromNeon(reference)
+    if (!payload) {
+      await sql`UPDATE disco_orders SET expedite_delivery_id = NULL WHERE id = ${orderId} AND expedite_delivery_id = 'PENDING'`.catch(() => {})
+      await alertOps('expedite: could not build native delivery payload — courier not dispatched', { orderId, reference })
+      return
+    }
+    const result = await createDelivery(payload)
+    if (result.success) {
+      await sql`
+        UPDATE disco_orders
+        SET expedite_delivery_id = ${payload.external_delivery_id},
+            expedite_delivery_fee = ${result.delivery_fee ?? null}, updated_at = NOW()
+        WHERE id = ${orderId}
+      `.catch(e => console.error('[expedite] native row update failed:', e instanceof Error ? e.message : e))
+      console.log('[expedite] native delivery dispatched for', reference)
+    } else {
+      // Reset the claim so a later retry can re-dispatch, and make it loud — a paid
+      // order with no courier is a fulfillment failure.
+      await sql`UPDATE disco_orders SET expedite_delivery_id = NULL WHERE id = ${orderId} AND expedite_delivery_id = 'PENDING'`.catch(() => {})
+      await alertOps('expedite: native delivery dispatch FAILED (paid order, no courier)', { orderId, reference, error: result.error })
+    }
+  } catch (e) {
+    console.error('[expedite] dispatchExpediteForOrder error:', e instanceof Error ? e.message : e)
   }
 }
 
