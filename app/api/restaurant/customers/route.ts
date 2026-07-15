@@ -16,9 +16,30 @@ const PAID = ['DUE', 'COMPLETED', 'PAID', 'PARTIAL_REFUND', 'REFUND']
 // envelope + field names so the page needs no changes.
 async function discoCustomers(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, req: NextRequest) {
   const ref = await resolveDiscoScopeRef(ctx)
-  if (!ref) return NextResponse.json({ content: [], totalElements: 0 })
-  const search = (req.nextUrl.searchParams.get('search') || '').trim().toLowerCase()
+  if (!ref) return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 25 })
+  const sp = req.nextUrl.searchParams
+  const search = (sp.get('search') || '').trim().toLowerCase()
+  // Server-side pagination (was: returned ALL customers with totalElements =
+  // rows.length, so the page's pager was a no-op and large CRMs got one unbounded
+  // response — RL15). Matches the FM path, which forwards page/size.
+  const page = Math.max(0, parseInt(sp.get('page') || '0', 10) || 0)
+  const size = Math.min(200, Math.max(1, parseInt(sp.get('size') || '25', 10) || 25))
   await runDiscoOrderMigrations()
+
+  // Total distinct customers matching the same filter.
+  const totalRows = (await sql`
+    SELECT count(*)::int AS n FROM (
+      SELECT customer_email FROM disco_orders
+      WHERE restaurant_reference = ${ref}::uuid
+        AND customer_email IS NOT NULL AND customer_email <> ''
+        AND order_status = ANY(${PAID})
+        AND (${search} = '' OR LOWER(customer_email) LIKE '%' || ${search} || '%'
+             OR LOWER(COALESCE(customer_first_name, '') || ' ' || COALESCE(customer_last_name, '')) LIKE '%' || ${search} || '%')
+      GROUP BY customer_email
+    ) t
+  `) as { n: number }[]
+  const total = totalRows[0]?.n ?? 0
+
   const rows = (await sql`
     SELECT
       customer_email AS "customerReference",
@@ -36,8 +57,9 @@ async function discoCustomers(ctx: NonNullable<Awaited<ReturnType<typeof getRest
            OR LOWER(COALESCE(customer_first_name, '') || ' ' || COALESCE(customer_last_name, '')) LIKE '%' || ${search} || '%')
     GROUP BY customer_email
     ORDER BY MAX(order_date) DESC NULLS LAST
+    LIMIT ${size} OFFSET ${page * size}
   `) as Record<string, unknown>[]
-  return NextResponse.json({ content: rows, totalElements: rows.length })
+  return NextResponse.json({ content: rows, totalElements: total, totalPages: Math.ceil(total / size), number: page, size })
 }
 
 export async function GET(req: NextRequest) {
