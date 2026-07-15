@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
-import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { sql, runMigrations } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -8,7 +8,8 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 export async function PATCH(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const ref = ctx.restaurantReference || (await getRestaurantRef()) || ''
+  // Disco: the currently-selected location; FM: the JWT's restaurant.
+  const ref = (ctx.authType === 'disco' ? await resolveDiscoScopeRef(ctx) : (await getRestaurantRef())) || ''
 
   const allowed = req.nextUrl.searchParams.get('onlineOrderingAllowed') === 'true'
 

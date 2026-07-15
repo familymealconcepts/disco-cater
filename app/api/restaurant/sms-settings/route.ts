@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
-import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 
 export const runtime = 'nodejs'
@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic'
 async function resolveRef(): Promise<{ ref: string } | { error: string; status: number }> {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return { error: 'Not authenticated', status: 401 }
-  let ref = ctx.restaurantReference
+  // Disco: the currently-selected location; FM: the JWT's restaurant.
+  let ref = ctx.authType === 'disco' ? await resolveDiscoScopeRef(ctx) : (await getRestaurantRef()) || ''
   if (!ref) ref = (await getRestaurantRef()) || ''
   if (!ref) return { error: 'No restaurant in context', status: 400 }
   return { ref }

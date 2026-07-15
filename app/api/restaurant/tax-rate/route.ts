@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getRestaurantAuthHeader, getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
-import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { sql, runMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -32,10 +32,18 @@ async function saveDiscoTaxRates(ref: string, taxRates: unknown): Promise<void> 
 async function currentRef(): Promise<string> {
   try {
     const ctx = await getRestaurantAuthContext()
+    if (!ctx) return ''
+    // Disco: resolveDiscoScopeRef validates the selected location against the SA's
+    // group access before honoring it (a raw selected cookie must not be trusted
+    // for another restaurant). FM: the selected cookie (FM SA) or the JWT ref.
+    if (ctx.authType === 'disco') {
+      const ref = await resolveDiscoScopeRef(ctx)
+      return UUID_RE.test(ref) ? ref : ''
+    }
     const store = await cookies()
     const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value || ''
     if (selected && UUID_RE.test(selected)) return selected
-    const own = ctx?.authType === 'disco' ? (ctx.restaurantReference || '') : (await getRestaurantRef()) || ''
+    const own = (await getRestaurantRef()) || ''
     return UUID_RE.test(own) ? own : ''
   } catch { return '' }
 }

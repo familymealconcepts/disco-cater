@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
-import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 
 export const runtime = 'nodejs'
 
@@ -14,7 +14,9 @@ export const runtime = 'nodejs'
 // carry it directly; FM-token users decode it from the JWT.
 async function resolveRef(): Promise<string | null> {
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.restaurantReference) return ctx.restaurantReference
+  if (!ctx) return null
+  // Disco: the currently-selected location; FM: the JWT's restaurant.
+  if (ctx.authType === 'disco') return await resolveDiscoScopeRef(ctx)
   return await getRestaurantRef()
 }
 

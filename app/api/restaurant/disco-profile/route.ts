@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
-import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 
 export const runtime = 'nodejs'
@@ -29,7 +29,10 @@ async function geocode(address: string): Promise<{ lat: number; lng: number } | 
 async function resolveRef(): Promise<string | null> {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return null
-  if (ctx.restaurantReference) return ctx.restaurantReference
+  // Disco: the currently-selected location (home for a single-location ADMIN);
+  // FM: the JWT's restaurant. Keeps read + write on the same location for
+  // multi-location SYSTEM_ADMINs.
+  if (ctx.authType === 'disco') return await resolveDiscoScopeRef(ctx)
   return await getRestaurantRef()
 }
 
