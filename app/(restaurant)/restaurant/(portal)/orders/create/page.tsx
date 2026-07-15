@@ -23,28 +23,29 @@ export default async function CreateOrderPage() {
   if (!restaurantRef) redirect('/restaurant/select-location')
 
   let fmSlug: string | null = null
+  let restaurantName: string | null = null
   try {
     const res = await fetch(`${FM}/public-api/restaurants`, { headers: { Accept: 'application/json' }, next: { revalidate: 3600 } })
     if (res.ok) {
-      const list: { reference: string; businessNameWithoutSpaces?: string }[] = await res.json()
-      fmSlug = list.find(r => r.reference === restaurantRef)?.businessNameWithoutSpaces ?? null
+      const list: { reference: string; businessNameWithoutSpaces?: string; businessName?: string }[] = await res.json()
+      const match = list.find(r => r.reference === restaurantRef)
+      fmSlug = match?.businessNameWithoutSpaces ?? null
+      restaurantName = match?.businessName ?? null
     }
   } catch {}
 
-  // Disco-native restaurants aren't in FM's public list, so the lookup above finds
-  // nothing and Create Order was dead-ended (RH4). Resolve their ordering slug from
-  // Neon instead — /order/[slug] renders native restaurants directly from Neon
-  // (RestaurantView → loadDiscoNativeRestaurant), so direct-entry works for them.
-  if (!fmSlug) {
-    try {
-      const rows = (await sql`
-        SELECT slug FROM disco_restaurant_cache
-        WHERE restaurant_reference = ${restaurantRef} AND slug IS NOT NULL AND is_disco_native = true
-        LIMIT 1
-      `) as { slug: string | null }[]
-      fmSlug = rows[0]?.slug ?? null
-    } catch { /* leave null → the modal shows the not-found notice */ }
-  }
+  // Fill the display name from Neon, and resolve the ordering slug for Disco-native
+  // restaurants (not in FM's public list — RH4). The name is shown in the Create
+  // Order modal so a stale selected location is obvious before submitting (RM4).
+  try {
+    const rows = (await sql`
+      SELECT name, slug, is_disco_native FROM disco_restaurant_cache
+      WHERE restaurant_reference = ${restaurantRef} LIMIT 1
+    `) as { name: string | null; slug: string | null; is_disco_native: boolean | null }[]
+    const c = rows[0]
+    if (!fmSlug && c?.is_disco_native && c?.slug) fmSlug = c.slug
+    if (!restaurantName) restaurantName = c?.name ?? null
+  } catch { /* leave null → the modal shows the not-found notice / generic label */ }
 
-  return <CreateOrderMethodModal fmSlug={fmSlug} />
+  return <CreateOrderMethodModal fmSlug={fmSlug} restaurantName={restaurantName} />
 }

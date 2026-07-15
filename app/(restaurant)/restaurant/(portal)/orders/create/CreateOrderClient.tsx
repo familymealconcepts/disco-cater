@@ -13,7 +13,7 @@ type PaymentMethod = 'PAYMENT' | 'INVOICE'
 // the normal 1st-party ordering page with a direct-entry flag, exactly like FM.
 //   Payment → /order/{slug}?mode=direct-entry&method=payment
 //   Invoice → /order/{slug}?mode=direct-entry&method=invoice
-export default function CreateOrderMethodModal({ fmSlug }: { fmSlug: string | null }) {
+export default function CreateOrderMethodModal({ fmSlug, restaurantName }: { fmSlug: string | null; restaurantName?: string | null }) {
   const router = useRouter()
   const [pendingMethod, setPendingMethod] = useState<PaymentMethod>('PAYMENT')
 
@@ -29,7 +29,16 @@ export default function CreateOrderMethodModal({ fmSlug }: { fmSlug: string | nu
     <div style={{ padding: '28px 32px', fontFamily: F }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');`}</style>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 6px' }}>Create Order</h1>
-      <p style={{ fontSize: 13, color: '#888', margin: '0 0 24px' }}>How will this order be paid?</p>
+      <p style={{ fontSize: 13, color: '#888', margin: '0 0 16px' }}>How will this order be paid?</p>
+
+      {/* Which restaurant this order will be created for — so a stale selected
+          location is obvious BEFORE submitting (RM4 guard). */}
+      <div style={{ ...card, maxWidth: 460, background: 'linear-gradient(90deg,rgba(107,110,249,0.08),rgba(240,70,138,0.05))', border: '1px solid #E4E4F5', padding: '12px 16px', marginBottom: 20 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Creating an order for</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: DARK }}>{restaurantName || 'the selected restaurant'}</div>
+        {fmSlug && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>discocater.com/order/{fmSlug}</div>}
+        <div style={{ fontSize: 11.5, color: '#8a8a8a', marginTop: 8 }}>Not the right restaurant? <a href="/restaurant/select-location" style={{ color: BLUE, fontWeight: 600, textDecoration: 'none' }}>Switch location</a> before continuing.</div>
+      </div>
 
       {!fmSlug && (
         <div style={{ ...card, background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: 13 }}>
