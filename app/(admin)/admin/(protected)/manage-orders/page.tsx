@@ -512,7 +512,10 @@ function AdminOrdersContent() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
-  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null)
+  // Default to placed,desc so the merged native + FM list opens in true chronological
+  // order and the "Placed" column shows its sort arrow. (The visible builder also
+  // falls back to this if sort is ever cleared to null.)
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>({ key: 'placed', dir: 'desc' })
 
   // Fetch ALL pages (capped at MAX_PAGES) so filters/sort run over everything.
   const load = useCallback(async () => {
@@ -605,11 +608,15 @@ function AdminOrdersContent() {
       matchesSource(o, sourceFilter) &&
       matchesSearch(o, searchInput),
     )
-    if (!sort) return filtered
-    const mul = sort.dir === 'asc' ? 1 : -1
+    // Default (no column chosen): true chronological order by placed date across the
+    // FULL merged set — native + FM-backed together. Previously this returned the raw
+    // accumulated order, in which the API prepends all Disco-native orders onto page 0,
+    // leaving them frozen at the top regardless of date while FM orders sorted below.
+    const active = sort ?? { key: 'placed' as SortKey, dir: 'desc' as const }
+    const mul = active.dir === 'asc' ? 1 : -1
     return [...filtered].sort((a, b) => {
-      const va = orderSortValue(a, sort.key)
-      const vb = orderSortValue(b, sort.key)
+      const va = orderSortValue(a, active.key)
+      const vb = orderSortValue(b, active.key)
       if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mul
       return String(va).localeCompare(String(vb)) * mul
     })
