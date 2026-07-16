@@ -173,7 +173,7 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   type Ln = { t: string; b?: boolean; s?: number; c?: ReturnType<typeof rgb>; label?: boolean }
   const boxH = (lines: Ln[]) => Math.max(PADY * 2 + lines.reduce((a, l) => a + (l.s ?? 10) + LH, 0) - LH, 20)
   const cell = (x: number, top: number, w: number, lines: Ln[], h: number, fill?: ReturnType<typeof rgb>) => {
-    page.drawRectangle({ x, y: top - h, width: w, height: h, borderColor: BORDER, borderWidth: 0.8, ...(fill ? { color: fill } : {}) })
+    page.drawRectangle({ x, y: top - h, width: w, height: h, borderColor: BORDER, borderWidth: 1.2, ...(fill ? { color: fill } : {}) })
     let ty = top - PADY - (lines[0]?.s ?? 10)
     for (const l of lines) { const s = l.s ?? 10, f = (l.b || l.label) ? bold : font; text(trunc(l.t, f, s, w - PADX * 2), x + PADX, ty, s, f, l.c ?? DARK); ty -= s + LH }
   }
@@ -218,18 +218,24 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   // ── Items table (bordered rows) ──
   const IROW = 20, itemMaxW = CW - 92
   brk(IROW)
-  page.drawRectangle({ x: LEFT, y: y - IROW, width: CW, height: IROW, borderColor: BORDER, borderWidth: 0.8, color: FILL })
+  page.drawRectangle({ x: LEFT, y: y - IROW, width: CW, height: IROW, borderColor: BORDER, borderWidth: 1.2, color: FILL })
   text('ITEM', LEFT + PADX, y - 14, 9, bold, DARK)
   textR('PRICE', RIGHT - PADX, y - 14, 9, bold, DARK)
   y -= IROW
   for (const it of d.items) {
     const hasNote = !!it.note
-    const h = hasNote ? 32 : IROW
+    const h = hasNote ? 36 : IROW
     brk(h)
-    page.drawRectangle({ x: LEFT, y: y - h, width: CW, height: h, borderColor: BORDER, borderWidth: 0.8 })
+    page.drawRectangle({ x: LEFT, y: y - h, width: CW, height: h, borderColor: BORDER, borderWidth: 1.2 })
     text(trunc(`(${it.quantity}) ${it.name}`, font, 10.5, itemMaxW), LEFT + PADX, y - 14, 10.5, font, DARK)
     textR(money(it.price * it.quantity), RIGHT - PADX, y - 14, 10.5, font, DARK)
-    if (hasNote) text(trunc(`    ${it.note}`, font, 8.5, CW - PADX * 2), LEFT + PADX, y - 26, 8.5, font, GREY)
+    // Modifier/note: indented under the item with a dash marker so it reads clearly
+    // as a sub-line, not a second item.
+    if (hasNote) {
+      const bx = LEFT + PADX + 18
+      text('–', LEFT + PADX + 8, y - 28, 9, font, GREY)
+      text(trunc(it.note!, font, 9, RIGHT - PADX - bx), bx, y - 28, 9, font, GREY)
+    }
     y -= h
   }
 
@@ -246,7 +252,7 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   const tX = LEFT + CW * 0.5, tW = CW * 0.5, TROW = 19
   for (const [label, val, strong] of totals) {
     brk(TROW)
-    page.drawRectangle({ x: tX, y: y - TROW, width: tW, height: TROW, borderColor: BORDER, borderWidth: 0.8, ...(strong ? { color: FILL } : {}) })
+    page.drawRectangle({ x: tX, y: y - TROW, width: tW, height: TROW, borderColor: BORDER, borderWidth: 1.2, ...(strong ? { color: FILL } : {}) })
     const f = strong ? bold : font, s = strong ? 11.5 : 10.5
     text(label, tX + PADX, y - 13, s, f, DARK)
     textR(money(val), RIGHT - PADX, y - 13, s, f, DARK)
