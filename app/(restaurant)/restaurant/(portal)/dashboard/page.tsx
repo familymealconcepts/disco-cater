@@ -473,31 +473,8 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Count Stats */}
-      {!loading && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12, marginBottom: 24 }}>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', border: '1px solid #eee' }}>
-            <div style={{ fontSize: 11, color: '#aaa', fontWeight: 500, marginBottom: 4 }}>Active Menus</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>{dashStats.activeMealPackagesCount ?? 0}</div>
-          </div>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', border: '1px solid #eee' }}>
-            <div style={{ fontSize: 11, color: '#aaa', fontWeight: 500, marginBottom: 4 }}>Available Menus</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>{dashStats.availableMealPackagesCount ?? 0}</div>
-          </div>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', border: '1px solid #eee' }}>
-            <div style={{ fontSize: 11, color: '#aaa', fontWeight: 500, marginBottom: 4 }}>Today&apos;s Orders</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>{dashStats.todayOrdersCount ?? 0}</div>
-          </div>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', border: '1px solid #eee' }}>
-            <div style={{ fontSize: 11, color: '#aaa', fontWeight: 500, marginBottom: 4 }}>Scheduled Orders</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>{dashStats.scheduleOrdersCount ?? 0}</div>
-          </div>
-          <div style={{ background: '#fff', borderRadius: 12, padding: '14px 16px', border: '1px solid #eee' }}>
-            <div style={{ fontSize: 11, color: '#aaa', fontWeight: 500, marginBottom: 4 }}>Active Add-Ons</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>{dashStats.activeAddOnsCount ?? 0}</div>
-          </div>
-        </div>
-      )}
+      {/* #19: top summary bubbles (Active Menus, Available Menus, order counts,
+          Add-Ons) removed per request. */}
 
       {/* Date presets + Order/Created toggle */}
       <div style={{ background: '#fff', borderRadius: 12, padding: '16px 20px', border: '1px solid #eee', marginBottom: 24 }}>
@@ -570,28 +547,10 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Disco Cater Marketplace Performance */}
-      <div style={{ marginBottom: 28 }}>
-        <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '0 0 2px' }}>🪩 Disco Cater Marketplace Performance</h2>
-        <p style={{ fontSize: 13, color: '#888', margin: '0 0 14px' }}>
-          Orders and revenue attributed to the Disco Cater marketplace (sourceoforder: DISCO)
-        </p>
-        {!chartLoading && mkt.orders === 0 ? (
-          <div style={{ background: '#fff', border: '1px solid #e8e8e8', borderRadius: 12, padding: '18px 20px', fontSize: 14, color: '#555', lineHeight: 1.6 }}>
-            No marketplace orders in this period.{' '}
-            {slug
-              ? <>Your restaurant appears at <a href={`https://discocater.com/restaurants/${slug}`} target="_blank" rel="noopener noreferrer" style={{ color: ACCENT }}>discocater.com/restaurants/{slug}</a></>
-              : <>Your restaurant appears at <a href="https://discocater.com/restaurants" target="_blank" rel="noopener noreferrer" style={{ color: ACCENT }}>discocater.com/restaurants</a></>}
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
-            <MktCard title="Marketplace Orders" value={mkt.orders.toLocaleString()} loading={chartLoading} />
-            <MktCard title="Marketplace Revenue" value={fmt(mkt.revenue)} loading={chartLoading} />
-            <MktCard title="Lead Gen Fees" value={fmt(leadGenFees)} loading={saleLoading} />
-            <MktCard title="Marketplace Share" value={`${mktShare.toFixed(1)}%`} loading={chartLoading} />
-          </div>
-        )}
-      </div>
+      {/* #21: "Disco Cater Marketplace Performance" section removed per request. */}
+
+      {/* #20: export orders for a date range (order or created date) as CSV/Excel/PDF. */}
+      <ExportPanel />
 
       {/* Recurring orders summary — computed from the loaded orders dataset
           (no extra fetch). Hidden when there are no recurring orders. */}
@@ -625,6 +584,46 @@ export default function DashboardPage() {
       <div style={{ marginTop: 36 }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: DARK, margin: '0 0 14px' }}>Scheduled Reports</h2>
         <ScheduledReportsPanel />
+      </div>
+    </div>
+  )
+}
+
+// #20: on-demand orders export. Picks a date range, the date field to filter on
+// (order date vs created date), and a format (CSV / Excel / PDF). Each button hits
+// the restaurant-scoped /api/restaurant/reports/export route and downloads the file.
+function ExportPanel() {
+  const [from, setFrom] = useState(() => new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10))
+  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [dateField, setDateField] = useState<'order' | 'created'>('order')
+  const download = (format: 'csv' | 'xls' | 'pdf') => {
+    if (!from || !to) return
+    const qs = new URLSearchParams({ from, to, dateField, format })
+    const a = document.createElement('a')
+    a.href = `/api/restaurant/reports/export?${qs.toString()}`
+    a.rel = 'noopener'
+    document.body.appendChild(a); a.click(); a.remove()
+  }
+  const inp: React.CSSProperties = { padding: '8px 10px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: F, marginTop: 4 }
+  const fmtBtn = (bg: string): React.CSSProperties => ({ background: bg, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F })
+  return (
+    <div style={{ marginBottom: 28, background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '18px 20px' }}>
+      <h2 style={{ fontSize: 16, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Export report</h2>
+      <p style={{ fontSize: 12.5, color: '#888', margin: '0 0 14px' }}>Download your orders for a date range as CSV, Excel, or PDF.</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'flex-end' }}>
+        <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', flexDirection: 'column' }}>From<input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={inp} /></label>
+        <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', flexDirection: 'column' }}>To<input type="date" value={to} min={from} onChange={e => setTo(e.target.value)} style={inp} /></label>
+        <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', flexDirection: 'column' }}>Filter by
+          <select value={dateField} onChange={e => setDateField(e.target.value as 'order' | 'created')} style={inp}>
+            <option value="order">Order date</option>
+            <option value="created">Created date</option>
+          </select>
+        </label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => download('csv')} style={fmtBtn('#16A34A')}>CSV</button>
+          <button onClick={() => download('xls')} style={fmtBtn('#1D6F42')}>Excel</button>
+          <button onClick={() => download('pdf')} style={fmtBtn('#B91C1C')}>PDF</button>
+        </div>
       </div>
     </div>
   )

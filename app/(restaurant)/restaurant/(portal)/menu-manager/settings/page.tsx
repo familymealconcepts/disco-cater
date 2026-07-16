@@ -221,8 +221,8 @@ export default function RestaurantSettingsPage() {
       {/* 3 — Email Notification Recipients */}
       <div style={card}>
         <div style={h2}>Email Notification Recipients</div>
-        <div style={{ fontSize: 12, color: '#999', marginBottom: 10 }}>Where order emails are sent (comma-separated).</div>
-        <input value={notificationEmails} onChange={e => setNotificationEmails(e.target.value)} placeholder="orders@restaurant.com, owner@restaurant.com" style={input} />
+        <div style={{ fontSize: 12, color: '#999', marginBottom: 10 }}>Where order emails are sent. Type an address and press Enter (or Add).</div>
+        <TagInput value={notificationEmails} onChange={setNotificationEmails} placeholder="orders@restaurant.com" />
       </div>
 
       {/* 4 — Text Notifications */}
@@ -234,8 +234,8 @@ export default function RestaurantSettingsPage() {
       {/* 5 — Text Notification Recipients */}
       <div style={card}>
         <div style={h2}>Text Notification Recipients</div>
-        <div style={{ fontSize: 12, color: '#999', marginBottom: 10 }}>Phone numbers for text notifications (comma-separated).</div>
-        <input value={notificationSms} onChange={e => setNotificationSms(e.target.value)} placeholder="+16155551234, +16155555678" style={input} />
+        <div style={{ fontSize: 12, color: '#999', marginBottom: 10 }}>Phone numbers for text notifications. Type a number and press Enter (or Add).</div>
+        <TagInput value={notificationSms} onChange={setNotificationSms} placeholder="+16155551234" />
       </div>
 
       {/* 6 — Customer Order Reminder Emails */}
@@ -302,6 +302,51 @@ export default function RestaurantSettingsPage() {
           <button onClick={addClosedDay} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>Add</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// #18: tag/chip input for multi-value recipient fields. Reads and emits a
+// comma-separated string (so the surrounding save logic is unchanged) but presents
+// each value as a removable chip. Add via Enter, comma, or the Add button; remove
+// via the chip's × or Backspace on an empty input.
+function TagInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  const [draft, setDraft] = useState('')
+  const tags = value.split(',').map(s => s.trim()).filter(Boolean)
+  const commit = (raw: string) => {
+    const parts = raw.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
+    if (!parts.length) { setDraft(''); return }
+    const next = [...tags]
+    for (const p of parts) if (!next.includes(p)) next.push(p)
+    onChange(next.join(', '))
+    setDraft('')
+  }
+  const remove = (t: string) => onChange(tags.filter(x => x !== t).join(', '))
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', border: '1px solid #ddd', borderRadius: 8, padding: '7px 9px', minHeight: 42, background: '#fff' }}>
+        {tags.map(t => (
+          <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#EEF0FD', color: '#4046B8', borderRadius: 16, padding: '4px 6px 4px 11px', fontSize: 12.5, fontWeight: 600 }}>
+            {t}
+            <button type="button" onClick={() => remove(t)} aria-label={`Remove ${t}`} style={{ border: 'none', background: 'rgba(64,70,184,0.15)', color: '#4046B8', borderRadius: '50%', width: 16, height: 16, cursor: 'pointer', fontSize: 11, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+          </span>
+        ))}
+        <input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); commit(draft) }
+            else if (e.key === 'Backspace' && !draft && tags.length) { remove(tags[tags.length - 1]) }
+          }}
+          onBlur={() => { if (draft.trim()) commit(draft) }}
+          placeholder={tags.length ? '' : placeholder}
+          style={{ flex: '1 1 140px', minWidth: 120, border: 'none', outline: 'none', fontSize: 13, fontFamily: F, padding: '4px 2px', background: 'transparent' }}
+        />
+      </div>
+      <button type="button" onClick={() => commit(draft)} disabled={!draft.trim()}
+        style={{ marginTop: 8, background: 'transparent', border: '1px solid #ddd', borderRadius: 7, padding: '6px 14px', fontSize: 12.5, fontWeight: 600, color: draft.trim() ? '#4046B8' : '#bbb', cursor: draft.trim() ? 'pointer' : 'default', fontFamily: F }}>
+        + Add
+      </button>
     </div>
   )
 }
