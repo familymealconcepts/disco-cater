@@ -2,7 +2,6 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import GenerateReportButton from '../_components/GenerateReportButton'
-import { printOrder, type PrintableOrder } from '../_components/PrintOrderDocument'
 import {
   lineQty, lineRowTotal, lineModifiers, modifierQty, modifierRowTotal, formatCurrency,
 } from '../../../../../lib/pricing/lineItem'
@@ -742,16 +741,16 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   const isTaxExempt = !!order && (order.taxExempt === true || !!order.taxExemptId)
 
   function printDrawer() {
-    if (!order) return
-    // Opens a fresh window with a standalone FM-style HTML document and
-    // calls print() on that window. The in-page approach (window.print()
-    // on the main doc with an @media print visibility cascade) printed
-    // blank pages on Safari + some Chrome configs because the drawer is
-    // position:fixed, which breaks the nested print-doc layout. The
-    // new-window path side-steps the parent stylesheet entirely.
-    const ok = printOrder(order as PrintableOrder)
-    if (!ok) {
-      toast('Pop-up blocked. Please allow pop-ups for this site so we can open the print preview.', { kind: 'error' })
+    if (!orderRef) return
+    // Unified order PDF — the SAME generator used by the confirmation page, both
+    // confirmation emails, and the SMS link (/api/order/[ref]/pdf, gated by the
+    // order's opaque UUID). The drawer already loads its order FROM disco_orders,
+    // the same Neon source the PDF reads, so this always resolves. Opens inline so
+    // the browser's PDF viewer handles print + download. (Replaced the old
+    // PrintOrderDocument HTML-print path so there's one template to maintain.)
+    const w = window.open(`/api/order/${orderRef}/pdf`, '_blank', 'noopener')
+    if (!w) {
+      toast('Pop-up blocked. Please allow pop-ups for this site so we can open the order PDF.', { kind: 'error' })
     }
   }
 

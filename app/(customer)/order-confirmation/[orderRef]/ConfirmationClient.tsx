@@ -7,7 +7,6 @@ import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
 const DARK = '#1A1028'
-const FM_PUBLIC = process.env.NEXT_PUBLIC_FM_API_BASE_URL || 'https://api.familymeal.com'
 
 function fmt$(n: number) { return `$${n.toFixed(2)}` }
 function fmtDate(d: string) {
@@ -282,9 +281,11 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
             {/* Invoice download */}
             <div style={{ background: '#fff', borderRadius: 12, border: '1.5px solid #f0f0f0', padding: '14px 20px', marginBottom: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 14, color: '#555', fontWeight: 500 }}>Order invoice</span>
-              {/* Native orders aren't on FamilyMeal — use Disco's own PDF route
-                  (api/order/[ref]/pdf). FM-backed orders keep the FM invoice. */}
-              <a href={order?.native ? `/api/order/${orderRef}/pdf` : `${FM_PUBLIC}/public-api/order/${orderRef}/pdf`} target="_blank" rel="noopener noreferrer"
+              {/* One PDF for every order (native + FM-backed): Disco's own generator
+                  at /api/order/[ref]/pdf — buildOrderPdfByReference loads by reference
+                  OR fm_order_reference, so this is the single template used everywhere
+                  (confirmation, both emails, SMS link, restaurant Orders tab). */}
+              <a href={`/api/order/${orderRef}/pdf`} target="_blank" rel="noopener noreferrer"
                 style={{ fontSize: 13, fontWeight: 700, color: BLUE, textDecoration: 'none' }}>
                 Download PDF ↓
               </a>
