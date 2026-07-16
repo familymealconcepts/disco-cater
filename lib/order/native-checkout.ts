@@ -265,16 +265,26 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   const daLat = typeof da.latitude === 'number' ? da.latitude : null
   const daLng = typeof da.longitude === 'number' ? da.longitude : null
 
+  // Snapshot the restaurant name/address/phone at order time so the order stays
+  // fully viewable even if the restaurant is later renamed or deleted.
+  let rName: string | null = null, rAddr: string | null = null, rPhone: string | null = null
+  try {
+    const rc = (await sql`SELECT name, address, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${input.restaurantReference} LIMIT 1`) as { name: string | null; address: string | null; phone: string | null }[]
+    rName = rc[0]?.name ?? null; rAddr = rc[0]?.address ?? null; rPhone = rc[0]?.phone ?? null
+  } catch { /* best-effort snapshot — placement never blocks on it */ }
+
   const orderRows = (await sql`
     INSERT INTO disco_orders (
       order_number, order_status, order_type, delivery_type, source_of_order,
-      restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
+      restaurant_reference, restaurant_name, restaurant_address, restaurant_phone,
+      customer_email, customer_first_name, customer_last_name, customer_phone,
       order_date, order_time, tips, tips_type,
       delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
       delivery_lat, delivery_lng, subtotal, total, fee, note, company_name, persons, created_at, updated_at
     ) VALUES (
       ${orderNumber}::bigint, 'RESERVED', ${orderType}, ${deliveryType}, 'DISCO',
-      ${input.restaurantReference}::uuid, ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
+      ${input.restaurantReference}::uuid, ${rName}, ${rAddr}, ${rPhone},
+      ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
       ${input.orderDate}::date, ${input.orderTime}::time, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},
       ${da.addressLine1 ?? null}, ${da.addressLine2 ?? null}, ${da.city ?? null}, ${da.state ?? null}, ${daZip},
       ${daLat}, ${daLng}, ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${input.note ?? null}, ${input.companyName ?? null}, ${input.persons ?? null}, NOW(), NOW()

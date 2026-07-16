@@ -150,9 +150,27 @@ async function syncOrderItems(orderId: number, fmRef: string): Promise<void> {
 interface ExistingRow { id: number; source_of_order: string; edit_count: number | null; edit_status: string | null }
 
 // Upsert a single normalized FM order. Returns 'inserted' | 'updated' | 'skipped'.
+// Per-restaurant name/address/phone snapshot (from the cache), so each mirrored FM
+// order freezes the restaurant's details at mirror time — the order stays viewable
+// even if the restaurant is later renamed or deleted. Cached per restaurant within a
+// sync process to avoid a per-order lookup.
+const snapshotCache = new Map<string, { name: string | null; address: string | null; phone: string | null }>()
+async function restaurantSnapshot(ref: string): Promise<{ name: string | null; address: string | null; phone: string | null }> {
+  const hit = snapshotCache.get(ref)
+  if (hit) return hit
+  let snap = { name: null as string | null, address: null as string | null, phone: null as string | null }
+  try {
+    const rc = (await sql`SELECT name, address, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { name: string | null; address: string | null; phone: string | null }[]
+    if (rc[0]) snap = { name: rc[0].name ?? null, address: rc[0].address ?? null, phone: rc[0].phone ?? null }
+  } catch { /* best-effort */ }
+  snapshotCache.set(ref, snap)
+  return snap
+}
+
 async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, withItems: boolean): Promise<'inserted' | 'updated' | 'skipped'> {
   // NOT-NULL columns without a default: bail clearly rather than hit a constraint.
   if (!o.email || !o.orderNumber || !o.dateIso || !o.time) return 'skipped'
+  const snap = await restaurantSnapshot(restaurantReference)
 
   const existing = (await sql`
     SELECT id, source_of_order, COALESCE(edit_count,0) AS edit_count, edit_status
@@ -166,11 +184,13 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
       inserted = (await sql`
         INSERT INTO disco_orders (
           fm_order_reference, order_number, order_status, order_type, delivery_type, source_of_order,
-          restaurant_reference, restaurant_name, customer_email, customer_first_name, customer_last_name, customer_phone,
+          restaurant_reference, restaurant_name, restaurant_address, restaurant_phone,
+          customer_email, customer_first_name, customer_last_name, customer_phone,
           order_date, order_time, subtotal, total, fee, tips, tips_type, note, seen_by_admin, created_at, updated_at
         ) VALUES (
           ${o.fmRef}::uuid, ${o.orderNumber}::bigint, ${o.status}, ${o.orderType}, ${o.deliveryType}, ${o.source},
-          ${restaurantReference}::uuid, ${o.restaurantName}, ${o.email}, ${o.firstName || null}, ${o.lastName || null}, ${o.phone},
+          ${restaurantReference}::uuid, ${o.restaurantName || snap.name}, ${snap.address}, ${snap.phone},
+          ${o.email}, ${o.firstName || null}, ${o.lastName || null}, ${o.phone},
           ${o.dateIso}::date, ${o.time}::time, ${o.subtotal}, ${o.total}, ${o.fee}, ${o.tips}, ${o.tipsType}, ${o.note}, ${o.seenByAdmin}, NOW(), NOW()
         )
         RETURNING id
@@ -219,7 +239,9 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
   await sql`
     UPDATE disco_orders SET
       order_status = ${o.status}, order_type = ${o.orderType}, delivery_type = ${o.deliveryType},
-      restaurant_name = COALESCE(${o.restaurantName}, restaurant_name),
+      restaurant_name = COALESCE(restaurant_name, ${o.restaurantName}, ${snap.name}),
+      restaurant_address = COALESCE(restaurant_address, ${snap.address}),
+      restaurant_phone = COALESCE(restaurant_phone, ${snap.phone}),
       customer_first_name = ${o.firstName || null}, customer_last_name = ${o.lastName || null},
       customer_phone = COALESCE(${o.phone}, customer_phone),
       order_date = ${o.dateIso}::date, order_time = ${o.time}::time,

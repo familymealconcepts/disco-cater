@@ -56,7 +56,8 @@ export async function GET(req: NextRequest) {
   try {
     const rows = (await sql`
       SELECT fm_order_reference, reference, order_number, order_status, order_type, source_of_order,
-             restaurant_name, to_char(order_date,'YYYY-MM-DD') AS order_date, total, created_at
+             restaurant_name, to_char(order_date,'YYYY-MM-DD') AS order_date, total, created_at,
+             (SELECT count(*)::int FROM disco_order_items i WHERE i.order_id = disco_orders.id) AS item_count
       FROM disco_orders
       WHERE customer_email = ${email} AND COALESCE(is_deleted, false) = false
       ORDER BY order_date DESC, order_time DESC
@@ -65,6 +66,7 @@ export async function GET(req: NextRequest) {
       fm_order_reference: string | null; reference: string; order_number: string
       order_status: string; order_type: string; source_of_order: string
       restaurant_name: string | null; order_date: string; total: string | null; created_at: string | null
+      item_count: number | null
     }>
     neonList = rows.map(r => ({
       reference: r.fm_order_reference || r.reference,
@@ -75,6 +77,7 @@ export async function GET(req: NextRequest) {
       orderType: r.order_type,
       sourceoforder: r.source_of_order,
       total: num(r.total),
+      itemCount: Number(r.item_count) || undefined,
       createdAt: r.created_at || undefined,
     }))
   } catch (err) {

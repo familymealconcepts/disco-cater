@@ -31,6 +31,8 @@ interface ApiOrder {
   // FM wire attribution: "DISCO" (3P) or "FAMILYMEAL" (1P). Shown as a small
   // "3P"/"1P" pill; the raw value is never displayed.
   sourceoforder?: string
+  itemCount?: number
+  orderNumber?: number
 }
 
 function fmtDateLong(d?: string) {
@@ -238,8 +240,11 @@ function MonthAgenda({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder:
                   <div style={{ width: 46, flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#111', textAlign: 'center', lineHeight: 1.3 }}>{fmtDayMonth(dateStr)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}{getOrderSourceBadge(o.sourceoforder || '')}</div>
-                    <div style={{ marginTop: 4 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: p.bg, color: p.color }}>{p.label}</span>
+                    <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: p.bg, color: p.color, flexShrink: 0 }}>{p.label}</span>
+                      <span style={{ fontSize: 11.5, color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {[o.orderType ? o.orderType.charAt(0) + o.orderType.slice(1).toLowerCase() : null, o.itemCount ? `${o.itemCount} item${o.itemCount === 1 ? '' : 's'}` : null, o.orderNumber ? `#${o.orderNumber}` : null].filter(Boolean).join(' · ')}
+                      </span>
                     </div>
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#111', flexShrink: 0 }}>{fmtMoney(o.total || o.totalAmount)}</div>
