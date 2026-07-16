@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
+import { writeDiscoNativeMenu, type ImportPackage, type DiscoWriteSummary } from '../../../../../lib/menu-import/disco-native-write'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
-
-interface ImportPackage {
-  name: string
-  description?: string
-  price: number
-  displayPrice?: string
-  minQuantity?: number
-  serves: number
-  itemType: string
-  category?: string
-  modifiers?: string
-}
 
 export async function POST(req: NextRequest) {
   // 1 + 2. Auth gate and grab the SUPER_ADMIN JWT. getAdminAuthHeader() returns
@@ -79,6 +68,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 5.
-  return NextResponse.json({ results })
+  // 5. Dual-write to the Disco-native tables (portal visibility). Isolated so a
+  //    failure here never affects the FM import results already collected above.
+  let disco: DiscoWriteSummary = { menuReference: null, items: 0, groups: 0, modifiers: 0 }
+  try {
+    disco = await writeDiscoNativeMenu(restaurantReference, packages)
+  } catch (e) {
+    console.error('[menu-import] Disco-native dual-write failed (FM import unaffected):', e instanceof Error ? e.message : e)
+    disco = { menuReference: null, items: 0, groups: 0, modifiers: 0, error: 'Disco-native write failed' }
+  }
+
+  // 6.
+  return NextResponse.json({ results, disco })
 }
