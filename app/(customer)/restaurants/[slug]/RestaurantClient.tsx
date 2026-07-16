@@ -1436,13 +1436,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   {announcement}
                 </div>
               )}
-              {/* 1P-only cue: confirms the restaurant is on the commission-free
-                  direct link (sourceoforder FAMILYMEAL). Hidden on the 3P page. */}
-              {isFirstParty && (
-                <div style={{ marginTop: 8, fontSize: 11, color: '#999', fontWeight: 500 }}>
-                  Direct order — no marketplace fees
-                </div>
-              )}
             </div>
           </div>
           <div style={{ display: 'flex', overflowX: 'auto', borderTop: '1px solid #f0f0f0' }}>
@@ -1571,7 +1564,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             and push the left column out from under it. Hidden after
             hydration on mobile viewports (see isMobileViewport). */}
         {isMobileViewport !== true && menuData.length > 0 && (
-        <div className="order-sidebar" style={{ flex: '0 0 340px', width: 340 }}>
+        <div className="order-sidebar" style={{ flex: '0 0 340px', width: 340, alignSelf: 'stretch' }}>
           <div style={{ position: 'sticky', top: hasSelection ? 106 : 68 }}>
             <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', marginBottom: cart.length > 0 && fmRef ? 10 : 0 }}>
               <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
