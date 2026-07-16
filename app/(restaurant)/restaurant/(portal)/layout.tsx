@@ -54,7 +54,7 @@ const RESTAURANT_USER_NAV: NavItem[] = [
   {
     title: 'Manage Menus', path: '/restaurant/manage-v2/menus',
     children: [
-      { title: 'Menu Items', path: '/restaurant/manage-v2/menus' },
+      { title: 'Menus', path: '/restaurant/manage-v2/menus' },
       { title: 'Groups', path: '/restaurant/manage/groups' },
       { title: 'Modifiers', path: '/restaurant/manage/modifiers' },
     ],
@@ -409,10 +409,13 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
                       <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         {item.title}
                         {item.title === 'Account' && stripeConnected === false && (
-                          <span
-                            title="Connect your bank account to receive payments"
-                            style={{ width: 8, height: 8, borderRadius: '50%', background: '#F59E0B', display: 'inline-block', flexShrink: 0 }}
-                          />
+                          <span title="Connect your bank account to receive payments" style={{ display: 'inline-flex', flexShrink: 0 }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden role="img">
+                              <circle cx="12" cy="12" r="10" fill="#F59E0B" />
+                              <rect x="11" y="6" width="2" height="8" rx="1" fill="#fff" />
+                              <circle cx="12" cy="17" r="1.3" fill="#fff" />
+                            </svg>
+                          </span>
                         )}
                       </span>
                       <span style={{ fontSize: 9, opacity: 0.6 }}>{isOpen ? '▲' : '▼'}</span>
