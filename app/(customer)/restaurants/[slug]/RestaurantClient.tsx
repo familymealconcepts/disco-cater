@@ -1364,7 +1364,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           enclosing NewOrderDialog already shows the date in its top bar
           and the Order Summary right rail shows full context. */}
       {!embedded && hasSelection && (
-        <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 52, zIndex: 150, boxShadow: '0 1px 0 #f0f0f0' }}>
+        // top:50 matches the GlobalHeader's exact rendered height (padding 9+9 +
+        // ~31px auth control + 1px border = 50px), so this bar tucks flush beneath
+        // it when stuck. Was 52, which left a 2px sliver of page background showing.
+        <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 50, zIndex: 150, boxShadow: '0 1px 0 #f0f0f0' }}>
           <div style={{ maxWidth: 1140, margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12, height: 46 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtDateShort(selDate)}</span>
