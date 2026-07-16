@@ -191,14 +191,16 @@ export async function dispatchOrderConfirmations(
     let cacheLocation = ''
     let cacheAddress = ''
     let cachePhone = ''
+    let cacheTimezone = ''
     try {
       const rc = (await sql`
-        SELECT name, location, address, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1
-      `) as { name: string | null; location: string | null; address: string | null; phone: string | null }[]
+        SELECT name, location, address, phone, timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1
+      `) as { name: string | null; location: string | null; address: string | null; phone: string | null; timezone: string | null }[]
       cacheName = rc[0]?.name || ''
       cacheLocation = rc[0]?.location || ''
       cacheAddress = rc[0]?.address || ''
       cachePhone = rc[0]?.phone || ''
+      cacheTimezone = rc[0]?.timezone || ''
     } catch { /* cache lookup is best-effort */ }
 
     // Total: COALESCE(disco_orders.total, disco_stripe_payments.total). Native
@@ -262,8 +264,10 @@ export async function dispatchOrderConfirmations(
       // Delivery orders with a non-'exact' window snapshot show a time range;
       // pickup / null / 'exact' → exact time (formatTimeWindow handles the gating).
       orderTime: formatTimeWindow(String(o.order_time ?? ''), o.delivery_time_window as string | null, isDelivery),
+      // "Order Received" in the restaurant's local timezone (was UTC, which read
+      // ~4h ahead for an EDT restaurant). Falls back to America/New_York.
       orderReceived: o.created_at
-        ? new Date(o.created_at as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })
+        ? new Date(o.created_at as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: cacheTimezone || 'America/New_York' })
         : '',
       orderMealPackages,
       subtotal,

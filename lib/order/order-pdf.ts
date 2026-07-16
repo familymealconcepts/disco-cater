@@ -77,12 +77,13 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
   const hasTxn = txns.length > 0
 
   const restRef = String(o.restaurant_reference ?? '')
-  let cacheName = '', cachePhone = '', cacheAddress = ''
+  let cacheName = '', cachePhone = '', cacheAddress = '', cacheTimezone = ''
   try {
-    const rc = (await sql`SELECT name, address, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1`) as { name: string | null; address: string | null; phone: string | null }[]
+    const rc = (await sql`SELECT name, address, phone, timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1`) as { name: string | null; address: string | null; phone: string | null; timezone: string | null }[]
     cacheName = rc[0]?.name || ''
     cachePhone = rc[0]?.phone || ''
     cacheAddress = rc[0]?.address || ''
+    cacheTimezone = rc[0]?.timezone || ''
   } catch { /* best-effort */ }
 
   let stripeTotal = 0
@@ -126,7 +127,9 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     orderService: String(o.order_type ?? ''),
     orderDate: fmtDate(o.order_date),
     orderTime: formatTimeWindow(String(o.order_time ?? ''), o.delivery_time_window as string | null, isDelivery),
-    orderReceived: o.created_at ? new Date(o.created_at as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }) : '',
+    // "Received on …" in the restaurant's local timezone (was UTC, which read
+    // ~4h ahead for an EDT restaurant). Falls back to America/New_York.
+    orderReceived: o.created_at ? new Date(o.created_at as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: cacheTimezone || 'America/New_York' }) : '',
     deliveryAddress,
     persons: o.persons != null && Number(o.persons) > 0 ? Number(o.persons) : undefined,
     note: o.note ? String(o.note) : undefined,
@@ -136,82 +139,103 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
   }
 }
 
-const GRAD = rgb(0.42, 0.43, 0.98)  // #6B6EF9
-const DARK = rgb(0.10, 0.06, 0.16)  // #1A1028
-const GREY = rgb(0.42, 0.42, 0.42)
+const GRAD = rgb(0.42, 0.43, 0.98)      // #6B6EF9 (disco wordmark)
+const DARK = rgb(0.10, 0.06, 0.16)      // #1A1028
+const GREY = rgb(0.42, 0.42, 0.47)
+const FAINT = rgb(0.60, 0.60, 0.66)     // uppercase micro-labels
+const HAIR = rgb(0.90, 0.90, 0.93)
+const HAIR_STRONG = rgb(0.84, 0.84, 0.88)
 
-// Render the order as a single-page (auto-paginating) PDF and return the bytes.
+// Render the order as an auto-paginating PDF. Layout: Disco's modern styling with
+// FamilyMeal's field set + order — "Received on", an ORDER DETAILS | {SERVICE} TIME
+// row, and side-by-side STORE | CUSTOMER blocks (Option B).
 export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
-  let page = doc.addPage([612, 792]) // US Letter
-  const M = 48
-  const RIGHT = 612 - M
-  let y = 792 - M
+  const W = 612, H = 792, M = 48, RIGHT = W - M
+  let page = doc.addPage([W, H])
+  let y = H - M
 
-  const line = (text: string, opts: { size?: number; font?: PDFFont; color?: ReturnType<typeof rgb>; x?: number } = {}) => {
-    const size = opts.size ?? 10
-    if (y < M + 40) { page = doc.addPage([612, 792]); y = 792 - M }
-    page.drawText(text, { x: opts.x ?? M, y, size, font: opts.font ?? font, color: opts.color ?? DARK })
-    y -= size + 6
+  const brk = (need = 40) => { if (y < M + need) { page = doc.addPage([W, H]); y = H - M } }
+  const put = (t: string, x: number, atY: number, size: number, f: PDFFont = font, color = DARK) => page.drawText(t, { x, y: atY, size, font: f, color })
+  const putR = (t: string, atY: number, size: number, f: PDFFont = font, color = DARK) => page.drawText(t, { x: RIGHT - f.widthOfTextAtSize(t, size), y: atY, size, font: f, color })
+  const trunc = (t: string, f: PDFFont, size: number, maxW: number) => {
+    if (f.widthOfTextAtSize(t, size) <= maxW) return t
+    let s = t
+    while (s.length > 1 && f.widthOfTextAtSize(s + '…', size) > maxW) s = s.slice(0, -1)
+    return s + '…'
   }
-  const right = (text: string, opts: { size?: number; font?: PDFFont; color?: ReturnType<typeof rgb> } = {}, atY?: number) => {
-    const size = opts.size ?? 10
-    const f = opts.font ?? font
-    const w = f.widthOfTextAtSize(text, size)
-    page.drawText(text, { x: RIGHT - w, y: atY ?? y, size, font: f, color: opts.color ?? DARK })
+  const rule = (strong = false) => { brk(); page.drawLine({ start: { x: M, y }, end: { x: RIGHT, y }, thickness: strong ? 0.9 : 0.6, color: strong ? HAIR_STRONG : HAIR }); y -= 16 }
+
+  const colGap = 28
+  const colW = (RIGHT - M - colGap) / 2
+  const leftX = M, rightX = M + colW + colGap
+  type Ln = { t: string; b?: boolean; s?: number; c?: ReturnType<typeof rgb> }
+  const twoCol = (leftLabel: string, leftLines: Ln[], rightLabel: string, rightLines: Ln[]) => {
+    brk(90)
+    const top = y
+    put(leftLabel.toUpperCase(), leftX, top, 8.5, bold, FAINT)
+    put(rightLabel.toUpperCase(), rightX, top, 8.5, bold, FAINT)
+    const draw = (lines: Ln[], x: number) => {
+      let ly = top - 16
+      for (const l of lines) { const s = l.s ?? 11, f = l.b ? bold : font; put(trunc(l.t, f, s, colW), x, ly, s, f, l.c ?? DARK); ly -= s + 5 }
+      return ly
+    }
+    y = Math.min(draw(leftLines, leftX), draw(rightLines, rightX)) - 2
   }
-  const rule = () => { if (y < M + 40) { page = doc.addPage([612, 792]); y = 792 - M } page.drawLine({ start: { x: M, y: y + 2 }, end: { x: RIGHT, y: y + 2 }, thickness: 0.6, color: rgb(0.88, 0.88, 0.9) }); y -= 10 }
 
-  // Header
-  line('disco cater', { size: 18, font: bold, color: GRAD })
-  line(`Order #${d.orderNumber}`, { size: 20, font: bold })
-  y -= 2
-  line(d.restaurantName, { size: 12, font: bold })
-  if (d.restaurantAddress) line(d.restaurantAddress, { size: 9, color: GREY })
-  if (d.restaurantPhone) line(d.restaurantPhone, { size: 9, color: GREY })
-  y -= 4; rule()
+  // ── Header: wordmark, order number, "Received on …" ──
+  put('disco cater', M, y, 16, bold, GRAD); y -= 27
+  put(`Order #${d.orderNumber}`, M, y, 22, bold, DARK); y -= 19
+  if (d.orderReceived) { put(`Received on ${d.orderReceived}`, M, y, 10, font, GREY); y -= 6 }
+  y -= 10; rule()
 
-  // Order meta
-  line(`Service: ${d.orderService}`, { font: bold })
-  if (d.orderDate) line(`Date: ${d.orderDate}`)
-  if (d.orderTime) line(`Time: ${d.orderTime}`)
-  if (d.persons) line(`Headcount: ${d.persons}`)
-  if (d.orderReceived) line(`Received: ${d.orderReceived}`, { size: 9, color: GREY })
-  y -= 4; rule()
+  // ── ORDER DETAILS | {SERVICE} TIME ──
+  const isDelivery = (d.orderService || '').toUpperCase() === 'DELIVERY'
+  const timeLabel = isDelivery ? 'Delivery Pick-Up Time' : `${d.orderService || 'Pickup'} Time`
+  const detailLines: Ln[] = [{ t: d.orderService || 'Pickup', b: true, s: 13 }]
+  if (d.persons) detailLines.push({ t: `Headcount: ${d.persons}`, s: 10, c: GREY })
+  if (d.note) detailLines.push({ t: d.note, s: 10, c: GREY })
+  const timeLines: Ln[] = []
+  if (d.orderDate) timeLines.push({ t: d.orderDate, b: true, s: 13 })
+  if (d.orderTime) timeLines.push({ t: d.orderTime, s: 11, c: GREY })
+  twoCol('Order details', detailLines, timeLabel, timeLines)
+  rule()
 
-  // Customer
-  line('Customer', { size: 9, font: bold, color: GREY })
-  line(d.customerName, { font: bold })
-  if (d.companyName) line(d.companyName)
-  if (d.customerEmail) line(d.customerEmail, { size: 9, color: GREY })
-  if (d.customerPhone) line(d.customerPhone, { size: 9, color: GREY })
-  if (d.deliveryAddress) { line('Delivery to:', { size: 9, font: bold, color: GREY }); line(d.deliveryAddress, { size: 9 }) }
-  if (d.note) { y -= 2; line(`Note: ${d.note}`, { size: 9, font: bold }) }
-  y -= 4; rule()
+  // ── STORE | CUSTOMER ──
+  const storeLines: Ln[] = [{ t: d.restaurantName, b: true, s: 12 }]
+  if (d.restaurantAddress) storeLines.push({ t: d.restaurantAddress, s: 10, c: GREY })
+  if (d.restaurantPhone) storeLines.push({ t: d.restaurantPhone, s: 10, c: GREY })
+  const custLines: Ln[] = [{ t: d.customerName, b: true, s: 12 }]
+  if (d.companyName) custLines.push({ t: d.companyName, s: 10, c: GREY })
+  if (d.customerEmail) custLines.push({ t: d.customerEmail, s: 10, c: GREY })
+  if (d.customerPhone) custLines.push({ t: d.customerPhone, s: 10, c: GREY })
+  if (d.deliveryAddress) custLines.push({ t: d.deliveryAddress, s: 10, c: GREY })
+  twoCol('Store', storeLines, 'Customer', custLines)
+  rule()
 
-  // Items
-  line('Items', { size: 9, font: bold, color: GREY })
+  // ── Items ──
+  brk(); put('ITEMS', M, y, 8.5, bold, FAINT); y -= 17
+  const itemMaxW = RIGHT - M - 70
   for (const it of d.items) {
-    const label = `${it.quantity} x ${it.name}`
-    if (y < M + 40) { page = doc.addPage([612, 792]); y = 792 - M }
+    brk()
     const rowY = y
-    page.drawText(label, { x: M, y: rowY, size: 10, font, color: DARK })
-    right(money(it.price * it.quantity), {}, rowY)
+    put(trunc(`(${it.quantity})  ${it.name}`, font, 11, itemMaxW), M, rowY, 11, font, DARK)
+    putR(money(it.price * it.quantity), rowY, 11, font, DARK)
     y -= 16
-    if (it.note) line(`   ${it.note}`, { size: 8, color: GREY })
+    if (it.note) { put(trunc(`    ${it.note}`, font, 9, RIGHT - M), M, y, 9, font, GREY); y -= 12 }
   }
-  y -= 2; rule()
+  y -= 4; rule(true)
 
-  // Totals
-  const totalRow = (label: string, val: number, opts: { bold?: boolean } = {}) => {
-    if (y < M + 40) { page = doc.addPage([612, 792]); y = 792 - M }
-    const f = opts.bold ? bold : font
+  // ── Totals (right half of the page, label left / value right) ──
+  const totalRow = (label: string, val: number, strong = false) => {
+    brk()
+    const f = strong ? bold : font, size = strong ? 13 : 11
     const rowY = y
-    page.drawText(label, { x: M, y: rowY, size: opts.bold ? 12 : 10, font: f, color: DARK })
-    right(money(val), { font: f, size: opts.bold ? 12 : 10 }, rowY)
-    y -= (opts.bold ? 20 : 16)
+    put(label, rightX, rowY, size, f, strong ? DARK : GREY)
+    putR(money(val), rowY, size, f, DARK)
+    y -= strong ? 20 : 16
   }
   totalRow('Subtotal', d.subtotal)
   if (d.serviceCharge) totalRow('Service charge', d.serviceCharge)
@@ -221,10 +245,15 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   if (d.tip) totalRow('Tip', d.tip)
   if (d.promo) totalRow('Discount', -Math.abs(d.promo))
   if (d.refund) totalRow('Refund', -Math.abs(d.refund))
-  y -= 2; rule()
-  totalRow('Total', d.total, { bold: true })
+  brk(); page.drawLine({ start: { x: rightX, y: y + 6 }, end: { x: RIGHT, y: y + 6 }, thickness: 0.9, color: HAIR_STRONG }); y -= 2
+  totalRow('Total', d.total, true)
 
-  if (d.taxExemptId) { y -= 4; line(`Tax Exempt #: ${d.taxExemptId}`, { size: 9, font: bold }) }
+  if (d.taxExemptId) { y -= 6; put(`Tax Exempt #: ${d.taxExemptId}`, M, y, 10, bold, DARK); y -= 14 }
+
+  // ── Footer ──
+  y -= 12; brk()
+  put(`Order ID: ${d.orderNumber}`, M, y, 10, font, GREY)
+  putR('Thank you for your order', y, 10, font, FAINT)
 
   return doc.save()
 }

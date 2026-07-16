@@ -228,12 +228,12 @@ export async function sendCustomerOrderConfirmation(
     const subject = `Disco Cater Order ${p.orderNumber} (${subjectTotal})${p.orderDate ? ` ${p.orderDate}` : ''}${customerName ? ` for ${customerName}` : ''}`
 
     const content = `
+<p style="font-size:15px;font-weight:800;letter-spacing:.05em;margin:0 0 6px;">ORDER RECEIPT</p>
+<p style="font-size:14px;line-height:1.5;margin:0 0 16px;">Thanks for your order${p.firstName ? `, ${escapeHtml(p.firstName)}` : ''}!${p.businessName ? ` Your order has been submitted to <strong>${escapeHtml(p.businessName)}</strong>.` : ''}</p>
 ${p.orderEditNotice ? `<p style="font-size:15px;line-height:1.5;margin-bottom:12px;">${escapeHtml(p.orderEditNotice)}</p>` : ''}
 ${p.additionalInvoiceDue != null ? `<p style="margin-bottom:12px;"><strong>Additional amount due (invoice):</strong> ${money(p.additionalInvoiceDue)}</p>` : ''}
 <p style="margin:0;">
-Order Type: <strong>${escapeHtml(p.orderService)}</strong><br/>
-${p.orderDate ? `Order Date: <strong>${escapeHtml(p.orderDate)}</strong><br/>` : ''}
-${p.orderTime ? `Order Time: <strong>${escapeHtml(p.orderTime)}</strong>` : ''}
+<strong>${escapeHtml(orderServiceLabel(p.orderService))}</strong>: ${p.orderDate ? escapeHtml(p.orderDate) : ''}${p.orderTime ? ` at ${escapeHtml(p.orderTime)}` : ''}
 ${p.persons != null && p.persons > 0 ? `<br/>Headcount: <strong>${escapeHtml(p.persons)}</strong>` : ''}
 </p>
 ${HR}
@@ -274,13 +274,15 @@ export async function sendRestaurantOrderNotification(
     const p = params
     const isThirdPartyDelivery =
       p.deliveryType === 'NASH_DELIVERY' || p.deliveryType === 'DLIVRD_DELIVERY' || p.deliveryType === 'THIRD_PARTY'
+    const isDelivery = String(p.orderService || '').toUpperCase() === 'DELIVERY' || isThirdPartyDelivery
+    const storePhone = formatPhone(p.businessPhone)
 
     // Order timing block — Nash/Dlivrd show pickup + dropoff, otherwise order time.
     // Order Source helps the restaurant immediately see where the order came from.
     const sourceLabel =
       p.sourceOfOrder === 'DISCO' ? '3P — Disco Cater Marketplace' : '1P — Direct Entry'
     let timingHtml = ''
-    if (p.orderService) timingHtml += `Order Type: <strong>${escapeHtml(p.orderService)}</strong><br/>`
+    if (p.orderService) timingHtml += `Order Type: <strong>${escapeHtml(orderServiceLabel(p.orderService))}</strong> ${isDelivery ? '(D)' : '(P)'}<br/>`
     timingHtml += `Order Source: <strong>${sourceLabel}</strong><br/>`
     if (p.orderDate) timingHtml += `Order Date: <strong>${escapeHtml(p.orderDate)}</strong><br/>`
     if (isThirdPartyDelivery) {
@@ -295,6 +297,10 @@ ${p.orderEditNotice ? `<p style="font-size:15px;line-height:1.5;margin-bottom:12
 ${p.additionalInvoiceDue != null ? `<p style="margin-bottom:12px;"><strong>Additional amount due (invoice):</strong> ${money(p.additionalInvoiceDue)}</p>` : ''}
 <p style="margin:0;">${timingHtml}</p>
 ${HR}
+<p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:.08em;color:#9a9aa6;">STORE</p>
+<p style="margin:0;"><strong>${escapeHtml(p.businessName)}</strong>${storePhone ? `<br/>${escapeHtml(storePhone)}` : ''}${p.addressLine1 ? `<br/>${escapeHtml(p.addressLine1)}` : ''}</p>
+${HR}
+<p style="margin:0 0 4px;font-size:11px;font-weight:700;letter-spacing:.08em;color:#9a9aa6;">CUSTOMER</p>
 ${renderCustomerBlock(p)}
 ${HR}
 <p style="margin:0;">Order Received: ${escapeHtml(p.orderReceived)}</p>
