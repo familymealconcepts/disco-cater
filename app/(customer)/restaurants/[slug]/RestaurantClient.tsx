@@ -1381,9 +1381,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         </div>
       )}
 
-      {notices.length > 0 && (
+      {/* Announcement bar: the restaurant's actual "Announcement" (from settings)
+          shown prominently, with the auto-derived notices (lead time · minimum ·
+          fulfillment) as a secondary line beneath it. */}
+      {(announcement || notices.length > 0) && (
         <div style={{ background: DARK, color: 'rgba(255,255,255,0.78)', fontSize: 12, fontWeight: 500, textAlign: 'center', padding: '8px 16px', letterSpacing: '0.03em' }}>
-          {notices.join('  ·  ')}
+          {announcement && (
+            <div style={{ color: '#fff', fontWeight: 600, fontSize: 12.5, whiteSpace: 'pre-wrap', marginBottom: notices.length > 0 ? 4 : 0 }}>
+              {announcement}
+            </div>
+          )}
+          {notices.length > 0 && <div>{notices.join('  ·  ')}</div>}
         </div>
       )}
 
@@ -1431,11 +1439,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   ⏸ This restaurant is not currently accepting online orders.
                 </div>
               )}
-              {announcement && (
-                <div style={{ marginTop: 10, background: '#EEF2FF', border: '1px solid #C7D2FE', color: '#3730A3', fontSize: 12.5, padding: '9px 13px', borderRadius: 10, whiteSpace: 'pre-wrap' }}>
-                  {announcement}
-                </div>
-              )}
+              {/* The announcement now renders in the top announcement bar (above),
+                  so it's intentionally not duplicated here. */}
             </div>
           </div>
           <div style={{ display: 'flex', overflowX: 'auto', borderTop: '1px solid #f0f0f0' }}>
@@ -1520,7 +1525,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                       }}>
                         {/* LEFT: text */}
                         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                          <div style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 4, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pkg.name}</div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: '#111', marginBottom: 4, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', wordBreak: 'break-word' } as React.CSSProperties}>{pkg.name}</div>
                           {pkg.description && (
                             <p style={{ fontSize: 12, color: '#585786', lineHeight: 1.5, margin: '0 0 8px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as React.CSSProperties}>
                               {pkg.description}
@@ -1643,8 +1648,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             <div style={{ overflowY: 'auto', maxHeight: 270, borderBottom: '1px solid #f0f0f0' }}>
               {menuData.map((s, i) => {
                 const nextAvail = getMenuNextAvail(s.menu)
-                const types = s.menu.settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
-                const typesLabel = types.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & ')
                 const isSel = tempMenuIdx === i
                 return (
                   <div key={s.menu.reference}>
@@ -1658,7 +1661,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 14, fontWeight: 600, color: '#111', marginBottom: 2 }}>
                           {s.menu.name}
-                          {typesLabel && <span style={{ fontSize: 12, color: '#888', fontWeight: 400, marginLeft: 6 }}>({typesLabel})</span>}
                         </div>
                         {nextAvail && <div style={{ fontSize: 12, color: '#999' }}>{nextAvail}</div>}
                       </div>

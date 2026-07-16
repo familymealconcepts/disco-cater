@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import GlobalHeader from '../../components/GlobalHeader'
 
 export const metadata: Metadata = {
   title: 'For Restaurants — Disco Cater',
@@ -7,7 +8,6 @@ export const metadata: Metadata = {
 }
 
 const F = "'DM Sans', sans-serif"
-const GRADIENT = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
 
@@ -29,7 +29,7 @@ const CARD_GLOW = '0 6px 22px rgba(107,110,249,0.22), 0 2px 10px rgba(240,70,138
 
 export default function ForRestaurantsPage() {
   return (
-    <div style={{ minHeight: '100svh', background: '#F9FAFB', fontFamily: F, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 20px 64px' }}>
+    <div style={{ minHeight: '100svh', background: '#F9FAFB', fontFamily: F, display: 'flex', flexDirection: 'column' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
@@ -39,18 +39,18 @@ export default function ForRestaurantsPage() {
         .fr-arrow { transition: transform 0.15s ease; }
         /* Value props: row on desktop, stacked on mobile. */
         .fr-valueprops { display: flex; gap: 22px; }
+        .fr-footer a { color: #bbb; text-decoration: none; transition: color 0.15s; }
+        .fr-footer a:hover { color: #6B6EF9; }
         @media (max-width: 767px) {
           .fr-heading { font-size: 28px !important; }
           .fr-valueprops { flex-direction: column; gap: 18px; }
         }
       `}</style>
 
-      {/* Wordmark */}
-      <Link href="/" style={{ textDecoration: 'none', fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 40 }}>
-        <span style={{ background: GRADIENT, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span>
-        <span style={{ color: '#999' }}> cater</span>
-      </Link>
+      {/* Standard site header (same as every other customer page). */}
+      <GlobalHeader />
 
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 20px 64px' }}>
       <div style={{ width: '100%', maxWidth: 620, textAlign: 'center' }}>
         {/* Action cards — pulled to the top; large tap targets, stacked */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, margin: '0 0 40px' }}>
@@ -91,6 +91,20 @@ export default function ForRestaurantsPage() {
           ))}
         </div>
       </div>
+      </div>
+
+      {/* Standard site footer. */}
+      <footer className="fr-footer" style={{ padding: '18px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, paddingBottom: 'max(18px, env(safe-area-inset-bottom))' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24, flexWrap: 'wrap' }}>
+          <a href="/privacy" style={{ fontSize: 13 }}>Privacy Policy</a>
+          <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+          <a href="/terms" style={{ fontSize: 13 }}>Terms</a>
+          <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+          <a href="mailto:concierge@discocater.com" style={{ fontSize: 13 }}>Contact</a>
+          <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
+          <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 Disco Cater</span>
+        </div>
+      </footer>
     </div>
   )
 }
