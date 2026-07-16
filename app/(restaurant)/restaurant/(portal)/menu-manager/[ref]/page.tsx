@@ -312,12 +312,12 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
         <label style={dlgLabel}>Description</label>
         <textarea value={desc} onChange={e => setDesc(e.target.value)} style={{ ...dlgInput, minHeight: 64, resize: 'vertical' }} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div><label style={dlgLabel}>Price</label><input value={price} onChange={e => setPrice(e.target.value)} inputMode="decimal" style={dlgInput} /></div>
-          <div><label style={dlgLabel}>Serves</label><input value={serves} onChange={e => setServes(e.target.value)} style={dlgInput} /></div>
+          <div><label style={dlgLabel}>Base price ($)</label><input value={price} onChange={e => setPrice(e.target.value)} inputMode="decimal" placeholder="e.g. 45.00" style={dlgInput} /></div>
+          <div><label style={dlgLabel}>Serving size (people)</label><input value={serves} onChange={e => setServes(e.target.value)} placeholder="e.g. 10" style={dlgInput} /></div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div><label style={dlgLabel}>Display price (optional)</label><input value={displayPrice} onChange={e => setDisplayPrice(e.target.value)} placeholder="e.g. Starting at $45" style={dlgInput} /></div>
-          <div><label style={dlgLabel}>Min quantity</label><input value={minQuantity} onChange={e => setMinQuantity(e.target.value)} inputMode="numeric" placeholder="1" style={dlgInput} /></div>
+          <div><label style={dlgLabel}>Min quantity (optional)</label><input value={minQuantity} onChange={e => setMinQuantity(e.target.value)} inputMode="numeric" style={dlgInput} /></div>
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: DARK, cursor: 'pointer' }}>
           <input type="checkbox" checked={allowSI} onChange={e => setAllowSI(e.target.checked)} style={{ accentColor: BLUE }} /> Allow special instructions

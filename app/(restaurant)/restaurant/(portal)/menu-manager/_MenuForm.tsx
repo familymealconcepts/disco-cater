@@ -308,15 +308,22 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         <div style={card}>
           <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 14 }}>Order Settings</div>
 
-          <label style={label}>Fulfillment types offered</label>
-          <div style={{ display: 'flex', gap: 20, marginBottom: 16 }}>
-            <label style={radioRow(offersPickup)}><input type="checkbox" checked={offersPickup} onChange={e => setOffersPickup(e.target.checked)} style={{ accentColor: BLUE }} /> Pickup</label>
-            <label style={radioRow(offersDelivery)}><input type="checkbox" checked={offersDelivery} onChange={e => setOffersDelivery(e.target.checked)} style={{ accentColor: BLUE }} /> Delivery</label>
+          {/* #10 section order: Lead time → Order Min/Max → Tips → Service Charges,
+              then fulfillment + cutoff timing. */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div><label style={label}>Lead time (hours)</label><input value={leadTimeHours} onChange={e => setLeadTimeHours(e.target.value)} inputMode="numeric" style={inputStyle} /></div>
+            <div>
+              <label style={label}>Bookable window</label>
+              <select value={rollingAvailabilityDays} onChange={e => setRollingAvailabilityDays(e.target.value)} style={inputStyle}>
+                <option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option>
+              </select>
+            </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-            <div><label style={label}>Service charge (%)</label><input value={serviceChargePct} onChange={e => setServiceChargePct(e.target.value)} inputMode="decimal" style={inputStyle} /></div>
-            <div><label style={label}>Service charge name</label><input value={serviceChargeName} onChange={e => setServiceChargeName(e.target.value)} placeholder="e.g. Service fee" style={inputStyle} /></div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div><label style={label}>Pickup minimum ($)</label><input value={pickupOrderMinimum} onChange={e => setPickupOrderMinimum(e.target.value)} inputMode="decimal" style={inputStyle} /></div>
+            <div><label style={label}>Delivery minimum ($)</label><input value={deliveryOrderMinimum} onChange={e => setDeliveryOrderMinimum(e.target.value)} inputMode="decimal" style={inputStyle} /></div>
+            <div><label style={label}>Max orders/day</label><input value={maxOrdersPerDay} onChange={e => setMaxOrdersPerDay(e.target.value)} inputMode="numeric" placeholder="No limit" style={inputStyle} /></div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
@@ -329,20 +336,15 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
             <div><label style={label}>{tipDefaultType === 'CUSTOM' ? 'Default tip ($)' : 'Default tip (%)'}</label><input value={tipDefaultValue} onChange={e => setTipDefaultValue(e.target.value)} inputMode="decimal" disabled={tipDefaultType === 'NONE'} style={{ ...inputStyle, opacity: tipDefaultType === 'NONE' ? 0.5 : 1 }} /></div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-            <div><label style={label}>Pickup minimum ($)</label><input value={pickupOrderMinimum} onChange={e => setPickupOrderMinimum(e.target.value)} inputMode="decimal" style={inputStyle} /></div>
-            <div><label style={label}>Delivery minimum ($)</label><input value={deliveryOrderMinimum} onChange={e => setDeliveryOrderMinimum(e.target.value)} inputMode="decimal" style={inputStyle} /></div>
-            <div><label style={label}>Max orders/day</label><input value={maxOrdersPerDay} onChange={e => setMaxOrdersPerDay(e.target.value)} inputMode="numeric" placeholder="No limit" style={inputStyle} /></div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div><label style={label}>Service charge (%)</label><input value={serviceChargePct} onChange={e => setServiceChargePct(e.target.value)} inputMode="decimal" style={inputStyle} /></div>
+            <div><label style={label}>Service charge name</label><input value={serviceChargeName} onChange={e => setServiceChargeName(e.target.value)} placeholder="e.g. Service fee" style={inputStyle} /></div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-            <div><label style={label}>Lead time (hours)</label><input value={leadTimeHours} onChange={e => setLeadTimeHours(e.target.value)} inputMode="numeric" style={inputStyle} /></div>
-            <div>
-              <label style={label}>Bookable window</label>
-              <select value={rollingAvailabilityDays} onChange={e => setRollingAvailabilityDays(e.target.value)} style={inputStyle}>
-                <option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option>
-              </select>
-            </div>
+          <label style={label}>Fulfillment types offered</label>
+          <div style={{ display: 'flex', gap: 20, marginBottom: 16 }}>
+            <label style={radioRow(offersPickup)}><input type="checkbox" checked={offersPickup} onChange={e => setOffersPickup(e.target.checked)} style={{ accentColor: BLUE }} /> Pickup</label>
+            <label style={radioRow(offersDelivery)}><input type="checkbox" checked={offersDelivery} onChange={e => setOffersDelivery(e.target.checked)} style={{ accentColor: BLUE }} /> Delivery</label>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
