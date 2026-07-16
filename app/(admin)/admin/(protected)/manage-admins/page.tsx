@@ -238,7 +238,25 @@ export default function ManageSystemAdminsPage() {
                     managedRestaurants[] (same field the Edit dialog reads), so
                     count that first; fall back to a numeric `locations` or the
                     legacy `restaurants[]`. */}
-                <td style={{ ...cell, textAlign: 'right' }}>{u.locations ?? u.managedRestaurants?.length ?? u.restaurants?.length ?? 0}</td>
+                {/* #22: count + the first 3 assigned restaurant names in small gray
+                    text as a quick reference; hover shows the full list. */}
+                <td style={{ ...cell, textAlign: 'right' }}>
+                  {(() => {
+                    const names = (u.managedRestaurants || []).map(r => r.businessName).filter(Boolean) as string[]
+                    const count = u.locations ?? u.managedRestaurants?.length ?? u.restaurants?.length ?? 0
+                    const first3 = names.slice(0, 3)
+                    return (
+                      <span title={names.length ? names.join('\n') : undefined} style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, cursor: names.length ? 'help' : 'default' }}>
+                        <span style={{ fontWeight: 600 }}>{count}</span>
+                        {first3.length > 0 && (
+                          <span style={{ fontSize: 11, color: '#999', fontWeight: 400, lineHeight: 1.35 }}>
+                            {first3.join(', ')}{names.length > 3 ? `, +${names.length - 3} more` : ''}
+                          </span>
+                        )}
+                      </span>
+                    )
+                  })()}
+                </td>
                 <td style={{ ...cell, textAlign: 'right' }}>
                   <button onClick={() => setEditing({
                     reference: u.reference,
