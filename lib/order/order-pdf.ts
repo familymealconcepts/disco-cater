@@ -6,6 +6,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import { sql } from '../db'
 import { formatTimeWindow } from '../utils/deliveryTimeWindow'
+import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
 
 function num(v: unknown): number {
   const n = parseFloat(String(v ?? ''))
@@ -180,10 +181,19 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   const fullBox = (lines: Ln[], fill?: ReturnType<typeof rgb>) => { const h = boxH(lines); brk(h); cell(LEFT, y, CW, lines, h, fill); y -= h }
   const splitBox = (l: Ln[], r: Ln[], leftFrac = 0.5) => { const h = Math.max(boxH(l), boxH(r)); brk(h); const lw = CW * leftFrac; cell(LEFT, y, lw, l, h); cell(LEFT + lw, y, CW - lw, r, h); y -= h }
 
-  // ── Disco wordmark (brand text logo, replacing FM's) ──
-  text('disco', LEFT, y - 16, 20, bold, GRAD)
-  text(' cater', LEFT + bold.widthOfTextAtSize('disco', 20), y - 16, 20, bold, CATER)
-  y -= 32
+  // ── Disco Cater logo — the SAME asset used in the transactional-email header
+  //    (public/disco-cater-logo-white-bg.png), embedded as an image. Falls back to
+  //    the brand text wordmark if the PNG ever fails to embed. ──
+  try {
+    const logo = await doc.embedPng(Buffer.from(DISCO_LOGO_PNG_BASE64, 'base64'))
+    const lw = 150, lh = lw * (DISCO_LOGO_H / DISCO_LOGO_W)
+    page.drawImage(logo, { x: LEFT, y: y - lh, width: lw, height: lh })
+    y -= lh + 10
+  } catch {
+    text('disco', LEFT, y - 16, 20, bold, GRAD)
+    text(' cater', LEFT + bold.widthOfTextAtSize('disco', 20), y - 16, 20, bold, CATER)
+    y -= 32
+  }
 
   // ── Subject box + "Received on" ──
   const custName = (d.customerName && d.customerName !== '—') ? d.customerName : ''
@@ -199,7 +209,9 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   const rightTime: Ln[] = [{ t: timeLabel, label: true, s: 9.5 }]
   if (d.orderDate) rightTime.push({ t: `Date: ${d.orderDate}`, s: 11 })
   if (d.orderTime) rightTime.push({ t: `Time: ${d.orderTime}`, s: 11 })
-  splitBox(leftDetail, rightTime, 0.55)
+  // 0.5 split so the right column ({SERVICE} TIME) lines up exactly with the
+  // Customer box below it — matching the Store column on the left at 0.5.
+  splitBox(leftDetail, rightTime, 0.5)
 
   // ── Store: | Customer: ──
   const storeLines: Ln[] = [{ t: 'Store:', label: true, s: 9.5 }, { t: d.restaurantName || 'Restaurant', b: true, s: 11 }]
