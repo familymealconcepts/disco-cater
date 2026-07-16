@@ -35,6 +35,23 @@ async function withMembers(groups: Record<string, unknown>[]): Promise<Record<st
   return groups.map(g => ({ ...g, modifiers: byGroup.get(g.reference as string) ?? [] }))
 }
 
+// Attach the menu items each group is used in (single extra query) — powers the
+// "used in" hover on the Groups page (#17).
+async function withItemUsage(groups: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  if (!groups.length) return groups
+  const refs = groups.map(g => g.reference as string)
+  const rows = (await sql`
+    SELECT ig.group_reference, mi.name
+    FROM disco_item_groups ig
+    JOIN disco_menu_items mi ON mi.reference = ig.item_reference
+    WHERE ig.group_reference = ANY(${refs})
+    ORDER BY mi.name
+  `) as { group_reference: string; name: string }[]
+  const byGroup = new Map<string, string[]>()
+  for (const r of rows) { const l = byGroup.get(r.group_reference) ?? []; l.push(r.name); byGroup.set(r.group_reference, l) }
+  return groups.map(g => ({ ...g, itemsUsedIn: byGroup.get(g.reference as string) ?? [] }))
+}
+
 export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -49,7 +66,7 @@ export async function GET(req: NextRequest) {
       WHERE restaurant_reference = ${ref}::uuid AND (${includeArchived} OR archived = false)
       ORDER BY position, name
     `) as Record<string, unknown>[]
-    return NextResponse.json({ groups: await withMembers(groups) })
+    return NextResponse.json({ groups: await withItemUsage(await withMembers(groups)) })
   } catch (e) {
     console.error('[disco-modifier-groups] GET failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to load groups' }, { status: 500 })
