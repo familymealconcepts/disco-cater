@@ -19,7 +19,7 @@ function UsedIn({ names }: { names: string[] }) {
   if (names.length === 0) return <span style={{ fontSize: 12, color: '#bbb' }}>—</span>
   return (
     <span style={{ position: 'relative', display: 'inline-flex' }} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#555', background: '#F1F1F7', border: '1px solid #e6e6ee', borderRadius: 20, padding: '2px 9px', cursor: 'default' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#555', background: '#F1F1F7', border: '1px solid #e6e6ee', borderRadius: 20, padding: '2px 9px', cursor: 'default', whiteSpace: 'nowrap' }}>
         {names.length} {names.length === 1 ? 'item' : 'items'}
         <svg width="11" height="11" viewBox="0 0 24 24" fill="#999" aria-hidden><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" /></svg>
       </span>
