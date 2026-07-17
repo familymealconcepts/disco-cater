@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { checkOrderingWouldDisable } from '../../../../../lib/ordering-validation'
 
 const F = "'DM Sans', sans-serif"
@@ -131,6 +131,13 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [payoutErr, setPayoutErr] = useState('')
   const [payoutSavedOk, setPayoutSavedOk] = useState(false)
 
+  // FM→Disco-native conversion (M3) — shown for FM-backed restaurants.
+  interface ConvStep { key: string; label: string; done: boolean; blocking: boolean; detail: string }
+  const [conv, setConv] = useState<null | { found: boolean; isDiscoNative: boolean; ready: boolean; ordersMirrored: number; steps: ConvStep[] }>(null)
+  const [convBusy, setConvBusy] = useState(false)
+  const [convMsg, setConvMsg] = useState('')
+  const [convErr, setConvErr] = useState('')
+
   // Google Places description fetch.
   const [fetchingDesc, setFetchingDesc] = useState(false)
   const [descError, setDescError] = useState('')
@@ -247,6 +254,33 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       setPayoutErr(e instanceof Error ? e.message : 'Could not update payout schedule')
     } finally {
       setPayoutSaving(false)
+    }
+  }
+
+  // Load the FM→native conversion readiness (checklist). No-op for native restaurants.
+  const loadConversion = useCallback(() => {
+    fetch(`/api/admin/restaurants/${restaurantRef}/convert-native`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && !d.error) setConv(d) })
+      .catch(() => {})
+  }, [restaurantRef])
+  useEffect(() => { loadConversion() }, [loadConversion])
+
+  async function convertToNative() {
+    if (typeof window !== 'undefined' && !window.confirm('Convert this restaurant to Disco-native? Its checkout, menus, and payouts will be managed entirely in Disco. Marketplace visibility is preserved by the drop-off guard.')) return
+    setConvBusy(true); setConvErr(''); setConvMsg('')
+    try {
+      const res = await fetch(`/api/admin/restaurants/${restaurantRef}/convert-native`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }),
+      })
+      const d = await res.json().catch(() => null)
+      if (!res.ok || !d?.converted) throw new Error(d?.reason || d?.error || 'Conversion failed')
+      if (d.readiness) setConv(d.readiness)
+      setConvMsg('Converted to Disco-native.')
+    } catch (e) {
+      setConvErr(e instanceof Error ? e.message : 'Conversion failed')
+    } finally {
+      setConvBusy(false)
     }
   }
 
@@ -547,6 +581,32 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                   <div><label style={label}>Lead gen 2 (%)</label><input style={input} type="number" min={0} max={100} step="0.1" value={leadGenTwo} onChange={e => setLeadGenTwo(e.target.value)} /></div>
                 </div>
               </div>
+
+              {/* Convert to Disco-native (M3) — shown only for FM-backed restaurants.
+                  Every blocking step must pass (incl. the M4 marketplace guard). */}
+              {conv?.found && !conv.isDiscoNative && (
+                <div style={section}>
+                  <div style={sTitle}>Convert to Disco-native</div>
+                  <p style={{ fontSize: 12, color: '#777', margin: '0 0 12px' }}>Move this FM-backed restaurant onto Disco-native ordering. Each blocking step must pass; marketplace visibility is preserved by the drop-off guard.</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {conv.steps.map(s => (
+                      <div key={s.key} style={{ display: 'flex', gap: 8, fontSize: 12.5, lineHeight: 1.4, color: s.done ? '#166534' : (s.blocking ? '#B45309' : '#888') }}>
+                        <span style={{ flexShrink: 0, fontWeight: 700 }}>{s.done ? '✓' : (s.blocking ? '✗' : '•')}</span>
+                        <span><strong style={{ color: '#333' }}>{s.label}</strong>{s.blocking ? '' : ' (advisory)'} — {s.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#999', margin: '10px 0 12px' }}>{conv.ordersMirrored} order(s) mirrored to Neon. Run a final FM order sync before converting.</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button type="button" onClick={convertToNative} disabled={!conv.ready || convBusy}
+                      style={{ background: conv.ready ? '#166534' : '#ccc', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: conv.ready && !convBusy ? 'pointer' : 'not-allowed', fontFamily: F }}>
+                      {convBusy ? 'Converting…' : 'Convert to Disco-native'}
+                    </button>
+                    {convMsg && <span style={{ fontSize: 12, fontWeight: 600, color: '#16A34A' }}>✓ {convMsg}</span>}
+                    {convErr && <span style={{ fontSize: 12, color: '#DC2626' }}>{convErr}</span>}
+                  </div>
+                </div>
+              )}
 
               {/* Payout schedule (M9) — Disco-native only; shown when the restaurant
                   has a connected Stripe account. Saved independently of Submit. */}
