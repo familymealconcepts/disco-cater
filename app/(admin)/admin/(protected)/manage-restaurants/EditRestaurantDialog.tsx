@@ -119,6 +119,18 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [orderUrlOverride, setOrderUrlOverride] = useState('')
   const [stripeConnected, setStripeConnected] = useState<boolean | null>(null)
 
+  // Payout schedule (M9) — Disco-native only. Loaded from the restaurant's Stripe
+  // connected account; saved independently of the FM Submit.
+  const [payoutApplicable, setPayoutApplicable] = useState<boolean | null>(null)
+  const [payoutReason, setPayoutReason] = useState('')
+  const [payoutInterval, setPayoutInterval] = useState<'manual' | 'daily' | 'weekly' | 'monthly'>('weekly')
+  const [weeklyAnchor, setWeeklyAnchor] = useState('monday')
+  const [monthlyAnchor, setMonthlyAnchor] = useState('1')
+  const [delayDays, setDelayDays] = useState('2')
+  const [payoutSaving, setPayoutSaving] = useState(false)
+  const [payoutErr, setPayoutErr] = useState('')
+  const [payoutSavedOk, setPayoutSavedOk] = useState(false)
+
   // Google Places description fetch.
   const [fetchingDesc, setFetchingDesc] = useState(false)
   const [descError, setDescError] = useState('')
@@ -187,6 +199,56 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       .finally(() => { if (!cancel) setLoading(false) })
     return () => { cancel = true }
   }, [restaurantRef])
+
+  // Load the Disco-native payout schedule (no-op / not-applicable for FM-backed).
+  useEffect(() => {
+    let cancel = false
+    fetch(`/api/admin/restaurants/${restaurantRef}/payout-schedule`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { applicable?: boolean; reason?: string; schedule?: { interval: string; weeklyAnchor: string | null; monthlyAnchor: number | null; delayDays: number | null } } | null) => {
+        if (cancel || !d) return
+        setPayoutApplicable(!!d.applicable)
+        setPayoutReason(d.reason || '')
+        if (d.applicable && d.schedule) {
+          const s = d.schedule
+          if (['manual', 'daily', 'weekly', 'monthly'].includes(s.interval)) setPayoutInterval(s.interval as 'manual' | 'daily' | 'weekly' | 'monthly')
+          if (s.weeklyAnchor) setWeeklyAnchor(s.weeklyAnchor)
+          if (s.monthlyAnchor != null) setMonthlyAnchor(String(s.monthlyAnchor))
+          if (s.delayDays != null) setDelayDays(String(s.delayDays))
+        }
+      })
+      .catch(() => { if (!cancel) setPayoutApplicable(false) })
+    return () => { cancel = true }
+  }, [restaurantRef])
+
+  async function savePayoutSchedule() {
+    setPayoutErr(''); setPayoutSavedOk(false); setPayoutSaving(true)
+    try {
+      const res = await fetch(`/api/admin/restaurants/${restaurantRef}/payout-schedule`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interval: payoutInterval,
+          weeklyAnchor: payoutInterval === 'weekly' ? weeklyAnchor : undefined,
+          monthlyAnchor: payoutInterval === 'monthly' ? Number(monthlyAnchor) : undefined,
+          delayDays: payoutInterval === 'manual' ? undefined : Number(delayDays),
+        }),
+      })
+      const d = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(d?.error || 'Could not update payout schedule')
+      if (d?.schedule) {
+        const s = d.schedule
+        if (s.weeklyAnchor) setWeeklyAnchor(s.weeklyAnchor)
+        if (s.monthlyAnchor != null) setMonthlyAnchor(String(s.monthlyAnchor))
+        if (s.delayDays != null) setDelayDays(String(s.delayDays))
+      }
+      setPayoutSavedOk(true)
+      setTimeout(() => setPayoutSavedOk(false), 2500)
+    } catch (e) {
+      setPayoutErr(e instanceof Error ? e.message : 'Could not update payout schedule')
+    } finally {
+      setPayoutSaving(false)
+    }
+  }
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -485,6 +547,57 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                   <div><label style={label}>Lead gen 2 (%)</label><input style={input} type="number" min={0} max={100} step="0.1" value={leadGenTwo} onChange={e => setLeadGenTwo(e.target.value)} /></div>
                 </div>
               </div>
+
+              {/* Payout schedule (M9) — Disco-native only; shown when the restaurant
+                  has a connected Stripe account. Saved independently of Submit. */}
+              {payoutApplicable === true && (
+                <div style={section}>
+                  <div style={sTitle}>Payout schedule</div>
+                  <p style={{ fontSize: 12, color: '#777', margin: '0 0 14px' }}>How often Stripe automatically pays this Disco-native restaurant out to their bank. Saved directly to Stripe.</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label style={label}>Frequency</label>
+                      <select style={{ ...input, cursor: 'pointer' }} value={payoutInterval} onChange={e => setPayoutInterval(e.target.value as 'manual' | 'daily' | 'weekly' | 'monthly')}>
+                        <option value="daily">Daily (automatic)</option>
+                        <option value="weekly">Weekly (automatic)</option>
+                        <option value="monthly">Monthly (automatic)</option>
+                        <option value="manual">Manual (no automatic payouts)</option>
+                      </select>
+                    </div>
+                    {payoutInterval === 'weekly' && (
+                      <div>
+                        <label style={label}>Payout day</label>
+                        <select style={{ ...input, cursor: 'pointer' }} value={weeklyAnchor} onChange={e => setWeeklyAnchor(e.target.value)}>
+                          {['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(d => (
+                            <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {payoutInterval === 'monthly' && (
+                      <div>
+                        <label style={label}>Day of month (1–31)</label>
+                        <input style={input} type="number" min={1} max={31} value={monthlyAnchor} onChange={e => setMonthlyAnchor(e.target.value)} />
+                      </div>
+                    )}
+                    {payoutInterval !== 'manual' && (
+                      <div>
+                        <label style={label}>Delay (days)</label>
+                        <input style={input} type="number" min={2} max={30} value={delayDays} onChange={e => setDelayDays(e.target.value)} />
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14 }}>
+                    <button type="button" onClick={savePayoutSchedule} disabled={payoutSaving}
+                      style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: payoutSaving ? 'wait' : 'pointer', fontFamily: F, opacity: payoutSaving ? 0.6 : 1 }}>
+                      {payoutSaving ? 'Saving…' : 'Save payout schedule'}
+                    </button>
+                    {payoutSavedOk && <span style={{ fontSize: 12, fontWeight: 600, color: '#16A34A' }}>✓ Saved to Stripe</span>}
+                    {payoutErr && <span style={{ fontSize: 12, color: '#DC2626' }}>{payoutErr}</span>}
+                  </div>
+                  <p style={{ fontSize: 11, color: '#aaa', margin: '10px 0 0' }}>Delay is the funds-availability window (US minimum 2 days). Manual disables automatic payouts entirely.</p>
+                </div>
+              )}
 
               {/* Disco fullmap listing — Premium (Neon overrides). Map visibility
                   is controlled by the Marketplace toggle in the table row, so the
