@@ -1847,27 +1847,31 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       {addOnsPkg && (
         <div onClick={() => setAddOnsPkg(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(10,0,20,0.55)', zIndex: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 32px 80px rgba(0,0,0,0.22)' }}>
-            {addOnsPkg.image?.reference && (
-              <div style={{ height: 140, background: 'linear-gradient(135deg,#f4f4fb,#eaeaf6)', overflow: 'hidden', borderRadius: '20px 20px 0 0', flexShrink: 0 }}>
-                <img src={pkgImg(addOnsPkg.image.reference, 550)} alt={addOnsPkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-              </div>
-            )}
-            <div style={{ padding: '18px 22px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em', marginBottom: 4 }}>{addOnsPkg.name}</div>
+          <div onClick={e => e.stopPropagation()} className="item-modal"
+            style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 460, display: 'flex', flexDirection: 'column', boxShadow: '0 32px 80px rgba(0,0,0,0.22)', overflow: 'hidden' }}>
+            {/* Sticky bar: ONLY the item title stays pinned as the body scrolls, with a
+                subtle bottom border. The image + description + price scroll away below,
+                freeing space for the ordering options. */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '14px 22px', flexShrink: 0, borderBottom: '1px solid #f0f0f0' }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em', flex: 1, minWidth: 0 }}>{addOnsPkg.name}</div>
+              <button onClick={() => setAddOnsPkg(null)} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>×</button>
+            </div>
+            <div style={{ overflowY: 'auto', padding: '16px 22px', flex: 1 }}>
+              {/* Image + description + price — scroll away normally (not pinned). */}
+              {addOnsPkg.image?.reference && (
+                <div style={{ height: 140, background: 'linear-gradient(135deg,#f4f4fb,#eaeaf6)', overflow: 'hidden', borderRadius: 12, marginBottom: 14 }}>
+                  <img src={pkgImg(addOnsPkg.image.reference, 550)} alt={addOnsPkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                </div>
+              )}
+              <div style={{ marginBottom: 18 }}>
                 {addOnsPkg.description && (
-                  <p style={{ fontSize: 13, color: '#585786', lineHeight: 1.55, margin: '0 0 4px' }}>{addOnsPkg.description}</p>
+                  <p style={{ fontSize: 13, color: '#585786', lineHeight: 1.55, margin: '0 0 8px' }}>{addOnsPkg.description}</p>
                 )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{packagePriceLabel(addOnsPkg)}</span>
                   {addOnsPkg.serves && <><span style={{ color: '#ddd' }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {addOnsPkg.serves}</span></>}
                 </div>
               </div>
-              <button onClick={() => setAddOnsPkg(null)} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: 12 }}>×</button>
-            </div>
-            <div style={{ overflowY: 'auto', padding: '16px 22px', flex: 1 }}>
               {(addOnsPkg.extraItemsGroups ?? []).map(group => {
                 const total = groupTotal(group)
                 const isRequired = group.minSelectedItems > 0
@@ -1947,6 +1951,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           .order-sidebar { display: none !important; }
           .mobile-order-bar { display: block !important; }
         }
+        /* Item detail modal height — leave a clear margin from the screen edges so
+           it doesn't crowd the border on mobile (dvh accounts for browser chrome). */
+        .item-modal { max-height: calc(100vh - 96px); max-height: calc(100dvh - 96px); }
         /* #3: sticky menu/category tabs are mobile-only; the in-header row shows on
            desktop. */
         .menu-tabs-sticky { display: none; }
