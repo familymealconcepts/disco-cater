@@ -16,13 +16,38 @@ try {
   console.warn('Could not load enriched restaurant data:', e)
 }
 
-function resolvePackages(restaurant: any): any[] {
-  // Prefer packages the client passed; otherwise look them up by name.
-  if (Array.isArray(restaurant?.packages) && restaurant.packages.length > 0) return restaurant.packages
+function resolvePackages(restaurant: any): { packages: any[]; source: 'live' | 'fallback' } {
+  // Prefer the full live menu the client passed (the real, current menu the customer
+  // sees). Only fall back to the static top-few file if live data is unavailable.
+  if (Array.isArray(restaurant?.packages) && restaurant.packages.length > 0) {
+    return { packages: restaurant.packages, source: 'live' }
+  }
   const target = restaurant?.name?.toLowerCase().trim()
-  if (!target) return []
+  if (!target) return { packages: [], source: 'fallback' }
   const match = enrichedData.find(e => e.name?.toLowerCase().trim() === target)
-  return match?.topPackages || []
+  return { packages: match?.topPackages || [], source: 'fallback' }
+}
+
+// Render the menu grouped by category, one line per item with serves, price, and a
+// (trimmed) description — so attribute questions ("vegan cream cheese?") and
+// headcount-appropriate recommendations both have the data they need.
+function renderMenuLines(packages: any[]): string {
+  if (!packages.length) return '(no packages listed)'
+  const price = (p: any) => p.pricePerPerson || (p.price != null && p.price !== '' ? `$${Number(p.price).toFixed(2)}` : 'price on request')
+  const byCat = new Map<string, any[]>()
+  for (const p of packages) {
+    const c = String(p.category || 'Menu').trim() || 'Menu'
+    const list = byCat.get(c) ?? []
+    list.push(p)
+    byCat.set(c, list)
+  }
+  return [...byCat.entries()].map(([cat, items]) =>
+    `${cat}:\n` + items.map((p: any) => {
+      const serves = (p.serves != null && p.serves !== '') ? `serves ${p.serves}` : ''
+      const desc = p.description ? ` — ${String(p.description).replace(/\s+/g, ' ').trim().slice(0, 240)}` : ''
+      return `  · ${p.name} (${[serves, price(p)].filter(Boolean).join(', ')})${desc}`
+    }).join('\n'),
+  ).join('\n\n')
 }
 
 async function fetchWithRetry(url: string, options: RequestInit, retries = 3): Promise<Response> {
@@ -41,33 +66,38 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = 3): P
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, restaurant, intake } = await req.json()
+    const { messages, restaurant, intake, orderContext } = await req.json()
 
-    const packages = resolvePackages(restaurant)
-    // Verify the shape of the menu data the chatbot reasons over (name, serves,
-    // pricePerPerson). Catches missing/renamed fields that cause bad answers.
-    console.log('[Chatbot] First menu item:', JSON.stringify(packages[0], null, 2))
-    const pkgLines = packages.length > 0
-      ? packages.map((p: any) => `· ${p.name} — serves ${p.serves}, ${p.pricePerPerson}`).join('\n')
-      : '(no packages listed)'
-    const contextLine = intake
-      ? `\nCustomer context: ${intake.occasion || 'an event'}, ${intake.headcount || 'their group'} people.\n`
-      : ''
+    const { packages, source } = resolvePackages(restaurant)
+    console.log(`[Chatbot] menu source=${source}, items=${packages.length}, restaurant=${restaurant?.name}`)
+    const pkgLines = renderMenuLines(packages)
+
+    // Real order context (headcount / date / service type) entered in the setup
+    // modal, falling back to the intake questionnaire's occasion.
+    const ctxParts: string[] = []
+    if (orderContext?.headcount) ctxParts.push(`${orderContext.headcount} people`)
+    if (orderContext?.date) ctxParts.push(`on ${orderContext.date}`)
+    if (orderContext?.service) ctxParts.push(String(orderContext.service).toUpperCase() === 'DELIVERY' ? 'for delivery' : 'for pickup')
+    if (intake?.occasion) ctxParts.unshift(String(intake.occasion))
+    if (!orderContext?.headcount && intake?.headcount) ctxParts.push(`${intake.headcount} people`)
+    const contextLine = ctxParts.length ? `\nCustomer's order context: ${ctxParts.join(', ')}.\n` : ''
 
     const systemPrompt = `You are Disco — a concierge catering assistant advising on a specific restaurant.
 
 Restaurant: ${restaurant?.name || 'this restaurant'} (${restaurant?.cuisine || ''}, ${restaurant?.location || ''})
-Available packages:
+This is the restaurant's COMPLETE current menu, grouped by category:
 ${pkgLines}
 ${contextLine}
-Recommend 2-3 specific packages from the list above that fit the event.
+ANSWER THE CUSTOMER'S ACTUAL QUESTION using the full menu above:
+- For factual/lookup questions (e.g. "do you have X?", "any vegan options?", "what desserts are there?"): search the ENTIRE menu above and answer directly. If matching items exist, say yes and list them by exact name. Only say an item isn't available if nothing in the menu above matches — never claim you have no information when the menu is listed above.
+- For recommendations: suggest 2-3 specific packages from the list that fit the customer's context (headcount, occasion, service type).
 
 PRICING & SERVING RULES — follow these exactly, with no exceptions:
-- NEVER calculate or invent per-person pricing. Only use the exact pricePerPerson or total price as listed in the menu data above.
+- NEVER calculate or invent per-person pricing. Only use the exact price as listed in the menu data above.
 - NEVER multiply package prices or serving sizes unless the user explicitly asks for multiple of the same package.
-- When recommending a package for N people, find the package whose "serves" value is closest to N without going under. Do not combine packages unless a single package cannot serve the group.
+- When recommending for N people, use the customer's headcount from the order context above; find the package whose "serves" value is closest to N without going under. Do not combine packages unless a single package cannot serve the group.
 - Always state the exact package name, exact price, and exact serves count exactly as provided in the data above. Never round or estimate.
-- If the menu data above does not contain enough information to answer confidently, say so rather than guessing.
+- If the menu data above genuinely does not contain the answer, say so rather than guessing.
 
 Do not recommend items not on the list. Do not suggest the customer contact anyone. Do not use filler language.`
 

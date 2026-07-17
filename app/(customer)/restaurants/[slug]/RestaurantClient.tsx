@@ -1974,6 +1974,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           location: restaurant.location || restaurant.address,
         }}
         intake={discoIntake}
+        // Full live menu (every visible item across all sections/categories) so the
+        // assistant reasons over the real, current menu rather than the stale file.
+        packages={menuData.flatMap(s => s.categories.flatMap(c => c.mealPackages
+          .filter(p => p.available !== false)
+          .map(p => ({ name: p.name, description: p.description || undefined, category: c.name, serves: p.serves ?? undefined, price: p.price }))))}
+        // Real order context from the setup modal (headcount, date, service type).
+        orderContext={{ headcount: headcount ?? undefined, date: selDate || undefined, service: orderType }}
       />
     </div>
   )

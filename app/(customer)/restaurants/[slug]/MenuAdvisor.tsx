@@ -12,6 +12,13 @@ export interface DiscoIntake {
   location?: string
 }
 
+// A single live menu item passed to the advisor so it reasons over the REAL,
+// current menu the customer sees — not the stale static top-few file.
+export interface MenuItem { name: string; description?: string; category?: string; serves?: string | number; price?: number }
+
+// The customer's real order context from the order-setup modal.
+export interface OrderContext { headcount?: number; date?: string; service?: string }
+
 type Msg = { role: 'user' | 'assistant'; content: string }
 
 // Mode 2 — a collapsed gold pill that expands into a compact dark menu-advisor
@@ -19,9 +26,13 @@ type Msg = { role: 'user' | 'assistant'; content: string }
 export default function MenuAdvisor({
   restaurant,
   intake,
+  packages,
+  orderContext,
 }: {
   restaurant: { name: string; cuisine?: string; location?: string }
   intake: DiscoIntake | null
+  packages?: MenuItem[]
+  orderContext?: OrderContext
 }) {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Msg[]>([])
@@ -49,8 +60,11 @@ export default function MenuAdvisor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: apiMessages,
-          restaurant: { name: restaurant.name, cuisine: restaurant.cuisine, location: restaurant.location },
+          // Pass the full live menu so the assistant reasons over the real, current
+          // menu (the server falls back to the static file only if this is absent).
+          restaurant: { name: restaurant.name, cuisine: restaurant.cuisine, location: restaurant.location, packages },
           intake: intake || undefined,
+          orderContext: orderContext || undefined,
         }),
       })
       const data = await res.json()
@@ -62,22 +76,24 @@ export default function MenuAdvisor({
     }
   }
 
-  // On first expand with intake context, auto-fire a recommendation.
+  // On first expand with any context (real order headcount, or the intake
+  // questionnaire), auto-fire a recommendation using the real headcount when set.
+  const realHeadcount = orderContext?.headcount
   useEffect(() => {
     if (!open || firedRef.current) return
-    if (intake && (intake.occasion || intake.headcount)) {
+    const occasion = intake?.occasion
+    const headcount = realHeadcount ? `${realHeadcount} people` : intake?.headcount
+    if (occasion || headcount) {
       firedRef.current = true
-      const occ = intake.occasion || 'your event'
-      const hc = intake.headcount || 'your group'
       send(
-        `Recommend 2-3 packages for ${occ} with ${hc}. Include serves and price per person for each, and an estimated total.`,
+        `Recommend 2-3 packages for ${occasion || 'my event'} with ${headcount || 'my group'}. Include serves and price for each, and an estimated total.`,
         true,
       )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const showIntakeGreeting = !!intake && (intake.occasion || intake.headcount) && messages.length === 0
+  const showIntakeGreeting = (!!intake && (intake.occasion || intake.headcount) || !!realHeadcount) && messages.length === 0
 
   return (
     <div className="disco-menu-advisor">
