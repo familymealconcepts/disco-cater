@@ -22,13 +22,15 @@ function slugify(s: string): string {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   // Scope to the SA's selected location when applicable (else home). See
   // resolveDiscoScopeRef — fail-safe to home.
   const ref = await resolveDiscoScopeRef(ctx)
   if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
+  // ?includeArchived=1 → also return archived menus (for the "Show archived" view).
+  const includeArchived = req.nextUrl.searchParams.get('includeArchived') === '1'
   try {
     await runDiscoMenuMigrations()
     const menus = (await sql`
@@ -38,7 +40,7 @@ export async function GET() {
              to_char(end_date,'YYYY-MM-DD') AS end_date,
              schedule_config, created_at, updated_at
       FROM disco_menus
-      WHERE restaurant_reference = ${ref}::uuid AND archived = false
+      WHERE restaurant_reference = ${ref}::uuid AND (${includeArchived} OR archived = false)
       ORDER BY position, name
     `) as Record<string, unknown>[]
     return NextResponse.json({ menus })
