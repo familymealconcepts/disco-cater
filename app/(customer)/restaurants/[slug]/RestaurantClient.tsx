@@ -1446,7 +1446,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   so it's intentionally not duplicated here. */}
             </div>
           </div>
-          <div style={{ display: 'flex', overflowX: 'auto', borderTop: '1px solid #f0f0f0' }}>
+          <div className="menu-tabs-inline" style={{ display: 'flex', overflowX: 'auto', borderTop: '1px solid #f0f0f0' }}>
             {menuData.length > 0 ? menuData.map((s, i) => (
               <button key={s.menu.reference} onClick={() => setActiveMenuIdx(i)} style={{
                 padding: '11px 18px', background: 'none', border: 'none', cursor: 'pointer',
@@ -1459,6 +1459,26 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           </div>
         </div>
       </div>
+
+      {/* #3: mobile-only sticky menu/category tabs. Placed as a top-level sibling so
+          its sticky containing block is the full page (the in-header row lives in a
+          short container that can't stick). Freezes below the GlobalHeader (50px) +
+          the date bar (≈46px when a selection exists) while scrolling the menu. */}
+      {menuData.length > 1 && (
+        <div className="menu-tabs-sticky" style={{ position: 'sticky', top: hasSelection ? 96 : 50, zIndex: 140, background: '#fff', borderBottom: '1px solid #f0f0f0', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
+          <div style={{ display: 'flex', overflowX: 'auto', maxWidth: 1140, margin: '0 auto', padding: '0 12px' }}>
+            {menuData.map((s, i) => (
+              <button key={s.menu.reference} onClick={() => setActiveMenuIdx(i)} style={{
+                padding: '11px 16px', background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: 13, fontWeight: activeMenuIdx === i ? 700 : 500,
+                color: activeMenuIdx === i ? INDIGO : '#666',
+                borderBottom: `2px solid ${activeMenuIdx === i ? INDIGO : 'transparent'}`,
+                fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.12s',
+              }}>{s.menu.name}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Two-panel body */}
       <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 120px', display: 'flex', gap: 24, alignItems: 'flex-start' }}>
@@ -1926,6 +1946,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         @media (max-width: 900px) {
           .order-sidebar { display: none !important; }
           .mobile-order-bar { display: block !important; }
+        }
+        /* #3: sticky menu/category tabs are mobile-only; the in-header row shows on
+           desktop. */
+        .menu-tabs-sticky { display: none; }
+        @media (max-width: 900px) {
+          .menu-tabs-inline { display: none !important; }
+          .menu-tabs-sticky { display: block !important; }
         }
         @media (max-width: 768px) {
           .pkg-grid { grid-template-columns: 1fr !important; }

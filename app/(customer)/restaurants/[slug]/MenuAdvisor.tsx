@@ -84,6 +84,13 @@ export default function MenuAdvisor({
       <style>{`
         .disco-menu-advisor { position: fixed; right: 18px; bottom: 24px; z-index: 120; font-family: ${F}; }
         @media (max-width: 900px) { .disco-menu-advisor { right: 14px; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); } }
+        /* #1: on mobile the "Ask Disco" label is too long — collapse to just the
+           disco-ball logo in the gold circle. */
+        @media (max-width: 767px) {
+          .disco-ask-btn { padding: 0 !important; width: 54px; height: 54px; justify-content: center; gap: 0 !important; }
+          .disco-ask-btn .disco-ask-label { display: none; }
+          .disco-ask-btn .disco-ask-ball { font-size: 22px !important; }
+        }
         @keyframes discoAdvisorUp { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: translateY(0) } }
         @keyframes discoDot { 0%,80%,100% { transform: translateY(0); opacity: 0.4 } 40% { transform: translateY(-4px); opacity: 1 } }
         .disco-menu-advisor input::placeholder { color: rgba(255,255,255,0.45); }
@@ -92,13 +99,15 @@ export default function MenuAdvisor({
       {!open ? (
         <button
           onClick={() => setOpen(true)}
+          aria-label="Ask Disco"
+          className="disco-ask-btn"
           style={{
             display: 'flex', alignItems: 'center', gap: 7, padding: '11px 16px', borderRadius: 999,
             background: GOLD, color: DARK, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
             fontFamily: F, boxShadow: '0 6px 20px rgba(239,184,74,0.45)',
           }}
         >
-          <span style={{ fontSize: 14 }}>🪩</span> Ask Disco
+          <span className="disco-ask-ball" style={{ fontSize: 14 }}>🪩</span> <span className="disco-ask-label">Ask Disco</span>
         </button>
       ) : (
         <div
