@@ -526,6 +526,34 @@ ${button('Set your password', params.inviteUrl)}
   }
 }
 
+// ── 6b. Password reset (Disco-native restaurant accounts) ────────────────────
+// Same layout/button/sending pattern as the team invite, with reset wording.
+export async function sendPasswordReset(params: {
+  to: string
+  firstName?: string
+  resetUrl: string
+  restaurantName?: string
+}): Promise<{ success: boolean }> {
+  try {
+    const restaurant = params.restaurantName || 'Disco Cater'
+    const content = `
+<p>Hi ${escapeHtml(params.firstName || 'there')},</p>
+<p>We received a request to reset the password for your ${escapeHtml(restaurant)} account on Disco Cater. Click below to choose a new password.</p>
+${button('Reset your password', params.resetUrl)}
+<p style="color:#888;font-size:13px;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change. Questions? <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
+<p>Thanks,<br/>The Disco Cater Team</p>
+`
+    return await sendEmail({
+      to: params.to,
+      subject: 'Reset your Disco Cater password',
+      html: layout(content),
+    })
+  } catch (err) {
+    console.error('[email/notifications] sendPasswordReset failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
 // ── 7. Refund notification (no direct FM analog; simple message) ─────────────
 
 export async function sendCustomerRefundNotification(params: {

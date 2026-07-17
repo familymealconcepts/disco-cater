@@ -63,6 +63,22 @@ export async function setInviteToken(email: string): Promise<string> {
   return token
 }
 
+// Issue a one-time PASSWORD-RESET token — same one-time-token mechanism as the
+// invite (consumed by the accept-invite / set-password route), but a shorter 1h
+// window. Reuses the invite_token columns so the existing getAccountByInviteToken /
+// acceptInvite path validates and clears it unchanged.
+export async function setResetToken(email: string): Promise<string> {
+  const token = randomBytes(32).toString('hex')
+  await sql`
+    UPDATE disco_restaurant_accounts
+    SET invite_token = ${token},
+        invite_token_expires_at = NOW() + INTERVAL '1 hour',
+        updated_at = NOW()
+    WHERE email = ${email}
+  `
+  return token
+}
+
 // Resolve an account by a non-expired invite token, or null.
 export async function getAccountByInviteToken(token: string): Promise<InviteAccount | null> {
   if (!token) return null
