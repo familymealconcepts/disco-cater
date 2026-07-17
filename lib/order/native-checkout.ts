@@ -8,6 +8,7 @@ import { sql, runDiscoOrderMigrations } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
 import { computeThirdPartyDelivery, type DeliverySettings } from '../menu-settings'
+import { cents } from '../promo-pricing'
 
 export interface NativeCartItem { reference?: string; name: string; price: number; quantity: number }
 export interface NativeTip { custom: boolean; amount?: number; pct?: number }
@@ -38,6 +39,10 @@ export interface NativePlaceInput extends NativeCheckoutInput {
   note?: string | null
   companyName?: string | null
   persons?: number | null
+  // Initial order_status. Defaults to RESERVED (card flow, pre-payment). The
+  // native invoice flow (M7) passes 'UNPAID' — the order exists with no charge and
+  // is settled later via a Stripe invoice.
+  orderStatus?: string
 }
 
 // Whether a restaurant reference is a Disco-native restaurant (no FM record).
@@ -254,6 +259,7 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   const b = await priceNativeCheckout(input)
   const { orderType, deliveryType } = fulfillmentToTypes(input.fulfillment)
   const orderNumber = await nextNativeOrderNumber()
+  const initialStatus = input.orderStatus ?? 'RESERVED'
 
   const fee = input.deliveryFee ?? 0
   const ownDeliveryFee = input.fulfillment === 'OWN_DELIVERY' ? fee : 0
@@ -282,7 +288,7 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
       delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
       delivery_lat, delivery_lng, subtotal, total, fee, note, company_name, persons, created_at, updated_at
     ) VALUES (
-      ${orderNumber}::bigint, 'RESERVED', ${orderType}, ${deliveryType}, 'DISCO',
+      ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, 'DISCO',
       ${input.restaurantReference}::uuid, ${rName}, ${rAddr}, ${rPhone},
       ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
       ${input.orderDate}::date, ${input.orderTime}::time, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},
@@ -366,6 +372,66 @@ export async function placeAndPayNativeOrder(
   `
   await sql`UPDATE disco_sale_transactions SET stripe_payment_intent_id = ${pi.id} WHERE order_id = ${placed.orderId}`
   return { ...placed, paymentIntentId: pi.id, clientSecret: pi.client_secret, withheld: pay.withholdPayouts || !pay.connectedAccountId }
+}
+
+export interface NativeInvoiceResult extends NativePlaceResult {
+  stripeInvoiceId: string | null
+  hostedInvoiceUrl: string | null
+  withheld: boolean
+}
+
+// M7 — place a native order as an INVOICE (unpaid, no PaymentIntent) and bill the
+// customer via a Stripe invoice on the PLATFORM account. The order is created
+// UNPAID; on invoice.payment_succeeded the webhook flips it to DUE, dispatches
+// confirmations, and TRANSFERS the restaurant's payout to their connected account
+// (mirrors the card flow's destination-charge money model: platform collects the
+// total, keeps total−transfer, pays the Stripe fee). The invoice metadata carries
+// the payout the webhook must move, so it never re-prices. Gated by the caller
+// behind NATIVE_INVOICE_ENABLED until live-verified in Stripe test mode.
+export async function placeNativeInvoiceOrder(input: NativePlaceInput, stripe: Stripe): Promise<NativeInvoiceResult> {
+  const placed = await placeNativeOrder({ ...input, orderStatus: 'UNPAID' })
+  const pay = await getRestaurantPayoutConfig(input.restaurantReference)
+  const total = placed.breakdown.total
+  const transfer = placed.breakdown.transfer
+
+  let stripeInvoiceId: string | null = null
+  let hostedInvoiceUrl: string | null = null
+  const dinerName = [input.customerFirstName, input.customerLastName].filter(Boolean).join(' ').trim() || null
+  const customerId = await getOrCreateStripeCustomer(stripe, input.customerEmail, dinerName)
+  if (customerId) {
+    // Create the invoice first, then attach the line item to it directly (the same
+    // ordering the order-edit invoice flow uses — a pending item on an empty draft
+    // finalized $0.00 under the pinned API version). auto_advance off so the draft
+    // can't finalize before the line item lands.
+    const invoice = await stripe.invoices.create({
+      customer: customerId,
+      collection_method: 'send_invoice',
+      days_until_due: 7,
+      auto_advance: false,
+      description: `Disco Cater order #${placed.orderNumber}`,
+      metadata: {
+        orderReference: placed.orderReference,
+        orderNumber: String(placed.orderNumber),
+        restaurantReference: input.restaurantReference,
+        kind: 'native_order_invoice',
+        // Everything the webhook needs to move funds on payment WITHOUT re-pricing.
+        transferDollars: String(transfer),
+        connectedAccountId: pay.connectedAccountId ?? '',
+        withholdPayouts: pay.withholdPayouts ? '1' : '0',
+      },
+    })
+    await stripe.invoiceItems.create({
+      customer: customerId, invoice: invoice.id, amount: cents(total), currency: 'usd',
+      description: `Disco Cater order #${placed.orderNumber}`,
+    })
+    const finalized = await stripe.invoices.finalizeInvoice(invoice.id)
+    await stripe.invoices.sendInvoice(invoice.id).catch(() => {})
+    stripeInvoiceId = invoice.id
+    hostedInvoiceUrl = (finalized.hosted_invoice_url as string) || null
+    await sql`UPDATE disco_orders SET stripe_invoice_id = ${invoice.id}, stripe_invoice_status = 'open', updated_at = NOW() WHERE id = ${placed.orderId}`
+  }
+
+  return { ...placed, stripeInvoiceId, hostedInvoiceUrl, withheld: pay.withholdPayouts || !pay.connectedAccountId }
 }
 
 export interface NativeRecurringResult {

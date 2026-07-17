@@ -6,7 +6,7 @@ import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { getCallerScopeRefs } from '../../../../../lib/order/order-scope'
 import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
-import { placeNativeCheckout } from '../../../../../lib/order/native-place-checkout'
+import { placeNativeCheckout, placeNativeInvoiceCheckout } from '../../../../../lib/order/native-place-checkout'
 import { sanitizePhoneFields } from '../../../../../lib/utils/phone'
 import { sql } from '../../../../../lib/db'
 
@@ -192,9 +192,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     }
     const cd = (placeBody.checkoutDetails ?? {}) as Record<string, unknown>
-    // Invoice (unpaid + emailed payment link) isn't built for native yet — be
-    // explicit rather than silently failing at FM.
-    if (String(cd.paymentMethod ?? '').toUpperCase() === 'INVOICE') {
+    const wantsInvoice = String(cd.paymentMethod ?? '').toUpperCase() === 'INVOICE'
+    // Native invoice (unpaid + emailed payment link) is behind a flag until the
+    // fund-flow is verified in Stripe test mode — off = the prior explicit rejection.
+    if (wantsInvoice && process.env.NATIVE_INVOICE_ENABLED !== 'true') {
       return NextResponse.json({ error: 'Invoice orders aren’t available for Disco-native restaurants yet — use the Payment method.' }, { status: 400 })
     }
     const stripe = stripeClient()
@@ -203,21 +204,44 @@ export async function POST(req: NextRequest) {
     const email = String(cust.email ?? '').trim()
     if (!email) return NextResponse.json({ error: 'A customer email is required.' }, { status: 400 })
 
+    const sharedParams = {
+      restaurantReference: restaurantRef,
+      customerEmail: email,
+      customerFirstName: (cust.firstName as string) ?? null,
+      customerLastName: (cust.lastName as string) ?? null,
+      customerPhone: (cust.phoneNumber as string) ?? null,
+      checkoutDetails: cd,
+      deliveryAddress: placeBody.deliveryAddress,
+      note: (placeBody.note as string) ?? null,
+      companyName: (placeBody.companyName as string) ?? null,
+      headcount: (placeBody.headcount ?? cd.headcount ?? null) as number | null,
+      stripe,
+    }
+
+    // ── Native INVOICE branch (M7): place UNPAID + email a Stripe invoice ──
+    if (wantsInvoice) {
+      let inv
+      try {
+        inv = await placeNativeInvoiceCheckout(sharedParams)
+      } catch (e) {
+        console.error('[restaurant/orders/place] native invoice placement threw:', restaurantRef, e instanceof Error ? (e.stack || e.message) : e)
+        return NextResponse.json({ error: 'Failed to create invoice order', detail: e instanceof Error ? e.message : String(e) }, { status: 500 })
+      }
+      if (!inv.ok) return NextResponse.json({ error: inv.error }, { status: inv.status })
+      const r = inv.result
+      return NextResponse.json({
+        native: true, invoice: true,
+        orderReference: r.orderReference,
+        orderNumber: r.orderNumber,
+        stripeInvoiceId: r.stripeInvoiceId,
+        hostedInvoiceUrl: r.hostedInvoiceUrl,
+        breakdown: r.breakdown,
+      })
+    }
+
     let outcome
     try {
-      outcome = await placeNativeCheckout({
-        restaurantReference: restaurantRef,
-        customerEmail: email,
-        customerFirstName: (cust.firstName as string) ?? null,
-        customerLastName: (cust.lastName as string) ?? null,
-        customerPhone: (cust.phoneNumber as string) ?? null,
-        checkoutDetails: cd,
-        deliveryAddress: placeBody.deliveryAddress,
-        note: (placeBody.note as string) ?? null,
-        companyName: (placeBody.companyName as string) ?? null,
-        headcount: (placeBody.headcount ?? cd.headcount ?? null) as number | null,
-        stripe,
-      })
+      outcome = await placeNativeCheckout(sharedParams)
     } catch (e) {
       // Never swallow a native-placement failure — surface it so a live failure is
       // diagnosable instead of a bare 500 (RM4 debugging).

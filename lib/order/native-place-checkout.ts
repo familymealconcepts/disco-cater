@@ -1,24 +1,22 @@
 import type Stripe from 'stripe'
 import {
   fmItemsToNativeCart, cartSubtotal, isNativeOrderingOpen, isNativeDateClosed,
-  loadRestaurantServiceChargePct, placeAndPayNativeOrder,
-  type NativePlaceAndPayResult, type NativePlaceInput,
+  loadRestaurantServiceChargePct, placeAndPayNativeOrder, placeNativeInvoiceOrder,
+  type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
 } from './native-checkout'
 import { validateNativeDelivery } from './native-delivery'
-import { resolveNativeRestaurantPromo, recordNativeRestaurantPromoUse } from '../promo-native'
+import { resolveNativeRestaurantPromo, recordNativeRestaurantPromoUse, type NativePromoResolution } from '../promo-native'
 import type { Fulfillment } from '../pricing/native-order'
 
 export type NativeCheckoutOutcome =
   | { ok: true; result: NativePlaceAndPayResult }
   | { ok: false; status: number; error: string }
 
-// Shared Disco-native order placement for BOTH the customer flow
-// (/api/order/place) and Direct Entry (/api/restaurant/orders/place). The only
-// per-caller difference is how the customer identity + saved card are resolved;
-// everything from the ordering-open / closed-date gates through the priced,
-// PaymentIntent-backed placement lives here so the two money paths can never drift.
-// Returns a discriminated result: the caller maps { ok:false } to its own response.
-export async function placeNativeCheckout(params: {
+export type NativeInvoiceCheckoutOutcome =
+  | { ok: true; result: NativeInvoiceResult }
+  | { ok: false; status: number; error: string }
+
+export interface NativeCheckoutParams {
   restaurantReference: string
   customerEmail: string
   customerFirstName?: string | null
@@ -32,12 +30,20 @@ export async function placeNativeCheckout(params: {
   companyName?: string | null
   headcount?: number | null
   // Restaurant-funded promo code (M6). Applied only when it resolves to a valid
-  // RESTAURANT-funded percent code for this restaurant; otherwise ignored (order
-  // places at full price). DISCO-funded codes are handled post-charge elsewhere.
+  // RESTAURANT-funded percent code for this restaurant; otherwise ignored.
   restaurantPromoCode?: string | null
   stripe: Stripe
   savedOpts?: { customerId?: string }
-}): Promise<NativeCheckoutOutcome> {
+}
+
+interface BuiltNativeOrder { input: NativePlaceInput; promo: NativePromoResolution | null }
+type BuildOutcome = { ok: true; built: BuiltNativeOrder } | { ok: false; status: number; error: string }
+
+// Shared prelude for BOTH native money paths (card charge + invoice): the
+// ordering-open / closed-date gates, authoritative fulfillment + delivery fee, item
+// mapping, and restaurant-funded promo resolution. Producing the SAME NativePlaceInput
+// for both paths is what keeps them from drifting. Callers pick the terminal action.
+async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<BuildOutcome> {
   const ref = params.restaurantReference
   const cd = params.checkoutDetails || {}
 
@@ -71,14 +77,13 @@ export async function placeNativeCheckout(params: {
     thirdPartyDeliverySubsiding = dv.thirdPartyDeliverySubsiding
   }
 
-  // Restaurant-funded promo (M6): resolve BEFORE placing so the discount is baked
-  // into the charge (customer total + restaurant transfer both drop = restaurant
-  // absorbs it). null/invalid → discountPct 0 → full-price order, never blocks.
+  // Restaurant-funded promo (M6): resolve so the discount is baked into the price
+  // (customer total + restaurant transfer both drop). null/invalid → full price.
   const promo = params.restaurantPromoCode
     ? await resolveNativeRestaurantPromo(params.restaurantPromoCode, ref)
     : null
 
-  const result = await placeAndPayNativeOrder({
+  const input: NativePlaceInput = {
     restaurantReference: ref,
     customerEmail: params.customerEmail,
     customerFirstName: params.customerFirstName ?? undefined,
@@ -97,20 +102,46 @@ export async function placeNativeCheckout(params: {
     note: params.note ?? null,
     companyName: params.companyName ?? null,
     persons: params.headcount ?? null,
-  }, params.stripe, params.savedOpts)
+  }
+  return { ok: true, built: { input, promo } }
+}
 
-  // Record the use (usage-limit + audit) once the order + charge exist. Idempotent
-  // per order; best-effort so it never fails a placed order.
+// Shared Disco-native order placement for BOTH the customer flow
+// (/api/order/place) and Direct Entry (/api/restaurant/orders/place). Card path:
+// places + creates the PaymentIntent for the browser to confirm; the webhook flips
+// RESERVED→DUE on success. Returns a discriminated result.
+export async function placeNativeCheckout(params: NativeCheckoutParams): Promise<NativeCheckoutOutcome> {
+  const b = await buildNativePlaceInput(params)
+  if (!b.ok) return b
+  const { input, promo } = b.built
+
+  const result = await placeAndPayNativeOrder(input, params.stripe, params.savedOpts)
+
   if (promo) {
     await recordNativeRestaurantPromoUse({
-      promoId: promo.id,
-      orderRef: result.orderReference,
-      userEmail: params.customerEmail,
-      discountDollars: result.breakdown.discount,
-      restaurantRef: ref,
+      promoId: promo.id, orderRef: result.orderReference, userEmail: params.customerEmail,
+      discountDollars: result.breakdown.discount, restaurantRef: input.restaurantReference,
       paymentIntentId: result.paymentIntentId,
     })
   }
+  return { ok: true, result }
+}
 
+// M7 — invoice path: place the order UNPAID and bill the customer via a Stripe
+// invoice (no PaymentIntent, no card confirm). Same gates/pricing as the card path.
+export async function placeNativeInvoiceCheckout(params: NativeCheckoutParams): Promise<NativeInvoiceCheckoutOutcome> {
+  const b = await buildNativePlaceInput(params)
+  if (!b.ok) return b
+  const { input, promo } = b.built
+
+  const result = await placeNativeInvoiceOrder(input, params.stripe)
+
+  if (promo) {
+    await recordNativeRestaurantPromoUse({
+      promoId: promo.id, orderRef: result.orderReference, userEmail: params.customerEmail,
+      discountDollars: result.breakdown.discount, restaurantRef: input.restaurantReference,
+      paymentIntentId: null,
+    })
+  }
   return { ok: true, result }
 }

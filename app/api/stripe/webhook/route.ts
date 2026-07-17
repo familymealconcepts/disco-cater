@@ -5,6 +5,7 @@ import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
 import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
 import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../lib/expedite'
 import { applyPendingEdit } from '../../../../lib/order-edit'
+import { alertOps } from '../../../../lib/ops-alert'
 import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs'
@@ -317,6 +318,43 @@ export async function POST(request: NextRequest) {
           WHERE order_id = ${order.id} AND transaction_type = 'ORIGINAL'
         `
         await recordEvent(order.reference, 'INVOICE_PAID', event, 'STRIPE_WEBHOOK')
+
+        // ── M7 native invoice order: finish the order like a paid card order ──
+        // Flip UNPAID→DUE, transfer the restaurant's payout to their connected
+        // account (platform-invoice + transfer, mirroring the card destination
+        // charge), and dispatch confirmations. Gated on the native kind so FM /
+        // order-edit / subscription invoices are untouched.
+        if (invoice.metadata?.kind === 'native_order_invoice') {
+          // First payment only — the guard makes retries a no-op.
+          await sql`UPDATE disco_orders SET order_status = 'DUE', updated_at = NOW() WHERE id = ${order.id} AND order_status = 'UNPAID'`
+
+          const transferDollars = Number(invoice.metadata?.transferDollars || 0)
+          const connectedAccountId = String(invoice.metadata?.connectedAccountId || '')
+          const withhold = invoice.metadata?.withholdPayouts === '1'
+          const invCharge = (invoice as unknown as { charge?: string | { id?: string } | null }).charge
+          const chargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
+          if (!withhold && connectedAccountId && transferDollars > 0) {
+            try {
+              // idempotencyKey → a webhook retry can't double-pay the restaurant.
+              await stripe.transfers.create({
+                amount: Math.round(transferDollars * 100),
+                currency: 'usd',
+                destination: connectedAccountId,
+                ...(chargeId ? { source_transaction: chargeId } : {}),
+                transfer_group: order.reference,
+                metadata: { orderReference: order.reference, kind: 'native_invoice_payout' },
+              }, { idempotencyKey: `native-invoice-transfer-${invoice.id}` })
+            } catch (e) {
+              console.error('[Webhook] native invoice payout transfer failed:', e instanceof Error ? e.message : e)
+              await alertOps('native invoice paid but payout transfer failed', {
+                invoiceId: invoice.id, orderReference: order.reference,
+                error: e instanceof Error ? e.message : String(e),
+              })
+            }
+          }
+          // Customer + restaurant confirmations (shared, idempotent per order).
+          waitUntil(dispatchOrderConfirmations(order.id, 'STRIPE_WEBHOOK'))
+        }
         break
       }
 

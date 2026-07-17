@@ -798,6 +798,10 @@ export default function CheckoutDrawer({
         // Withheld payouts still charge the customer (only the transfer is omitted),
         // so a client_secret is always returned.
         if (placeData.native) {
+          // Native invoice (direct entry, M7): the order is created UNPAID and a
+          // Stripe invoice is emailed to the customer — no card, no confirm here.
+          // The webhook completes it (→ DUE + payout transfer) when they pay.
+          if (placeData.invoice) { setStep('sent'); return }
           // Fresh card → the PaymentMethod tokenized above. Saved card → the vault
           // PaymentMethod the server resolved (attached to the PI's customer), so
           // the client can confirm without re-tokenizing. Prefer the server value.
