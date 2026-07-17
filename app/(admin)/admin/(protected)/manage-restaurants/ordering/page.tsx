@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import AddRestaurantDialog from './AddRestaurantDialog'
 import EditRestaurantDialog from '../EditRestaurantDialog'
+import { evaluateMarketplaceReadiness } from '../../../../../../lib/marketplace-visibility'
 
 const SORT_BLUE = '#5B6FE8'
 type SortKey = 'restaurant' | 'admin' | 'email' | 'createdDate' | 'status' | 'stripe'
@@ -836,6 +837,20 @@ export default function RestaurantsOrderingPage() {
             {!loading && sortedRows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
+              // M4 drop-off guard (report-only): flag an FM-backed row that is
+              // visible today but would silently vanish from the marketplace the
+              // moment it flips to Disco-native (stricter 3-part rule). isStripeConnected
+              // folds stripe_connected + a connected Disco account, matching the feed's
+              // native Stripe branch closely enough for a warning.
+              const ov = overrideMap[r.reference]
+              const readiness = ov ? evaluateMarketplaceReadiness({
+                isDiscoNative: ov.isDiscoNative,
+                visible: ov.visible,
+                stripeConnected: isStripeConnected(r),
+                onlineOrderingEnabled: ov.onlineOrderingEnabled,
+                hasCompletedNativeStripeAccount: false,
+              }) : null
+              const dropOff = readiness?.wouldDropOff ? readiness : null
               return (
                 <tr key={r._rowId}>
                   {/* Disco Cater Marketplace: the single Disco-native map/marketplace
@@ -858,6 +873,22 @@ export default function RestaurantsOrderingPage() {
                     {(r.address?.city || r.address?.state) && (
                       <div style={{ fontSize: 11, fontWeight: 400, color: '#999', marginTop: 2 }}>
                         {[r.address?.city, r.address?.state].filter(Boolean).join(', ')}
+                      </div>
+                    )}
+                    {dropOff && (
+                      <div
+                        title={dropOff.blockers.map(b => `• ${b.message}`).join('\n')}
+                        style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 5, marginTop: 5, maxWidth: 260, fontSize: 10.5, fontWeight: 600, lineHeight: 1.35, color: '#B45309', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 5, padding: '3px 7px' }}
+                      >
+                        <span style={{ flexShrink: 0 }}>⚠</span>
+                        <span>
+                          Would drop off the marketplace if switched to Disco-native
+                          <span style={{ display: 'block', fontWeight: 400, marginTop: 1 }}>
+                            {dropOff.blockers[0]?.code === 'online-ordering-off' ? 'Online ordering is off — enable it first.'
+                              : dropOff.blockers[0]?.code === 'stripe-not-connected' ? 'Stripe not connected for a native account.'
+                              : 'Marketplace visibility is off.'}
+                          </span>
+                        </span>
                       </div>
                     )}
                   </td>
