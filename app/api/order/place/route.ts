@@ -318,6 +318,9 @@ export async function POST(req: NextRequest) {
         note: body?.note ?? null,
         companyName: body?.companyName ?? null,
         headcount: (body?.headcount ?? cd.headcount ?? null) as number | null,
+        // Restaurant-funded promo (M6): honored for native like FM's Path C. The
+        // client sends this only for the marketplace flow (not Direct Entry).
+        restaurantPromoCode: (body?.restaurantPromoCode ?? null) as string | null,
         stripe,
         savedOpts,
       })

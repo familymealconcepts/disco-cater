@@ -5,6 +5,7 @@ import {
   type NativePlaceAndPayResult, type NativePlaceInput,
 } from './native-checkout'
 import { validateNativeDelivery } from './native-delivery'
+import { resolveNativeRestaurantPromo, recordNativeRestaurantPromoUse } from '../promo-native'
 import type { Fulfillment } from '../pricing/native-order'
 
 export type NativeCheckoutOutcome =
@@ -30,6 +31,10 @@ export async function placeNativeCheckout(params: {
   note?: string | null
   companyName?: string | null
   headcount?: number | null
+  // Restaurant-funded promo code (M6). Applied only when it resolves to a valid
+  // RESTAURANT-funded percent code for this restaurant; otherwise ignored (order
+  // places at full price). DISCO-funded codes are handled post-charge elsewhere.
+  restaurantPromoCode?: string | null
   stripe: Stripe
   savedOpts?: { customerId?: string }
 }): Promise<NativeCheckoutOutcome> {
@@ -66,6 +71,13 @@ export async function placeNativeCheckout(params: {
     thirdPartyDeliverySubsiding = dv.thirdPartyDeliverySubsiding
   }
 
+  // Restaurant-funded promo (M6): resolve BEFORE placing so the discount is baked
+  // into the charge (customer total + restaurant transfer both drop = restaurant
+  // absorbs it). null/invalid → discountPct 0 → full-price order, never blocks.
+  const promo = params.restaurantPromoCode
+    ? await resolveNativeRestaurantPromo(params.restaurantPromoCode, ref)
+    : null
+
   const result = await placeAndPayNativeOrder({
     restaurantReference: ref,
     customerEmail: params.customerEmail,
@@ -77,6 +89,7 @@ export async function placeNativeCheckout(params: {
     tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
     deliveryFee,
     thirdPartyDeliverySubsiding,
+    discountPct: promo?.pct ?? 0,
     scPct: await loadRestaurantServiceChargePct(ref),
     orderDate,
     orderTime: String(cd.orderTime ?? ''),
@@ -85,6 +98,19 @@ export async function placeNativeCheckout(params: {
     companyName: params.companyName ?? null,
     persons: params.headcount ?? null,
   }, params.stripe, params.savedOpts)
+
+  // Record the use (usage-limit + audit) once the order + charge exist. Idempotent
+  // per order; best-effort so it never fails a placed order.
+  if (promo) {
+    await recordNativeRestaurantPromoUse({
+      promoId: promo.id,
+      orderRef: result.orderReference,
+      userEmail: params.customerEmail,
+      discountDollars: result.breakdown.discount,
+      restaurantRef: ref,
+      paymentIntentId: result.paymentIntentId,
+    })
+  }
 
   return { ok: true, result }
 }

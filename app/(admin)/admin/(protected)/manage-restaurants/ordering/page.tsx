@@ -426,7 +426,6 @@ export default function RestaurantsOrderingPage() {
   // Map/marketplace visibility confirmation modal (Neon visible). next = target on/off.
   const [marketplaceConfirm, setMarketplaceConfirm] = useState<{ r: Restaurant; next: boolean } | null>(null)
   const [marketplaceBusy, setMarketplaceBusy] = useState(false)
-  const [bulkBusy, setBulkBusy] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncProgress, setSyncProgress] = useState('')
   const [fullSyncBusy, setFullSyncBusy] = useState(false)
@@ -704,27 +703,6 @@ export default function RestaurantsOrderingPage() {
     }
   }
 
-  // One-time: show every active FM restaurant on the Disco fullmap.
-  async function bulkSetVisible() {
-    if (!confirm('This will show all active FM restaurants on the Disco Cater map. Continue?')) return
-    setBulkBusy(true)
-    setError('')
-    try {
-      const res = await fetch('/api/admin/bulk-set-visible', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ all: true }),
-      })
-      const d = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(d?.error || 'Bulk update failed')
-      showToast(`Map updated: ${d.inserted} added, ${d.updated} already-present set visible`)
-    } catch (e) {
-      setError((e as Error).message || 'Bulk update failed')
-    } finally {
-      setBulkBusy(false)
-    }
-  }
-
   return (
     <div style={{ padding: '28px 32px', fontFamily: F, background: PAGE_BG, height: '100vh', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* CSS-only hover tooltips for the header action buttons. */}
@@ -766,12 +744,6 @@ export default function RestaurantsOrderingPage() {
             onChange={e => setSearchInput(e.target.value)}
             style={{ ...inputSt, width: 240 }}
           />
-          <button className="ord-btn" onClick={bulkSetVisible} disabled={bulkBusy}
-            style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: bulkBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: bulkBusy ? 0.6 : 1 }}>
-            {bulkBusy ? 'Setting…' : 'Bulk Set Visible'}
-            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
-            <span className="ord-tip">Mark all active FM restaurants as visible on the Disco Cater map</span>
-          </button>
           <button className="ord-btn" onClick={syncStripeStatus} disabled={syncBusy}
             style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: syncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: syncBusy ? 0.6 : 1 }}>
             {syncBusy ? (syncProgress || 'Syncing…') : 'Sync Stripe Status'}
