@@ -367,3 +367,82 @@ export async function placeAndPayNativeOrder(
   await sql`UPDATE disco_sale_transactions SET stripe_payment_intent_id = ${pi.id} WHERE order_id = ${placed.orderId}`
   return { ...placed, paymentIntentId: pi.id, clientSecret: pi.client_secret, withheld: pay.withholdPayouts || !pay.connectedAccountId }
 }
+
+export interface NativeRecurringResult {
+  outcome: 'placed' | 'charge_failed'
+  orderId?: number
+  orderReference?: string
+  orderNumber?: number
+  paymentIntentId?: string
+  declineCode?: string | null
+}
+
+// B1 — charge + place a native recurring occurrence. Unlike placeAndPayNativeOrder
+// (which creates an UNCONFIRMED PI for the browser to confirm), this confirms the
+// destination charge server-side OFF-SESSION against the saved card, then sets the
+// order DUE directly — the Stripe webhook won't retroactively flip it, because the
+// order row is created here around an already-confirmed charge. Funds route to the
+// restaurant's connected account exactly like a one-time native order. On decline /
+// non-success the just-created RESERVED order is rolled back so no orphan remains.
+export async function chargeAndPlaceNativeRecurringOrder(
+  input: NativePlaceInput,
+  stripe: Stripe,
+  opts: { customerId: string; paymentMethodId: string; idempotencyKey: string },
+): Promise<NativeRecurringResult> {
+  const placed = await placeNativeOrder(input)
+
+  const rollback = async () => {
+    try {
+      await sql`DELETE FROM disco_order_items WHERE order_id = ${placed.orderId}`
+      await sql`DELETE FROM disco_sale_transactions WHERE order_id = ${placed.orderId}`
+      await sql`DELETE FROM disco_orders WHERE id = ${placed.orderId}`
+    } catch (e) { console.error('[native-recurring] rollback failed:', e instanceof Error ? e.message : e) }
+  }
+
+  const pay = await getRestaurantPayoutConfig(input.restaurantReference)
+  let pi: Stripe.PaymentIntent
+  try {
+    pi = await createNativeOrderPaymentIntent(stripe, {
+      totalDollars: placed.breakdown.total,
+      transferDollars: placed.breakdown.transfer,
+      connectedAccountId: pay.connectedAccountId,
+      withholdPayouts: pay.withholdPayouts,
+      customerId: opts.customerId,
+      paymentMethodId: opts.paymentMethodId,
+      receiptEmail: input.customerEmail || undefined,
+      onBehalfOf: true,
+      confirm: true,
+      offSession: true,
+      metadata: { orderReference: placed.orderReference, orderNumber: String(placed.orderNumber), kind: 'native_recurring_order' },
+      description: `Recurring Disco Cater order #${placed.orderNumber}`,
+    }, opts.idempotencyKey)
+  } catch (err) {
+    await rollback()
+    const code = (err as { code?: string })?.code ?? null
+    return { outcome: 'charge_failed', declineCode: code }
+  }
+
+  if (pi.status !== 'succeeded') {
+    await rollback()
+    return { outcome: 'charge_failed', paymentIntentId: pi.id, declineCode: pi.status }
+  }
+
+  // Link PI → order and mark paid/DUE (mirrors placeAndPayNativeOrder + the webhook's
+  // payment_intent.succeeded handler, done inline since the webhook can't do it here).
+  // Best-effort: the charge already SUCCEEDED, so a post-charge DB hiccup must never
+  // throw back to the caller (that would misroute a paid order). The disco_stripe_
+  // payments link also lets the webhook flip DUE as a backup if any of these missed.
+  try {
+    await sql`
+      INSERT INTO disco_stripe_payments (order_reference, restaurant_reference, stripe_payment_intent_id, status, subtotal, total, created_at)
+      VALUES (${placed.orderReference}::uuid, ${input.restaurantReference}::uuid, ${pi.id}, 'SUCCEEDED', ${placed.breakdown.subtotal}, ${placed.breakdown.total}, NOW())
+      ON CONFLICT (stripe_payment_intent_id) DO NOTHING
+    `
+    await sql`UPDATE disco_sale_transactions SET stripe_payment_intent_id = ${pi.id}, transaction_status = 'PAID', updated_at = NOW() WHERE order_id = ${placed.orderId}`
+    await sql`UPDATE disco_orders SET order_status = 'DUE', updated_at = NOW() WHERE id = ${placed.orderId}`
+  } catch (e) {
+    console.error('[native-recurring] post-charge link/DUE failed (charge succeeded, order exists):', e instanceof Error ? e.message : e)
+  }
+
+  return { outcome: 'placed', orderId: placed.orderId, orderReference: placed.orderReference, orderNumber: placed.orderNumber, paymentIntentId: pi.id }
+}

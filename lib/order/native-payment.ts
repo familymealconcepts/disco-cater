@@ -53,6 +53,8 @@ export interface NativePaymentParams {
   receiptEmail?: string      // diner email → shown on the charge + Stripe receipt
   paymentMethodId?: string  // set for server-side confirm (tests); omit for client-side confirm
   onBehalfOf?: boolean       // restaurant as merchant-of-record (production); omit for the test account
+  confirm?: boolean          // confirm immediately server-side (recurring/off-session); omit for client confirm
+  offSession?: boolean       // customer not present (recurring auto-charge)
   metadata?: Record<string, string>
   description?: string
 }
@@ -90,7 +92,7 @@ export async function getOrCreateStripeCustomer(stripe: Stripe, email: string | 
 
 // Build the destination-charge PaymentIntent. When withheld (or no connected
 // account), transfer_data is omitted so the whole charge stays on the platform.
-export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePaymentParams): Promise<Stripe.PaymentIntent> {
+export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePaymentParams, idempotencyKey?: string): Promise<Stripe.PaymentIntent> {
   const routeToRestaurant = !p.withholdPayouts && !!p.connectedAccountId
   const params: Stripe.PaymentIntentCreateParams = {
     amount: cents(p.totalDollars),
@@ -100,6 +102,10 @@ export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePa
     ...(p.customerId ? { customer: p.customerId } : {}),
     ...(p.receiptEmail ? { receipt_email: p.receiptEmail } : {}),
     ...(p.paymentMethodId ? { payment_method: p.paymentMethodId } : {}),
+    // Server-side confirm for off-session recurring charges (B1). Omitted for the
+    // client-confirm one-time flow, so that path is byte-for-byte unchanged.
+    ...(p.confirm ? { confirm: true } : {}),
+    ...(p.offSession ? { off_session: true } : {}),
     ...(routeToRestaurant
       ? { transfer_data: { destination: p.connectedAccountId as string, amount: cents(p.transferDollars) } }
       : {}),
@@ -112,5 +118,5 @@ export async function createNativeOrderPaymentIntent(stripe: Stripe, p: NativePa
     // reached the confirmation screen — Bug 1).
     payment_method_types: ['card'],
   }
-  return stripe.paymentIntents.create(params)
+  return stripe.paymentIntents.create(params, idempotencyKey ? { idempotencyKey } : undefined)
 }

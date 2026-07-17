@@ -20,6 +20,8 @@ import Stripe from 'stripe'
 import { sql } from '../../../../lib/db'
 import { checkMenuAvailability, repriceCart, type CartItem } from '../../../../lib/recurring'
 import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+import { isDiscoNativeRestaurant, chargeAndPlaceNativeRecurringOrder, type NativePlaceInput } from '../../../../lib/order/native-checkout'
+import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -538,6 +540,66 @@ export async function GET(req: NextRequest) {
         `) as { id: number }[]
         if (!claim.length) {
           // Another concurrent run already claimed/charged this occurrence.
+          continue
+        }
+
+        // ── B1: Disco-native → charge + place NATIVELY ──────────────────────
+        // The restaurant is a Disco-native restaurant: place the order in Neon and
+        // charge as a DESTINATION charge to its connected account (funds routed like
+        // a one-time native order), instead of the FM placement path (which throws
+        // in cron → manual review). FM-backed restaurants skip this and fall through
+        // to the UNCHANGED code below. The atomic claim above still guards against
+        // double-charge/double-place, and the native charge reuses the same stable
+        // idempotency key.
+        if (await isDiscoNativeRestaurant(occ.restaurant_reference)) {
+          const nativeInput: NativePlaceInput = {
+            restaurantReference: occ.restaurant_reference,
+            customerEmail: occ.customer_email,
+            fulfillment: 'PICKUP',
+            items: (repricedCart || []).map(i => ({ name: i.name || 'Item', price: Number(i.price) || 0, quantity: Math.max(1, Math.trunc(Number(i.quantity) || 1)) })),
+            orderDate: date,
+            orderTime: String(occ.scheduled_time || '').match(/^(\d{2}:\d{2})/)?.[1] || '12:00',
+            customerFirstName: occ.customer_first_name ?? undefined,
+            customerLastName: occ.customer_last_name ?? undefined,
+          }
+          let result
+          try {
+            result = await chargeAndPlaceNativeRecurringOrder(nativeInput, stripe, {
+              customerId: occ.stripe_customer_id as string,
+              paymentMethodId: occ.stripe_payment_method_id as string,
+              idempotencyKey: `recurring-occ-${occ.id}`,
+            })
+          } catch (e) {
+            // Pre-charge (DB/placement) error only — no charge occurred. Log and move
+            // on; the atomic claim leaves it CHARGE_ATTEMPTED (not re-selected).
+            errors.push(`native ${occ.id}: ${e instanceof Error ? e.message : String(e)}`)
+            continue
+          }
+          if (result.outcome === 'charge_failed') {
+            await sql`
+              UPDATE recurring_order_occurrences
+              SET status = 'CHARGE_FAILED', charge_failed_at = NOW(),
+                  stripe_payment_intent_id = ${result.paymentIntentId ?? null}, updated_at = NOW()
+              WHERE id = ${occ.id}
+            `
+            const m = emailPaymentNeeded(firstName, occ.restaurant_name, date, deadlineISO, result.declineCode === 'authentication_required')
+            await sendEmail(occ.customer_email, m.subject, m.html, m.text)
+            chargesFailed++
+            continue
+          }
+          // Charged (destination charge) + placed natively in disco_orders (DUE).
+          await sql`
+            UPDATE recurring_order_occurrences
+            SET status = 'PLACED', charge_attempted_at = NOW(), placed_at = NOW(),
+                stripe_payment_intent_id = ${result.paymentIntentId ?? null}, updated_at = NOW()
+            WHERE id = ${occ.id}
+          `
+          chargesSucceeded++
+          ordersPlaced++
+          // The webhook won't retroactively flip this order, so fire confirmations
+          // directly (idempotent). Best-effort — never unwinds a placed+paid order.
+          try { await dispatchOrderConfirmations(result.orderId as number, 'RECURRING') }
+          catch (e) { console.error(`[cron/recurring-orders] native confirmations failed for occ ${occ.id}:`, e instanceof Error ? e.message : e) }
           continue
         }
 
