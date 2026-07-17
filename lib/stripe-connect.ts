@@ -28,14 +28,16 @@ export async function createConnectAccount(email: string, businessName: string):
       card_payments: { requested: true },
       transfers: { requested: true },
     },
-    // Default new restaurants to WEEKLY payouts on FRIDAY, 2-day rolling basis
-    // (matches EggBred's configuration). Set at creation so every Disco-onboarded
-    // account inherits it — Disco is the sole creator of new connected accounts.
-    // Existing restaurants are intentionally NOT touched. delay_days:2 is the US
-    // minimum funds-availability window; weekly_anchor:'friday' pays out Fridays.
+    // Default new restaurants to AUTOMATIC WEEKLY payouts on MONDAY, 2-day rolling
+    // basis. interval:'weekly' (not 'manual') means Stripe pays out automatically on
+    // the schedule; weekly_anchor:'monday' anchors the payout to Mondays; delay_days:2
+    // is the US minimum funds-availability window. Set at creation so every
+    // Disco-onboarded account inherits it — Disco is the sole creator of new connected
+    // accounts, and there is no accounts.update anywhere, so EXISTING accounts are
+    // intentionally never touched (this only changes the default going forward).
     settings: {
       payouts: {
-        schedule: { interval: 'weekly', weekly_anchor: 'friday', delay_days: 2 },
+        schedule: { interval: 'weekly', weekly_anchor: 'monday', delay_days: 2 },
       },
     },
     metadata: { source: 'disco-become-a-partner' },
