@@ -1,6 +1,6 @@
 # Follow-up: Capture itemized add-ons + true delivery instructions (order PDF + surfaces)
 
-**Status:** Open — scoped, not started
+**Status:** DONE (2026-07-18, commit `420518e`) — native capture + FM delivery-instruction mirror + PDF loader/render shipped; FM per-item add-on mirror is wired best-effort (populates once parseFmOrder surfaces FM's orderAddOns).
 **Opened:** 2026-07-16
 **Origin:** Split out of the order-PDF layout rebuild (commit `0a8ed9c`), which
 intentionally deferred these two items because they are **data-capture gaps**, not
