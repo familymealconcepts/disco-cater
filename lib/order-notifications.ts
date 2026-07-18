@@ -363,13 +363,21 @@ export async function dispatchOrderConfirmations(
     try {
       const smsRestRef = String(o.restaurant_reference ?? '')
       let smsNumbers: string[] = []
+      let textNotificationsEnabled = false
       try {
         const ovRows = (await sql`
-          SELECT notification_sms_numbers FROM disco_restaurant_overrides WHERE restaurant_reference = ${smsRestRef} LIMIT 1
-        `) as { notification_sms_numbers: string | null }[]
+          SELECT notification_sms_numbers, text_notifications_enabled FROM disco_restaurant_overrides WHERE restaurant_reference = ${smsRestRef} LIMIT 1
+        `) as { notification_sms_numbers: string | null; text_notifications_enabled: boolean | null }[]
+        textNotificationsEnabled = ovRows[0]?.text_notifications_enabled === true
         smsNumbers = String(ovRows[0]?.notification_sms_numbers || '').split(',').map((s) => s.trim()).filter(Boolean)
       } catch { /* column may not exist on a brand-new DB — fall back below */ }
-      if (smsNumbers.length === 0) {
+      // Gate: only text when the restaurant's "Send order notifications by text
+      // message" toggle is ON. Configured numbers alone are NOT enough — a
+      // restaurant may have entered numbers but turned texts off. Applies to both
+      // the CSV recipient list AND the legacy per-account fallback.
+      if (!textNotificationsEnabled) {
+        smsNumbers = []
+      } else if (smsNumbers.length === 0) {
         const accts = (await sql`
           SELECT sms_phone FROM disco_restaurant_accounts
           WHERE restaurant_reference = ${smsRestRef}

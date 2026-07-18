@@ -38,6 +38,7 @@ export default function GroupLibraryPage() {
   const [library, setLibrary] = useState<Modifier[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
   const [dialog, setDialog] = useState<null | Draft>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -47,14 +48,14 @@ export default function GroupLibraryPage() {
     setLoading(true)
     try {
       const [gRes, mRes] = await Promise.all([
-        fetch('/api/restaurant/disco-modifier-groups').then(r => r.json()),
+        fetch(`/api/restaurant/disco-modifier-groups${showArchived ? '?includeArchived=1' : ''}`).then(r => r.json()),
         fetch('/api/restaurant/disco-modifiers').then(r => r.json()),
       ])
       setGroups(Array.isArray(gRes.groups) ? gRes.groups : [])
       setLibrary(Array.isArray(mRes.modifiers) ? mRes.modifiers : [])
     } catch { setGroups([]); setLibrary([]) } finally { setLoading(false) }
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() /* eslint-disable-next-line */ }, [showArchived])
 
   function openNew() { setError(''); setModSearch(''); setDialog({ name: '', externalName: '', minSelected: '0', maxSelected: '1', modifierReferences: [] }) }
   function openEdit(g: Group) {
@@ -84,9 +85,10 @@ export default function GroupLibraryPage() {
     } finally { setSaving(false) }
   }
 
-  async function act(g: Group, action: 'clone' | 'delete') {
+  async function act(g: Group, action: 'clone' | 'delete' | 'archive' | 'unarchive') {
     if (action === 'delete' && !confirm(`Delete "${g.name}"? It will be removed from any items it's attached to.`)) return
     if (action === 'clone') await fetch(`/api/restaurant/disco-modifier-groups/${g.reference}/clone`, { method: 'POST' })
+    else if (action === 'archive' || action === 'unarchive') await fetch(`/api/restaurant/disco-modifier-groups/${g.reference}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: action === 'archive' }) })
     else await fetch(`/api/restaurant/disco-modifier-groups/${g.reference}`, { method: 'DELETE' })
     await load()
   }
@@ -115,8 +117,13 @@ export default function GroupLibraryPage() {
       </div>
       <p style={{ fontSize: 13, color: '#888', margin: '0 0 16px' }}>Groups bundle modifiers with selection rules (e.g. “choose up to 2”), then attach to menu items. Required when the minimum is 1 or more.</p>
 
-      <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search groups…"
-        style={{ width: '100%', maxWidth: 340, padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: F, boxSizing: 'border-box', marginBottom: 14 }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search groups…"
+          style={{ flex: '1 1 260px', maxWidth: 340, padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 13, fontFamily: F, boxSizing: 'border-box' }} />
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#555', cursor: 'pointer' }}>
+          <input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} /> Show archived
+        </label>
+      </div>
 
       {loading ? <div style={{ color: '#aaa', fontSize: 14 }}>Loading…</div>
         : groups.length === 0 ? (
@@ -139,7 +146,10 @@ export default function GroupLibraryPage() {
                   <tr><td style={{ ...td, color: '#999', textAlign: 'center' }} colSpan={6}>No groups match “{query}”.</td></tr>
                 ) : shown.map(g => (
                   <tr key={g.reference}>
-                    <td style={{ ...td, fontWeight: 600 }}>{g.name}</td>
+                    <td style={{ ...td, fontWeight: 600 }}>
+                      {g.name}
+                      {g.archived && <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 7px' }}>ARCHIVED</span>}
+                    </td>
                     <td style={{ ...td, color: '#666' }}>{g.external_name || '—'}</td>
                     <td style={td}>{g.modifiers.length}</td>
                     <td style={td}>
@@ -151,8 +161,9 @@ export default function GroupLibraryPage() {
                     <td style={td}><UsedIn names={g.itemsUsedIn ?? []} /></td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       <span style={{ display: 'inline-flex', gap: 14, alignItems: 'center' }}>
-                        <button style={linkBtn} onClick={() => openEdit(g)}>Edit</button>
+                        {!g.archived && <button style={linkBtn} onClick={() => openEdit(g)}>Edit</button>}
                         <button style={linkBtn} onClick={() => act(g, 'clone')}>Duplicate</button>
+                        <button style={linkBtn} onClick={() => act(g, g.archived ? 'unarchive' : 'archive')}>{g.archived ? 'Unarchive' : 'Archive'}</button>
                         <button style={{ ...linkBtn, color: RED }} onClick={() => act(g, 'delete')}>Delete</button>
                       </span>
                     </td>
