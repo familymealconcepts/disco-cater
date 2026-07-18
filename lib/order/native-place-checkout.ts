@@ -27,6 +27,7 @@ export interface NativeCheckoutParams {
   checkoutDetails: Record<string, unknown>
   deliveryAddress?: unknown
   note?: string | null
+  deliveryInstructions?: string | null
   companyName?: string | null
   headcount?: number | null
   // Restaurant-funded promo code (M6). Applied only when it resolves to a valid
@@ -100,6 +101,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     orderTime: String(cd.orderTime ?? ''),
     deliveryAddress: params.deliveryAddress as NativePlaceInput['deliveryAddress'],
     note: params.note ?? null,
+    deliveryInstructions: params.deliveryInstructions ?? null,
     companyName: params.companyName ?? null,
     persons: params.headcount ?? null,
   }

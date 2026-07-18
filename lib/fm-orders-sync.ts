@@ -75,6 +75,7 @@ interface NormalizedFmOrder {
   restaurantName: string | null
   seenByAdmin: boolean
   note: string | null
+  deliveryInstructions: string | null
 }
 
 function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null {
@@ -123,6 +124,8 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
     restaurantName: s(o.restaurantName) || null,
     seenByAdmin: o.orderSeenByAdmin === true || o.seenByAdmin === true,
     note: s(o.note) || null,
+    // Mirror FM's true delivery instructions (distinct from the general note).
+    deliveryInstructions: s(o.dinerDeliveryInstructions) || s(o.deliveryInstructions) || null,
   }
 }
 
@@ -145,6 +148,27 @@ async function syncOrderItems(orderId: number, fmRef: string): Promise<void> {
     `)
   }
   await sql.transaction(stmts).catch(e => console.error('[fm-orders-sync] items replace failed:', e instanceof Error ? e.message : e))
+
+  // Mirror per-item add-ons when FM supplies them (parseFmOrder items carry an
+  // `addOns` array). Best-effort + a no-op when absent. Item ids are re-loaded in
+  // insert order (ORDER BY id) so they line up with the parsed items 1:1.
+  const anyAddOns = items.some((it) => Array.isArray((it as { addOns?: unknown }).addOns) && ((it as { addOns?: unknown[] }).addOns?.length ?? 0) > 0)
+  if (anyAddOns) {
+    try {
+      const idRows = (await sql`SELECT id FROM disco_order_items WHERE order_id = ${orderId} ORDER BY id`) as { id: number }[]
+      const addStmts = [sql`DELETE FROM disco_order_item_addons WHERE order_item_id IN (SELECT id FROM disco_order_items WHERE order_id = ${orderId})`]
+      for (let i = 0; i < idRows.length && i < items.length; i++) {
+        const addOns = (items[i] as { addOns?: { name?: string; price?: number; count?: number; quantity?: number }[] }).addOns || []
+        for (const a of addOns) {
+          addStmts.push(sql`
+            INSERT INTO disco_order_item_addons (order_item_id, name, price, quantity)
+            VALUES (${idRows[i].id}, ${a.name || 'Add-on'}, ${n(a.price)}, ${Math.max(1, Math.trunc(n(a.count ?? a.quantity) || 1))})
+          `)
+        }
+      }
+      await sql.transaction(addStmts)
+    } catch (e) { console.error('[fm-orders-sync] add-on mirror failed:', e instanceof Error ? e.message : e) }
+  }
 }
 
 interface ExistingRow { id: number; source_of_order: string; edit_count: number | null; edit_status: string | null }
@@ -186,12 +210,12 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
           fm_order_reference, order_number, order_status, order_type, delivery_type, source_of_order,
           restaurant_reference, restaurant_name, restaurant_address, restaurant_phone,
           customer_email, customer_first_name, customer_last_name, customer_phone,
-          order_date, order_time, subtotal, total, fee, tips, tips_type, note, seen_by_admin, created_at, updated_at
+          order_date, order_time, subtotal, total, fee, tips, tips_type, note, delivery_instructions, seen_by_admin, created_at, updated_at
         ) VALUES (
           ${o.fmRef}::uuid, ${o.orderNumber}::bigint, ${o.status}, ${o.orderType}, ${o.deliveryType}, ${o.source},
           ${restaurantReference}::uuid, ${o.restaurantName || snap.name}, ${snap.address}, ${snap.phone},
           ${o.email}, ${o.firstName || null}, ${o.lastName || null}, ${o.phone},
-          ${o.dateIso}::date, ${o.time}::time, ${o.subtotal}, ${o.total}, ${o.fee}, ${o.tips}, ${o.tipsType}, ${o.note}, ${o.seenByAdmin}, NOW(), NOW()
+          ${o.dateIso}::date, ${o.time}::time, ${o.subtotal}, ${o.total}, ${o.fee}, ${o.tips}, ${o.tipsType}, ${o.note}, ${o.deliveryInstructions}, ${o.seenByAdmin}, NOW(), NOW()
         )
         RETURNING id
       `) as { id: number }[]
@@ -247,6 +271,7 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
       order_date = ${o.dateIso}::date, order_time = ${o.time}::time,
       subtotal = COALESCE(${o.subtotal}, subtotal), total = COALESCE(${o.total}, total), fee = COALESCE(${o.fee}, fee),
       tips = ${o.tips}, tips_type = ${o.tipsType}, note = COALESCE(${o.note}, note),
+      delivery_instructions = COALESCE(${o.deliveryInstructions}, delivery_instructions),
       seen_by_admin = ${o.seenByAdmin}, updated_at = NOW()
     WHERE id = ${row.id}
   `.catch(e => console.error('[fm-orders-sync] update:', e instanceof Error ? e.message : e))

@@ -213,6 +213,7 @@ export async function POST(req: NextRequest) {
       checkoutDetails: cd,
       deliveryAddress: placeBody.deliveryAddress,
       note: (placeBody.note as string) ?? null,
+      deliveryInstructions: ((placeBody.deliveryInstructions ?? (placeBody.deliveryAddress as Record<string, unknown> | undefined)?.deliveryInstructions) ?? null) as string | null,
       companyName: (placeBody.companyName as string) ?? null,
       headcount: (placeBody.headcount ?? cd.headcount ?? null) as number | null,
       stripe,

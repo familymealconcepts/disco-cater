@@ -10,7 +10,14 @@ import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateS
 import { computeThirdPartyDelivery, type DeliverySettings } from '../menu-settings'
 import { cents } from '../promo-pricing'
 
-export interface NativeCartItem { reference?: string; name: string; price: number; quantity: number }
+export interface NativeCartItem {
+  reference?: string; name: string; price: number; quantity: number
+  // Base unit price (excluding add-ons) + the itemized add-ons. `price` stays the
+  // FOLDED unit price (base + add-ons) so the money math is unchanged; basePrice +
+  // addOns are stored separately so the PDF/emails can show itemized "+" sub-lines.
+  basePrice?: number
+  addOns?: { name: string; price: number; quantity: number }[]
+}
 export interface NativeTip { custom: boolean; amount?: number; pct?: number }
 export interface NativeDeliveryAddressInput {
   addressLine1?: string; addressLine2?: string; city?: string; state?: string
@@ -37,6 +44,7 @@ export interface NativePlaceInput extends NativeCheckoutInput {
   orderTime: string  // HH:mm
   deliveryAddress?: NativeDeliveryAddressInput
   note?: string | null
+  deliveryInstructions?: string | null
   companyName?: string | null
   persons?: number | null
   // Initial order_status. Defaults to RESERVED (card flow, pre-payment). The
@@ -154,22 +162,31 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
 // NOTE: the customer-facing TOTAL does not depend on lead-gen (that's withheld from
 // the restaurant payout), so pricing needs no customer session — safe for previews.
 
-interface FmDtoAddOn { price?: number; count?: number }
-interface FmDtoItem { reference?: string; name?: string; price?: number; count?: number; extraItems?: FmDtoAddOn[] }
+interface FmDtoAddOn { name?: string; price?: number; count?: number; quantity?: number }
+interface FmDtoItem { reference?: string; name?: string; price?: number; count?: number; extraItems?: FmDtoAddOn[]; addOns?: FmDtoAddOn[] }
 
 // Map FM-shaped checkout items → native cart items, folding each line's add-on
 // prices into the unit price and count→quantity, so cartSubtotal is consistent
 // with fmDtoSubtotal (the pricing preview) and with FM's line math.
 export function fmItemsToNativeCart(items: FmDtoItem[] | undefined): NativeCartItem[] {
   return (items || []).map((it, i) => {
-    const addOns = Array.isArray(it.extraItems)
-      ? it.extraItems.reduce((a, e) => a + (Number(e.price) || 0) * Math.max(1, Math.trunc(Number(e.count) || 1)), 0)
-      : 0
+    // Accept add-ons as `addOns` (carries names) or the legacy `extraItems`.
+    const raw = Array.isArray(it.addOns) ? it.addOns : Array.isArray(it.extraItems) ? it.extraItems : []
+    const addOns = raw.map((e) => ({
+      name: String(e.name || 'Add-on'),
+      price: Number(e.price) || 0,
+      quantity: Math.max(1, Math.trunc(Number(e.count ?? e.quantity) || 1)),
+    }))
+    const addOnTotal = addOns.reduce((a, e) => a + e.price * e.quantity, 0)
+    const base = Number(it.price) || 0
     return {
       reference: it.reference,
       name: it.name || `item-${i}`,
-      price: (Number(it.price) || 0) + addOns,
+      basePrice: base,
+      // Folded unit price keeps cartSubtotal + all pricing byte-for-byte unchanged.
+      price: base + addOnTotal,
       quantity: Math.max(1, Math.trunc(Number(it.count) || 1)),
+      addOns: addOns.length ? addOns : undefined,
     }
   })
 }
@@ -303,14 +320,14 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
       customer_email, customer_first_name, customer_last_name, customer_phone,
       order_date, order_time, delivery_time_window, tips, tips_type,
       delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-      delivery_lat, delivery_lng, subtotal, total, fee, note, company_name, persons, created_at, updated_at
+      delivery_lat, delivery_lng, subtotal, total, fee, note, delivery_instructions, company_name, persons, created_at, updated_at
     ) VALUES (
       ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, 'DISCO',
       ${input.restaurantReference}::uuid, ${rName}, ${rAddr}, ${rPhone},
       ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
       ${input.orderDate}::date, ${input.orderTime}::time, ${deliveryTimeWindow}, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},
       ${da.addressLine1 ?? null}, ${da.addressLine2 ?? null}, ${da.city ?? null}, ${da.state ?? null}, ${daZip},
-      ${daLat}, ${daLng}, ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${input.note ?? null}, ${input.companyName ?? null}, ${input.persons ?? null}, NOW(), NOW()
+      ${daLat}, ${daLng}, ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${input.note ?? null}, ${input.deliveryInstructions ?? null}, ${input.companyName ?? null}, ${input.persons ?? null}, NOW(), NOW()
     )
     RETURNING id, reference, order_number
   `) as { id: number; reference: string; order_number: string | number }[]
@@ -322,11 +339,24 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   // failure here aborts placeAndPayNativeOrder before any charge is created.
   for (const it of input.items || []) {
     const qty = Math.max(1, Math.trunc(Number(it.quantity) || 1))
-    const unit = round2(Number(it.price) || 0)
-    await sql`
+    // Store the BASE unit price; add-ons are their own rows (never baked in), so the
+    // PDF/emails can show itemized "+" sub-lines. When there are no add-ons,
+    // basePrice === price, so this is identical to before.
+    const base = round2(Number(it.basePrice ?? it.price) || 0)
+    const itemRows = (await sql`
       INSERT INTO disco_order_items (order_id, meal_package_reference, name, quantity, price_per_unit, total_price)
-      VALUES (${order.id}, ${it.reference ?? null}, ${it.name || 'Item'}, ${qty}, ${unit}, ${round2(unit * qty)})
-    `
+      VALUES (${order.id}, ${it.reference ?? null}, ${it.name || 'Item'}, ${qty}, ${base}, ${round2(base * qty)})
+      RETURNING id
+    `) as { id: number }[]
+    const orderItemId = itemRows[0]?.id
+    if (orderItemId && Array.isArray(it.addOns) && it.addOns.length) {
+      for (const a of it.addOns) {
+        await sql`
+          INSERT INTO disco_order_item_addons (order_item_id, name, price, quantity)
+          VALUES (${orderItemId}, ${a.name || 'Add-on'}, ${round2(Number(a.price) || 0)}, ${Math.max(1, Math.trunc(Number(a.quantity) || 1))})
+        `
+      }
+    }
   }
 
   // Full breakdown → disco_sale_transactions (the money-of-record row the portal

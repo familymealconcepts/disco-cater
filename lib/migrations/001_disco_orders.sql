@@ -491,3 +491,18 @@ CREATE TABLE IF NOT EXISTS disco_report_runs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_disco_report_runs_restaurant ON disco_report_runs(restaurant_reference, created_at DESC);
+
+-- Itemized add-ons + true delivery instructions (order PDF / all order surfaces).
+-- Add-ons are stored as their own rows (name/price/quantity) per order item rather
+-- than baked into price_per_unit, so the PDF can show FM-style indented "+" sub-lines.
+-- delivery_instructions is distinct from the generic order note.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS delivery_instructions TEXT;
+CREATE TABLE IF NOT EXISTS disco_order_item_addons (
+  id SERIAL PRIMARY KEY,
+  order_item_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  price NUMERIC NOT NULL DEFAULT 0,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_disco_order_item_addons_item ON disco_order_item_addons(order_item_id);

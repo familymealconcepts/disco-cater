@@ -38,8 +38,9 @@ export interface OrderPdfData {
   deliveryAddress?: string
   persons?: number
   note?: string
+  deliveryInstructions?: string
   taxExemptId?: string
-  items: { name: string; quantity: number; price: number; note?: string }[]
+  items: { name: string; quantity: number; price: number; note?: string; addOns?: { name: string; price: number; quantity: number }[] }[]
   subtotal: number
   serviceCharge: number
   taxes: number
@@ -57,7 +58,7 @@ export interface OrderPdfData {
 // disco_orders; FM-mirrored orders on disco_sale_transactions).
 export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData | null> {
   const orders = (await sql`
-    SELECT id, reference, order_number, order_type, order_date, order_time, delivery_time_window, note, created_at,
+    SELECT id, reference, order_number, order_type, order_date, order_time, delivery_time_window, note, delivery_instructions, created_at,
            customer_email, customer_first_name, customer_last_name, customer_phone,
            delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
            restaurant_reference, restaurant_name, restaurant_address, restaurant_phone, tax_exempt_id, tips,
@@ -94,8 +95,24 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
   } catch { /* best-effort */ }
 
   const items = (await sql`
-    SELECT name, quantity, price_per_unit, notes FROM disco_order_items WHERE order_id = ${orderId} ORDER BY id
+    SELECT id, name, quantity, price_per_unit, notes FROM disco_order_items WHERE order_id = ${orderId} ORDER BY id
   `) as Record<string, unknown>[]
+
+  // Per-item add-ons (itemized, name/price/qty) — shown as indented "+" sub-lines.
+  const itemIds = items.map((it) => Number(it.id)).filter((n) => Number.isFinite(n))
+  const addonRows = itemIds.length
+    ? (await sql`
+        SELECT order_item_id, name, price, quantity FROM disco_order_item_addons
+        WHERE order_item_id = ANY(${itemIds}) ORDER BY id
+      `.catch(() => [])) as Record<string, unknown>[]
+    : []
+  const addOnsByItem = new Map<number, { name: string; price: number; quantity: number }[]>()
+  for (const a of addonRows) {
+    const k = Number(a.order_item_id)
+    const l = addOnsByItem.get(k) ?? []
+    l.push({ name: String(a.name ?? ''), price: num(a.price), quantity: num(a.quantity) || 1 })
+    addOnsByItem.set(k, l)
+  }
 
   const isDelivery = String(o.order_type) === 'DELIVERY'
   const cityStateZip = [o.delivery_city, [o.delivery_state, o.delivery_zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')
@@ -136,8 +153,9 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     deliveryAddress,
     persons: o.persons != null && Number(o.persons) > 0 ? Number(o.persons) : undefined,
     note: o.note ? String(o.note) : undefined,
+    deliveryInstructions: o.delivery_instructions ? String(o.delivery_instructions) : undefined,
     taxExemptId: o.tax_exempt_id ? String(o.tax_exempt_id) : undefined,
-    items: items.map((it) => ({ name: String(it.name ?? ''), quantity: num(it.quantity) || 1, price: num(it.price_per_unit), note: it.notes ? String(it.notes) : undefined })),
+    items: items.map((it) => ({ name: String(it.name ?? ''), quantity: num(it.quantity) || 1, price: num(it.price_per_unit), note: it.notes ? String(it.notes) : undefined, addOns: addOnsByItem.get(Number(it.id)) })),
     subtotal, serviceCharge, taxes, fees, deliveryFee, tip, promo, refund, total,
   }
 }
@@ -224,8 +242,10 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   if (d.customerPhone) custLines.push({ t: d.customerPhone, s: 9.5, c: GREY })
   splitBox(storeLines, custLines, 0.5)
 
-  // ── Note (delivery note / instructions from the order note field) ──
+  // ── Note (general order note) ──
   if (d.note) fullBox([{ t: 'Note:', label: true, s: 9.5 }, { t: d.note, s: 10 }])
+  // ── Delivery Instructions (distinct from the general note) ──
+  if (d.deliveryInstructions) fullBox([{ t: 'Delivery Instructions:', label: true, s: 9.5 }, { t: d.deliveryInstructions, s: 10 }])
 
   // ── Items table (bordered rows) ──
   const IROW = 20, itemMaxW = CW - 92
@@ -234,19 +254,32 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   text('ITEM', LEFT + PADX, y - 14, 9, bold, DARK)
   textR('PRICE', RIGHT - PADX, y - 14, 9, bold, DARK)
   y -= IROW
+  const SUBROW = 16
   for (const it of d.items) {
-    const hasNote = !!it.note
-    const h = hasNote ? 36 : IROW
+    const addOns = it.addOns ?? []
+    const subLineCount = addOns.length + (it.note ? 1 : 0)
+    const h = IROW + subLineCount * SUBROW
     brk(h)
     page.drawRectangle({ x: LEFT, y: y - h, width: CW, height: h, borderColor: BORDER, borderWidth: 1.2 })
     text(trunc(`(${it.quantity}) ${it.name}`, font, 10.5, itemMaxW), LEFT + PADX, y - 14, 10.5, font, DARK)
+    // Item line total is the BASE price × qty; add-ons are their own priced sub-lines
+    // (add-ons are stored separately, never baked into price_per_unit).
     textR(money(it.price * it.quantity), RIGHT - PADX, y - 14, 10.5, font, DARK)
-    // Modifier/note: indented under the item with a dash marker so it reads clearly
-    // as a sub-line, not a second item.
-    if (hasNote) {
-      const bx = LEFT + PADX + 18
-      text('–', LEFT + PADX + 8, y - 28, 9, font, GREY)
-      text(trunc(it.note!, font, 9, RIGHT - PADX - bx), bx, y - 28, 9, font, GREY)
+    const bx = LEFT + PADX + 18
+    let subY = y - 28
+    // Add-ons: indented "+ {name}" with the add-on price on the right (FM style).
+    for (const a of addOns) {
+      const label = `${a.quantity > 1 ? `${a.quantity}× ` : ''}${a.name}`
+      text('+', LEFT + PADX + 8, subY, 9, font, GREY)
+      text(trunc(label, font, 9, RIGHT - PADX - bx - 44), bx, subY, 9, font, GREY)
+      if (a.price) textR(money(a.price * a.quantity), RIGHT - PADX, subY, 9, font, GREY)
+      subY -= SUBROW
+    }
+    // Item note: indented with a dash marker so it reads as a sub-line, not an item.
+    if (it.note) {
+      text('–', LEFT + PADX + 8, subY, 9, font, GREY)
+      text(trunc(it.note, font, 9, RIGHT - PADX - bx), bx, subY, 9, font, GREY)
+      subY -= SUBROW
     }
     y -= h
   }

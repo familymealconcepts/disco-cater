@@ -316,6 +316,7 @@ export async function POST(req: NextRequest) {
         checkoutDetails: cd,
         deliveryAddress: body?.deliveryAddress,
         note: body?.note ?? null,
+        deliveryInstructions: (body?.deliveryInstructions ?? (body?.deliveryAddress as Record<string, unknown> | undefined)?.deliveryInstructions ?? null) as string | null,
         companyName: body?.companyName ?? null,
         headcount: (body?.headcount ?? cd.headcount ?? null) as number | null,
         // Restaurant-funded promo (M6): honored for native like FM's Path C. The
