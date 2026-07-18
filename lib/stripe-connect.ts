@@ -151,3 +151,42 @@ export async function updatePayoutSchedule(
   )
   return normalizeSchedule(acct.settings?.payouts?.schedule)
 }
+
+// ── Reuse check (M3) ─────────────────────────────────────────────────────────
+// Live per-account capability check: can an existing FM-linked connected account
+// be REUSED for native destination charges with no restaurant action? Reusable ==
+// charges_enabled AND the transfers capability is active (exactly what a native
+// destination charge needs). Anything else → the restaurant must complete Stripe
+// onboarding/verification (the platform can't do KYC on their behalf). Never trust
+// money_flow or any Neon proxy — this reads Stripe directly. Stripe is injectable.
+export interface AccountReuseCheck {
+  reusable: boolean
+  chargesEnabled: boolean
+  transfers: string | null    // 'active' | 'pending' | 'inactive' | null
+  disabledReason: string | null
+  requirementsDue: number
+  reason: string
+}
+
+export async function verifyAccountReusable(accountId: string, stripe: Stripe = getStripe()): Promise<AccountReuseCheck> {
+  const notReusable = (reason: string, extra?: Partial<AccountReuseCheck>): AccountReuseCheck => ({
+    reusable: false, chargesEnabled: false, transfers: null, disabledReason: null, requirementsDue: 0, reason, ...extra,
+  })
+  if (!accountId) return notReusable('No Stripe account id.')
+  let a: Stripe.Account
+  try {
+    a = await stripe.accounts.retrieve(accountId)
+  } catch (e) {
+    // Account not found / rejected / inaccessible → cannot reuse.
+    return notReusable(`Stripe account ${accountId} not retrievable — fresh onboarding required (${e instanceof Error ? e.message.slice(0, 80) : 'error'}).`)
+  }
+  const chargesEnabled = a.charges_enabled === true
+  const transfers = (a.capabilities?.transfers as string | undefined) ?? null
+  const disabledReason = (a.requirements?.disabled_reason as string | undefined) ?? null
+  const requirementsDue = a.requirements?.currently_due?.length ?? 0
+  const reusable = chargesEnabled && transfers === 'active'
+  const reason = reusable
+    ? 'Existing Stripe account is charge-capable (charges enabled, transfers active) — reuse, no onboarding.'
+    : `Existing Stripe account not charge-capable (charges_enabled=${chargesEnabled}, transfers=${transfers ?? 'none'}${disabledReason ? `, ${disabledReason}` : ''}) — fresh onboarding required.`
+  return { reusable, chargesEnabled, transfers, disabledReason, requirementsDue, reason }
+}

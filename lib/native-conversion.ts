@@ -1,19 +1,24 @@
 // M3 — FM-backed → Disco-native conversion tooling.
 //
 // Converting an existing FM restaurant to fully Disco-native is a sequenced,
-// verify-before-flip operation. The heavy steps (build the native menu, onboard
-// Stripe) are done with the EXISTING tools (menu import dual-write,
-// become-a-partner Stripe Connect); this module ORCHESTRATES the readiness check
-// and performs the one irreversible-feeling step — flipping is_disco_native — only
-// when every prerequisite passes, with marketplace visibility preserved (never
-// silently dropped) via the M4 readiness gate.
+// verify-before-flip operation. The heavy steps (build the native menu, obtain a
+// usable Stripe account) are done with existing tools + the account-id import; this
+// module ORCHESTRATES the readiness check and performs the one irreversible-feeling
+// step — flipping is_disco_native — only when every prerequisite passes, with
+// marketplace visibility preserved (never silently dropped) via the M4 gate.
 //
-// Sequence enforced (per the approved plan):
-//   backfill orders → build native menu → link account → fresh Stripe onboarding
-//   → populate settings → M4 readiness gate MUST pass → flip is_disco_native
-//   → (visibility stays as-is; the gate guarantees it won't drop off).
+// STRIPE (reuse model): rather than force fresh onboarding, we REUSE the existing
+// FM-linked connected account when it is already charge-capable — a LIVE per-account
+// capability check (verifyAccountReusable), never a money_flow/proxy. Fresh
+// onboarding is the fallback ONLY for accounts that genuinely can't be reused.
+import type Stripe from 'stripe'
 import { sql, runMigrations } from './db'
+import bcrypt from 'bcryptjs'
+import { randomUUID } from 'crypto'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
+import { verifyAccountReusable } from './stripe-connect'
+
+export type StripeMode = 'reuse' | 'needs-onboarding' | 'not-linked'
 
 export interface ConversionStep {
   key: 'not-already-native' | 'native-menu' | 'stripe-ready' | 'settings' | 'marketplace-ready'
@@ -27,12 +32,25 @@ export interface ConversionReadiness {
   restaurantReference: string
   found: boolean
   isDiscoNative: boolean
+  stripeMode: StripeMode
   steps: ConversionStep[]
   ordersMirrored: number       // advisory: run a final sync/fm-orders before flipping
   ready: boolean               // all BLOCKING steps pass
 }
 
-export async function checkConversionReadiness(ref: string): Promise<ConversionReadiness> {
+// Resolve the connected-account id Disco has stored for this restaurant (native or
+// the FM bridge), preferring a completed one.
+async function storedAccountId(ref: string): Promise<string | null> {
+  const rows = (await sql`
+    SELECT stripe_account_id FROM disco_restaurant_accounts
+    WHERE (restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref}) AND stripe_account_id IS NOT NULL
+    ORDER BY stripe_onboarding_complete DESC NULLS LAST, id ASC
+    LIMIT 1
+  `.catch(() => [])) as { stripe_account_id: string | null }[]
+  return rows[0]?.stripe_account_id ?? null
+}
+
+export async function checkConversionReadiness(ref: string, opts?: { stripe?: Stripe }): Promise<ConversionReadiness> {
   await runMigrations()
 
   const cache = (await sql`
@@ -49,13 +67,19 @@ export async function checkConversionReadiness(ref: string): Promise<ConversionR
   `.catch(() => [{ n: 0 }])) as { n: number }[]
   const hasMenu = (menu[0]?.n ?? 0) > 0
 
-  // Stripe: a connected account with completed onboarding (via own ref or the FM bridge).
-  const acct = (await sql`
-    SELECT COUNT(*)::int AS n FROM disco_restaurant_accounts
-    WHERE (restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref})
-      AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
-  `.catch(() => [{ n: 0 }])) as { n: number }[]
-  const stripeReady = (acct[0]?.n ?? 0) > 0
+  // Stripe (reuse model): LIVE-verify the stored connected account. Reusable →
+  // zero onboarding. Not charge-capable → onboarding fallback. No account → not linked.
+  const acctId = await storedAccountId(ref)
+  let stripeMode: StripeMode = 'not-linked'
+  let stripeDetail = 'No Stripe account linked — run the account-id import (reuse) or onboard.'
+  if (acctId) {
+    const check = await verifyAccountReusable(acctId, opts?.stripe)
+    stripeMode = check.reusable ? 'reuse' : 'needs-onboarding'
+    stripeDetail = check.reusable
+      ? `Reusing existing account ${acctId} — charge-capable, no onboarding needed.`
+      : `Account ${acctId} can't be reused: ${check.reason}`
+  }
+  const stripeReady = stripeMode === 'reuse'
 
   // Settings: an overrides row with tax rates mirrored and online ordering not off.
   const ov = (await sql`
@@ -77,13 +101,13 @@ export async function checkConversionReadiness(ref: string): Promise<ConversionR
   const steps: ConversionStep[] = [
     { key: 'not-already-native', label: 'Not already Disco-native', done: found && !isDiscoNative, blocking: true, detail: !found ? 'Restaurant not found.' : isDiscoNative ? 'Already Disco-native.' : 'FM-backed — eligible to convert.' },
     { key: 'native-menu', label: 'Native menu built', done: hasMenu, blocking: true, detail: hasMenu ? 'A visible Disco-native menu exists.' : 'No visible native menu — run the menu import (dual-write) first.' },
-    { key: 'stripe-ready', label: 'Stripe onboarded', done: stripeReady, blocking: true, detail: stripeReady ? 'Connected account finished Stripe onboarding.' : 'No completed Disco Stripe account — run native Stripe onboarding.' },
+    { key: 'stripe-ready', label: 'Stripe account usable', done: stripeReady, blocking: true, detail: stripeDetail },
     { key: 'settings', label: 'Settings populated', done: settingsOk, blocking: false, detail: settingsOk ? 'Tax rates mirrored; online ordering on.' : 'Populate tax rates and enable online ordering.' },
     { key: 'marketplace-ready', label: 'Won’t drop off marketplace', done: marketplaceReady, blocking: true, detail: marketplaceReady ? 'Passes the native 3-part visibility rule.' : `Would be hidden as native: ${mk.blockers.map(b => b.message).join(' ') || 'check visibility.'}` },
   ]
 
   const ready = found && steps.filter(s => s.blocking).every(s => s.done)
-  return { restaurantReference: ref, found, isDiscoNative, steps, ordersMirrored, ready }
+  return { restaurantReference: ref, found, isDiscoNative, stripeMode, steps, ordersMirrored, ready }
 }
 
 export interface ConversionResult {
@@ -95,8 +119,8 @@ export interface ConversionResult {
 // Perform the flip — ONLY when every blocking step passes. Sets is_disco_native
 // true; visibility is left as-is (the marketplace-ready gate guarantees it stays
 // visible if it was). Never flips a restaurant that isn't ready.
-export async function convertToNative(ref: string): Promise<ConversionResult> {
-  const readiness = await checkConversionReadiness(ref)
+export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): Promise<ConversionResult> {
+  const readiness = await checkConversionReadiness(ref, opts)
   if (!readiness.found) return { converted: false, reason: 'Restaurant not found.', readiness }
   if (readiness.isDiscoNative) return { converted: false, reason: 'Already Disco-native.', readiness }
   if (!readiness.ready) {
@@ -105,4 +129,61 @@ export async function convertToNative(ref: string): Promise<ConversionResult> {
   }
   await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, cached_at = NOW() WHERE restaurant_reference = ${ref}`
   return { converted: true, readiness: { ...readiness, isDiscoNative: true } }
+}
+
+// ── Account-id import (M3 bulk-import tool) ──────────────────────────────────
+// Store an existing FM connected-account id for a restaurant and LIVE-verify its
+// capability. Reusable → mark it usable (stripe_onboarding_complete + overrides
+// .stripe_connected) so native checkout, the marketplace feed, and the conversion
+// gate all recognize it — zero restaurant effort. Not reusable → still record the
+// id (so we know it exists) but leave it flagged for onboarding.
+export interface ImportResult {
+  restaurantReference: string
+  stripeAccountId: string
+  reusable: boolean
+  mode: 'reuse' | 'needs-onboarding'
+  reason: string
+}
+
+export async function importRestaurantStripeAccount(
+  ref: string,
+  accountId: string,
+  opts?: { stripe?: Stripe; email?: string },
+): Promise<ImportResult> {
+  await runMigrations()
+  const check = await verifyAccountReusable(accountId, opts?.stripe)
+
+  const existing = (await sql`
+    SELECT id FROM disco_restaurant_accounts
+    WHERE restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref} LIMIT 1
+  `.catch(() => [])) as { id: number }[]
+
+  if (existing.length) {
+    await sql`
+      UPDATE disco_restaurant_accounts
+      SET stripe_account_id = ${accountId}, stripe_onboarding_complete = ${check.reusable}, updated_at = NOW()
+      WHERE id = ${existing[0].id}
+    `
+  } else {
+    // No Disco account row yet (pure FM restaurant). Create a login-disabled holder
+    // row so native checkout can resolve the connected account. password_hash is a
+    // valid bcrypt hash of a random value → login impossible until a real reset.
+    const sentinel = bcrypt.hashSync(randomUUID(), 10)
+    const email = opts?.email || `stripe-import+${ref}@familymeal.com`
+    await sql`
+      INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, stripe_account_id, stripe_onboarding_complete, role, is_disco_native)
+      VALUES (${email}, ${sentinel}, ${ref}, ${ref}, ${accountId}, ${check.reusable}, 'ADMIN', false)
+    `
+  }
+
+  // Reusable → mark connected so the marketplace feed + conversion gate see it.
+  if (check.reusable) {
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_connected, updated_at)
+      VALUES (${ref}, true, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE SET stripe_connected = true, updated_at = NOW()
+    `
+  }
+
+  return { restaurantReference: ref, stripeAccountId: accountId, reusable: check.reusable, mode: check.reusable ? 'reuse' : 'needs-onboarding', reason: check.reason }
 }
