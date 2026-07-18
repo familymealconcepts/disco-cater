@@ -57,6 +57,15 @@ interface CacheRow {
   lng: number
   location: string
   address: string
+  // Structured address parts + timezone from FM — so downstream consumers
+  // (Expedite courier dispatch) never have to parse the single-line address or
+  // assume a timezone.
+  addressLine1: string | null
+  addressLine2: string | null
+  city: string | null
+  state: string | null
+  zipcode: string | null
+  timezone: string | null
 }
 
 // Normalize one FM row into a cache row, or null if it doesn't qualify
@@ -79,12 +88,16 @@ function normalize(r: FmRow): CacheRow | null {
   const city = String(addr.city || '')
   const state = String(addr.state || '')
   const location = [city, state].filter(Boolean).join(', ')
-  const address = [addr.addressLine1, city, state, addr.zipcode]
+  const addressLine1 = addr.addressLine1 != null ? String(addr.addressLine1) : null
+  const addressLine2 = addr.addressLine2 != null ? String(addr.addressLine2) : null
+  const zipcode = addr.zipcode != null ? String(addr.zipcode) : null
+  const address = [addressLine1, city, state, zipcode]
     .map((p) => (p == null ? '' : String(p)))
     .filter(Boolean)
     .join(', ')
+  const timezone = r.timezone != null && String(r.timezone).trim() ? String(r.timezone).trim() : null
 
-  return { reference, name, slug, lat, lng, location, address }
+  return { reference, name, slug, lat, lng, location, address, addressLine1, addressLine2, city: city || null, state: state || null, zipcode, timezone }
 }
 
 /**
@@ -109,8 +122,10 @@ export async function refreshRestaurantCache(): Promise<{ total: number; cached:
     await Promise.all(
       chunk.map((c) => sql`
         INSERT INTO disco_restaurant_cache
-          (restaurant_reference, name, slug, lat, lng, location, address, cached_at)
-        VALUES (${c.reference}, ${c.name}, ${c.slug}, ${c.lat}, ${c.lng}, ${c.location}, ${c.address}, NOW())
+          (restaurant_reference, name, slug, lat, lng, location, address,
+           address_line1, address_line2, city, state, zipcode, timezone, cached_at)
+        VALUES (${c.reference}, ${c.name}, ${c.slug}, ${c.lat}, ${c.lng}, ${c.location}, ${c.address},
+           ${c.addressLine1}, ${c.addressLine2}, ${c.city}, ${c.state}, ${c.zipcode}, ${c.timezone}, NOW())
         ON CONFLICT (restaurant_reference) DO UPDATE SET
           name = EXCLUDED.name,
           slug = EXCLUDED.slug,
@@ -118,6 +133,13 @@ export async function refreshRestaurantCache(): Promise<{ total: number; cached:
           lng = EXCLUDED.lng,
           location = EXCLUDED.location,
           address = EXCLUDED.address,
+          address_line1 = EXCLUDED.address_line1,
+          address_line2 = EXCLUDED.address_line2,
+          city = EXCLUDED.city,
+          state = EXCLUDED.state,
+          zipcode = EXCLUDED.zipcode,
+          -- Keep an existing timezone if FM sends none, so a manually-set tz isn't wiped.
+          timezone = COALESCE(EXCLUDED.timezone, disco_restaurant_cache.timezone),
           cached_at = NOW()
       `),
     )

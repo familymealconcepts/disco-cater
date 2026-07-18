@@ -205,6 +205,7 @@ export async function runMigrations(): Promise<void> {
     // Locations management page (native, per disco group). `address` above holds
     // line 1; these split out the rest so the edit dialog round-trips cleanly and
     // the list can be drag-reordered.
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS address_line1 TEXT`,
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS address_line2 TEXT`,
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS city TEXT`,
     `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS state TEXT`,

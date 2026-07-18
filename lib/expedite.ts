@@ -81,6 +81,14 @@ export interface DiscoOrder {
 export interface RestaurantCacheRow {
   name: string | null
   address: string | null
+  // Structured address parts + IANA timezone (populated from FM on cache refresh).
+  // Preferred over parsing the single-line `address`; parse is the fallback only.
+  address_line1?: string | null
+  address_line2?: string | null
+  city?: string | null
+  state?: string | null
+  zipcode?: string | null
+  timezone?: string | null
   lat: string | number | null
   lng: string | number | null
   phone: string | null
@@ -165,7 +173,9 @@ function wallTimeToUtcIso(dateStr: string, timeStr: string, tz: string): string 
 // ── Payload builder ──────────────────────────────────────────────────────────
 
 export function buildDeliveryPayload(order: DiscoOrder, restaurantCache: RestaurantCacheRow, items: OrderItem[]): ExpediteOrder {
-  const tz = DEFAULT_TZ
+  // Use the restaurant's actual configured IANA timezone; fall back to Eastern only
+  // when it isn't set (legacy rows not yet refreshed).
+  const tz = (restaurantCache.timezone && String(restaurantCache.timezone).trim()) || DEFAULT_TZ
   const pickupIso = wallTimeToUtcIso(order.order_date, order.order_time, tz)
   const dropoffIso = new Date(new Date(pickupIso).getTime() + 30 * 60 * 1000).toISOString()
 
@@ -178,7 +188,13 @@ export function buildDeliveryPayload(order: DiscoOrder, restaurantCache: Restaur
 
   const customerName = `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Customer'
   const restaurantName = restaurantCache.name || 'Restaurant'
-  const pickupAddr = parseAddress(restaurantCache.address)
+  // Prefer the STRUCTURED address parts; only fall back to parsing the single-line
+  // `address` when the structured street line is absent (never rely on the format).
+  const structuredStreet = restaurantCache.address_line1 && String(restaurantCache.address_line1).trim()
+  const pickupAddr = structuredStreet
+    ? { street1: String(restaurantCache.address_line1), city: String(restaurantCache.city || ''), state: String(restaurantCache.state || '').toUpperCase(), zip: String(restaurantCache.zipcode || '') }
+    : parseAddress(restaurantCache.address)
+  const pickupStreet2 = structuredStreet && restaurantCache.address_line2 ? String(restaurantCache.address_line2) : undefined
 
   // Pickup phone: the FM restaurant address phone; '0000000000' fallback.
   const pickupPhone = phoneWithCountryCode(restaurantCache.phone) || '0000000000'
@@ -192,6 +208,7 @@ export function buildDeliveryPayload(order: DiscoOrder, restaurantCache: Restaur
     recipient_name: restaurantName,
     phone: pickupPhone,
     street1: pickupAddr.street1,
+    street2: pickupStreet2,
     city: pickupAddr.city,
     state: pickupAddr.state,
     zip: pickupAddr.zip,
@@ -389,7 +406,8 @@ export async function buildPayloadFromNeon(orderRef: string): Promise<ExpediteOr
     if (!order) return null
 
     const cacheRows = (await sql`
-      SELECT name, address, lat, lng, phone FROM disco_restaurant_cache
+      SELECT name, address, address_line1, address_line2, city, state, zipcode, timezone, lat, lng, phone
+      FROM disco_restaurant_cache
       WHERE restaurant_reference = ${order.restaurant_reference}
       LIMIT 1
     `.catch(() => [])) as RestaurantCacheRow[]
