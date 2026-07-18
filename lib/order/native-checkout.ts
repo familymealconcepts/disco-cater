@@ -81,6 +81,19 @@ export async function loadRestaurantDeliverySettings(restaurantReference: string
   return rows[0]?.delivery_settings || null
 }
 
+// The delivery time-window granularity ('exact' | '30_min' | '1_hour') the
+// restaurant configured (disco_restaurant_overrides.delivery_order_time_windows).
+// Snapshotted onto a delivery order so emails/PDF/confirmation show the RANGE
+// (via formatTimeWindow), not just the exact start time. Null → 'exact'.
+export async function loadDeliveryTimeWindow(restaurantReference: string): Promise<string | null> {
+  const rows = (await sql`
+    SELECT delivery_order_time_windows FROM disco_restaurant_overrides
+    WHERE restaurant_reference = ${restaurantReference} LIMIT 1
+  `.catch(() => [])) as { delivery_order_time_windows: string | null }[]
+  const w = rows[0]?.delivery_order_time_windows
+  return typeof w === 'string' && w ? w : null
+}
+
 // Online-ordering hard gate: a Disco-native restaurant is "open" for orders unless
 // it has explicitly paused online ordering (online_ordering_enabled = false). A
 // missing overrides row counts as open (COALESCE → true) — see lib/db.ts. The
@@ -260,6 +273,10 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   const { orderType, deliveryType } = fulfillmentToTypes(input.fulfillment)
   const orderNumber = await nextNativeOrderNumber()
   const initialStatus = input.orderStatus ?? 'RESERVED'
+  // Snapshot the restaurant's delivery time-window granularity for DELIVERY orders
+  // so emails/PDF/confirmation render the range (via formatTimeWindow), not just the
+  // exact start time. Pickup orders always show the exact time → null.
+  const deliveryTimeWindow = input.fulfillment === 'PICKUP' ? null : await loadDeliveryTimeWindow(input.restaurantReference)
 
   const fee = input.deliveryFee ?? 0
   const ownDeliveryFee = input.fulfillment === 'OWN_DELIVERY' ? fee : 0
@@ -284,14 +301,14 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
       order_number, order_status, order_type, delivery_type, source_of_order,
       restaurant_reference, restaurant_name, restaurant_address, restaurant_phone,
       customer_email, customer_first_name, customer_last_name, customer_phone,
-      order_date, order_time, tips, tips_type,
+      order_date, order_time, delivery_time_window, tips, tips_type,
       delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
       delivery_lat, delivery_lng, subtotal, total, fee, note, company_name, persons, created_at, updated_at
     ) VALUES (
       ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, 'DISCO',
       ${input.restaurantReference}::uuid, ${rName}, ${rAddr}, ${rPhone},
       ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
-      ${input.orderDate}::date, ${input.orderTime}::time, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},
+      ${input.orderDate}::date, ${input.orderTime}::time, ${deliveryTimeWindow}, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},
       ${da.addressLine1 ?? null}, ${da.addressLine2 ?? null}, ${da.city ?? null}, ${da.state ?? null}, ${daZip},
       ${daLat}, ${daLng}, ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${input.note ?? null}, ${input.companyName ?? null}, ${input.persons ?? null}, NOW(), NOW()
     )
