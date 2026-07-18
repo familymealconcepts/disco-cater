@@ -77,12 +77,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     return NextResponse.json({ error: `The refund could not be processed: ${msg}` }, { status: 502 })
   }
 
-  // Stripe refund succeeded — mark the order refunded (source of truth) + notify.
+  // Stripe refund succeeded — record the cumulative refund + mark the status. A
+  // refund that doesn't cover the whole order is PARTIAL_REFUND (distinguishable
+  // from a full REFUNDED).
   const totalRefund = Math.round((nativeRow.refund + amount) * 100) / 100
+  const newStatus = nativeRow.total > 0 && totalRefund < nativeRow.total - 0.001 ? 'PARTIAL_REFUND' : 'REFUNDED'
   try {
     const rows = (await sql`
       UPDATE disco_orders
-      SET order_status = 'REFUNDED', refund = ${totalRefund}, updated_at = NOW()
+      SET order_status = ${newStatus}, refund = ${totalRefund}, updated_at = NOW()
       WHERE reference = ${nativeRow.discoReference}::uuid
       RETURNING reference, order_number, customer_email, customer_first_name,
                 customer_last_name, restaurant_reference, restaurant_name
@@ -95,7 +98,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     if (o) {
       await sql`
         INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-        VALUES (${o.reference}::uuid, 'REFUNDED', ${JSON.stringify({ amount, totalRefund, stripeRefundId })}::jsonb, 'ADMIN_REFUND')
+        VALUES (${o.reference}::uuid, 'REFUNDED', ${JSON.stringify({ amount, totalRefund, stripeRefundId, status: newStatus })}::jsonb, 'ADMIN_REFUND')
       `.catch(e => console.error('[admin/orders/refund] event insert:', e instanceof Error ? e.message : e))
 
       if (o.customer_email) {
@@ -114,7 +117,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         }
       }
     }
-    return NextResponse.json({ ok: true, native: true, orderStatus: 'REFUNDED', refund: totalRefund, stripeRefundId })
+    return NextResponse.json({ ok: true, native: true, orderStatus: newStatus, refund: totalRefund, stripeRefundId })
   } catch (err) {
     // The refund already moved in Stripe — never report it as a failure. Surface the
     // record-update problem for manual reconciliation instead.

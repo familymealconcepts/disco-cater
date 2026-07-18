@@ -87,6 +87,15 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
     const res = await fetch(`/api/restaurant/disco-menu-items/${it.reference}/clone`, { method: 'POST' })
     if (res.ok) { await load(); flash('Item duplicated') }
   }
+  // Hide/show without deleting — flips `visible` so a restaurant can pull an item
+  // off the menu temporarily and restore it later.
+  async function toggleItemVisible(it: Item) {
+    const next = !it.visible
+    const res = await fetch(`/api/restaurant/disco-menu-items/${it.reference}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: next }),
+    })
+    if (res.ok) { await load(); flash(next ? 'Item shown' : 'Item hidden') }
+  }
   async function reorderItems(fromRef: string, toRef: string) {
     if (fromRef === toRef) return
     const order = [...catItems]
@@ -172,12 +181,16 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                     onClick={() => setItemDlg({ mode: 'edit', item: it })}
                     style={{ borderTop: '1px solid #f2f2f2', opacity: it.visible ? 1 : 0.5, cursor: 'pointer' }}>
                     <td style={{ padding: '10px 8px', color: '#ccc', cursor: 'grab' }}>⠿</td>
-                    <td style={{ padding: '10px 8px', fontWeight: 600, color: DARK }}>{it.name}</td>
+                    <td style={{ padding: '10px 8px', fontWeight: 600, color: DARK }}>
+                      {it.name}
+                      {!it.visible && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px', verticalAlign: 'middle' }}>HIDDEN</span>}
+                    </td>
                     <td style={{ padding: '10px 8px', color: '#888', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.description || '—'}</td>
                     <td style={{ padding: '10px 8px', color: DARK }}>{money(it.price)}</td>
                     <td style={{ padding: '10px 8px' }}>{it.image_url ? <img src={it.image_url} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: 'cover' }} /> : <div style={{ width: 36, height: 36, borderRadius: 6, background: '#f4f4f8' }} />}</td>
                     {/* stopPropagation so the row-level click-to-edit doesn't also fire. */}
                     <td style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                      <button title={it.visible ? 'Hide from customers' : 'Show to customers'} onClick={() => toggleItemVisible(it)} style={iconBtn}>{it.visible ? '👁' : '🚫'}</button>
                       <button title="Duplicate" onClick={() => cloneItem(it)} style={iconBtn}>⧉</button>
                       <button title="Edit" onClick={() => setItemDlg({ mode: 'edit', item: it })} style={iconBtn}>✎</button>
                       <button title="Delete" onClick={() => deleteItem(it)} style={{ ...iconBtn, color: RED }}>🗑</button>

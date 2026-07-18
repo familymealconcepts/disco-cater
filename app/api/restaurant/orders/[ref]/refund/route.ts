@@ -43,6 +43,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // null/0 disco_orders.total doesn't block a legitimate refund.
   let maxRefundable = 0
   let alreadyRefunded = 0
+  let orderTotal = 0
   let discoReference = ''
   try {
     await runDiscoOrderMigrations()
@@ -58,9 +59,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     `) as Array<{ disco_reference: string; total: string | null; refund: string | null }>
     if (!rows.length) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     discoReference = rows[0].disco_reference
-    const total = Number(rows[0].total) || 0
+    orderTotal = Number(rows[0].total) || 0
     alreadyRefunded = Number(rows[0].refund) || 0
-    maxRefundable = Math.max(0, total - alreadyRefunded)
+    maxRefundable = Math.max(0, orderTotal - alreadyRefunded)
   } catch (e) {
     console.error('[restaurant/orders/refund] max lookup failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to process refund' }, { status: 500 })
@@ -99,12 +100,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     }
   }
 
-  // Neon is the source of truth — mark REFUNDED and store the cumulative refund.
+  // Neon is the source of truth — store the cumulative refund and mark the status.
+  // A refund that doesn't cover the whole order is PARTIAL_REFUND, so it stays
+  // distinguishable from a full REFUNDED in the list + the badge.
   const totalRefund = Math.round((alreadyRefunded + amount) * 100) / 100
+  const newStatus = orderTotal > 0 && totalRefund < orderTotal - 0.001 ? 'PARTIAL_REFUND' : 'REFUNDED'
   try {
     const rows = (await sql`
       UPDATE disco_orders
-      SET order_status = 'REFUNDED', refund = ${totalRefund}, updated_at = NOW()
+      SET order_status = ${newStatus}, refund = ${totalRefund}, updated_at = NOW()
       WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
       RETURNING reference, order_number, customer_email, customer_first_name,
                 customer_last_name, restaurant_reference, restaurant_name
@@ -120,7 +124,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
     await sql`
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-      VALUES (${reference}::uuid, 'REFUNDED', ${JSON.stringify({ amount, totalRefund, stripeRefundId })}::jsonb, 'DISCO_REFUND')
+      VALUES (${reference}::uuid, 'REFUNDED', ${JSON.stringify({ amount, totalRefund, stripeRefundId, status: newStatus })}::jsonb, 'DISCO_REFUND')
     `.catch(e => console.error('[restaurant/orders/refund] event insert:', e))
 
     // Notify the customer of the refund (best-effort — never block the refund).
@@ -142,7 +146,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       }
     }
 
-    return NextResponse.json({ ok: true, orderStatus: 'REFUNDED', refund: totalRefund })
+    return NextResponse.json({ ok: true, orderStatus: newStatus, refund: totalRefund })
   } catch (err) {
     console.error('[restaurant/orders/refund] Neon update failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Unable to process refund' }, { status: 500 })
