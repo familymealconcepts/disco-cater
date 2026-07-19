@@ -10,7 +10,14 @@
 //   • GET /api/admin/menu?restaurantReference={ref}      → menus (+ REAL settings + scheduleOption;
 //                                                          the non-admin /api/menu returns null settings)
 //   • GET /api/restaurants/{ref}/extraItemsGroups        → modifier library (min/max + addOns w/ prices)
-//   • GET /api/restaurants/{ref}/mealPackages            → items (+ itemCategory + attached group refs)
+//   • GET /api/restaurants/{ref}/mealPackages            → FLAT item catalog (richer per-item fields:
+//                                                          visible, displayPrice, minQuantity, addOns)
+//   • GET /public-api/restaurants/{ref}/mealPackages?menuReference={menu}
+//                                                        → each MENU's real categories (nested
+//                                                          mealPackages) — the only source that
+//                                                          partitions items per menu (the flat
+//                                                          catalog's item.menu is a bare number, not
+//                                                          a ref, so it can't place items in menus).
 //
 // maxOrder is NOT auto-imported: FM's scheduleOption.maxOrder is per-15-minute-window
 // while Disco's max_orders_per_day is per-day (~96x different). It's left null
@@ -160,29 +167,36 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     menuMap.set(mRef, mi[0].reference)
     summary.menus++
   }
-  const defaultMenu = menuMap.values().next().value as string | undefined
-
-  // ── 3) Items → categories (menu-scoped, find-or-create) + item rows + group links ──
-  const catCache = new Map<string, string>() // `${menuRef}::${catName}` → cat ref
+  // ── 3) Items → categories, scoped per menu ──
+  // The flat /api/.../mealPackages catalog has NO usable menu linkage (item.menu is a
+  // bare number, not a ref), so importing from it alone would dump every item into a
+  // single menu. The customer site partitions items via the PUBLIC per-menu endpoint,
+  // which returns each menu's real categories (with nested mealPackages). We traverse
+  // menus through it for the correct menu→category→item structure, enriching each
+  // item's richer fields (visible, displayPrice, minQuantity, addOns) from the flat
+  // catalog joined by reference.
+  const flatByRef = new Map<string, Record<string, unknown>>()
+  for (const it of fmItems) { const r = str(it.reference); if (r) flatByRef.set(r, it) }
+  const catCache = new Map<string, string>() // `${discoMenu}::${catName}` → cat ref
   let itemPos = 0
-  for (const it of fmItems) {
-    const fmMenuRef = str((it.menu as Record<string, unknown> | undefined)?.reference)
-    const discoMenu = menuMap.get(fmMenuRef) || defaultMenu
-    if (!discoMenu) continue
-    const catName = (typeof it.itemCategory === 'object' && it.itemCategory ? str((it.itemCategory as Record<string, unknown>).name) : str(it.itemCategory)) || 'Menu'
+
+  const ensureCat = async (discoMenu: string, catName: string): Promise<string> => {
     const catKey = `${discoMenu}::${catName}`
-    let catRef = catCache.get(catKey)
+    const cached = catCache.get(catKey)
+    if (cached) return cached
+    const found = (await sql`SELECT reference FROM disco_menu_categories WHERE restaurant_reference = ${targetRef}::uuid AND menu_reference = ${discoMenu}::uuid AND name = ${catName} LIMIT 1`) as { reference: string }[]
+    let catRef = found[0]?.reference
     if (!catRef) {
-      const found = (await sql`SELECT reference FROM disco_menu_categories WHERE restaurant_reference = ${targetRef}::uuid AND menu_reference = ${discoMenu}::uuid AND name = ${catName} LIMIT 1`) as { reference: string }[]
-      catRef = found[0]?.reference
-      if (!catRef) {
-        const cp = (await sql`SELECT COALESCE(MAX(position), -1) + 1 AS p FROM disco_menu_categories WHERE menu_reference = ${discoMenu}::uuid`) as { p: number }[]
-        const ci = (await sql`INSERT INTO disco_menu_categories (restaurant_reference, menu_reference, name, position) VALUES (${targetRef}::uuid, ${discoMenu}::uuid, ${catName}, ${cp[0]?.p ?? 0}) RETURNING reference`) as { reference: string }[]
-        catRef = ci[0].reference
-        summary.categories++
-      }
-      catCache.set(catKey, catRef)
+      const cp = (await sql`SELECT COALESCE(MAX(position), -1) + 1 AS p FROM disco_menu_categories WHERE menu_reference = ${discoMenu}::uuid`) as { p: number }[]
+      const ci = (await sql`INSERT INTO disco_menu_categories (restaurant_reference, menu_reference, name, position) VALUES (${targetRef}::uuid, ${discoMenu}::uuid, ${catName}, ${cp[0]?.p ?? 0}) RETURNING reference`) as { reference: string }[]
+      catRef = ci[0].reference
+      summary.categories++
     }
+    catCache.set(catKey, catRef)
+    return catRef
+  }
+
+  const insertItem = async (it: Record<string, unknown>, catRef: string): Promise<void> => {
     const serves = str(it.serves).trim() || null
     const displayPrice = str(it.displayPrice).trim().slice(0, 120) || null
     const minQty = num(it.minQuantity) > 0 ? Math.round(num(it.minQuantity)) : null
@@ -200,6 +214,42 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
       if (!discoGroup) continue
       await sql`INSERT INTO disco_item_groups (item_reference, group_reference, enabled, position) VALUES (${itemRef}::uuid, ${discoGroup}::uuid, ${eg.enabled !== false}, ${lpos++}) ON CONFLICT (item_reference, group_reference) DO NOTHING`
       summary.itemGroupLinks++
+    }
+  }
+
+  // PRIMARY: public per-menu traversal → correct menu→category→item partition.
+  let importedAnyItems = false
+  for (const m of fmMenus) {
+    const discoMenu = menuMap.get(str(m.reference))
+    if (!discoMenu) continue
+    const cats = arrOf(await fmGet(`/public-api/restaurants/${fmRef}/mealPackages?menuReference=${str(m.reference)}`, auth))
+    for (const c of cats) {
+      const pkgs = arrOf(c.mealPackages)
+      if (!pkgs.length) continue
+      const catRef = await ensureCat(discoMenu, str(c.name) || 'Menu')
+      for (const pub of pkgs) {
+        // Flat catalog fills the fields the public endpoint omits; public is the
+        // menu-scoped truth for the rest (name/price/serves/extraItemsGroups).
+        const flat = flatByRef.get(str(pub.reference)) || {}
+        await insertItem({ ...flat, ...pub }, catRef)
+        importedAnyItems = true
+      }
+    }
+  }
+
+  // FALLBACK: if the public endpoint returned nothing for every menu, use the flat
+  // catalog — placing each item in its own menu when known, else the first VISIBLE
+  // menu (never a hidden/seasonal one, which is what the old default-to-first bug did).
+  if (!importedAnyItems) {
+    const visRef = fmMenus.find(m => m.visible !== false)?.reference
+    const defaultMenu = (visRef ? menuMap.get(str(visRef)) : undefined) || (menuMap.values().next().value as string | undefined)
+    if (defaultMenu) {
+      for (const it of fmItems) {
+        const discoMenu = menuMap.get(str((it.menu as Record<string, unknown> | undefined)?.reference)) || defaultMenu
+        const catName = (typeof it.itemCategory === 'object' && it.itemCategory ? str((it.itemCategory as Record<string, unknown>).name) : str(it.itemCategory)) || 'Menu'
+        const catRef = await ensureCat(discoMenu, catName)
+        await insertItem(it, catRef)
+      }
     }
   }
 
