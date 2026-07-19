@@ -41,10 +41,17 @@ interface FmTaxRates {
   otherSalesTax?: FmOtherTaxRate
 }
 
-// Count of prior PAID native orders by this customer at this restaurant. All-time,
+// Count of prior PAID orders by this customer at this restaurant. All-time,
 // permanent, no rolling window (matches the FM rule). 0 → first order (fee 1);
 // ≥1 → repeat (fee 2 forever). Never throws — a lookup failure returns 0 (fee 1),
 // the customer-favourable default, rather than blocking the order.
+//
+// Counts BOTH native (source_of_order='DISCO') AND FM-mirrored (FAMILYMEAL) paid
+// orders. This is what makes the fee tier carry over across an FM→native
+// conversion: a returning customer with paid FM history at the restaurant stays on
+// fee-2 instead of resetting to fee-1. Requires the restaurant's FM order history
+// to have been backfilled into disco_orders (a gated conversion prerequisite —
+// see backfillFmOrderHistory in native-conversion.ts).
 export async function countPriorPaidOrders(customerEmail: string, restaurantReference: string): Promise<number> {
   const e = (customerEmail || '').trim().toLowerCase()
   if (!e || !restaurantReference) return 0
@@ -53,7 +60,6 @@ export async function countPriorPaidOrders(customerEmail: string, restaurantRefe
       SELECT COUNT(*)::int AS n FROM disco_orders
       WHERE lower(customer_email) = ${e}
         AND restaurant_reference = ${restaurantReference}::uuid
-        AND source_of_order = 'DISCO'
         AND order_status = ANY(${PAID_STATUSES as unknown as string[]})
     `) as { n: number }[]
     return rows[0]?.n ?? 0

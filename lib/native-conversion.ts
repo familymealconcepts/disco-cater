@@ -17,6 +17,21 @@ import bcrypt from 'bcryptjs'
 import { randomUUID } from 'crypto'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
 import { verifyAccountReusable } from './stripe-connect'
+import { syncRestaurantOrders } from './fm-orders-sync'
+
+// Full FM order-history backfill for a restaurant — pulls ALL of FM's order history
+// into disco_orders (source_of_order='FAMILYMEAL') so the native lead-gen fee tier
+// carries over on conversion (countPriorPaidOrders counts these). Deep page cap so a
+// long-lived restaurant's full history is captured; the sync stops early on the last
+// page. Items skipped (order-level only) to keep it fast. Gated into convertToNative.
+export async function backfillFmOrderHistory(ref: string): Promise<{ ok: boolean; fetched: number; error?: string }> {
+  try {
+    const r = await syncRestaurantOrders(ref, { withItems: false, pageSize: 100, maxPages: 500 })
+    return { ok: !r.error, fetched: r.fetched, error: r.error }
+  } catch (e) {
+    return { ok: false, fetched: 0, error: e instanceof Error ? e.message : String(e) }
+  }
+}
 
 export type StripeMode = 'reuse' | 'needs-onboarding' | 'not-linked'
 
@@ -126,6 +141,14 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
   if (!readiness.ready) {
     const failing = readiness.steps.filter(s => s.blocking && !s.done).map(s => s.label).join(', ')
     return { converted: false, reason: `Not ready — resolve: ${failing}.`, readiness }
+  }
+  // Gated prerequisite: backfill the restaurant's FULL FM order history into Neon
+  // BEFORE flipping, so lead-gen fee tiers carry over for returning customers. If FM
+  // is unreachable, do NOT convert — better to retry than flip without history (which
+  // would silently reset every returning customer to fee-1).
+  const backfill = await backfillFmOrderHistory(ref)
+  if (!backfill.ok) {
+    return { converted: false, reason: `FM order-history backfill failed (${backfill.error || 'unknown'}) — not converting; retry once FM is reachable.`, readiness }
   }
   await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, cached_at = NOW() WHERE restaurant_reference = ${ref}`
   return { converted: true, readiness: { ...readiness, isDiscoNative: true } }
