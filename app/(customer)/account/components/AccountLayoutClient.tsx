@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
 import { useAuthContext } from '../../../context/AuthContext'
+import { isAmexDemoUser, AmexNavIcon } from '../../../../lib/demo/amex-demo' // AMEX DEMO (temporary — see lib/demo/amex-demo.tsx)
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -132,6 +133,9 @@ const NAV: NavEntry[] = [
   { href: '/account/security', label: 'Security', icon: <SvgSecurity /> },
 ]
 
+// AMEX DEMO (temporary) — nav entry injected only for the demo account.
+const AMEX_ENTRY: NavEntry = { href: '/account/amex-benefits', label: 'Amex Benefits', icon: <AmexNavIcon /> }
+
 export default function AccountLayoutClient({ children }: { children: React.ReactNode }) {
   const { user, isLoading, logout } = useAuthContext()
   const router = useRouter()
@@ -174,6 +178,10 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
 
   const initials = `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase()
   const sidebarWidth = collapsed ? 56 : 220
+
+  // AMEX DEMO (temporary) — inject the "Amex Benefits" tab after Favorites, for
+  // the demo account only. Remove this line + the import to fully strip it.
+  const navItems = isAmexDemoUser(user.email) ? [...NAV.slice(0, 4), AMEX_ENTRY, ...NAV.slice(4)] : NAV
 
   return (
     <>
@@ -239,7 +247,7 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
         <div className="acct-mobile-toggle">
           <button onClick={() => setMobileOpen(true)} aria-label="Open navigation"><SvgMenu /></button>
           <span style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>
-            {NAV.find(n => pathname.startsWith(n.href))?.label ?? 'Account'}
+            {navItems.find(n => pathname.startsWith(n.href))?.label ?? 'Account'}
           </span>
         </div>
 
@@ -256,6 +264,7 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
             onLogout={handleLogout}
             onToggle={() => {}}
             showToggle={false}
+            navItems={navItems}
           />
         </div>
 
@@ -283,6 +292,7 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
               onLogout={handleLogout}
               onToggle={toggleCollapse}
               showToggle={true}
+              navItems={navItems}
             />
           </aside>
 
@@ -297,7 +307,7 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
 }
 
 function SidebarContent({
-  collapsed, pathname, user, initials, onLogout, onToggle, showToggle,
+  collapsed, pathname, user, initials, onLogout, onToggle, showToggle, navItems,
 }: {
   collapsed: boolean
   pathname: string
@@ -306,6 +316,7 @@ function SidebarContent({
   onLogout: () => void
   onToggle: () => void
   showToggle: boolean
+  navItems: NavEntry[]
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '16px 10px' }}>
@@ -320,7 +331,7 @@ function SidebarContent({
 
       {/* Nav items */}
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
-        {NAV.map(item => {
+        {navItems.map(item => {
           // FM-style: parent Orders link must NOT be active when on
           // a deeper child path like /account/orders/history — that's the
           // History link's job.

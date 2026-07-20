@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useAuthContext } from '../context/AuthContext'
+import { isAmexDemoUser, AmexBadge } from '../../lib/demo/amex-demo' // AMEX DEMO (temporary — see lib/demo/amex-demo.tsx)
 import AuthModal from './AuthModal'
 import UserMenu from './UserMenu'
 
@@ -68,7 +69,11 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
 
           {!isLoading && (
             user ? (
-              <UserMenu />
+              <>
+                {/* AMEX DEMO (temporary) — cosmetic badge for one test account only */}
+                {isAmexDemoUser(user.email) && <AmexBadge />}
+                <UserMenu />
+              </>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <button
@@ -104,6 +109,8 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
                 <>
                   {/* Logged-in: greeting first, then account + nav, then sign out. */}
                   <div style={{ padding: '8px 10px 6px', fontSize: 16, fontWeight: 700, color: '#1A1028', fontFamily: F }}>Hi, {user.firstName || 'there'} 👋</div>
+                  {/* AMEX DEMO (temporary) — cosmetic badge for one test account only */}
+                  {isAmexDemoUser(user.email) && <div style={{ padding: '2px 10px 6px' }}><AmexBadge /></div>}
                   <div style={{ height: 1, background: '#f0f0f0', margin: '6px 0 8px' }} />
                   <Link href="/account/orders" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>My Account</Link>
                   <Link href="/for-restaurants" className="dc-mobile-item" style={{ color: '#6B6EF9' }} onClick={() => setMobileOpen(false)}>For Restaurants</Link>
