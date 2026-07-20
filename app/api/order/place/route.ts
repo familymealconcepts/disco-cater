@@ -232,10 +232,16 @@ async function mirrorOrderToNeon(args: {
     if (!orderId) return
 
     // (b) disco_stripe_payments — the PaymentIntent FM created for this order.
+    // Status is INITIATED at place time: FM has CREATED the PI, but the card is
+    // not charged until the separate confirm step. Writing 'SUCCEEDED' here (as
+    // this did previously) was a lie for any order whose confirmation later failed
+    // — it left failed PIs marked SUCCEEDED (Bug A). The real success signal is
+    // FM's confirmPayment ('succeeded'), which /api/order/confirm-payment now
+    // promotes to SUCCEEDED; on a hard decline the Stripe webhook sets FAILED.
     if (paymentIntentId) {
       await sql`
         INSERT INTO disco_stripe_payments (order_reference, restaurant_reference, stripe_payment_intent_id, status, total, created_at)
-        VALUES (${reference}::uuid, ${restaurantRef}::uuid, ${paymentIntentId}, 'SUCCEEDED', ${total}, NOW())
+        VALUES (${reference}::uuid, ${restaurantRef}::uuid, ${paymentIntentId}, 'INITIATED', ${total}, NOW())
         ON CONFLICT (stripe_payment_intent_id) DO NOTHING
       `
     }

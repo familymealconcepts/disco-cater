@@ -874,9 +874,23 @@ export default function CheckoutDrawer({
             : null,
           items: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, count: i.quantity, price: i.unitPrice })),
         }
+        // Saved-card confirm (customer flow): FM's "confirm with default source" path
+        // charges the Stripe Customer's legacy `default_source`, which Disco never sets
+        // (the vault stores saved cards as PaymentMethods, not a default_source). FM then
+        // throws DEFAULT_SOURCE_NOT_FOUND — surfaced as the generic 409-012 — and the card
+        // is never charged (PI stuck at requires_payment_method, pm null). Fix: when we
+        // have the saved card's PaymentMethod id, send it explicitly so FM takes the
+        // supplied-PM path (identical to how fresh cards already succeed). Only fall back
+        // to confirmWithDefaultSource for a legacy FM-defaultSource card with no PM id.
+        const savedPmId = usingSavedCard ? ((savedCard as any)?.stripePaymentMethodId as string | undefined) : undefined
         const confirmBody = isDirectEntry
           ? { orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, paymentMethodId, confirmWithDefaultSource: false }
-          : { orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, confirmWithDefaultSource: usingSavedCard, placedOrder, ...(usingSavedCard ? {} : { paymentMethodId }) }
+          : {
+              orderReference: finalRef, restaurantReference: fmRef, paymentIntentId, placedOrder,
+              ...(usingSavedCard
+                ? (savedPmId ? { paymentMethodId: savedPmId, confirmWithDefaultSource: false } : { confirmWithDefaultSource: true })
+                : { paymentMethodId, confirmWithDefaultSource: false }),
+            }
         const confRes = await fetch(confirmUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(confirmBody),

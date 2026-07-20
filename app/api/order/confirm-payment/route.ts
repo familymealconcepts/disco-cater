@@ -190,6 +190,18 @@ export async function POST(req: NextRequest) {
     const payStatus = (inner?.stripePaymentIntentDto as Record<string, unknown> | undefined)?.paymentIntentStatus
     const charged = res.ok && !!payStatus && String(payStatus).toLowerCase() === 'succeeded'
     const orderReference = String(body?.orderReference || '')
+    // Promote the payment row to SUCCEEDED ONLY when FM confirms the charge. FM-backed
+    // PIs live on FM's Stripe webhook config, so Disco's own webhook never sees their
+    // payment_intent.succeeded — this is the sole place the FM-path payment status
+    // becomes truthful. The place mirror wrote INITIATED; a failed confirm correctly
+    // leaves it INITIATED (Bug A: it must never read SUCCEEDED unless actually charged).
+    const paymentIntentId = String((body as Record<string, unknown>)?.paymentIntentId || '')
+    if (charged && paymentIntentId) {
+      await sql`
+        UPDATE disco_stripe_payments SET status = 'SUCCEEDED', updated_at = NOW()
+        WHERE stripe_payment_intent_id = ${paymentIntentId}
+      `.catch((e) => console.error('[order/confirm-payment] payment status→SUCCEEDED failed:', e instanceof Error ? e.message : e))
+    }
     if (charged && orderReference) {
       waitUntil(dispatchAfterConfirm(orderReference, body?.placedOrder as PlacedOrderFallback | undefined))
     }
