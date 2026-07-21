@@ -21,18 +21,24 @@ import { createClient } from '@sanity/client'
 import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
 import { markRestaurantSyncActive } from '../../../../lib/syncState'
 import { sql, runMigrations } from '../../../../lib/db'
-import { refreshRestaurantCache } from '../../../../lib/restaurant-cache'
 import { alertOps } from '../../../../lib/ops-alert'
 
 // Cross-run cursor: where the next run starts in the qualifying list. Persisted
 // in Neon (sync_state) so each daily run drains the NEXT CAP restaurants instead
 // of reprocessing the same first 150 every time.
+// Cursor lives in its OWN table (fm_sanity_sync_cursor), not sync_state.
+// sync_state was created by lib/syncState.ts with `value TIMESTAMPTZ` and no
+// `updated_at` column, so every write here failed with
+//   column "updated_at" of relation "sync_state" does not exist
+// and the error was swallowed as best-effort. The offset therefore never
+// advanced: every run re-processed restaurants 0-149 and ~520 qualifying
+// restaurants were never synced. Same trap, same fix, as fm_orders_sync_cursor.
 const SYNC_OFFSET_KEY = 'fm_sanity_sync_offset'
 
 async function readSyncOffset(): Promise<number> {
   try {
-    const rows = (await sql`SELECT value FROM sync_state WHERE key = ${SYNC_OFFSET_KEY}`) as { value: string }[]
-    const n = rows[0] ? parseInt(rows[0].value, 10) : 0
+    const rows = (await sql`SELECT offset_value FROM fm_sanity_sync_cursor WHERE key = ${SYNC_OFFSET_KEY}`) as { offset_value: number }[]
+    const n = rows[0]?.offset_value ?? 0
     return Number.isFinite(n) && n >= 0 ? n : 0
   } catch (e) {
     console.warn('[sync-restaurants] could not read sync offset, defaulting to 0:', e)
@@ -41,11 +47,10 @@ async function readSyncOffset(): Promise<number> {
 }
 
 async function saveSyncOffset(offset: number): Promise<void> {
-  const v = String(offset)
   await sql`
-    INSERT INTO sync_state (key, value, updated_at)
-    VALUES (${SYNC_OFFSET_KEY}, ${v}, NOW())
-    ON CONFLICT (key) DO UPDATE SET value = ${v}, updated_at = NOW()
+    INSERT INTO fm_sanity_sync_cursor (key, offset_value, updated_at)
+    VALUES (${SYNC_OFFSET_KEY}, ${offset}, NOW())
+    ON CONFLICT (key) DO UPDATE SET offset_value = ${offset}, updated_at = NOW()
   `
 }
 
@@ -147,7 +152,11 @@ async function fetchAllMarketplace(token: string): Promise<FmRestaurant[]> {
   // NOT send restaurantStatus — FM's RestaurantStatus enum has no "ACTIVE"
   // constant (the admin UI's default is "All statuses", i.e. no filter), so we
   // fetch all restaurants and filter to ACTIVE client-side via isActive().
-  const size = 25
+  // 200/page, matching lib/restaurant-cache.ts against this same FM endpoint.
+  // This was 25, which meant ~175 sequential requests (~110s measured) for ~4,400
+  // restaurants — the single biggest contributor to this cron blowing its 300s
+  // budget. At 200 it is ~22 requests.
+  const size = 200
   // 1000-page hard cap is a runaway-loop backstop, far above any real count.
   for (let page = 0; page < 1000; page++) {
     const params = new URLSearchParams()
@@ -344,8 +353,17 @@ async function runSync() {
   // the top. Best-effort — a save failure must not fail the sync.
   const cycleComplete = startOffset + CAP >= withAddress.length
   const nextOffset = cycleComplete ? 0 : startOffset + CAP
-  try { await saveSyncOffset(nextOffset) } catch (e) {
-    errors.push(`save offset: ${e instanceof Error ? e.message : String(e)}`)
+  try {
+    await saveSyncOffset(nextOffset)
+  } catch (e) {
+    // A silent failure here is exactly how this stalled for weeks: the cursor
+    // stops advancing, the sync quietly re-processes the same window forever,
+    // and nothing surfaces. Alert loudly.
+    const error = e instanceof Error ? e.message : String(e)
+    errors.push(`save offset: ${error}`)
+    await alertOps('sync-restaurants: cursor save FAILED — sync will repeat the same window next run', {
+      nextOffset, error,
+    })
   }
 
   // STEP 4 — deactivate Sanity docs whose fmReference is no longer qualifying.
@@ -396,58 +414,25 @@ async function runSync() {
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
-// This cron runs TWO independent jobs:
-//   A. refreshRestaurantCache() — rebuilds disco_restaurant_cache (Neon). Feeds
-//      the PUBLIC marketplace feed and every restaurant page. Needs FM only.
-//   B. runSync()               — mirrors FM restaurants into Sanity. Internal,
-//      cursor-paced, resumes on the next run. Needs FM + Sanity.
+// This cron is ONLY the FM→Sanity restaurant mirror.
 //
-// They used to share one try block with B first, so ANY failure in B skipped A
-// entirely — and A is the user-facing half. Worse, B regularly consumes most of
-// the 300s budget, and a try/catch cannot save A from a function timeout: when
-// the platform kills the invocation no catch runs at all. That is why the public
-// map cache was only fully refreshing every few weeks instead of daily.
-//
-// So A now runs FIRST and each job owns its own error handling. Ordering is the
-// part that actually fixes the staleness; the separate catches make each failure
-// visible instead of one silently swallowing the other. A missing SANITY_TOKEN
-// likewise only disables B — it has never been needed for A.
+// The public map cache refresh (disco_restaurant_cache) used to run as a tail
+// step here, sharing this invocation's 300s budget. The two did not fit — the
+// cache refresh alone needs ~156s — so the user-facing cache only fully
+// refreshed on 2 days in 6 weeks. It now has its own cron with its own budget:
+// /api/cron/refresh-map-cache (04:00 UTC). This one runs at 05:00.
 async function handle(): Promise<NextResponse> {
-  // ── A. Public map cache — first, so a slow/failing Sanity sync can't starve it.
-  let cacheRefresh: unknown
-  let cacheOk = false
+  if (!process.env.SANITY_TOKEN) {
+    await alertOps('sync-restaurants: skipped — SANITY_TOKEN not configured', {})
+    return NextResponse.json({ success: false, error: 'SANITY_TOKEN not configured on the server' }, { status: 500 })
+  }
   try {
-    cacheRefresh = await refreshRestaurantCache()
-    cacheOk = true
-    console.log('[sync-restaurants] map cache refreshed:', JSON.stringify(cacheRefresh))
+    return NextResponse.json(await runSync())
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    cacheRefresh = { error }
-    await alertOps('sync-restaurants: map cache refresh FAILED (public marketplace data is now stale)', { error })
+    await alertOps('sync-restaurants: Sanity restaurant sync FAILED', { error })
+    return NextResponse.json({ success: false, error }, { status: 500 })
   }
-
-  // ── B. Sanity mirror — independent; its failure no longer hides A's result.
-  let syncResult: Record<string, unknown>
-  if (!process.env.SANITY_TOKEN) {
-    syncResult = { success: false, error: 'SANITY_TOKEN not configured on the server' }
-    await alertOps('sync-restaurants: Sanity sync skipped — SANITY_TOKEN not configured', {})
-  } else {
-    try {
-      syncResult = await runSync()
-    } catch (e) {
-      const error = e instanceof Error ? e.message : String(e)
-      syncResult = { success: false, error }
-      await alertOps('sync-restaurants: Sanity restaurant sync FAILED', { error })
-    }
-  }
-
-  // Response keeps runSync's fields at the top level — the super-admin dashboard
-  // reads d.synced / d.new / d.updated / d.capped_at_500 / d.errors directly.
-  // cache_refreshed reports A independently of B's success flag.
-  return NextResponse.json(
-    { ...syncResult, cache_refreshed: cacheOk, cache_refresh: cacheRefresh },
-    { status: syncResult.success === false && !cacheOk ? 500 : 200 },
-  )
 }
 
 // Vercel Cron + CLI — Bearer CRON_SECRET only.

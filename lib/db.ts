@@ -82,6 +82,12 @@ export async function runMigrations(): Promise<void> {
     // text/updated_at writes silently failed and the cursor never advanced (only
     // the first BATCH restaurants were ever synced).
     `CREATE TABLE IF NOT EXISTS fm_orders_sync_cursor (key TEXT PRIMARY KEY, offset_value INTEGER NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+    // Same story for the FM→Sanity RESTAURANT sync cursor. It previously wrote to
+    // sync_state and silently failed on every run (sync_state.value is TIMESTAMPTZ
+    // and the table has no updated_at), so the offset never advanced and the cron
+    // re-processed the same first 150 restaurants forever — ~520 qualifying
+    // restaurants were never synced at all. Dedicated table, integer offset.
+    `CREATE TABLE IF NOT EXISTS fm_sanity_sync_cursor (key TEXT PRIMARY KEY, offset_value INTEGER NOT NULL DEFAULT 0, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
     // Disco-owned per-restaurant overrides layered on top of the FM restaurant
     // record: Premium (isDisco) flag + an order-URL override, set in the super
     // admin edit dialog and read by the public /api/restaurants (fullmap).
