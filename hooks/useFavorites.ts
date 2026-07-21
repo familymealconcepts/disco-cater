@@ -63,22 +63,160 @@ function readUserScope(): string {
   return 'guest'
 }
 
-async function resolveScopeFromCookie(): Promise<string | null> {
+// Freshness marker for CACHED_AUTH_SCOPE_KEY. Without this the cache could only
+// answer "what scope" and never "is it still true", so every mount re-hit
+// /api/fm-user to confirm — N restaurant cards meant N identical calls.
+const CACHED_AUTH_SCOPE_TS_KEY = 'disco_favorites_scope_ts'
+const SCOPE_TTL_MS = 5 * 60 * 1000
+
+// ── SHARED REQUEST LAYER ──────────────────────────────────────────────────────
+// Every hook instance shares these module-level slots, so a page that mounts 40
+// FavoriteHeart components issues ONE /api/customer/favorites and (at most) ONE
+// /api/fm-user instead of 40 of each. Two mechanisms, both needed:
+//   • in-flight promise — collapses the simultaneous mount storm
+//   • short TTL cache   — collapses staggered mounts (lazy grids, route changes)
+// Mutations (toggle, login/logout) pass force:true to bypass both.
+const FAVORITES_TTL_MS = 30 * 1000
+
+interface SharedSlot<T> {
+  promise: Promise<T> | null
+  value: T | null
+  ts: number
+}
+
+// { ok } mirrors res.ok so callers keep the original "HTTP failure vs network
+// failure vs logged-out" distinctions the un-deduped code got straight from fetch.
+interface FavoritesResult { ok: boolean; data: any }
+
+const favoritesSlot: SharedSlot<FavoritesResult> = { promise: null, value: null, ts: 0 }
+const scopeSlot: SharedSlot<string | null> = { promise: null, value: null, ts: 0 }
+
+function readCachedScope(): { scope: string; fresh: boolean } | null {
   if (typeof window === 'undefined') return null
   try {
-    const res = await fetch('/api/fm-user', { credentials: 'include' })
-    if (!res.ok) {
-      // Clear stale cache so a logged-out user isn't pinned to the
-      // previous user's bucket.
-      try { window.localStorage.removeItem(CACHED_AUTH_SCOPE_KEY) } catch {}
-      return null
-    }
-    const data = await res.json()
-    const k: string | undefined = data?.reference || data?.email
-    if (!k) return null
-    try { window.localStorage.setItem(CACHED_AUTH_SCOPE_KEY, k) } catch {}
-    return k
+    const cached = window.localStorage.getItem(CACHED_AUTH_SCOPE_KEY)
+    if (!cached) return null
+    const ts = Number(window.localStorage.getItem(CACHED_AUTH_SCOPE_TS_KEY) || 0)
+    return { scope: cached, fresh: Date.now() - ts < SCOPE_TTL_MS }
   } catch { return null }
+}
+
+function writeCachedScope(scope: string) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(CACHED_AUTH_SCOPE_KEY, scope)
+    window.localStorage.setItem(CACHED_AUTH_SCOPE_TS_KEY, String(Date.now()))
+  } catch {}
+}
+
+function clearCachedScope() {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(CACHED_AUTH_SCOPE_KEY)
+    window.localStorage.removeItem(CACHED_AUTH_SCOPE_TS_KEY)
+  } catch {}
+}
+
+// Invalidate everything shared. Called on any auth transition so a new user
+// never reads the previous user's cached response. Debounced because the auth
+// events fire once PER hook instance — without the window, instance 2's bust
+// would cancel instance 1's in-flight request and we'd be back to N fetches.
+let lastBust = 0
+function bustShared() {
+  if (Date.now() - lastBust < 250) return
+  lastBust = Date.now()
+  favoritesSlot.promise = null; favoritesSlot.value = null; favoritesSlot.ts = 0
+  scopeSlot.promise = null; scopeSlot.value = null; scopeSlot.ts = 0
+  syncedUploads.clear()
+}
+
+// A local mutation makes any cached server response stale — drop it so the next
+// refresh re-reads, instead of a later mount reverting the optimistic toggle.
+function invalidateFavoritesCache() {
+  favoritesSlot.value = null; favoritesSlot.ts = 0
+}
+
+// GET /api/customer/favorites, deduped. Rejects only on a genuine network
+// error — an HTTP failure resolves with ok:false, as the raw fetch did.
+function fetchFavoritesShared(force = false): Promise<FavoritesResult> {
+  if (typeof window === 'undefined') return Promise.resolve({ ok: false, data: null })
+  if (!force) {
+    if (favoritesSlot.promise) return favoritesSlot.promise
+    if (favoritesSlot.value !== null && Date.now() - favoritesSlot.ts < FAVORITES_TTL_MS) {
+      return Promise.resolve(favoritesSlot.value)
+    }
+  }
+  const p = fetch('/api/customer/favorites', { credentials: 'include' })
+    .then(async res => {
+      const result: FavoritesResult = {
+        ok: res.ok,
+        data: res.ok ? await res.json().catch(() => null) : null,
+      }
+      favoritesSlot.value = result
+      favoritesSlot.ts = Date.now()
+      // The favorites response already identifies the account, so an
+      // authenticated user never needs the /api/fm-user round-trip at all.
+      if (result.data?.authenticated && result.data?.email) writeCachedScope(String(result.data.email))
+      return result
+    })
+    .finally(() => { if (favoritesSlot.promise === p) favoritesSlot.promise = null })
+  favoritesSlot.promise = p
+  return p
+}
+
+// Resolve the cookie-auth scope. Skips the network entirely when the cached
+// scope is still fresh; otherwise dedupes concurrent callers onto one request.
+async function resolveScopeFromCookie(): Promise<string | null> {
+  if (typeof window === 'undefined') return null
+  const cached = readCachedScope()
+  if (cached?.fresh) return cached.scope
+  if (scopeSlot.promise) return scopeSlot.promise
+  if (scopeSlot.value !== null && Date.now() - scopeSlot.ts < SCOPE_TTL_MS) return scopeSlot.value
+
+  // NOTE: everything below must live inside `p`, which is assigned to
+  // scopeSlot.promise with NO await in between. Awaiting before the slot is
+  // populated lets all N callers suspend past the dedup check above and each
+  // start its own request — which is the exact fan-out this is here to stop.
+  const p = (async () => {
+    // A favorites request may already be in flight, and its response identifies
+    // the account — ride on it rather than racing a redundant /api/fm-user.
+    // This is what takes fm-user to ZERO calls for a signed-in user.
+    if (favoritesSlot.promise) {
+      try {
+        const { data } = await favoritesSlot.promise
+        if (data?.authenticated && data?.email) return String(data.email)
+      } catch {}
+    }
+    try {
+      const res = await fetch('/api/fm-user', { credentials: 'include' })
+      if (!res.ok) {
+        // Clear stale cache so a logged-out user isn't pinned to the
+        // previous user's bucket.
+        clearCachedScope()
+        return null
+      }
+      const data = await res.json()
+      const k: string | undefined = data?.reference || data?.email
+      if (!k) return null
+      writeCachedScope(k)
+      return k
+    } catch { return null }
+  })()
+    .then(v => { scopeSlot.value = v; scopeSlot.ts = Date.now(); return v })
+    .finally(() => { if (scopeSlot.promise === p) scopeSlot.promise = null })
+  scopeSlot.promise = p
+  return p
+}
+
+// Guards the local→server write-back so N hook instances processing the SAME
+// shared response don't each POST the same uploads. Keyed by scope + refs, so a
+// genuinely new local favorite added later still syncs.
+const syncedUploads = new Set<string>()
+function claimUpload(scope: string, refs: string[]): boolean {
+  const key = `${scope}|${[...refs].sort().join(',')}`
+  if (syncedUploads.has(key)) return false
+  syncedUploads.add(key)
+  return true
 }
 
 function storageKey(scope: string): string {
@@ -153,16 +291,17 @@ export function useFavorites(): FavoritesState {
   // propagates here). Pre-login favorites in the guest bucket are merged up to the
   // server ONCE, then the guest bucket is cleared so they can't resurrect a
   // server-side delete. Local metadata is reused to render server refs.
-  const refresh = useCallback(async (opts?: { background?: boolean }) => {
+  const refresh = useCallback(async (opts?: { background?: boolean; force?: boolean }) => {
     if (!opts?.background) setLoading(true)
     setError(false)
     const localScope = readUserScope()
     let netFailed = false
     try {
-      const res = await fetch('/api/customer/favorites', { credentials: 'include' })
+      // Shared/deduped — the mount storm collapses into one request.
+      const res = await fetchFavoritesShared(opts?.force)
       if (!res.ok) netFailed = true
       if (res.ok) {
-        const data = await res.json()
+        const data = res.data
         if (data?.authenticated && data?.email) {
           const scope = String(data.email)
           setUserScope(scope)
@@ -220,15 +359,19 @@ export function useFavorites(): FavoritesState {
               writeLocal(scope, localFavs)
               writeTs(scope)
               // Background sync local → server so cross-device picks them up.
-              for (const f of localFavs) {
-                const ref = f.reference || f.key
-                if (ref) fetch('/api/customer/favorites', {
-                  method: 'POST', credentials: 'include',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ restaurant_reference: ref }),
-                }).catch(() => {})
+              // claimUpload() ensures only the first hook instance to process
+              // this shared response actually POSTs.
+              const refs = localFavs.map(f => f.reference || f.key).filter(Boolean) as string[]
+              if (claimUpload(scope, refs)) {
+                for (const ref of refs) {
+                  fetch('/api/customer/favorites', {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ restaurant_reference: ref }),
+                  }).catch(() => {})
+                }
+                if (guestFavs.length) writeLocal('guest', []) // merged up to the user scope
               }
-              if (guestFavs.length) writeLocal('guest', []) // merged up to the user scope
             } else {
               // Genuinely empty everywhere — safe to show the empty state.
               setFavorites([])
@@ -267,15 +410,17 @@ export function useFavorites(): FavoritesState {
           writeTs(scope)
 
           if (guestOnly.length) {
-            for (const f of guestOnly) {
-              const ref = f.reference || f.key
-              if (ref) fetch('/api/customer/favorites', {
-                method: 'POST', credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ restaurant_reference: ref }),
-              }).catch(() => {})
+            const refs = guestOnly.map(f => f.reference || f.key).filter(Boolean) as string[]
+            if (claimUpload(scope, refs)) {
+              for (const ref of refs) {
+                fetch('/api/customer/favorites', {
+                  method: 'POST', credentials: 'include',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ restaurant_reference: ref }),
+                }).catch(() => {})
+              }
+              writeLocal('guest', []) // merged up — don't let them resurrect a delete
             }
-            writeLocal('guest', []) // merged up — don't let them resurrect a delete
           }
           return
         }
@@ -319,6 +464,7 @@ export function useFavorites(): FavoritesState {
       }
       toRemove.forEach(k => window.localStorage.removeItem(k))
     } catch {}
+    bustShared() // don't let the shared slots re-seed the cleared buckets
   }
 
   // Initial load — paint INSTANTLY from localStorage (no network on the critical
@@ -361,17 +507,20 @@ export function useFavorites(): FavoritesState {
     })
     function onStorage(e: StorageEvent) {
       if (e.key === AUTH_STORAGE_KEY || e.key === CACHED_AUTH_SCOPE_KEY) {
+        bustShared() // cross-tab login/logout — the cached response is another user's
         setUserScope(readUserScope())
-        refresh() // cross-tab login/logout — re-fetch the right user's list
+        refresh() // re-fetch the right user's list (deduped across instances)
       }
     }
     function onAuthChange() {
       // A 'disco-user-changed' event is an auth transition. Check the Neon
       // favorites endpoint: authenticated → reconcile; not authenticated (logout)
       // → clear localStorage favorites and reset to an empty guest state.
-      fetch('/api/customer/favorites', { credentials: 'include' })
-        .then(r => r.ok ? r.json() : null)
-        .then(d => {
+      // Fires once per hook instance, so both the bust and the fetch dedupe.
+      bustShared()
+      fetchFavoritesShared()
+        .then(({ ok, data }) => {
+          const d = ok ? data : null
           if (d?.authenticated) { refresh() }
           else {
             clearAllLocalFavorites()
@@ -418,6 +567,9 @@ export function useFavorites(): FavoritesState {
     setFavorites(next)
     writeLocal(userScope, next)
     broadcast(next)
+    // The shared server response no longer reflects reality — drop it so a
+    // component mounting inside the TTL window can't revert this toggle.
+    invalidateFavoritesCache()
 
     // Logged-in (api) → persist to Neon in the background. On failure, reconcile.
     if (source === 'api') {
@@ -431,7 +583,9 @@ export function useFavorites(): FavoritesState {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ restaurant_reference: ref }),
             })
-        p.then(res => { if (!res.ok) refresh({ background: true }) }).catch(() => {})
+        // force: the write just failed, so we need the true server state — not
+        // whatever the shared cache last saw.
+        p.then(res => { if (!res.ok) refresh({ background: true, force: true }) }).catch(() => {})
       }
     }
   }, [favorites, source, userScope, refresh])
