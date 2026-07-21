@@ -219,6 +219,15 @@ function claimUpload(scope: string, refs: string[]): boolean {
   return true
 }
 
+// Do these two records denote the same restaurant? Callers key cards
+// inconsistently (uuid, slug, or Sanity _id land in `key` depending on the
+// surface), so treat any overlap across key/reference/slug as a match.
+function sameRestaurant(a: FavoriteRestaurant, b: FavoriteRestaurant): boolean {
+  const idsB = [b.key, b.reference, b.slug].filter(Boolean)
+  return [a.key, a.reference, a.slug].filter(Boolean)
+    .some(idA => idsB.includes(idA as string))
+}
+
 function storageKey(scope: string): string {
   return `${STORAGE_KEY_PREFIX}${scope}`
 }
@@ -558,9 +567,17 @@ export function useFavorites(): FavoritesState {
 
   const toggleFavorite = useCallback(async (r: FavoriteRestaurant) => {
     if (!r.key) return
-    const wasFavorited = favorites.some(f => f.key === r.key)
+    // Match on ANY shared identifier, exactly like isFavorited(). Cards don't
+    // agree on which identifier lands in `key`: the restaurant-page hero heart
+    // passes key=slug + reference=uuid, while the server list is keyed by uuid.
+    // The old `f.key === r.key` check was narrower than the check that decides
+    // whether the heart LOOKS filled, so on the restaurant page a filled heart
+    // read as not-favorited and clicking it re-POSTed instead of deleting —
+    // i.e. you could never un-favorite from there.
+    const existing = favorites.find(f => sameRestaurant(f, r))
+    const wasFavorited = !!existing
     const next = wasFavorited
-      ? favorites.filter(f => f.key !== r.key)
+      ? favorites.filter(f => !sameRestaurant(f, r))
       : [...favorites, r]
 
     // Optimistic update everywhere (write the cache in both modes).
@@ -573,7 +590,12 @@ export function useFavorites(): FavoritesState {
 
     // Logged-in (api) → persist to Neon in the background. On failure, reconcile.
     if (source === 'api') {
-      const ref = r.reference || r.key
+      // Deleting: prefer the identifier the SERVER gave us for this favorite
+      // over the card's local key, which may be a slug the server doesn't
+      // store. (The route also resolves slug<->uuid, so both ends are covered.)
+      const ref = wasFavorited
+        ? (existing?.reference || existing?.key || r.reference || r.key)
+        : (r.reference || r.key)
       if (ref) {
         const p = wasFavorited
           ? fetch(`/api/customer/favorites/${encodeURIComponent(ref)}`, { method: 'DELETE', credentials: 'include' })
@@ -584,8 +606,15 @@ export function useFavorites(): FavoritesState {
               body: JSON.stringify({ restaurant_reference: ref }),
             })
         // force: the write just failed, so we need the true server state — not
-        // whatever the shared cache last saw.
-        p.then(res => { if (!res.ok) refresh({ background: true, force: true }) }).catch(() => {})
+        // whatever the shared cache last saw. removed:0 on a DELETE means the
+        // server matched nothing, so reconcile rather than leave the UI showing
+        // a removal that did not happen.
+        p.then(async res => {
+          if (!res.ok) return refresh({ background: true, force: true })
+          if (!wasFavorited) return
+          const body = await res.json().catch(() => null)
+          if (body && body.removed === 0) refresh({ background: true, force: true })
+        }).catch(() => {})
       }
     }
   }, [favorites, source, userScope, refresh])

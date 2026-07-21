@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCustomerSession } from '../../../../lib/customer-auth'
-import { runDiscoOrderMigrations, sql } from '../../../../lib/db'
+import { sql, withDiscoTables } from '../../../../lib/db'
 // Note: the GET hot-path deliberately does NOT call runDiscoOrderMigrations() —
 // the tables already exist in production and the per-request ~60-statement
 // migration run was the dominant favorites-load latency. Migrations run via
@@ -82,12 +82,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}))
     const ref = String(body?.restaurant_reference || '').trim()
     if (!ref) return NextResponse.json({ error: 'restaurant_reference required' }, { status: 400 })
-    await runDiscoOrderMigrations()
-    await sql`
+    // No eager migration run — see withDiscoTables().
+    await withDiscoTables(() => sql`
       INSERT INTO disco_customer_favorites (customer_email, restaurant_reference)
       VALUES (${session.email}, ${ref})
       ON CONFLICT (customer_email, restaurant_reference) DO NOTHING
-    `
+    `)
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error('[customer/favorites] POST failed:', err instanceof Error ? err.message : err)

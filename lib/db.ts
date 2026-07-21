@@ -331,6 +331,30 @@ export async function runDiscoOrderMigrations(): Promise<void> {
   discoMigrated = true
 }
 
+// Run a query that ASSUMES the disco order/favorites tables already exist —
+// true in production. Only when the table is genuinely missing do we pay for
+// runDiscoOrderMigrations() (~60 sequential round-trips) and retry once.
+//
+// The favorites GET hot-path already skipped migrations for this reason; the
+// write paths did not, so a cold lambda made un-favoriting take seconds. If the
+// user navigated before it committed, the reload re-read the pre-delete state
+// and the un-favorite looked like it had silently reverted.
+export async function withDiscoTables<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (err) {
+    if (!isUndefinedTableError(err)) throw err
+    await runDiscoOrderMigrations()
+    return run()
+  }
+}
+
+function isUndefinedTableError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | null
+  if (e?.code === '42P01') return true // undefined_table
+  return /relation ".*" does not exist/i.test(e?.message || '')
+}
+
 // ── Disco-native menu schema ──────────────────────────────────────────────────
 // Reads lib/migrations/002_disco_menus.sql (categories + items). Same idempotent,
 // split-on-`;`, cached-per-lambda approach as runDiscoOrderMigrations.
