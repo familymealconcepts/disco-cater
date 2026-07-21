@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { sql, runMigrations } from '../../../lib/db'
+import { sql, runMigrations, withDiscoTables } from '../../../lib/db'
 
 // Public restaurant feed for the fullmap. Reads ONLY Neon: the
 // disco_restaurant_cache snapshot (refreshed from FM by
@@ -22,9 +22,9 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
-    await runMigrations()
-
-    const rows = (await sql`
+    // Core discovery feed (homepage + fullmap). Eagerly awaiting runMigrations()
+    // (57 statements) ran before the first query on every cold lambda.
+    const rows = (await withDiscoTables(() => sql`
       SELECT c.restaurant_reference, c.name, c.slug, c.cuisine, c.description, c.image_url,
              c.lat, c.lng, c.location, c.address, c.is_live, c.is_disco_native,
              o.is_premium, o.order_url, o.visible, o.stripe_connected, o.featured_order
@@ -47,7 +47,7 @@ export async function GET() {
           AND COALESCE(o.online_ordering_enabled, true) = true
           AND (o.stripe_connected = true
                OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
-    `) as {
+    `, runMigrations)) as {
       restaurant_reference: string; name: string; slug: string | null; cuisine: string | null
       description: string | null; image_url: string | null; lat: string | null; lng: string | null
       location: string | null; address: string | null; is_live: boolean | null; is_disco_native: boolean | null

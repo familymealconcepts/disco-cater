@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import { createClient } from '@sanity/client'
 import { notFound } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
-import { sql, runMigrations, runDiscoMenuMigrations } from '../../../../lib/db'
+import { sql, runMigrations, runDiscoMenuMigrations, withDiscoTables } from '../../../../lib/db'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../../lib/scheduling/native-schedule'
 import { menuRowToSettings, menuRowToScheduleExtras, type MenuSettingsRow } from '../../../../lib/menu-settings'
 
@@ -324,8 +324,11 @@ interface NativeExtraItemsGroup {
 // renders it unchanged.
 async function loadDiscoNativeRestaurant(slug: string) {
   try {
-    await runMigrations()
-    const rows = (await sql`
+    // This lookup runs on EVERY restaurant page render — including the ~4,000
+    // FM-backed ones, which fall straight through to the FM path below. Eagerly
+    // awaiting runMigrations() (57 statements) put that on the cold-render
+    // critical path of the hottest customer surface for no benefit.
+    const rows = (await withDiscoTables(() => sql`
       SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description, c.image_url,
              COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled,
              COALESCE(o.enable_menu_search, false) AS enable_menu_search,
@@ -334,16 +337,18 @@ async function loadDiscoNativeRestaurant(slug: string) {
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE c.slug = ${slug} AND c.is_disco_native = true AND c.is_live = true
       LIMIT 1
-    `) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; announcement: string | null; delivery_order_time_windows: string }[]
+    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; announcement: string | null; delivery_order_time_windows: string }[]
     const r = rows[0]
     if (!r) return null
 
-    await runDiscoMenuMigrations()
-    const cats = (await sql`
+    // Only genuinely disco-native restaurants get this far, so the menu suite
+    // was already off the FM-backed path — but it still cost 46 statements on
+    // every cold native render.
+    const cats = (await withDiscoTables(() => sql`
       SELECT reference, name, description FROM disco_menu_categories
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
       ORDER BY position, id
-    `) as { reference: string; name: string; description: string | null }[]
+    `, runDiscoMenuMigrations)) as { reference: string; name: string; description: string | null }[]
     const items = (await sql`
       SELECT reference, category_reference, name, description, price, serves,
              display_price, min_quantity, allow_special_instructions,

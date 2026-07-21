@@ -4,7 +4,7 @@
 // flips RESERVED→DUE on payment_intent.succeeded.
 
 import type Stripe from 'stripe'
-import { sql, runDiscoOrderMigrations } from '../db'
+import { sql, withDiscoTables } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
 import { computeThirdPartyDelivery, type DeliverySettings } from '../menu-settings'
@@ -285,7 +285,14 @@ export interface NativePlaceResult {
 // (INITIATED) with the full cent-exact breakdown. Zero FM. Payment (1f) creates the
 // PaymentIntent and the webhook flips the order to DUE.
 export async function placeNativeOrder(input: NativePlaceInput): Promise<NativePlaceResult> {
-  await runDiscoOrderMigrations()
+  // Money path: this used to eagerly await runDiscoOrderMigrations() (100
+  // sequential round-trips) before any work, so a cold-lambda placement took
+  // seconds and a migration error threw before the disco_orders row was ever
+  // written — the buyer's order silently vanished. Probe with a cheap READ
+  // instead: one round-trip normally, and it only migrates if the tables are
+  // genuinely absent. Deliberately NOT wrapping the INSERT below — that must
+  // never be retried. By the time it runs the suite is cached for this lambda.
+  await withDiscoTables(() => sql`SELECT 1 FROM disco_orders LIMIT 1`)
   const b = await priceNativeCheckout(input)
   const { orderType, deliveryType } = fulfillmentToTypes(input.fulfillment)
   const orderNumber = await nextNativeOrderNumber()

@@ -331,20 +331,28 @@ export async function runDiscoOrderMigrations(): Promise<void> {
   discoMigrated = true
 }
 
-// Run a query that ASSUMES the disco order/favorites tables already exist —
-// true in production. Only when the table is genuinely missing do we pay for
-// runDiscoOrderMigrations() (~60 sequential round-trips) and retry once.
+// Run a query that ASSUMES its tables already exist — true in production. Only
+// when a table is genuinely missing do we pay for the migration suite (100 / 57
+// / 46 sequential round-trips for orders / promo+core / menus) and retry once.
 //
-// The favorites GET hot-path already skipped migrations for this reason; the
-// write paths did not, so a cold lambda made un-favoriting take seconds. If the
-// user navigated before it committed, the reload re-read the pre-delete state
-// and the un-favorite looked like it had silently reverted.
-export async function withDiscoTables<T>(run: () => Promise<T>): Promise<T> {
+// Eagerly awaiting a suite on the hot path is what made cold requests take
+// seconds: the favorites write path did it, and a cold un-favorite took 4.8s,
+// so navigating before it committed made the removal look like it had silently
+// reverted. Pass the suite that owns the tables the query touches.
+//
+// IMPORTANT: `run` is retried, so it must be safe to execute twice. Wrap a READ
+// (or the first read in a sequence) — never a write that has already partially
+// applied. On a write path, probe with a read first; by the time the write runs,
+// the tables exist and the migration is cached for the rest of the lambda.
+export async function withDiscoTables<T>(
+  run: () => Promise<T>,
+  migrate: () => Promise<void> = runDiscoOrderMigrations,
+): Promise<T> {
   try {
     return await run()
   } catch (err) {
     if (!isUndefinedTableError(err)) throw err
-    await runDiscoOrderMigrations()
+    await migrate()
     return run()
   }
 }

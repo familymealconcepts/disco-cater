@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, runMigrations } from '../../../../lib/db'
+import { sql, runMigrations, withDiscoTables } from '../../../../lib/db'
 import { r2 } from '../../../../lib/promo-pricing'
 
 export const runtime = 'nodejs'
@@ -32,7 +32,6 @@ const n = (v: string | number | null | undefined): number | null => {
 // POST /api/promo/validate
 // { code, restaurantRef, orderSubtotal, orderTotal, userEmail, isFirstTimeUser }
 export async function POST(req: NextRequest) {
-  await runMigrations()
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ valid: false, message: 'Invalid request.' }, { status: 400 }) }
 
@@ -49,13 +48,16 @@ export async function POST(req: NextRequest) {
   // and the same code string can exist as a global code AND as different
   // restaurants' codes. Scope the lookup to this restaurant's own code or a
   // global one, preferring the restaurant-specific match.
-  const rows = (await sql`
+  // Runs while the buyer types a code at checkout. Eagerly awaiting
+  // runMigrations() (57 statements) meant a cold lambda could time out or error
+  // here and report a perfectly valid code as invalid.
+  const rows = (await withDiscoTables(() => sql`
     SELECT * FROM promo_codes
     WHERE UPPER(code) = UPPER(${code})
       AND (restaurant_ref IS NULL OR restaurant_ref = ${restaurantRef})
     ORDER BY (restaurant_ref IS NOT NULL) DESC, id DESC
     LIMIT 1
-  `) as PromoRow[]
+  `, runMigrations)) as PromoRow[]
   const promo = rows[0]
   if (!promo) return NextResponse.json({ valid: false, message: 'That promo code doesn’t exist.' }, { status: 404 })
 
