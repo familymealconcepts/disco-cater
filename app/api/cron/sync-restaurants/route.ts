@@ -22,6 +22,7 @@ import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
 import { markRestaurantSyncActive } from '../../../../lib/syncState'
 import { sql, runMigrations } from '../../../../lib/db'
 import { refreshRestaurantCache } from '../../../../lib/restaurant-cache'
+import { alertOps } from '../../../../lib/ops-alert'
 
 // Cross-run cursor: where the next run starts in the qualifying list. Persisted
 // in Neon (sync_state) so each daily run drains the NEXT CAP restaurants instead
@@ -395,26 +396,58 @@ async function runSync() {
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
+// This cron runs TWO independent jobs:
+//   A. refreshRestaurantCache() — rebuilds disco_restaurant_cache (Neon). Feeds
+//      the PUBLIC marketplace feed and every restaurant page. Needs FM only.
+//   B. runSync()               — mirrors FM restaurants into Sanity. Internal,
+//      cursor-paced, resumes on the next run. Needs FM + Sanity.
+//
+// They used to share one try block with B first, so ANY failure in B skipped A
+// entirely — and A is the user-facing half. Worse, B regularly consumes most of
+// the 300s budget, and a try/catch cannot save A from a function timeout: when
+// the platform kills the invocation no catch runs at all. That is why the public
+// map cache was only fully refreshing every few weeks instead of daily.
+//
+// So A now runs FIRST and each job owns its own error handling. Ordering is the
+// part that actually fixes the staleness; the separate catches make each failure
+// visible instead of one silently swallowing the other. A missing SANITY_TOKEN
+// likewise only disables B — it has never been needed for A.
 async function handle(): Promise<NextResponse> {
-  if (!process.env.SANITY_TOKEN) {
-    return NextResponse.json({ success: false, error: 'SANITY_TOKEN not configured on the server' }, { status: 500 })
-  }
+  // ── A. Public map cache — first, so a slow/failing Sanity sync can't starve it.
+  let cacheRefresh: unknown
+  let cacheOk = false
   try {
-    const result = await runSync()
-    // Keep the public map cache (disco_restaurant_cache) fresh daily. Independent
-    // of the Sanity sync — a failure here must not fail the whole cron.
-    let cacheRefresh: unknown
-    try {
-      cacheRefresh = await refreshRestaurantCache()
-      console.log('[sync-restaurants] map cache refreshed:', JSON.stringify(cacheRefresh))
-    } catch (e) {
-      cacheRefresh = { error: e instanceof Error ? e.message : String(e) }
-      console.error('[sync-restaurants] map cache refresh failed:', cacheRefresh)
-    }
-    return NextResponse.json({ ...result, cache_refresh: cacheRefresh })
+    cacheRefresh = await refreshRestaurantCache()
+    cacheOk = true
+    console.log('[sync-restaurants] map cache refreshed:', JSON.stringify(cacheRefresh))
   } catch (e) {
-    return NextResponse.json({ success: false, error: e instanceof Error ? e.message : 'Sync failed' }, { status: 500 })
+    const error = e instanceof Error ? e.message : String(e)
+    cacheRefresh = { error }
+    await alertOps('sync-restaurants: map cache refresh FAILED (public marketplace data is now stale)', { error })
   }
+
+  // ── B. Sanity mirror — independent; its failure no longer hides A's result.
+  let syncResult: Record<string, unknown>
+  if (!process.env.SANITY_TOKEN) {
+    syncResult = { success: false, error: 'SANITY_TOKEN not configured on the server' }
+    await alertOps('sync-restaurants: Sanity sync skipped — SANITY_TOKEN not configured', {})
+  } else {
+    try {
+      syncResult = await runSync()
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e)
+      syncResult = { success: false, error }
+      await alertOps('sync-restaurants: Sanity restaurant sync FAILED', { error })
+    }
+  }
+
+  // Response keeps runSync's fields at the top level — the super-admin dashboard
+  // reads d.synced / d.new / d.updated / d.capped_at_500 / d.errors directly.
+  // cache_refreshed reports A independently of B's success flag.
+  return NextResponse.json(
+    { ...syncResult, cache_refreshed: cacheOk, cache_refresh: cacheRefresh },
+    { status: syncResult.success === false && !cacheOk ? 500 : 200 },
+  )
 }
 
 // Vercel Cron + CLI — Bearer CRON_SECRET only.
