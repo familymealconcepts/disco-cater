@@ -94,13 +94,16 @@ async function sendNewOrderSlack(o: {
 // already dispatched (webhook + confirm-payment can both fire — only one wins).
 async function claimConfirmationSend(orderReference: string, source: string): Promise<boolean> {
   try {
+    // ON CONFLICT against the partial unique index disco_order_events_once_uq.
+    // The old INSERT ... WHERE NOT EXISTS could let two concurrent callers both
+    // win the claim; this cannot. The WHERE clause must match the index
+    // predicate exactly so Postgres can infer the right index.
     const rows = (await sql`
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-      SELECT ${orderReference}::uuid, 'ORDER_CONFIRMATIONS_SENT', '{}'::jsonb, ${source}
-      WHERE NOT EXISTS (
-        SELECT 1 FROM disco_order_events
-        WHERE order_reference = ${orderReference}::uuid AND event_type = 'ORDER_CONFIRMATIONS_SENT'
-      )
+      VALUES (${orderReference}::uuid, 'ORDER_CONFIRMATIONS_SENT', '{}'::jsonb, ${source})
+      ON CONFLICT (order_reference, event_type)
+        WHERE event_type IN ('ORDER_CONFIRMATIONS_SENT', 'SLACK_NOTIFIED')
+        DO NOTHING
       RETURNING id
     `) as { id: number }[]
     return rows.length > 0
@@ -118,13 +121,13 @@ async function claimConfirmationSend(orderReference: string, source: string): Pr
 // per order. Returns true only for the caller that wins the SLACK_NOTIFIED claim.
 async function claimSlackNotified(orderReference: string): Promise<boolean> {
   try {
+    // Atomic via disco_order_events_once_uq — see claimConfirmationSend().
     const rows = (await sql`
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-      SELECT ${orderReference}::uuid, 'SLACK_NOTIFIED', '{}'::jsonb, 'order-notifications'
-      WHERE NOT EXISTS (
-        SELECT 1 FROM disco_order_events
-        WHERE order_reference = ${orderReference}::uuid AND event_type = 'SLACK_NOTIFIED'
-      )
+      VALUES (${orderReference}::uuid, 'SLACK_NOTIFIED', '{}'::jsonb, 'order-notifications')
+      ON CONFLICT (order_reference, event_type)
+        WHERE event_type IN ('ORDER_CONFIRMATIONS_SENT', 'SLACK_NOTIFIED')
+        DO NOTHING
       RETURNING id
     `) as { id: number }[]
     return rows.length > 0
@@ -192,15 +195,20 @@ export async function dispatchOrderConfirmations(
     let cacheAddress = ''
     let cachePhone = ''
     let cacheTimezone = ''
+    // Drives the Slack suppression below. Defaults FALSE (= treat as FM-backed =
+    // don't send) so an unknown restaurant errs toward a missing ping rather than
+    // a duplicate — the same trade-off claimSlackNotified() makes.
+    let cacheIsNative = false
     try {
       const rc = (await sql`
-        SELECT name, location, address, phone, timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1
-      `) as { name: string | null; location: string | null; address: string | null; phone: string | null; timezone: string | null }[]
+        SELECT name, location, address, phone, timezone, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1
+      `) as { name: string | null; location: string | null; address: string | null; phone: string | null; timezone: string | null; is_disco_native: boolean | null }[]
       cacheName = rc[0]?.name || ''
       cacheLocation = rc[0]?.location || ''
       cacheAddress = rc[0]?.address || ''
       cachePhone = rc[0]?.phone || ''
       cacheTimezone = rc[0]?.timezone || ''
+      cacheIsNative = rc[0]?.is_disco_native === true
     } catch { /* cache lookup is best-effort */ }
 
     // Total: COALESCE(disco_orders.total, disco_stripe_payments.total). Native
@@ -402,11 +410,25 @@ export async function dispatchOrderConfirmations(
       console.error('[order-notifications] restaurant SMS lookup failed:', err instanceof Error ? err.message : err)
     }
 
-    // New-order Slack ping (the single canonical notification). Restaurant name +
-    // City/State come from disco_restaurant_cache (location = "City, State").
-    // Guarded by a dedicated SLACK_NOTIFIED event so it fires at most once per
-    // order even if reached from a second dispatch path (fixes the duplicate).
-    const slackOk = reference ? await claimSlackNotified(reference) : true
+    // New-order Slack ping. Restaurant name + City/State come from
+    // disco_restaurant_cache (location = "City, State").
+    //
+    // DISCO-NATIVE ONLY. FM-backed orders are paid through FM's Stripe, so
+    // /api/order/confirm-payment calls FM's /api/userOrder/confirmPayment, and
+    // FM's OrderUpdateOrderStatusTaskRunnable posts its OWN new-order message to
+    // the same channel — with no sourceOfOrder filter, so it fires for DISCO
+    // orders too. Disco sending as well is what produced two pings per order.
+    // claimSlackNotified() couldn't catch it: it dedupes within Disco and has no
+    // visibility into FM's send.
+    //
+    // Native restaurants have no FM record at all, so FM never sees those orders
+    // and never notifies — Disco remains their only notification. This also
+    // covers the FM_SYNC_BACKFILL path for free: those orders were pulled FROM
+    // FM, so they are FM-backed by definition and FM already announced them.
+    const slackOk = cacheIsNative && (reference ? await claimSlackNotified(reference) : true)
+    if (!cacheIsNative) {
+      console.log('[order-notifications] FM-backed order — FM sends the Slack ping, skipping Disco\'s:', reference)
+    }
     if (slackOk) {
       const locParts = cacheLocation.split(',').map((s) => s.trim()).filter(Boolean)
       await sendNewOrderSlack({

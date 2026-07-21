@@ -175,6 +175,19 @@ CREATE INDEX IF NOT EXISTS idx_disco_stripe_payments_order ON disco_stripe_payme
 CREATE INDEX IF NOT EXISTS idx_disco_order_items_order ON disco_order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_disco_order_events_reference ON disco_order_events(order_reference);
 
+-- Enforce the once-per-order idempotency guards in the DATABASE. The claim
+-- helpers used INSERT ... WHERE NOT EXISTS, which is NOT atomic under READ
+-- COMMITTED: two concurrent dispatches (webhook + confirm-payment) can both see
+-- NOT EXISTS as true and both insert, so the guard silently wasn't load-bearing.
+--
+-- PARTIAL on purpose. A blanket UNIQUE(order_reference, event_type) cannot be
+-- created here and would be wrong: ORDER_EDITED / ORDER_EDIT_CONFIRMED legitimately
+-- repeat (an order can be edited more than once), and payout/account events carry
+-- order_reference = NULL. Only these two types are once-per-order claims.
+CREATE UNIQUE INDEX IF NOT EXISTS disco_order_events_once_uq
+  ON disco_order_events (order_reference, event_type)
+  WHERE event_type IN ('ORDER_CONFIRMATIONS_SENT', 'SLACK_NOTIFIED');
+
 -- ── Disco-native restaurant authentication ───────────────────────────────────
 -- Disco-owned credentials + sessions for new restaurant partners, replacing FM
 -- token auth. Passwords are bcrypt-hashed; sessions are opaque UUID tokens.
