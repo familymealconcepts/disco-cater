@@ -89,7 +89,8 @@ function extractMoney(fmInner: Record<string, unknown>): { subtotal: number; tot
 // Fire-and-forget mirror of a placed FM order into Neon (disco_orders +
 // disco_stripe_payments + disco_order_items). Wrapped so any failure is logged
 // and swallowed — the checkout flow is never affected. The FM place response is
-// the source of truth; Neon is a mirror. source_of_order is always "DISCO".
+// the source of truth; Neon is a mirror. source_of_order reflects the exact
+// attribution sent to FM (FAMILYMEAL for 1P /order links, DISCO for 3P).
 async function mirrorOrderToNeon(args: {
   restaurantRef: string
   orderRef: string
@@ -135,6 +136,13 @@ async function mirrorOrderToNeon(args: {
     const daZip = str(da.zipcode ?? da.zip)
     const statusRaw = String(fmInner.orderStatus ?? fm.orderStatus ?? fmInner.status ?? '').toUpperCase()
     const orderStatus = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
+    // Attribution: mirror EXACTLY what CheckoutDrawer sent to FM on
+    // checkoutDetails.sourceoforder — "FAMILYMEAL" for the 1P /order/{slug} link
+    // (no lead-gen fee) or "DISCO" for the 3P /restaurants/{slug} link. This used
+    // to be hardcoded 'DISCO', so fee-free 1P orders showed a "3P" badge in the
+    // portal/dashboard. Conservative default: anything not explicitly FAMILYMEAL
+    // stays DISCO, so a real 3P order can never be mislabeled fee-free.
+    const sourceOfOrder = String(checkoutDetails.sourceoforder ?? '').toUpperCase() === 'FAMILYMEAL' ? 'FAMILYMEAL' : 'DISCO'
     const money = extractMoney(fmInner)
     const { subtotal, fee } = money
     // Tax exempt → persist the reduced charge (matches the PaymentIntent + the
@@ -203,13 +211,17 @@ async function mirrorOrderToNeon(args: {
         delivery_lat, delivery_lng, delivery_time_window,
         order_date, order_time, subtotal, total, fee, tax_exempt_id, tax_exempt_state, company_name, note, persons, fm_order_reference, created_at, updated_at
       ) VALUES (
-        ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, ${deliveryType}, 'DISCO',
+        ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, ${deliveryType}, ${sourceOfOrder},
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
         ${daLine1}, ${daLine2}, ${daCity}, ${daState}, ${daZip},
         ${deliveryLat}, ${deliveryLng}, ${deliveryTimeWindow},
         ${orderDate}::date, ${orderTime}::time, ${subtotal}, ${total}, ${fee}, ${taxExemptId}, ${taxExemptState}, ${companyName}, ${note || null}, ${persons}, ${reference}::uuid, NOW(), NOW()
       )
       ON CONFLICT (reference) DO UPDATE SET
+        -- The mirror holds the authoritative wire value (what was sent to FM) and
+        -- only ever runs at place time for this order, so correcting the label on
+        -- a retry/race is safe and self-heals a row seeded with the wrong source.
+        source_of_order = EXCLUDED.source_of_order,
         subtotal = EXCLUDED.subtotal, total = EXCLUDED.total, fee = EXCLUDED.fee,
         company_name = COALESCE(EXCLUDED.company_name, disco_orders.company_name),
         note = COALESCE(EXCLUDED.note, disco_orders.note),
