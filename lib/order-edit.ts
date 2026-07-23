@@ -31,6 +31,50 @@ export function isEditableStatus(status: string): boolean {
   return !NON_EDITABLE_STATUSES.includes(String(status || '').toUpperCase())
 }
 
+// Restaurant IANA timezone default (matches disco_restaurant_cache.timezone default).
+export const RESTAURANT_TZ_DEFAULT = 'America/New_York'
+
+// Current wall-clock time in `tz` as a zero-padded 'YYYY-MM-DDTHH:MM:SS' string.
+// order_date/order_time are stored as naked wall-clock IN THE RESTAURANT'S tz, so
+// two such strings compare chronologically as plain text. MUST stay byte-identical
+// to the client's nowWallClockInTz() (orders/page.tsx) so both sides agree.
+export function nowWallClockInTz(tz: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz || RESTAURANT_TZ_DEFAULT, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(new Date())
+  const get = (t: string) => parts.find(p => p.type === t)?.value || '00'
+  let hh = get('hour')
+  if (hh === '24') hh = '00' // some engines emit '24' for midnight under hour12:false
+  return `${get('year')}-${get('month')}-${get('day')}T${hh}:${get('minute')}:${get('second')}`
+}
+
+// ABSOLUTE past-date gate: has the order's pickup datetime (order_date + order_time,
+// in the restaurant's tz) already passed? Anchored to the restaurant tz so client
+// and server produce the same answer regardless of where the request runs.
+// DELIBERATELY separate from the hoursUntil<24 future-proximity rule — that rule is
+// about not editing too close to an UPCOMING pickup (and is SUPER_ADMIN-exempt);
+// THIS is an unconditional block on already-past orders for EVERY role.
+export function isOrderInPast(orderDate: string, orderTime: string, timeZone: string): boolean {
+  const date = fmDateToIso(String(orderDate || '')) || String(orderDate || '').slice(0, 10)
+  const t = String(orderTime || '')
+  if (!date || !t) return false // missing date/time → don't block (matches client isPastPickup)
+  const time = t.length === 5 ? `${t}:00` : t.slice(0, 8)
+  return nowWallClockInTz(timeZone) >= `${date}T${time}`
+}
+
+// The restaurant's IANA timezone from the cache (default Eastern). Used to anchor
+// the past-date gate consistently on the server.
+export async function loadRestaurantTimeZone(restaurantReference: string): Promise<string> {
+  if (!restaurantReference) return RESTAURANT_TZ_DEFAULT
+  try {
+    const rows = (await sql`
+      SELECT timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restaurantReference} LIMIT 1
+    `.catch(() => [])) as { timezone: string | null }[]
+    return rows[0]?.timezone || RESTAURANT_TZ_DEFAULT
+  } catch { return RESTAURANT_TZ_DEFAULT }
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export function isUuid(v: string): boolean { return UUID_RE.test(String(v || '')) }
 

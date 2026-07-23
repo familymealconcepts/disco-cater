@@ -56,6 +56,7 @@ interface OrderRow {
   company_name: string | null
   tax_exempt_id: string | null
   tax_exempt_state: string | null
+  timezone: string | null
 }
 
 function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
@@ -75,6 +76,9 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     restaurantName: r.restaurant_name || undefined,
     orderDate: String(r.order_date).slice(0, 10), // YYYY-MM-DD
     orderTime: r.order_time,
+    // Restaurant IANA tz — anchors the client's past-date / pickup gates so they
+    // agree with the server regardless of the viewer's location.
+    restaurantTimezone: r.timezone || 'America/New_York',
     orderType: r.order_type,
     deliveryType: r.delivery_type || '',
     transactionsTotal: total,
@@ -240,7 +244,7 @@ export async function GET(req: NextRequest) {
               to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
               subtotal, COALESCE(NULLIF(disco_orders.total, 0), sp.sp_total) AS total, fee, tips, refund, note, seen_by_admin,
               COALESCE(edit_count,0) AS edit_count, edit_status, created_at, persons,
-              company_name, tax_exempt_id, tax_exempt_state
+              company_name, tax_exempt_id, tax_exempt_state, rc.timezone AS timezone
        FROM disco_orders
        LEFT JOIN (
          SELECT order_reference, MAX(total) AS sp_total
@@ -248,6 +252,7 @@ export async function GET(req: NextRequest) {
          WHERE total IS NOT NULL AND total > 0
          GROUP BY order_reference
        ) sp ON sp.order_reference = disco_orders.reference
+       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = disco_orders.restaurant_reference::text
        WHERE ${whereSql}
        ORDER BY order_date DESC, order_time DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,

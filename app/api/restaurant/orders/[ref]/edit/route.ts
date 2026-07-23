@@ -8,6 +8,7 @@ import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import {
   getDiscoOrder, loadOrderBaseline,
   hoursUntil, isEditableStatus, MAX_EDITS, syncExpediteOnEdit, type FmOrderItem,
+  isOrderInPast, loadRestaurantTimeZone,
 } from '../../../../../../lib/order-edit'
 import {
   sendOrderUpdated, sendOrderUpdatedRestaurant, sendOrderEditRefundIssued,
@@ -94,6 +95,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   }
   if (discoOrder && !isEditableStatus(discoOrder.order_status)) {
     return NextResponse.json({ error: `This order is ${discoOrder.order_status.toLowerCase()} and can no longer be edited.` }, { status: 400 })
+  }
+
+  // Absolute past-date block — an order whose pickup datetime has already passed
+  // (in the restaurant's tz) can NEVER be edited, by ANY role including SUPER_ADMIN.
+  // Distinct from the <24h future-proximity rule above. Defense-in-depth: even if a
+  // request bypasses the client gate, it is rejected here.
+  if (discoOrder) {
+    const tz = await loadRestaurantTimeZone(discoOrder.restaurant_reference)
+    if (isOrderInPast(String(discoOrder.order_date), String(discoOrder.order_time), tz)) {
+      return NextResponse.json({ error: "This order's date has already passed and can no longer be edited." }, { status: 400 })
+    }
   }
 
   // Neon-first baseline for original money/items/pickup. Neon owns the current

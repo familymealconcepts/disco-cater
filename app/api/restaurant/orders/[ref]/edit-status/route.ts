@@ -7,6 +7,7 @@ import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
 import {
   getDiscoOrder, loadFmOrderDetails, parseFmOrder, hoursUntil, isEditableStatus, MAX_EDITS, applyPendingEdit,
+  isOrderInPast, loadRestaurantTimeZone, RESTAURANT_TZ_DEFAULT,
 } from '../../../../../../lib/order-edit'
 
 export const runtime = 'nodejs'
@@ -111,10 +112,18 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // admin-portal session is treated as SUPER_ADMIN for this purpose.
   const isSuperAdmin = isAdminEdit || (await getRestaurantRole()) === 'SUPER_ADMIN'
 
+  // Absolute past-date gate — anchored to the restaurant tz, applies to ALL roles
+  // (incl. SUPER_ADMIN). Distinct from the hoursUntil<24 future rule below.
+  const restaurantTz = order?.restaurant_reference
+    ? await loadRestaurantTimeZone(order.restaurant_reference)
+    : RESTAURANT_TZ_DEFAULT
+  const isPast = isOrderInPast(pickupDate, pickupTime, restaurantTz)
+
   const hrs = hoursUntil(pickupDate, pickupTime)
   let canEdit = true
   let reason = ''
-  if (pendingPayment) { canEdit = false; reason = 'Awaiting customer payment for the pending edit' }
+  if (isPast) { canEdit = false; reason = "This order's date has already passed." }
+  else if (pendingPayment) { canEdit = false; reason = 'Awaiting customer payment for the pending edit' }
   else if (editCount >= MAX_EDITS) { canEdit = false; reason = 'Maximum edits reached' }
   else if (!isSuperAdmin && hrs < 24) { canEdit = false; reason = 'Order cannot be edited within 24 hours of pickup' }
   else if (status && !isEditableStatus(status)) { canEdit = false; reason = `This order is ${status.toLowerCase()} and can no longer be edited` }

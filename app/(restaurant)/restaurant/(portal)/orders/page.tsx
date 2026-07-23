@@ -346,11 +346,16 @@ function isEditEligible(order: Order): boolean {
   const status = (order.orderStatus || '').toUpperCase()
   if (NON_EDITABLE_STATUSES.has(status)) return false
   if (!order.orderDate || !order.orderTime) return false
+  // ABSOLUTE past-date block — an order whose pickup has already passed (in the
+  // restaurant's tz) can never be edited, by ANY role including SUPER_ADMIN. This
+  // is checked BEFORE the SUPER_ADMIN bypass and is distinct from the <24h future
+  // rule. The server (/edit-status + /edit) enforces the same gate.
+  if (isPastPickup(order)) return false
   // Edit-count cap from Neon (disco_orders.edit_count). Applies to EVERY role —
   // SUPER_ADMIN only bypasses the 24-hour rule below, never the 3-edit limit.
   if ((order.editCount ?? 0) >= MAX_EDITS) return false
-  // SUPER_ADMIN can edit regardless of how close pickup is — status + edit-count
-  // checks above still apply to them.
+  // SUPER_ADMIN can edit regardless of how close pickup is — status + edit-count +
+  // past-date checks above still apply to them.
   if (isSuperAdmin()) return true
   // FM returns orderDate as DD.MM.YYYY — normalize to YYYY-MM-DD before Date().
   const iso = order.orderDate.includes('.') ? order.orderDate.split('.').reverse().join('-') : order.orderDate
