@@ -23,6 +23,26 @@ interface Menu {
   image?: { reference: string }
   visible: boolean
   archived: boolean
+  // Manage Menus table columns (enriched by /api/restaurant/menus):
+  itemCount?: number
+  leadTimeHours?: number | null
+  serviceTypes?: string[] // e.g. ['PICKUP', 'DELIVERY']
+}
+
+// Render helpers for the Items / Lead Time / Service Types columns.
+function fmtItems(n?: number): string {
+  const c = n ?? 0
+  return `${c} item${c === 1 ? '' : 's'}`
+}
+function fmtLeadTime(h?: number | null): string {
+  return h && h > 0 ? `${h} hr${h === 1 ? '' : 's'}` : '—'
+}
+function fmtServiceTypes(types?: string[]): string {
+  if (!types || !types.length) return '—'
+  const label = (t: string) => (t.toUpperCase() === 'PICKUP' ? 'Pickup' : t.toUpperCase() === 'DELIVERY' ? 'Delivery' : t)
+  // Show Pickup before Delivery for a consistent, readable order.
+  const order = (t: string) => (t.toUpperCase() === 'PICKUP' ? 0 : 1)
+  return [...types].sort((a, b) => order(a) - order(b)).map(label).join(', ')
 }
 
 type FilterType = 'ACTIVE' | 'NON_VISIBLE' | 'ARCHIVED'
@@ -32,13 +52,6 @@ const TABS: { label: string; filter: FilterType }[] = [
   { label: 'Inactive Menus', filter: 'NON_VISIBLE' },
   { label: 'Archived Menus', filter: 'ARCHIVED' },
 ]
-
-// FM FAKE_MENU_CATEGORIES (fake-data.constant.ts:675-717).
-function formatDate(d: string) {
-  if (!d) return '—'
-  try { return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
-  catch { return d }
-}
 
 function ConfirmDialog({ message, onConfirm, onCancel }: { message: string; onConfirm: () => void; onCancel: () => void }) {
   return (
@@ -177,9 +190,9 @@ export default function MenusPage() {
               <tr style={{ background: '#fafafa' }}>
                 <th style={{ ...thStyle, width: 34 }} aria-label="Reorder" />
                 <th style={thStyle}>Name</th>
-                <th style={thStyle}>Start Date</th>
-                <th style={thStyle}>End Date</th>
-                <th style={thStyle}>Image</th>
+                <th style={thStyle}>Items</th>
+                <th style={thStyle}>Lead Time</th>
+                <th style={thStyle}>Service Types</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -250,19 +263,9 @@ function SortableMenuRow({ m, filter, tdStyle, onOpen, onSettings, onClone, onVi
       <td style={{ ...tdStyle, textAlign: 'center', cursor: 'grab', touchAction: 'none', color: '#bbb' }}
         {...attributes} {...listeners} onClick={e => e.stopPropagation()} title="Drag to reorder">⋮⋮</td>
       <td style={{ ...clickCell, fontWeight: 600 }} onClick={onOpen}>{m.name}</td>
-      <td style={clickCell} onClick={onOpen}>{formatDate(m.startDate)}</td>
-      <td style={clickCell} onClick={onOpen}>{formatDate(m.endDate)}</td>
-      <td style={clickCell} onClick={onOpen}>
-        {m.image?.reference ? (
-          <img
-            src={`https://api.familymeal.com/public-api/images/${m.image.reference}/download?size=70`}
-            alt=""
-            style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, border: '1px solid #eee' }}
-          />
-        ) : (
-          <div style={{ width: 40, height: 40, background: '#f0f0f4', borderRadius: 6, border: '1px solid #eee' }} />
-        )}
-      </td>
+      <td style={clickCell} onClick={onOpen}>{fmtItems(m.itemCount)}</td>
+      <td style={clickCell} onClick={onOpen}>{fmtLeadTime(m.leadTimeHours)}</td>
+      <td style={clickCell} onClick={onOpen}>{fmtServiceTypes(m.serviceTypes)}</td>
       <td style={{ ...tdStyle, textAlign: 'right' }}>
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
           <button

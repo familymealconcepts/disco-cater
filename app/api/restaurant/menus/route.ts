@@ -16,6 +16,44 @@ function normalizeAdminMenu(m: Record<string, unknown>): Record<string, unknown>
   }
 }
 
+// Count a menu's items via FM's public per-menu catalog (categories → nested
+// mealPackages). Best-effort — a fetch/shape failure yields 0, never throws.
+async function menuItemCount(restaurantRef: string, menuRef: string, headers: Record<string, string>): Promise<number> {
+  if (!restaurantRef || !menuRef) return 0
+  try {
+    const r = await fetch(`${FM}/public-api/restaurants/${restaurantRef}/mealPackages?menuReference=${menuRef}`, { headers })
+    if (!r.ok) return 0
+    const d = await r.json().catch(() => null)
+    const cats = Array.isArray(d) ? d : (Array.isArray(d?.content) ? d.content : [])
+    return cats.reduce((a: number, c: { mealPackages?: unknown[] }) => a + (Array.isArray(c?.mealPackages) ? c.mealPackages.length : 0), 0)
+  } catch { return 0 }
+}
+
+// Enrich each menu row for the Manage Menus table's columns: Items (count),
+// Lead Time (scheduleOption.prepTime hours), Service Types (settings.menuAvailability,
+// FM default = both when unset). itemCount is fetched per menu in parallel.
+async function enrichMenus(
+  content: Record<string, unknown>[],
+  ctx: { restaurantReference: string },
+  headers: Record<string, string>,
+  isServiceAccount: boolean,
+): Promise<Record<string, unknown>[]> {
+  return Promise.all(content.map(async (raw) => {
+    const m = isServiceAccount ? normalizeAdminMenu(raw) : raw
+    const sched = (m.scheduleOption ?? {}) as Record<string, unknown>
+    const settings = (m.settings ?? {}) as Record<string, unknown>
+    const avail = Array.isArray(settings.menuAvailability)
+      ? (settings.menuAvailability as unknown[]).map(v => String(v).toUpperCase()).filter(v => v === 'PICKUP' || v === 'DELIVERY')
+      : []
+    const serviceTypes = avail.length ? avail : ['PICKUP', 'DELIVERY'] // FM default when unset = both
+    const prep = Number(sched.prepTime)
+    const leadTimeHours = Number.isFinite(prep) && prep > 0 ? prep : null
+    const restaurantRef = String((m.restaurant as Record<string, unknown> | undefined)?.reference || ctx.restaurantReference || '')
+    const itemCount = await menuItemCount(restaurantRef, String(m.reference || ''), headers)
+    return { ...m, itemCount, leadTimeHours, serviceTypes }
+  }))
+}
+
 export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -38,8 +76,9 @@ export async function GET(req: NextRequest) {
     const res = await fetch(url, { headers: h })
     if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
     const data = await res.json()
-    if (usesServiceAccount(ctx) && Array.isArray(data?.content)) {
-      return NextResponse.json({ ...data, content: data.content.map(normalizeAdminMenu) })
+    if (Array.isArray(data?.content)) {
+      const content = await enrichMenus(data.content, ctx, h, usesServiceAccount(ctx))
+      return NextResponse.json({ ...data, content })
     }
     return NextResponse.json(data)
   } catch { return NextResponse.json({ error: 'Unable to fetch' }, { status: 500 }) }
