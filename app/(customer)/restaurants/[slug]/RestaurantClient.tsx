@@ -844,22 +844,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         + (orderType === 'DELIVERY' ? (previewDelivery ?? 0) : 0) + svcAmt + tipAmt
     : null
 
-  const notices: string[] = []
-  // Lead time: show only when actually configured. Native restaurants get a 24h
-  // engine default that must NOT be advertised as if the restaurant chose it —
-  // prepTimeExplicit is false in that case (undefined on the FM path → shown).
-  if (sched?.prepTime && sched?.prepTimeExplicit !== false) notices.push(`${sched.prepTime}hr lead time`)
-  if (minOrder) notices.push(`${formatPrice(minOrder)} minimum`)
-  // Fulfillment: same rule. The order-flow fallback to [PICKUP, DELIVERY] is a
-  // sensible cart default, but advertising it in the notices bar would falsely
-  // claim delivery for a restaurant that never configured either. Native path
-  // flags this via menuAvailabilityExplicit (undefined on the FM path → shown,
-  // preserving the prior FM behavior of trusting an explicitly-returned array).
-  const fmFulfillment = settings?.menuAvailability
-  if (Array.isArray(fmFulfillment) && fmFulfillment.length && settings?.menuAvailabilityExplicit !== false) {
-    notices.push(fmFulfillment.map(t => t === 'PICKUP' ? 'Pickup' : 'Delivery').join(' & '))
-  }
-
   // ── Cart helpers ──────────────────────────────────────────────────────────
   // cartQty sums across all configurations of the same package, since the
   // menu badge just wants "is this package in the cart".
@@ -1384,17 +1368,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         </div>
       )}
 
-      {/* Announcement bar: the restaurant's actual "Announcement" (from settings)
-          shown prominently, with the auto-derived notices (lead time · minimum ·
-          fulfillment) as a secondary line beneath it. */}
-      {(announcement || notices.length > 0) && (
-        <div style={{ background: DARK, color: 'rgba(255,255,255,0.78)', fontSize: 12, fontWeight: 500, textAlign: 'center', padding: '8px 16px', letterSpacing: '0.03em' }}>
-          {announcement && (
-            <div style={{ color: '#fff', fontWeight: 600, fontSize: 12.5, whiteSpace: 'pre-wrap', marginBottom: notices.length > 0 ? 4 : 0 }}>
-              {announcement}
-            </div>
-          )}
-          {notices.length > 0 && <div>{notices.join('  ·  ')}</div>}
+      {/* Announcement bar: the restaurant's actual "Announcement" field, shown
+          EXACTLY as entered. No lead-time/minimum/fulfillment formula fallback —
+          if no announcement is set, the bar is hidden entirely (never a fabricated
+          message). Applies on both the restaurant page and the checkout flow. */}
+      {announcement && (
+        <div style={{ background: DARK, color: '#fff', fontWeight: 600, fontSize: 12.5, textAlign: 'center', padding: '8px 16px', letterSpacing: '0.03em', whiteSpace: 'pre-wrap' }}>
+          {announcement}
         </div>
       )}
 
