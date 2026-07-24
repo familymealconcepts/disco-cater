@@ -1202,6 +1202,10 @@ function OrdersContent() {
   // orders API). Defaults true so a brand-new ADMIN sees the friendly empty state
   // immediately rather than a flash of "No orders found".
   const [restaurantExists, setRestaurantExists] = useState(true)
+  // A real error state for the orders list. Without this, a failing API silently
+  // left the list empty and rendered the misleading "No orders yet" — which is how
+  // a platform-wide orders outage went unnoticed for a day.
+  const [loadError, setLoadError] = useState('')
   // User role drives the edit-history icon rule: ADMIN / SYSTEM_ADMIN only see it
   // on orders that actually have edits; SUPER_ADMIN is unaffected (always shown).
   const [role, setRole] = useState('')
@@ -1313,8 +1317,18 @@ function OrdersContent() {
     if (search) p.set('search', search)
     if (appliedFrom) p.set('fromDate', appliedFrom)
     if (appliedTo) p.set('toDate', appliedTo)
-    const res = await fetch(`/api/restaurant/orders?${p}`)
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/restaurant/orders?${p}`)
+      if (!res.ok) {
+        // Surface a REAL error instead of silently leaving the list empty (which
+        // renders as the misleading "No orders yet"). A background refresh must not
+        // wipe the orders already on screen.
+        console.error('[orders] list fetch failed:', res.status)
+        if (!background) { setOrders([]); setTotal(0); setPending(null) }
+        setLoadError(`Couldn’t load orders (server error ${res.status}). Please retry.`)
+        return
+      }
+      setLoadError('')
       const d = await res.json()
       const next: Order[] = d.content || []
       const nextTotal: number = d.totalElements || 0
@@ -1340,9 +1354,13 @@ function OrdersContent() {
         setTotal(nextTotal)
         setPending(null)
       }
+    } catch (e) {
+      console.error('[orders] list fetch threw:', e instanceof Error ? e.message : e)
+      setLoadError('Couldn’t load orders — a network or server error occurred. Please retry.')
+    } finally {
+      if (background) setBackgroundRefreshing(false)
+      else setLoading(false)
     }
-    if (background) setBackgroundRefreshing(false)
-    else setLoading(false)
   }, [tab, page, size, statuses, sortField, sortDir, search, appliedFrom, appliedTo])
 
   // Load whenever any dependency in loadOrders changes (tab, page, sort, search, dates)
@@ -1563,12 +1581,14 @@ function OrdersContent() {
                   </tr>
                 ))}
                 {!loading && displayedOrders.length === 0 && (
-                  <tr><td colSpan={aggregating ? 10 : 9} style={{ padding: '32px', textAlign: 'center', color: '#aaa', fontSize: 13 }}>
-                    {aggregating
-                      ? 'No orders found across your locations.'
-                      : restaurantExists
-                        ? "No orders yet. Once customers place orders, they'll appear here."
-                        : 'No orders found.'}
+                  <tr><td colSpan={aggregating ? 10 : 9} style={{ padding: '32px', textAlign: 'center', color: loadError ? '#E53935' : '#aaa', fontSize: 13 }}>
+                    {loadError
+                      ? loadError
+                      : aggregating
+                        ? 'No orders found across your locations.'
+                        : restaurantExists
+                          ? "No orders yet. Once customers place orders, they'll appear here."
+                          : 'No orders found.'}
                   </td></tr>
                 )}
                 {displayedOrders.map(order => {

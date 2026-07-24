@@ -185,13 +185,16 @@ export async function GET(req: NextRequest) {
   const params: unknown[] = []
   const add = (clause: string, value: unknown) => { params.push(value); where.push(clause.replace('?', `$${params.length}`)) }
 
+  // NOTE: qualify restaurant_reference with the table name. The list query below
+  // joins disco_restaurant_cache (which also has a restaurant_reference column), so
+  // an unqualified reference here is ambiguous and makes the whole list query throw.
   if (scopeRef && UUID_RE.test(scopeRef)) {
-    add('restaurant_reference = ?::uuid', scopeRef)
+    add('disco_orders.restaurant_reference = ?::uuid', scopeRef)
   } else if (groupRefs) {
     // Disco SA aggregate — limit to the group's locations. An empty group still
     // adds an impossible-match clause so the SA never sees unrelated orders.
     const placeholders = groupRefs.map(r => { params.push(r); return `$${params.length}::uuid` })
-    where.push(placeholders.length ? `restaurant_reference IN (${placeholders.join(',')})` : 'false')
+    where.push(placeholders.length ? `disco_orders.restaurant_reference IN (${placeholders.join(',')})` : 'false')
   }
   if (statuses.length) {
     const placeholders = statuses.map(s => { params.push(s); return `$${params.length}` })
