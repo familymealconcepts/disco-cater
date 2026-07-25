@@ -60,6 +60,15 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     return { ok: false, status: 403, error: 'This restaurant is closed on the selected date.' }
   }
 
+  // 1P vs 3P attribution — the SAME signal the client sends the FM path
+  // (CheckoutDrawer sets 'FAMILYMEAL' for the /order/{slug} 1P Direct link, 'DISCO'
+  // for the /restaurants/{slug} marketplace link). Only an EXPLICIT 'FAMILYMEAL'
+  // suppresses the lead-gen fee; anything else (incl. an absent value) is treated
+  // as 'DISCO' — native's historical default, so a lost signal errs toward charging
+  // the marketplace fee rather than silently giving it away.
+  const sourceOfOrder: 'DISCO' | 'FAMILYMEAL' =
+    String(cd.sourceoforder ?? '').toUpperCase() === 'FAMILYMEAL' ? 'FAMILYMEAL' : 'DISCO'
+
   const orderTypeRaw = String(cd.orderType ?? (params.deliveryAddress ? 'DELIVERY' : 'PICKUP'))
   const tips = Number(cd.tips) || 0
   const tipsType = String(cd.tipsType ?? 'PERCENTAGE')
@@ -86,6 +95,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
 
   const input: NativePlaceInput = {
     restaurantReference: ref,
+    sourceOfOrder,
     customerEmail: params.customerEmail,
     customerFirstName: params.customerFirstName ?? undefined,
     customerLastName: params.customerLastName ?? undefined,

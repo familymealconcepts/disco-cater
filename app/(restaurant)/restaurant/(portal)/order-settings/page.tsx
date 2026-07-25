@@ -110,6 +110,11 @@ export default function OrderSettingsPage() {
   const [restaurant, setRestaurant] = useState<{ reference?: string; onlineOrderingAllowed?: boolean; businessNameWithoutSpaces?: string } | null>(null)
   const [stripeConnected, setStripeConnected] = useState(false)
   const [marketplaceVisible, setMarketplaceVisible] = useState(false)
+  // Canonical "Accept online orders" flag (disco_restaurant_overrides
+  // .online_ordering_enabled) — the SAME field the order gate + super-admin read.
+  // Previously this page read profile.onlineOrderingAllowed, which native
+  // restaurants never populate, so the checkbox was decoupled from reality.
+  const [onlineOrderingEnabled, setOnlineOrderingEnabled] = useState(false)
   const [notifications, setNotifications] = useState<Notifications | null>(null)
   const [feesAndTips, setFeesAndTips] = useState<FeesAndTips | null>(null)
   const [closedDays, setClosedDays] = useState<ClosedDay[]>([])
@@ -157,6 +162,12 @@ export default function OrderSettingsPage() {
       .then(r => r.ok ? r.json() : { visible: false })
       .then(d => setMarketplaceVisible(!!d.visible))
       .catch(() => {})
+    // Canonical online-ordering flag (default ON when unset, matching the order
+    // gate's COALESCE(online_ordering_enabled, true)).
+    fetch('/api/restaurant/disco-settings')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setOnlineOrderingEnabled(d?.settings?.online_ordering_enabled !== false))
+      .catch(() => {})
     setLoading(false)
   }, [])
 
@@ -180,6 +191,7 @@ export default function OrderSettingsPage() {
   async function toggleOnlineOrdering(val: boolean) {
     if (val && !stripeConnected) { showToast('Stripe must be connected to enable online ordering.'); return }
     await fetch(`/api/restaurant/online-ordering?onlineOrderingAllowed=${val}`, { method: 'PATCH' })
+    setOnlineOrderingEnabled(val)
     setRestaurant(prev => prev ? { ...prev, onlineOrderingAllowed: val } : prev)
     showToast('Saved')
   }
@@ -267,7 +279,7 @@ export default function OrderSettingsPage() {
       {/* Online Ordering */}
       <Section title="Online Ordering">
         <Row label="Accept online orders">
-          <Toggle checked={restaurant?.onlineOrderingAllowed ?? false} onChange={toggleOnlineOrdering} />
+          <Toggle checked={onlineOrderingEnabled} onChange={toggleOnlineOrdering} />
         </Row>
         {!stripeConnected && (
           <p style={{ fontSize: 12, color: '#E76F51', margin: 0 }}>Stripe must be connected in Banking to enable online ordering.</p>

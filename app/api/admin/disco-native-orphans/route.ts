@@ -32,7 +32,11 @@ export async function GET() {
                -- Neon-backed row toggles so they reflect persisted state on reload (S5)
                COALESCE(o.money_flow, 'DIRECT') AS "moneyFlow",
                COALESCE(o.nash_allowed, false) AS "nashAllowed",
-               COALESCE(o.shipday_enabled, false) AS "shipdayEnabled"
+               COALESCE(o.shipday_enabled, false) AS "shipdayEnabled",
+               -- Expose the marketplace + online-ordering flags directly so the admin
+               -- toggles have a source even if a per-row overrides lookup misses.
+               COALESCE(o.visible, false) AS "visible",
+               o.online_ordering_enabled AS "onlineOrderingEnabled"
         FROM disco_restaurant_accounts a
         LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference
         LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference

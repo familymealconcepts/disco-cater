@@ -157,6 +157,11 @@ export interface NativeOrderInput {
   scPct?: number
   tip: { custom: boolean; amount?: number; pct?: number }
   discountPct?: number
+  // Which entry URL the order came through. 'FAMILYMEAL' = 1P Direct link
+  // (discocater.com/order/{slug}) → NO lead-gen fee; 'DISCO' (default) = 3P
+  // marketplace link → lead-gen fee applies. Mirrors the FM path, which drops the
+  // lead-gen fee for FAMILYMEAL-sourced orders while still charging the 3% fee.
+  sourceOfOrder?: 'DISCO' | 'FAMILYMEAL'
 }
 
 export interface NativePricedOrder extends Breakdown {
@@ -172,7 +177,12 @@ export interface NativePricedOrder extends Breakdown {
 export async function priceNativeOrder(input: NativeOrderInput): Promise<NativePricedOrder> {
   const orderType = input.fulfillment === 'PICKUP' ? 'PICKUP' : 'DELIVERY'
   const { cfg, rates } = await loadNativePricingConfig(input.restaurantReference, { scPct: input.scPct, orderType })
-  const { pct: leadGenPct, priorOrders, tier } = await resolveNativeLeadGenPct(input.customerEmail, input.restaurantReference, rates)
+  const { pct: resolvedPct, priorOrders, tier } = await resolveNativeLeadGenPct(input.customerEmail, input.restaurantReference, rates)
+  // 1P Direct (FAMILYMEAL-sourced) orders did NOT come through the marketplace, so
+  // they incur NO lead-gen fee — matching the FM path. The 3% FamilyMeal fee
+  // (cfg.familyMealPct) is unaffected and still applies. Only marketplace (DISCO)
+  // orders pay lead-gen. The tier is still reported for the record, but the fee is 0.
+  const leadGenPct = input.sourceOfOrder === 'FAMILYMEAL' ? 0 : resolvedPct
   const order = routeFulfillment(input)
   const breakdown = computeBreakdown(order, { ...cfg, leadGenPct }, input.discountPct ?? 0)
   return { ...breakdown, leadGenPct, leadGenTier: tier, priorOrders, fulfillment: input.fulfillment }

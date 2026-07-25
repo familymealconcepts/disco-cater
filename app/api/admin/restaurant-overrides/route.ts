@@ -57,9 +57,14 @@ export async function GET(req: NextRequest) {
       `) as { email: string }[]
       const discoStripeEmails = discoRows.map((r) => r.email)
 
-      return NextResponse.json({
-        discoStripeEmails,
-        overrides: rows.map((r) => ({
+      type OverrideDto = {
+        restaurantReference: string; isPremium: boolean; visible: boolean; stripeConnected: boolean
+        stripeCheckedAt: string | null; orderUrl: string; onlineOrderingEnabled: boolean | null
+        menuUploadUrl: string | null; isLive: boolean; isDiscoNative: boolean; hasStripeAccount: boolean
+      }
+      const byRef = new Map<string, OverrideDto>()
+      for (const r of rows) {
+        byRef.set(r.restaurant_reference, {
           restaurantReference: r.restaurant_reference,
           isPremium: r.is_premium ?? false,
           visible: r.visible ?? false,
@@ -74,8 +79,48 @@ export async function GET(req: NextRequest) {
           isLive: r.is_live ?? false,
           isDiscoNative: r.is_disco_native ?? false,
           hasStripeAccount: r.has_stripe_account ?? false,
-        })),
-      })
+        })
+      }
+
+      // A Disco-native restaurant that carries a LEFTOVER FM reference appears in
+      // the admin list under that FM ref, but its real state lives on the NATIVE-ref
+      // overrides + cache rows. Overlay the native values onto the FM-ref key so the
+      // admin marketplace / online-ordering toggles reflect the restaurant's true
+      // native state — no data cleanup needed. Genuinely FM-backed restaurants have
+      // no such native account, so they're untouched. (Writes are remapped to the
+      // native ref in PATCH, keeping the two sides two-way synced.)
+      const nativeRows = (await sql`
+        SELECT a.fm_restaurant_reference AS fm_ref,
+               o.is_premium, o.visible, o.stripe_connected, o.stripe_checked_at, o.order_url,
+               o.online_ordering_enabled, c.menu_upload_url, c.is_live,
+               (a.stripe_account_id IS NOT NULL) AS has_stripe_account
+        FROM disco_restaurant_accounts a
+        JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference AND c.is_disco_native = true
+        LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference
+        WHERE a.is_disco_native = true AND a.fm_restaurant_reference IS NOT NULL
+      `) as {
+        fm_ref: string; is_premium: boolean | null; visible: boolean | null; stripe_connected: boolean | null
+        stripe_checked_at: string | null; order_url: string | null; online_ordering_enabled: boolean | null
+        menu_upload_url: string | null; is_live: boolean | null; has_stripe_account: boolean | null
+      }[]
+      for (const n of nativeRows) {
+        if (!n.fm_ref) continue
+        byRef.set(n.fm_ref, {
+          restaurantReference: n.fm_ref,
+          isPremium: n.is_premium ?? false,
+          visible: n.visible ?? false,
+          stripeConnected: n.stripe_connected ?? false,
+          stripeCheckedAt: n.stripe_checked_at,
+          orderUrl: n.order_url ?? '',
+          onlineOrderingEnabled: n.online_ordering_enabled,
+          menuUploadUrl: n.menu_upload_url ?? null,
+          isLive: n.is_live ?? false,
+          isDiscoNative: true,
+          hasStripeAccount: n.has_stripe_account ?? false,
+        })
+      }
+
+      return NextResponse.json({ discoStripeEmails, overrides: Array.from(byRef.values()) })
     }
 
     const rows = (await sql`
@@ -106,10 +151,23 @@ export async function PATCH(req: NextRequest) {
 
   try {
     const body = await req.json().catch(() => null)
-    const restaurantReference: string | undefined = body?.restaurantReference
+    let restaurantReference: string | undefined = body?.restaurantReference
     if (!restaurantReference) return NextResponse.json({ error: 'restaurantReference required' }, { status: 400 })
 
     await runMigrations()
+
+    // A Disco-native restaurant with a leftover FM reference is shown in the admin
+    // list under that FM ref, but its canonical overrides live on the NATIVE ref
+    // (what the restaurant portal + order gate read). Remap so every admin write
+    // below lands on the row that actually governs behavior — mirroring the GET
+    // overlay. Non-native / genuinely-FM restaurants: no match → no remap.
+    try {
+      const nr = (await sql`
+        SELECT restaurant_reference AS native_ref FROM disco_restaurant_accounts
+        WHERE is_disco_native = true AND fm_restaurant_reference = ${restaurantReference} LIMIT 1
+      `) as { native_ref: string }[]
+      if (nr[0]?.native_ref) restaurantReference = nr[0].native_ref
+    } catch { /* non-UUID / lookup miss → keep the original reference */ }
 
     // online_ordering_enabled — the canonical "Accept online orders" flag both the
     // restaurant portal (disco-settings / online-ordering) and the native order-gate

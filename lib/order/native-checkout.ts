@@ -34,6 +34,9 @@ export interface NativeCheckoutInput {
   thirdPartyDeliverySubsiding?: number // restaurant's subsidy share (off its payout)
   discountPct?: number
   scPct?: number
+  // 1P Direct URL ('FAMILYMEAL') vs 3P marketplace URL ('DISCO', default). Drives
+  // both source_of_order and lead-gen suppression (see priceNativeOrder).
+  sourceOfOrder?: 'DISCO' | 'FAMILYMEAL'
 }
 
 export interface NativePlaceInput extends NativeCheckoutInput {
@@ -150,6 +153,7 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
     scPct: input.scPct,
     tip: input.tip ?? { custom: false, pct: 0 },
     discountPct: input.discountPct,
+    sourceOfOrder: input.sourceOfOrder,
   })
   return { ...breakdown, subtotal }
 }
@@ -329,7 +333,7 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
       delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
       delivery_lat, delivery_lng, subtotal, total, fee, note, delivery_instructions, company_name, persons, created_at, updated_at
     ) VALUES (
-      ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, 'DISCO',
+      ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, ${input.sourceOfOrder ?? 'DISCO'},
       ${input.restaurantReference}::uuid, ${rName}, ${rAddr}, ${rPhone},
       ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
       ${input.orderDate}::date, ${input.orderTime}::time, ${deliveryTimeWindow}, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},
