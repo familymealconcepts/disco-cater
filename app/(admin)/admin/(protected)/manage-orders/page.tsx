@@ -512,13 +512,14 @@ function AdminOrdersContent() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
-  // Default to orderTime,ASC so the merged native + FM list opens in true
-  // chronological order BY PICKUP/DELIVERY DATE (the "Order Time" column) — NOT the
-  // placed/created date — soonest first. The "Order Time" column shows its sort
-  // arrow, and native + FM orders interleave purely by date with no native-first
-  // pinning (far-future native orders correctly sort to the BOTTOM, not the top).
-  // (The visible builder falls back to this if sort is ever cleared to null.)
-  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>({ key: 'orderTime', dir: 'asc' })
+  // Default to placed,desc (newest-created first). This is the original fix for the
+  // native-pinning bug: the API prepends all Disco-native rows onto page 0, but the
+  // client ALWAYS re-sorts the full merged native+FM set below, so native orders are
+  // never special-cased/pinned — they're just ordered by created date like the rest.
+  // Test 50's native orders sitting at the top is expected here: they were placed
+  // most recently, and placed,desc = newest first. The "Placed" column shows its sort
+  // arrow. (The visible builder falls back to this if sort is ever cleared to null.)
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>({ key: 'placed', dir: 'desc' })
 
   // Fetch ALL pages (capped at MAX_PAGES) so filters/sort run over everything.
   const load = useCallback(async () => {
@@ -611,11 +612,11 @@ function AdminOrdersContent() {
       matchesSource(o, sourceFilter) &&
       matchesSearch(o, searchInput),
     )
-    // Default (no column chosen): true chronological order by ORDER TIME (pickup/
-    // delivery date) across the FULL merged set — native + FM-backed together, sorted
-    // purely by date. The API prepends all Disco-native orders onto page 0, but this
-    // always re-sorts the full set, so native orders are never pinned above FM orders.
-    const active = sort ?? { key: 'orderTime' as SortKey, dir: 'asc' as const }
+    // Default (no column chosen): newest-created first (placed,desc) across the FULL
+    // merged set — native + FM-backed together. The API prepends all Disco-native
+    // orders onto page 0, but this ALWAYS re-sorts the full set, so native orders are
+    // never pinned above FM orders — they interleave purely by placed date.
+    const active = sort ?? { key: 'placed' as SortKey, dir: 'desc' as const }
     const mul = active.dir === 'asc' ? 1 : -1
     return [...filtered].sort((a, b) => {
       const va = orderSortValue(a, active.key)
