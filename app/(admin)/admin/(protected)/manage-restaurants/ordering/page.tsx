@@ -804,7 +804,7 @@ export default function RestaurantsOrderingPage() {
           </colgroup>
           <thead>
             <tr>
-              <th style={colHead} title="Show on Disco Cater map and marketplace">Disco Cater Marketplace</th>
+              <th style={colHead} title="Show on Disco Cater map and marketplace">Map</th>
               {sortTh('restaurant')}
               {sortTh('admin')}
               {sortTh('email')}
