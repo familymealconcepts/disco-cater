@@ -784,7 +784,24 @@ export default function RestaurantsOrderingPage() {
           pin against. minHeight:0 lets the flex child shrink so its own overflow
           scrolls instead of the page. */}
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'auto', flex: 1, minHeight: 0 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1500 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1630 }}>
+          {/* Fixed column proportions: narrow toggle column, wide Restaurant + Admin
+              (names/locations need room), everything else compact. Order matches the
+              <thead> below. */}
+          <colgroup>
+            <col style={{ width: 76 }} />{/* Disco Cater Marketplace */}
+            <col style={{ width: 320 }} />{/* Restaurant */}
+            <col style={{ width: 210 }} />{/* Admin */}
+            <col style={{ width: 190 }} />{/* Email */}
+            <col style={{ width: 112 }} />{/* Registration Date */}
+            <col style={{ width: 88 }} />{/* Checkout Page */}
+            <col style={{ width: 116 }} />{/* Stripe */}
+            <col style={{ width: 130 }} />{/* Online Ordering */}
+            <col style={{ width: 92 }} />{/* Third-Party Allowed */}
+            <col style={{ width: 92 }} />{/* Hold Payments */}
+            <col style={{ width: 82 }} />{/* Shipday */}
+            <col style={{ width: 132 }} />{/* Actions */}
+          </colgroup>
           <thead>
             <tr>
               <th style={colHead} title="Show on Disco Cater map and marketplace">Disco Cater Marketplace</th>
@@ -830,8 +847,8 @@ export default function RestaurantsOrderingPage() {
                   <td style={cell}>
                     <Toggle checked={!!overrideMap[r.reference]?.visible} onChange={() => requestVisibleToggle(r)} color="#1D9E75" />
                   </td>
-                  <td style={{ ...cell, fontWeight: 600 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <td style={{ ...cell, fontWeight: 600, wordBreak: 'break-word' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {r.businessName}
                       {r.discoOnly ? (
                         <span
@@ -864,8 +881,8 @@ export default function RestaurantsOrderingPage() {
                       </div>
                     )}
                   </td>
-                  <td style={{ ...cell, color: '#555' }}>{adminName || '—'}</td>
-                  <td style={{ ...cell, color: '#555' }}>{adminEmail}</td>
+                  <td style={{ ...cell, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={adminName || undefined}>{adminName || '—'}</td>
+                  <td style={{ ...cell, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={adminEmail || undefined}>{adminEmail}</td>
                   <td style={{ ...cell, color: '#666' }}>{fmtDate(r.createdDate)}</td>
                   {/* Checkout Page: the 1P direct ordering URL (/order/[slug]),
                       slug = FM businessNameWithoutSpaces lowercased. */}
@@ -1136,8 +1153,12 @@ function Kebab({ menuUrl, onResetPassword, onTransferSystemAdmin }: { menuUrl: s
   )
 }
 
-const colHead: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', padding: '12px 14px', textAlign: 'left', background: '#F7F8FC', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap', position: 'sticky', top: 0, zIndex: 2 }
-const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
+// Density-tuned: headers wrap (whiteSpace normal) so narrow columns can stay narrow
+// without their labels forcing extra width; tighter padding fits more rows.
+const colHead: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', padding: '8px 12px', textAlign: 'left', background: '#F7F8FC', borderBottom: '1px solid #f0f0f0', whiteSpace: 'normal', lineHeight: 1.25, position: 'sticky', top: 0, zIndex: 2 }
+// Tighter vertical padding + slightly smaller font → noticeably more rows on screen
+// while staying legible; toggles/buttons keep their own (larger) tap sizing.
+const cell: React.CSSProperties = { padding: '7px 12px', fontSize: 12.5, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
 const inputSt: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff' }
 const selectSt: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', background: '#fff' }
 const smallSelect: React.CSSProperties = { border: '1.5px solid #e0e0e0', borderRadius: 6, padding: '4px 8px', fontSize: 12, fontFamily: F, color: DARK, background: '#fff' }
