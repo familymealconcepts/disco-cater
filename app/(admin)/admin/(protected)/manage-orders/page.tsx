@@ -280,14 +280,22 @@ function customerName(o: Order) {
 }
 function fmtDate(d?: string) {
   if (!d) return ''
-  // Read the leading YYYY-MM-DD digits directly and format in UTC — never route
-  // through `new Date(d)` in the viewer's local zone. A bare "YYYY-MM-DD" (no
-  // offset) parses as UTC midnight per spec, so formatting it back in a
-  // UTC-negative timezone (any US zone) silently shows the day before the one
-  // actually stored. Same fix pattern as lib/order-edit.ts's fmtDateHuman/ae8bdf2.
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d)
-  if (!m) return d
-  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  // orderDate is a bare "YYYY-MM-DD" (no offset) — parses as UTC midnight per
+  // spec, so routing it through `new Date(d)` + local toLocaleDateString
+  // silently shows the day before the one actually stored, in any
+  // UTC-negative timezone. Read the digits directly and format in UTC instead.
+  // Same fix pattern as lib/order-edit.ts's fmtDateHuman/ae8bdf2.
+  // createdDate is a full datetime string (has a time component) — leave it on
+  // the original `new Date(d)` path unchanged; it isn't a bare date and isn't
+  // affected by this bug.
+  const bareDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d)
+  if (bareDate) {
+    return new Date(Date.UTC(+bareDate[1], +bareDate[2] - 1, +bareDate[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  }
+  try {
+    const dt = new Date(d)
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch { return d }
 }
 function fmtTime(t?: string) {
   if (!t) return ''
