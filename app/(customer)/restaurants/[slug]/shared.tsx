@@ -497,6 +497,16 @@ export async function RestaurantView({
   // availability calls in RestaurantClient are no-ops for these (the menu,
   // item names, descriptions and prices render correctly).
   const native = await loadDiscoNativeRestaurant(slug)
+  if (!native) {
+    // A disco-native restaurant that hasn't gone live yet (is_live = false) must
+    // never fall through to Sanity/FM below — that risks silently serving an
+    // unrelated restaurant that happens to share this slug (e.g. a
+    // become-a-partner shadow FM record), instead of a clear "not available".
+    const notLiveNative = (await withDiscoTables(() => sql`
+      SELECT 1 FROM disco_restaurant_cache WHERE slug = ${slug} AND is_disco_native = true LIMIT 1
+    `, runMigrations).catch(() => [])) as unknown[]
+    if (notLiveNative.length > 0) return notFound()
+  }
   if (native) {
     return (
       <>

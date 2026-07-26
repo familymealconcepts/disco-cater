@@ -53,6 +53,25 @@ export interface ConversionReadiness {
   ready: boolean               // all BLOCKING steps pass
 }
 
+// The admin restaurant list is a pure FM passthrough (app/api/admin/restaurants),
+// so the Edit Restaurant dialog always opens with the restaurant's FM reference —
+// never its native one. Resolve that to the canonical native restaurant_reference
+// via disco_restaurant_accounts (populated for every native signup, including
+// become-a-partner's shadow FM record) BEFORE reading is_disco_native, so a stale
+// disco_restaurant_cache row left keyed under the FM reference (e.g. from the daily
+// FM-mirror cron re-upserting under r.reference) can never be mistaken for the
+// restaurant's real native status. Falls back to the input ref unchanged when no
+// account mapping exists — i.e. a restaurant that was never linked to a Disco
+// account, where ref already IS the only reference that matters.
+async function resolveNativeRef(ref: string): Promise<string> {
+  const rows = (await sql`
+    SELECT restaurant_reference FROM disco_restaurant_accounts
+    WHERE restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref}
+  `.catch(() => [])) as { restaurant_reference: string | null }[]
+  if (rows.some(r => r.restaurant_reference === ref)) return ref
+  return rows[0]?.restaurant_reference || ref
+}
+
 // Resolve the connected-account id Disco has stored for this restaurant (native or
 // the FM bridge), preferring a completed one.
 async function storedAccountId(ref: string): Promise<string | null> {
@@ -68,8 +87,10 @@ async function storedAccountId(ref: string): Promise<string | null> {
 export async function checkConversionReadiness(ref: string, opts?: { stripe?: Stripe }): Promise<ConversionReadiness> {
   await runMigrations()
 
+  const nativeRef = await resolveNativeRef(ref)
+
   const cache = (await sql`
-    SELECT name, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
+    SELECT name, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${nativeRef} LIMIT 1
   `) as { name: string | null; is_disco_native: boolean | null }[]
   const found = cache.length > 0
   const isDiscoNative = cache[0]?.is_disco_native === true
@@ -78,13 +99,13 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
   // primary visible menu). restaurant_reference is UUID on disco_menus.
   const menu = (await sql`
     SELECT COUNT(*)::int AS n FROM disco_menus
-    WHERE restaurant_reference = ${ref}::uuid AND visible = true AND archived = false
+    WHERE restaurant_reference = ${nativeRef}::uuid AND visible = true AND archived = false
   `.catch(() => [{ n: 0 }])) as { n: number }[]
   const hasMenu = (menu[0]?.n ?? 0) > 0
 
   // Stripe (reuse model): LIVE-verify the stored connected account. Reusable →
   // zero onboarding. Not charge-capable → onboarding fallback. No account → not linked.
-  const acctId = await storedAccountId(ref)
+  const acctId = await storedAccountId(nativeRef)
   let stripeMode: StripeMode = 'not-linked'
   let stripeDetail = 'No Stripe account linked — run the account-id import (reuse) or onboard.'
   if (acctId) {
@@ -99,18 +120,18 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
   // Settings: an overrides row with tax rates mirrored and online ordering not off.
   const ov = (await sql`
     SELECT tax_rates, online_ordering_enabled FROM disco_restaurant_overrides
-    WHERE restaurant_reference = ${ref} LIMIT 1
+    WHERE restaurant_reference = ${nativeRef} LIMIT 1
   `.catch(() => [])) as { tax_rates: unknown; online_ordering_enabled: boolean | null }[]
   const settingsOk = !!ov[0]?.tax_rates && ov[0]?.online_ordering_enabled !== false
 
   // Orders already mirrored (advisory — a final sync is recommended before flip).
   const orders = (await sql`
-    SELECT COUNT(*)::int AS n FROM disco_orders WHERE restaurant_reference = ${ref}::uuid
+    SELECT COUNT(*)::int AS n FROM disco_orders WHERE restaurant_reference = ${nativeRef}::uuid
   `.catch(() => [{ n: 0 }])) as { n: number }[]
   const ordersMirrored = orders[0]?.n ?? 0
 
   // M4 gate: would it stay visible under the native 3-part rule?
-  const mk = await checkMarketplaceReadiness(ref)
+  const mk = await checkMarketplaceReadiness(nativeRef)
   const marketplaceReady = mk.wouldBeVisibleAsNative === true
 
   const steps: ConversionStep[] = [
@@ -122,7 +143,7 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
   ]
 
   const ready = found && steps.filter(s => s.blocking).every(s => s.done)
-  return { restaurantReference: ref, found, isDiscoNative, stripeMode, steps, ordersMirrored, ready }
+  return { restaurantReference: nativeRef, found, isDiscoNative, stripeMode, steps, ordersMirrored, ready }
 }
 
 export interface ConversionResult {
@@ -150,7 +171,7 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
   if (!backfill.ok) {
     return { converted: false, reason: `FM order-history backfill failed (${backfill.error || 'unknown'}) — not converting; retry once FM is reachable.`, readiness }
   }
-  await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, cached_at = NOW() WHERE restaurant_reference = ${ref}`
+  await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, cached_at = NOW() WHERE restaurant_reference = ${readiness.restaurantReference}`
   return { converted: true, readiness: { ...readiness, isDiscoNative: true } }
 }
 
