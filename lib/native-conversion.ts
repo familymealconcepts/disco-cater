@@ -24,12 +24,14 @@ import { syncRestaurantOrders } from './fm-orders-sync'
 // carries over on conversion (countPriorPaidOrders counts these). Deep page cap so a
 // long-lived restaurant's full history is captured; the sync stops early on the last
 // page. Items skipped (order-level only) to keep it fast. Gated into convertToNative.
-export async function backfillFmOrderHistory(ref: string): Promise<{ ok: boolean; fetched: number; error?: string }> {
+export async function backfillFmOrderHistory(ref: string): Promise<{
+  ok: boolean; fetched: number; inserted: number; updated: number; skipped: number; error?: string
+}> {
   try {
     const r = await syncRestaurantOrders(ref, { withItems: false, pageSize: 100, maxPages: 500 })
-    return { ok: !r.error, fetched: r.fetched, error: r.error }
+    return { ok: !r.error, fetched: r.fetched, inserted: r.inserted, updated: r.updated, skipped: r.skipped, error: r.error }
   } catch (e) {
-    return { ok: false, fetched: 0, error: e instanceof Error ? e.message : String(e) }
+    return { ok: false, fetched: 0, inserted: 0, updated: 0, skipped: 0, error: e instanceof Error ? e.message : String(e) }
   }
 }
 

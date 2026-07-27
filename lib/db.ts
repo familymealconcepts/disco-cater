@@ -312,6 +312,24 @@ export async function runCustomerPaymentMethodMigrations(): Promise<void> {
   cardVaultMigrated = true
 }
 
+// ── FM full order-history backfill tracking ───────────────────────────────────
+// One-time fleet-wide backfill (app/api/admin/backfill-fm-history/route.ts):
+// tracks, per restaurant, whether its complete FM order history has been pulled
+// (not just the incremental cron's bounded recent-orders slice). A NULL-flag
+// "cursor" rather than a numeric offset — resumable from any point regardless of
+// restaurant-list changes, and self-documents progress via a plain query.
+let fmHistoryBackfillMigrated = false
+export async function runFmHistoryBackfillMigrations(): Promise<void> {
+  if (fmHistoryBackfillMigrated) return
+  try {
+    await sql`ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS fm_history_backfilled_at TIMESTAMPTZ`
+    await sql`ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS fm_history_backfill_error TEXT`
+  } catch (e) {
+    console.error('[fm-history-backfill] migration warning:', e)
+  }
+  fmHistoryBackfillMigrated = true
+}
+
 // ── Disco-native order management schema ──────────────────────────────────────
 // Reads lib/migrations/001_disco_orders.sql and executes it against the Neon
 // DATABASE_URL. Idempotent (every statement is IF NOT EXISTS) and cached per
