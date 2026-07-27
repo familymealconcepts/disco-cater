@@ -90,12 +90,15 @@ export async function GET(req: NextRequest) {
 
   const native = await nativeSaleStats(toIso(fromDate), toIso(toDate), restaurantReference)
 
-  // FM has used two field names for third-party tips/delivery across API
-  // versions (thirdPartyX and the older doordashX) — normalize to the
-  // canonical name before adding native's contribution, so the page's
-  // `thirdPartyTipsOrdersSum ?? doordashTipsOrdersSum` fallback still sees a
-  // real combined number under the field it checks first.
-  const fmThirdPartyTips = n(data.thirdPartyTipsOrdersSum ?? data.doordashTipsOrdersSum)
+  // FM's actual field for third-party tips is `thirdPartyDeliveryTipsOrdersSum`
+  // — confirmed by diffing FM's raw response directly; both `thirdPartyTipsOrdersSum`
+  // and the older `doordashTipsOrdersSum` come back undefined from the live
+  // endpoint, which meant the Third-Party Tips card silently showed $0
+  // regardless of real activity. Kept as fallbacks in case FM's shape changes
+  // again, but the confirmed-correct field now takes priority. Delivery FEE
+  // (as opposed to tips) already came through correctly under
+  // `thirdPartyDeliveryFeeSum`, so that one is untouched.
+  const fmThirdPartyTips = n(data.thirdPartyDeliveryTipsOrdersSum ?? data.thirdPartyTipsOrdersSum ?? data.doordashTipsOrdersSum)
   const fmThirdPartyDelivery = n(data.thirdPartyDeliveryFeeSum ?? data.doordashDeliveryFeeSum)
 
   return NextResponse.json({
