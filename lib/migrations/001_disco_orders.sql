@@ -519,3 +519,18 @@ CREATE TABLE IF NOT EXISTS disco_order_item_addons (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_disco_order_item_addons_item ON disco_order_item_addons(order_item_id);
+
+-- order_number was UNIQUE fleet-wide, but FM only guarantees it unique PER
+-- RESTAURANT — two different restaurants can and do generate the same number
+-- (confirmed: small/simple numbering schemes colliding across restaurants).
+-- Every insert of a colliding order was silently dropped (upsertOne's insert
+-- try/catch, fm-orders-sync.ts), costing 295 real orders across two fleet-wide
+-- backfills before this was caught — see order-number-uniqueness-bug.md.
+-- Native-checkout order_number is unaffected (disco_native_order_seq already
+-- yields fleet-wide-unique values, a strictly stronger guarantee than this
+-- constraint requires) and nothing in the codebase looks up an order by
+-- order_number alone (always reference/fm_order_reference, or order_number
+-- text-matched within an already-restaurant-scoped query) — this is a pure
+-- schema fix, no application code depends on the old global uniqueness.
+ALTER TABLE disco_orders DROP CONSTRAINT IF EXISTS disco_orders_order_number_key;
+CREATE UNIQUE INDEX IF NOT EXISTS disco_orders_restaurant_order_number_uq ON disco_orders (restaurant_reference, order_number);
