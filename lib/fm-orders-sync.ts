@@ -301,10 +301,24 @@ async function fetchFmOrdersPage(restaurantReference: string, auth: Record<strin
 }
 
 // Sync one restaurant's FM orders into Neon. `maxPages` bounds the pull (most
-// recent first); `withItems` also pulls per-order line items (slower).
+// recent first, FM has no documented since-date filter on this endpoint so we
+// can't ask it to skip old pages directly); `withItems` also pulls per-order
+// line items (slower).
+//
+// `stopAtKnownDate: true` makes this a true incremental sync rather than a
+// fixed "always just the newest page" pull — the ~100-order ceiling bug this
+// replaced. Before paging, it reads the restaurant's current MAX(order_date)
+// among already-mirrored FM-origin rows (fm_order_reference IS NOT NULL) as a
+// high-water mark, then stops once an entire page's orders are all strictly
+// older than that mark — everything past that point is guaranteed already
+// covered by a prior sync. The boundary page itself is always fully
+// processed (not skipped), so same-day status changes and genuinely-new
+// same-day orders still get picked up. A restaurant with no prior mirrored
+// orders has no mark, so this option is a no-op for it (falls back to the
+// plain maxPages cap, same as a full backfill's first pass would).
 export async function syncRestaurantOrders(
   restaurantReference: string,
-  opts: { withItems?: boolean; pageSize?: number; maxPages?: number } = {},
+  opts: { withItems?: boolean; pageSize?: number; maxPages?: number; stopAtKnownDate?: boolean } = {},
 ): Promise<SyncResult> {
   const result: SyncResult = { restaurantReference, fetched: 0, inserted: 0, updated: 0, skipped: 0 }
   if (!isUuid(restaurantReference)) { result.error = 'restaurantReference is not a UUID'; return result }
@@ -316,14 +330,25 @@ export async function syncRestaurantOrders(
   let auth: Record<string, string>
   try { auth = await getFmServiceAuthHeader() } catch (e) { result.error = `service auth: ${e instanceof Error ? e.message : e}`; return result }
 
+  let highWaterMark: string | null = null
+  if (opts.stopAtKnownDate) {
+    const rows = (await sql`
+      SELECT MAX(order_date)::text AS max_date FROM disco_orders
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND fm_order_reference IS NOT NULL
+    `.catch(() => [])) as { max_date: string | null }[]
+    highWaterMark = rows[0]?.max_date || null
+  }
+
   for (let page = 0; page < maxPages; page++) {
     const orders = await fetchFmOrdersPage(restaurantReference, auth, page, pageSize)
     if (orders === null) { if (page === 0) result.error = 'FM orders fetch failed'; break }
     if (!orders.length) break
     result.fetched += orders.length
+    let oldestDateOnPage: string | null = null
     for (const raw of orders) {
       const norm = normalizeFmOrder(raw)
       if (!norm) { result.skipped++; continue }
+      if (norm.dateIso && (oldestDateOnPage === null || norm.dateIso < oldestDateOnPage)) oldestDateOnPage = norm.dateIso
       try {
         const outcome = await upsertOne(norm, restaurantReference, withItems)
         result[outcome]++
@@ -333,6 +358,7 @@ export async function syncRestaurantOrders(
       }
     }
     if (orders.length < pageSize) break // last page
+    if (highWaterMark && oldestDateOnPage && oldestDateOnPage < highWaterMark) break // reached already-synced territory
   }
   return result
 }
@@ -361,7 +387,7 @@ export async function syncOneFmOrder(fmRef: string, withItems = true): Promise<{
 // Sync many restaurants (super-admin / cron). Pulls candidate restaurant UUIDs
 // from the restaurant cache. Bounded by limit/offset for batching.
 export async function syncAllRestaurantOrders(
-  opts: { withItems?: boolean; limit?: number; offset?: number; maxPages?: number } = {},
+  opts: { withItems?: boolean; limit?: number; offset?: number; maxPages?: number; stopAtKnownDate?: boolean } = {},
 ): Promise<{ restaurants: number; results: SyncResult[] }> {
   const limit = Math.min(opts.limit ?? 50, 200)
   const offset = opts.offset ?? 0
@@ -373,7 +399,11 @@ export async function syncAllRestaurantOrders(
   const refs = rows.map(r => r.restaurant_reference).filter(isUuid)
   const results: SyncResult[] = []
   for (const ref of refs) {
-    results.push(await syncRestaurantOrders(ref, { withItems: opts.withItems ?? false, maxPages: opts.maxPages ?? 3 }))
+    results.push(await syncRestaurantOrders(ref, {
+      withItems: opts.withItems ?? false,
+      maxPages: opts.maxPages ?? 3,
+      stopAtKnownDate: opts.stopAtKnownDate,
+    }))
   }
   return { restaurants: refs.length, results }
 }

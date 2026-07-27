@@ -1,10 +1,20 @@
 // Cron: sync FM orders into Neon for restaurants whose portal is never opened.
 //
-// Runs every 15 minutes (see vercel.json). Restaurants only otherwise sync when
-// someone opens their orders page, so quiet locations would drift. This rotates
-// through the restaurant cache in bounded batches (a cursor in sync_state), so
-// every restaurant is reconciled over a full cycle without any single run
-// exceeding the function-duration limit.
+// Runs hourly (vercel.json: "0 * * * *" — this comment previously claimed
+// every 15 minutes; that was stale, fixed 2026-07-27). Restaurants only
+// otherwise sync when someone opens their orders page, so quiet locations
+// would drift. This rotates through the restaurant cache in bounded batches
+// (a cursor in fm_orders_sync_cursor), so every restaurant is reconciled over
+// a full cycle without any single run exceeding the function-duration limit.
+//
+// Incremental via stopAtKnownDate (lib/fm-orders-sync.ts): each restaurant's
+// pull stops once it reaches order dates already covered by a prior sync,
+// rather than always re-fetching only page 0 regardless of how much history
+// exists — the fixed "only ever the ~100 most recent orders" ceiling that
+// silently truncated every FM-backed restaurant's order history once it grew
+// past that count (see the one-time fleet-wide backfill at
+// app/api/admin/backfill-fm-history/route.ts, which corrected the existing
+// gap; this is what stops the gap from recurring).
 //
 // REQUIRED ENV: CRON_SECRET — Vercel Cron sends it as `Authorization: Bearer …`.
 
@@ -54,7 +64,12 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   try {
     await runMigrations()
     const offset = await readCursor()
-    const { restaurants, results } = await syncAllRestaurantOrders({ withItems: false, limit: BATCH, offset, maxPages: 1 })
+    // maxPages is a safety ceiling, not the normal stopping point — with
+    // stopAtKnownDate, a restaurant with nothing new since last sync stops
+    // after page 0 as before; this only pages further when a restaurant has
+    // genuinely accumulated more than a page's worth of orders since the last
+    // hourly pass.
+    const { restaurants, results } = await syncAllRestaurantOrders({ withItems: false, limit: BATCH, offset, maxPages: 10, stopAtKnownDate: true })
     // Advance the cursor; wrap to 0 when this batch was the tail.
     await writeCursor(restaurants < BATCH ? 0 : offset + BATCH)
 
