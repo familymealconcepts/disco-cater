@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql, runMigrations } from '../../../../lib/db'
+import { sql, runMigrations, runMenuDriftMigrations } from '../../../../lib/db'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 
 // Disco-owned per-restaurant overrides (Premium flag + order-URL) stored in Neon.
@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
 
   try {
     await runMigrations()
+    await runMenuDriftMigrations().catch(() => {})
 
     // No ref → return ALL overrides (used by the Ordering table to show per-row
     // Premium / visibility / Stripe status without one call per restaurant).
@@ -28,7 +29,8 @@ export async function GET(req: NextRequest) {
                c.is_live, c.is_disco_native,
                -- Disco-native restaurants connect Stripe via disco_restaurant_accounts;
                -- expose whether a Stripe account exists as a connection fallback.
-               (a.stripe_account_id IS NOT NULL) AS has_stripe_account
+               (a.stripe_account_id IS NOT NULL) AS has_stripe_account,
+               d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details
         FROM disco_restaurant_overrides o
         FULL OUTER JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
         LEFT JOIN LATERAL (
@@ -38,11 +40,13 @@ export async function GET(req: NextRequest) {
             AND a2.stripe_account_id IS NOT NULL
           LIMIT 1
         ) a ON true
+        LEFT JOIN disco_menu_drift_snapshots d ON d.restaurant_reference::text = COALESCE(o.restaurant_reference, c.restaurant_reference)
       `) as {
         restaurant_reference: string; is_premium: boolean | null; visible: boolean | null
         stripe_connected: boolean | null; stripe_checked_at: string | null
         order_url: string | null; online_ordering_enabled: boolean | null; menu_upload_url: string | null
         is_live: boolean | null; is_disco_native: boolean | null; has_stripe_account: boolean | null
+        menu_drift_detected: boolean | null; menu_drift_details: unknown | null
       }[]
 
       // Disco-native restaurants connect Stripe under their Disco reference, which
@@ -61,6 +65,7 @@ export async function GET(req: NextRequest) {
         restaurantReference: string; isPremium: boolean; visible: boolean; stripeConnected: boolean
         stripeCheckedAt: string | null; orderUrl: string; onlineOrderingEnabled: boolean | null
         menuUploadUrl: string | null; isLive: boolean; isDiscoNative: boolean; hasStripeAccount: boolean
+        menuDriftDetected: boolean; menuDriftDetails: unknown[]
       }
       const byRef = new Map<string, OverrideDto>()
       for (const r of rows) {
@@ -79,6 +84,8 @@ export async function GET(req: NextRequest) {
           isLive: r.is_live ?? false,
           isDiscoNative: r.is_disco_native ?? false,
           hasStripeAccount: r.has_stripe_account ?? false,
+          menuDriftDetected: r.menu_drift_detected ?? false,
+          menuDriftDetails: (r.menu_drift_details as unknown[]) ?? [],
         })
       }
 
@@ -93,15 +100,18 @@ export async function GET(req: NextRequest) {
         SELECT a.fm_restaurant_reference AS fm_ref,
                o.is_premium, o.visible, o.stripe_connected, o.stripe_checked_at, o.order_url,
                o.online_ordering_enabled, c.menu_upload_url, c.is_live,
-               (a.stripe_account_id IS NOT NULL) AS has_stripe_account
+               (a.stripe_account_id IS NOT NULL) AS has_stripe_account,
+               d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details
         FROM disco_restaurant_accounts a
         JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference AND c.is_disco_native = true
         LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference
+        LEFT JOIN disco_menu_drift_snapshots d ON d.restaurant_reference::text = a.restaurant_reference
         WHERE a.is_disco_native = true AND a.fm_restaurant_reference IS NOT NULL
       `) as {
         fm_ref: string; is_premium: boolean | null; visible: boolean | null; stripe_connected: boolean | null
         stripe_checked_at: string | null; order_url: string | null; online_ordering_enabled: boolean | null
         menu_upload_url: string | null; is_live: boolean | null; has_stripe_account: boolean | null
+        menu_drift_detected: boolean | null; menu_drift_details: unknown | null
       }[]
       for (const n of nativeRows) {
         if (!n.fm_ref) continue
@@ -117,6 +127,8 @@ export async function GET(req: NextRequest) {
           isLive: n.is_live ?? false,
           isDiscoNative: true,
           hasStripeAccount: n.has_stripe_account ?? false,
+          menuDriftDetected: n.menu_drift_detected ?? false,
+          menuDriftDetails: (n.menu_drift_details as unknown[]) ?? [],
         })
       }
 

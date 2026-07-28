@@ -68,6 +68,10 @@ interface OverrideMeta {
   // null = no explicit value stored (unset). This is what the restaurant portal
   // reads/writes — the super admin now reads/writes the same field.
   onlineOrderingEnabled: boolean | null
+  // FM-side menu drift (disco_menu_drift_snapshots) — set for Disco-native
+  // restaurants whose FM menu has changed since the last import/verification.
+  menuDriftDetected: boolean
+  menuDriftDetails: { type: string; reference: string; name: string; before?: string | number; after?: string | number }[]
 }
 
 function fmtDate(d?: string) {
@@ -536,6 +540,7 @@ export default function RestaurantsOrderingPage() {
         visible?: boolean; isPremium?: boolean; orderUrl?: string; menuUploadUrl?: string | null
         isLive?: boolean; isDiscoNative?: boolean; hasStripeAccount?: boolean
         onlineOrderingEnabled?: boolean | null
+        menuDriftDetected?: boolean; menuDriftDetails?: OverrideMeta['menuDriftDetails']
       }[]) {
         sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt, hasStripeAccount: !!o.hasStripeAccount }
         oMap[o.restaurantReference] = {
@@ -543,6 +548,7 @@ export default function RestaurantsOrderingPage() {
           orderUrl: o.orderUrl || '', menuUploadUrl: o.menuUploadUrl ?? null,
           isLive: !!o.isLive, isDiscoNative: !!o.isDiscoNative,
           onlineOrderingEnabled: o.onlineOrderingEnabled ?? null,
+          menuDriftDetected: !!o.menuDriftDetected, menuDriftDetails: o.menuDriftDetails ?? [],
         }
       }
       setStripeMap(sMap)
@@ -840,6 +846,7 @@ export default function RestaurantsOrderingPage() {
                 hasCompletedNativeStripeAccount: false,
               }) : null
               const dropOff = readiness?.wouldDropOff ? readiness : null
+              const drift = ov?.isDiscoNative && ov.menuDriftDetected ? ov.menuDriftDetails : null
               return (
                 <tr key={r._rowId}>
                   {/* Disco Cater Marketplace: the single Disco-native map/marketplace
@@ -876,6 +883,26 @@ export default function RestaurantsOrderingPage() {
                             {dropOff.blockers[0]?.code === 'online-ordering-off' ? 'Online ordering is off — enable it first.'
                               : dropOff.blockers[0]?.code === 'stripe-not-connected' ? 'Stripe not connected for a native account.'
                               : 'Marketplace visibility is off.'}
+                          </span>
+                        </span>
+                      </div>
+                    )}
+                    {drift && (
+                      <div
+                        title={drift.map(d => {
+                          if (d.type === 'price_changed') return `• ${d.name}: price $${d.before} → $${d.after} on FM`
+                          if (d.type === 'category_changed') return `• ${d.name}: category "${d.before}" → "${d.after}" on FM`
+                          if (d.type === 'renamed') return `• renamed "${d.before}" → "${d.after}" on FM`
+                          if (d.type === 'added') return `• "${d.name}" added on FM — not in the native menu`
+                          return `• "${d.name}" removed on FM — still in the native menu`
+                        }).join('\n')}
+                        style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 5, marginTop: 5, maxWidth: 260, fontSize: 10.5, fontWeight: 600, lineHeight: 1.35, color: '#B45309', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 5, padding: '3px 7px' }}
+                      >
+                        <span style={{ flexShrink: 0 }}>⚠</span>
+                        <span>
+                          FM menu changed since import
+                          <span style={{ display: 'block', fontWeight: 400, marginTop: 1 }}>
+                            {drift.length} item{drift.length === 1 ? '' : 's'} differ from the native menu — hover for details
                           </span>
                         </span>
                       </div>

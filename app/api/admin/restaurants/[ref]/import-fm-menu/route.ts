@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { importFmMenuFaithfully } from '../../../../../../lib/menu-import/fm-faithful-import'
+import { setMenuDriftBaseline } from '../../../../../../lib/menu-drift'
 
 // M3 faithful importer (super-admin): pull a restaurant's REAL FM menu — items,
 // modifiers (with real prices + min/max rules), and operational settings (service
@@ -18,7 +19,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   let body: { targetRef?: unknown } = {}
   try { body = await req.json() } catch { /* optional */ }
   try {
-    const summary = await importFmMenuFaithfully(ref, { targetRef: body?.targetRef ? String(body.targetRef) : undefined })
+    const targetRef = body?.targetRef ? String(body.targetRef) : ref
+    const summary = await importFmMenuFaithfully(ref, { targetRef })
+    // Establish the menu-drift baseline at the moment we last trusted FM's menu
+    // (this import) — best-effort, never blocks the import response on it.
+    if (!summary.error) {
+      await setMenuDriftBaseline(targetRef, ref).catch((e) =>
+        console.error('[import-fm-menu] drift baseline capture failed:', e instanceof Error ? e.message : e))
+    }
     return NextResponse.json(summary, { status: summary.error ? 502 : 200 })
   } catch (e) {
     console.error('[import-fm-menu] failed:', e instanceof Error ? e.message : e)

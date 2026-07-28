@@ -138,6 +138,14 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
   const [convMsg, setConvMsg] = useState('')
   const [convErr, setConvErr] = useState('')
 
+  // FM menu-drift status (Task: menu drift visibility) — shown for Disco-native
+  // restaurants only. Read-only status + an on-demand "check now" / "re-baseline".
+  interface DriftDetail { type: string; reference: string; name: string; before?: string | number; after?: string | number }
+  const [drift, setDrift] = useState<null | { hasBaseline: boolean; hasDrift: boolean; details: DriftDetail[]; lastCheckedAt: string | null; baselineCapturedAt: string | null }>(null)
+  const [driftBusy, setDriftBusy] = useState(false)
+  const [driftMsg, setDriftMsg] = useState('')
+  const [driftErr, setDriftErr] = useState('')
+
   // Google Places description fetch.
   const [fetchingDesc, setFetchingDesc] = useState(false)
   const [descError, setDescError] = useState('')
@@ -281,6 +289,51 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
       setConvErr(e instanceof Error ? e.message : 'Conversion failed')
     } finally {
       setConvBusy(false)
+    }
+  }
+
+  // Load the stored FM menu-drift status (cheap — no FM call). No-op for
+  // non-native restaurants (the route just returns hasBaseline: false).
+  const loadDrift = useCallback(() => {
+    fetch(`/api/admin/restaurants/${restaurantRef}/menu-drift`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && !d.error) setDrift(d) })
+      .catch(() => {})
+  }, [restaurantRef])
+  useEffect(() => { loadDrift() }, [loadDrift])
+
+  async function checkMenuDriftNow() {
+    setDriftBusy(true); setDriftErr(''); setDriftMsg('')
+    try {
+      const res = await fetch(`/api/admin/restaurants/${restaurantRef}/menu-drift`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+      })
+      const d = await res.json().catch(() => null)
+      if (!res.ok || !d?.checked) throw new Error(d?.error || 'Drift check failed')
+      setDrift({ hasBaseline: true, hasDrift: d.hasDrift, details: d.details || [], lastCheckedAt: new Date().toISOString(), baselineCapturedAt: d.baselineCapturedAt })
+      setDriftMsg(d.hasDrift ? `${d.details.length} change(s) found.` : 'No changes — FM menu matches the native menu.')
+    } catch (e) {
+      setDriftErr(e instanceof Error ? e.message : 'Drift check failed')
+    } finally {
+      setDriftBusy(false)
+    }
+  }
+
+  async function reBaselineMenuDrift() {
+    if (typeof window !== 'undefined' && !window.confirm("Re-baseline against FM's current menu? This accepts the current FM state as the new normal — future checks compare against it, not today's changes.")) return
+    setDriftBusy(true); setDriftErr(''); setDriftMsg('')
+    try {
+      const res = await fetch(`/api/admin/restaurants/${restaurantRef}/menu-drift`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reset: true }),
+      })
+      const d = await res.json().catch(() => null)
+      if (!res.ok || !d?.ok) throw new Error(d?.error || 'Re-baseline failed')
+      setDrift({ hasBaseline: true, hasDrift: false, details: [], lastCheckedAt: new Date().toISOString(), baselineCapturedAt: new Date().toISOString() })
+      setDriftMsg('Re-baselined against current FM menu.')
+    } catch (e) {
+      setDriftErr(e instanceof Error ? e.message : 'Re-baseline failed')
+    } finally {
+      setDriftBusy(false)
     }
   }
 
@@ -604,6 +657,49 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                     </button>
                     {convMsg && <span style={{ fontSize: 12, fontWeight: 600, color: '#16A34A' }}>✓ {convMsg}</span>}
                     {convErr && <span style={{ fontSize: 12, color: '#DC2626' }}>{convErr}</span>}
+                  </div>
+                </div>
+              )}
+
+              {/* FM menu drift — Disco-native only. The native menu is a frozen
+                  snapshot with no ongoing sync; this surfaces FM-side edits made
+                  after conversion so an admin can decide whether to re-import. */}
+              {conv?.isDiscoNative && (
+                <div style={section}>
+                  <div style={sTitle}>FM Menu Drift</div>
+                  <p style={{ fontSize: 12, color: '#777', margin: '0 0 12px' }}>
+                    This restaurant&apos;s native menu was imported from FM and does not stay in sync — if staff keep editing prices or items on FM&apos;s side, it won&apos;t show up here automatically. A daily check compares FM&apos;s current menu against what was last imported/verified.
+                  </p>
+                  {drift?.hasDrift ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                      {drift.details.map((d, i) => (
+                        <div key={i} style={{ fontSize: 12.5, lineHeight: 1.4, color: '#B45309' }}>
+                          {d.type === 'price_changed' && <>Price changed: <strong>{d.name}</strong> ${d.before} → ${d.after}</>}
+                          {d.type === 'category_changed' && <>Category changed: <strong>{d.name}</strong> &quot;{d.before}&quot; → &quot;{d.after}&quot;</>}
+                          {d.type === 'renamed' && <>Renamed: &quot;{d.before}&quot; → &quot;{d.after}&quot;</>}
+                          {d.type === 'added' && <>Added on FM (not in native menu): <strong>{d.name}</strong></>}
+                          {d.type === 'removed' && <>Removed on FM (still in native menu): <strong>{d.name}</strong></>}
+                        </div>
+                      ))}
+                    </div>
+                  ) : drift?.hasBaseline ? (
+                    <div style={{ fontSize: 12.5, color: '#166534', marginBottom: 12 }}>✓ No drift detected{drift.lastCheckedAt ? ` — last checked ${new Date(drift.lastCheckedAt).toLocaleString()}` : ''}.</div>
+                  ) : (
+                    <div style={{ fontSize: 12.5, color: '#999', marginBottom: 12 }}>Not checked yet.</div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <button type="button" onClick={checkMenuDriftNow} disabled={driftBusy}
+                      style={{ background: '#333', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: driftBusy ? 'not-allowed' : 'pointer', fontFamily: F }}>
+                      {driftBusy ? 'Checking…' : 'Check for FM drift now'}
+                    </button>
+                    {drift?.hasDrift && (
+                      <button type="button" onClick={reBaselineMenuDrift} disabled={driftBusy}
+                        style={{ background: '#fff', color: '#555', border: '1.5px solid #ddd', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: driftBusy ? 'not-allowed' : 'pointer', fontFamily: F }}>
+                        Accept as new baseline
+                      </button>
+                    )}
+                    {driftMsg && <span style={{ fontSize: 12, fontWeight: 600, color: '#16A34A' }}>✓ {driftMsg}</span>}
+                    {driftErr && <span style={{ fontSize: 12, color: '#DC2626' }}>{driftErr}</span>}
                   </div>
                 </div>
               )}
