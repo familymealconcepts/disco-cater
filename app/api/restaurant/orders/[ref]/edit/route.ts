@@ -15,6 +15,11 @@ import {
   sendOrderEditPaymentRequired, sendOrderEditPendingRestaurant, type EditItem,
 } from '../../../../../../lib/email/notifications'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
+import { isDiscoNativeRestaurant, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
+import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, type RestaurantPayoutConfig } from '../../../../../../lib/order/native-payment'
+import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
+import { priceNativeOrderAtSubtotal, type Fulfillment, type FrozenEditContext } from '../../../../../../lib/pricing/native-order'
+import type { Breakdown } from '../../../../../../lib/promo-pricing'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -136,17 +141,82 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     return NextResponse.json({ error: 'New pickup must be at least 24 hours from now.' }, { status: 400 })
   }
 
-  // ── 2. RECALCULATE MONEY ────────────────────────────────────────────────────
-  // subtotal from items; fee = 3% of subtotal; taxes at the original tax rate;
-  // tip + delivery preserved from the original order.
-  const newSubtotal = round2(activeLines.reduce((a, l) => a + (Number(l.price) || 0) * (Number(l.quantity) || 0), 0))
-  const taxRate = base.taxRate
-  const newTaxes = round2(newSubtotal * taxRate)
-  const newFee = round2(newSubtotal * FEE_RATE)
-  const newTotal = round2(newSubtotal + newTaxes + newFee + base.tip + base.delivery)
-  const delta = round2(newTotal - base.total)
-
   const restaurantRef = base.restaurantRef || discoOrder?.restaurant_reference || ctx?.restaurantReference || ''
+  const isNative = restaurantRef ? await isDiscoNativeRestaurant(restaurantRef) : false
+
+  // ── 2. RECALCULATE MONEY ────────────────────────────────────────────────────
+  // Native orders: run the SAME cent-exact tiered engine placement uses (tax
+  // rates, lead-gen %, service charge, real Stripe fee) instead of a flat 3%,
+  // and derive the restaurant-payout delta (`nativeTransferDelta`) so the Stripe
+  // charge/refund below can route it through Connect. Non-native (FM-backed)
+  // orders keep the original flat-rate/blended-tax-rate math unchanged — this
+  // route's Stripe logic was never wired to FM's own PaymentIntents anyway.
+  const newSubtotal = round2(activeLines.reduce((a, l) => a + (Number(l.price) || 0) * (Number(l.quantity) || 0), 0))
+  let newTaxes: number, newFee: number, newTotal: number, delta: number
+  let nativeTransferDelta = 0
+  let nativeBreakdown: Breakdown | null = null
+  let nativePay: RestaurantPayoutConfig | null = null
+  let nativeCtx: FrozenEditContext | null = null
+  let nativeLeadGenTier: 1 | 2 | 0 = 0
+
+  if (isNative && discoOrder) {
+    const [delRows, origRows] = await Promise.all([
+      sql`SELECT delivery_type FROM disco_orders WHERE id = ${discoOrder.id} LIMIT 1`.catch(() => []),
+      sql`
+        SELECT subtotal, discount, own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding,
+               lead_gen_one_disco_fee, lead_gen_two_disco_fee
+        FROM disco_sale_transactions WHERE order_id = ${discoOrder.id} AND transaction_type = 'ORIGINAL' LIMIT 1
+      `.catch(() => []),
+    ]) as [
+      { delivery_type: string | null }[],
+      {
+        subtotal: string | number | null; discount: string | number | null
+        own_delivery_fee: string | number | null; third_party_delivery_fee: string | number | null
+        third_party_delivery_subsiding: string | number | null
+        lead_gen_one_disco_fee: string | number | null; lead_gen_two_disco_fee: string | number | null
+      }[],
+    ]
+    const deliveryType = delRows[0]?.delivery_type || null
+    const orig = origRows[0]
+    const fulfillment: Fulfillment = deliveryType === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : deliveryType === 'THIRD_PARTY_DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'
+    const origSubtotal = Number(orig?.subtotal) || 0
+    const origDiscount = Number(orig?.discount) || 0
+    const origBase = origSubtotal - origDiscount
+    const discountPct = origSubtotal > 0 ? (origDiscount / origSubtotal) * 100 : 0
+    const origLeadGenOne = Number(orig?.lead_gen_one_disco_fee) || 0
+    const origLeadGenTwo = Number(orig?.lead_gen_two_disco_fee) || 0
+    const leadGenAmt = origLeadGenOne + origLeadGenTwo
+    const leadGenPct = origBase > 0 ? (leadGenAmt / origBase) * 100 : 0
+    nativeLeadGenTier = origLeadGenOne > 0 ? 1 : origLeadGenTwo > 0 ? 2 : 0
+    const scPct = await loadRestaurantServiceChargePct(restaurantRef)
+    const editCtx: FrozenEditContext = {
+      fulfillment,
+      ownDeliveryFee: Number(orig?.own_delivery_fee) || 0,
+      thirdPartyDeliveryFee: Number(orig?.third_party_delivery_fee) || 0,
+      thirdPartyDeliverySubsiding: Number(orig?.third_party_delivery_subsiding) || 0,
+      tipDollars: Number(discoOrder.tips) || 0,
+      discountPct, leadGenPct, scPct,
+      orderType: base.orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP',
+    }
+    nativeCtx = editCtx
+    const oldB = await priceNativeOrderAtSubtotal(restaurantRef, base.subtotal, editCtx)
+    const newB = await priceNativeOrderAtSubtotal(restaurantRef, newSubtotal, editCtx)
+    newTaxes = round2(newB.stateTax + newB.localTax + newB.otherTax)
+    newFee = newB.familyMealFee
+    newTotal = newB.total
+    delta = round2(newB.total - oldB.total)
+    nativeTransferDelta = round2(newB.transfer - oldB.transfer)
+    nativeBreakdown = newB
+    nativePay = await getRestaurantPayoutConfig(restaurantRef)
+  } else {
+    // subtotal from items; fee = 3% of subtotal; taxes at the original tax rate;
+    // tip + delivery preserved from the original order.
+    const taxRate = base.taxRate
+    newTaxes = round2(newSubtotal * taxRate)
+    newFee = round2(newSubtotal * FEE_RATE)
+    newTotal = round2(newSubtotal + newTaxes + newFee + base.tip + base.delivery)
+    delta = round2(newTotal - base.total)
+  }
   const customerEmail = base.customerEmail || discoOrder?.customer_email || ''
   const firstName = base.firstName || discoOrder?.customer_first_name || ''
   const businessName = base.restaurantName || discoOrder?.restaurant_name || 'the restaurant'
@@ -223,7 +293,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   }
 
   // Record the Stripe action in disco_stripe_payments (charges) + a
-  // disco_sale_transactions row (ADDITIONAL / REFUND).
+  // disco_sale_transactions row (ADDITIONAL / REFUND). For native orders this
+  // stores the full recalculated breakdown (service charge, Stripe fee, tax
+  // split, lead-gen by tier) instead of leaving those columns NULL, so
+  // downstream reporting/exports that sum them stay accurate for edited orders.
   async function recordStripe(): Promise<void> {
     if (!discoOrder || (paymentAction !== 'charge' && paymentAction !== 'refund')) return
     if (paymentAction === 'charge' && stripePaymentIntentId) {
@@ -233,10 +306,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         ON CONFLICT (stripe_payment_intent_id) DO NOTHING
       `.catch(e => console.error('[orders/edit] stripe_payments insert:', e))
     }
+    const b = nativeBreakdown
+    const ownDeliveryFee = b && nativeCtx?.fulfillment === 'OWN_DELIVERY' ? nativeCtx.ownDeliveryFee : null
+    const thirdPartyDeliveryFee = b && nativeCtx?.fulfillment === 'THIRD_PARTY_DELIVERY' ? nativeCtx.thirdPartyDeliveryFee : null
+    const thirdPartyDeliverySubsiding = b ? (nativeCtx?.thirdPartyDeliverySubsiding ?? null) : null
+    const leadGenOne = b ? (nativeLeadGenTier === 1 ? b.leadGen : 0) : null
+    const leadGenTwo = b ? (nativeLeadGenTier === 2 ? b.leadGen : 0) : null
     await sql`
-      INSERT INTO disco_sale_transactions (order_id, transaction_type, transaction_status, subtotal, total, fee, stripe_payment_intent_id, transaction_date, paid_at)
-      VALUES (${discoOrder.id}, ${paymentAction === 'charge' ? 'ADDITIONAL' : 'REFUND'}, 'PAID',
-              ${newSubtotal}, ${Math.abs(delta)}, ${newFee}, ${stripePaymentIntentId || null}, NOW()::date, NOW())
+      INSERT INTO disco_sale_transactions (
+        order_id, transaction_type, transaction_status, subtotal, total, fee, stripe_payment_intent_id, transaction_date, paid_at,
+        service_charge, stripe_fee, state_tax, local_tax, other_tax, tips_in_price, third_party_delivery_tips,
+        own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
+        lead_gen_one_disco_fee, lead_gen_two_disco_fee
+      ) VALUES (
+        ${discoOrder.id}, ${paymentAction === 'charge' ? 'ADDITIONAL' : 'REFUND'}, 'PAID',
+        ${newSubtotal}, ${Math.abs(delta)}, ${newFee}, ${stripePaymentIntentId || null}, NOW()::date, NOW(),
+        ${b?.serviceCharge ?? null}, ${b?.stripeFee ?? null}, ${b?.stateTax ?? null}, ${b?.localTax ?? null}, ${b?.otherTax ?? null},
+        ${b?.tipsInPrice ?? null}, ${b?.thirdPartyDeliveryTips ?? null},
+        ${ownDeliveryFee}, ${thirdPartyDeliveryFee}, ${thirdPartyDeliverySubsiding}, ${b?.discount ?? null},
+        ${leadGenOne}, ${leadGenTwo}
+      )
     `.catch(e => console.error('[orders/edit] sale_transactions insert:', e))
   }
 
@@ -316,9 +405,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         // invoices.create to auto-collect it left the invoice empty ($0.00) under
         // the pinned 2025-01-27 API. auto_advance is off during creation so the
         // draft can't finalize before the line item is attached.
+        // Native orders: stash the payout delta in metadata so the invoice.paid
+        // webhook can move the restaurant's share via a manual Connect transfer
+        // once the customer actually pays — mirrors placeNativeInvoiceOrder's
+        // M7 pattern (metadata carries the payout so the webhook never re-prices).
         const invoice = await stripe.invoices.create({
           customer: customerId, collection_method: 'send_invoice', days_until_due: 7, auto_advance: false,
-          metadata: { orderReference: discoOrder?.reference || ref, fmOrderReference: ref, orderNumber, kind: 'order_edit' },
+          metadata: {
+            orderReference: discoOrder?.reference || ref, fmOrderReference: ref, orderNumber, kind: 'order_edit',
+            ...(isNative && nativePay ? {
+              transferDollars: String(nativeTransferDelta),
+              connectedAccountId: nativePay.connectedAccountId ?? '',
+              withholdPayouts: nativePay.withholdPayouts ? '1' : '0',
+            } : {}),
+          },
         })
         await stripe.invoiceItems.create({
           customer: customerId, invoice: invoice.id, amount: deltaCents, currency: 'usd',
@@ -402,13 +502,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       // Charge the saved card; on success confirm, else fall back to an invoice.
       if (stripe && pmRow?.stripe_customer_id && pmRow?.stripe_payment_method_id) {
         try {
-          const pi = await stripe.paymentIntents.create({
-            amount: Math.round(delta * 100), currency: 'usd',
-            customer: pmRow.stripe_customer_id, payment_method: pmRow.stripe_payment_method_id,
-            off_session: true, confirm: true,
-            description: `Order #${orderNumber} update — additional amount`,
-            metadata: { orderReference: discoOrder?.reference || ref, fmOrderReference: ref, kind: 'order_edit' },
-          })
+          // Native: route the delta through Connect transfer_data (same helper
+          // placement uses) so the restaurant actually receives its share of an
+          // upsell instead of the whole delta landing on Disco's platform balance.
+          // Non-native (FM-backed): unchanged raw charge — this route's Stripe
+          // logic was never wired to FM's own PaymentIntents either way.
+          const pi = isNative && nativePay
+            ? await createNativeOrderPaymentIntent(stripe, {
+                totalDollars: delta,
+                transferDollars: nativeTransferDelta,
+                connectedAccountId: nativePay.connectedAccountId,
+                withholdPayouts: nativePay.withholdPayouts,
+                customerId: pmRow.stripe_customer_id,
+                paymentMethodId: pmRow.stripe_payment_method_id,
+                offSession: true, confirm: true, onBehalfOf: true,
+                description: `Order #${orderNumber} update — additional amount`,
+                metadata: { orderReference: discoOrder?.reference || ref, fmOrderReference: ref, kind: 'order_edit' },
+              })
+            : await stripe.paymentIntents.create({
+                amount: Math.round(delta * 100), currency: 'usd',
+                customer: pmRow.stripe_customer_id, payment_method: pmRow.stripe_payment_method_id,
+                off_session: true, confirm: true,
+                description: `Order #${orderNumber} update — additional amount`,
+                metadata: { orderReference: discoOrder?.reference || ref, fmOrderReference: ref, kind: 'order_edit' },
+              })
           if (pi.status === 'succeeded') {
             paymentAction = 'charge'; paymentStatus = 'succeeded'; stripePaymentIntentId = pi.id
             return await confirmEdit()
@@ -422,9 +539,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       return await goPending() // no card on file → invoice
     }
 
-    // delta < 0 → refund against the original payment intent.
+    // delta < 0 → refund against the original payment intent. Native: reuse
+    // refundNativeOrder (the same helper the dedicated full-refund routes use) so
+    // a transfer_data-backed charge gets reverse_transfer:true — the restaurant's
+    // payout shrinks proportionally instead of Disco absorbing the whole refund.
     paymentAction = 'refund'
-    if (stripe && originalPaymentIntentId) {
+    if (stripe && isNative && discoOrder) {
+      try {
+        // Pass the EXACT tiered-engine transfer delta rather than letting Stripe
+        // auto-compute a proportional reversal — verified empirically that the
+        // auto-proportional split under-reverses once Stripe's flat $0.30 fee is
+        // in the mix (it assumes the transfer scales linearly with the total).
+        const r = await refundNativeOrder(stripe, discoOrder.reference, Math.abs(delta), Math.abs(nativeTransferDelta))
+        stripeRefundId = r.refundId; paymentStatus = 'refunded'
+      } catch (e) {
+        console.error('[orders/edit] native refund failed:', e instanceof Error ? e.message : e)
+        paymentStatus = 'failed'
+      }
+    } else if (stripe && originalPaymentIntentId) {
       try {
         const refund = await stripe.refunds.create({ payment_intent: originalPaymentIntentId, amount: Math.round(Math.abs(delta) * 100) })
         stripeRefundId = refund.id; paymentStatus = 'refunded'

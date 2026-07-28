@@ -279,6 +279,37 @@ export async function POST(request: NextRequest) {
           invoiceId: invoice.id,
           paymentIntentId: editPiId,
         })
+
+        // Native order-edit invoice: move the restaurant's share of the delta via
+        // a manual Connect transfer, mirroring the native_order_invoice payout
+        // below — metadata was stashed at invoice-creation time (edit route) so
+        // this never re-prices. No-ops for FM-backed edits (no metadata present).
+        {
+          const transferDollars = Number(invoice.metadata?.transferDollars || 0)
+          const connectedAccountId = String(invoice.metadata?.connectedAccountId || '')
+          const withhold = invoice.metadata?.withholdPayouts === '1'
+          if (!withhold && connectedAccountId && transferDollars > 0) {
+            const invCharge = (invoice as unknown as { charge?: string | { id?: string } | null }).charge
+            const chargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
+            try {
+              // idempotencyKey → a webhook retry can't double-pay the restaurant.
+              await stripe.transfers.create({
+                amount: Math.round(transferDollars * 100),
+                currency: 'usd',
+                destination: connectedAccountId,
+                ...(chargeId ? { source_transaction: chargeId } : {}),
+                transfer_group: order.reference,
+                metadata: { orderReference: order.reference, kind: 'native_edit_payout' },
+              }, { idempotencyKey: `native-edit-invoice-transfer-${invoice.id}` })
+            } catch (e) {
+              console.error('[Webhook] order-edit invoice payout transfer failed:', e instanceof Error ? e.message : e)
+              await alertOps('order-edit invoice paid but payout transfer failed', {
+                invoiceId: invoice.id, orderReference: order.reference,
+                error: e instanceof Error ? e.message : String(e),
+              })
+            }
+          }
+        }
         break
       }
 

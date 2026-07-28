@@ -174,6 +174,44 @@ export interface NativePricedOrder extends Breakdown {
 // Full native price of an order: load config + resolve lead-gen from history +
 // route fulfillment + run the cent-exact engine. `total` is the customer charge,
 // `transfer` is the restaurant payout; Disco keeps `total − transfer`.
+export interface FrozenEditContext {
+  fulfillment: Fulfillment
+  ownDeliveryFee: number
+  thirdPartyDeliveryFee: number
+  thirdPartyDeliverySubsiding: number
+  tipDollars: number     // frozen dollar tip — an item edit doesn't rescale the tip
+  discountPct: number    // frozen % (derived from the order's original discount/subtotal)
+  leadGenPct: number     // frozen % — the tier already applied at placement, never re-derived
+  scPct: number
+  orderType: 'PICKUP' | 'DELIVERY'
+}
+
+// Re-price an already-placed native order at a NEW subtotal (an item edit),
+// holding everything that an item edit shouldn't touch fixed at what the order
+// already has (fulfillment, delivery fee, tip dollars, discount %, lead-gen
+// tier) — only the subtotal-derived pieces (tax, service charge, family-meal
+// fee, lead-gen $, transfer) move. Tax rates + service-charge % are read live
+// (current config), matching how a fresh order prices today. Call this once at
+// the order's current subtotal and once at the edited subtotal, then diff the
+// two breakdowns for the customer-charge delta and the restaurant-transfer delta.
+export async function priceNativeOrderAtSubtotal(
+  restaurantReference: string,
+  subtotal: number,
+  ctx: FrozenEditContext,
+): Promise<Breakdown> {
+  const { cfg } = await loadNativePricingConfig(restaurantReference, { scPct: ctx.scPct, orderType: ctx.orderType })
+  const deliveryFee = ctx.fulfillment === 'OWN_DELIVERY' ? ctx.ownDeliveryFee
+    : ctx.fulfillment === 'THIRD_PARTY_DELIVERY' ? ctx.thirdPartyDeliveryFee : 0
+  const order = routeFulfillment({
+    subtotal,
+    fulfillment: ctx.fulfillment,
+    deliveryFee,
+    thirdPartyDeliverySubsiding: ctx.thirdPartyDeliverySubsiding,
+    tip: { custom: true, amount: ctx.tipDollars },
+  })
+  return computeBreakdown(order, { ...cfg, leadGenPct: ctx.leadGenPct }, ctx.discountPct)
+}
+
 export async function priceNativeOrder(input: NativeOrderInput): Promise<NativePricedOrder> {
   const orderType = input.fulfillment === 'PICKUP' ? 'PICKUP' : 'DELIVERY'
   const { cfg, rates } = await loadNativePricingConfig(input.restaurantReference, { scPct: input.scPct, orderType })
