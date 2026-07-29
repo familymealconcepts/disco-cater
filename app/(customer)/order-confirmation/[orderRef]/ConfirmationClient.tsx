@@ -9,6 +9,13 @@ const BLUE = '#5B6FE8'
 const DARK = '#1A1028'
 
 function fmt$(n: number) { return `$${n.toFixed(2)}` }
+// Fixed-width right-aligned column for every dollar figure (item prices,
+// subtotal, taxes, fees, tips, total). A content-sized span shifts its right
+// edge with the text's own width (font-size/weight differ row to row: item
+// lines are 14px/600, totals are 13px/400, the grand total is 17px/800) — a
+// hard pixel width removes that variability so every amount's right edge
+// lands at the identical x position regardless of digit count or styling.
+const amountCol: React.CSSProperties = { display: 'inline-block', width: 90, textAlign: 'right', flexShrink: 0 }
 function fmtDate(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) } catch { return d }
 }
@@ -214,7 +221,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                             {quantity} × {fmt$(price)} each
                           </div>
                         </div>
-                        <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt$(lineTotal)}</span>
+                        <span style={{ ...amountCol, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt$(lineTotal)}</span>
                       </div>
                     )
                   })}
@@ -225,34 +232,34 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
               <div style={{ padding: '16px 20px', background: '#fafafa' }}>
                 {subtotal > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                    <span>Subtotal</span><span>{fmt$(subtotal)}</span>
+                    <span>Subtotal</span><span style={amountCol}>{fmt$(subtotal)}</span>
                   </div>
                 )}
                 {(tax > 0 || isTaxExempt) && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
                     <span>Taxes{isTaxExempt && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: '#16A34A' }}>Tax Exempt</span>}</span>
-                    <span>{fmt$(isTaxExempt ? 0 : tax)}</span>
+                    <span style={amountCol}>{fmt$(isTaxExempt ? 0 : tax)}</span>
                   </div>
                 )}
                 {platformFee > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                    <span>Platform Fee</span><span>{fmt$(platformFee)}</span>
+                    <span>Platform Fee</span><span style={amountCol}>{fmt$(platformFee)}</span>
                   </div>
                 )}
                 {deliveryFee > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                    <span>Delivery Fee</span><span>{fmt$(deliveryFee)}</span>
+                    <span>Delivery Fee</span><span style={amountCol}>{fmt$(deliveryFee)}</span>
                   </div>
                 )}
                 {tips > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                    <span>Tip</span><span>{fmt$(tips)}</span>
+                    <span>Tip</span><span style={amountCol}>{fmt$(tips)}</span>
                   </div>
                 )}
                 {promo && promo.discountApplied > 0 && (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: 13, color: '#1D9E75', fontWeight: 600 }}>
-                      <span>Discount ({promo.code})</span><span>−{fmt$(promo.discountApplied)}</span>
+                      <span>Discount ({promo.code})</span><span style={amountCol}>−{fmt$(promo.discountApplied)}</span>
                     </div>
                     <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>Credited back to your card after the order.</div>
                   </>
@@ -261,18 +268,18 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 {total > 0 && refund > 0 ? (
                   <div style={{ paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                      <span>Amount Charged</span><span>{fmt$(total)}</span>
+                      <span>Amount Charged</span><span style={amountCol}>{fmt$(total)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#E53935', fontWeight: 600 }}>
-                      <span>Refund</span><span>−{fmt$(refund)}</span>
+                      <span>Refund</span><span style={amountCol}>−{fmt$(refund)}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 2, borderTop: '1px solid #eee', fontSize: 17, fontWeight: 800, color: DARK }}>
-                      <span>Net Total</span><span>{fmt$(Math.max(0, total - refund))}</span>
+                      <span>Net Total</span><span style={amountCol}>{fmt$(Math.max(0, total - refund))}</span>
                     </div>
                   </div>
                 ) : total > 0 ? (
                   <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 10, marginTop: 6, borderTop: '1px solid #eee', fontSize: 17, fontWeight: 800, color: DARK }}>
-                    <span>Total</span><span>{fmt$(total)}</span>
+                    <span>Total</span><span style={amountCol}>{fmt$(total)}</span>
                   </div>
                 ) : null}
               </div>

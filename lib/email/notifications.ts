@@ -130,7 +130,13 @@ export type CustomerOrderReminderParams = BaseOrderParams & { to: string }
 // ── shared render fragments ──────────────────────────────────────────────────
 
 const cellLeft = 'style="padding:2px 8px 2px 0;word-wrap:break-word;max-width:360px;vertical-align:top;"'
-const cellRight = 'style="padding:2px 0;white-space:nowrap;vertical-align:top;"'
+// Fixed width + right-align so every dollar figure — item lines AND totals —
+// sits flush against the SAME column edge. renderLineItems() and renderTotals()
+// each render their own <table>, so without a shared fixed width the two
+// tables auto-size their amount column independently (and, without
+// text-align, an email client's default left-aligned <td> leaves the digits
+// ragged on the right instead of the left).
+const cellRight = 'style="padding:2px 0;white-space:nowrap;vertical-align:top;text-align:right;width:90px;"'
 
 // Line-item table: "(qty) name — $total", add-ons indented, optional comment.
 // Mirrors the orderMealPackages loop in user/restaurant-order-confirm.ftl.
@@ -162,7 +168,7 @@ function renderLineItems(packages: OrderMealPackage[]): string {
 // and delivery fee only when non-zero; promo shown as a negative).
 function renderTotals(p: BaseOrderParams): string {
   const row = (label: string, value: string, color?: string) =>
-    `<tr><td ${cellLeft}${color ? ` style="padding:2px 8px 2px 0;color:${color};"` : ''}>${label}</td><td ${cellRight}${color ? ` style="padding:2px 0;white-space:nowrap;color:${color};"` : ''}>&nbsp;${value}</td></tr>`
+    `<tr><td style="padding:2px 8px 2px 0;word-wrap:break-word;max-width:360px;vertical-align:top;${color ? `color:${color};` : ''}">${label}</td><td style="padding:2px 0;white-space:nowrap;vertical-align:top;text-align:right;width:90px;${color ? `color:${color};` : ''}">&nbsp;${value}</td></tr>`
   const rows: string[] = []
   if (p.subtotal != null) rows.push(row('Subtotal:', money(p.subtotal)))
   if (p.serviceCharge != null && p.serviceCharge > 0)
