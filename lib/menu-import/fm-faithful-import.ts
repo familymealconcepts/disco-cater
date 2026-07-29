@@ -180,7 +180,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
   const catCache = new Map<string, string>() // `${discoMenu}::${catName}` → cat ref
   let itemPos = 0
 
-  const ensureCat = async (discoMenu: string, catName: string): Promise<string> => {
+  const ensureCat = async (discoMenu: string, catName: string, catDescription: string | null = null): Promise<string> => {
     const catKey = `${discoMenu}::${catName}`
     const cached = catCache.get(catKey)
     if (cached) return cached
@@ -188,7 +188,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     let catRef = found[0]?.reference
     if (!catRef) {
       const cp = (await sql`SELECT COALESCE(MAX(position), -1) + 1 AS p FROM disco_menu_categories WHERE menu_reference = ${discoMenu}::uuid`) as { p: number }[]
-      const ci = (await sql`INSERT INTO disco_menu_categories (restaurant_reference, menu_reference, name, position) VALUES (${targetRef}::uuid, ${discoMenu}::uuid, ${catName}, ${cp[0]?.p ?? 0}) RETURNING reference`) as { reference: string }[]
+      const ci = (await sql`INSERT INTO disco_menu_categories (restaurant_reference, menu_reference, name, description, position) VALUES (${targetRef}::uuid, ${discoMenu}::uuid, ${catName}, ${catDescription}, ${cp[0]?.p ?? 0}) RETURNING reference`) as { reference: string }[]
       catRef = ci[0].reference
       summary.categories++
     }
@@ -226,7 +226,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     for (const c of cats) {
       const pkgs = arrOf(c.mealPackages)
       if (!pkgs.length) continue
-      const catRef = await ensureCat(discoMenu, str(c.name) || 'Menu')
+      const catRef = await ensureCat(discoMenu, str(c.name) || 'Menu', str(c.description).trim() || null)
       for (const pub of pkgs) {
         // Flat catalog fills the fields the public endpoint omits; public is the
         // menu-scoped truth for the rest (name/price/serves/extraItemsGroups).
@@ -246,8 +246,10 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     if (defaultMenu) {
       for (const it of fmItems) {
         const discoMenu = menuMap.get(str((it.menu as Record<string, unknown> | undefined)?.reference)) || defaultMenu
-        const catName = (typeof it.itemCategory === 'object' && it.itemCategory ? str((it.itemCategory as Record<string, unknown>).name) : str(it.itemCategory)) || 'Menu'
-        const catRef = await ensureCat(discoMenu, catName)
+        const catObj = typeof it.itemCategory === 'object' && it.itemCategory ? (it.itemCategory as Record<string, unknown>) : null
+        const catName = (catObj ? str(catObj.name) : str(it.itemCategory)) || 'Menu'
+        const catDescription = catObj ? (str(catObj.description).trim() || null) : null
+        const catRef = await ensureCat(discoMenu, catName, catDescription)
         await insertItem(it, catRef)
       }
     }
