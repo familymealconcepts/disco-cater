@@ -33,15 +33,24 @@ export async function GET(req: NextRequest) {
   const includeArchived = req.nextUrl.searchParams.get('includeArchived') === '1'
   try {
     await runDiscoMenuMigrations()
+    // item_count: items belong to a category, categories belong to a menu — no
+    // direct menu_reference on disco_menu_items, so count via that join.
     const menus = (await sql`
-      SELECT reference, restaurant_reference, name, url, type, description, image_url,
-             visible, archived, position, availability_mode,
-             to_char(start_date,'YYYY-MM-DD') AS start_date,
-             to_char(end_date,'YYYY-MM-DD') AS end_date,
-             schedule_config, created_at, updated_at
-      FROM disco_menus
-      WHERE restaurant_reference = ${ref}::uuid AND (${includeArchived} OR archived = false)
-      ORDER BY position, name
+      SELECT m.reference, m.restaurant_reference, m.name, m.url, m.type, m.description, m.image_url,
+             m.visible, m.archived, m.position, m.availability_mode,
+             to_char(m.start_date,'YYYY-MM-DD') AS start_date,
+             to_char(m.end_date,'YYYY-MM-DD') AS end_date,
+             m.schedule_config, m.created_at, m.updated_at,
+             COALESCE(ic.item_count, 0) AS item_count
+      FROM disco_menus m
+      LEFT JOIN (
+        SELECT c.menu_reference, COUNT(i.id) AS item_count
+        FROM disco_menu_categories c
+        JOIN disco_menu_items i ON i.category_reference = c.reference
+        GROUP BY c.menu_reference
+      ) ic ON ic.menu_reference = m.reference
+      WHERE m.restaurant_reference = ${ref}::uuid AND (${includeArchived} OR m.archived = false)
+      ORDER BY m.position, m.name
     `) as Record<string, unknown>[]
     return NextResponse.json({ menus })
   } catch (e) {

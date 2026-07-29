@@ -10,6 +10,7 @@ const RED = '#E53935'
 interface Menu {
   reference: string; name: string; url: string | null
   visible: boolean; archived: boolean; position: number; availability_mode: string
+  item_count?: number
 }
 
 export default function MenuManagerPage() {
@@ -53,6 +54,9 @@ export default function MenuManagerPage() {
   }
 
   const linkBtn: React.CSSProperties = { background: 'none', border: 'none', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0, color: BLUE }
+  // Same visual weight as the page-level "Create Menu" primary button, sized
+  // for an inline row rather than a page header.
+  const primaryBtn: React.CSSProperties = { background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: F }
   const arrow = (disabled: boolean): React.CSSProperties => ({ width: 22, height: 18, borderRadius: 5, border: '1px solid #e6e6ee', background: '#fff', cursor: disabled ? 'default' : 'pointer', color: disabled ? '#ccc' : '#777', fontSize: 9, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 })
 
   return (
@@ -94,13 +98,18 @@ export default function MenuManagerPage() {
                       : !m.visible && <span style={{ fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px' }}>HIDDEN</span>}
                   </div>
                   <div style={{ fontSize: 12, color: '#888', marginTop: 3 }}>
-                    {m.availability_mode === 'CUSTOM' ? 'Custom dates' : 'Always available'}
+                    {m.availability_mode === 'CUSTOM' ? 'Custom dates' : (() => {
+                      // Postgres COUNT() comes back as a string (bigint) via the
+                      // Neon driver — coerce before the singular/plural check.
+                      const n = Number(m.item_count) || 0
+                      return `${n} item${n === 1 ? '' : 's'}`
+                    })()}
                   </div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                {!m.archived && <button style={primaryBtn} onClick={() => router.push(`/restaurant/menu-manager/${m.reference}/edit`)}>Menu Settings</button>}
                 <button disabled={busy === m.reference} style={linkBtn} onClick={() => duplicate(m.reference)}>Duplicate</button>
-                {!m.archived && <button style={linkBtn} onClick={() => router.push(`/restaurant/menu-manager/${m.reference}/edit`)}>Settings</button>}
                 {m.archived
                   ? <button disabled={busy === m.reference} style={linkBtn} onClick={() => unarchive(m.reference)}>Restore</button>
                   : <button disabled={busy === m.reference} style={{ ...linkBtn, color: RED }} onClick={() => archive(m)}>Archive</button>}

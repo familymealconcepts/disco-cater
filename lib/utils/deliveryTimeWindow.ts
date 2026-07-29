@@ -4,11 +4,15 @@
 // FM's restaurant-level `deliveryOrderTimeWindows` setting (valid values:
 // 'exact' | '30_min' | '1_hour') controls how the order time is DISPLAYED for
 // DELIVERY orders: a range "start - (start + window)" instead of an exact time.
-// PICKUP orders, an 'exact'/absent window, or unparseable input always show the
-// exact start time. The stored order time is always the START time — the range
-// is display-only.
-
-const WINDOW_MINUTES: Record<string, number> = { '30_min': 30, '1_hour': 60 }
+// PICKUP orders always show the exact start time. The stored order time is
+// always the START time — the range is display-only.
+//
+// Default is '30_min': Disco doesn't yet have a UI to configure this
+// per-restaurant setting, so every delivery order's `windowKey` is unset today
+// — defaulting it to 'exact' (as before) meant delivery orders never actually
+// showed a range. An explicit 'exact' or '1_hour' windowKey (e.g. once synced
+// from FM) still overrides this default.
+const WINDOW_MINUTES: Record<string, number> = { exact: 0, '30_min': 30, '1_hour': 60 }
 
 function to12h(h: number, m: number): string {
   const ampm = h >= 12 ? 'PM' : 'AM'
@@ -26,7 +30,7 @@ export function formatTimeWindow(
   const [h, m] = String(startTime || '').split(':').map(Number)
   if (isNaN(h) || isNaN(m)) return String(startTime || '')
   const start = to12h(h, m)
-  const mins = isDelivery ? (WINDOW_MINUTES[String(windowKey || 'exact')] || 0) : 0
+  const mins = isDelivery ? (WINDOW_MINUTES[String(windowKey || '30_min')] ?? 30) : 0
   if (mins === 0) return start
   const total = h * 60 + m + mins
   const eh = Math.floor(total / 60) % 24

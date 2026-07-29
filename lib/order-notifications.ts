@@ -397,7 +397,7 @@ export async function dispatchOrderConfirmations(
         const customerName = [shared.firstName, shared.lastName].filter(Boolean).join(' ')
         // Link to the downloadable order PDF (matches FM's texts). UUID-gated route.
         const pdfLink = reference ? `discocater.com/api/order/${reference}/pdf` : ''
-        const smsBody = `New Disco Cater order! #${shared.orderNumber} — ${customerName} — ${shared.orderService} on ${shared.orderDate} at ${shared.orderTime} — $${totalPrice.toFixed(2)}.${pdfLink ? ` View/download PDF: ${pdfLink}` : ''} Log in: discocater.com/restaurant/orders`
+        const smsBody = `New Disco Cater order! #${shared.orderNumber} — ${customerName} — ${shared.orderService} on ${shared.orderDate} at ${shared.orderTime} — $${totalPrice.toFixed(2)}.${pdfLink ? ` View/download PDF: ${pdfLink}` : ''}`
         const sent = new Set<string>()
         for (const num of smsNumbers) {
           const to = toE164(num)

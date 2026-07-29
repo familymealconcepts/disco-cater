@@ -235,12 +235,12 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                     <span>Subtotal</span><span style={amountCol}>{fmt$(subtotal)}</span>
                   </div>
                 )}
-                {(tax > 0 || isTaxExempt) && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                    <span>Taxes{isTaxExempt && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: '#16A34A' }}>Tax Exempt</span>}</span>
-                    <span style={amountCol}>{fmt$(isTaxExempt ? 0 : tax)}</span>
-                  </div>
-                )}
+                {/* Taxes and Tip always show, even at $0 — customers expect to see
+                    these line items regardless of amount, not have them vanish. */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
+                  <span>Taxes{isTaxExempt && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: '#16A34A' }}>Tax Exempt</span>}</span>
+                  <span style={amountCol}>{fmt$(isTaxExempt ? 0 : tax)}</span>
+                </div>
                 {platformFee > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
                     <span>Platform Fee</span><span style={amountCol}>{fmt$(platformFee)}</span>
@@ -251,11 +251,9 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                     <span>Delivery Fee</span><span style={amountCol}>{fmt$(deliveryFee)}</span>
                   </div>
                 )}
-                {tips > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
-                    <span>Tip</span><span style={amountCol}>{fmt$(tips)}</span>
-                  </div>
-                )}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13, color: '#666' }}>
+                  <span>Tip</span><span style={amountCol}>{fmt$(tips)}</span>
+                </div>
                 {promo && promo.discountApplied > 0 && (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: 13, color: '#1D9E75', fontWeight: 600 }}>
