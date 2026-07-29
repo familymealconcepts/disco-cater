@@ -22,6 +22,7 @@ interface SanityDoc {
   name?: string
   slug?: string
   cuisine?: string
+  cuisines?: string[]
   description?: string
   image?: string
   lat?: number
@@ -42,7 +43,8 @@ export async function POST() {
       *[_type == "restaurant" && !(_id in path("drafts.**"))]{
         name,
         "slug": slug.current,
-        "cuisine": coalesce(cuisines[0], cuisine),
+        cuisine,
+        cuisines,
         description,
         "image": image.asset->url,
         lat,
@@ -78,7 +80,12 @@ export async function POST() {
       const fmRef = d.fmReference ? String(d.fmReference) : ''
       if (!slug && !fmRef) { skipped++; continue }
 
-      const cuisine = d.cuisine ? String(d.cuisine) : 'Other'
+      // Full cuisines[] array, comma-joined (matches the convention the admin
+      // restaurant-edit dialog already uses for disco_restaurant_cache.cuisine) —
+      // previously only cuisines[0] was copied, silently dropping tags 2 and 3.
+      const cuisine = Array.isArray(d.cuisines) && d.cuisines.length > 0
+        ? d.cuisines.join(', ')
+        : (d.cuisine ? String(d.cuisine) : 'Other')
       const description = d.description ? String(d.description) : null
       const imageUrl = d.image ? String(d.image) : null
 
