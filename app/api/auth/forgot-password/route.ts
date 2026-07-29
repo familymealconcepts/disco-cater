@@ -9,15 +9,28 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const SITE_URL = 'https://www.discocater.com'
 
 // Resolve a Disco-native restaurant account for this email, or null. Native accounts
-// live in disco_restaurant_accounts (is_disco_native=true) and log in against their
-// own password_hash — they have no FM record, so FM's reset can't help them. A
-// non-native email (customer, or FM-backed restaurant) returns null → FM path.
+// live in disco_restaurant_accounts and log in against their own password_hash —
+// they have no FM record, so FM's reset can't help them. A non-native email
+// (customer, or FM-backed restaurant) returns null → FM path.
+//
+// Checks disco_restaurant_cache.is_disco_native (the authoritative flag every
+// other native-routing check uses — see lib/order/native-checkout.ts's
+// isDiscoNativeRestaurant), NOT disco_restaurant_accounts.is_disco_native: the
+// latter is only ever set at account-row creation time (lib/native-conversion.ts)
+// and is never updated when an already-existing account's restaurant later
+// converts to native, so it silently goes stale. Confirmed for real: Concierge
+// Test (created via create-restaurant, converted afterward) plus 2 other
+// restaurants had cache.is_disco_native=true but accounts.is_disco_native still
+// false — "Forgot Password" for all three fell through to the legacy FM proxy
+// path (wrong branding, and FM's password doesn't even control Disco login for
+// a native restaurant) instead of ever generating a Disco reset token.
 async function findNativeAccount(email: string): Promise<{ email: string; first_name: string | null; restaurant_name: string | null } | null> {
   try {
     const rows = (await sql`
-      SELECT email, first_name, restaurant_name
-      FROM disco_restaurant_accounts
-      WHERE lower(email) = lower(${email}) AND is_disco_native = true AND password_hash IS NOT NULL
+      SELECT a.email, a.first_name, a.restaurant_name
+      FROM disco_restaurant_accounts a
+      JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference
+      WHERE lower(a.email) = lower(${email}) AND c.is_disco_native = true AND a.password_hash IS NOT NULL
       LIMIT 1
     `) as Array<{ email: string; first_name: string | null; restaurant_name: string | null }>
     return rows[0] ?? null
