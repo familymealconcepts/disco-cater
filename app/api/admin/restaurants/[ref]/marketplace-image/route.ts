@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@sanity/client'
 import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { sql } from '../../../../../../lib/db'
+import { fmImageUrl } from '../../../../../../lib/fm-image'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -12,23 +13,6 @@ const sanity = createClient({
   token: process.env.SANITY_TOKEN,
   useCdn: false,
 })
-
-// Pull a usable public image URL out of FM's upload response. FM stores images
-// as a reference (UUID), not a CDN URL — so we accept a direct http(s) URL if
-// present, otherwise build the public download URL from whatever reference the
-// response carries. Returns null when the response has neither (→ Sanity fallback).
-function fmImageUrl(d: unknown): string | null {
-  if (!d || typeof d !== 'object') return null
-  const o = d as Record<string, any>
-  for (const k of ['url', 'imageUrl', 'publicUrl', 'location']) {
-    const v = o[k]
-    if (typeof v === 'string' && /^https?:\/\//.test(v)) return v
-  }
-  const ref: unknown =
-    o.reference ?? o.image?.reference ?? o.marketplaceImage?.image?.reference ?? o.marketplaceImage?.reference
-  if (typeof ref === 'string' && ref) return `${FM}/public-api/images/${ref}/download?size=600`
-  return null
-}
 
 // Marketplace image upload (4:3). FM image.service.ts:68-69 —
 //   POST /api/marketplaces/{reference}/logo  (multipart FormData)

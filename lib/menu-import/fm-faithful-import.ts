@@ -27,6 +27,18 @@
 //                                                          by-reference variant, so a service-account
 //                                                          importer can never reach an arbitrary
 //                                                          restaurant's settings through it).
+//   • GET /api/admin/restaurants/{ref}                   → restaurant.image (logo) + .marketplaceImage
+//                                                          (hero). Both resolved to a direct, public,
+//                                                          by-reference download URL via fmImageUrl()
+//                                                          (../fm-image — the same helper the
+//                                                          marketplace-image admin upload route uses),
+//                                                          never re-hosted into Disco's own storage.
+//
+// Images are written ONLY when the target's icon_url/image_url are currently
+// null — never overwritten. A restaurant can already have a real, independently-
+// sourced image in Neon (e.g. uploaded directly through Disco's own portal,
+// predating any conversion) that has nothing to do with FM's version; this import
+// must never silently replace it.
 //
 // maxOrder is NOT auto-imported: FM's scheduleOption.maxOrder is per-15-minute-window
 // while Disco's max_orders_per_day is per-day (~96x different). It's left null
@@ -51,6 +63,7 @@
 import { sql, runDiscoMenuMigrations } from '../db'
 import { getFmServiceAuthHeader } from '../fm-service-auth'
 import { parseMenuSettingsInput, parseDeliverySettings } from '../menu-settings'
+import { fmImageUrl } from '../fm-image'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const arrOf = (d: unknown): Record<string, unknown>[] => {
@@ -156,6 +169,8 @@ export interface FaithfulImportSummary {
   pricedModifiers: number
   announcementImported: boolean
   deliveryWindowImported: boolean
+  iconUrlImported: boolean
+  imageUrlImported: boolean
   error?: string
 }
 
@@ -166,6 +181,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
   const summary: FaithfulImportSummary = {
     fmRef, targetRef, menus: 0, categories: 0, items: 0, groups: 0, modifiers: 0, itemGroupLinks: 0, pricedModifiers: 0,
     announcementImported: false, deliveryWindowImported: false,
+    iconUrlImported: false, imageUrlImported: false,
   }
   await runDiscoMenuMigrations()
   let auth: Record<string, string>
@@ -201,6 +217,34 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
         delivery_order_time_windows = EXCLUDED.delivery_order_time_windows,
         updated_at = NOW()
     `
+  }
+
+  // ── 0b) Restaurant images: logo (image) + marketplace/hero (marketplaceImage) ──
+  // Fill-blank-only: check the CURRENT value first and only write a field that's
+  // still null. Never overwrites an existing image, whatever its source — this is
+  // the whole point (a restaurant can already have a real, independently-uploaded
+  // image with nothing to do with FM's version).
+  const fmRestaurant = await fmGet(`/api/admin/restaurants/${fmRef}`, auth) as { image?: unknown; marketplaceImage?: unknown } | null
+  if (fmRestaurant) {
+    const fmIconUrl = fmImageUrl(fmRestaurant.image)
+    const fmImgUrl = fmImageUrl(fmRestaurant.marketplaceImage)
+    if (fmIconUrl || fmImgUrl) {
+      const current = (await sql`SELECT icon_url, image_url FROM disco_restaurant_cache WHERE restaurant_reference = ${targetRef}`) as { icon_url: string | null; image_url: string | null }[]
+      const row = current[0]
+      const setIcon = !!fmIconUrl && !row?.icon_url
+      const setImage = !!fmImgUrl && !row?.image_url
+      summary.iconUrlImported = setIcon
+      summary.imageUrlImported = setImage
+      if (setIcon || setImage) {
+        await sql`
+          UPDATE disco_restaurant_cache
+          SET icon_url = COALESCE(icon_url, ${fmIconUrl}),
+              image_url = COALESCE(image_url, ${fmImgUrl}),
+              cached_at = NOW()
+          WHERE restaurant_reference = ${targetRef}
+        `
+      }
+    }
   }
 
   // ── 1) Modifier library: groups (real min/max + external names) + modifiers (real prices) ──
