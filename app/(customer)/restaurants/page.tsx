@@ -1,5 +1,5 @@
-import { createClient } from '@sanity/client'
 import Link from 'next/link'
+import { sql, runMigrations, withDiscoTables } from '../../../lib/db'
 
 export const metadata = {
   title: 'All Restaurants — Disco Cater',
@@ -10,37 +10,45 @@ export const metadata = {
   },
 }
 
-const client = createClient({
-  projectId: process.env.NEXT_PUBLIC_SANITY_PROJECT_ID!,
-  dataset: process.env.NEXT_PUBLIC_SANITY_DATASET!,
-  apiVersion: '2024-01-01',
-  useCdn: true,
-})
-
 type Restaurant = {
-  _id: string
+  restaurant_reference: string
   name: string
-  slug: { current: string }
-  location: string
-  cuisine: string
-  description: string
-  orderUrl?: string
-  isDisco?: boolean
+  slug: string | null
+  location: string | null
+  cuisine: string | null
+  description: string | null
+  is_premium: boolean | null
 }
 
+// Same public-marketplace visibility rule as /api/restaurants (the fullmap
+// feed) and sitemap.ts — this page claims "every restaurant below is
+// available for catering orders," so it must only list restaurants that
+// actually are.
 async function getRestaurants(): Promise<Restaurant[]> {
-  return client.fetch(
-    `*[_type == "restaurant"] | order(location asc, name asc) {
-      _id,
-      name,
-      slug,
-      location,
-      cuisine,
-      description,
-      orderUrl,
-      isDisco
-    }`
-  )
+  return (await withDiscoTables(() => sql`
+    SELECT c.restaurant_reference, c.name, c.slug, c.location, c.cuisine, c.description, o.is_premium
+    FROM disco_restaurant_cache c
+    LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+    LEFT JOIN LATERAL (
+      SELECT a2.stripe_account_id, a2.stripe_onboarding_complete
+      FROM disco_restaurant_accounts a2
+      WHERE (a2.restaurant_reference = c.restaurant_reference OR a2.fm_restaurant_reference = c.restaurant_reference)
+        AND a2.stripe_account_id IS NOT NULL
+      ORDER BY a2.stripe_onboarding_complete DESC NULLS LAST, a2.id ASC
+      LIMIT 1
+    ) a ON true
+    WHERE (
+      (COALESCE(c.is_disco_native, false) = false
+        AND o.visible = true AND o.stripe_connected = true)
+      OR
+      (c.is_disco_native = true
+        AND o.visible = true
+        AND COALESCE(o.online_ordering_enabled, true) = true
+        AND (o.stripe_connected = true
+             OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
+    )
+    ORDER BY c.location ASC NULLS LAST, c.name ASC
+  `, runMigrations)) as Restaurant[]
 }
 
 function groupByLocation(restaurants: Restaurant[]): Record<string, Restaurant[]> {
@@ -88,7 +96,7 @@ export default async function RestaurantsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               {grouped[location].map((r, i) => (
                 <div
-                  key={r._id}
+                  key={r.restaurant_reference}
                   style={{
                     padding: '16px 0',
                     borderBottom: '1px solid #f5f5f5',
@@ -103,7 +111,7 @@ export default async function RestaurantsPage() {
                       <span style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>
                         {r.name}
                       </span>
-                      {r.isDisco && (
+                      {r.is_premium && (
                         <span style={{ fontSize: 11, fontWeight: 700, color: '#C044C8', background: 'rgba(192,68,200,0.08)', padding: '2px 8px', borderRadius: 10 }}>
                           Premium
                         </span>
@@ -118,15 +126,13 @@ export default async function RestaurantsPage() {
                       </p>
                     )}
                   </div>
-                  {r.orderUrl && (
-                    <a
-                      href={r.orderUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  {r.slug && (
+                    <Link
+                      href={`/restaurants/${r.slug}`}
                       style={{ fontSize: 13, fontWeight: 600, color: '#5B6FE8', textDecoration: 'none', whiteSpace: 'nowrap', paddingTop: 2 }}
                     >
                       Order →
-                    </a>
+                    </Link>
                   )}
                 </div>
               ))}
