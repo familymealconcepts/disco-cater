@@ -333,11 +333,22 @@ export default function CheckoutDrawer({
   // cleanup, or it would destroy the Element while createToken is reading it.
   const paymentActive = step === 'payment' || step === 'placing'
   useEffect(() => {
-    if (!paymentActive || !stripeKey || (savedCard && !useNewCard)) return
+    if (!paymentActive || !stripeKey) return
+    // Saved-card checkout never mounts the card-entry Elements (no fresh card to
+    // tokenize) but STILL needs stripeRef.current — confirmCardPayment() runs
+    // against it later to charge the vault PaymentMethod. Gating the whole
+    // effect on `!(savedCard && !useNewCard)` (as before) let the saved-card
+    // fetch (fast, local Neon) race ahead of the stripeKey fetch (proxies to
+    // FM's external API, slower) and permanently skip ever loading Stripe.js —
+    // confirmCardPayment then threw on a null ref, after the order + PaymentIntent
+    // had already been created server-side (silent charge failure, orphaned
+    // RESERVED order). The SDK load must never depend on that race.
+    const usingSavedCardForFields = savedCard && !useNewCard
     const mount = () => {
-      if (!window.Stripe || numberElRef.current) return
+      if (!window.Stripe) return
+      if (!stripeRef.current) stripeRef.current = window.Stripe(stripeKey)
+      if (usingSavedCardForFields || numberElRef.current) return
       if (!numberRef.current || !expiryRef.current || !cvcRef.current) return
-      stripeRef.current = window.Stripe(stripeKey)
       const elements = stripeRef.current.elements()
       const style = { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } }
       // showIcon: false → no Stripe-rendered network/Link brand mark in the
@@ -807,12 +818,12 @@ export default function CheckoutDrawer({
           // the client can confirm without re-tokenizing. Prefer the server value.
           const nativePm = paymentMethodId
             || (usingSavedCard ? (placeData.savedPaymentMethodId || (savedCard as any)?.stripePaymentMethodId) : null)
-          if (!placeData.clientSecret || !nativePm) {
+          if (!placeData.clientSecret || !nativePm || !stripeRef.current) {
             trackPaymentFailed('native_payment_unavailable')
             setError('Payment could not be processed. Please try again.')
             setStep('payment'); return
           }
-          const nativeConfirm = await stripeRef.current!.confirmCardPayment(placeData.clientSecret, { payment_method: nativePm })
+          const nativeConfirm = await stripeRef.current.confirmCardPayment(placeData.clientSecret, { payment_method: nativePm })
           if (nativeConfirm.error || nativeConfirm.paymentIntent?.status !== 'succeeded') {
             trackPaymentFailed(nativeConfirm.error ? 'native_confirm_error' : 'native_confirm_failed')
             setError(nativeConfirm.error?.message || 'Payment could not be completed. Please try again.')
