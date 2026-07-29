@@ -550,6 +550,15 @@ export async function RestaurantView({
     // FM full street address first, then Sanity's address, then Sanity's
     // "City, ST" location, then FM's city/state — so it's never blank.
     const fullAddress = fmFullAddress || sanityRestaurant.address || sanityRestaurant.location || cityState(fmDetail?.address) || ''
+    // Neon fallback image for restaurants whose Sanity doc has no `image` set —
+    // the common case (e.g. all 6 DeCheco's Pizzeria locations had a real,
+    // recently-uploaded icon_url/image_url in Neon but nothing in Sanity, so
+    // the header fell back to a generic initial-letter avatar). RestaurantClient
+    // only uses these when Sanity's own image is absent — never overrides it.
+    const cacheImg = (await withDiscoTables(() => sql`
+      SELECT icon_url, image_url FROM disco_restaurant_cache WHERE slug = ${slug} LIMIT 1
+    `, runMigrations).catch(() => [])) as { icon_url: string | null; image_url: string | null }[]
+    const { icon_url: iconUrl, image_url: imageUrl } = cacheImg[0] ?? { icon_url: null, image_url: null }
     return (
       <>
         <SeoBlock
@@ -559,7 +568,7 @@ export async function RestaurantView({
           description={sanityRestaurant.description}
         />
         <RestaurantClient
-          restaurant={{ ...sanityRestaurant, address: fullAddress }}
+          restaurant={{ ...sanityRestaurant, address: fullAddress, iconUrl, imageUrl }}
           fmSlug={fmSlug}
           fmRef={fmRef}
           menuData={menuData}
@@ -586,6 +595,15 @@ export async function RestaurantView({
   // Address comes from the by-reference detail (business-by-slug has none).
   const fmDetail = await fetchFmRestaurantByRef(fmRestaurant.reference)
 
+  // Neon fallback image — same as the Sanity-curated branch above. Most bulk
+  // FM-imported restaurants (Sanity _id `restaurant.fm-*`) never resolve via
+  // getSanityRestaurant's CDN-cached client and land in this branch instead,
+  // so it needs the same fallback or their header never shows a logo.
+  const cacheImg = (await withDiscoTables(() => sql`
+    SELECT icon_url, image_url FROM disco_restaurant_cache WHERE slug = ${slug} LIMIT 1
+  `, runMigrations).catch(() => [])) as { icon_url: string | null; image_url: string | null }[]
+  const { icon_url: iconUrl, image_url: imageUrl } = cacheImg[0] ?? { icon_url: null, image_url: null }
+
   const FM_IMG = process.env.NEXT_PUBLIC_FM_API_BASE_URL || 'https://api.familymeal.com'
   const minimalRestaurant = {
     name: fmRestaurant.businessName,
@@ -596,6 +614,7 @@ export async function RestaurantView({
     image: fmRestaurant.image?.reference
       ? { asset: { url: `${FM_IMG}/public-api/images/${fmRestaurant.image.reference}/download?size=600` } }
       : undefined,
+    iconUrl, imageUrl,
     // Keep every order/link button on Disco Cater — never hand off to
     // familymeal.com. Ordering itself still uses the FM reference passed to
     // RestaurantClient; this only controls where the list/map "Order" buttons point.

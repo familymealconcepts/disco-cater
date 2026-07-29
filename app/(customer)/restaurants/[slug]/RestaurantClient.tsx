@@ -74,6 +74,9 @@ interface Restaurant {
   name: string; address?: string; cuisine?: string; cuisines?: string[]
   description?: string; image?: any; orderUrl?: string
   isDisco?: boolean; location?: string; tags?: string[]
+  // Neon disco_restaurant_cache fallback (icon_url / image_url) for restaurants
+  // whose Sanity `image` field was never populated — see headerImg below.
+  iconUrl?: string | null; imageUrl?: string | null
 }
 // Mirrors FM's IMealPackageSimpleResponse extraItems[] shape so the
 // checkout payload can pass straight through. `count` is the selection
@@ -1058,9 +1061,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   }
 
   // ── Header image ──────────────────────────────────────────────────────────
+  // Priority: a real Sanity image asset (curated hero) → a plain image URL
+  // already resolved upstream (disco-native restaurants pass Neon's image_url
+  // directly as `restaurant.image`, a string, not a Sanity asset object) → the
+  // Neon disco_restaurant_cache fallback (icon_url, then image_url) for
+  // FM-backed restaurants whose Sanity doc has never had an image set — the
+  // common case (e.g. all 6 DeCheco's Pizzeria locations). Never overrides a
+  // real Sanity image; only fills in when Sanity has nothing.
   const headerImg = restaurant.image?.asset?._ref
     ? `https://cdn.sanity.io/images/0j4eqnmw/production/${restaurant.image.asset._ref.replace(/^image-/, '').replace(/-([a-z]+)$/, '.$1')}`
-    : null
+    : (typeof restaurant.image === 'string' && restaurant.image) || restaurant.iconUrl || restaurant.imageUrl || null
   const tags = restaurant.cuisines?.length ? restaurant.cuisines : restaurant.cuisine ? [restaurant.cuisine] : []
 
   const [taxTooltip, setTaxTooltip] = useState(false)
