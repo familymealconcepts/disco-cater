@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { client } from '@/sanity/lib/client'
+import { sql, runMigrations, withDiscoTables } from '../../../lib/db'
 import GlobalHeader from '../../components/GlobalHeader'
 
 // Shared server-rendered city landing page. The four city routes
@@ -56,16 +56,14 @@ export const CITIES: Record<'new-york' | 'new-jersey' | 'los-angeles' | 'chicago
 }
 
 interface CityRestaurant {
-  _id: string
+  restaurant_reference: string
   name: string
-  slug?: { current?: string }
-  cuisine?: string
-  cuisines?: string[]
-  location?: string
-  image?: string
-  isDisco?: boolean
-  description?: string
-  orderUrl?: string
+  slug: string | null
+  cuisine: string | null
+  location: string | null
+  image: string | null
+  is_premium: boolean | null
+  description: string | null
 }
 
 function cityDescription(name: string): string {
@@ -90,18 +88,38 @@ export function buildCityMetadata(cfg: CityConfig): Metadata {
   }
 }
 
+// Same public-marketplace visibility rule as /api/restaurants (the fullmap
+// feed) — a city page shouldn't list a restaurant that isn't actually
+// orderable. City filtering itself stays a JS substring match against
+// `location` (unchanged behavior — just sourced from Neon now).
 async function fetchCityRestaurants(cfg: CityConfig): Promise<CityRestaurant[]> {
   let rows: CityRestaurant[] = []
   try {
-    rows = await client.fetch(
-      `*[_type=="restaurant" && defined(slug.current) && defined(location)]{
-        _id, name, slug,
-        "cuisine": coalesce(cuisines[0], cuisine),
-        cuisines, location,
-        "image": image.asset->url,
-        isDisco, description, orderUrl
-      }`,
-    )
+    rows = (await withDiscoTables(() => sql`
+      SELECT c.restaurant_reference, c.name, c.slug, c.cuisine, c.location,
+             COALESCE(c.image_url, c.icon_url) AS image, o.is_premium, c.description
+      FROM disco_restaurant_cache c
+      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+      LEFT JOIN LATERAL (
+        SELECT a2.stripe_account_id, a2.stripe_onboarding_complete
+        FROM disco_restaurant_accounts a2
+        WHERE (a2.restaurant_reference = c.restaurant_reference OR a2.fm_restaurant_reference = c.restaurant_reference)
+          AND a2.stripe_account_id IS NOT NULL
+        ORDER BY a2.stripe_onboarding_complete DESC NULLS LAST, a2.id ASC
+        LIMIT 1
+      ) a ON true
+      WHERE c.slug IS NOT NULL AND c.location IS NOT NULL
+        AND (
+          (COALESCE(c.is_disco_native, false) = false
+            AND o.visible = true AND o.stripe_connected = true)
+          OR
+          (c.is_disco_native = true
+            AND o.visible = true
+            AND COALESCE(o.online_ordering_enabled, true) = true
+            AND (o.stripe_connected = true
+                 OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
+        )
+    `, runMigrations)) as CityRestaurant[]
   } catch {
     return []
   }
@@ -111,7 +129,7 @@ async function fetchCityRestaurants(cfg: CityConfig): Promise<CityRestaurant[]> 
       return cfg.matchTerms.some(t => loc.includes(t))
     })
     // Premium (Disco) first, then alphabetical — stable, deterministic order.
-    .sort((a, b) => Number(!!b.isDisco) - Number(!!a.isDisco) || a.name.localeCompare(b.name))
+    .sort((a, b) => Number(!!b.is_premium) - Number(!!a.is_premium) || a.name.localeCompare(b.name))
 }
 
 const CITY_FOOTER_LINKS = [
@@ -124,8 +142,6 @@ const CITY_FOOTER_LINKS = [
 export default async function CityLanding({ city }: { city: CityConfig }) {
   const restaurants = await fetchCityRestaurants(city)
   const description = cityDescription(city.name)
-  // Diagnostic: confirm the Sanity-resolved image URL shape for the cards.
-  console.log('[Image] src:', restaurants.find(r => r.image)?.image)
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -158,14 +174,13 @@ export default async function CityLanding({ city }: { city: CityConfig }) {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 20 }}>
             {restaurants.map(r => {
-              const slug = r.slug?.current
               // The on-site ordering page (/restaurants/[slug]) is the correct
-              // destination; fall back to the restaurant's orderUrl, then the map.
-              const href = slug ? `/restaurants/${slug}` : (r.orderUrl || '/fullmap')
-              const tag = (r.cuisines && r.cuisines.length > 0 ? r.cuisines[0] : r.cuisine) || ''
+              // destination; the query already requires a slug.
+              const href = r.slug ? `/restaurants/${r.slug}` : '/fullmap'
+              const tag = (r.cuisine || '').split(',')[0]?.trim() || ''
               return (
                 <Link
-                  key={r._id}
+                  key={r.restaurant_reference}
                   href={href}
                   style={{ textDecoration: 'none', color: 'inherit', border: '1px solid #eee', borderRadius: 14, overflow: 'hidden', background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}
                 >
@@ -181,7 +196,7 @@ export default async function CityLanding({ city }: { city: CityConfig }) {
                   </div>
                   <div style={{ padding: '13px 15px 16px', display: 'flex', flexDirection: 'column', flex: 1 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 4, letterSpacing: '-0.01em' }}>
-                      {r.name}{r.isDisco ? ' 🪩' : ''}
+                      {r.name}{r.is_premium ? ' 🪩' : ''}
                     </div>
                     <div style={{ fontSize: 12.5, color: '#888' }}>
                       {[tag, r.location].filter(Boolean).join(' · ')}
