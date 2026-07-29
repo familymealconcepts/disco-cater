@@ -1,6 +1,6 @@
 // Shared core for regenerating scripts/output/restaurant-compact.json — the
-// enriched, Sanity-keyed restaurant data the AI assistant (app/api/disco-chat/
-// route.ts) reads at cold start. Both the CLI script
+// enriched restaurant data the AI assistant (app/api/disco-chat/route.ts)
+// reads at cold start. Both the CLI script
 // (scripts/generateRestaurantCompact.ts) and the automation routes
 // (app/api/cron/regenerate-compact, app/api/webhooks/sanity-restaurant) import
 // this so the generation logic lives in exactly one place.
@@ -9,10 +9,11 @@
 //   { name, pricePerPerson:{min,max}, offersDelivery, serviceRadiusMiles,
 //     eventTypes, topPackages:[{name, serves, pricePerPerson}] }
 //
-// Resolution: per Sanity restaurant we derive an FM slug from `orderUrl` (the
-// segment after `/disco/`) and fall back to `slug.current`. Both are tried
-// against /public-api/restaurants/business/{slug} until one returns a
-// reference. A restaurant FM can't resolve is logged + skipped (no partials).
+// Source of the restaurant list: Neon disco_restaurant_cache, restricted to
+// the same public-marketplace visibility rule as /api/restaurants (the
+// fullmap feed) — the AI assistant shouldn't describe restaurants that aren't
+// actually orderable. restaurant_reference IS the FM reference already (no
+// slug-guessing/resolution step needed, unlike the old Sanity-sourced path).
 //
 // Two write paths:
 //   • writeCompactFile() — writes to the project tree (scripts/output). Used by
@@ -24,19 +25,12 @@
 //     regenerated data reaches disco-chat, which reads the bundled file at cold
 //     start). The format + disco-chat are intentionally untouched here.
 
-import { createClient } from '@sanity/client'
 import * as fs from 'fs'
 import * as path from 'path'
+import { sql, runMigrations, withDiscoTables } from './db'
 
 const DEFAULT_FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const DEFAULT_DELAY_MS = 1000 // ~1 req/sec to FM, per spec
-
-const sanity = createClient({
-  projectId: '0j4eqnmw',
-  dataset: 'production',
-  useCdn: true,
-  apiVersion: '2024-01-01',
-})
 
 export interface CompactEntry {
   name: string
@@ -63,8 +57,7 @@ export interface GenerateOptions {
   log?: (msg: string) => void
 }
 
-interface SanityRestaurant { name: string; orderUrl?: string; slug?: { current?: string } }
-interface FmRestaurantLookup { reference: string; businessName: string; businessNameWithoutSpaces?: string }
+interface NeonRestaurant { name: string; restaurantReference: string }
 interface FmMenu { reference: string; name?: string; type?: string }
 interface FmPackage {
   reference?: string
@@ -77,14 +70,6 @@ interface FmPackage {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
-// FM slug extraction mirrors page.tsx — the segment between /disco/ and the
-// next /. Sanity stores e.g. https://www.familymeal.com/disco/twohandsfranklin/catering
-function fmSlugFromOrderUrl(orderUrl?: string): string | null {
-  if (!orderUrl) return null
-  const m = orderUrl.match(/\/disco\/([^/?#]+)/)
-  return m ? m[1].trim() : null
-}
-
 async function fmGet<T>(fmBase: string, urlPath: string): Promise<T | null> {
   try {
     const res = await fetch(`${fmBase}${urlPath}`, { headers: { Accept: 'application/json' } })
@@ -93,16 +78,6 @@ async function fmGet<T>(fmBase: string, urlPath: string): Promise<T | null> {
   } catch {
     return null
   }
-}
-
-async function resolveFmRestaurant(fmBase: string, slugs: string[], delay: number): Promise<FmRestaurantLookup | null> {
-  for (const slug of slugs) {
-    if (!slug) continue
-    const data = await fmGet<FmRestaurantLookup>(fmBase, `/public-api/restaurants/business/${encodeURIComponent(slug)}`)
-    if (data && data.reference) return data
-    await sleep(delay)
-  }
-  return null
 }
 
 async function fetchPackagesForRestaurant(fmBase: string, ref: string, delay: number): Promise<FmPackage[]> {
@@ -215,15 +190,38 @@ export async function generateCompact(opts: GenerateOptions = {}): Promise<Gener
   const log = opts.log ?? (() => {})
 
   log(`[generateCompact] FM=${fmBase}, limit=${limit === Infinity ? 'all' : limit}, delay=${delay}ms`)
-  log('[1/3] Fetching Sanity restaurant list…')
+  log('[1/3] Fetching live marketplace restaurant list from Neon…')
 
-  const rows: SanityRestaurant[] = await sanity.fetch(
-    `*[_type=="restaurant" && defined(name)]{ name, orderUrl, slug }`,
-  )
-  log(`     ${rows.length} Sanity restaurants`)
+  // Same public-marketplace visibility rule as /api/restaurants (the fullmap
+  // feed) — see disco_restaurant_cache/disco_restaurant_overrides.
+  const rows = (await withDiscoTables(() => sql`
+    SELECT c.name, c.restaurant_reference AS "restaurantReference"
+    FROM disco_restaurant_cache c
+    LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+    LEFT JOIN LATERAL (
+      SELECT a2.stripe_account_id, a2.stripe_onboarding_complete
+      FROM disco_restaurant_accounts a2
+      WHERE (a2.restaurant_reference = c.restaurant_reference OR a2.fm_restaurant_reference = c.restaurant_reference)
+        AND a2.stripe_account_id IS NOT NULL
+      ORDER BY a2.stripe_onboarding_complete DESC NULLS LAST, a2.id ASC
+      LIMIT 1
+    ) a ON true
+    WHERE c.name IS NOT NULL
+      AND (
+        (COALESCE(c.is_disco_native, false) = false
+          AND o.visible = true AND o.stripe_connected = true)
+        OR
+        (c.is_disco_native = true
+          AND o.visible = true
+          AND COALESCE(o.online_ordering_enabled, true) = true
+          AND (o.stripe_connected = true
+               OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
+      )
+  `, runMigrations)) as NeonRestaurant[]
+  log(`     ${rows.length} live marketplace restaurants`)
 
   const targets = rows.slice(0, limit)
-  log(`[2/3] Resolving FM + fetching packages for ${targets.length} restaurants…`)
+  log(`[2/3] Fetching packages for ${targets.length} restaurants…`)
 
   const entries: CompactEntry[] = []
   const skipped: { name: string; reason: string }[] = []
@@ -231,26 +229,15 @@ export async function generateCompact(opts: GenerateOptions = {}): Promise<Gener
   for (const r of targets) {
     i++
     const tag = `[${i}/${targets.length}]`
-    const candidateSlugs = [fmSlugFromOrderUrl(r.orderUrl), r.slug?.current].filter((s): s is string => !!s)
-    if (candidateSlugs.length === 0) {
-      log(`${tag} ⏭  ${r.name} — no FM slug`)
-      skipped.push({ name: r.name, reason: 'no-slug' }); continue
-    }
 
-    const fm = await resolveFmRestaurant(fmBase, candidateSlugs, delay)
-    if (!fm) {
-      log(`${tag} ⏭  ${r.name} — FM lookup failed (tried: ${candidateSlugs.join(', ')})`)
-      skipped.push({ name: r.name, reason: 'fm-404' }); continue
-    }
-
-    const packages = await fetchPackagesForRestaurant(fmBase, fm.reference, delay)
+    const packages = await fetchPackagesForRestaurant(fmBase, r.restaurantReference, delay)
     if (packages.length === 0) {
-      log(`${tag} ⏭  ${r.name} — FM ref=${fm.reference} but no packages`)
+      log(`${tag} ⏭  ${r.name} — FM ref=${r.restaurantReference} but no packages`)
       skipped.push({ name: r.name, reason: 'no-packages' }); continue
     }
 
-    // KEY: use the Sanity name as the entry name so disco-chat's name match
-    // (sanity.name === compact.name, case-insensitive trim) hits.
+    // KEY: use the Neon name as the entry name so disco-chat's name match
+    // (client-sent restaurant.name === compact.name, case-insensitive trim) hits.
     const entry = buildCompactEntry(r.name, packages)
     if (!entry) {
       log(`${tag} ⏭  ${r.name} — couldn't build entry from ${packages.length} packages`)

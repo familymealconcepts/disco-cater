@@ -1,19 +1,43 @@
 import type { MetadataRoute } from 'next'
-import { client } from '../sanity/lib/client'
+import { sql, runMigrations, withDiscoTables } from '../lib/db'
 
 const SITE = 'https://www.discocater.com'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date()
 
-  // Pull every restaurant with a usable slug from Sanity. Defensive on errors
-  // — a transient Sanity failure shouldn't 500 the sitemap and tank crawl.
+  // Every restaurant with a usable slug that's actually visible on the public
+  // marketplace today — same visibility rule as /api/restaurants (the fullmap
+  // feed), so the sitemap never lists a restaurant page that 404s or a hidden
+  // one. Defensive on errors — a transient DB failure shouldn't 500 the
+  // sitemap and tank crawl.
   let restaurantSlugs: { slug: string }[] = []
   try {
-    const rows: { slug: string }[] = await client.fetch(
-      `*[_type == "restaurant" && defined(slug.current)]{ "slug": slug.current }`,
-    )
-    restaurantSlugs = (rows || []).filter(r => !!r.slug)
+    const rows = (await withDiscoTables(() => sql`
+      SELECT c.slug
+      FROM disco_restaurant_cache c
+      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+      LEFT JOIN LATERAL (
+        SELECT a2.stripe_account_id, a2.stripe_onboarding_complete
+        FROM disco_restaurant_accounts a2
+        WHERE (a2.restaurant_reference = c.restaurant_reference OR a2.fm_restaurant_reference = c.restaurant_reference)
+          AND a2.stripe_account_id IS NOT NULL
+        ORDER BY a2.stripe_onboarding_complete DESC NULLS LAST, a2.id ASC
+        LIMIT 1
+      ) a ON true
+      WHERE c.slug IS NOT NULL
+        AND (
+          (COALESCE(c.is_disco_native, false) = false
+            AND o.visible = true AND o.stripe_connected = true)
+          OR
+          (c.is_disco_native = true
+            AND o.visible = true
+            AND COALESCE(o.online_ordering_enabled, true) = true
+            AND (o.stripe_connected = true
+                 OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
+        )
+    `, runMigrations)) as { slug: string }[]
+    restaurantSlugs = rows || []
   } catch {
     restaurantSlugs = []
   }
