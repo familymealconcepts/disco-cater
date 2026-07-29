@@ -1,6 +1,6 @@
 import type Stripe from 'stripe'
 import {
-  fmItemsToNativeCart, cartSubtotal, isNativeOrderingOpen, isNativeDateClosed,
+  fmItemsToNativeCart, cartSubtotal, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
   loadRestaurantServiceChargePct, placeAndPayNativeOrder, placeNativeInvoiceOrder,
   type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
 } from './native-checkout'
@@ -58,6 +58,11 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   const orderDate = dmDate ? `${dmDate[3]}-${dmDate[2]}-${dmDate[1]}` : rawDate
   if (await isNativeDateClosed(ref, orderDate)) {
     return { ok: false, status: 403, error: 'This restaurant is closed on the selected date.' }
+  }
+  // Daily order-capacity gate (max_orders_per_day) — checked right after the
+  // date-level gates, before any pricing/promo/delivery work happens.
+  if (await isNativeDailyCapReached(ref, orderDate)) {
+    return { ok: false, status: 409, error: 'This restaurant has reached its maximum number of orders for the selected date. Please choose a different date.' }
   }
 
   // 1P vs 3P attribution — the SAME signal the client sends the FM path

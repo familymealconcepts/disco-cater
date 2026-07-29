@@ -135,6 +135,34 @@ export async function isNativeDateClosed(restaurantReference: string, orderDate:
   return rows.length > 0
 }
 
+// Daily order-capacity gate: the restaurant's primary visible menu may set
+// max_orders_per_day (NULL = no cap — the default, and the only behavior
+// before this existed since nothing read the column). When set, a new order
+// is blocked once that many still-active orders already exist for the same
+// restaurant + date. "Still-active" excludes CART (never placed),
+// CANCELED/CANCELLED/REFUND/REFUNDED/EXPIRED/VOID/VOIDED/PAYMENT_FAILED (no
+// longer real orders occupying capacity) — everything else (RESERVED/DUE/
+// UNPAID/PAID/COMPLETED/PARTIAL_REFUND/REOPEN) counts, including pre-payment
+// RESERVED/UNPAID rows, so two concurrent checkouts can't both slip in under
+// the cap while waiting on payment confirmation.
+export async function isNativeDailyCapReached(restaurantReference: string, orderDate: string): Promise<boolean> {
+  if (!orderDate) return false
+  const capRows = (await sql`
+    SELECT max_orders_per_day FROM disco_menus
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+    ORDER BY position, id LIMIT 1
+  `.catch(() => [])) as { max_orders_per_day: number | null }[]
+  const cap = capRows[0]?.max_orders_per_day
+  if (cap == null) return false
+  const countRows = (await sql`
+    SELECT COUNT(*)::int AS n FROM disco_orders
+    WHERE restaurant_reference = ${restaurantReference}::uuid
+      AND order_date = ${orderDate}::date
+      AND order_status IN ('RESERVED','DUE','UNPAID','PAID','COMPLETED','PARTIAL_REFUND','REOPEN')
+  `.catch(() => [{ n: 0 }])) as { n: number }[]
+  return (countRows[0]?.n ?? 0) >= cap
+}
+
 export function cartSubtotal(items: NativeCartItem[]): number {
   return round2((items || []).reduce((s, it) => s + (Number(it.price) || 0) * Math.max(1, Math.trunc(Number(it.quantity) || 1)), 0))
 }
