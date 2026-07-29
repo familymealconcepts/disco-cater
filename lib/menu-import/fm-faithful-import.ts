@@ -130,7 +130,7 @@ function normalizeTime(t: unknown): string {
 // listed with its real window, not just a single averaged window. scheduleType
 // mirrors FM's own SAME_DAY/CUSTOM distinction — CUSTOM only when the windows
 // genuinely differ across days (or FM itself already says CUSTOM).
-function fmScheduleToDiscoConfig(schedule: Record<string, unknown>): Record<string, unknown> | null {
+export function fmScheduleToDiscoConfig(schedule: Record<string, unknown>): Record<string, unknown> | null {
   const repeatWeekDays = arrOf(schedule?.repeatWeekDays) as { fromPickUpTime?: unknown; toPickUpTime?: unknown; days?: unknown }[]
   if (!repeatWeekDays.length) return null
   const days: string[] = []
@@ -148,7 +148,7 @@ function fmScheduleToDiscoConfig(schedule: Record<string, unknown>): Record<stri
   return { scheduleType, days, sameWindow: perDay[days[0]], perDay }
 }
 
-const DELIVERY_WINDOWS = new Set(['exact', '30_min', '1_hour'])
+export const DELIVERY_WINDOWS = new Set(['exact', '30_min', '1_hour'])
 
 export interface FaithfulImportSummary {
   fmRef: string; targetRef: string
