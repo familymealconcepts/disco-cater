@@ -1,13 +1,6 @@
-import { createClient } from '@sanity/client'
 import { notFound } from 'next/navigation'
 import OrderWizard from './OrderWizard'
-
-const client = createClient({
-  projectId: '0j4eqnmw',
-  dataset: 'production',
-  useCdn: true,
-  apiVersion: '2024-01-01',
-})
+import { getCachedRestaurant } from '../shared'
 
 export default async function OrderPage({
   params,
@@ -19,21 +12,11 @@ export default async function OrderPage({
   const { slug } = await params
   const sp = await searchParams
 
-  const restaurant = await client.fetch(
-    `*[_type=="restaurant" && slug.current==$slug][0]{
-      name, slug, address, cuisine, cuisines, description,
-      image, orderUrl, isDisco, location, tags, lat, lng
-    }`,
-    { slug }
-  )
-
+  const restaurant = await getCachedRestaurant(slug)
   if (!restaurant) return notFound()
 
-  const restaurantRef = restaurant.orderUrl
-    ? restaurant.orderUrl.replace(/.*\/disco\//, '').replace(/\/.*/, '')
-    : null
-
-  if (!restaurantRef) return notFound()
+  // Neon's restaurant_reference IS the FM UUID directly — no derivation needed.
+  const restaurantRef = restaurant.restaurantReference
 
   let packages: any[] = []
   try {

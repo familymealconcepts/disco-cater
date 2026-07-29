@@ -1,6 +1,5 @@
 import { cache } from 'react'
 import type { Metadata } from 'next'
-import { createClient } from '@sanity/client'
 import { notFound } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
 import { sql, runMigrations, runDiscoMenuMigrations, withDiscoTables } from '../../../../lib/db'
@@ -20,35 +19,54 @@ import { menuRowToSettings, menuRowToScheduleExtras, type MenuSettingsRow } from
 // the UI — show "3P"/"1P" instead.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const sanity = createClient({
-  projectId: '0j4eqnmw',
-  dataset: 'production',
-  useCdn: true,
-  apiVersion: '2024-01-01',
-})
-
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const SITE = 'https://www.discocater.com'
 
-// React.cache() memoizes within a single request — generateMetadata and the
-// page render both call this and share one Sanity round-trip.
-const getSanityRestaurant = cache(async (slug: string) => {
-  return sanity.fetch(
-    `*[_type=="restaurant" && slug.current==$slug][0]{
-      name, slug, address, cuisine, cuisines, description,
-      image, orderUrl, isDisco, location, tags, lat, lng
-    }`,
-    { slug },
-  )
-})
-
-// Sanity image asset → CDN URL (same transform used in RestaurantClient.tsx).
-function sanityImageUrl(image: any): string | null {
-  const ref: string | undefined = image?.asset?._ref
-  if (!ref) return null
-  const path = ref.replace(/^image-/, '').replace(/-([a-z]+)$/, '.$1')
-  return `https://cdn.sanity.io/images/0j4eqnmw/production/${path}`
+export interface CachedRestaurant {
+  restaurantReference: string
+  name: string
+  slug: string | null
+  address: string | null
+  location: string | null
+  cuisine: string | null
+  description: string | null
+  imageUrl: string | null
+  iconUrl: string | null
+  isPremium: boolean | null
+  lat: number | null
+  lng: number | null
 }
+
+// React.cache() memoizes within a single request — generateMetadata and the
+// page render both call this and share one Neon round-trip. The editorial
+// fields this used to read from Sanity (cuisine/description/image) now live
+// in disco_restaurant_cache — see the Sanity-sunset investigation for why:
+// Neon already independently held equivalent (often more current) curated
+// data via the admin restaurant-edit dialog for virtually every restaurant.
+// Exported for reuse by order/page.tsx (the 1st-party route's own lookup).
+export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRestaurant | null> => {
+  const rows = (await withDiscoTables(() => sql`
+    SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description,
+           c.image_url, c.icon_url, c.lat, c.lng, o.is_premium
+    FROM disco_restaurant_cache c
+    LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+    WHERE c.slug = ${slug}
+    LIMIT 1
+  `, runMigrations).catch(() => [])) as {
+    restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null
+    cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null
+    lat: string | number | null; lng: string | number | null; is_premium: boolean | null
+  }[]
+  const r = rows[0]
+  if (!r) return null
+  return {
+    restaurantReference: r.restaurant_reference,
+    name: r.name, slug: r.slug, address: r.address, location: r.location,
+    cuisine: r.cuisine, description: r.description,
+    imageUrl: r.image_url, iconUrl: r.icon_url, isPremium: r.is_premium,
+    lat: r.lat != null ? Number(r.lat) : null, lng: r.lng != null ? Number(r.lng) : null,
+  }
+})
 
 function truncate(s: string, n: number): string {
   if (!s) return ''
@@ -234,15 +252,15 @@ export async function buildRestaurantMetadata(
   slug: string,
   opts: { basePath: '/restaurants' | '/order'; noindex?: boolean },
 ): Promise<Metadata> {
-  const r = await getSanityRestaurant(slug)
+  const r = await getCachedRestaurant(slug)
   // 1P (/order) canonicalizes to the marketplace page so duplicate content
   // doesn't split SEO; the 3P (/restaurants) page is self-canonical.
   const canonical = opts.noindex ? `${SITE}/restaurants/${slug}` : `${SITE}${opts.basePath}/${slug}`
   const url = `${SITE}${opts.basePath}/${slug}`
   const robots = opts.noindex ? { index: false, follow: true } : undefined
 
-  // Fall back to a minimal but useful set if Sanity has no doc (e.g. FM
-  // fallback path) — the page itself still renders via the FM lookup.
+  // Fall back to a minimal but useful set if Neon has no cache row yet (e.g.
+  // FM fallback path) — the page itself still renders via the FM lookup.
   if (!r) {
     return {
       title: 'Catering | Disco Cater',
@@ -252,13 +270,11 @@ export async function buildRestaurantMetadata(
     }
   }
 
-  // Locale for the title/description: Sanity's curated `location` first, then
-  // FM's city/state (Sanity is blank for some restaurants, e.g. Katz's), then
-  // the Sanity address as a last resort.
-  const fmSlug = r.orderUrl
-    ? r.orderUrl.replace(/.*\/disco\//, '').replace(/\/.*/, '').trim()
-    : null
-  const fmAddr = fmSlug ? await resolveFmAddress(fmSlug) : null
+  // Locale for the title/description: Neon's curated `location` first, then
+  // FM's city/state (blank for some restaurants, e.g. Katz's), then the
+  // cached street address as a last resort. Neon's own `slug` is already the
+  // FM-resolvable one (no separate derivation needed).
+  const fmAddr = await resolveFmAddress(slug)
   const loc = r.location || cityState(fmAddr) || r.address || ''
   const title = loc
     ? `${r.name} — Catering in ${loc} | Disco Cater`
@@ -266,7 +282,7 @@ export async function buildRestaurantMetadata(
   const description = r.description
     ? truncate(String(r.description), 155)
     : `Order catering from ${r.name}${loc ? ` in ${loc}` : ''} on Disco Cater.`
-  const ogImage = sanityImageUrl(r.image)
+  const ogImage = r.imageUrl || r.iconUrl || null
 
   return {
     title,
@@ -529,112 +545,64 @@ export async function RestaurantView({
     )
   }
 
-  // Try Sanity first (existing path — preserves cuisine tags,
-  // descriptions, hero image overrides for restaurants curated there).
-  const sanityRestaurant = await getSanityRestaurant(slug)
+  // Editorial content (cuisine tags, description, hero image) now comes from
+  // Neon's disco_restaurant_cache — see the Sanity-sunset investigation for
+  // why: it already independently holds equivalent (often more current)
+  // curated data via the admin restaurant-edit dialog for virtually every
+  // restaurant, whether or not Sanity ever had a doc for it.
+  const cached = await getCachedRestaurant(slug)
+  const cuisines = cached?.cuisine
+    ? cached.cuisine.split(',').map(s => s.trim()).filter(Boolean)
+    : []
 
-  if (sanityRestaurant) {
-    const fmSlug = sanityRestaurant.orderUrl
-      ? sanityRestaurant.orderUrl.replace(/.*\/disco\//, '').replace(/\/.*/, '').trim()
-      : null
-    // Resolve the FM restaurant once — it carries the full street address
-    // (Sanity's `location` is only "City, ST" and its `address` is null for most
-    // restaurants). Fall back to the list-based ref lookup if the business
-    // endpoint doesn't recognize this slug, so ref resolution stays as robust.
-    const fmBody = fmSlug ? await fetchFmRestaurantBySlug(fmSlug) : null
-    const fmRef = fmBody?.reference ?? (fmSlug ? await resolveFmRef(fmSlug) : null)
-    // The address lives on the by-REFERENCE endpoint, not business-by-slug.
-    const fmDetail = fmRef ? await fetchFmRestaurantByRef(fmRef) : null
-    const fmFullAddress = formatFullAddress(fmDetail?.address)
-    const menuData = fmRef ? await fetchMenuData(fmRef) : []
-    // FM full street address first, then Sanity's address, then Sanity's
-    // "City, ST" location, then FM's city/state — so it's never blank.
-    const fullAddress = fmFullAddress || sanityRestaurant.address || sanityRestaurant.location || cityState(fmDetail?.address) || ''
-    // Neon fallback image for restaurants whose Sanity doc has no `image` set —
-    // the common case (e.g. all 6 DeCheco's Pizzeria locations had a real,
-    // recently-uploaded icon_url/image_url in Neon but nothing in Sanity, so
-    // the header fell back to a generic initial-letter avatar). RestaurantClient
-    // only uses these when Sanity's own image is absent — never overrides it.
-    const cacheImg = (await withDiscoTables(() => sql`
-      SELECT icon_url, image_url FROM disco_restaurant_cache WHERE slug = ${slug} LIMIT 1
-    `, runMigrations).catch(() => [])) as { icon_url: string | null; image_url: string | null }[]
-    const { icon_url: iconUrl, image_url: imageUrl } = cacheImg[0] ?? { icon_url: null, image_url: null }
-    return (
-      <>
-        <SeoBlock
-          name={sanityRestaurant.name}
-          location={sanityRestaurant.location || sanityRestaurant.address}
-          cuisine={sanityRestaurant.cuisines?.[0] || sanityRestaurant.cuisine}
-          description={sanityRestaurant.description}
-        />
-        <RestaurantClient
-          restaurant={{ ...sanityRestaurant, address: fullAddress, iconUrl, imageUrl }}
-          fmSlug={fmSlug}
-          fmRef={fmRef}
-          menuData={menuData}
-          slug={slug}
-          isFirstParty={isFirstParty}
-          restaurantSettings={{
-            enableMenuSearch: fmDetail?.enableMenuSearch,
-            deliveryOrderTimeWindows: fmDetail?.deliveryOrderTimeWindows,
-          }}
-        />
-      </>
-    )
-  }
-
-  // FM fallback — A.5 from docs/fm-marketplace-and-access-audit.md.
   // FM's customer slug lookup at /public-api/restaurants/business/{slug}
-  // returns any restaurant by businessNameWithoutSpaces, marketplace
-  // type or ordering type, regardless of whether Sanity has curated it.
-  // This makes Test Kitchen (type: ORDERING, no Sanity doc) directly
-  // orderable at /restaurants/test-kitchen.
+  // returns any restaurant by businessNameWithoutSpaces, marketplace type, or
+  // ordering type — regardless of Neon cache state. This makes Test Kitchen
+  // (type: ORDERING) directly orderable at /restaurants/test-kitchen. Ordering
+  // itself is entirely FM-mediated for non-native restaurants, so no FM
+  // record here is a genuine 404, not just missing editorial content.
   const fmRestaurant = await fetchFmRestaurantBySlug(slug)
   if (!fmRestaurant) return notFound()
 
   // Address comes from the by-reference detail (business-by-slug has none).
   const fmDetail = await fetchFmRestaurantByRef(fmRestaurant.reference)
-
-  // Neon fallback image — same as the Sanity-curated branch above. Most bulk
-  // FM-imported restaurants (Sanity _id `restaurant.fm-*`) never resolve via
-  // getSanityRestaurant's CDN-cached client and land in this branch instead,
-  // so it needs the same fallback or their header never shows a logo.
-  const cacheImg = (await withDiscoTables(() => sql`
-    SELECT icon_url, image_url FROM disco_restaurant_cache WHERE slug = ${slug} LIMIT 1
-  `, runMigrations).catch(() => [])) as { icon_url: string | null; image_url: string | null }[]
-  const { icon_url: iconUrl, image_url: imageUrl } = cacheImg[0] ?? { icon_url: null, image_url: null }
+  const fmFullAddress = formatFullAddress(fmDetail?.address)
+  const menuData = await fetchMenuData(fmRestaurant.reference)
 
   const FM_IMG = process.env.NEXT_PUBLIC_FM_API_BASE_URL || 'https://api.familymeal.com'
-  const minimalRestaurant = {
-    name: fmRestaurant.businessName,
-    address: formatFullAddress(fmDetail?.address) || joinFmAddress(fmRestaurant.address),
-    cuisine: undefined,
-    cuisines: [] as string[],
-    description: undefined,
+  const restaurant = {
+    name: cached?.name || fmRestaurant.businessName,
+    // FM full street address first, then Neon's cached address, then Neon's
+    // "City, ST" location, then FM's own city/state — so it's never blank.
+    address: fmFullAddress || cached?.address || cached?.location || cityState(fmDetail?.address) || joinFmAddress(fmRestaurant.address),
+    cuisine: cuisines[0],
+    cuisines,
+    description: cached?.description || undefined,
     image: fmRestaurant.image?.reference
       ? { asset: { url: `${FM_IMG}/public-api/images/${fmRestaurant.image.reference}/download?size=600` } }
       : undefined,
-    iconUrl, imageUrl,
+    iconUrl: cached?.iconUrl ?? null,
+    imageUrl: cached?.imageUrl ?? null,
     // Keep every order/link button on Disco Cater — never hand off to
     // familymeal.com. Ordering itself still uses the FM reference passed to
     // RestaurantClient; this only controls where the list/map "Order" buttons point.
     orderUrl: `/restaurants/${slug}`,
-    isDisco: false,
+    isDisco: cached?.isPremium === true,
     // City/State so the header never renders blank if the full address is empty.
-    location: cityState(fmDetail?.address) || undefined,
+    location: cached?.location || cityState(fmDetail?.address) || undefined,
     tags: [] as string[],
   }
-
-  const menuData = await fetchMenuData(fmRestaurant.reference)
 
   return (
     <>
       <SeoBlock
-        name={minimalRestaurant.name}
-        location={minimalRestaurant.address}
+        name={restaurant.name}
+        location={restaurant.location || restaurant.address}
+        cuisine={restaurant.cuisine}
+        description={restaurant.description}
       />
       <RestaurantClient
-        restaurant={minimalRestaurant}
+        restaurant={restaurant}
         fmSlug={fmRestaurant.businessNameWithoutSpaces || slug}
         fmRef={fmRestaurant.reference}
         menuData={menuData}

@@ -1061,16 +1061,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   }
 
   // ── Header image ──────────────────────────────────────────────────────────
-  // Priority: a real Sanity image asset (curated hero) → a plain image URL
-  // already resolved upstream (disco-native restaurants pass Neon's image_url
-  // directly as `restaurant.image`, a string, not a Sanity asset object) → the
-  // Neon disco_restaurant_cache fallback (icon_url, then image_url) for
-  // FM-backed restaurants whose Sanity doc has never had an image set — the
-  // common case (e.g. all 6 DeCheco's Pizzeria locations). Never overrides a
-  // real Sanity image; only fills in when Sanity has nothing.
-  const headerImg = restaurant.image?.asset?._ref
-    ? `https://cdn.sanity.io/images/0j4eqnmw/production/${restaurant.image.asset._ref.replace(/^image-/, '').replace(/-([a-z]+)$/, '.$1')}`
-    : (typeof restaurant.image === 'string' && restaurant.image) || restaurant.iconUrl || restaurant.imageUrl || null
+  // Priority: a plain image URL already resolved upstream (disco-native
+  // restaurants pass Neon's image_url directly as `restaurant.image`, a
+  // string) → FM's own image asset (shared.tsx builds this into
+  // `.asset.url` when FM has one) → the Neon disco_restaurant_cache fallback
+  // (icon_url, then image_url) — the common case, since Neon independently
+  // holds curated hero images for virtually every restaurant.
+  const headerImg = (typeof restaurant.image === 'string' && restaurant.image)
+    || restaurant.image?.asset?.url
+    || restaurant.iconUrl || restaurant.imageUrl || null
   const tags = restaurant.cuisines?.length ? restaurant.cuisines : restaurant.cuisine ? [restaurant.cuisine] : []
 
   const [taxTooltip, setTaxTooltip] = useState(false)
