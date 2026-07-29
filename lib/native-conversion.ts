@@ -49,6 +49,7 @@ export interface ConversionReadiness {
   restaurantReference: string
   found: boolean
   isDiscoNative: boolean
+  isLive: boolean
   stripeMode: StripeMode
   steps: ConversionStep[]
   ordersMirrored: number       // advisory: run a final sync/fm-orders before flipping
@@ -92,10 +93,11 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
   const nativeRef = await resolveNativeRef(ref)
 
   const cache = (await sql`
-    SELECT name, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${nativeRef} LIMIT 1
-  `) as { name: string | null; is_disco_native: boolean | null }[]
+    SELECT name, is_disco_native, is_live FROM disco_restaurant_cache WHERE restaurant_reference = ${nativeRef} LIMIT 1
+  `) as { name: string | null; is_disco_native: boolean | null; is_live: boolean | null }[]
   const found = cache.length > 0
   const isDiscoNative = cache[0]?.is_disco_native === true
+  const isLive = cache[0]?.is_live === true
 
   // Native menu: a visible, non-archived disco_menus row (native pricing reads the
   // primary visible menu). restaurant_reference is UUID on disco_menus.
@@ -145,7 +147,7 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
   ]
 
   const ready = found && steps.filter(s => s.blocking).every(s => s.done)
-  return { restaurantReference: nativeRef, found, isDiscoNative, stripeMode, steps, ordersMirrored, ready }
+  return { restaurantReference: nativeRef, found, isDiscoNative, isLive, stripeMode, steps, ordersMirrored, ready }
 }
 
 export interface ConversionResult {
@@ -154,9 +156,20 @@ export interface ConversionResult {
   readiness: ConversionReadiness
 }
 
-// Perform the flip — ONLY when every blocking step passes. Sets is_disco_native
-// true; visibility is left as-is (the marketplace-ready gate guarantees it stays
-// visible if it was). Never flips a restaurant that isn't ready.
+// Perform the flip — ONLY when every blocking step passes. Sets BOTH
+// is_disco_native and is_live true: convertToNative's own gates (Stripe reuse
+// LIVE-verified, native menu imported, marketplace-visibility rule) already cover
+// everything goLiveNativeRestaurant's non-manual gates check, so a restaurant
+// converted through this path goes immediately live to customers — no separate
+// go-live step required. Visibility is left as-is otherwise (the marketplace-ready
+// gate guarantees it stays visible if it was). Never flips a restaurant that isn't
+// ready.
+//
+// NOTE: this intentionally does NOT verify goLiveNativeRestaurant's two
+// real-action gates (a real live-mode $1 charge actually settling; a real signed
+// Expedite dispatch for 3P-delivery restaurants) — those can't be inferred
+// passively and require an actual recorded action. Skipping them here is a
+// deliberate product decision (this comment exists so it's visible, not silent).
 export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): Promise<ConversionResult> {
   const readiness = await checkConversionReadiness(ref, opts)
   if (!readiness.found) return { converted: false, reason: 'Restaurant not found.', readiness }
@@ -173,8 +186,8 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
   if (!backfill.ok) {
     return { converted: false, reason: `FM order-history backfill failed (${backfill.error || 'unknown'}) — not converting; retry once FM is reachable.`, readiness }
   }
-  await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, cached_at = NOW() WHERE restaurant_reference = ${readiness.restaurantReference}`
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true } }
+  await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, is_live = true, cached_at = NOW() WHERE restaurant_reference = ${readiness.restaurantReference}`
+  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true } }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────
