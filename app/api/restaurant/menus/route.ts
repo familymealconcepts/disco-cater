@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, getFmHeaderForRestaurant, usesServiceAccount } from '../../../../lib/restaurant-auth-context'
+import { decodeJwtPayload } from '../../../../lib/jwt'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -77,7 +78,15 @@ export async function GET(req: NextRequest) {
     if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
     const data = await res.json()
     if (Array.isArray(data?.content)) {
-      const content = await enrichMenus(data.content, ctx, h, usesServiceAccount(ctx))
+      // ctx.restaurantReference is always '' for ordinary FM-authenticated sessions
+      // (only Disco-native sessions carry it) — the regular (non-admin) /api/menu
+      // response also has no nested `restaurant` per menu (only the SUPER_ADMIN
+      // shape does), so without this every normal restaurant-owner login silently
+      // got itemCount 0 for every menu. The FM JWT itself carries the restaurant
+      // reference as its `restaurant` claim — decode that as the real fallback.
+      const restaurantReference = ctx.restaurantReference
+        || (ctx.fmToken ? String(decodeJwtPayload(ctx.fmToken)?.restaurant || '') : '')
+      const content = await enrichMenus(data.content, { restaurantReference }, h, usesServiceAccount(ctx))
       return NextResponse.json({ ...data, content })
     }
     return NextResponse.json(data)
