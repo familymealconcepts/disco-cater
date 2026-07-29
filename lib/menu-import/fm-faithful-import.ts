@@ -18,10 +18,36 @@
 //                                                          partitions items per menu (the flat
 //                                                          catalog's item.menu is a bare number, not
 //                                                          a ref, so it can't place items in menus).
+//   • GET /public-api/restaurants/{ref}/feesAndTips      → announcement + deliveryOrderTimeWindows.
+//                                                          PUBLIC (permitAll in FM's WebSecurityConfig,
+//                                                          no auth needed) — deliberately NOT the
+//                                                          session-scoped GET /api/feesAndTips (that
+//                                                          one resolves "current restaurant" from the
+//                                                          authenticated JWT's own user id and has no
+//                                                          by-reference variant, so a service-account
+//                                                          importer can never reach an arbitrary
+//                                                          restaurant's settings through it).
 //
 // maxOrder is NOT auto-imported: FM's scheduleOption.maxOrder is per-15-minute-window
 // while Disco's max_orders_per_day is per-day (~96x different). It's left null
 // (no cap) for an explicit manual admin decision (see the inventory item #4).
+//
+// NOT imported, and cannot be with any FM endpoint found: email/text notification
+// recipients. FM's tbl_notification_settings is exposed only via GET /api/notifications
+// (session-scoped, same "current restaurant from the authenticated user" limitation as
+// the old /api/feesAndTips call, but unlike feesAndTips it has no public by-reference
+// mirror anywhere in the FM backend). Reaching it would require impersonating that
+// restaurant's own admin login, which Disco never stores credentials for — this is a
+// real access-control wall, not a missed function call. Flagging, not working around.
+//
+// Per-item schedule overrides (ScheduleOption.isRestaurantDefault = false on an
+// individual meal package) are intentionally NOT imported. Disco-native has no
+// per-item scheduling concept at all — confirmed no UI, no disco_menu_items
+// column, and no code path anywhere reads/writes one (per-item schedule override
+// was investigated as a feature to build here and confirmed to not exist and not
+// be needed; schedule is exclusively menu-level). Only the MENU-level
+// scheduleOption.repeatWeekDays is imported (see fmScheduleToDiscoConfig) — this
+// is not a partial import, it's the complete, correct scope.
 import { sql, runDiscoMenuMigrations } from '../db'
 import { getFmServiceAuthHeader } from '../fm-service-auth'
 import { parseMenuSettingsInput, parseDeliverySettings } from '../menu-settings'
@@ -90,17 +116,57 @@ function fmMenuToDiscoSettings(settings: Record<string, unknown>, schedule: Reco
   return { menu: parseMenuSettingsInput(settingsBody), delivery: parseDeliverySettings(deliveryBody) }
 }
 
+// "H:MM:SS" or "HH:MM:SS" (FM sends both inconsistently — menu-level scheduleOption
+// omits the leading zero, item-level scheduleOption includes it) → Disco's "HH:mm".
+function normalizeTime(t: unknown): string {
+  const s = str(t)
+  const m = /^(\d{1,2}):(\d{2})/.exec(s)
+  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : s
+}
+
+// FM's scheduleOption.repeatWeekDays (real per-day pickup/delivery windows) →
+// Disco-native's disco_menus.schedule_config shape (NativeScheduleConfig in
+// lib/scheduling/native-schedule.ts). Faithful: populates every day FM actually
+// listed with its real window, not just a single averaged window. scheduleType
+// mirrors FM's own SAME_DAY/CUSTOM distinction — CUSTOM only when the windows
+// genuinely differ across days (or FM itself already says CUSTOM).
+function fmScheduleToDiscoConfig(schedule: Record<string, unknown>): Record<string, unknown> | null {
+  const repeatWeekDays = arrOf(schedule?.repeatWeekDays) as { fromPickUpTime?: unknown; toPickUpTime?: unknown; days?: unknown }[]
+  if (!repeatWeekDays.length) return null
+  const days: string[] = []
+  const perDay: Record<string, { from: string; to: string }> = {}
+  for (const rd of repeatWeekDays) {
+    const day = str(rd.days).toUpperCase()
+    if (!day) continue
+    const win = { from: normalizeTime(rd.fromPickUpTime), to: normalizeTime(rd.toPickUpTime) }
+    days.push(day)
+    perDay[day] = win
+  }
+  if (!days.length) return null
+  const windows = new Set(days.map(d => `${perDay[d].from}-${perDay[d].to}`))
+  const scheduleType = windows.size === 1 && str(schedule?.scheduleType).toUpperCase() !== 'CUSTOM' ? 'SAME_DAY' : 'CUSTOM'
+  return { scheduleType, days, sameWindow: perDay[days[0]], perDay }
+}
+
+const DELIVERY_WINDOWS = new Set(['exact', '30_min', '1_hour'])
+
 export interface FaithfulImportSummary {
   fmRef: string; targetRef: string
   menus: number; categories: number; items: number; groups: number; modifiers: number; itemGroupLinks: number
-  pricedModifiers: number; error?: string
+  pricedModifiers: number
+  announcementImported: boolean
+  deliveryWindowImported: boolean
+  error?: string
 }
 
 // Import a restaurant's FM menu faithfully into disco_* under targetRef (defaults to
 // fmRef — same restaurant). Returns a summary. READ-ONLY against FM.
 export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?: string }): Promise<FaithfulImportSummary> {
   const targetRef = opts?.targetRef || fmRef
-  const summary: FaithfulImportSummary = { fmRef, targetRef, menus: 0, categories: 0, items: 0, groups: 0, modifiers: 0, itemGroupLinks: 0, pricedModifiers: 0 }
+  const summary: FaithfulImportSummary = {
+    fmRef, targetRef, menus: 0, categories: 0, items: 0, groups: 0, modifiers: 0, itemGroupLinks: 0, pricedModifiers: 0,
+    announcementImported: false, deliveryWindowImported: false,
+  }
   await runDiscoMenuMigrations()
   let auth: Record<string, string>
   try { auth = await getFmServiceAuthHeader() } catch (e) { summary.error = `FM auth: ${e instanceof Error ? e.message : e}`; return summary }
@@ -116,6 +182,26 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
   const fmGroups = arrOf(await fmGet(`/api/restaurants/${fmRef}/extraItemsGroups?page=0&size=500`, auth))
   const fmItems = arrOf(await fmGet(`/api/restaurants/${fmRef}/mealPackages?page=0&size=1000`, auth))
   if (!fmMenus.length && !fmItems.length) { summary.error = 'No FM menu/items returned'; return summary }
+
+  // ── 0) Restaurant-level settings: announcement + delivery order time window ──
+  // Public endpoint, no auth needed (see the file-header note on why the
+  // session-scoped /api/feesAndTips can't be used here).
+  const feesAndTips = await fmGet(`/public-api/restaurants/${fmRef}/feesAndTips`, {}) as { announcement?: unknown; deliveryOrderTimeWindows?: unknown } | null
+  if (feesAndTips) {
+    const announcement = str(feesAndTips.announcement).trim().slice(0, 500) || null
+    const rawWindow = str(feesAndTips.deliveryOrderTimeWindows)
+    const deliveryWindow = DELIVERY_WINDOWS.has(rawWindow) ? rawWindow : 'exact'
+    summary.announcementImported = announcement != null
+    summary.deliveryWindowImported = DELIVERY_WINDOWS.has(rawWindow)
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, announcement, delivery_order_time_windows, updated_at)
+      VALUES (${targetRef}, ${announcement}, ${deliveryWindow}, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE SET
+        announcement = EXCLUDED.announcement,
+        delivery_order_time_windows = EXCLUDED.delivery_order_time_windows,
+        updated_at = NOW()
+    `
+  }
 
   // ── 1) Modifier library: groups (real min/max + external names) + modifiers (real prices) ──
   const groupMap = new Map<string, string>() // fm group ref → disco group ref
@@ -147,7 +233,9 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
   let menuPos = 0
   for (const m of fmMenus) {
     const mRef = str(m.reference); if (!mRef) continue
-    const { menu: ms, delivery } = fmMenuToDiscoSettings((m.settings || {}) as Record<string, unknown>, (m.scheduleOption || {}) as Record<string, unknown>)
+    const scheduleObj = (m.scheduleOption || {}) as Record<string, unknown>
+    const { menu: ms, delivery } = fmMenuToDiscoSettings((m.settings || {}) as Record<string, unknown>, scheduleObj)
+    const scheduleConfig = fmScheduleToDiscoConfig(scheduleObj)
     const nm = str(m.name) || 'Menu'
     const mi = (await sql`
       INSERT INTO disco_menus (
@@ -155,13 +243,13 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
         offers_pickup, offers_delivery, service_charge_pct, service_charge_name,
         tip_default_type, tip_default_value, pickup_order_minimum, delivery_order_minimum,
         max_orders_per_day, lead_time_hours, rolling_availability_days, daily_cutoff_time, hard_cutoff_date,
-        delivery_settings, position)
+        delivery_settings, schedule_config, position)
       VALUES (
         ${targetRef}::uuid, ${nm}, ${(slugify(nm) || 'menu') + '-' + menuPos}, ${str(m.type) || 'GENERAL_CATERING'}, ${str(m.description) || null}, ${m.visible !== false},
         ${ms.offersPickup}, ${ms.offersDelivery}, ${ms.serviceChargePct}, ${ms.serviceChargeName},
         ${ms.tipDefaultType}, ${ms.tipDefaultValue}, ${ms.pickupOrderMinimum}, ${ms.deliveryOrderMinimum},
         ${ms.maxOrdersPerDay}, ${ms.leadTimeHours}, ${ms.rollingAvailabilityDays}, ${ms.dailyCutoffTime}::time, ${ms.hardCutoffDate}::date,
-        ${delivery ? JSON.stringify(delivery) : null}::jsonb, ${menuPos++})
+        ${delivery ? JSON.stringify(delivery) : null}::jsonb, ${scheduleConfig ? JSON.stringify(scheduleConfig) : null}::jsonb, ${menuPos++})
       RETURNING reference
     `) as { reference: string }[]
     menuMap.set(mRef, mi[0].reference)
