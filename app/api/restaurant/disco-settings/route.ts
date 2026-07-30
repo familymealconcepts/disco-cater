@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { sql, runMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+// resolveDiscoScopeRef only resolves ctx.restaurantReference, which is always ''
+// for ordinary FM-authenticated sessions (only Disco-native sessions carry it).
+// order-settings/page.tsx (the Settings page ordinary FM restaurants land on)
+// reads this route's GET for online_ordering_enabled, so an unguarded call here
+// 400'd for every FM-backed restaurant on every Settings-page load (masked
+// client-side by a silent default-to-true fallback, not a visible error).
+async function currentRef(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>): Promise<string> {
+  return ctx.authType === 'disco' ? await resolveDiscoScopeRef(ctx) : (await getRestaurantRef()) || ''
+}
 
 // Restaurant-level settings (Stage 9) for Disco-native restaurants — stored in
 // disco_restaurant_overrides (SA location-scoped). Online ordering, delivery
@@ -11,7 +22,7 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const ref = await resolveDiscoScopeRef(ctx)
+  const ref = await currentRef(ctx)
   if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
   await runMigrations()
   const rows = (await sql`
@@ -31,7 +42,7 @@ const WINDOWS = new Set(['exact', '30_min', '1_hour'])
 export async function PUT(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const ref = await resolveDiscoScopeRef(ctx)
+  const ref = await currentRef(ctx)
   if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }

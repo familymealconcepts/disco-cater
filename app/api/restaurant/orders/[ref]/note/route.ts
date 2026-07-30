@@ -59,7 +59,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         ...auth,
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        'X-RESTAURANT-UUID': ctx.restaurantReference,
+        // scope.restaurantRef (from assertOrderInScope, already correct for both
+        // auth types) — NOT ctx.restaurantReference, which is always '' for
+        // ordinary FM sessions (only Disco-native sessions carry it) and would
+        // send FM an empty X-RESTAURANT-UUID for every FM-backed restaurant.
+        'X-RESTAURANT-UUID': scope.restaurantRef || '',
       },
       body: JSON.stringify(body),
     })
