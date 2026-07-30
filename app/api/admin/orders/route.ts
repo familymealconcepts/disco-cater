@@ -6,8 +6,11 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Disco-native orders (fm_order_reference IS NULL) exist only in Neon and are
 // absent from FM's admin list. Fetch them mapped into FM's list shape so the admin
-// Orders page shows them alongside FM orders. Tagged native:true (+ sourceoforder
-// 'DISCO') so the UI can badge them. Honors the same date range as the FM call.
+// Orders page shows them alongside FM orders. Tagged native:true so the UI can
+// badge them; sourceoforder passes through the real stored value (previously
+// hardcoded 'DISCO', which mislabeled genuinely-1P native orders as 3P — see
+// the super-admin-native-order-source-hardcode-bug investigation). Honors the
+// same date range as the FM call.
 async function fetchNativeOrders(fromIso: string | null, toIso: string | null): Promise<Record<string, unknown>[]> {
   try {
     const rows = (await sql`
@@ -22,7 +25,7 @@ async function fetchNativeOrders(fromIso: string | null, toIso: string | null): 
              COALESCE(o.total, 0) AS total,
              o.customer_first_name AS "firstName", o.customer_last_name AS "lastName", o.customer_email AS email,
              o.order_number AS "orderNumber", o.delivery_type AS "deliveryType",
-             'DISCO' AS sourceoforder, true AS native
+             o.source_of_order AS sourceoforder, true AS native
       FROM disco_orders o
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
       WHERE o.fm_order_reference IS NULL AND o.is_deleted = false
