@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
+import { getRestaurantRef } from '../../../../../lib/restaurant-auth'
 import { sql } from '../../../../../lib/db'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 
@@ -74,7 +75,12 @@ async function toPdf(rows: Row[], title: string, sub: string): Promise<Uint8Arra
 export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const ref = await resolveDiscoScopeRef(ctx)
+  // resolveDiscoScopeRef only resolves ctx.restaurantReference, which is always
+  // '' for ordinary FM-authenticated sessions (only Disco-native sessions carry
+  // it) — that silently 400'd Export Reports for every FM-backed restaurant.
+  // FM sessions resolve their restaurant from the JWT itself via getRestaurantRef
+  // (same fix as the menu-manager Items-column bug, same root cause).
+  const ref = ctx.authType === 'disco' ? await resolveDiscoScopeRef(ctx) : (await getRestaurantRef()) || ''
   if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
 
   const sp = req.nextUrl.searchParams
@@ -117,7 +123,9 @@ export async function GET(req: NextRequest) {
     }))
 
     const title = 'Orders Report'
-    const sub = `${dateField === 'created' ? 'Created' : 'Order'} date ${from} → ${to} · ${rows.length} order${rows.length === 1 ? '' : 's'}`
+    // "to" not "→" — pdf-lib's WinAnsi-encoded Helvetica can't draw that glyph
+    // and throws, which made PDF export fail unconditionally on every request.
+    const sub = `${dateField === 'created' ? 'Created' : 'Order'} date ${from} to ${to} · ${rows.length} order${rows.length === 1 ? '' : 's'}`
     const fnbase = `orders-report_${dateField}_${from}_${to}`
 
     if (format === 'csv') {
