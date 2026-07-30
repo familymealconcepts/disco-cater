@@ -114,14 +114,6 @@ function computeRange(p: Preset): { from: string; to: string } | null {
   if (p === 'month') { const d = new Date(now.getFullYear(), now.getMonth(), 1); return { from: ymd(d), to } }
   return null // custom
 }
-// FM's orders API parses date filters as DD.MM.YYYY (same as the sale-stats and
-// orders/saleStats proxies). The chart works in YYYY-MM-DD everywhere else
-// (grouping keys, axis labels) — only the query params sent to FM need this.
-// Sending YYYY-MM-DD silently matches nothing → the "no chart data" bug.
-function toFmDate(iso: string) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
-  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso
-}
 // Short label "Jun 1" — parse as local date so the day doesn't shift.
 function dayLabel(iso: string) {
   const [y, m, d] = iso.split('-').map(Number)
@@ -301,20 +293,21 @@ export default function DashboardPage() {
   const loadChartData = useCallback(async (from: string, to: string) => {
     if (!from || !to) return
     setChartLoading(true)
-    // FM's orders endpoint needs DD.MM.YYYY for the date filter (YYYY-MM-DD
-    // silently returns nothing). Convert only the query params — `from`/`to`
-    // stay YYYY-MM-DD for grouping and axis labels below. Scoping to the
-    // selected restaurant is handled server-side by the fm_selected_restaurant
-    // cookie (set by the dropdown), matching the sale-stats scope.
-    const fmFrom = toFmDate(from)
-    const fmTo = toFmDate(to)
+    // /api/restaurant/orders is Disco's own Neon-backed proxy (disco_orders),
+    // not a passthrough to FM's raw API — it casts fromDate/toDate straight to
+    // a Postgres ::date, so it needs YYYY-MM-DD, not FM's DD.MM.YYYY. Sending
+    // DD.MM.YYYY here 500'd the request (invalid date syntax), which
+    // loadChartData silently swallowed as an empty trend — this was the "sales
+    // graph doesn't work" bug. Scoping to the selected restaurant is handled
+    // server-side by the fm_selected_restaurant cookie (set by the dropdown),
+    // matching the sale-stats scope.
     try {
       const all: ListOrder[] = []
       let page = 0
       let totalPages = 1
       let hitCap = false
       do {
-        const p = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE), fromDate: fmFrom, toDate: fmTo })
+        const p = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE), fromDate: from, toDate: to })
         CHART_STATUSES.forEach(s => p.append('orderStatuses', s))
         // Scope to the selected restaurant when one is picked (mirrors the
         // sale-stats fetch). Empty selectedRef = "All restaurants" → aggregate.
@@ -549,9 +542,6 @@ export default function DashboardPage() {
 
       {/* #21: "Disco Cater Marketplace Performance" section removed per request. */}
 
-      {/* #20: export orders for a date range (order or created date) as CSV/Excel/PDF. */}
-      <ExportPanel />
-
       {/* Recurring orders summary — computed from the loaded orders dataset
           (no extra fetch). Hidden when there are no recurring orders. */}
       {!chartLoading && recurring.count > 0 && (
@@ -578,6 +568,12 @@ export default function DashboardPage() {
         {hasServiceCharge && <Card title={serviceChargeTitle} value={saleStats.serviceChargesSum} />}
         <Card title="Stripe Fees" value={saleStats.stripeFeeSum} gray />
         <Card title="Total Amount" value={saleStats.totalOrdersSum} />
+      </div>
+
+      {/* #20: export orders for a date range (order or created date) as CSV/Excel/PDF.
+          Moved below the summary cards per request. */}
+      <div style={{ marginTop: 20 }}>
+        <ExportPanel />
       </div>
 
       {/* Scheduled Reports — moved here from the standalone Reports page. */}
