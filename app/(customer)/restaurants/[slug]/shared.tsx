@@ -202,7 +202,8 @@ function formatFullAddress(a?: FmRestaurantLookup['address'] | null): string {
   return [cleanedStreet, tail].filter(Boolean).join(', ')
 }
 
-async function fetchMenuData(restaurantRef: string) {
+// Exported for reuse by order/page.tsx (the 1st-party route's own package list).
+export async function fetchMenuData(restaurantRef: string) {
   try {
     const menuRes = await fetch(
       `${FM}/public-api/menu?restaurantReference=${restaurantRef}`,
