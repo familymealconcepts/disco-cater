@@ -6,14 +6,16 @@ const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
 
-// The 1P direct order URL for a location. Prefer the stored Sanity slug; when a
-// location has no Sanity doc, derive the slug from the business name (lowercase,
-// no spaces/punctuation) — the same `businessNameWithoutSpaces` pattern the
-// /restaurants/[slug] page falls back to against FM. Never send to the map.
+// The 1P direct order URL for a location. loc.slug comes straight from
+// disco_restaurant_cache (lib/locations.ts) — the same table the
+// /restaurants/[slug] detail page itself reads. No guessed/derived slug
+// fallback here: a from-name guess (lowercase, strip non-alphanumeric) reliably
+// drops real hyphens in multi-word names (confirmed: "Namkeen - Union" ->
+// "namkeenunion", but the real slug is "namkeen-union") and would just
+// reintroduce the same class of 404 this was fixed for. A location with no
+// cache row at all goes to the map instead of a likely-wrong guess.
 function orderHref(loc: LocationItem): string {
-  if (loc.slug) return `/restaurants/${loc.slug}`
-  const derived = (loc.businessName || '').toLowerCase().replace(/[^a-z0-9]/g, '')
-  return derived ? `/restaurants/${derived}` : '/fullmap'
+  return loc.slug ? `/restaurants/${loc.slug}` : '/fullmap'
 }
 // 1st-party hero gradient used when the group carries no banner image of its own.
 const HERO_GRADIENT = 'linear-gradient(120deg,#6B6EF9 0%,#C044C8 52%,#F0468A 100%)'

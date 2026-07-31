@@ -1,5 +1,4 @@
 import { cache } from 'react'
-import { createClient } from '@sanity/client'
 import { sql } from './db'
 import { getNativeLinkBySlug } from './multi-unit-links'
 import { getLinkGradient, cacheAutoGradient } from './location-links'
@@ -18,20 +17,13 @@ import { stateFromAddress } from './us-states'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-const sanity = createClient({
-  projectId: process.env.NEXT_PUBLIC_SANITY_PROJECT_ID || '0j4eqnmw',
-  dataset: process.env.NEXT_PUBLIC_SANITY_DATASET || 'production',
-  apiVersion: '2024-01-01',
-  useCdn: true, // public read — no token
-})
-
 export interface LocationItem {
   restaurantReference: string
   businessName: string
   address: string
   /** State the FM group endpoint filed this location under — used to sort/group. */
   state: string
-  /** Sanity slug.current → /restaurants/[slug]; null when no Sanity doc exists. */
+  /** disco_restaurant_cache.slug → /restaurants/[slug]; null when no cache row exists. */
   slug: string | null
 }
 
@@ -59,13 +51,6 @@ interface FmStateGroup { state?: string; restaurants?: FmGroupRestaurant[] }
 function titleFromSlug(slug: string): string {
   const cleaned = slug.replace(/[-_]+/g, ' ').trim()
   return cleaned ? cleaned.replace(/\b\w/g, c => c.toUpperCase()) : slug
-}
-
-// FM slug = the segment after /disco/ in a Sanity orderUrl.
-function fmSlugFromOrderUrl(orderUrl?: string): string | null {
-  if (!orderUrl) return null
-  const m = orderUrl.match(/\/disco\/([^/?#]+)/)
-  return m ? m[1].toLowerCase() : null
 }
 
 function formatAddress(a?: FmGroupRestaurant['address']): string {
@@ -204,35 +189,28 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
   }
   if (flat.length === 0) return null
 
-  // Resolve each FM restaurant to its Sanity slug. Primary key is the backfilled
-  // `fmReference`; fall back to matching the FM slug against the orderUrl.
+  // Resolve each FM restaurant's slug from disco_restaurant_cache — the SAME
+  // table/column the customer-facing restaurant detail page uses (shared.tsx's
+  // getCachedRestaurant/loadDiscoNativeRestaurant) — rather than Sanity. Sanity's
+  // slug.current is frozen from whenever that doc was last touched and drifts
+  // from the real, current slug (confirmed: 3 of 6 Namkeen locations had a wrong
+  // or missing Sanity-derived slug, generating a 404ing link). Keying off the
+  // same source of truth as the detail page means these two can't drift apart
+  // again — if a restaurant's real slug ever changes, both pages see it at once.
   const refs = flat.map(r => r.reference).filter(Boolean) as string[]
-  const fmSlugs = flat.map(r => (r.businessNameWithoutSpaces || '').toLowerCase()).filter(Boolean)
-  const patterns = fmSlugs.map(s => `*/disco/${s}*`)
-
-  let docs: { fmReference?: string; orderUrl?: string; slug?: string }[] = []
-  if (refs.length || patterns.length) {
-    try {
-      docs = await sanity.fetch(
-        `*[_type == "restaurant" && (fmReference in $refs || orderUrl match $patterns)]{ fmReference, orderUrl, "slug": slug.current }`,
-        { refs, patterns },
-      )
-    } catch {
-      docs = []
-    }
-  }
+  const cacheRows = (refs.length
+    ? await sql`SELECT restaurant_reference, slug FROM disco_restaurant_cache WHERE restaurant_reference = ANY(${refs})`.catch(() => [])
+    : []) as { restaurant_reference: string; slug: string | null }[]
+  const slugByRef = new Map(cacheRows.map(r => [r.restaurant_reference, r.slug]))
 
   const locations: LocationItem[] = flat.map(r => {
     const ref = r.reference || ''
-    const fmSlug = (r.businessNameWithoutSpaces || '').toLowerCase()
-    let doc = ref ? docs.find(d => d.fmReference && d.fmReference === ref) : undefined
-    if (!doc && fmSlug) doc = docs.find(d => fmSlugFromOrderUrl(d.orderUrl) === fmSlug)
     return {
       restaurantReference: ref,
       businessName: r.businessName || 'Restaurant',
       address: formatAddress(r.address),
       state: r._state || r.address?.state || '',
-      slug: doc?.slug || null,
+      slug: (ref && slugByRef.get(ref)) || null,
     }
   })
 
