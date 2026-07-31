@@ -6,16 +6,21 @@ const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#5B6FE8'
 
-// The 1P direct order URL for a location. loc.slug comes straight from
-// disco_restaurant_cache (lib/locations.ts) — the same table the
-// /restaurants/[slug] detail page itself reads. No guessed/derived slug
-// fallback here: a from-name guess (lowercase, strip non-alphanumeric) reliably
-// drops real hyphens in multi-word names (confirmed: "Namkeen - Union" ->
-// "namkeenunion", but the real slug is "namkeen-union") and would just
-// reintroduce the same class of 404 this was fixed for. A location with no
-// cache row at all goes to the map instead of a likely-wrong guess.
+// The 1P direct order URL for a location — /order/{slug}, not /restaurants/{slug}
+// (the 3P marketplace path, which carries a lead-gen fee). This Links page is a
+// restaurant's own shareable link, so it must always send to the no-fee 1P
+// route. /order/[slug] and /restaurants/[slug] resolve the same slug against
+// the same disco_restaurant_cache row (see shared.tsx) — only the checkout fee
+// path differs — so reusing loc.slug here is exactly correct. loc.slug comes
+// straight from disco_restaurant_cache (lib/locations.ts) — the same table the
+// detail pages themselves read. No guessed/derived slug fallback here: a
+// from-name guess (lowercase, strip non-alphanumeric) reliably drops real
+// hyphens in multi-word names (confirmed: "Namkeen - Union" -> "namkeenunion",
+// but the real slug is "namkeen-union") and would just reintroduce the same
+// class of 404 this was fixed for. A location with no cache row at all goes to
+// the map instead of a likely-wrong guess.
 function orderHref(loc: LocationItem): string {
-  return loc.slug ? `/restaurants/${loc.slug}` : '/fullmap'
+  return loc.slug ? `/order/${loc.slug}` : '/fullmap'
 }
 // 1st-party hero gradient used when the group carries no banner image of its own.
 const HERO_GRADIENT = 'linear-gradient(120deg,#6B6EF9 0%,#C044C8 52%,#F0468A 100%)'
