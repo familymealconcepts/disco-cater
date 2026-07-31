@@ -115,23 +115,33 @@ async function resolveGradient(slug: string, representativeRef: string | null): 
   return css || null
 }
 
-// The real link title (FM's `header`). FM's /group/{url} endpoint carries no title,
-// but /links/{url} ("...with header and image") does. Used as a fallback for FM links
-// that were never mirrored into disco_location_links (e.g. created directly in FM), so
-// the page shows the admin-entered title instead of the humanized slug. Best-effort:
-// any failure → null (the caller then falls back to the slug).
-async function fetchFmLinkHeader(slug: string): Promise<string | null> {
+// The real link title AND banner image, both from FM's /links/{url} endpoint
+// ("...with header and image" — /group/{url} carries neither). Used as a
+// fallback for FM links that were never mirrored into disco_location_links, or
+// were mirrored before this table tracked images/were last edited outside this
+// portal's upload UI (lib/location-links.ts's upsertLocationLink deliberately
+// never re-syncs image_url from FM on conflict — see its own comment — so an
+// image that only ever existed in FM stays there forever unless someone
+// re-uploads through the crop UI). Confirmed real for Namkeen: FM's record has
+// a populated `image.reference` while disco_location_links.image_url is null.
+// Image URL built the same way the admin Links list's own imageUrl() helper
+// does (manage/multi-unit-links/page.tsx) — same FM image CDN pattern used for
+// restaurant hero images elsewhere (size=600). Best-effort: any failure →
+// nulls (the caller then falls back to the slug / gradient).
+async function fetchFmLink(slug: string): Promise<{ header: string | null; imageUrl: string | null }> {
   try {
     const res = await fetch(`${FM}/public-api/restaurants/links/${encodeURIComponent(slug)}`, {
       headers: { Accept: 'application/json' },
       cache: 'no-store',
     })
-    if (!res.ok) return null
-    const data = (await res.json().catch(() => null)) as { header?: string } | null
-    const header = data?.header?.trim()
-    return header || null
+    if (!res.ok) return { header: null, imageUrl: null }
+    const data = (await res.json().catch(() => null)) as { header?: string; image?: { reference?: string } } | null
+    const header = data?.header?.trim() || null
+    const ref = data?.image?.reference
+    const imageUrl = ref ? `${FM}/public-api/images/${ref}/download?size=600` : null
+    return { header, imageUrl }
   } catch {
-    return null
+    return { header: null, imageUrl: null }
   }
 }
 
@@ -214,17 +224,22 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
     }
   })
 
-  // Resolve the uploaded Link Image (and real title) for the header background.
-  // Title priority: the mirrored disco_location_links.title (disco-managed links) →
-  // FM's own link header via /links/{url} (links created directly in FM, never
-  // mirrored) → humanized slug. Only hits FM when the mirror has no title.
+  // Resolve the uploaded Link Image and real title for the header background.
+  // Title priority: mirrored disco_location_links.title → FM's own /links/{url}
+  // header → humanized slug. Image priority: mirrored disco_location_links.image_url
+  // (explicit override, always wins if set) → FM's own /links/{url} image → gradient
+  // (final fallback, computed below only when there's no image from either source).
+  // One shared FM call covers both fallbacks — only made when the mirror is missing
+  // at least one of the two, never when Neon already has everything.
   const banner = await resolveLinkBanner(slug)
-  const title = banner.header || (await fetchFmLinkHeader(slug)) || titleFromSlug(slug)
-  const gradient = banner.image ? null : await resolveGradient(slug, flat[0]?.reference || null)
+  const fmLink = (!banner.header || !banner.image) ? await fetchFmLink(slug) : { header: null, imageUrl: null }
+  const title = banner.header || fmLink.header || titleFromSlug(slug)
+  const image = banner.image || fmLink.imageUrl
+  const gradient = image ? null : await resolveGradient(slug, flat[0]?.reference || null)
 
   return {
     title,
-    image: banner.image,
+    image,
     gradient,
     locations,
   }
