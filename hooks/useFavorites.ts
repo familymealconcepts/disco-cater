@@ -146,19 +146,24 @@ function fetchFavoritesShared(force = false): Promise<FavoritesResult> {
       return Promise.resolve(favoritesSlot.value)
     }
   }
-  const p = fetch('/api/customer/favorites', { credentials: 'include' })
-    .then(async res => {
-      const result: FavoritesResult = {
-        ok: res.ok,
-        data: res.ok ? await res.json().catch(() => null) : null,
-      }
-      favoritesSlot.value = result
-      favoritesSlot.ts = Date.now()
-      // The favorites response already identifies the account, so an
-      // authenticated user never needs the /api/fm-user round-trip at all.
-      if (result.data?.authenticated && result.data?.email) writeCachedScope(String(result.data.email))
-      return result
-    })
+  const p = (async () => {
+    // If a favorite/unfavorite write is still in flight, wait for it to settle
+    // before reading — otherwise this GET can land between the optimistic UI
+    // update and the write's commit, read pre-mutation data, and cache it for
+    // the full TTL (see pendingMutations' own comment above).
+    if (pendingMutations.size > 0) await Promise.allSettled([...pendingMutations])
+    const res = await fetch('/api/customer/favorites', { credentials: 'include' })
+    const result: FavoritesResult = {
+      ok: res.ok,
+      data: res.ok ? await res.json().catch(() => null) : null,
+    }
+    favoritesSlot.value = result
+    favoritesSlot.ts = Date.now()
+    // The favorites response already identifies the account, so an
+    // authenticated user never needs the /api/fm-user round-trip at all.
+    if (result.data?.authenticated && result.data?.email) writeCachedScope(String(result.data.email))
+    return result
+  })()
     .finally(() => { if (favoritesSlot.promise === p) favoritesSlot.promise = null })
   favoritesSlot.promise = p
   return p
@@ -206,6 +211,21 @@ async function resolveScopeFromCookie(): Promise<string | null> {
     .finally(() => { if (scopeSlot.promise === p) scopeSlot.promise = null })
   scopeSlot.promise = p
   return p
+}
+
+// Tracks in-flight favorite/unfavorite POST/DELETE writes from toggleFavorite().
+// fetchFavoritesShared() awaits these (below) before issuing its own GET, so a
+// refresh triggered by another mounted hook instance -- a different card, or
+// the favorites page itself -- can never race ahead of a still-in-flight
+// mutation, read pre-mutation state, and cache it for the full TTL. That race
+// was the confirmed root cause of favorites intermittently reverting after a
+// toggle (2026-08-01): toggleFavorite() invalidated the cache synchronously
+// but fired its write fire-and-forget with nothing else tracking it, so a
+// concurrent refresh() saw an empty cache and read stale data.
+const pendingMutations = new Set<Promise<unknown>>()
+function trackMutation(p: Promise<unknown>): void {
+  pendingMutations.add(p)
+  p.finally(() => { pendingMutations.delete(p) })
 }
 
 // Guards the local→server write-back so N hook instances processing the SAME
@@ -605,6 +625,10 @@ export function useFavorites(): FavoritesState {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ restaurant_reference: ref }),
             })
+        // Registered synchronously, before any await, so a concurrent
+        // fetchFavoritesShared() call (from another mounted hook instance)
+        // can never miss this mutation being in flight.
+        trackMutation(p)
         // force: the write just failed, so we need the true server state — not
         // whatever the shared cache last saw. removed:0 on a DELETE means the
         // server matched nothing, so reconcile rather than leave the UI showing
