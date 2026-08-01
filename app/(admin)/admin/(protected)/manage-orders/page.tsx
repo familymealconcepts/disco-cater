@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 
@@ -486,6 +486,17 @@ function AdminOrdersContent() {
   const searchParams = useSearchParams()
   const pathname = usePathname()
 
+  // Background poll (below) diffs a fresh fetch against what's on screen. If
+  // it finds orders not already displayed, it stashes the WHOLE fresh set here
+  // instead of applying it -- so a super admin mid-read never has rows shift
+  // under them. Mirrors the restaurant portal's own orders page pattern
+  // (app/(restaurant)/restaurant/(portal)/orders/page.tsx). ordersRef exists
+  // solely so the setInterval closure below always diffs against the latest
+  // `orders`, not whatever it was when the interval was created.
+  const [pending, setPending] = useState<Order[] | null>(null)
+  const ordersRef = useRef<Order[]>([])
+  useEffect(() => { ordersRef.current = orders }, [orders])
+
   // Edit-success banner — the admin edit page redirects back here with
   // ?editSuccess=true&orderNumber=XXXXX&editOutcome=success|invoiced. Capture it
   // into a dismissible banner, then strip the params from the URL so a refresh
@@ -534,8 +545,11 @@ function AdminOrdersContent() {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>({ key: 'placed', dir: 'desc' })
 
   // Fetch ALL pages (capped at MAX_PAGES) so filters/sort run over everything.
-  const load = useCallback(async () => {
-    setLoading(true)
+  // `background` is set by the 60s poll below: it must never flip on the
+  // full-page loading spinner, and on a genuinely new order it stashes the
+  // result into `pending` (see above) rather than replacing `orders` outright.
+  const load = useCallback(async (background?: boolean) => {
+    if (!background) setLoading(true)
     const url = (p: number) => {
       const params = new URLSearchParams()
       if (p > 0) params.set('page', String(p))
@@ -549,7 +563,8 @@ function AdminOrdersContent() {
       const first = await fetch(url(0)).then(r => (r.ok ? r.json() : null))
       if (!first) {
         console.error('[admin/orders] first page fetch failed', { fromDate, toDate })
-        setOrders([]); setLoading(false); return
+        if (!background) { setOrders([]); setLoading(false) }
+        return
       }
       let all: Order[] = (first.content || []).map(withOrderRef)
       // FM's userOrders may omit totalPages (or name it total_pages); if so,
@@ -576,16 +591,39 @@ function AdminOrdersContent() {
       if (all.length === 0) {
         console.error('[admin/orders] FM returned 0 orders', { fromDate, toDate, totalElements })
       }
-      setOrders(all)
+      if (background) {
+        const currentRefs = new Set(ordersRef.current.map(o => o.orderReference))
+        const hasNew = all.some(o => o.orderReference && !currentRefs.has(o.orderReference))
+        if (hasNew) setPending(all)
+        else setOrders(all)
+      } else {
+        setOrders(all)
+        setPending(null)
+      }
     } catch (err) {
       console.error('[admin/orders] orders fetch error', err)
-      setOrders([])
+      if (!background) setOrders([])
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }, [fromDate, toDate])
 
   useEffect(() => { load() }, [load])
+
+  // Silent 60s poll: diffs a fresh fetch against what's displayed and, if
+  // there are genuinely new orders, surfaces the "N new orders" pill below
+  // instead of yanking the table out from under whoever's looking at it.
+  useEffect(() => {
+    const id = setInterval(() => load(true), 60000)
+    return () => clearInterval(id)
+  }, [load])
+
+  function applyPending() {
+    if (!pending) return
+    setOrders(pending)
+    setPending(null)
+  }
+  const newCount = pending ? pending.filter(o => !orders.some(c => c.orderReference === o.orderReference)).length : 0
 
   // Batch-lookup Disco promos for the loaded orders (one request, capped at 500).
   useEffect(() => {
@@ -700,6 +738,15 @@ function AdminOrdersContent() {
           </button>
         )}
       </div>
+
+      {newCount > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+          <button onClick={applyPending}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#EEF0FD', color: '#5B6FE8', border: '1px solid #d7dbfa', borderRadius: 999, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+            ↑ {newCount} new order{newCount === 1 ? '' : 's'} — click to refresh
+          </button>
+        </div>
+      )}
 
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1000 }}>
