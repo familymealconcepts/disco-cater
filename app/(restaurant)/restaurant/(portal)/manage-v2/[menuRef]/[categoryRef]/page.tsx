@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
+import { fetchWithAuthRetry } from '@/lib/restaurant-portal-fetch'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -83,6 +84,12 @@ export default function CategoryDetailPage() {
   const [packages, setPackages] = useState<MealPackage[]>([])
   const [loadingCats, setLoadingCats] = useState(true)
   const [loadingPkgs, setLoadingPkgs] = useState(true)
+  // Distinct from "loaded, zero rows" -- a 401 (expired session, refresh
+  // failed) or any other non-ok response after fetchWithAuthRetry's one retry
+  // sets this instead of silently leaving packages/categories as [], so the
+  // page can show a real error rather than a false "No items" empty state.
+  const [catsError, setCatsError] = useState(false)
+  const [pkgsError, setPkgsError] = useState(false)
   const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null)
   const [catDialog, setCatDialog] = useState<{ initial?: string; ref?: string } | null>(null)
 
@@ -90,24 +97,34 @@ export default function CategoryDetailPage() {
 
   const loadCategories = useCallback(async () => {
     setLoadingCats(true)
+    setCatsError(false)
     try {
-      const res = await fetch(`/api/restaurant/categories?menuReference=${menuRef}`)
+      const res = await fetchWithAuthRetry(`/api/restaurant/categories?menuReference=${menuRef}`)
       if (res.ok) {
         const data = await res.json()
         const cats: Category[] = Array.isArray(data) ? data : (data.content || [])
         setCategories([...cats].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)))
+      } else {
+        setCatsError(true)
       }
+    } catch {
+      setCatsError(true)
     } finally { setLoadingCats(false) }
   }, [menuRef])
 
   const loadPackages = useCallback(async () => {
     setLoadingPkgs(true)
+    setPkgsError(false)
     try {
-      const res = await fetch(`/api/restaurant/meal-packages?categoryReference=${categoryRef}&page=0&size=100`)
+      const res = await fetchWithAuthRetry(`/api/restaurant/meal-packages?categoryReference=${categoryRef}&page=0&size=100`)
       if (res.ok) {
         const data = await res.json()
         setPackages(data.content || [])
+      } else {
+        setPkgsError(true)
       }
+    } catch {
+      setPkgsError(true)
     } finally { setLoadingPkgs(false) }
   }, [categoryRef])
 
@@ -261,6 +278,13 @@ export default function CategoryDetailPage() {
             <div style={{ padding: '8px 0' }}>
               {loadingCats ? (
                 <div style={{ padding: '12px 16px', color: '#aaa', fontSize: 12 }}>Loading…</div>
+              ) : catsError ? (
+                <div style={{ padding: '12px 16px', color: '#E53935', fontSize: 12 }}>
+                  Couldn&apos;t load categories.{' '}
+                  <span style={{ color: BLUE, cursor: 'pointer', textDecoration: 'underline' }} onClick={loadCategories}>
+                    Try again
+                  </span>
+                </div>
               ) : categories.length === 0 ? (
                 <div style={{ padding: '12px 16px', color: '#aaa', fontSize: 12 }}>No categories.</div>
               ) : (
@@ -346,6 +370,13 @@ export default function CategoryDetailPage() {
             <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
               {loadingPkgs ? (
                 <div style={{ padding: 40, textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</div>
+              ) : pkgsError ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#E53935', fontSize: 13 }}>
+                  Couldn&apos;t load items — your session may have expired.{' '}
+                  <span style={{ color: BLUE, cursor: 'pointer', textDecoration: 'underline' }} onClick={loadPackages}>
+                    Try again
+                  </span>
+                </div>
               ) : packages.length === 0 ? (
                 <div style={{ padding: 40, textAlign: 'center', color: '#aaa', fontSize: 13 }}>
                   No items in this category.{' '}

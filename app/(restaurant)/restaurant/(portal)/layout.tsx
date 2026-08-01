@@ -133,16 +133,33 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   // within 24h of expiry so restaurant users stay logged in for the full 30-day
   // window. If the refresh token is gone/invalid, the route clears cookies and
   // 401s → bounce to login.
+  //
+  // Also re-runs the same check every 15 minutes for as long as this layout
+  // stays mounted. This layout persists across all client-side navigation
+  // inside /restaurant/*, so without this a tab left open longer than the
+  // FM JWT's real (hours-scale) lifetime would only ever get this check once,
+  // at the initial hard load — the token could then expire mid-session with
+  // nothing to catch it until the next full reload (confirmed root cause of
+  // the "No items in this category" bug — see fetchWithAuthRetry's own
+  // per-request retry, which is the load-bearing fix; this interval just
+  // reduces how often that path needs to fire at all). The refresh route
+  // itself is a cheap no-op whenever the token isn't actually near expiry, so
+  // polling it this often costs nothing extra in the common case.
   useEffect(() => {
-    (async () => {
+    let cancelled = false
+    async function checkRefresh() {
       try {
         const res = await fetch('/api/restaurant-auth/refresh', { method: 'POST' })
+        if (cancelled) return
         if (res.status === 401) {
           try { localStorage.removeItem('restaurant_user') } catch {}
           router.push('/restaurant/login')
         }
       } catch {}
-    })()
+    }
+    checkRefresh()
+    const id = setInterval(checkRefresh, 15 * 60 * 1000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [router])
 
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN' || user?.role === 'SUPER_ADMIN'
