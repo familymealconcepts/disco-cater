@@ -234,6 +234,18 @@ export async function runMigrations(): Promise<void> {
     // MenuRequestDto has no image field — the menu image is a Disco addition
     // captured in MenuSettingsDialog and stored here alongside include_utensils.
     `ALTER TABLE disco_menu_settings ADD COLUMN IF NOT EXISTS image_url TEXT`,
+    // Marketing-email opt-out — deliberately a standalone table, not a column on
+    // fm_customers (which is itself import-populated from FM and could be
+    // clobbered by a re-import) or on noise-machine's diners (a separate mirror
+    // DB, and periodically re-synced). Keyed by lowercased/trimmed email so it
+    // survives fm_customers having multiple rows per person. Only ever consulted
+    // by marketing/announcement sends — transactional sends (order confirmations,
+    // reminders, receipts) must never check this and don't reference this table.
+    `CREATE TABLE IF NOT EXISTS marketing_email_opt_outs (
+      email TEXT PRIMARY KEY,
+      opted_out_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      source TEXT
+    )`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true
