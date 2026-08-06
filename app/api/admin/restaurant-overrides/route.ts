@@ -30,7 +30,26 @@ export async function GET(req: NextRequest) {
                -- Disco-native restaurants connect Stripe via disco_restaurant_accounts;
                -- expose whether a Stripe account exists as a connection fallback.
                (a.stripe_account_id IS NOT NULL) AS has_stripe_account,
-               d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details
+               d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details,
+               -- "Needs review" is DERIVED from real state (native + no real
+               -- recipient), not gated on notification_settings_flagged_at — that
+               -- column only gets set going forward (from convertToNative's
+               -- carry-over attempt) and would otherwise miss every restaurant
+               -- converted before this existed (e.g. Pelican Delicatessen, whose
+               -- row is non-NULL but only "chef@familymeal.com" — an internal
+               -- staff address, not a real customer contact for that restaurant,
+               -- same category of problem as the stripe-import+ Stripe sentinel).
+               -- "No real recipient" = empty, OR every listed email is on FM's own
+               -- @familymeal.com domain. Auto-clears the moment a real, non-FM
+               -- email lands, by any means (manual fix, portal Save) — no separate
+               -- "confirmed" checkbox that could go stale or be skipped.
+               (c.is_disco_native AND (
+                 o.notification_emails IS NULL OR trim(o.notification_emails) = ''
+                 OR NOT EXISTS (
+                   SELECT 1 FROM unnest(string_to_array(o.notification_emails, ',')) e
+                   WHERE trim(e) <> '' AND trim(e) !~* '@familymeal\.com$'
+                 )
+               )) AS notification_settings_needs_review
         FROM disco_restaurant_overrides o
         FULL OUTER JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
         LEFT JOIN LATERAL (
@@ -47,6 +66,7 @@ export async function GET(req: NextRequest) {
         order_url: string | null; online_ordering_enabled: boolean | null; menu_upload_url: string | null
         is_live: boolean | null; is_disco_native: boolean | null; has_stripe_account: boolean | null
         menu_drift_detected: boolean | null; menu_drift_details: unknown | null
+        notification_settings_needs_review: boolean | null
       }[]
 
       // Disco-native restaurants connect Stripe under their Disco reference, which
@@ -65,7 +85,7 @@ export async function GET(req: NextRequest) {
         restaurantReference: string; isPremium: boolean; visible: boolean; stripeConnected: boolean
         stripeCheckedAt: string | null; orderUrl: string; onlineOrderingEnabled: boolean | null
         menuUploadUrl: string | null; isLive: boolean; isDiscoNative: boolean; hasStripeAccount: boolean
-        menuDriftDetected: boolean; menuDriftDetails: unknown[]
+        menuDriftDetected: boolean; menuDriftDetails: unknown[]; notificationSettingsNeedsReview: boolean
       }
       const byRef = new Map<string, OverrideDto>()
       for (const r of rows) {
@@ -86,6 +106,7 @@ export async function GET(req: NextRequest) {
           hasStripeAccount: r.has_stripe_account ?? false,
           menuDriftDetected: r.menu_drift_detected ?? false,
           menuDriftDetails: (r.menu_drift_details as unknown[]) ?? [],
+          notificationSettingsNeedsReview: r.notification_settings_needs_review ?? false,
         })
       }
 
@@ -101,7 +122,14 @@ export async function GET(req: NextRequest) {
                o.is_premium, o.visible, o.stripe_connected, o.stripe_checked_at, o.order_url,
                o.online_ordering_enabled, c.menu_upload_url, c.is_live,
                (a.stripe_account_id IS NOT NULL) AS has_stripe_account,
-               d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details
+               d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details,
+               (
+                 o.notification_emails IS NULL OR trim(o.notification_emails) = ''
+                 OR NOT EXISTS (
+                   SELECT 1 FROM unnest(string_to_array(o.notification_emails, ',')) e
+                   WHERE trim(e) <> '' AND trim(e) !~* '@familymeal\.com$'
+                 )
+               ) AS notification_settings_needs_review
         FROM disco_restaurant_accounts a
         JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference AND c.is_disco_native = true
         LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference
@@ -112,6 +140,7 @@ export async function GET(req: NextRequest) {
         stripe_checked_at: string | null; order_url: string | null; online_ordering_enabled: boolean | null
         menu_upload_url: string | null; is_live: boolean | null; has_stripe_account: boolean | null
         menu_drift_detected: boolean | null; menu_drift_details: unknown | null
+        notification_settings_needs_review: boolean | null
       }[]
       for (const n of nativeRows) {
         if (!n.fm_ref) continue
@@ -129,6 +158,7 @@ export async function GET(req: NextRequest) {
           hasStripeAccount: n.has_stripe_account ?? false,
           menuDriftDetected: n.menu_drift_detected ?? false,
           menuDriftDetails: (n.menu_drift_details as unknown[]) ?? [],
+          notificationSettingsNeedsReview: n.notification_settings_needs_review ?? false,
         })
       }
 

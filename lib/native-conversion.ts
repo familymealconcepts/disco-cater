@@ -246,6 +246,32 @@ export interface NotificationCarryOverResult {
   reason: string
 }
 
+// Persisted audit marker — set whenever a conversion's automatic notification
+// carry-over fails, so there's a durable record of WHEN/WHY, alongside the console
+// log. The admin-visible "needs review" badge does NOT gate on this column though
+// (see app/api/admin/restaurant-overrides/route.ts) — it derives straight from
+// real state (native + no notification_emails), because this column only starts
+// getting set going forward and would otherwise miss every restaurant converted
+// before this existed (e.g. Pelican Delicatessen). That derived badge auto-clears
+// the moment real notification_emails land, by any means (portal Save, or a direct
+// fix like Glen Rock/Elmwood Park's) — no separate "confirmed" checkbox that could
+// be clicked without the data actually being real, or forgotten entirely.
+async function flagNotificationSettingsNeedReview(ref: string): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, notification_settings_flagged_at, updated_at)
+      VALUES (${ref}, NOW(), NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE
+        SET notification_settings_flagged_at = NOW(), updated_at = NOW()
+    `
+  } catch (e) {
+    // Even the flag write failing must never fail the conversion — but this would
+    // be a genuinely new, worse failure mode (silent AND unflagged), so it gets its
+    // own loud log distinct from the carry-over failure that triggered it.
+    console.error(`[convertToNative] FAILED to persist the notification-settings-needs-review flag for ${ref} (conversion still succeeds, but this gap is now invisible):`, e instanceof Error ? e.message : e)
+  }
+}
+
 // ── Notification-settings carry-over on conversion ────────────────────────────
 // Confirmed root cause of the Glen Rock gap: FM's real notification_emails /
 // notification_sms_numbers / phoneNotificationType live behind GET /api/notifications,
@@ -255,31 +281,31 @@ export interface NotificationCarryOverResult {
 // (/api/admin/notifications and /api/admin/restaurants/{ref}/notifications both
 // 404). This is a real access-control wall, not a transient failure — expect this
 // to fail every time until FM exposes an admin-scoped path. Attempted anyway (in
-// case that ever changes) and the failure is surfaced loudly rather than silently,
-// exactly so a restaurant never converts with a silently-empty notification setup
-// again without it being visible in the conversion result and the logs.
+// case that ever changes); every failure both logs loudly AND persists the
+// needs-review flag above, so the gap is visible somewhere an admin will actually
+// look, not just in the conversion result and function logs.
 export async function carryOverNotificationSettings(ref: string): Promise<NotificationCarryOverResult> {
+  const fail = async (reason: string): Promise<NotificationCarryOverResult> => {
+    console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
+    await flagNotificationSettingsNeedReview(ref)
+    return { carried: false, reason }
+  }
+
   let auth: Record<string, string>
   try { auth = await getFmServiceAuthHeader() } catch (e) {
-    const reason = `FM auth failed — could not even attempt the notification-settings fetch: ${e instanceof Error ? e.message : e}`
-    console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
-    return { carried: false, reason }
+    return fail(`FM auth failed — could not even attempt the notification-settings fetch: ${e instanceof Error ? e.message : e}`)
   }
 
   let res: Response
   try {
     res = await fetch(`${FM}/api/notifications?restaurantReference=${ref}`, { headers: { ...auth, Accept: 'application/json' } })
   } catch (e) {
-    const reason = `FM notification-settings request threw: ${e instanceof Error ? e.message : e}`
-    console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
-    return { carried: false, reason }
+    return fail(`FM notification-settings request threw: ${e instanceof Error ? e.message : e}`)
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    const reason = `FM /api/notifications unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall; real recipients must be entered manually post-conversion.`
-    console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
-    return { carried: false, reason }
+    return fail(`FM /api/notifications unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall; real recipients must be entered manually post-conversion.`)
   }
 
   // Unreachable today (confirmed above), kept for the day FM exposes a real path —
@@ -287,9 +313,7 @@ export async function carryOverNotificationSettings(ref: string): Promise<Notifi
   let data: { email?: string[]; phoneNumber?: string[]; phoneNotificationType?: string } | null = null
   try { data = await res.json() } catch { /* fall through to the reason below */ }
   if (!data) {
-    const reason = 'FM /api/notifications returned a non-JSON or empty body — cannot carry over.'
-    console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
-    return { carried: false, reason }
+    return fail('FM /api/notifications returned a non-JSON or empty body — cannot carry over.')
   }
 
   const emails = Array.from(new Set((data.email || []).map((e) => String(e).trim()).filter(Boolean)))
