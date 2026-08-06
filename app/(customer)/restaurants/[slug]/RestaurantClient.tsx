@@ -1503,8 +1503,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               const visiblePkgs = cat.mealPackages
                 .filter(p => p.available !== false)
                 .filter(p => !menuQuery || `${p.name || ''} ${p.description || ''}`.toLowerCase().includes(menuQuery))
-              // Hide categories with no matching items while searching.
-              if (menuQuery && visiblePkgs.length === 0) return null
+              // Hide categories with no visible items — whether that's every item
+              // hidden/unavailable, or (while searching) none matching the query.
+              if (visiblePkgs.length === 0) return null
               return (
               <div key={cat.reference} style={{ marginBottom: 40 }}>
                 {!embedded && (activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
