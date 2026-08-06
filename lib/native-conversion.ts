@@ -18,6 +18,15 @@ import { randomUUID } from 'crypto'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
 import { verifyAccountReusable } from './stripe-connect'
 import { syncRestaurantOrders } from './fm-orders-sync'
+import { setInviteToken } from './disco-restaurant-auth'
+import { sendTeamMemberInvite } from './email/notifications'
+import { getFmServiceAuthHeader } from './fm-service-auth'
+
+const SITE_URL = 'https://www.discocater.com'
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+// Same sentinel shape importRestaurantStripeAccount uses for a login-disabled
+// holder row created before any real admin has ever logged in.
+const SENTINEL_EMAIL_RE = /^stripe-import\+.+@familymeal\.com$/i
 
 // Full FM order-history backfill for a restaurant — pulls ALL of FM's order history
 // into disco_orders (source_of_order='FAMILYMEAL') so the native lead-gen fee tier
@@ -154,6 +163,80 @@ export interface ConversionResult {
   converted: boolean
   reason?: string
   readiness: ConversionReadiness
+  invite?: InviteResult
+}
+
+export interface InviteResult {
+  invited: boolean
+  email: string | null
+  reason: string
+}
+
+// ── Auto-invite on conversion ─────────────────────────────────────────────────
+// A freshly-converted restaurant frequently has NO working Disco login yet — either
+// none at all, or only the login-disabled sentinel row importRestaurantStripeAccount
+// creates (email stripe-import+{ref}@familymeal.com, an unguessable random
+// password) when no account existed to attach the Stripe id to. Without this, a
+// restaurant can be fully converted and still have no real person able to log in
+// to manage it. Fetches the restaurant's REAL admin identity from FM (never reuses
+// the sentinel's fake email) and sends the same "set your password" invite already
+// used for sub-admins. Best-effort — never blocks or fails the conversion itself.
+export async function ensureRestaurantLoginInvited(ref: string, restaurantName: string | null): Promise<InviteResult> {
+  const existing = (await sql`
+    SELECT email FROM disco_restaurant_accounts
+    WHERE restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref}
+    ORDER BY created_at ASC LIMIT 1
+  `.catch(() => [])) as { email: string }[]
+
+  if (existing.length && !SENTINEL_EMAIL_RE.test(existing[0].email)) {
+    return { invited: false, email: existing[0].email, reason: 'Working login already exists — skipped.' }
+  }
+
+  let auth: Record<string, string>
+  try { auth = await getFmServiceAuthHeader() } catch (e) {
+    return { invited: false, email: null, reason: `FM auth failed, could not look up real admin email: ${e instanceof Error ? e.message : e}` }
+  }
+  const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, { headers: { ...auth, Accept: 'application/json' } })
+  if (!res.ok) return { invited: false, email: null, reason: `FM restaurant lookup failed (${res.status}).` }
+  const fmRestaurant = await res.json().catch(() => null) as {
+    admin?: { email?: string; firstName?: string; lastName?: string; enabled?: boolean }
+  } | null
+  const admin = fmRestaurant?.admin
+  const email = (admin?.email || '').trim().toLowerCase()
+  if (!email || admin?.enabled === false) {
+    return { invited: false, email: null, reason: 'No real, enabled FM admin email found — cannot auto-invite.' }
+  }
+
+  try {
+    if (existing.length) {
+      // Upgrade the sentinel row in place — same restaurant_reference, real identity.
+      await sql`
+        UPDATE disco_restaurant_accounts
+        SET email = ${email}, first_name = ${admin?.firstName || null}, last_name = ${admin?.lastName || null}, updated_at = NOW()
+        WHERE restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref}
+      `
+    } else {
+      const sentinelHash = bcrypt.hashSync(randomUUID(), 10) // overwritten when the invite is accepted
+      await sql`
+        INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, first_name, last_name, restaurant_name, role)
+        VALUES (${email}, ${sentinelHash}, ${ref}, ${ref}, ${admin?.firstName || null}, ${admin?.lastName || null}, ${restaurantName}, 'ADMIN')
+      `
+    }
+  } catch (e) {
+    // Most likely: this email already has an account elsewhere (e.g. the same
+    // owner manages another location) — a unique-constraint hit, not a real
+    // failure. Don't auto-invite into a collision; flag for manual review instead.
+    return { invited: false, email, reason: `Could not attach ${email} to this restaurant (likely already in use elsewhere): ${e instanceof Error ? e.message : e}` }
+  }
+
+  const token = await setInviteToken(email)
+  const sent = await sendTeamMemberInvite({
+    to: email,
+    firstName: admin?.firstName,
+    inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
+    restaurantName: restaurantName || undefined,
+  })
+  return { invited: sent.success, email, reason: sent.success ? 'Invited — no prior working login existed.' : 'Invite email failed to send (login was still created/upgraded).' }
 }
 
 // Perform the flip — ONLY when every blocking step passes. Sets BOTH
@@ -187,7 +270,19 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     return { converted: false, reason: `FM order-history backfill failed (${backfill.error || 'unknown'}) — not converting; retry once FM is reachable.`, readiness }
   }
   await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, is_live = true, cached_at = NOW() WHERE restaurant_reference = ${readiness.restaurantReference}`
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true } }
+
+  // Best-effort — a failed invite email must never undo or fail an already-
+  // successful conversion. Restaurant name for the email body comes from the
+  // cache row already confirmed to exist by checkConversionReadiness above.
+  let invite: InviteResult | undefined
+  try {
+    const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
+    invite = await ensureRestaurantLoginInvited(readiness.restaurantReference, nameRow[0]?.name ?? null)
+  } catch (e) {
+    invite = { invited: false, email: null, reason: `Invite step threw: ${e instanceof Error ? e.message : e}` }
+  }
+
+  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────

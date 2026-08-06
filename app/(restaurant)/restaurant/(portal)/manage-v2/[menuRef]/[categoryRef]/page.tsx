@@ -199,6 +199,18 @@ export default function CategoryDetailPage() {
     await loadPackages()
   }
 
+  // Hide/show without deleting — flips FM's own `visible` flag via the existing
+  // proxy endpoint (mirrors the toggle already built in the native menu-manager;
+  // this FM-backed page never had one despite FM's own dashboard showing it).
+  async function togglePackageVisible(pkg: MealPackage) {
+    const next = !(pkg.visible !== false)
+    setPackages(pkgs => pkgs.map(p => p.reference === pkg.reference ? { ...p, visible: next } : p))
+    try {
+      await fetch(`/api/restaurant/meal-packages/${pkg.reference}/visible?isVisible=${next}`, { method: 'PUT' })
+    } catch {}
+    await loadPackages()
+  }
+
 
   // ── Drag-to-reorder ──────────────────────────────────────────────────────
   // HTML5 DnD; on drop we optimistically reorder, persist the moved item's new
@@ -408,7 +420,7 @@ export default function CategoryDetailPage() {
                         onDragOver={e => e.preventDefault()}
                         onDrop={e => { e.preventDefault(); if (dragPkg !== null) reorderPackages(dragPkg, i); setDragPkg(null) }}
                         onDragEnd={() => setDragPkg(null)}
-                        style={{ borderTop: i > 0 ? '1px solid #f5f5f5' : undefined, cursor: 'pointer', opacity: dragPkg === i ? 0.45 : 1 }}
+                        style={{ borderTop: i > 0 ? '1px solid #f5f5f5' : undefined, cursor: 'pointer', opacity: dragPkg === i ? 0.45 : (pkg.visible !== false ? 1 : 0.5) }}
                         onClick={() => router.push(`/restaurant/manage-v2/${menuRef}/${categoryRef}/${pkg.reference}`)}
                       >
                         <td style={tdStyle}>
@@ -423,7 +435,10 @@ export default function CategoryDetailPage() {
                           )}
                         </td>
                         <td style={tdStyle}>
-                          <div style={{ fontWeight: 600, color: DARK }}>{pkg.name}</div>
+                          <div style={{ fontWeight: 600, color: DARK }}>
+                            {pkg.name}
+                            {pkg.visible === false && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px', verticalAlign: 'middle' }}>HIDDEN</span>}
+                          </div>
                           {pkg.description && (
                             <div style={{ fontSize: 12, color: '#888', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>
                               {pkg.description}
@@ -436,6 +451,14 @@ export default function CategoryDetailPage() {
                         <td style={tdStyle}>{pkg.serves || '—'}</td>
                         <td style={{ ...tdStyle, textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                            <button
+                              title={pkg.visible !== false ? 'Hide from customers' : 'Show to customers'}
+                              className="action-btn"
+                              onClick={() => togglePackageVisible(pkg)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, padding: '2px 6px' }}
+                            >
+                              {pkg.visible !== false ? '👁' : '🚫'}
+                            </button>
                             <ActionBtn
                               title="Edit"
                               onClick={() => router.push(`/restaurant/manage-v2/${menuRef}/${categoryRef}/${pkg.reference}`)}
