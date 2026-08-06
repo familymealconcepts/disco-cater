@@ -83,11 +83,11 @@ async function mirrorOrderToNeon(args: {
 
     await sql`
       INSERT INTO disco_orders (
-        reference, order_number, order_status, order_type, source_of_order,
+        reference, order_number, order_status, order_type, source_of_order, is_direct_entry,
         restaurant_reference, customer_email, customer_first_name, customer_last_name, customer_phone,
         order_date, order_time, tax_exempt_id, fm_order_reference, created_at, updated_at
       ) VALUES (
-        ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, 'FAMILYMEAL',
+        ${reference}::uuid, ${orderNumber}::bigint, ${orderStatus}, ${orderType}, 'FAMILYMEAL', true,
         ${restaurantRef}::uuid, ${customerEmail}, ${str(customer.firstName)}, ${str(customer.lastName)}, ${str(customer.phoneNumber)},
         ${orderDate}::date, ${orderTime}::time, ${taxExemptId}, ${str(orderRef)}::uuid, NOW(), NOW()
       )

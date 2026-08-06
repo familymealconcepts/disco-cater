@@ -44,6 +44,13 @@ interface Order {
   sourceoforder?: string
   // True for Disco-native orders surfaced from Neon (not present in FM's list).
   native?: boolean
+  // A genuine restaurant-staff-entered order (the portal's own "Create Order"
+  // flow) — NOT derivable from sourceoforder, which is 'FAMILYMEAL' for BOTH a
+  // true Direct Entry order and a real customer's own 1P checkout (confirmed:
+  // both hardcode the same value at insert time). Only present on native orders
+  // (fetchNativeOrders/disco_orders.is_direct_entry); absent/undefined for FM-
+  // origin orders, which have no equivalent field on FM's side at all today.
+  isDirectEntry?: boolean
   // Third-party-delivery signals. FM doesn't always type these on the list
   // shape, so they're optional; we also fall back to the Nash courier ETAs
   // (nashDelivery*Eta) which only exist on third-party (dispatched) deliveries.
@@ -74,7 +81,10 @@ type TypeFilter = 'all' | 'pickup' | 'delivery' | 'direct'
 type StatusFilter = 'all' | 'incomplete' | 'due' | 'completed' | 'expired'
 type SourceFilter = 'all' | '1p' | '3p'
 
-const isDirectEntry = (o: Order) => (o.sourceoforder || '').toUpperCase() === 'FAMILYMEAL'
+// Was keyed off sourceoforder === 'FAMILYMEAL' — mislabeled every genuine
+// customer-initiated 1P order as Direct Entry too, since both share the exact
+// same sourceoforder value (see the Order.isDirectEntry field comment).
+const isDirectEntry = (o: Order) => o.isDirectEntry === true
 const isTaxExemptOrder = (o: Order) => o.taxExempt === true || o.isTaxExempt === true
 
 function matchesType(o: Order, f: TypeFilter): boolean {
@@ -209,7 +219,8 @@ function StatusPill({ order }: { order: Order }) {
 
 // TYPE column — stacked badge chips matching the Slack notification format:
 //   PICKUP → (P) · DELIVERY self → (D) · DELIVERY third-party → (3D)
-//   Direct Entry (sourceoforder === 'FAMILYMEAL') adds (DE), e.g. (P)(DE).
+//   Direct Entry adds (DE), e.g. (P)(DE) — via the shared isDirectEntry() check,
+//   not sourceoforder (see its own comment for why that's the wrong signal).
 function typeBadgeLabels(o: Order): string[] {
   const labels: string[] = []
   const t = (o.orderType || '').toUpperCase()
@@ -223,7 +234,7 @@ function typeBadgeLabels(o: Order): string[] {
   } else if (t) {
     labels.push(t) // unknown order type — show raw value rather than nothing
   }
-  if ((o.sourceoforder || '').toUpperCase() === 'FAMILYMEAL') labels.push('DE')
+  if (isDirectEntry(o)) labels.push('DE')
   return labels
 }
 

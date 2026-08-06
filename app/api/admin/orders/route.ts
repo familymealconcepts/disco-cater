@@ -25,7 +25,7 @@ async function fetchNativeOrders(fromIso: string | null, toIso: string | null): 
              COALESCE(o.total, 0) AS total,
              o.customer_first_name AS "firstName", o.customer_last_name AS "lastName", o.customer_email AS email,
              o.order_number AS "orderNumber", o.delivery_type AS "deliveryType",
-             o.source_of_order AS sourceoforder, true AS native
+             o.source_of_order AS sourceoforder, o.is_direct_entry AS "isDirectEntry", true AS native
       FROM disco_orders o
       LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
       WHERE o.fm_order_reference IS NULL AND o.is_deleted = false

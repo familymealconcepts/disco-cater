@@ -46,9 +46,9 @@ const splitCsv = (v: string | null | undefined): string[] =>
 async function discoNativeNotifications(ref: string): Promise<NotificationsShape> {
   await runMigrations()
   const ov = (await sql`
-    SELECT notification_emails, notification_sms_numbers, order_reminder_emails_enabled, admin_order_reminder_emails_enabled
+    SELECT notification_emails, notification_sms_numbers, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, text_notifications_enabled
     FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
-  `) as { notification_emails: string | null; notification_sms_numbers: string | null; order_reminder_emails_enabled: boolean | null; admin_order_reminder_emails_enabled: boolean | null }[]
+  `) as { notification_emails: string | null; notification_sms_numbers: string | null; order_reminder_emails_enabled: boolean | null; admin_order_reminder_emails_enabled: boolean | null; text_notifications_enabled: boolean | null }[]
 
   // Account row supplies the back-compat fallbacks + first-view seed values.
   const acct = (await sql`
@@ -68,11 +68,22 @@ async function discoNativeNotifications(ref: string): Promise<NotificationsShape
   let phoneNumber = splitCsv(ov[0]?.notification_sms_numbers)
   if (phoneNumber.length === 0 && acctSmsPhone) phoneNumber = [acctSmsPhone]
 
+  // phoneNotificationType now reflects the REAL stored toggle (the column both PUT
+  // branches actually persist as of this fix) rather than re-deriving from list
+  // non-emptiness — those can legitimately disagree (numbers saved, toggle off).
+  // null (never saved under this route at all — legacy data) falls back to the old
+  // list-based heuristic so a restaurant with a carried-over legacy sms_phone still
+  // shows something sensible before its first save under the fixed code.
+  const phoneNotificationType: 'ALL' | 'OFF' =
+    ov[0]?.text_notifications_enabled != null
+      ? (ov[0].text_notifications_enabled ? 'ALL' : 'OFF')
+      : (phoneNumber.length ? 'ALL' : 'OFF')
+
   return {
     email,
     phoneNumber,
     emailNotificationType: email.length ? 'ALL' : 'OFF',
-    phoneNotificationType: phoneNumber.length ? 'ALL' : 'OFF',
+    phoneNotificationType,
     autoPrint: false,
     orderReminderEmailsEnabled: ov[0]?.order_reminder_emails_enabled === true,
     // FM entity default is TRUE; NULL (never mirrored) reflects that default.
@@ -127,11 +138,22 @@ export async function PUT(req: NextRequest) {
 
       // Mirror FM's settings into Neon so the reminder cron + new-order dispatch
       // (no restaurant session) can read them. Best-effort — never blocks.
+      //
+      // Previously mirrored ONLY notification_emails + the two reminder booleans —
+      // notification_sms_numbers and text_notifications_enabled were silently
+      // dropped every save, for every restaurant using this FM-token path. Invisible
+      // for a long time because dispatchOrderConfirmations never even runs for
+      // FM-backed orders (FM notifies those itself) — it only became consequential
+      // the moment a restaurant converts to native while still authenticating via
+      // an FM token (no real Disco login yet). Confirmed live on both Glen Rock and
+      // Pelican Delicatessen: emails mirrored, SMS + toggle silently missing.
       try {
         const ref = ctx.restaurantReference || (await getRestaurantRef()) || ''
         if (ref) {
           const emails = cleanEmails(body?.email)
+          const phones = cleanPhones(body?.phoneNumber)
           const reminderOn = body?.orderReminderEmailsEnabled === true
+          const textNotificationsEnabled = body?.phoneNotificationType === 'ALL'
           // FM's separate restaurant-reminder toggle — prefer the value FM returns,
           // fall back to what the UI sent. null → don't overwrite (COALESCE keeps
           // the existing/entity-default value).
@@ -143,12 +165,14 @@ export async function PUT(req: NextRequest) {
             : null
           await runMigrations()
           await sql`
-            INSERT INTO disco_restaurant_overrides (restaurant_reference, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_emails, updated_at)
-            VALUES (${ref}, ${reminderOn}, ${adminReminderOn}, ${emails.join(',') || null}, NOW())
+            INSERT INTO disco_restaurant_overrides (restaurant_reference, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_emails, notification_sms_numbers, text_notifications_enabled, updated_at)
+            VALUES (${ref}, ${reminderOn}, ${adminReminderOn}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, NOW())
             ON CONFLICT (restaurant_reference) DO UPDATE
               SET order_reminder_emails_enabled = ${reminderOn},
                   admin_order_reminder_emails_enabled = COALESCE(${adminReminderOn}::boolean, disco_restaurant_overrides.admin_order_reminder_emails_enabled),
                   notification_emails = ${emails.join(',') || null},
+                  notification_sms_numbers = ${phones.join(',') || null},
+                  text_notifications_enabled = ${textNotificationsEnabled},
                   updated_at = NOW()
           `
         }
@@ -170,6 +194,12 @@ export async function PUT(req: NextRequest) {
     const emails = cleanEmails(body?.email)
     const phones = cleanPhones(body?.phoneNumber)
     const reminderOn = body?.orderReminderEmailsEnabled === true
+    // Same field this route's FM-token branch derives it from — the UI sends
+    // phoneNotificationType ('ALL' | 'OFF'), not a plain boolean. Previously never
+    // written at all in this branch either, so dispatchOrderConfirmations' SMS gate
+    // (which hard-requires this column to be true) could never be satisfied via
+    // this route regardless of how many phone numbers were saved.
+    const textNotificationsEnabled = body?.phoneNotificationType === 'ALL'
     // The Disco-native settings UI has no admin-reminder toggle yet — honor it if
     // ever sent, otherwise preserve the existing value (COALESCE below).
     const adminReminderOn: boolean | null =
@@ -178,13 +208,14 @@ export async function PUT(req: NextRequest) {
     // Email list + phone list + reminder toggles → disco_restaurant_overrides (CSV).
     await sql`
       INSERT INTO disco_restaurant_overrides
-        (restaurant_reference, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_emails, notification_sms_numbers, updated_at)
-      VALUES (${ref}, ${reminderOn}, ${adminReminderOn}, ${emails.join(',') || null}, ${phones.join(',') || null}, NOW())
+        (restaurant_reference, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_emails, notification_sms_numbers, text_notifications_enabled, updated_at)
+      VALUES (${ref}, ${reminderOn}, ${adminReminderOn}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE
         SET order_reminder_emails_enabled = ${reminderOn},
             admin_order_reminder_emails_enabled = COALESCE(${adminReminderOn}::boolean, disco_restaurant_overrides.admin_order_reminder_emails_enabled),
             notification_emails = ${emails.join(',') || null},
             notification_sms_numbers = ${phones.join(',') || null},
+            text_notifications_enabled = ${textNotificationsEnabled},
             updated_at = NOW()
     `
 

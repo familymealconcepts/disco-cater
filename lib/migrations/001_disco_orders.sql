@@ -534,3 +534,13 @@ CREATE INDEX IF NOT EXISTS idx_disco_order_item_addons_item ON disco_order_item_
 -- schema fix, no application code depends on the old global uniqueness.
 ALTER TABLE disco_orders DROP CONSTRAINT IF EXISTS disco_orders_order_number_key;
 CREATE UNIQUE INDEX IF NOT EXISTS disco_orders_restaurant_order_number_uq ON disco_orders (restaurant_reference, order_number);
+
+-- Distinguishes a genuine restaurant-staff-entered order (the portal's own
+-- "Create Order" flow, app/api/restaurant/orders/place) from a real customer's
+-- own checkout on the same /order/{slug} page. source_of_order CANNOT do this —
+-- both hardcode 'FAMILYMEAL' (1P, no lead-gen fee) regardless of who actually
+-- placed the order; purchase_type exists but has never been populated (100%
+-- NULL fleet-wide). The super-admin Orders list's "DE" (Direct Entry) tag
+-- previously keyed off source_of_order alone, mislabeling every genuine
+-- customer-initiated 1P order (e.g. #900000080) as Direct Entry.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS is_direct_entry BOOLEAN NOT NULL DEFAULT false;

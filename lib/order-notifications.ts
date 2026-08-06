@@ -16,6 +16,12 @@ import { sendSms } from './sms'
 import { formatTimeWindow } from './utils/deliveryTimeWindow'
 import { sanitizePhone } from './utils/phone'
 
+// Same sentinel shape importRestaurantStripeAccount (lib/native-conversion.ts)
+// creates for a login-disabled holder row — provably never deliverable (confirmed
+// via Mailgun: hard bounce, "No Such User", every time). Never used as a real
+// notification recipient.
+const SENTINEL_EMAIL_RE = /^stripe-import\+.+@familymeal\.com$/i
+
 // Normalize a stored phone to E.164 for Twilio: strip non-digits, prepend +1 for
 // a 10-digit US number (or + for an 11-digit number already starting with 1).
 function toE164(raw: string | null | undefined): string {
@@ -340,7 +346,11 @@ export async function dispatchOrderConfirmations(
     // Fallback: a restaurant with no configured notification_emails AND no order
     // restaurant_email (common for Disco-native restaurants — Test 34) would
     // otherwise get ZERO notification about its own order. Default to the
-    // restaurant admin's own account email so the restaurant is always notified.
+    // restaurant admin's own account email so the restaurant is always notified —
+    // EXCEPT the stripe-import sentinel placeholder, which is provably never
+    // deliverable (confirmed via Mailgun: hard bounce, "No Such User", every time).
+    // Falling back to it doesn't just fail silently — it's worse than nothing,
+    // since ORDER_CONFIRMATIONS_SENT still gets claimed and looks like success.
     if (recipientList.length === 0 && restRef) {
       try {
         const acct = (await sql`
@@ -348,19 +358,49 @@ export async function dispatchOrderConfirmations(
           WHERE restaurant_reference = ${restRef} AND email IS NOT NULL
           ORDER BY created_at ASC LIMIT 1
         `) as { email: string }[]
-        if (acct[0]?.email) recipientList = [acct[0].email]
+        if (acct[0]?.email && !SENTINEL_EMAIL_RE.test(acct[0].email)) recipientList = [acct[0].email]
       } catch { /* best-effort — leave empty rather than block the customer email */ }
     }
     const uniqueRecipients = Array.from(new Set(recipientList.map((e) => e.toLowerCase())))
+    if (uniqueRecipients.length === 0) {
+      // No real recipient at any fallback level — skip rather than send nowhere,
+      // logged so the gap is visible (matches the pre-flight tool's own
+      // sentinel-login-only / no-login-yet warnings for the same underlying cause).
+      console.warn('[order-notifications] no real restaurant recipient at any fallback level — skipping restaurant notification:', reference, restRef)
+    }
+    // FM visibility (native-checkout ONLY — explicit gate here, not just relying on
+    // every call site being correctly scoped, since dispatchOrderConfirmations is
+    // invoked from several places): every Disco-native order confirmation is also
+    // copied to noreply@familymeal.com. FAMILYMEAL-sourced orders never take this
+    // branch — those are FM's own responsibility to notify, unaffected by this change.
+    const isNativeCheckout = sourceOfOrder !== 'FAMILYMEAL'
     // pdfAttachments was built once above (shared by the customer + restaurant emails).
-    for (const to of uniqueRecipients) {
-      sendRestaurantOrderNotification({
-        restaurantEmail: to,
-        deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
-        sourceOfOrder,
-        attachments: pdfAttachments,
-        ...shared,
-      }).catch((err) => console.error('[order-notifications] restaurant notification email failed:', err))
+    // Bcc'd on the FIRST real recipient's send only, so a restaurant with multiple
+    // configured recipients doesn't produce multiple FM copies of one order. If
+    // there's no real restaurant recipient at all, FM still gets a direct copy
+    // (arguably the moment they'd most want visibility — the restaurant itself
+    // isn't being notified either).
+    if (uniqueRecipients.length === 0) {
+      if (isNativeCheckout) {
+        sendRestaurantOrderNotification({
+          restaurantEmail: 'noreply@familymeal.com',
+          deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
+          sourceOfOrder,
+          attachments: pdfAttachments,
+          ...shared,
+        }).catch((err) => console.error('[order-notifications] FM-copy notification failed:', err))
+      }
+    } else {
+      uniqueRecipients.forEach((to, i) => {
+        sendRestaurantOrderNotification({
+          restaurantEmail: to,
+          restaurantBcc: (isNativeCheckout && i === 0) ? 'noreply@familymeal.com' : undefined,
+          deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
+          sourceOfOrder,
+          attachments: pdfAttachments,
+          ...shared,
+        }).catch((err) => console.error('[order-notifications] restaurant notification email failed:', err))
+      })
     }
 
     // Disco-native restaurant SMS — send to EVERY number in the multi-phone

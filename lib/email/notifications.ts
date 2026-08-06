@@ -119,6 +119,9 @@ export interface RestaurantOrderNotificationParams extends BaseOrderParams {
   deliveryType?: string
   deliveryId?: string
   restaurantEmail: string
+  /** Optional bcc — used to copy noreply@familymeal.com on native-checkout order
+   *  confirmations without a separate send (see order-notifications.ts). */
+  restaurantBcc?: string
   /** FM sourceoforder: "DISCO" → 3P (marketplace), "FAMILYMEAL" → 1P (direct). */
   sourceOfOrder?: string
   /** Optional file attachments (e.g. the order PDF) forwarded to Mailgun. */
@@ -323,6 +326,7 @@ ${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track this delive
 `
     return await sendEmail({
       to: p.restaurantEmail,
+      bcc: p.restaurantBcc,
       subject: `New Disco Cater Order — ${p.businessName} #${p.orderNumber}`,
       html: layout(content),
       attachments: p.attachments,
