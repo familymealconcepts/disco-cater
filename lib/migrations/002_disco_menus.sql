@@ -44,9 +44,10 @@ ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS contains_nuts BOOLEAN NOT 
 ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS gluten_free BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS vegan BOOLEAN NOT NULL DEFAULT false;
 
--- One category name per restaurant — lets POST /api/restaurant/menu upsert a
--- category by (restaurant_reference, name) when creating an item.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_disco_menu_categories_rest_name ON disco_menu_categories(restaurant_reference, name);
+-- Superseded below (menu_reference section) — a restaurant can have multiple
+-- menus that legitimately share a category name (e.g. "Appetizers" in both a
+-- Lunch menu and a Dinner menu), so this can no longer be restaurant-global.
+-- See menu-category-uniqueness-constraint-followup.md.
 
 -- ── Disco-native MENU records (FM-parity rebuild) ────────────────────────────
 -- A restaurant has many menus; each menu owns ordered categories which own
@@ -89,6 +90,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_disco_menus_rest_url ON disco_menus(restaur
 -- so the same category name can exist in different menus.
 ALTER TABLE disco_menu_categories ADD COLUMN IF NOT EXISTS menu_reference UUID;
 CREATE INDEX IF NOT EXISTS idx_disco_menu_categories_menu ON disco_menu_categories(menu_reference);
+DROP INDEX IF EXISTS uq_disco_menu_categories_rest_name;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_disco_menu_categories_menu_name ON disco_menu_categories(menu_reference, name) WHERE menu_reference IS NOT NULL;
 -- Item enable/disable + ordering already exist (visible, position); category too.
 

@@ -61,13 +61,29 @@ export async function POST(req: NextRequest) {
   try {
     await runDiscoMenuMigrations()
 
-    // Upsert the category by (restaurant_reference, name) → its reference.
+    // Upsert the category by (menu_reference, name) → its reference. This route has
+    // no menu concept of its own (test/E2E-fixture only — not used by any live
+    // restaurant-portal or customer flow), so find-or-create a default menu to scope
+    // the category to, matching disco_menu_categories' real UNIQUE (menu_reference, name).
     let categoryReference: string | null = null
     if (categoryName) {
+      const existingMenu = (await sql`
+        SELECT reference FROM disco_menus WHERE restaurant_reference = ${restaurantReference}::uuid
+        ORDER BY position, created_at LIMIT 1
+      `) as { reference: string }[]
+      let menuReference = existingMenu[0]?.reference
+      if (!menuReference) {
+        const newMenu = (await sql`
+          INSERT INTO disco_menus (restaurant_reference, name, url)
+          VALUES (${restaurantReference}::uuid, 'Menu', 'menu')
+          RETURNING reference
+        `) as { reference: string }[]
+        menuReference = newMenu[0].reference
+      }
       const catRows = (await sql`
-        INSERT INTO disco_menu_categories (restaurant_reference, name)
-        VALUES (${restaurantReference}::uuid, ${categoryName})
-        ON CONFLICT (restaurant_reference, name) DO UPDATE SET updated_at = NOW()
+        INSERT INTO disco_menu_categories (restaurant_reference, menu_reference, name)
+        VALUES (${restaurantReference}::uuid, ${menuReference}::uuid, ${categoryName})
+        ON CONFLICT (menu_reference, name) DO UPDATE SET updated_at = NOW()
         RETURNING reference
       `) as { reference: string }[]
       categoryReference = catRows[0]?.reference ?? null
