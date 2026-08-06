@@ -21,6 +21,7 @@ import { syncRestaurantOrders } from './fm-orders-sync'
 import { setInviteToken } from './disco-restaurant-auth'
 import { sendTeamMemberInvite } from './email/notifications'
 import { getFmServiceAuthHeader } from './fm-service-auth'
+import { sanitizePhone } from './utils/phone'
 
 const SITE_URL = 'https://www.discocater.com'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -164,6 +165,7 @@ export interface ConversionResult {
   reason?: string
   readiness: ConversionReadiness
   invite?: InviteResult
+  notificationSettings?: NotificationCarryOverResult
 }
 
 export interface InviteResult {
@@ -239,6 +241,73 @@ export async function ensureRestaurantLoginInvited(ref: string, restaurantName: 
   return { invited: sent.success, email, reason: sent.success ? 'Invited — no prior working login existed.' : 'Invite email failed to send (login was still created/upgraded).' }
 }
 
+export interface NotificationCarryOverResult {
+  carried: boolean
+  reason: string
+}
+
+// ── Notification-settings carry-over on conversion ────────────────────────────
+// Confirmed root cause of the Glen Rock gap: FM's real notification_emails /
+// notification_sms_numbers / phoneNotificationType live behind GET /api/notifications,
+// which is SESSION-scoped to the restaurant's own login — empirically confirmed
+// (2026-08-06) to return 500 "Access is denied" for the service account regardless
+// of any restaurantReference param, and no admin-scoped equivalent exists
+// (/api/admin/notifications and /api/admin/restaurants/{ref}/notifications both
+// 404). This is a real access-control wall, not a transient failure — expect this
+// to fail every time until FM exposes an admin-scoped path. Attempted anyway (in
+// case that ever changes) and the failure is surfaced loudly rather than silently,
+// exactly so a restaurant never converts with a silently-empty notification setup
+// again without it being visible in the conversion result and the logs.
+export async function carryOverNotificationSettings(ref: string): Promise<NotificationCarryOverResult> {
+  let auth: Record<string, string>
+  try { auth = await getFmServiceAuthHeader() } catch (e) {
+    const reason = `FM auth failed — could not even attempt the notification-settings fetch: ${e instanceof Error ? e.message : e}`
+    console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
+    return { carried: false, reason }
+  }
+
+  let res: Response
+  try {
+    res = await fetch(`${FM}/api/notifications?restaurantReference=${ref}`, { headers: { ...auth, Accept: 'application/json' } })
+  } catch (e) {
+    const reason = `FM notification-settings request threw: ${e instanceof Error ? e.message : e}`
+    console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
+    return { carried: false, reason }
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    const reason = `FM /api/notifications unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall; real recipients must be entered manually post-conversion.`
+    console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
+    return { carried: false, reason }
+  }
+
+  // Unreachable today (confirmed above), kept for the day FM exposes a real path —
+  // same NotificationsShape as app/api/restaurant/notifications' FM-token GET.
+  let data: { email?: string[]; phoneNumber?: string[]; phoneNotificationType?: string } | null = null
+  try { data = await res.json() } catch { /* fall through to the reason below */ }
+  if (!data) {
+    const reason = 'FM /api/notifications returned a non-JSON or empty body — cannot carry over.'
+    console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
+    return { carried: false, reason }
+  }
+
+  const emails = Array.from(new Set((data.email || []).map((e) => String(e).trim()).filter(Boolean)))
+  const phones = Array.from(new Set((data.phoneNumber || []).map((p) => sanitizePhone(String(p))).filter(Boolean)))
+  const textNotificationsEnabled = data.phoneNotificationType === 'ALL'
+
+  await sql`
+    INSERT INTO disco_restaurant_overrides (restaurant_reference, notification_emails, notification_sms_numbers, text_notifications_enabled, updated_at)
+    VALUES (${ref}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, NOW())
+    ON CONFLICT (restaurant_reference) DO UPDATE
+      SET notification_emails = ${emails.join(',') || null},
+          notification_sms_numbers = ${phones.join(',') || null},
+          text_notifications_enabled = ${textNotificationsEnabled},
+          updated_at = NOW()
+  `
+  return { carried: true, reason: `Carried over ${emails.length} email(s), ${phones.length} phone(s).` }
+}
+
 // Perform the flip — ONLY when every blocking step passes. Sets BOTH
 // is_disco_native and is_live true: convertToNative's own gates (Stripe reuse
 // LIVE-verified, native menu imported, marketplace-visibility rule) already cover
@@ -271,9 +340,9 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
   }
   await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, is_live = true, cached_at = NOW() WHERE restaurant_reference = ${readiness.restaurantReference}`
 
-  // Best-effort — a failed invite email must never undo or fail an already-
-  // successful conversion. Restaurant name for the email body comes from the
-  // cache row already confirmed to exist by checkConversionReadiness above.
+  // Best-effort — a failed invite email or notification-carry-over must never
+  // undo or fail an already-successful conversion. Restaurant name for the email
+  // body comes from the cache row already confirmed to exist above.
   let invite: InviteResult | undefined
   try {
     const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
@@ -282,7 +351,21 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     invite = { invited: false, email: null, reason: `Invite step threw: ${e instanceof Error ? e.message : e}` }
   }
 
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite }
+  let notificationSettings: NotificationCarryOverResult
+  try {
+    notificationSettings = await carryOverNotificationSettings(readiness.restaurantReference)
+  } catch (e) {
+    const reason = `Notification carry-over step threw: ${e instanceof Error ? e.message : e}`
+    console.error(`[convertToNative] ${reason}`)
+    notificationSettings = { carried: false, reason }
+  }
+  if (!notificationSettings.carried) {
+    // Loud and explicit — this is exactly the gap that went unnoticed with Glen
+    // Rock until it caused a real, undelivered-notification incident.
+    console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real notification settings carried over: ${notificationSettings.reason}`)
+  }
+
+  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, notificationSettings }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────
