@@ -35,14 +35,46 @@ interface ApiOrder {
   orderNumber?: number
 }
 
+// orderDate is a bare "YYYY-MM-DD" (no offset) — parses as UTC midnight per
+// spec, so routing it through `new Date(d)` + local toLocaleDateString
+// silently shows the day before the one actually stored, in any
+// UTC-negative timezone. Read the digits directly and format in UTC instead.
+// Same fix pattern as lib/order-edit.ts's fmtDateHuman/ae8bdf2 and
+// manage-orders/page.tsx's fmtDate.
+const BARE_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
 function fmtDateLong(d?: string) {
   if (!d) return ''
+  const bareDate = BARE_DATE_RE.exec(d)
+  if (bareDate) {
+    return new Date(Date.UTC(+bareDate[1], +bareDate[2] - 1, +bareDate[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  }
   try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) } catch { return d }
 }
 function fmtMoney(n?: number) { return `$${(n || 0).toFixed(2)}` }
 function fmtDayMonth(d?: string) {
   if (!d) return '—'
+  const bareDate = BARE_DATE_RE.exec(d)
+  if (bareDate) {
+    return new Date(Date.UTC(+bareDate[1], +bareDate[2] - 1, +bareDate[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  }
   try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) } catch { return d }
+}
+// Calendar-day components as plain numbers — used wherever this page buckets/
+// groups orders by day (the Calendar grid, the mobile Month Agenda, the "this
+// month" stat) instead of formatting a display string. A bare order date has
+// no time component and parses as UTC midnight per spec, so reading it back
+// through local Date getters (getFullYear/getMonth/getDate) reintroduces the
+// exact one-day-back shift the fix above prevents for display — read its
+// digits directly instead. createdAt (the fallback when no order/delivery
+// date exists) is a full timestamp with real zone info, so it's read with
+// ordinary local getters, which is correct for it.
+function dateParts(d?: string): { y: number; m: number; day: number } | null {
+  if (!d) return null
+  const bareDate = BARE_DATE_RE.exec(d)
+  if (bareDate) return { y: +bareDate[1], m: +bareDate[2] - 1, day: +bareDate[3] }
+  const dt = new Date(d)
+  if (isNaN(dt.getTime())) return null
+  return { y: dt.getFullYear(), m: dt.getMonth(), day: dt.getDate() }
 }
 
 // The 7-column calendar grid is unreadable on phones, so we swap it for a
@@ -92,14 +124,12 @@ function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[
     const dateStr = o.orderDate || o.deliveryDate || o.date || o.createdAt || ''
     const ref = (o.reference || o.id || '') as string
     if (!dateStr || !ref) return
-    try {
-      const d = new Date(dateStr)
-      if (d.getFullYear() === yr && d.getMonth() === mo) {
-        const day = d.getDate()
-        if (!calEvs[day]) calEvs[day] = []
-        calEvs[day].push({ label: o.restaurantName || o.restaurant?.name || 'Order', ref, status: o.status || '' })
-      }
-    } catch {}
+    const parts = dateParts(dateStr)
+    if (parts && parts.y === yr && parts.m === mo) {
+      const day = parts.day
+      if (!calEvs[day]) calEvs[day] = []
+      calEvs[day].push({ label: o.restaurantName || o.restaurant?.name || 'Order', ref, status: o.status || '' })
+    }
   })
 
   function evStyle(status: string): React.CSSProperties {
@@ -208,12 +238,16 @@ function MonthAgenda({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder:
       const ref = (o.reference || o.id || '') as string
       if (!ref) continue
       const dateStr = o.orderDate || o.deliveryDate || o.date || o.createdAt || ''
-      const d = dateStr ? new Date(dateStr) : null
-      const valid = !!d && !isNaN(d.getTime())
-      const key = valid ? `${MONTHS[d!.getMonth()]} ${d!.getFullYear()}` : 'Other'
-      const sort = valid ? d!.getFullYear() * 12 + d!.getMonth() : -1
+      const parts = dateParts(dateStr)
+      const key = parts ? `${MONTHS[parts.m]} ${parts.y}` : 'Other'
+      const sort = parts ? parts.y * 12 + parts.m : -1
       if (!map.has(key)) map.set(key, { key, sort, items: [] })
-      map.get(key)!.items.push({ o, t: valid ? d!.getTime() : 0 })
+      // Sort-within-month only — the relative order among same-shaped values
+      // (all bare dates share the same UTC-midnight-of-that-day convention)
+      // is unaffected by the display bug above, so this doesn't need the
+      // dateParts fix; only the day/month bucketing above does.
+      const t = dateStr ? new Date(dateStr).getTime() : 0
+      map.get(key)!.items.push({ o, t: Number.isFinite(t) ? t : 0 })
     }
     const arr = [...map.values()]
     arr.sort((a, b) => b.sort - a.sort)           // newest month first
@@ -298,12 +332,13 @@ export default function OrdersPage() {
   const stats = useMemo(() => {
     const now = new Date()
     const thisMonth = orders.filter(o => {
-      try { const d = new Date(o.orderDate || o.createdAt || ''); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() } catch { return false }
+      const parts = dateParts(o.orderDate || o.createdAt || '')
+      return !!parts && parts.m === now.getMonth() && parts.y === now.getFullYear()
     }).length
     let last = ''
     let lastRest = ''
     if (orders[0]) {
-      try { last = new Date(orders[0].orderDate || orders[0].createdAt || '').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) } catch {}
+      last = fmtDayMonth(orders[0].orderDate || orders[0].createdAt || '')
       lastRest = orders[0].restaurantName || orders[0].restaurant?.name || ''
     }
     return { total: orders.length, thisMonth, last, lastRest }

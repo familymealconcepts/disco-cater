@@ -41,6 +41,17 @@ function historyRestName(o: HistoryOrder): string {
 function historyDate(o: HistoryOrder): string {
   const raw = o.orderDate || o.createdAt || o.date
   if (!raw) return ''
+  // orderDate is a bare "YYYY-MM-DD" (no offset) — parses as UTC midnight per
+  // spec, so routing it through `new Date(raw)` + local toLocaleDateString
+  // silently shows the day before the one actually stored, in any
+  // UTC-negative timezone. Read the digits directly and format in UTC instead.
+  // Same fix pattern as lib/order-edit.ts's fmtDateHuman/ae8bdf2 and
+  // manage-orders/page.tsx's fmtDate. createdAt (the fallback) is a full
+  // datetime with real zone info, unaffected — left on the plain path.
+  const bareDate = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw)
+  if (bareDate) {
+    return new Date(Date.UTC(+bareDate[1], +bareDate[2] - 1, +bareDate[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+  }
   try { return new Date(raw).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) }
   catch { return raw }
 }
