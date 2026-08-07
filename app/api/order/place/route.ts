@@ -323,13 +323,22 @@ export async function POST(req: NextRequest) {
 
       // Place natively via the shared helper (gates → items → delivery → priced
       // PaymentIntent-backed placement) — identical to Direct Entry so the two
-      // money paths can't drift. Customer identity comes from the Disco session.
+      // money paths can't drift. Auth/email identity comes from the Disco
+      // session, but the ORDER's customer name must be whatever the checkout
+      // Contact field says — customers edit it to reflect who's actually
+      // picking up/receiving the order, which can differ from their own
+      // account name. Session name is only a fallback for the (rare) case the
+      // Contact field is empty. This previously had the priority backwards
+      // (session first), silently discarding every Contact-field edit for
+      // native orders — FM-backed orders were never affected: FM's own
+      // backend already sources the order's customer name from the request
+      // body via a separate RestaurantCustomer record, never the account.
       const cd = (body?.checkoutDetails ?? {}) as Record<string, unknown>
       const outcome = await placeNativeCheckout({
         restaurantReference: body.restaurantRef,
         customerEmail: session.email,
-        customerFirstName: session.firstName ?? body?.customer?.firstName ?? null,
-        customerLastName: session.lastName ?? body?.customer?.lastName ?? null,
+        customerFirstName: body?.customer?.firstName ?? session.firstName ?? null,
+        customerLastName: body?.customer?.lastName ?? session.lastName ?? null,
         customerPhone: body?.customer?.phoneNumber ?? null,
         checkoutDetails: cd,
         deliveryAddress: body?.deliveryAddress,
