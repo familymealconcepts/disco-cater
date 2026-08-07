@@ -53,9 +53,11 @@ async function handle(): Promise<NextResponse> {
 
     const summary = { total: rows.length, checked, skipped, drifted, errored, elapsedMs: Date.now() - startedAt }
     console.log('[menu-drift-check] done:', JSON.stringify(summary))
-    if (drifted > 0) {
-      await alertOps(`menu-drift-check: ${drifted} native restaurant(s) have FM-side menu changes since last import`, { drifts })
-    }
+    // Slack notification intentionally removed (2026-08-07, Peter's call) — detection
+    // still runs exactly as before and every result still lands in
+    // disco_menu_drift_snapshots (has_drift/drift_details, written inside
+    // checkMenuDrift). Nothing pushes this anymore; check the manage-restaurants admin
+    // list badge or EditRestaurantDialog's drift panel to see it.
     return NextResponse.json({ success: true, ...summary, drifts })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
