@@ -72,12 +72,6 @@ interface OverrideMeta {
   // restaurants whose FM menu has changed since the last import/verification.
   menuDriftDetected: boolean
   menuDriftDetails: { type: string; reference: string; name: string; before?: string | number; after?: string | number }[]
-  // True for a Disco-native restaurant with no real notification_emails yet —
-  // FM's carry-over at conversion is a known access-control dead end (see
-  // carryOverNotificationSettings in lib/native-conversion.ts), so this needs a
-  // human to check the restaurant's real contact info and enter it manually.
-  // Auto-clears once notification_emails is populated, by any means.
-  notificationSettingsNeedsReview: boolean
 }
 
 function fmtDate(d?: string) {
@@ -547,7 +541,6 @@ export default function RestaurantsOrderingPage() {
         isLive?: boolean; isDiscoNative?: boolean; hasStripeAccount?: boolean
         onlineOrderingEnabled?: boolean | null
         menuDriftDetected?: boolean; menuDriftDetails?: OverrideMeta['menuDriftDetails']
-        notificationSettingsNeedsReview?: boolean
       }[]) {
         sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt, hasStripeAccount: !!o.hasStripeAccount }
         oMap[o.restaurantReference] = {
@@ -556,7 +549,6 @@ export default function RestaurantsOrderingPage() {
           isLive: !!o.isLive, isDiscoNative: !!o.isDiscoNative,
           onlineOrderingEnabled: o.onlineOrderingEnabled ?? null,
           menuDriftDetected: !!o.menuDriftDetected, menuDriftDetails: o.menuDriftDetails ?? [],
-          notificationSettingsNeedsReview: !!o.notificationSettingsNeedsReview,
         }
       }
       setStripeMap(sMap)
@@ -855,7 +847,6 @@ export default function RestaurantsOrderingPage() {
               }) : null
               const dropOff = readiness?.wouldDropOff ? readiness : null
               const drift = ov?.isDiscoNative && ov.menuDriftDetected ? ov.menuDriftDetails : null
-              const notificationsNeedReview = ov?.isDiscoNative && ov.notificationSettingsNeedsReview
               return (
                 <tr key={r._rowId}>
                   {/* Disco Cater Marketplace: the single Disco-native map/marketplace
@@ -912,20 +903,6 @@ export default function RestaurantsOrderingPage() {
                           FM menu changed since import
                           <span style={{ display: 'block', fontWeight: 400, marginTop: 1 }}>
                             {drift.length} item{drift.length === 1 ? '' : 's'} differ from the native menu — hover for details
-                          </span>
-                        </span>
-                      </div>
-                    )}
-                    {notificationsNeedReview && (
-                      <div
-                        title="FM would not release this restaurant's real notification emails/phone numbers at conversion (session-scoped access wall on FM's side) — someone needs to check the restaurant's own settings and enter real recipients manually. Clears automatically once notification_emails is saved."
-                        style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 5, marginTop: 5, maxWidth: 260, fontSize: 10.5, fontWeight: 600, lineHeight: 1.35, color: '#B45309', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 5, padding: '3px 7px' }}
-                      >
-                        <span style={{ flexShrink: 0 }}>⚠</span>
-                        <span>
-                          Notification settings not confirmed
-                          <span style={{ display: 'block', fontWeight: 400, marginTop: 1 }}>
-                            No real order-notification recipients on file — hover for why.
                           </span>
                         </span>
                       </div>
