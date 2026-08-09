@@ -9,7 +9,7 @@ import UserMenu from './UserMenu'
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
 
-export default function GlobalHeader({ centerContent, rightLinks = true }: { centerContent?: React.ReactNode; rightLinks?: boolean }) {
+export default function GlobalHeader({ centerContent, rightLinks = true, className }: { centerContent?: React.ReactNode; rightLinks?: boolean; className?: string }) {
   const { user, isLoading, logout, openAuthModal, authModalOpen, authModalDefaultTab, closeAuthModal } = useAuthContext()
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -48,7 +48,7 @@ export default function GlobalHeader({ centerContent, rightLinks = true }: { cen
         }
       `}</style>
 
-      <header style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0, position: 'sticky', top: 0, zIndex: 200 }}>
+      <header className={className} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0, position: 'sticky', top: 0, zIndex: 200 }}>
 
         <Link href="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>

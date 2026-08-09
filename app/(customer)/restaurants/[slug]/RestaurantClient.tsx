@@ -375,14 +375,48 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       }))
       .filter(x => x.visiblePkgs.length > 0)
   }, [activeSection, menuQuery])
-  // Total height of the sticky bars stacked above the mobile category nav
-  // (GlobalHeader 50 + date/time bar ~46 when present + the menu-switcher tabs
-  // ~44 when more than one menu exists) — used both for the nav's own sticky
-  // `top` and for each category section's scroll-margin-top, so tapping a tab
-  // always lands the section flush below every sticky bar instead of partly
-  // hidden under one. Desktop never renders this nav (CSS media query below),
-  // so this offset only ever matters on mobile.
-  const mobileStickyOffset = (hasSelection ? 96 : 50) + (menuData.length > 1 ? 44 : 0)
+  // Total height of the sticky bars stacked above the mobile category nav on
+  // mobile — the page header intentionally scrolls away there (see
+  // .header-scroll-mobile below), so only the date/time bar (~46 when present)
+  // and the menu-switcher tabs (~44 when more than one menu exists) are ever
+  // reserved. Used both for the nav's own sticky `top` and for each category
+  // section's scroll-margin-top, so tapping a tab always lands the section
+  // flush below every sticky bar instead of partly hidden under one. Desktop
+  // never renders this nav (CSS media query below), so this offset only ever
+  // matters on mobile.
+  const mobileStickyOffset = (hasSelection ? 46 : 0) + (menuData.length > 1 ? 44 : 0)
+  // Scroll-spy: which category section is currently under the sticky bars,
+  // so its pill can highlight as the user scrolls (not just on tap).
+  const [activeCatRef, setActiveCatRef] = useState<string | null>(null)
+  useEffect(() => {
+    setActiveCatRef(prev => visibleCategories.some(v => v.cat.reference === prev) ? prev : (visibleCategories[0]?.cat.reference ?? null))
+  }, [visibleCategories])
+  useEffect(() => {
+    if (visibleCategories.length <= 1) return
+    const observer = new IntersectionObserver(
+      entries => {
+        const visible = entries.filter(e => e.isIntersecting)
+        if (visible.length === 0) return
+        const topmost = visible.reduce((a, b) => a.boundingClientRect.top < b.boundingClientRect.top ? a : b)
+        setActiveCatRef(topmost.target.id.replace('cat-', ''))
+      },
+      { rootMargin: `-${mobileStickyOffset + 20}px 0px -60% 0px`, threshold: 0 }
+    )
+    visibleCategories.forEach(({ cat }) => {
+      const el = document.getElementById(`cat-${cat.reference}`)
+      if (el) observer.observe(el)
+    })
+    return () => observer.disconnect()
+  }, [visibleCategories, mobileStickyOffset])
+  // Keep the active pill visible within its own horizontally-scrolling bar —
+  // otherwise, once there are more categories than fit on screen (the exact
+  // case this bar scrolls for), the highlight can land on a pill currently
+  // scrolled out of view, defeating the point of it.
+  useEffect(() => {
+    if (!activeCatRef) return
+    document.querySelector(`.category-tabs-sticky button[data-cat-ref="${activeCatRef}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }, [activeCatRef])
   // Restaurant-level delivery time-window setting ('exact' | '30_min' | '1_hour').
   // Delivery orders show the pickup time as a range; pickup always shows exact.
   const deliveryWindow = restaurantSettings?.deliveryOrderTimeWindows || 'exact'
@@ -1362,7 +1396,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               their own site). Auth is kept so the checkout login flow works —
               CheckoutDrawer calls openAuthModal, which needs this AuthModal
               rendered. */}
-          <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, padding: '9px 18px', minHeight: 34, boxSizing: 'border-box', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', position: 'sticky', top: 0, zIndex: 200 }}>
+          <header className="header-scroll-mobile" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, padding: '9px 18px', minHeight: 34, boxSizing: 'border-box', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', position: 'sticky', top: 0, zIndex: 200 }}>
             {!authLoading && (user
               ? <UserMenu />
               : <button onClick={() => openAuthModal(undefined, 'login')} style={{ padding: '7px 16px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>Log In</button>
@@ -1377,7 +1411,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             Powered by Disco Cater
           </div>
         </>
-      ) : <GlobalHeader />)}
+      ) : <GlobalHeader className="header-scroll-mobile" />)}
 
       {/* Date/time/pickup sticky bar — hidden in embed mode because the
           enclosing NewOrderDialog already shows the date in its top bar
@@ -1385,8 +1419,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       {!embedded && hasSelection && (
         // top:50 matches the GlobalHeader's exact rendered height (padding 9+9 +
         // ~31px auth control + 1px border = 50px), so this bar tucks flush beneath
-        // it when stuck. Was 52, which left a 2px sliver of page background showing.
-        <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 50, zIndex: 150, boxShadow: '0 1px 0 #f0f0f0' }}>
+        // it when stuck (desktop; unchanged there). On mobile the header above
+        // scrolls away (.header-scroll-mobile), so .date-time-sticky's own
+        // media query pulls this back to top:0 to sit flush with the viewport
+        // instead of leaving a 50px gap where the header used to be.
+        <div className="date-time-sticky" style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 50, zIndex: 150, boxShadow: '0 1px 0 #f0f0f0' }}>
           <div style={{ maxWidth: 1140, margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12, height: 46 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtDateShort(selDate)}</span>
@@ -1477,10 +1514,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
       {/* #3: mobile-only sticky menu/category tabs. Placed as a top-level sibling so
           its sticky containing block is the full page (the in-header row lives in a
-          short container that can't stick). Freezes below the GlobalHeader (50px) +
-          the date bar (≈46px when a selection exists) while scrolling the menu. */}
+          short container that can't stick). Only ever rendered on mobile (CSS below),
+          where the page header scrolls away (.header-scroll-mobile) — so this freezes
+          below just the date bar (≈46px when a selection exists), not the header. */}
       {menuData.length > 1 && (
-        <div className="menu-tabs-sticky" style={{ position: 'sticky', top: hasSelection ? 96 : 50, zIndex: 140, background: '#fff', borderBottom: '1px solid #f0f0f0', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
+        <div className="menu-tabs-sticky" style={{ position: 'sticky', top: hasSelection ? 46 : 0, zIndex: 140, background: '#fff', borderBottom: '1px solid #f0f0f0', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
           <div style={{ display: 'flex', overflowX: 'auto', maxWidth: 1140, margin: '0 auto', padding: '0 12px' }}>
             {menuData.map((s, i) => (
               <button key={s.menu.reference} onClick={() => setActiveMenuIdx(i)} style={{
@@ -1506,16 +1544,20 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       {!embedded && visibleCategories.length > 1 && (
         <div className="category-tabs-sticky" style={{ position: 'sticky', top: mobileStickyOffset, zIndex: 130, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
           <div style={{ display: 'flex', overflowX: 'auto', gap: 6, padding: '10px 12px' }}>
-            {visibleCategories.map(({ cat }) => (
+            {visibleCategories.map(({ cat }) => {
+              const isActiveCat = activeCatRef === cat.reference
+              return (
               <button
                 key={cat.reference}
+                data-cat-ref={cat.reference}
                 onClick={() => document.getElementById(`cat-${cat.reference}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
                 style={{
-                  padding: '7px 14px', background: '#f4f4f8', border: 'none', borderRadius: 999,
-                  cursor: 'pointer', fontSize: 13, fontWeight: 600, color: DARK,
-                  fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0,
+                  padding: '7px 14px', background: isActiveCat ? DARK : '#f4f4f8', border: 'none', borderRadius: 999,
+                  cursor: 'pointer', fontSize: 13, fontWeight: 600, color: isActiveCat ? '#fff' : DARK,
+                  fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0, transition: 'background 0.15s, color 0.15s',
                 }}>{cat.name}</button>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -2007,6 +2049,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         }
         @media (max-width: 900px) {
           .powered-by-badge { display: none !important; }
+        }
+        /* On mobile only, the page header scrolls away normally instead of
+           sticking — only the date/time bar and the category/menu tabs below
+           it stay frozen. .date-time-sticky's top drops from 50 (flush below
+           the sticky header, desktop) to 0 (flush with the viewport, since
+           nothing is reserved above it once the header scrolls off). */
+        @media (max-width: 900px) {
+          .header-scroll-mobile { position: static !important; }
+          .date-time-sticky { top: 0 !important; }
         }
       `}</style>
 
