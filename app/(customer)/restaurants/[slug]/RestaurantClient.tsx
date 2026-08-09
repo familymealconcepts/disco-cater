@@ -360,6 +360,29 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const [menuSearch, setMenuSearch] = useState('')
   const menuSearchEnabled = !!restaurantSettings?.enableMenuSearch
   const menuQuery = menuSearchEnabled ? menuSearch.trim().toLowerCase() : ''
+  // Single source of truth for "which categories actually have something to
+  // show right now" — shared by the mobile category-jump nav and the main
+  // package grid below, so they can never disagree about which categories
+  // exist (e.g. one showing a tab for a category the other has hidden as
+  // empty/filtered-out).
+  const visibleCategories = useMemo(() => {
+    return (activeSection?.categories || [])
+      .map(cat => ({
+        cat,
+        visiblePkgs: cat.mealPackages
+          .filter(p => p.available !== false)
+          .filter(p => !menuQuery || `${p.name || ''} ${p.description || ''}`.toLowerCase().includes(menuQuery)),
+      }))
+      .filter(x => x.visiblePkgs.length > 0)
+  }, [activeSection, menuQuery])
+  // Total height of the sticky bars stacked above the mobile category nav
+  // (GlobalHeader 50 + date/time bar ~46 when present + the menu-switcher tabs
+  // ~44 when more than one menu exists) — used both for the nav's own sticky
+  // `top` and for each category section's scroll-margin-top, so tapping a tab
+  // always lands the section flush below every sticky bar instead of partly
+  // hidden under one. Desktop never renders this nav (CSS media query below),
+  // so this offset only ever matters on mobile.
+  const mobileStickyOffset = (hasSelection ? 96 : 50) + (menuData.length > 1 ? 44 : 0)
   // Restaurant-level delivery time-window setting ('exact' | '30_min' | '1_hour').
   // Delivery orders show the pickup time as a range; pickup always shows exact.
   const deliveryWindow = restaurantSettings?.deliveryOrderTimeWindows || 'exact'
@@ -1346,8 +1369,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             )}
           </header>
           <AuthModal isOpen={authModalOpen} onClose={closeAuthModal} defaultTab={authModalDefaultTab} />
-          {/* Subtle attribution badge — 1P pages only. No link, no hover. */}
-          <div style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 300, background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.12)', borderRadius: 20, padding: '6px 12px', fontSize: 11, color: '#999', fontFamily: F }}>
+          {/* Subtle attribution badge — 1P pages only, desktop only (hidden on
+              mobile via .powered-by-badge below; it sits low-left where the
+              mobile bottom order bar/cart already crowd the screen). No link,
+              no hover. */}
+          <div className="powered-by-badge" style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 300, background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.12)', borderRadius: 20, padding: '6px 12px', fontSize: 11, color: '#999', fontFamily: F }}>
             Powered by Disco Cater
           </div>
         </>
@@ -1469,6 +1495,31 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         </div>
       )}
 
+      {/* Mobile-only category-jump nav (Starters, Salads, etc.) — matches
+          FamilyMeal's mobile ordering pattern. A top-level sibling for the same
+          sticky-containing-block reason as .menu-tabs-sticky above; stacks
+          directly below it (mobileStickyOffset already accounts for whether
+          that bar is present). Tapping a pill scrolls its section into view;
+          each category's own scroll-margin-top (set where categories render
+          below) is kept in sync with this same offset so the section lands
+          flush under the sticky stack, not partly hidden beneath it. */}
+      {!embedded && visibleCategories.length > 1 && (
+        <div className="category-tabs-sticky" style={{ position: 'sticky', top: mobileStickyOffset, zIndex: 130, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
+          <div style={{ display: 'flex', overflowX: 'auto', gap: 6, padding: '10px 12px' }}>
+            {visibleCategories.map(({ cat }) => (
+              <button
+                key={cat.reference}
+                onClick={() => document.getElementById(`cat-${cat.reference}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                style={{
+                  padding: '7px 14px', background: '#f4f4f8', border: 'none', borderRadius: 999,
+                  cursor: 'pointer', fontSize: 13, fontWeight: 600, color: DARK,
+                  fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0,
+                }}>{cat.name}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Two-panel body */}
       <div style={{ maxWidth: 1140, margin: '0 auto', padding: '28px 24px 120px', display: 'flex', gap: 24, alignItems: 'flex-start' }}>
 
@@ -1499,15 +1550,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 />
               </div>
             )}
-            {(activeSection?.categories || []).map(cat => {
-              const visiblePkgs = cat.mealPackages
-                .filter(p => p.available !== false)
-                .filter(p => !menuQuery || `${p.name || ''} ${p.description || ''}`.toLowerCase().includes(menuQuery))
-              // Hide categories with no visible items — whether that's every item
-              // hidden/unavailable, or (while searching) none matching the query.
-              if (visiblePkgs.length === 0) return null
+            {visibleCategories.map(({ cat, visiblePkgs }) => {
               return (
-              <div key={cat.reference} style={{ marginBottom: 40 }}>
+              <div key={cat.reference} id={`cat-${cat.reference}`} style={{ marginBottom: 40, scrollMarginTop: mobileStickyOffset + 12 }}>
                 {!embedded && (activeSection.categories.length > 1 || cat.name !== activeSection.menu.name) && (
                   // Plain block, not sticky. The parent column at line ~892
                   // has overflow:hidden, which breaks position:sticky —
@@ -1951,12 +1996,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         /* #3: sticky menu/category tabs are mobile-only; the in-header row shows on
            desktop. */
         .menu-tabs-sticky { display: none; }
+        .category-tabs-sticky { display: none; }
         @media (max-width: 900px) {
           .menu-tabs-inline { display: none !important; }
           .menu-tabs-sticky { display: block !important; }
+          .category-tabs-sticky { display: block !important; }
         }
         @media (max-width: 768px) {
           .pkg-grid { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 900px) {
+          .powered-by-badge { display: none !important; }
         }
       `}</style>
 
