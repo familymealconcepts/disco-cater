@@ -10,7 +10,10 @@
 // disco_order_events guarantees the confirmations fire at most once per order.
 
 import { sql } from './db'
-import { sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage } from './email/notifications'
+import {
+  sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage,
+  sendCustomerItemUnavailableRefund, sendRestaurantItemUnavailableAlert,
+} from './email/notifications'
 import { buildOrderPdfByReference } from './order/order-pdf'
 import { sendSms } from './sms'
 import { formatTimeWindow } from './utils/deliveryTimeWindow'
@@ -485,5 +488,69 @@ export async function dispatchOrderConfirmations(
     }
   } catch (err) {
     console.error('[order-notifications] dispatchOrderConfirmations failed:', err instanceof Error ? err.message : err)
+  }
+}
+
+// Max Inventory Per Day — an item's atomic decrement lost the race to a
+// concurrent order right after this order's payment succeeded (see
+// lib/order/native-inventory.ts). The order has already been refunded and
+// marked REFUNDED by the caller; this just notifies both sides. Fire-and-forget,
+// never throws. Simpler than dispatchOrderConfirmations — no PDF, no SMS, no
+// Slack — this is an exception path, not the happy path.
+export async function dispatchInventoryUnavailableNotification(orderId: number, itemName: string): Promise<void> {
+  try {
+    const orders = (await sql`
+      SELECT reference, order_number, order_date, restaurant_reference, restaurant_name, restaurant_email,
+             customer_email, customer_first_name, total
+      FROM disco_orders WHERE id = ${orderId} LIMIT 1
+    `) as Record<string, unknown>[]
+    if (orders.length === 0) return
+    const o = orders[0]
+    const restRef = String(o.restaurant_reference ?? '')
+
+    let businessName = o.restaurant_name ? String(o.restaurant_name) : 'the restaurant'
+    try {
+      const rc = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${restRef} LIMIT 1`) as { name: string | null }[]
+      if (rc[0]?.name) businessName = rc[0].name
+    } catch { /* best-effort */ }
+
+    const refundAmount = num(o.total)
+
+    if (o.customer_email) {
+      sendCustomerItemUnavailableRefund({
+        to: String(o.customer_email),
+        firstName: o.customer_first_name ? String(o.customer_first_name) : undefined,
+        orderNumber: o.order_number as number,
+        businessName, itemName, refundAmount,
+      }).catch((err) => console.error('[order-notifications] item-unavailable customer email failed:', err))
+    }
+
+    // Same restaurant-recipient resolution as dispatchOrderConfirmations:
+    // configured notification_emails → the order's restaurant_email → the
+    // account's own email (excluding the never-deliverable stripe-import sentinel).
+    let recipientList: string[] = []
+    try {
+      const ov = (await sql`SELECT notification_emails FROM disco_restaurant_overrides WHERE restaurant_reference = ${restRef} LIMIT 1`) as { notification_emails: string | null }[]
+      recipientList = String(ov[0]?.notification_emails || '').split(',').map((e) => e.trim()).filter(Boolean)
+    } catch { /* fall back below */ }
+    if (recipientList.length === 0 && o.restaurant_email) recipientList = [String(o.restaurant_email)]
+    if (recipientList.length === 0 && restRef) {
+      try {
+        const acct = (await sql`
+          SELECT email FROM disco_restaurant_accounts
+          WHERE restaurant_reference = ${restRef} AND email IS NOT NULL ORDER BY created_at ASC LIMIT 1
+        `) as { email: string }[]
+        if (acct[0]?.email && !SENTINEL_EMAIL_RE.test(acct[0].email)) recipientList = [acct[0].email]
+      } catch { /* best-effort */ }
+    }
+    const uniqueRecipients = Array.from(new Set(recipientList.map((e) => e.toLowerCase())))
+    for (const to of uniqueRecipients) {
+      sendRestaurantItemUnavailableAlert({
+        to, orderNumber: o.order_number as number, itemName,
+        orderDate: o.order_date ? fmtDate(o.order_date) : undefined,
+      }).catch((err) => console.error('[order-notifications] item-unavailable restaurant email failed:', err))
+    }
+  } catch (err) {
+    console.error('[order-notifications] dispatchInventoryUnavailableNotification failed:', err instanceof Error ? err.message : err)
   }
 }

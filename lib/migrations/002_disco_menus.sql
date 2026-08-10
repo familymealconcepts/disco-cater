@@ -208,3 +208,22 @@ CREATE INDEX IF NOT EXISTS idx_disco_closed_days_restaurant ON disco_restaurant_
 -- one row per year's pre-computed date and toggling it off deletes them by name.
 ALTER TABLE disco_restaurant_closed_days ADD COLUMN IF NOT EXISTS holiday VARCHAR(120);
 CREATE INDEX IF NOT EXISTS idx_disco_closed_days_holiday ON disco_restaurant_closed_days(restaurant_reference, holiday);
+
+-- Max Inventory Per Day (per-item daily unit cap). NULL = unlimited — the
+-- default, and existing behavior is completely unaffected until a restaurant
+-- sets a real number. Mirrors the max_orders_per_day NULL-means-unlimited
+-- convention above, but per menu ITEM rather than per restaurant/day.
+ALTER TABLE disco_menu_items ADD COLUMN IF NOT EXISTS max_inventory_per_day INTEGER;
+
+-- Tracks units already committed against a capped item for a given order date.
+-- A row only ever exists for an item that HAS a cap set (see
+-- decrementMenuItemInventory in lib/order/native-inventory.ts) — an uncapped
+-- item is never written here at all. Keyed by the order's delivery/pickup date,
+-- not the placement date, so the cap resets per calendar day of service.
+CREATE TABLE IF NOT EXISTS disco_menu_item_daily_inventory (
+  menu_item_reference UUID NOT NULL,
+  order_date DATE NOT NULL,
+  ordered_qty INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (menu_item_reference, order_date)
+);

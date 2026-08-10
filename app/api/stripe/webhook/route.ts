@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
-import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
+import { dispatchOrderConfirmations, dispatchInventoryUnavailableNotification } from '../../../../lib/order-notifications'
+import { applyOrderInventoryDecrements } from '../../../../lib/order/native-inventory'
+import { refundNativeOrder } from '../../../../lib/order/native-refund'
 import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../lib/expedite'
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { alertOps } from '../../../../lib/ops-alert'
 import { waitUntil } from '@vercel/functions'
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 export const runtime = 'nodejs'
 
@@ -141,6 +145,49 @@ export async function POST(request: NextRequest) {
 
         if (orders.length > 0) {
           const order = orders[0]
+
+          // Max Inventory Per Day — the REAL enforcement point. Atomically
+          // decrement every capped item in this order now that money has
+          // actually moved. Uncapped items no-op inside applyOrderInventoryDecrements.
+          // If any item's cap was exhausted by a concurrent order in the
+          // split-second before this webhook ran, refund immediately rather
+          // than leave the customer charged with an unfulfillable order.
+          const orderDateRows = (await sql`
+            SELECT order_date::text AS order_date FROM disco_orders WHERE id = ${order.id} LIMIT 1
+          `) as { order_date: string }[]
+          const orderDate = orderDateRows[0]?.order_date
+          const orderItemRows = orderDate ? (await sql`
+            SELECT oi.meal_package_reference AS item_ref, oi.quantity, mi.name
+            FROM disco_order_items oi
+            JOIN disco_menu_items mi ON mi.reference = oi.meal_package_reference
+            WHERE oi.order_id = ${order.id} AND oi.meal_package_reference IS NOT NULL
+          `.catch(() => [])) as { item_ref: string; quantity: number; name: string }[] : []
+
+          let inventoryFailedItem: string | null = null
+          if (orderDate && orderItemRows.length > 0) {
+            const result = await applyOrderInventoryDecrements(
+              orderItemRows.map(oi => ({ itemRef: oi.item_ref, itemName: oi.name, quantity: oi.quantity })),
+              orderDate,
+            )
+            if (!result.ok) inventoryFailedItem = result.failedItem.name
+          }
+
+          if (inventoryFailedItem) {
+            const refundAmount = round2((pi.amount || 0) / 100)
+            try {
+              // refundNativeOrder (not a plain stripe.refunds.create) so the
+              // restaurant's connected-account transfer share is correctly
+              // reversed too — same helper every other native refund path uses.
+              await refundNativeOrder(stripe, order.reference, refundAmount)
+              await sql`UPDATE disco_orders SET order_status = 'REFUNDED', refund = ${refundAmount}, updated_at = NOW() WHERE id = ${order.id}`
+              await recordEvent(order.reference, 'INVENTORY_EXHAUSTED_REFUND', { itemName: inventoryFailedItem, refundAmount }, 'STRIPE_WEBHOOK')
+              waitUntil(dispatchInventoryUnavailableNotification(order.id, inventoryFailedItem))
+            } catch (refundErr) {
+              console.error('[Webhook] inventory-exhausted refund FAILED:', refundErr instanceof Error ? refundErr.message : refundErr)
+              await alertOps(`URGENT: customer charged but "${inventoryFailedItem}" sold out (Max Inventory Per Day) and the automatic refund FAILED for order ${order.reference} (PI ${pi.id}) — manual refund needed.`)
+            }
+            break
+          }
 
           await sql`
             UPDATE disco_orders SET order_status = 'DUE', updated_at = NOW() WHERE id = ${order.id}

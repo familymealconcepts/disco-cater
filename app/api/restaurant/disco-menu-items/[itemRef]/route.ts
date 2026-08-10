@@ -62,6 +62,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ item
         allow_special_instructions = ${f.allowSpecialInstructions},
         vegetarian = ${f.vegetarian}, contains_nuts = ${f.containsNuts},
         gluten_free = ${f.glutenFree}, vegan = ${f.vegan},
+        max_inventory_per_day = ${f.maxInventoryPerDay},
         updated_at = NOW()
       WHERE reference = ${itemRef}::uuid
     `

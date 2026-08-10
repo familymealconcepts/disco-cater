@@ -5,6 +5,7 @@ import {
   type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
 } from './native-checkout'
 import { validateNativeDelivery } from './native-delivery'
+import { checkItemInventoryAvailability } from './native-inventory'
 import { resolveNativeRestaurantPromo, recordNativeRestaurantPromoUse, type NativePromoResolution } from '../promo-native'
 import type { Fulfillment } from '../pricing/native-order'
 
@@ -78,6 +79,19 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   const tips = Number(cd.tips) || 0
   const tipsType = String(cd.tipsType ?? 'PERCENTAGE')
   const items = fmItemsToNativeCart(cd.items as Parameters<typeof fmItemsToNativeCart>[0])
+
+  // Per-item daily inventory cap (Max Inventory Per Day) — a best-effort
+  // pre-payment check so an obviously-oversold cart is blocked before the
+  // customer enters payment info. Only items with a cap set are inspected;
+  // uncapped items skip this entirely. The real enforcement is the atomic
+  // decrement at payment success (lib/order/native-inventory.ts).
+  const capCheck = await checkItemInventoryAvailability(items, orderDate)
+  if (!capCheck.ok) {
+    const msg = capCheck.remaining > 0
+      ? `Only ${capCheck.remaining} left of "${capCheck.itemName}" for ${orderDate} — please reduce the quantity.`
+      : `"${capCheck.itemName}" is no longer available for ${orderDate}.`
+    return { ok: false, status: 409, error: msg }
+  }
 
   // Fulfillment + delivery fee resolved authoritatively from the menu's delivery
   // settings + the real distance/subtotal — the client never dictates them.

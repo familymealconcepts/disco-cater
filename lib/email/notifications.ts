@@ -759,3 +759,42 @@ export async function sendOrderEditPendingRestaurant(params: {
     return { success: false }
   }
 }
+
+// ── Max Inventory Per Day — item sold out after payment succeeded ───────────
+// The atomic decrement at payment success (lib/order/native-inventory.ts) lost
+// the race to a concurrent order — the customer is auto-refunded rather than
+// left charged with an order that can't be fulfilled. Both sides are notified.
+
+export async function sendCustomerItemUnavailableRefund(params: {
+  to: string; firstName?: string; orderNumber: string | number; businessName: string; itemName: string; refundAmount: number
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">${p.firstName ? `Hi ${escapeHtml(p.firstName)},` : 'Hi,'}</p>
+<p style="margin:0 0 12px 0;">We're sorry — <strong>${escapeHtml(p.itemName)}</strong> sold out just after you placed order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)}.</p>
+<p style="margin:0 0 12px 0;">Your order could not be fulfilled, so we've automatically refunded <strong>${money(p.refundAmount)}</strong> in full. Please allow 5-10 business days for the credit to appear on your statement.</p>
+<p style="margin:0;">Sorry for the inconvenience — please feel free to place a new order.</p>
+`
+    return await sendEmail({ to: p.to, subject: `Item unavailable — order #${p.orderNumber} refunded | Disco Cater`, html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendCustomerItemUnavailableRefund failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
+export async function sendRestaurantItemUnavailableAlert(params: {
+  to: string; orderNumber: string | number; itemName: string; orderDate?: string
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">Order <strong>#${escapeHtml(p.orderNumber)}</strong>${p.orderDate ? ` (for ${escapeHtml(p.orderDate)})` : ''} was automatically refunded — <strong>${escapeHtml(p.itemName)}</strong> hit its Max Inventory Per Day cap right after the customer paid.</p>
+<p style="margin:0;">No action needed — the customer has already been refunded and notified. This order will not appear as active.</p>
+`
+    return await sendEmail({ to: p.to, subject: `Item sold out — order #${p.orderNumber} auto-refunded | Disco Cater`, html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendRestaurantItemUnavailableAlert failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}

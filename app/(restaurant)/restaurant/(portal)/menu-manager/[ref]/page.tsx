@@ -264,6 +264,9 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   const [containsNuts, setContainsNuts] = useState(ex.contains_nuts === true)
   const [glutenFree, setGlutenFree] = useState(ex.gluten_free === true)
   const [vegan, setVegan] = useState(ex.vegan === true)
+  // Max Inventory Per Day — optional, nullable. Blank = no cap (existing
+  // unrestricted-ordering behavior), unaffected.
+  const [maxInventoryPerDay, setMaxInventoryPerDay] = useState(ex.max_inventory_per_day != null ? String(ex.max_inventory_per_day) : '')
 
   // Modifier groups attached to this item (edit mode only — the item must exist).
   const [libGroups, setLibGroups] = useState<{ reference: string; name: string; external_name: string | null }[]>([])
@@ -303,6 +306,7 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
         categoryReference: categoryRef, name: name.trim(), description: desc, price, serves, imageUrl, visible,
         displayPrice, minQuantity: minQuantity.trim() === '' ? null : parseInt(minQuantity, 10) || 1,
         allowedSpecialInstructions: allowSI, vegetarian, containsNuts, glutenFree, vegan,
+        maxInventoryPerDay: maxInventoryPerDay.trim() === '' ? null : parseInt(maxInventoryPerDay, 10) || 1,
       }),
     })
     if (!res.ok) { setSaving(false); const d = await res.json().catch(() => ({})); setErr(d.error || 'Could not save item'); return }
@@ -384,6 +388,21 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
           </>
           )
         })()}
+
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: '#aaa', textTransform: 'uppercase', marginBottom: 10 }}>Additional Settings</div>
+          <label style={dlgLabel}>Max Inventory Per Day (optional)</label>
+          <input
+            value={maxInventoryPerDay}
+            onChange={e => setMaxInventoryPerDay(e.target.value)}
+            inputMode="numeric"
+            placeholder="No limit"
+            style={{ ...dlgInput, maxWidth: 160 }}
+          />
+          <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+            Caps total units of this item ordered across all orders for a single delivery/pickup day. Leave blank for no limit.
+          </div>
+        </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
           <button onClick={save} disabled={saving} style={{ background: saving ? '#aaa' : BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: F }}>{saving ? 'Saving…' : 'Save'}</button>
