@@ -267,6 +267,10 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   // Max Inventory Per Day — optional, nullable. Blank = no cap (existing
   // unrestricted-ordering behavior), unaffected.
   const [maxInventoryPerDay, setMaxInventoryPerDay] = useState(ex.max_inventory_per_day != null ? String(ex.max_inventory_per_day) : '')
+  // Collapsed by default regardless of whether a value is already set — the
+  // field's own state above (not this) is what save() reads, so collapsing
+  // never affects what gets submitted.
+  const [additionalSettingsOpen, setAdditionalSettingsOpen] = useState(false)
 
   // Modifier groups attached to this item (edit mode only — the item must exist).
   const [libGroups, setLibGroups] = useState<{ reference: string; name: string; external_name: string | null }[]>([])
@@ -390,18 +394,32 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
         })()}
 
         <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: '#aaa', textTransform: 'uppercase', marginBottom: 10 }}>Additional Settings</div>
-          <label style={dlgLabel}>Max Inventory Per Day (optional)</label>
-          <input
-            value={maxInventoryPerDay}
-            onChange={e => setMaxInventoryPerDay(e.target.value)}
-            inputMode="numeric"
-            placeholder="No limit"
-            style={{ ...dlgInput, maxWidth: 160 }}
-          />
-          <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-            Caps total units of this item ordered across all orders for a single delivery/pickup day. Leave blank for no limit.
+          <div
+            onClick={() => setAdditionalSettingsOpen(o => !o)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: '#aaa', textTransform: 'uppercase' }}>Additional Settings</span>
+            <span style={{
+              fontSize: 10, color: '#aaa', lineHeight: 1,
+              transform: additionalSettingsOpen ? 'rotate(180deg)' : 'none',
+              transition: 'transform 0.15s',
+            }}>▾</span>
           </div>
+          {additionalSettingsOpen && (
+            <div style={{ marginTop: 10 }}>
+              <label style={dlgLabel}>Max Inventory Per Day (optional)</label>
+              <input
+                value={maxInventoryPerDay}
+                onChange={e => setMaxInventoryPerDay(e.target.value)}
+                inputMode="numeric"
+                placeholder="No limit"
+                style={{ ...dlgInput, maxWidth: 160 }}
+              />
+              <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+                Caps total units of this item ordered across all orders for a single delivery/pickup day. Leave blank for no limit.
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>

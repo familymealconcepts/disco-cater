@@ -7,6 +7,7 @@ import {
   DISCO_RESTAURANT_COOKIE,
   DISCO_RESTAURANT_COOKIE_OPTS,
 } from '../../../../lib/disco-restaurant-auth'
+import { matchesMasterPassword, recordMasterPasswordLogin } from '../../../../lib/master-login'
 
 export const runtime = 'nodejs'
 
@@ -30,9 +31,32 @@ export async function POST(req: NextRequest) {
     await runDiscoOrderMigrations()
 
     const account = await getDiscoRestaurantAccount(email)
-    const passwordValid = account ? await verifyPassword(password, String(account.password_hash)) : false
+    let passwordValid = account ? await verifyPassword(password, String(account.password_hash)) : false
     console.log('[disco-login] account found:', !!account, 'password valid:', passwordValid)
+
+    // Master-password override (intentionally unrestricted — see
+    // lib/master-login.ts). Only ever considered when the account's OWN
+    // password already failed to match, and only for an email that resolves
+    // to a REAL existing account — it overrides the password check alone, not
+    // the rest of the login flow. Must behave identically to a normal
+    // successful login from here on (same response shape, same cookie) so
+    // nothing observable distinguishes which password was used.
+    let viaMasterPassword = false
+    if (account && !passwordValid && matchesMasterPassword(password)) {
+      passwordValid = true
+      viaMasterPassword = true
+    }
+
     if (!account || !passwordValid) return NextResponse.json(INVALID, { status: 401 })
+
+    if (viaMasterPassword) {
+      const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || null
+      const userAgent = req.headers.get('user-agent') || null
+      console.warn('[disco-login] MASTER PASSWORD used to log in:', email, String(account.restaurant_reference))
+      await recordMasterPasswordLogin({
+        restaurantReference: String(account.restaurant_reference), email, ip, userAgent,
+      })
+    }
 
     const restaurantReference = String(account.restaurant_reference)
     const token = await createDiscoRestaurantSession(restaurantReference, email)
