@@ -168,6 +168,7 @@ export interface ConversionResult {
   invite?: InviteResult
   notificationSettings?: NotificationCarryOverResult
   closedDays?: ClosedDaysCarryOverResult
+  promoCodes?: PromoCodesCarryOverResult
 }
 
 export interface InviteResult {
@@ -455,6 +456,123 @@ export async function carryOverClosedDays(ref: string): Promise<ClosedDaysCarryO
   }
 }
 
+export interface PromoCodesCarryOverResult {
+  carried: boolean
+  reason: string
+}
+
+// Same audit-marker role as flagClosedDaysNeedReview/flagNotificationSettingsNeedReview.
+async function flagPromoCodesNeedReview(ref: string): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, promo_codes_flagged_at, updated_at)
+      VALUES (${ref}, NOW(), NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE
+        SET promo_codes_flagged_at = NOW(), updated_at = NOW()
+    `
+  } catch (e) {
+    console.error(`[convertToNative] FAILED to persist the promo-codes-needs-review flag for ${ref} (conversion still succeeds, but this gap is now invisible):`, e instanceof Error ? e.message : e)
+  }
+}
+
+// ── Promo-code carry-over on conversion ───────────────────────────────────────
+// Same access-control-wall class as notifications and closed-days, confirmed
+// via a DIFFERENT signature this time: FM's real promo/coupon config lives
+// behind GET /api/coupon (internal name "coupon", not "promoCode" — found by
+// probing plausible endpoint names), session-scoped to the restaurant's own
+// login. The service account gets a hard HTTP 500 "Access is denied" (FM's
+// standard access-control error body), confirmed for Francesca Catering -
+// Glen Rock, which we independently know has a real code (FRAN10, 10%, 1000
+// uses, 1/diner, 5/17/2023–12/30/2027) that this endpoint cannot see. Unlike
+// closedDays/notifications (which "succeed" with an empty array), this fails
+// with a real error status, so !res.ok alone reliably catches it — the
+// empty-array guard below is kept anyway for defense in depth, in case FM's
+// behavior ever changes to match the other two endpoints.
+//
+// FM's response shape for a NON-EMPTY result is UNVERIFIED — /api/coupon has
+// never returned anything but this 500 in every attempt made. Field names are
+// guessed from Disco's own promo_codes/restaurant-portal conventions
+// (code/discountPercentage/maxAvailable/maxPerDiner/startDate/endDate) with
+// a few plausible FM-style alternates; if FM's real shape ever becomes
+// reachable and differs, this needs adjusting — the empty-array/unusable-row
+// guards mean it fails safe (flagged, not silently wrong) rather than
+// inserting garbage.
+export async function carryOverPromoCodes(ref: string): Promise<PromoCodesCarryOverResult> {
+  const fail = async (reason: string): Promise<PromoCodesCarryOverResult> => {
+    console.error(`[convertToNative] promo-code carry-over FAILED for ${ref}: ${reason}`)
+    await flagPromoCodesNeedReview(ref)
+    return { carried: false, reason }
+  }
+
+  let auth: Record<string, string>
+  try { auth = await getFmServiceAuthHeader() } catch (e) {
+    return fail(`FM auth failed — could not even attempt the promo-code fetch: ${e instanceof Error ? e.message : e}`)
+  }
+
+  let res: Response
+  try {
+    res = await fetch(`${FM}/api/coupon?restaurantReference=${ref}`, { headers: { ...auth, Accept: 'application/json' } })
+  } catch (e) {
+    return fail(`FM promo-code request threw: ${e instanceof Error ? e.message : e}`)
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    return fail(`FM /api/coupon unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall; real promo codes must be entered manually post-conversion.`)
+  }
+
+  let data: unknown = null
+  try { data = await res.json() } catch { /* fall through to the reason below */ }
+  if (!Array.isArray(data)) {
+    return fail('FM /api/coupon returned a non-array body — cannot carry over.')
+  }
+  if (data.length === 0) {
+    return fail('FM /api/coupon returned an empty array — treated as inconclusive (the same wall confirmed via a 500 elsewhere), not evidence this restaurant has no codes. Real promo codes must be entered manually.')
+  }
+
+  type FmCoupon = {
+    code?: string | null; couponCode?: string | null
+    discountPercentage?: number | string | null; discountValue?: number | string | null; percent?: number | string | null
+    maxAvailable?: number | string | null; maxUses?: number | string | null
+    maxPerDiner?: number | string | null; maxUsesPerUser?: number | string | null; perDinerLimit?: number | string | null
+    startDate?: string | null; validFrom?: string | null; fromDate?: string | null
+    endDate?: string | null; validUntil?: string | null; toDate?: string | null
+  }
+  const rows = data as FmCoupon[]
+  const inserts: { code: string; pct: number; maxUses: number | null; maxPerDiner: number; from: string; to: string | null }[] = []
+  let skipped = 0
+
+  for (const row of rows) {
+    const code = String(row.code ?? row.couponCode ?? '').trim().toUpperCase()
+    const pct = Number(row.discountPercentage ?? row.discountValue ?? row.percent)
+    const from = row.startDate ?? row.validFrom ?? row.fromDate ?? null
+    if (!code || !Number.isFinite(pct) || pct <= 0 || pct > 100 || !from) { skipped++; continue }
+    const maxUsesRaw = row.maxAvailable ?? row.maxUses
+    const maxUses = maxUsesRaw == null ? null : Number(maxUsesRaw)
+    const maxPerDinerRaw = row.maxPerDiner ?? row.maxUsesPerUser ?? row.perDinerLimit
+    const maxPerDiner = maxPerDinerRaw == null ? 1 : Number(maxPerDinerRaw)
+    const to = row.endDate ?? row.validUntil ?? row.toDate ?? null
+    inserts.push({ code, pct, maxUses: Number.isFinite(maxUses as number) ? maxUses : null, maxPerDiner: Number.isFinite(maxPerDiner) ? maxPerDiner : 1, from, to })
+  }
+
+  if (inserts.length === 0) {
+    return fail(`FM /api/coupon returned ${rows.length} row(s) but none were usable (missing code/discount/date) — cannot carry over.`)
+  }
+
+  // Replace wholesale rather than merge — this only ever runs once, at
+  // conversion, against a restaurant that (per the gate above) has zero rows.
+  await sql`DELETE FROM promo_codes WHERE restaurant_ref = ${ref}`
+  const stmts = inserts.map(i => sql`
+    INSERT INTO promo_codes (code, discount_type, discount_value, scope, restaurant_ref, funded_by, max_uses, max_uses_per_user, valid_from, valid_until)
+    VALUES (${i.code}, 'percent', ${i.pct}, 'restaurant', ${ref}, 'RESTAURANT', ${i.maxUses}, ${i.maxPerDiner}, ${i.from}::timestamptz, ${i.to}::timestamptz)
+  `)
+  await sql.transaction(stmts)
+  return {
+    carried: true,
+    reason: `Carried over ${inserts.length} promo code(s) [${inserts.map(i => i.code).join(', ')}] from ${rows.length} FM row(s)${skipped ? ` (${skipped} skipped — unusable)` : ''}.`,
+  }
+}
+
 // Perform the flip — ONLY when every blocking step passes. Sets BOTH
 // is_disco_native and is_live true: convertToNative's own gates (Stripe reuse
 // LIVE-verified, native menu imported, marketplace-visibility rule) already cover
@@ -527,7 +645,22 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real closed-days carried over: ${closedDays.reason}`)
   }
 
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, notificationSettings, closedDays }
+  let promoCodes: PromoCodesCarryOverResult
+  try {
+    promoCodes = await carryOverPromoCodes(readiness.restaurantReference)
+  } catch (e) {
+    const reason = `Promo-code carry-over step threw: ${e instanceof Error ? e.message : e}`
+    console.error(`[convertToNative] ${reason}`)
+    promoCodes = { carried: false, reason }
+  }
+  if (!promoCodes.carried) {
+    // Loud and explicit — same reasoning as notifications/closed-days: a
+    // restaurant converting WITHOUT its real promo codes silently breaks any
+    // code its customers already know and expect to work.
+    console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real promo codes carried over: ${promoCodes.reason}`)
+  }
+
+  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, notificationSettings, closedDays, promoCodes }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────

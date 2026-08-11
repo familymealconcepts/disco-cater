@@ -180,6 +180,11 @@ export async function runMigrations(): Promise<void> {
     // access-control wall confirmed for notifications), so the gap is visible
     // to an admin, not just in logs.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS closed_days_flagged_at TIMESTAMPTZ`,
+    // Same audit-marker role, for a failed promo-code carry-over — set by
+    // carryOverPromoCodes when FM's /api/coupon 500s "Access is denied" via the
+    // service account (the same session-scoped wall confirmed for notifications
+    // and closed-days).
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS promo_codes_flagged_at TIMESTAMPTZ`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.
