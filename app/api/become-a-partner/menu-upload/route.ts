@@ -43,6 +43,10 @@ async function notifyTeam(subject: string, text: string, attachment?: { buffer: 
     // MAILGUN_DOMAIN can be rejected as an unauthorized sender.
     mg.append('from', 'Disco Cater <orders@discocater.com>')
     mg.append('to', TEAM_EMAIL)
+    // Same orders@discocater.com-wide bcc as lib/email/send.ts — this sender is
+    // hand-rolled (not routed through the shared sendEmail), so it needs the
+    // same addition applied directly.
+    mg.append('bcc', 'noreply@familymeal.com')
     mg.append('subject', subject)
     mg.append('text', text)
     if (attachment) mg.append('attachment', new Blob([new Uint8Array(attachment.buffer)], { type: 'application/pdf' }), attachment.filename)

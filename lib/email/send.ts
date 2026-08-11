@@ -26,6 +26,15 @@ export interface SendResult {
 }
 
 const DEFAULT_FROM = 'Disco Cater <orders@discocater.com>'
+// Every Disco-native email sent from orders@discocater.com is also bcc'd to
+// FM, across all restaurants — not conditional on restaurant, template, or
+// any existing bcc the caller already set (e.g. sendRestaurantOrderNotification's
+// per-order FM copy). Gated on the actual From address, not just "did the
+// caller not override it", so a future caller that explicitly sends from a
+// different address is correctly excluded — this must never touch FM-sourced
+// order emails (which come from FM's own Java backend, mg.familymeal.com, and
+// never call this function at all).
+const ORDERS_BCC = 'noreply@familymeal.com'
 
 export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
   const apiKey = process.env.MAILGUN_API_KEY
@@ -41,13 +50,19 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
   }
 
   try {
+    const from = params.from || DEFAULT_FROM
+    const bccList = Array.from(new Set([
+      ...(params.bcc ? [params.bcc] : []),
+      ...(from.includes('orders@discocater.com') ? [ORDERS_BCC] : []),
+    ]))
+
     const form = new FormData()
-    form.append('from', params.from || DEFAULT_FROM)
+    form.append('from', from)
     form.append('to', params.to)
     form.append('subject', params.subject)
     form.append('html', params.html)
     if (params.replyTo) form.append('h:Reply-To', params.replyTo)
-    if (params.bcc) form.append('bcc', params.bcc)
+    if (bccList.length) form.append('bcc', bccList.join(','))
     for (const a of params.attachments || []) {
       // Blob accepts both a UTF-8 string and raw bytes (Uint8Array), so binary
       // attachments like the order PDF are appended without corruption.
