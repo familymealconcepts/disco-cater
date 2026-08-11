@@ -32,6 +32,36 @@ export async function POST() {
   })
 }
 
+// TEMPORARY — creates a NEW, Connect-scoped webhook endpoint (connect: true).
+// Our existing endpoint has application: null (platform-account-only), which is
+// why account.updated (a connected-account event) never gets pending_webhooks > 0
+// despite being listed in enabled_events — Connect-scoping can only be set at
+// creation, not via update(). Returns the new signing secret ONCE (Stripe never
+// shows it again) so it can be set as STRIPE_ACCOUNT_WEBHOOK_SECRET in Vercel.
+export async function PUT() {
+  const role = await getAdminRole()
+  if (role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  const key = process.env.STRIPE_SECRET_KEY || ''
+  const stripe = new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
+
+  const endpoint = await stripe.webhookEndpoints.create({
+    url: 'https://www.discocater.com/api/stripe/webhook',
+    enabled_events: ['account.updated'],
+    connect: true,
+    description: 'Disco-native connected-account events (account.updated) — created to fix the missing Connect-scoping gap.',
+  })
+
+  return NextResponse.json({
+    ok: true,
+    id: endpoint.id,
+    url: endpoint.url,
+    application: endpoint.application,
+    enabled_events: endpoint.enabled_events,
+    secret: endpoint.secret,
+  })
+}
+
 // TEMPORARY — reads the real production STRIPE_SECRET_KEY (only available inside
 // Vercel's runtime, not locally) to list webhook endpoints and their subscribed
 // event types. Delete after verification.
