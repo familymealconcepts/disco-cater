@@ -110,6 +110,10 @@ export interface FmScheduleLike {
   // FM emits null from/to for closed days — reflected here so the null-guard is honest.
   repeatWeekDays?: { days: string; fromPickUpTime: string | null; toPickUpTime: string | null }[]
   rollingAvailability?: number
+  // Menu Availability = Custom (date range) — the menu is orderable ONLY within
+  // [startDate, endDate], on top of (not instead of) the day-of-week pickup
+  // window. Absent when availability is "Always".
+  startDate?: string | null
   endDate?: string | null
   skippedDays?: (SkippedDay | string)[] | null
 }
@@ -188,7 +192,9 @@ function windowSlotMinutes(win: { from: string; to: string }): number[] {
 
 /** Calendar dates within the horizon, each flagged disabled when it has no
  *  bookable slot (past earliest pickup, after hard cutoff, skipped, or no
- *  window that day). */
+ *  window that day). A Custom-availability menu's startDate is a hard lower
+ *  bound — dates before it are never generated, even if they'd otherwise fall
+ *  within the rolling horizon and match the day-of-week window. */
 export function buildAvailableDates(
   s: FmScheduleLike,
   now = new Date(),
@@ -198,9 +204,10 @@ export function buildAvailableDates(
   const skipped = skippedDateSet(s)
   const horizon = horizonDays ?? s.rollingAvailability ?? 90
   const end = s.endDate ? new Date(`${s.endDate}T23:59:59`) : new Date(now.getTime() + horizon * DAY_MS)
+  const startBound = s.startDate ? startOfDay(new Date(`${s.startDate}T00:00:00`)) : null
 
   const out: { date: string; disabled: boolean }[] = []
-  const cur = startOfDay(now)
+  const cur = startBound && startBound > startOfDay(now) ? new Date(startBound) : startOfDay(now)
   for (let i = 0; i <= horizon && cur <= end; i++) {
     const iso = localISODate(cur)
     const win = windowForDay(s, DAY_NAMES[cur.getDay()])
@@ -215,13 +222,18 @@ export function buildAvailableDates(
   return out
 }
 
-/** 30-minute pickup slots for a date, each flagged disabled per the three tiers. */
+/** 30-minute pickup slots for a date, each flagged disabled per the three tiers.
+ *  Defense-in-depth: rejects a date outside a Custom-availability menu's
+ *  [startDate, endDate] range outright, independent of whatever surfaced the
+ *  date (calendar pick, deep link, stale client state). */
 export function buildAvailableTimes(
   s: FmScheduleLike,
   dateStr: string,
   now = new Date(),
 ): { time: string; disabled: boolean }[] {
   if (!dateStr) return []
+  if (s.startDate && dateStr < s.startDate) return []
+  if (s.endDate && dateStr > s.endDate) return []
   const cfg = toCutoffConfig(s)
   const day = new Date(`${dateStr}T12:00:00`)
   const win = windowForDay(s, DAY_NAMES[day.getDay()])
@@ -296,6 +308,29 @@ export function runSelfTests(): void {
     farPast,
   )
   if (normalSlots.length !== 4) throw new Error(`FAIL 9 normal window slot count: got ${normalSlots.length}`)
+  pass++
+
+  // 10. Custom availability (startDate === endDate) — ONLY that date is bookable,
+  // even though the day-of-week window would otherwise match every week.
+  const customRangeSchedule = {
+    prepTime: 0,
+    repeatWeekDays: [{ days: 'FRIDAY', fromPickUpTime: '18:30', toPickUpTime: '18:30' }],
+    startDate: '2026-08-21',
+    endDate: '2026-08-21',
+  }
+  const rangeEnabled = buildAvailableDates(customRangeSchedule, farPast).filter(d => !d.disabled)
+  if (rangeEnabled.length !== 1 || rangeEnabled[0].date !== '2026-08-21') {
+    throw new Error(`FAIL 10 custom-range dates: got ${JSON.stringify(rangeEnabled)}`)
+  }
+  pass++
+  // A date before startDate must be rejected even if requested directly (bypassing the calendar).
+  if (buildAvailableTimes(customRangeSchedule, '2026-08-14', farPast).length !== 0) {
+    throw new Error('FAIL 10 custom-range out-of-range date produced times')
+  }
+  pass++
+  if (buildAvailableTimes(customRangeSchedule, '2026-08-21', farPast).length !== 1) {
+    throw new Error('FAIL 10 custom-range in-range date produced no times')
+  }
   pass++
 
   console.log(`cutoffs.ts self-tests: ${pass} assertions passed`)

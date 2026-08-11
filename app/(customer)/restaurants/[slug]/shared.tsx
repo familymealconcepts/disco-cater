@@ -453,7 +453,8 @@ async function loadDiscoNativeRestaurant(slug: string) {
 
     // Primary menu container — carries the pickup schedule + money/timing settings.
     const menuRows = (await sql`
-      SELECT reference, name, schedule_config, availability_mode, to_char(end_date, 'YYYY-MM-DD') AS end_date,
+      SELECT reference, name, schedule_config, availability_mode,
+             to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date,
              offers_pickup, offers_delivery, service_charge_pct, service_charge_name,
              tip_default_type, tip_default_value, pickup_order_minimum, delivery_order_minimum,
              max_orders_per_day, lead_time_hours, rolling_availability_days,
@@ -463,7 +464,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       FROM disco_menus
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true AND archived = false
       ORDER BY position, id LIMIT 1
-    `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string }[] | null })[]
+    `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; start_date: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string }[] | null })[]
     const primary = menuRows[0]
     // Skipped/blackout days: per-menu skipped days + restaurant-wide Closed Days,
     // merged into scheduleOption.skippedDays (the availability engine excludes them).
@@ -479,7 +480,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
     // Schedule = pickup windows (schedule_config) + timing settings (lead time,
     // cutoffs, rolling window, max/day) + skipped days. Settings = money + fulfillment.
     const scheduleOption = {
-      ...buildNativeScheduleOption(primary?.schedule_config ?? null, primary?.availability_mode ?? null, primary?.end_date ?? null),
+      ...buildNativeScheduleOption(primary?.schedule_config ?? null, primary?.availability_mode ?? null, primary?.start_date ?? null, primary?.end_date ?? null),
       ...(primary ? menuRowToScheduleExtras(primary) : {}),
       ...(skippedDays.length ? { skippedDays } : {}),
     }

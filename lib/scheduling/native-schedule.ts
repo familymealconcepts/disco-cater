@@ -18,6 +18,7 @@ export type NativeScheduleConfig = {
 export interface NativeScheduleOption {
   scheduleType: 'SAME_DAY' | 'CUSTOM'
   repeatWeekDays: { days: string; fromPickUpTime: string; toPickUpTime: string }[]
+  startDate?: string
   endDate?: string
 }
 
@@ -26,6 +27,7 @@ export const ALL_DAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY',
 export function buildNativeScheduleOption(
   sc: NativeScheduleConfig | null,
   availabilityMode: string | null,
+  startDate: string | null,
   endDate: string | null,
 ): NativeScheduleOption {
   const cfg = sc && typeof sc === 'object' ? sc : {}
@@ -40,6 +42,7 @@ export function buildNativeScheduleOption(
   return {
     scheduleType,
     repeatWeekDays,
+    ...(availabilityMode === 'CUSTOM' && startDate ? { startDate } : {}),
     ...(availabilityMode === 'CUSTOM' && endDate ? { endDate } : {}),
   }
 }
