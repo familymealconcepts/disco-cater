@@ -74,6 +74,9 @@ interface Props {
   // an inline prompt so we can still ask — Skip is allowed.
   headcount: number | null
   onHeadcount: (n: number | null) => void
+  // One-off restaurant-specific customization (Almost Home) — hides the
+  // headcount prompt/summary entirely for this restaurant only.
+  hideHeadcount?: boolean
   // True only on the 1st-party /order/[slug] route. Selects the sourceoforder
   // wire value sent to FM ("FAMILYMEAL" when true → no lead-gen fee; "DISCO"
   // when false → 3P lead-gen fee). Defaults false so /restaurants/[slug] is
@@ -150,7 +153,7 @@ function fmtTime(t: string) {
 // ── Component ──────────────────────────────────────────────────────────────────
 export default function CheckoutDrawer({
   fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType, deliveryOrderTimeWindows, includeUtensils = false,
-  addr, menuReference, subtotal, tipAmt, svcAmt, serviceChargePct = 0, minOrder, headcount, onHeadcount,
+  addr, menuReference, subtotal, tipAmt, svcAmt, serviceChargePct = 0, minOrder, headcount, onHeadcount, hideHeadcount = false,
   isFirstParty = false, isDirectEntry = false, directEntryMethod = 'payment',
   onChangeAddress, onPromoChange, onClose,
 }: Props) {
@@ -1091,8 +1094,9 @@ export default function CheckoutDrawer({
             ))}
           </div>
 
-          {/* Headcount — inline prompt if not set, otherwise a single-line summary. */}
-          {headcount == null && !headcountSkipped ? (
+          {/* Headcount — inline prompt if not set, otherwise a single-line summary.
+              Hidden entirely for restaurants opted out via hideHeadcount. */}
+          {hideHeadcount ? null : headcount == null && !headcountSkipped ? (
             <div style={{ background: '#F5F4FF', border: '1px solid #E5E3FB', borderRadius: 10, padding: '12px 14px', marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: DARK, marginBottom: 8 }}>How many people are you feeding?</div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

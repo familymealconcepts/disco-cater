@@ -254,6 +254,14 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   restaurantSettings?: { enableMenuSearch?: boolean; deliveryOrderTimeWindows?: string; onlineOrderingAllowed?: boolean; announcement?: string }
 }) {
   // ── UI state ──────────────────────────────────────────────────────────────
+  // One-off restaurant-specific customization (requested by Almost Home, not a
+  // general setting) — hides the headcount field everywhere on the checkout
+  // flow for this restaurant only. headcount itself stays fully wired
+  // (state, downstream order/pricing/email code all already treat it as
+  // optional and default to null when absent), so nothing else needs to
+  // change — this purely hides the UI. Every other restaurant is unaffected.
+  const HEADCOUNT_HIDDEN_REFS = new Set(['032ddb5a-8c62-4096-95fe-9a342c229dcc']) // Almost Home
+  const hideHeadcount = !!fmRef && HEADCOUNT_HIDDEN_REFS.has(fmRef)
   // Auth — used to gate the checkout action behind login (browsing/cart-building
   // stay open). openAuthModal stores a pending action AuthModal resumes on a
   // successful sign-in, so checkout continues automatically.
@@ -1198,13 +1206,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               </div>
               <button onClick={openMenus} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>Edit</button>
             </div>
-            {headcount != null && (
+            {!hideHeadcount && headcount != null && (
               <div style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
                 👥 {headcount} {headcount === 1 ? 'person' : 'people'}
               </div>
             )}
           </div>
-        ) : headcount != null ? (
+        ) : !hideHeadcount && headcount != null ? (
           <div style={{ padding: '10px 16px', borderBottom: '1px solid #f4f4f4', background: '#fafafa', fontSize: 12, color: '#555' }}>
             👥 {headcount} {headcount === 1 ? 'person' : 'people'}
           </div>
@@ -1916,19 +1924,21 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               </div>
             </div>
 
-            {/* Headcount — optional */}
-            <div style={{ padding: '6px 20px 14px', borderBottom: '1px solid #f0f0f0' }}>
-              <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
-                Headcount <span style={{ color: '#bbb', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· optional</span>
+            {/* Headcount — optional (hidden entirely for restaurants in HEADCOUNT_HIDDEN_REFS) */}
+            {!hideHeadcount && (
+              <div style={{ padding: '6px 20px 14px', borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
+                  Headcount <span style={{ color: '#bbb', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· optional</span>
+                </div>
+                <input
+                  type="number" inputMode="numeric" min={1}
+                  value={tempHeadcount}
+                  onChange={e => setTempHeadcount(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="e.g. 40"
+                  style={{ width: '100%', height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: DARK, fontFamily: F, background: '#fff', outline: 'none' }}
+                />
               </div>
-              <input
-                type="number" inputMode="numeric" min={1}
-                value={tempHeadcount}
-                onChange={e => setTempHeadcount(e.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="e.g. 40"
-                style={{ width: '100%', height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: DARK, fontFamily: F, background: '#fff', outline: 'none' }}
-              />
-            </div>
+            )}
 
             {/* Start Order CTA */}
             <div style={{ padding: '14px 20px 20px' }}>
@@ -1974,7 +1984,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           deliveryOrderTimeWindows={deliveryWindow}
           includeUtensils={includeUtensils}
           addr={addr} subtotal={subtotal} tipAmt={tipAmt} svcAmt={svcAmt} serviceChargePct={svcPct} minOrder={minOrder}
-          headcount={headcount} onHeadcount={setHeadcount}
+          headcount={headcount} onHeadcount={setHeadcount} hideHeadcount={hideHeadcount}
           menuReference={menuData[activeMenuIdx]?.menu?.reference ?? null}
           isFirstParty={isFirstParty}
           isDirectEntry={isDirectEntry}
