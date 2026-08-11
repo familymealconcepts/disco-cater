@@ -22,6 +22,7 @@ import { setInviteToken } from './disco-restaurant-auth'
 import { sendTeamMemberInvite } from './email/notifications'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { sanitizePhone } from './utils/phone'
+import { holidayDates, isHolidayName } from './holidays'
 
 const SITE_URL = 'https://www.discocater.com'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -166,6 +167,7 @@ export interface ConversionResult {
   readiness: ConversionReadiness
   invite?: InviteResult
   notificationSettings?: NotificationCarryOverResult
+  closedDays?: ClosedDaysCarryOverResult
 }
 
 export interface InviteResult {
@@ -332,6 +334,127 @@ export async function carryOverNotificationSettings(ref: string): Promise<Notifi
   return { carried: true, reason: `Carried over ${emails.length} email(s), ${phones.length} phone(s).` }
 }
 
+export interface ClosedDaysCarryOverResult {
+  carried: boolean
+  reason: string
+}
+
+// Same audit-marker role as flagNotificationSettingsNeedReview, for the
+// closed-days/holiday carry-over. See that function's comment for why this
+// column is set unconditionally on failure rather than gating any UI badge —
+// the same reasoning applies here.
+async function flagClosedDaysNeedReview(ref: string): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, closed_days_flagged_at, updated_at)
+      VALUES (${ref}, NOW(), NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE
+        SET closed_days_flagged_at = NOW(), updated_at = NOW()
+    `
+  } catch (e) {
+    console.error(`[convertToNative] FAILED to persist the closed-days-needs-review flag for ${ref} (conversion still succeeds, but this gap is now invisible):`, e instanceof Error ? e.message : e)
+  }
+}
+
+// ── Closed-days / holiday carry-over on conversion ────────────────────────────
+// Same access-control wall confirmed for notifications (2026-08-11, Francesca
+// Catering - Glen Rock): FM's real closed-days/holiday config lives behind
+// GET /api/closedDays, session-scoped to the restaurant's own login. The
+// service account (getFmServiceAuthHeader) returns HTTP 200 with an EMPTY
+// array for ANY restaurant, including Glen Rock, which we independently
+// confirmed (via screenshots) has 5 real holidays + a custom vacation range
+// configured. Because the failure mode is a "successful" empty array, not an
+// error status, an empty result is treated as the SAME confirmed wall, not as
+// "this restaurant genuinely has zero closures" — trusting an empty array at
+// face value would silently reproduce the exact gap this function exists to
+// close. Attempted anyway (in case FM ever exposes this to service accounts);
+// every failure (including the empty-array case) both logs loudly AND
+// persists the needs-review flag, so the gap is visible to an admin.
+//
+// FM's response shape for a NON-EMPTY result is UNVERIFIED — we have never
+// actually seen one (every real attempt has returned []). Field names are
+// inferred from disco-closed-days' own shape (holiday/name/fromDate/toDate in
+// FM's camelCase convention, matching every other FM DTO in this codebase) and
+// from the assumption that FM's model splits the same way Disco's does: named
+// holidays (pre-computed recurring dates) vs. one-off custom ranges. If FM's
+// real shape ever becomes reachable and differs, this will need adjusting —
+// the empty-array guard above means it fails safe (flagged, not silently
+// wrong) rather than inserting garbage.
+export async function carryOverClosedDays(ref: string): Promise<ClosedDaysCarryOverResult> {
+  const fail = async (reason: string): Promise<ClosedDaysCarryOverResult> => {
+    console.error(`[convertToNative] closed-days carry-over FAILED for ${ref}: ${reason}`)
+    await flagClosedDaysNeedReview(ref)
+    return { carried: false, reason }
+  }
+
+  let auth: Record<string, string>
+  try { auth = await getFmServiceAuthHeader() } catch (e) {
+    return fail(`FM auth failed — could not even attempt the closed-days fetch: ${e instanceof Error ? e.message : e}`)
+  }
+
+  let res: Response
+  try {
+    res = await fetch(`${FM}/api/closedDays?restaurantReference=${ref}`, { headers: { ...auth, Accept: 'application/json' } })
+  } catch (e) {
+    return fail(`FM closed-days request threw: ${e instanceof Error ? e.message : e}`)
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    return fail(`FM /api/closedDays unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall; real closed dates must be entered manually post-conversion.`)
+  }
+
+  let data: unknown = null
+  try { data = await res.json() } catch { /* fall through to the reason below */ }
+  if (!Array.isArray(data)) {
+    return fail('FM /api/closedDays returned a non-array body — cannot carry over.')
+  }
+  if (data.length === 0) {
+    return fail('FM /api/closedDays returned an empty array — the confirmed access-control wall (a restaurant known to have real closures still returns []), not evidence this restaurant has none. Real closed dates must be entered manually.')
+  }
+
+  type FmClosedDay = { holiday?: string | null; name?: string | null; fromDate?: string | null; toDate?: string | null }
+  const rows = data as FmClosedDay[]
+  const thisYear = new Date().getFullYear()
+  const inserts: { name: string; holiday: string | null; from: string; to: string }[] = []
+  let skipped = 0
+
+  for (const row of rows) {
+    const holiday = row.holiday && isHolidayName(row.holiday) ? row.holiday : null
+    if (holiday) {
+      // Pre-compute the recurring run of dates, same as the manual holiday
+      // toggle (app/api/restaurant/disco-closed-days) — matches Disco's model
+      // regardless of whether FM sent explicit dates for a named holiday.
+      for (const d of holidayDates(holiday, thisYear)) inserts.push({ name: holiday, holiday, from: d, to: d })
+    } else if (row.fromDate && row.toDate) {
+      inserts.push({ name: row.name || 'Closed', holiday: null, from: row.fromDate, to: row.toDate })
+    } else {
+      skipped++
+    }
+  }
+
+  if (inserts.length === 0) {
+    return fail(`FM /api/closedDays returned ${rows.length} row(s) but none were usable (unrecognized holiday name or missing dates) — cannot carry over.`)
+  }
+
+  // Replace wholesale rather than merge — this only ever runs once, at
+  // conversion, against a restaurant that (per the gate above) has zero rows.
+  await sql`DELETE FROM disco_restaurant_closed_days WHERE restaurant_reference = ${ref}::uuid`
+  const holidayNames = new Set<string>()
+  const stmts = inserts.map(i => {
+    if (i.holiday) holidayNames.add(i.holiday)
+    return sql`
+      INSERT INTO disco_restaurant_closed_days (restaurant_reference, name, holiday, from_date, to_date)
+      VALUES (${ref}::uuid, ${i.name}, ${i.holiday}, ${i.from}::date, ${i.to}::date)
+    `
+  })
+  await sql.transaction(stmts)
+  return {
+    carried: true,
+    reason: `Carried over ${holidayNames.size} holiday(s) [${[...holidayNames].join(', ')}] + ${inserts.length - [...holidayNames].reduce((n, h) => n + holidayDates(h, thisYear).length, 0)} custom range(s) from ${rows.length} FM row(s)${skipped ? ` (${skipped} skipped — unusable)` : ''}.`,
+  }
+}
+
 // Perform the flip — ONLY when every blocking step passes. Sets BOTH
 // is_disco_native and is_live true: convertToNative's own gates (Stripe reuse
 // LIVE-verified, native menu imported, marketplace-visibility rule) already cover
@@ -389,7 +512,22 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real notification settings carried over: ${notificationSettings.reason}`)
   }
 
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, notificationSettings }
+  let closedDays: ClosedDaysCarryOverResult
+  try {
+    closedDays = await carryOverClosedDays(readiness.restaurantReference)
+  } catch (e) {
+    const reason = `Closed-days carry-over step threw: ${e instanceof Error ? e.message : e}`
+    console.error(`[convertToNative] ${reason}`)
+    closedDays = { carried: false, reason }
+  }
+  if (!closedDays.carried) {
+    // Loud and explicit — same reasoning as the notification-settings gap:
+    // a restaurant converting WITHOUT its real closed dates can accept orders
+    // for a date it believes it's closed.
+    console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real closed-days carried over: ${closedDays.reason}`)
+  }
+
+  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, notificationSettings, closedDays }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────

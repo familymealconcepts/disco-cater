@@ -173,6 +173,13 @@ export async function runMigrations(): Promise<void> {
     // is shown to the customer — 'exact' | '30_min' | '1_hour'. Mirrors FM's
     // feesAndTips.deliveryOrderTimeWindows; read by the customer flow for disco-native.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS delivery_order_time_windows VARCHAR(12) NOT NULL DEFAULT 'exact'`,
+    // Persisted audit marker for a failed closed-days/holiday carry-over on
+    // conversion (mirrors notification_settings_flagged_at's role) — set by
+    // carryOverClosedDays in lib/native-conversion.ts when FM's /api/closedDays
+    // is unreachable via the service account (the same session-scoped
+    // access-control wall confirmed for notifications), so the gap is visible
+    // to an admin, not just in logs.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS closed_days_flagged_at TIMESTAMPTZ`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.

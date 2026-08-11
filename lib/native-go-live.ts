@@ -11,7 +11,11 @@
 //   4 expedite-dispatch  IF 3P delivery: one real signed Expedite dispatch succeeded (recorded)
 //   5 online-ordering    online_ordering_enabled = true
 //   6 marketplace-gate   would pass the M4 3-part visibility rule once flipped visible
-//   7 flip               goLiveNativeRestaurant — only when 1–6 pass
+//   7 closed-days-reviewed  an FM conversion with zero closed-days rows is unreviewed —
+//                           block until a real row exists (automated carry-over,
+//                           manual entry, or a native-first restaurant with nothing
+//                           to carry over in the first place)
+//   8 flip               goLiveNativeRestaurant — only when 1–7 pass
 import type Stripe from 'stripe'
 import { sql, runDiscoMenuMigrations } from './db'
 import { verifyAccountReusable } from './stripe-connect'
@@ -33,7 +37,7 @@ async function ensureTable(): Promise<void> {
   ensured = true
 }
 
-export type GoLiveGateKey = 'native-menu' | 'stripe-onboarded' | 'live-charge' | 'expedite-dispatch' | 'online-ordering' | 'marketplace-gate'
+export type GoLiveGateKey = 'native-menu' | 'stripe-onboarded' | 'live-charge' | 'expedite-dispatch' | 'online-ordering' | 'marketplace-gate' | 'closed-days-reviewed'
 export interface GoLiveGate { key: GoLiveGateKey; step: number; label: string; done: boolean; blocking: boolean; detail: string; action?: string }
 export interface GoLiveReadiness {
   restaurantReference: string; found: boolean; isDiscoNative: boolean; live: boolean
@@ -116,6 +120,25 @@ export async function checkNativeGoLiveReadiness(ref: string, opts?: { stripe?: 
   const mk = await checkMarketplaceReadiness(ref)
   const marketplaceOk = onlineOn && (mk.blockers.every(b => b.code === 'not-visible'))
 
+  // 7 — closed-days reviewed. Derived from live state (like the notification-
+  // settings admin badge), not the closed_days_flagged_at audit column, so this
+  // is correct even for restaurants converted before that column existed (Glen
+  // Rock, Elmwood Park, etc.) — a zero-rows FM conversion is unreviewed
+  // regardless of whether anything ever flagged it. A restaurant with no FM
+  // history (native-first — e.g. Almost Home) never had anything to carry over,
+  // so it's trivially reviewed. Passes the moment ANY real row exists — the
+  // automated carry-over succeeding, or a manual fix like Glen Rock's.
+  const fmLink = (await sql`
+    SELECT 1 FROM disco_restaurant_accounts
+    WHERE (restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref}) AND fm_restaurant_reference IS NOT NULL
+    LIMIT 1
+  `.catch(() => [])) as unknown[]
+  const wasFmBacked = fmLink.length > 0
+  const closedDaysRows = (await sql`
+    SELECT COUNT(*)::int AS n FROM disco_restaurant_closed_days WHERE restaurant_reference::text = ${ref}
+  `.catch(() => [{ n: 0 }])) as { n: number }[]
+  const closedDaysReviewed = !wasFmBacked || (closedDaysRows[0]?.n ?? 0) > 0
+
   const gates: GoLiveGate[] = [
     { key: 'native-menu', step: 1, label: 'Native menu imported', done: hasMenu, blocking: true, detail: hasMenu ? 'A visible menu with items exists.' : 'No visible menu with items — run the faithful FM import.', action: hasMenu ? undefined : 'POST /api/admin/restaurants/[ref]/import-fm-menu' },
     { key: 'stripe-onboarded', step: 2, label: 'Stripe onboarding complete (LIVE-verified)', done: stripeDone, blocking: true, detail: stripeDetail, action: stripeDone ? undefined : 'Complete Stripe onboarding (KYC) or reuse a charge-capable account, then re-check.' },
@@ -123,6 +146,7 @@ export async function checkNativeGoLiveReadiness(ref: string, opts?: { stripe?: 
     { key: 'expedite-dispatch', step: 4, label: offersThirdPartyDelivery ? 'Real Expedite courier dispatch succeeded' : 'Expedite dispatch (N/A — no 3P delivery)', done: offersThirdPartyDelivery ? ed.passed : true, blocking: offersThirdPartyDelivery, detail: !offersThirdPartyDelivery ? 'Restaurant does not offer third-party delivery — not required.' : ed.passed ? `Verified: ${ed.detail || 'dispatched'}.` : 'Not yet verified — a real signed Expedite dispatch has never succeeded for this restaurant.', action: (!offersThirdPartyDelivery || ed.passed) ? undefined : 'Place a real 3P-delivery native order; confirm a courier is dispatched; call recordGoLiveVerification(ref, "expedite-dispatch", ...).' },
     { key: 'online-ordering', step: 5, label: 'Online ordering on', done: onlineOn, blocking: true, detail: onlineOn ? 'Accepting online orders.' : 'Turn on online ordering.', action: onlineOn ? undefined : 'Enable online_ordering_enabled.' },
     { key: 'marketplace-gate', step: 6, label: 'Passes marketplace visibility rule (M4)', done: marketplaceOk, blocking: true, detail: marketplaceOk ? 'Will be visible once flipped live.' : `Would fail the native visibility rule: ${mk.blockers.filter(b => b.code !== 'not-visible').map(b => b.message).join(' ') || 'online ordering / Stripe.'}`, action: marketplaceOk ? undefined : 'Resolve online ordering + Stripe first.' },
+    { key: 'closed-days-reviewed', step: 7, label: 'Closed-days / holiday config reviewed', done: closedDaysReviewed, blocking: true, detail: closedDaysReviewed ? (wasFmBacked ? `${closedDaysRows[0]?.n ?? 0} closed-day row(s) on file.` : 'Native-first — no FM closed-days to carry over.') : 'FM-converted with ZERO closed-days on file — an unreviewed gap, not a confirmed "no closures." Enter the restaurant\'s real holidays/closed dates before going live.', action: closedDaysReviewed ? undefined : 'Enter the real FM closed-days/holidays into Schedule Override (app/api/restaurant/disco-closed-days), or re-run carryOverClosedDays if FM access ever opens up.' },
   ]
 
   const blocking = gates.filter(g => g.blocking)
