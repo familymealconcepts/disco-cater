@@ -162,17 +162,23 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
     const activeDays = DAYS.filter(d => enabledDays[d.key]).map(d => d.key)
     if (activeDays.length === 0) { setError('Select at least one pickup day.'); return }
 
-    // A window that's zero-width (or under one 30-min slot) silently produces
-    // ZERO bookable times for that day — no error at save time, just an empty
-    // time picker (or worse) for the customer later. Catch it here instead.
-    // Real, confirmed case: a menu saved with 6:30 PM–6:30 PM ("SAME_DAY" mode
-    // uses sameWindow, not perDay) looked fine in the form but broke checkout.
+    // Same start/end time is a deliberate single-seating window (one bookable
+    // slot at that exact time) — valid, not an error. A BACKWARDS window (to
+    // before from) or a non-zero window too narrow to fit one 30-min slot is
+    // still almost certainly a data-entry mistake, so those stay caught here.
     const toMin = (hhmm: string) => { const [h, m] = (hhmm || '0:0').split(':').map(Number); return h * 60 + m }
     for (const day of activeDays) {
       const win = scheduleType === 'CUSTOM' ? (perDay[day] || { from: sameFrom, to: sameTo }) : { from: sameFrom, to: sameTo }
-      if (toMin(win.to) - toMin(win.from) < 30) {
-        const label = DAYS.find(d => d.key === day)?.label || day
-        setError(`${label} pickup window (${win.from}–${win.to}) is too short — it needs to be at least 30 minutes, or no one will be able to book that day.`)
+      const fromMin = toMin(win.from)
+      const toMinVal = toMin(win.to)
+      if (fromMin === toMinVal) continue
+      const label = DAYS.find(d => d.key === day)?.label || day
+      if (toMinVal < fromMin) {
+        setError(`${label} pickup window (${win.from}–${win.to}) ends before it starts — check the From/To times.`)
+        return
+      }
+      if (toMinVal - fromMin < 30) {
+        setError(`${label} pickup window (${win.from}–${win.to}) is too short to fit a 30-minute slot — widen it, or set the same From and To time if you want exactly one pickup time.`)
         return
       }
     }

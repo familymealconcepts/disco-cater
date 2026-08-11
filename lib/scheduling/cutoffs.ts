@@ -172,6 +172,20 @@ export function orderingClosed(s: FmScheduleLike, now = new Date()): boolean {
   return isOrderingClosed(now, toCutoffConfig(s))
 }
 
+/** Slot start-times (minutes since midnight) a pickup window produces. A
+ *  window where from === to means "exactly one pickup time" (a single
+ *  seating/delivery slot), not a zero-width range — it produces exactly that
+ *  one slot. A normal [from, to) window produces 30-min slots, each ending
+ *  no later than `to`. */
+function windowSlotMinutes(win: { from: string; to: string }): number[] {
+  const fromMin = hhmmToMinutes(win.from)
+  const toMinVal = hhmmToMinutes(win.to)
+  if (fromMin === toMinVal) return [fromMin]
+  const out: number[] = []
+  for (let m = fromMin; m + SLOT_MINUTES <= toMinVal; m += SLOT_MINUTES) out.push(m)
+  return out
+}
+
 /** Calendar dates within the horizon, each flagged disabled when it has no
  *  bookable slot (past earliest pickup, after hard cutoff, skipped, or no
  *  window that day). */
@@ -192,8 +206,8 @@ export function buildAvailableDates(
     const win = windowForDay(s, DAY_NAMES[cur.getDay()])
     if (win && !skipped.has(iso)) {
       // The day is bookable if its LAST window slot is still enabled.
-      const lastSlotMin = hhmmToMinutes(win.to) - SLOT_MINUTES
-      const enabled = lastSlotMin >= hhmmToMinutes(win.from) && isSlotEnabled(now, cfg, atTime(cur, lastSlotMin))
+      const slots = windowSlotMinutes(win)
+      const enabled = slots.length > 0 && isSlotEnabled(now, cfg, atTime(cur, slots[slots.length - 1]))
       out.push({ date: iso, disabled: !enabled })
     }
     cur.setDate(cur.getDate() + 1)
@@ -213,7 +227,7 @@ export function buildAvailableTimes(
   const win = windowForDay(s, DAY_NAMES[day.getDay()])
   if (!win) return []
   const out: { time: string; disabled: boolean }[] = []
-  for (let m = hhmmToMinutes(win.from); m + SLOT_MINUTES <= hhmmToMinutes(win.to); m += SLOT_MINUTES) {
+  for (const m of windowSlotMinutes(win)) {
     const slot = atTime(new Date(`${dateStr}T00:00:00`), m)
     const time = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`
     out.push({ time, disabled: !isSlotEnabled(now, cfg, slot) })
@@ -262,6 +276,27 @@ export function runSelfTests(): void {
   const hardBeforeEarliest = new Date(earliest.getTime() - 60 * MIN) // Thu 2pm (future vs now, before earliest)
   isFalse('7 not closed', isOrderingClosed(wed3pm, { leadTimeMinutes: 1440, hardCutoff: hardBeforeEarliest }))
   isFalse('7 slot', isSlotEnabled(wed3pm, { leadTimeMinutes: 1440, hardCutoff: hardBeforeEarliest }, earliest))
+
+  // 8. A window where from === to is a single seating, not zero-width — one slot, not none.
+  const farPast = new Date(2026, 4, 1)
+  const sameTimeSlots = buildAvailableTimes(
+    { prepTime: 0, repeatWeekDays: [{ days: 'WEDNESDAY', fromPickUpTime: '18:30', toPickUpTime: '18:30' }] },
+    '2026-06-03',
+    farPast,
+  )
+  if (sameTimeSlots.length !== 1 || sameTimeSlots[0].time !== '18:30:00') {
+    throw new Error(`FAIL 8 same-time slot: got ${JSON.stringify(sameTimeSlots)}`)
+  }
+  pass++
+
+  // 9. A normal multi-hour window is unaffected — still 30-min slots ending by `to`.
+  const normalSlots = buildAvailableTimes(
+    { prepTime: 0, repeatWeekDays: [{ days: 'WEDNESDAY', fromPickUpTime: '11:00', toPickUpTime: '13:00' }] },
+    '2026-06-03',
+    farPast,
+  )
+  if (normalSlots.length !== 4) throw new Error(`FAIL 9 normal window slot count: got ${normalSlots.length}`)
+  pass++
 
   console.log(`cutoffs.ts self-tests: ${pass} assertions passed`)
 }
