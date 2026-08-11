@@ -69,6 +69,8 @@ export async function GET() {
       id: ep.id,
       url: ep.url,
       status: ep.status,
+      application: ep.application,
+      api_version: ep.api_version,
       enabled_events: ep.enabled_events,
     })),
     almostHomeAccount: acct,
