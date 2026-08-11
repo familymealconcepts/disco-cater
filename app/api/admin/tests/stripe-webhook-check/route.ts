@@ -18,7 +18,18 @@ export async function POST() {
   const updated = await stripe.accounts.update(almostHomeAcct, {
     metadata: { source: 'disco-become-a-partner', webhook_test_ping: String(Date.now()) },
   })
-  return NextResponse.json({ ok: true, accountId: updated.id, metadata: updated.metadata })
+
+  // Confirm Stripe actually generated the event (account-scoped, Express-account
+  // events aren't visible via the platform-level events.list()).
+  await new Promise(r => setTimeout(r, 2000))
+  const events = await stripe.events.list({ limit: 5, type: 'account.updated' }, { stripeAccount: almostHomeAcct })
+
+  return NextResponse.json({
+    ok: true,
+    accountId: updated.id,
+    metadata: updated.metadata,
+    mostRecentAccountUpdatedEvents: events.data.map(e => ({ id: e.id, created: new Date(e.created * 1000).toISOString(), pending_webhooks: e.pending_webhooks, request: e.request })),
+  })
 }
 
 // TEMPORARY — reads the real production STRIPE_SECRET_KEY (only available inside
