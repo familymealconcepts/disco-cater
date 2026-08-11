@@ -4,6 +4,23 @@ import { getAdminRole } from '../../../../../lib/admin-auth'
 
 export const runtime = 'nodejs'
 
+// TEMPORARY — makes a small, safe metadata update to Almost Home's connected
+// account (triggers a real account.updated event) so delivery can be verified
+// end-to-end. Delete after verification.
+export async function POST() {
+  const role = await getAdminRole()
+  if (role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  const key = process.env.STRIPE_SECRET_KEY || ''
+  const stripe = new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
+  const almostHomeAcct = 'acct_1U2yeD3XIxT2pODU'
+
+  const updated = await stripe.accounts.update(almostHomeAcct, {
+    metadata: { source: 'disco-become-a-partner', webhook_test_ping: String(Date.now()) },
+  })
+  return NextResponse.json({ ok: true, accountId: updated.id, metadata: updated.metadata })
+}
+
 // TEMPORARY — reads the real production STRIPE_SECRET_KEY (only available inside
 // Vercel's runtime, not locally) to list webhook endpoints and their subscribed
 // event types. Delete after verification.
