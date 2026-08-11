@@ -39,6 +39,32 @@ export async function POST() {
   })
 }
 
+// TEMPORARY — makes a small, safe metadata update to Almost Home's REAL connected
+// account to trigger a REAL account.updated event, so delivery through the newly
+// created Connect-scoped endpoint can be confirmed end-to-end (not simulated).
+export async function PATCH() {
+  const role = await getAdminRole()
+  if (role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  const key = process.env.STRIPE_SECRET_KEY || ''
+  const stripe = new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
+  const almostHomeAcct = 'acct_1U2yeD3XIxT2pODU'
+
+  const before = (await sql`SELECT MAX(id) AS max_id FROM disco_order_events`) as { max_id: number }[]
+
+  const updated = await stripe.accounts.update(almostHomeAcct, {
+    metadata: { source: 'disco-become-a-partner', webhook_test_ping: String(Date.now()) },
+  })
+
+  await new Promise(r => setTimeout(r, 6000))
+  const after = (await sql`
+    SELECT id, event_type, event_data, created_at FROM disco_order_events
+    WHERE id > ${before[0].max_id} ORDER BY id
+  `) as { id: number; event_type: string; event_data: unknown; created_at: string }[]
+
+  return NextResponse.json({ ok: true, accountId: updated.id, baselineMaxId: before[0].max_id, newRowsLogged: after })
+}
+
 // Cleanup — removes the fake test row.
 export async function DELETE() {
   const role = await getAdminRole()
