@@ -56,6 +56,27 @@ export async function checkItemInventoryAvailability(items: CapCheckItem[], orde
   return { ok: true }
 }
 
+// Live remaining stock for a set of items on a given date — the read the
+// customer-facing cart uses to cap the quantity selector BEFORE checkout
+// (UX only; the atomic decrement below is the real enforcement, since stock
+// can still change between this read and payment). Only capped items with a
+// max_inventory_per_day set are returned; uncapped refs are omitted entirely
+// so the client never applies a limit to an uncapped item.
+export async function getItemsRemaining(refs: string[], orderDate: string): Promise<Record<string, number>> {
+  const uniqueRefs = Array.from(new Set(refs.filter(Boolean)))
+  if (uniqueRefs.length === 0 || !orderDate) return {}
+  const rows = (await sql`
+    SELECT mi.reference, mi.max_inventory_per_day AS cap, COALESCE(d.ordered_qty, 0) AS ordered_qty
+    FROM disco_menu_items mi
+    LEFT JOIN disco_menu_item_daily_inventory d
+      ON d.menu_item_reference = mi.reference AND d.order_date = ${orderDate}::date
+    WHERE mi.reference = ANY(${uniqueRefs}::uuid[]) AND mi.max_inventory_per_day IS NOT NULL
+  `.catch(() => [])) as { reference: string; cap: number; ordered_qty: number }[]
+  const out: Record<string, number> = {}
+  for (const r of rows) out[r.reference] = Math.max(0, r.cap - r.ordered_qty)
+  return out
+}
+
 // The real enforcement — an atomic conditional increment. Returns true when the
 // increment applied (capacity was available), false when it didn't (cap
 // exceeded — exhausted by a concurrent order in the same window). No-ops

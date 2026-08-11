@@ -67,6 +67,9 @@ interface FmPackage {
   available?: boolean; allowedSpecialInstructions?: boolean
   extraItemsGroups?: FmExtraItemsGroup[]
   inventoryBalanceCountperTime?: number | null
+  // Disco-native "Max Inventory Per Day" cap. null/undefined = unlimited —
+  // no live-cap logic below ever runs for it. See lib/order/native-inventory.ts.
+  maxInventoryPerDay?: number | null
 }
 interface FmCategory { reference: string; name: string; description?: string | null; mealPackages: FmPackage[] }
 interface MenuSection { menu: FmMenu; categories: FmCategory[] }
@@ -911,6 +914,39 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     .filter(i => i.pkg.reference === ref)
     .reduce((s, i) => s + i.quantity, 0)
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
+
+  // ── Live inventory cap (Max Inventory Per Day) ────────────────────────────
+  // Remaining stock per capped item, refetched whenever the selected order
+  // date changes so the cap always reflects THAT date's availability. Purely
+  // a UX cap on the quantity selector — the checkout-time atomic check
+  // (lib/order/native-inventory.ts) remains the real enforcement, since stock
+  // can still change between this read and payment. Items with no cap set
+  // never appear here and are never limited.
+  const [remainingByRef, setRemainingByRef] = useState<Record<string, number>>({})
+  const cappedRefs = useMemo(
+    () => menuData.flatMap(s => s.categories.flatMap(c => c.mealPackages))
+      .filter(p => p.maxInventoryPerDay != null).map(p => p.reference),
+    [menuData],
+  )
+  useEffect(() => {
+    if (cappedRefs.length === 0 || !selDate) { setRemainingByRef({}); return }
+    let cancelled = false
+    fetch(`/api/order/item-availability?refs=${cappedRefs.join(',')}&date=${selDate}`)
+      .then(r => r.ok ? r.json() : { remaining: {} })
+      .then(d => { if (!cancelled) setRemainingByRef(d?.remaining || {}) })
+      .catch(() => { if (!cancelled) setRemainingByRef({}) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cappedRefs.join(','), selDate])
+  // How many MORE of this package the customer may still add — null = no cap
+  // (unaffected), Infinity-like (skip entirely) when the cap hasn't loaded
+  // yet so the fetch never blocks adding an item before it resolves.
+  function remainingToAdd(pkg: FmPackage): number | null {
+    if (pkg.maxInventoryPerDay == null) return null
+    const rem = remainingByRef[pkg.reference]
+    if (rem == null) return null
+    return Math.max(0, rem - cartQty(pkg.reference))
+  }
   // Mirrors CheckoutDrawer's canProceed (now that the drawer has no in-drawer
   // review step, the trigger has to gate on date + time + delivery address
   // upstream instead of the drawer rendering a "complete your selections"
@@ -1062,7 +1098,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       openMenus()
       return
     }
+    if (remainingToAdd(pkg) === 0) return // sold out for the selected date
     handleAddClickInner(pkg)
+  }
+  // Ceiling for the "Add to Order" modal's quantity stepper — how many more of
+  // this package can still be added on top of what's already in the cart.
+  // null = no cap (unaffected).
+  function maxAddOnsQty(): number | null {
+    if (!addOnsPkg) return null
+    return remainingToAdd(addOnsPkg)
   }
   function groupTotal(g: FmExtraItemsGroup) { return Object.values(selAddOns[g.reference] ?? {}).reduce((s, q) => s + q, 0) }
   function isGroupValid(g: FmExtraItemsGroup) { const t = groupTotal(g); return t >= g.minSelectedItems && t <= g.maxSelectedItems }
@@ -1221,7 +1265,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginTop: 1 }}>
                     <button onClick={() => incrementLine(item.lineId, -1)} style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 14, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
                     <span style={{ fontSize: 13, fontWeight: 700, color: DARK, minWidth: 18, textAlign: 'center' }}>{item.quantity}</span>
-                    <button onClick={() => incrementLine(item.lineId, +1)} style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 14, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                    {(() => {
+                      const cap = item.pkg.maxInventoryPerDay
+                      const rem = cap != null ? remainingByRef[item.pkg.reference] : null
+                      // rem == null (uncapped, or not yet loaded) → never block.
+                      const atMax = rem != null && cartQty(item.pkg.reference) >= rem
+                      return (
+                        <button onClick={() => { if (!atMax) incrementLine(item.lineId, +1) }} disabled={atMax}
+                          style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: atMax ? '#f0f0f0' : '#fff', cursor: atMax ? 'default' : 'pointer', fontSize: 14, color: atMax ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                      )
+                    })()}
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: DARK, minWidth: 52, textAlign: 'right', marginTop: 1 }}>{formatPrice(item.unitPrice * item.quantity)}</div>
                 </div>
@@ -1614,6 +1667,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     const imgUrl = pkg.image?.reference ? pkgImg(pkg.image.reference, 300) : null
                     const inventory = pkg.inventoryBalanceCountperTime
                     const hasModifiers = (pkg.extraItemsGroups?.length ?? 0) > 0
+                    // Live daily cap (Max Inventory Per Day) — remainingCap is null when
+                    // uncapped OR when the live read hasn't resolved yet (never blocks in
+                    // that case). soldOutToday only once a real 0 is confirmed.
+                    const remainingCap = pkg.maxInventoryPerDay != null ? remainingByRef[pkg.reference] : undefined
+                    const soldOutToday = remainingCap === 0
                     return (
                       <div key={pkg.reference} className="pkg-card" onClick={() => handleAddClick(pkg)} style={{
                         background: '#fff', borderRadius: 12,
@@ -1621,7 +1679,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                         display: 'flex', flexDirection: 'row', padding: 12, gap: 12,
                         boxShadow: qty > 0 ? '0 4px 20px rgba(91,111,232,0.12)' : '0 1px 4px rgba(0,0,0,0.04)',
                         transition: 'box-shadow 0.15s, border-color 0.15s',
-                        cursor: 'pointer',
+                        cursor: soldOutToday ? 'default' : 'pointer',
+                        opacity: soldOutToday ? 0.55 : 1,
                       }}>
                         {/* LEFT: text */}
                         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
@@ -1635,6 +1694,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                             <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{packagePriceLabel(pkg)}</span>
                             {pkg.serves && <><span style={{ color: '#ddd', fontSize: 14 }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {pkg.serves}</span></>}
                           </div>
+                          {remainingCap != null && remainingCap > 0 && (
+                            <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, marginTop: 3 }}>Only {remainingCap} left for this date</div>
+                          )}
+                          {soldOutToday && (
+                            <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 700, marginTop: 3 }}>Sold out for this date</div>
+                          )}
                           {qty > 0 && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6 }}>
                               <div style={{ width: 18, height: 18, borderRadius: '50%', background: BLUE, color: '#fff', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qty}</div>
@@ -2007,7 +2072,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>Quantity</span>
                 <button onClick={() => setAddOnsQty(q => Math.max(1, q - 1))} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 16, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
                 <span style={{ fontSize: 15, fontWeight: 700, color: DARK, minWidth: 24, textAlign: 'center' }}>{addOnsQty}</span>
-                <button onClick={() => setAddOnsQty(q => q + 1)} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 16, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                {(() => {
+                  const maxQty = maxAddOnsQty()
+                  const atMax = maxQty != null && addOnsQty >= maxQty
+                  return (
+                    <button onClick={() => { if (!atMax) setAddOnsQty(q => q + 1) }} disabled={atMax}
+                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMax ? '#f0f0f0' : '#fff', cursor: atMax ? 'default' : 'pointer', fontSize: 16, color: atMax ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                  )
+                })()}
+                {maxAddOnsQty() != null && (
+                  <span style={{ fontSize: 12, color: '#EF4444', fontWeight: 600 }}>{maxAddOnsQty()} left for this date</span>
+                )}
               </div>
             </div>
             <div style={{ padding: '14px 22px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>

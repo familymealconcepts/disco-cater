@@ -378,7 +378,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
     const items = (await sql`
       SELECT reference, category_reference, name, description, price, serves,
              display_price, min_quantity, allow_special_instructions,
-             vegetarian, contains_nuts, gluten_free, vegan
+             vegetarian, contains_nuts, gluten_free, vegan, max_inventory_per_day
       FROM disco_menu_items
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
       ORDER BY position, id
@@ -386,6 +386,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       reference: string; category_reference: string | null; name: string; description: string | null
       price: string | number; serves: string | null; display_price: string | null; min_quantity: number | null
       allow_special_instructions: boolean; vegetarian: boolean; contains_nuts: boolean; gluten_free: boolean; vegan: boolean
+      max_inventory_per_day: number | null
     }[]
 
     // Attached modifier groups per item (Stage 4 consumption). Shaped into the
@@ -440,6 +441,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       allowedSpecialInstructions: it.allow_special_instructions === true,
       vegetarian: it.vegetarian === true, containsNuts: it.contains_nuts === true,
       glutenFree: it.gluten_free === true, vegan: it.vegan === true,
+      maxInventoryPerDay: it.max_inventory_per_day ?? null,
       extraItemsGroups: groupsByItem.get(it.reference) ?? [],
     })
     const categories = cats.map(c => ({
