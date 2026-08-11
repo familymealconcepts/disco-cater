@@ -209,7 +209,7 @@ export default function RestaurantLoginPage() {
                   autoComplete="current-password"
                 />
                 <div style={{ textAlign: 'right', marginTop: 8 }}>
-                  <Link href="/reset-password" style={{ fontSize: 12, color: INDIGO, fontWeight: 600, textDecoration: 'none' }}>
+                  <Link href="/restaurant/forgot-password" style={{ fontSize: 12, color: INDIGO, fontWeight: 600, textDecoration: 'none' }}>
                     Forgot password?
                   </Link>
                 </div>

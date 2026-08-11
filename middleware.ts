@@ -12,8 +12,14 @@ function decodeTokenRole(token: string): string | null {
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
+  // Public, unauthenticated restaurant-portal pages — a logged-out user must be
+  // able to reach these by definition (invite/reset links are emailed to
+  // someone who, by construction, has no session yet). Without this exemption
+  // every such link silently redirects to /restaurant/login before the page's
+  // own token-validation logic ever runs — no error, just a dead end.
+  const PUBLIC_RESTAURANT_PATHS = ['/restaurant/login', '/restaurant/accept-invite', '/restaurant/forgot-password']
   // Restaurant portal — accepts a Disco-native session OR a legacy FM token.
-  if (pathname.startsWith('/restaurant/') && pathname !== '/restaurant/login') {
+  if (pathname.startsWith('/restaurant/') && !PUBLIC_RESTAURANT_PATHS.includes(pathname)) {
     // Disco-native session is an opaque UUID, not a JWT, so presence is enough
     // at the edge (next/headers + Neon aren't available here). Full validation
     // happens in /api/disco-restaurant-auth/me.
