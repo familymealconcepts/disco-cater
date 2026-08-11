@@ -35,6 +35,11 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [urlDirty, setUrlDirty] = useState(false)
+  // The restaurant's OWN public-page slug (disco_restaurant_cache.slug) — needed
+  // to show the real, complete live URL below rather than just the bare menu
+  // slug. There is no separate per-menu route today; the live link this menu
+  // actually lives under is the restaurant's own /order/[slug] page.
+  const [restaurantSlug, setRestaurantSlug] = useState('')
   const [imageUrl, setImageUrl] = useState('')
   const [uploading, setUploading] = useState(false)
   const [visible, setVisible] = useState(true)
@@ -97,6 +102,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         if (!d) { setError('Menu not found.'); return }
         setName(d.name || '')
         setUrl(d.url || ''); setUrlDirty(true)
+        setRestaurantSlug(d.restaurant_slug || '')
         setImageUrl(d.image_url || '')
         setVisible(d.visible !== false)
         setAvailabilityMode(d.availability_mode === 'CUSTOM' ? 'CUSTOM' : 'ALWAYS')
@@ -155,6 +161,21 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
     if (availabilityMode === 'CUSTOM' && (!startDate || !endDate)) { setError('Custom availability needs a start and end date.'); return }
     const activeDays = DAYS.filter(d => enabledDays[d.key]).map(d => d.key)
     if (activeDays.length === 0) { setError('Select at least one pickup day.'); return }
+
+    // A window that's zero-width (or under one 30-min slot) silently produces
+    // ZERO bookable times for that day — no error at save time, just an empty
+    // time picker (or worse) for the customer later. Catch it here instead.
+    // Real, confirmed case: a menu saved with 6:30 PM–6:30 PM ("SAME_DAY" mode
+    // uses sameWindow, not perDay) looked fine in the form but broke checkout.
+    const toMin = (hhmm: string) => { const [h, m] = (hhmm || '0:0').split(':').map(Number); return h * 60 + m }
+    for (const day of activeDays) {
+      const win = scheduleType === 'CUSTOM' ? (perDay[day] || { from: sameFrom, to: sameTo }) : { from: sameFrom, to: sameTo }
+      if (toMin(win.to) - toMin(win.from) < 30) {
+        const label = DAYS.find(d => d.key === day)?.label || day
+        setError(`${label} pickup window (${win.from}–${win.to}) is too short — it needs to be at least 30 minutes, or no one will be able to book that day.`)
+        return
+      }
+    }
 
     const scheduleConfig = {
       scheduleType,
@@ -226,10 +247,23 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
           <div style={{ marginBottom: 16 }}>
             <label style={label}>Menu URL</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: '#999' }}>/order/…/</span>
+              <span style={{ fontSize: 13, color: '#888', whiteSpace: 'nowrap' }}>
+                https://www.discocater.com/order/{restaurantSlug || '…'}/
+              </span>
               <input type="text" value={effectiveSlug}
                 onChange={e => { setUrl(slugify(e.target.value)); setUrlDirty(true) }}
                 placeholder="auto-generated from name" style={{ ...inputStyle, width: 240 }} />
+              {/* External link — matches order-settings' Public Page URL pattern.
+                  There's no separate per-menu route yet, so this opens the
+                  restaurant's real live order page this menu appears on. */}
+              {restaurantSlug && (
+                <a
+                  href={`https://www.discocater.com/order/${restaurantSlug}`}
+                  target="_blank" rel="noreferrer"
+                  title="Open live page in new tab"
+                  style={{ color: BLUE, fontSize: 16, lineHeight: 1, padding: '8px 10px', textDecoration: 'none', border: '1px solid #e8e8e8', borderRadius: 8 }}
+                >↗</a>
+              )}
             </div>
             <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Lowercase letters, numbers and hyphens only. Must be unique for your restaurant.</div>
           </div>

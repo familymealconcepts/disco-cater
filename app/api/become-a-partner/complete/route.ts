@@ -47,20 +47,49 @@ async function flagFmCreationFailure(email: string, restaurantName: string, deta
 
 // Server-side geocode (address → lat/lng) via the Google Geocoding API. Returns
 // null on any failure so onboarding never blocks on geocoding.
-async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
-  const key = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY
-  if (!key || !address) return null
+// Keyless fallback (OpenStreetMap Nominatim — same geocoder fullmap's own
+// "search a location" box already uses). Google's geocode call below can
+// fail on a misconfigured/unauthorized API key (confirmed: this silently left
+// several real native signups with lat/lng = null, invisible on the fullmap
+// feed — /api/restaurants drops any row without coordinates). This fallback
+// means a signup still gets real coordinates even while that key issue is
+// unresolved, rather than every affected restaurant needing a manual fix.
+async function geocodeViaNominatim(address: string): Promise<{ lat: number; lng: number } | null> {
   try {
-    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`)
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=us`,
+      { headers: { 'Accept-Language': 'en', 'User-Agent': 'DiscoCater/1.0 (concierge@discocater.com)' } },
+    )
     const data = await res.json().catch(() => null)
-    const loc = data?.results?.[0]?.geometry?.location
-    if (loc && Number.isFinite(Number(loc.lat)) && Number.isFinite(Number(loc.lng))) {
-      return { lat: Number(loc.lat), lng: Number(loc.lng) }
+    const hit = Array.isArray(data) ? data[0] : null
+    if (hit && Number.isFinite(Number(hit.lat)) && Number.isFinite(Number(hit.lon))) {
+      return { lat: Number(hit.lat), lng: Number(hit.lon) }
     }
   } catch (err) {
-    console.error('[complete] geocode failed:', err instanceof Error ? err.message : err)
+    console.error('[complete] Nominatim geocode fallback failed:', err instanceof Error ? err.message : err)
   }
   return null
+}
+
+async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
+  if (!address) return null
+  const key = process.env.GOOGLE_PLACES_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY
+  if (key) {
+    try {
+      const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`)
+      const data = await res.json().catch(() => null)
+      const loc = data?.results?.[0]?.geometry?.location
+      if (loc && Number.isFinite(Number(loc.lat)) && Number.isFinite(Number(loc.lng))) {
+        return { lat: Number(loc.lat), lng: Number(loc.lng) }
+      }
+      if (data?.status && data.status !== 'OK') {
+        console.error('[complete] Google geocode non-OK status (falling back to Nominatim):', data.status, data.error_message)
+      }
+    } catch (err) {
+      console.error('[complete] Google geocode threw (falling back to Nominatim):', err instanceof Error ? err.message : err)
+    }
+  }
+  return geocodeViaNominatim(address)
 }
 
 // Finalizes onboarding: this is the ONLY place a full account is provisioned.

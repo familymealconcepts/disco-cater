@@ -50,7 +50,7 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
            c.image_url, c.icon_url, c.lat, c.lng, o.is_premium
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-    WHERE c.slug = ${slug}
+    WHERE LOWER(c.slug) = LOWER(${slug})
     LIMIT 1
   `, runMigrations).catch(() => [])) as {
     restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null
@@ -101,7 +101,8 @@ const resolveFmRef = cache(async (slug: string): Promise<string | null> => {
     })
     if (!res.ok) return null
     const list: { reference: string; businessNameWithoutSpaces: string }[] = await res.json()
-    return list.find(r => r.businessNameWithoutSpaces === slug)?.reference ?? null
+    const target = slug.toLowerCase()
+    return list.find(r => r.businessNameWithoutSpaces?.toLowerCase() === target)?.reference ?? null
   } catch {
     return null
   }
@@ -114,7 +115,10 @@ const resolveFmRef = cache(async (slug: string): Promise<string | null> => {
 // address — use fetchFmRestaurantByRef for that). null if FM 404s the slug.
 const fetchFmRestaurantBySlug = cache(async (slug: string): Promise<FmRestaurantLookup | null> => {
   try {
-    const res = await fetch(`${FM}/public-api/restaurants/business/${encodeURIComponent(slug)}`, {
+    // FM's own businessNameWithoutSpaces values are stored lowercase (see
+    // resolveFmRef) — normalize here too so a URL typed/shared with different
+    // capitalization (e.g. "AlmostHome" vs "almosthome") still resolves.
+    const res = await fetch(`${FM}/public-api/restaurants/business/${encodeURIComponent(slug.toLowerCase())}`, {
       headers: { Accept: 'application/json' },
       next: { revalidate: 3600 },
     })
@@ -254,10 +258,15 @@ export async function buildRestaurantMetadata(
   opts: { basePath: '/restaurants' | '/order'; noindex?: boolean },
 ): Promise<Metadata> {
   const r = await getCachedRestaurant(slug)
+  // Canonical URLs are always lowercase regardless of how the visitor typed
+  // or shared this one — slug lookups are case-insensitive (see
+  // getCachedRestaurant etc.), but SEO canonicalization should still pick
+  // ONE casing consistently rather than mirroring whatever the request used.
+  const canonicalSlug = slug.toLowerCase()
   // 1P (/order) canonicalizes to the marketplace page so duplicate content
   // doesn't split SEO; the 3P (/restaurants) page is self-canonical.
-  const canonical = opts.noindex ? `${SITE}/restaurants/${slug}` : `${SITE}${opts.basePath}/${slug}`
-  const url = `${SITE}${opts.basePath}/${slug}`
+  const canonical = opts.noindex ? `${SITE}/restaurants/${canonicalSlug}` : `${SITE}${opts.basePath}/${canonicalSlug}`
+  const url = `${SITE}${opts.basePath}/${canonicalSlug}`
   const robots = opts.noindex ? { index: false, follow: true } : undefined
 
   // Fall back to a minimal but useful set if Neon has no cache row yet (e.g.
@@ -352,7 +361,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
              o.announcement, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-      WHERE c.slug = ${slug} AND c.is_disco_native = true AND c.is_live = true
+      WHERE LOWER(c.slug) = LOWER(${slug}) AND c.is_disco_native = true AND c.is_live = true
       LIMIT 1
     `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; announcement: string | null; delivery_order_time_windows: string }[]
     const r = rows[0]
@@ -520,7 +529,7 @@ export async function RestaurantView({
     // unrelated restaurant that happens to share this slug (e.g. a
     // become-a-partner shadow FM record), instead of a clear "not available".
     const notLiveNative = (await withDiscoTables(() => sql`
-      SELECT 1 FROM disco_restaurant_cache WHERE slug = ${slug} AND is_disco_native = true LIMIT 1
+      SELECT 1 FROM disco_restaurant_cache WHERE LOWER(slug) = LOWER(${slug}) AND is_disco_native = true LIMIT 1
     `, runMigrations).catch(() => [])) as unknown[]
     if (notLiveNative.length > 0) return notFound()
   }

@@ -31,17 +31,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   await runDiscoMenuMigrations()
   if (!(await ownedRef(ref))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const rows = (await sql`
-    SELECT reference, restaurant_reference, name, url, type, description, image_url,
-           visible, archived, position, availability_mode,
-           to_char(start_date,'YYYY-MM-DD') AS start_date, to_char(end_date,'YYYY-MM-DD') AS end_date,
-           schedule_config,
-           offers_pickup, offers_delivery, service_charge_pct, service_charge_name,
-           tip_default_type, tip_default_value, pickup_order_minimum, delivery_order_minimum,
-           max_orders_per_day, lead_time_hours, rolling_availability_days,
-           to_char(daily_cutoff_time,'HH24:MI') AS daily_cutoff_time,
-           to_char(hard_cutoff_date,'YYYY-MM-DD') AS hard_cutoff_date,
-           delivery_settings, skipped_days, include_utensils, created_at, updated_at
-    FROM disco_menus WHERE reference = ${ref}::uuid LIMIT 1
+    SELECT m.reference, m.restaurant_reference, m.name, m.url, m.type, m.description, m.image_url,
+           m.visible, m.archived, m.position, m.availability_mode,
+           to_char(m.start_date,'YYYY-MM-DD') AS start_date, to_char(m.end_date,'YYYY-MM-DD') AS end_date,
+           m.schedule_config,
+           m.offers_pickup, m.offers_delivery, m.service_charge_pct, m.service_charge_name,
+           m.tip_default_type, m.tip_default_value, m.pickup_order_minimum, m.delivery_order_minimum,
+           m.max_orders_per_day, m.lead_time_hours, m.rolling_availability_days,
+           to_char(m.daily_cutoff_time,'HH24:MI') AS daily_cutoff_time,
+           to_char(m.hard_cutoff_date,'YYYY-MM-DD') AS hard_cutoff_date,
+           m.delivery_settings, m.skipped_days, m.include_utensils, m.created_at, m.updated_at,
+           c.slug AS restaurant_slug
+    FROM disco_menus m
+    LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = m.restaurant_reference::text
+    WHERE m.reference = ${ref}::uuid LIMIT 1
   `) as Record<string, unknown>[]
   return NextResponse.json({ menu: rows[0] || null })
 }
