@@ -17,6 +17,21 @@ export async function GET() {
   const endpoints = await stripe.webhookEndpoints.list({ limit: 30 })
   const keyMode = key.startsWith('sk_live_') ? 'live' : key.startsWith('sk_test_') ? 'test' : 'unknown'
 
+  const almostHomeAcct = 'acct_1U2yeD3XIxT2pODU'
+  const acct = await stripe.accounts.retrieve(almostHomeAcct).catch(e => ({ error: e instanceof Error ? e.message : String(e) }))
+
+  const eventsPlatform: unknown[] = []
+  let startingAfter: string | undefined
+  for (let i = 0; i < 5; i++) {
+    const page = await stripe.events.list({ limit: 100, starting_after: startingAfter })
+    eventsPlatform.push(...page.data)
+    if (!page.has_more) break
+    startingAfter = page.data[page.data.length - 1].id
+  }
+  const forAccount = (eventsPlatform as Stripe.Event[]).filter(e => e.account === almostHomeAcct)
+
+  const eventsFromAccountPerspective = await stripe.events.list({ limit: 100 }, { stripeAccount: almostHomeAcct }).catch(e => ({ error: e instanceof Error ? e.message : String(e), data: [] }))
+
   return NextResponse.json({
     keyMode,
     keyPrefix: key.slice(0, 12),
@@ -28,5 +43,9 @@ export async function GET() {
       status: ep.status,
       enabled_events: ep.enabled_events,
     })),
+    almostHomeAccount: acct,
+    checkedPlatformEvents: eventsPlatform.length,
+    platformEventsForAlmostHome: forAccount.map(e => ({ id: e.id, type: e.type, created: new Date(e.created * 1000).toISOString() })),
+    accountPerspectiveEvents: 'data' in eventsFromAccountPerspective ? eventsFromAccountPerspective.data.map(e => ({ id: e.id, type: e.type, created: new Date(e.created * 1000).toISOString() })) : eventsFromAccountPerspective,
   })
 }
