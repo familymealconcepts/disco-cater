@@ -247,6 +247,23 @@ export function buildAvailableTimes(
   return out
 }
 
+/** Whether an exact date+time is genuinely bookable under this schedule — every
+ *  rule this module enforces (lead time, daily/hard cutoff, day-of-week window,
+ *  Custom [startDate, endDate] range, skipped/blackout days, rolling horizon) in
+ *  one call. This is the single source of truth: the customer-facing picker
+ *  calls buildAvailableDates/buildAvailableTimes for UX (what to show/greys
+ *  out), and order placement calls THIS to re-check the exact submitted
+ *  date+time server-side — so a request that bypasses the picker entirely
+ *  can't slip through a rule the UI never actually removed, it just hid it. */
+export function isDateTimeBookable(s: FmScheduleLike, dateStr: string, timeStr: string, now = new Date()): boolean {
+  if (!dateStr || !timeStr) return false
+  const dateEntry = buildAvailableDates(s, now).find(d => d.date === dateStr)
+  if (!dateEntry || dateEntry.disabled) return false
+  const hhmm = timeStr.slice(0, 5)
+  const timeEntry = buildAvailableTimes(s, dateStr, now).find(t => t.time.slice(0, 5) === hhmm)
+  return !!timeEntry && !timeEntry.disabled
+}
+
 // ── Self-tests (Part D) ──────────────────────────────────────────────────────
 // Run: npx ts-node --skip-project -e "require('./lib/scheduling/cutoffs').runSelfTests()"
 
@@ -332,6 +349,13 @@ export function runSelfTests(): void {
     throw new Error('FAIL 10 custom-range in-range date produced no times')
   }
   pass++
+
+  // 11. isDateTimeBookable — the composite check order placement re-validates
+  // against server-side. Must agree with buildAvailableDates/Times exactly.
+  isFalse('11 out-of-range rejected', isDateTimeBookable(customRangeSchedule, '2026-08-14', '18:30', farPast))
+  isTrue('11 in-range accepted', isDateTimeBookable(customRangeSchedule, '2026-08-21', '18:30', farPast))
+  isFalse('11 wrong time on valid date rejected', isDateTimeBookable(customRangeSchedule, '2026-08-21', '19:00', farPast))
+  isFalse('11 missing time rejected', isDateTimeBookable(customRangeSchedule, '2026-08-21', '', farPast))
 
   console.log(`cutoffs.ts self-tests: ${pass} assertions passed`)
 }

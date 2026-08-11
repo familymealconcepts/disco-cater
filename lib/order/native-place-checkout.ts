@@ -1,7 +1,7 @@
 import type Stripe from 'stripe'
 import {
   fmItemsToNativeCart, cartSubtotal, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
-  loadRestaurantServiceChargePct, placeAndPayNativeOrder, placeNativeInvoiceOrder,
+  isNativeDateTimeValid, loadRestaurantServiceChargePct, placeAndPayNativeOrder, placeNativeInvoiceOrder,
   type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
 } from './native-checkout'
 import { validateNativeDelivery } from './native-delivery'
@@ -65,6 +65,14 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   if (await isNativeDailyCapReached(ref, orderDate)) {
     return { ok: false, status: 409, error: 'This restaurant has reached its maximum number of orders for the selected date. Please choose a different date.' }
   }
+  // Re-validate the requested date+time against the SAME scheduling rules the
+  // checkout UI enforces (lead time, day-of-week window, Custom date-range
+  // availability, skipped days) — the picker only hides invalid options, it
+  // doesn't stop a direct API call from requesting one.
+  const orderTime = String(cd.orderTime ?? '')
+  if (!(await isNativeDateTimeValid(ref, orderDate, orderTime))) {
+    return { ok: false, status: 400, error: 'The selected date/time is no longer available for this menu. Please choose a different date or time.' }
+  }
 
   // 1P vs 3P attribution — the SAME signal the client sends the FM path
   // (CheckoutDrawer sets 'FAMILYMEAL' for the /order/{slug} 1P Direct link, 'DISCO'
@@ -127,7 +135,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     discountPct: promo?.pct ?? 0,
     scPct: await loadRestaurantServiceChargePct(ref),
     orderDate,
-    orderTime: String(cd.orderTime ?? ''),
+    orderTime,
     deliveryAddress: params.deliveryAddress as NativePlaceInput['deliveryAddress'],
     note: params.note ?? null,
     deliveryInstructions: params.deliveryInstructions ?? null,

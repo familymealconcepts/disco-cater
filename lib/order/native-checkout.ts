@@ -7,8 +7,10 @@ import type Stripe from 'stripe'
 import { sql, withDiscoTables } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
-import { computeThirdPartyDelivery, type DeliverySettings } from '../menu-settings'
+import { computeThirdPartyDelivery, menuRowToScheduleExtras, type DeliverySettings, type MenuSettingsRow } from '../menu-settings'
 import { cents } from '../promo-pricing'
+import { buildNativeScheduleOption, type NativeScheduleConfig } from '../scheduling/native-schedule'
+import { isDateTimeBookable } from '../scheduling/cutoffs'
 
 export interface NativeCartItem {
   reference?: string; name: string; price: number; quantity: number
@@ -161,6 +163,45 @@ export async function isNativeDailyCapReached(restaurantReference: string, order
       AND order_status IN ('RESERVED','DUE','UNPAID','PAID','COMPLETED','PARTIAL_REFUND','REOPEN')
   `.catch(() => [{ n: 0 }])) as { n: number }[]
   return (countRows[0]?.n ?? 0) >= cap
+}
+
+// Server-side re-validation of the SAME scheduling rules the checkout UI
+// already enforces client-side (lib/scheduling/cutoffs.ts) — lead time, daily/
+// hard cutoff, day-of-week pickup window, Custom [startDate, endDate]
+// availability, and per-menu skipped days. Built from the restaurant's primary
+// (lowest-position, visible) menu, exactly like the customer render path
+// (app/(customer)/restaurants/[slug]/shared.tsx) builds its scheduleOption —
+// same source data, same cutoffs.ts logic — so client and server can never
+// disagree about what's bookable. This is the backstop for a request that
+// bypasses the picker entirely (a direct API call): the UI hides invalid
+// dates/times, this actually blocks them. Restaurant-wide closed days are
+// checked separately by isNativeDateClosed; a missing menu row (nothing to
+// validate against) passes, matching the client's ungated default.
+export async function isNativeDateTimeValid(restaurantReference: string, orderDate: string, orderTime: string): Promise<boolean> {
+  if (!orderDate || !orderTime) return false
+  const rows = (await sql`
+    SELECT schedule_config, availability_mode,
+           to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date,
+           lead_time_hours, rolling_availability_days, max_orders_per_day,
+           to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
+           to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
+           skipped_days
+    FROM disco_menus
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+    ORDER BY position, id LIMIT 1
+  `.catch(() => [])) as (MenuSettingsRow & {
+    schedule_config: NativeScheduleConfig | null; availability_mode: string | null
+    start_date: string | null; end_date: string | null
+    skipped_days: { fromDate: string; toDate: string }[] | null
+  })[]
+  const primary = rows[0]
+  if (!primary) return true
+  const scheduleOption = {
+    ...buildNativeScheduleOption(primary.schedule_config, primary.availability_mode, primary.start_date, primary.end_date),
+    ...menuRowToScheduleExtras(primary),
+    ...(Array.isArray(primary.skipped_days) && primary.skipped_days.length ? { skippedDays: primary.skipped_days } : {}),
+  }
+  return isDateTimeBookable(scheduleOption, orderDate, orderTime)
 }
 
 export function cartSubtotal(items: NativeCartItem[]): number {
