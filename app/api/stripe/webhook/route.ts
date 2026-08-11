@@ -45,6 +45,46 @@ async function recordEvent(
   `
 }
 
+// Fires the "Stripe Connected" Slack ping the moment a restaurant's connected
+// account FIRST transitions to fully connected (charges_enabled + payouts_enabled
+// + details_submitted all true) — for every restaurant going forward, native-first
+// or FM-converted alike, not just Almost Home. Reuses FM's own documented
+// stripe-connected-path webhook (same channel FM used to notify on this exact
+// event), confirmed still live.
+//
+// Duplicate guard: the UPDATE ... WHERE stripe_connected_notified_at IS NULL ...
+// RETURNING is the actual guard, not just a courtesy check — Stripe re-sends
+// account.updated on every subsequent capability ping (and can redeliver the same
+// event), so this must be atomic. Only the row transitioning NULL -> NOW() in
+// THIS call proceeds to notify; every later call (same account, already
+// connected) matches zero rows and no-ops.
+export async function notifyStripeConnectedIfNewlyFullyConnected(account: Stripe.Account): Promise<void> {
+  const fullyConnected = account.charges_enabled === true && account.payouts_enabled === true && account.details_submitted === true
+  if (!fullyConnected) return
+
+  const claimed = (await sql`
+    UPDATE disco_restaurant_accounts
+    SET stripe_connected_notified_at = NOW()
+    WHERE stripe_account_id = ${account.id} AND stripe_connected_notified_at IS NULL
+    RETURNING restaurant_reference, restaurant_name, business_name, email
+  `) as { restaurant_reference: string | null; restaurant_name: string | null; business_name: string | null; email: string | null }[]
+  if (claimed.length === 0) return // no matching account row, or already notified
+
+  const url = process.env.SLACK_STRIPE_CONNECTED_WEBHOOK_URL
+  if (!url) {
+    console.warn('[Webhook] Stripe fully connected but SLACK_STRIPE_CONNECTED_WEBHOOK_URL is not configured — notification skipped:', account.id)
+    return
+  }
+  const r = claimed[0]
+  const name = r.restaurant_name || r.business_name || r.email || account.id
+  const text = `💳 *Stripe Connected* — ${name} has completed Stripe onboarding and can now accept payments. (${account.id})`
+  try {
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
+  } catch (err) {
+    console.error('[Webhook] Stripe-connected Slack notification failed:', err instanceof Error ? err.message : err)
+  }
+}
+
 export async function POST(request: NextRequest) {
   // Signature verification REQUIRES the raw request body. Do NOT use
   // request.json() — parsing/re-serializing changes the bytes and the signature
@@ -486,7 +526,7 @@ export async function POST(request: NextRequest) {
         break
       }
 
-      // ── account.updated (Connect) — monitoring only ──
+      // ── account.updated (Connect) ──
       case 'account.updated': {
         const account = event.data.object as Stripe.Account
         console.log(
@@ -505,6 +545,7 @@ export async function POST(request: NextRequest) {
           },
           'STRIPE_WEBHOOK',
         )
+        await notifyStripeConnectedIfNewlyFullyConnected(account)
         break
       }
 

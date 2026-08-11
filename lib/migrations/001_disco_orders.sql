@@ -307,6 +307,12 @@ UPDATE disco_restaurant_accounts SET sms_phone = phone WHERE sms_phone IS NULL A
 -- the Stripe Connect Express account (acct_xxx) we create natively.
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS stripe_account_id TEXT;
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS stripe_onboarding_complete BOOLEAN DEFAULT false;
+-- Guard against duplicate "Stripe Connected" Slack notifications: set the FIRST
+-- time this account is observed transitioning to fully-connected
+-- (charges_enabled + payouts_enabled + details_submitted all true) via the
+-- account.updated webhook. Every later account.updated for the same account
+-- (Stripe re-sends these often) sees this already set and skips re-notifying.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS stripe_connected_notified_at TIMESTAMPTZ;
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS is_disco_native BOOLEAN DEFAULT true;
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS onboarding_step INTEGER DEFAULT 0;
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS address TEXT;

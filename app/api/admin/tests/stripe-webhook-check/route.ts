@@ -1,111 +1,48 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { getAdminRole } from '../../../../../lib/admin-auth'
+import { sql } from '../../../../../lib/db'
+import { notifyStripeConnectedIfNewlyFullyConnected } from '../../../stripe/webhook/route'
 
 export const runtime = 'nodejs'
 
-// TEMPORARY — makes a small, safe metadata update to Almost Home's connected
-// account (triggers a real account.updated event) so delivery can be verified
-// end-to-end. Delete after verification.
+const TEST_ACCOUNT_ID = 'acct_test_stripe_connected_verification'
+
+// TEMPORARY — end-to-end test of notifyStripeConnectedIfNewlyFullyConnected
+// using a fake, clearly-labeled test restaurant row (never a real Stripe
+// account) so the real Almost Home data isn't touched again. Inserts the test
+// row, calls the real notify function TWICE (first should Slack + set the
+// guard, second should no-op), then reports both outcomes plus the guard
+// column's final state. Delete this whole route after verification.
 export async function POST() {
   const role = await getAdminRole()
   if (role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
-  const key = process.env.STRIPE_SECRET_KEY || ''
-  const stripe = new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
-  const almostHomeAcct = 'acct_1U2yeD3XIxT2pODU'
+  await sql`
+    INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, restaurant_name, stripe_account_id, stripe_onboarding_complete, is_disco_native)
+    VALUES ('test-stripe-connected-verification@discocater.com', 'x', gen_random_uuid()::text, 'TEST — Stripe Connected Verification (delete me)', ${TEST_ACCOUNT_ID}, true, true)
+    ON CONFLICT (email) DO UPDATE SET stripe_connected_notified_at = NULL, stripe_account_id = ${TEST_ACCOUNT_ID}
+  `
 
-  const updated = await stripe.accounts.update(almostHomeAcct, {
-    metadata: { source: 'disco-become-a-partner', webhook_test_ping: String(Date.now()) },
-  })
+  const fakeAccount = { id: TEST_ACCOUNT_ID, charges_enabled: true, payouts_enabled: true, details_submitted: true } as Stripe.Account
 
-  // Confirm Stripe actually generated the event (account-scoped, Express-account
-  // events aren't visible via the platform-level events.list()).
-  await new Promise(r => setTimeout(r, 2000))
-  const events = await stripe.events.list({ limit: 5, type: 'account.updated' }, { stripeAccount: almostHomeAcct })
+  await notifyStripeConnectedIfNewlyFullyConnected(fakeAccount)
+  const afterFirst = (await sql`SELECT stripe_connected_notified_at FROM disco_restaurant_accounts WHERE stripe_account_id = ${TEST_ACCOUNT_ID}`) as { stripe_connected_notified_at: string | null }[]
+
+  await notifyStripeConnectedIfNewlyFullyConnected(fakeAccount)
+  const afterSecond = (await sql`SELECT stripe_connected_notified_at FROM disco_restaurant_accounts WHERE stripe_account_id = ${TEST_ACCOUNT_ID}`) as { stripe_connected_notified_at: string | null }[]
 
   return NextResponse.json({
-    ok: true,
-    accountId: updated.id,
-    metadata: updated.metadata,
-    mostRecentAccountUpdatedEvents: events.data.map(e => ({ id: e.id, created: new Date(e.created * 1000).toISOString(), pending_webhooks: e.pending_webhooks, request: e.request })),
+    firstCallSetGuardAt: afterFirst[0]?.stripe_connected_notified_at ?? null,
+    secondCallGuardUnchanged: afterFirst[0]?.stripe_connected_notified_at === afterSecond[0]?.stripe_connected_notified_at,
+    note: 'Check the stripe-connected Slack channel for exactly ONE message from this test — not two.',
   })
 }
 
-// TEMPORARY — creates a NEW, Connect-scoped webhook endpoint (connect: true).
-// Our existing endpoint has application: null (platform-account-only), which is
-// why account.updated (a connected-account event) never gets pending_webhooks > 0
-// despite being listed in enabled_events — Connect-scoping can only be set at
-// creation, not via update(). Returns the new signing secret ONCE (Stripe never
-// shows it again) so it can be set as STRIPE_ACCOUNT_WEBHOOK_SECRET in Vercel.
-export async function PUT() {
+// Cleanup — removes the fake test row.
+export async function DELETE() {
   const role = await getAdminRole()
   if (role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-
-  const key = process.env.STRIPE_SECRET_KEY || ''
-  const stripe = new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
-
-  const endpoint = await stripe.webhookEndpoints.create({
-    url: 'https://www.discocater.com/api/stripe/webhook',
-    enabled_events: ['account.updated'],
-    connect: true,
-    description: 'Disco-native connected-account events (account.updated) — created to fix the missing Connect-scoping gap.',
-  })
-
-  return NextResponse.json({
-    ok: true,
-    id: endpoint.id,
-    url: endpoint.url,
-    application: endpoint.application,
-    enabled_events: endpoint.enabled_events,
-    secret: endpoint.secret,
-  })
-}
-
-// TEMPORARY — reads the real production STRIPE_SECRET_KEY (only available inside
-// Vercel's runtime, not locally) to list webhook endpoints and their subscribed
-// event types. Delete after verification.
-export async function GET() {
-  const role = await getAdminRole()
-  if (role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-
-  const key = process.env.STRIPE_SECRET_KEY || ''
-  const stripe = new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1])
-
-  const endpoints = await stripe.webhookEndpoints.list({ limit: 30 })
-  const keyMode = key.startsWith('sk_live_') ? 'live' : key.startsWith('sk_test_') ? 'test' : 'unknown'
-
-  const almostHomeAcct = 'acct_1U2yeD3XIxT2pODU'
-  const acct = await stripe.accounts.retrieve(almostHomeAcct).catch(e => ({ error: e instanceof Error ? e.message : String(e) }))
-
-  const eventsPlatform: unknown[] = []
-  let startingAfter: string | undefined
-  for (let i = 0; i < 5; i++) {
-    const page = await stripe.events.list({ limit: 100, starting_after: startingAfter })
-    eventsPlatform.push(...page.data)
-    if (!page.has_more) break
-    startingAfter = page.data[page.data.length - 1].id
-  }
-  const forAccount = (eventsPlatform as Stripe.Event[]).filter(e => e.account === almostHomeAcct)
-
-  const eventsFromAccountPerspective = await stripe.events.list({ limit: 100 }, { stripeAccount: almostHomeAcct }).catch(e => ({ error: e instanceof Error ? e.message : String(e), data: [] }))
-
-  return NextResponse.json({
-    keyMode,
-    keyPrefix: key.slice(0, 12),
-    count: endpoints.data.length,
-    hasMore: endpoints.has_more,
-    endpoints: endpoints.data.map(ep => ({
-      id: ep.id,
-      url: ep.url,
-      status: ep.status,
-      application: ep.application,
-      api_version: ep.api_version,
-      enabled_events: ep.enabled_events,
-    })),
-    almostHomeAccount: acct,
-    checkedPlatformEvents: eventsPlatform.length,
-    platformEventsForAlmostHome: forAccount.map(e => ({ id: e.id, type: e.type, created: new Date(e.created * 1000).toISOString() })),
-    accountPerspectiveEvents: 'data' in eventsFromAccountPerspective ? eventsFromAccountPerspective.data.map(e => ({ id: e.id, type: e.type, created: new Date(e.created * 1000).toISOString() })) : eventsFromAccountPerspective,
-  })
+  await sql`DELETE FROM disco_restaurant_accounts WHERE stripe_account_id = ${TEST_ACCOUNT_ID}`
+  return NextResponse.json({ ok: true })
 }
