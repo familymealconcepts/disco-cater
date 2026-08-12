@@ -1,6 +1,7 @@
 import type Stripe from 'stripe'
 import { sql } from './db'
 import { computeBreakdown, deriveLeadGenPct, r2, cents, type PricingConfig, type PricingOrder } from './promo-pricing'
+import { reserveNativeRestaurantPromoUse, finalizeNativeRestaurantPromoUse, releaseNativeRestaurantPromoUse } from './promo-native'
 
 // Applies a restaurant-funded promo discount PRE-CHARGE (Path B): recompute FM's
 // discounted total + restaurant transfer and adjust the FM-created PaymentIntent's
@@ -31,22 +32,30 @@ interface TaxRatesMirror {
 }
 
 // Look up + basic-validate the restaurant-funded code (authoritative discount %).
-async function resolveCode(code: string, restaurantRef: string): Promise<{ id: number; pct: number } | null> {
+// This is a PREVIEW-strength check only (same as native's resolveNativeRestaurantPromo)
+// — the authoritative gate against a double-submit or a concurrent second order is
+// the atomic reservation below, which re-checks both caps right before the charge.
+async function resolveCode(code: string, restaurantRef: string, userEmail: string): Promise<{ id: number; pct: number; maxUses: number | null; maxUsesPerUser: number } | null> {
   const rows = (await sql`
-    SELECT id, discount_value, valid_from, valid_until, active, max_uses, uses_count
+    SELECT id, discount_value, valid_from, valid_until, active, max_uses, uses_count, max_uses_per_user
     FROM promo_codes
     WHERE UPPER(code) = UPPER(${code}) AND funded_by = 'RESTAURANT' AND restaurant_ref = ${restaurantRef}
     ORDER BY id DESC LIMIT 1
-  `) as { id: number; discount_value: string | number; valid_from: string | null; valid_until: string | null; active: boolean; max_uses: number | null; uses_count: number }[]
+  `) as { id: number; discount_value: string | number; valid_from: string | null; valid_until: string | null; active: boolean; max_uses: number | null; uses_count: number; max_uses_per_user: number }[]
   const p = rows[0]
   if (!p || !p.active) return null
   const now = Date.now()
   if (p.valid_from && new Date(p.valid_from).getTime() > now) return null
   if (p.valid_until && new Date(p.valid_until).getTime() < now) return null
   if (p.max_uses != null && p.uses_count >= p.max_uses) return null
+  const userKey = (userEmail || '').trim().toLowerCase()
+  if (userKey) {
+    const used = (await sql`SELECT COUNT(*)::int AS c FROM promo_code_uses WHERE promo_code_id = ${p.id} AND LOWER(user_email) = ${userKey}`.catch(() => [{ c: 0 }])) as { c: number }[]
+    if ((used[0]?.c ?? 0) >= p.max_uses_per_user) return null
+  }
   const pct = num(p.discount_value)
   if (!(pct >= 1 && pct <= 100)) return null
-  return { id: p.id, pct }
+  return { id: p.id, pct, maxUses: p.max_uses, maxUsesPerUser: p.max_uses_per_user }
 }
 
 export async function applyRestaurantFundedDiscount(args: {
@@ -63,7 +72,7 @@ export async function applyRestaurantFundedDiscount(args: {
   const { stripe, paymentIntentId, restaurantRef, code, serviceChargePct, orderType, fmCheckout, orderRef, userEmail } = args
   if (!paymentIntentId) return { applied: false, reason: 'no payment intent' }
 
-  const resolved = await resolveCode(code, restaurantRef)
+  const resolved = await resolveCode(code, restaurantRef, userEmail)
   if (!resolved) return { applied: false, reason: 'code invalid/expired/inactive' }
 
   // Tax rates + money-flow from the Neon mirror (the only source at checkout time).
@@ -164,26 +173,43 @@ export async function applyRestaurantFundedDiscount(args: {
   if (newAmount <= 0 || newAmount >= piAmount) return { applied: false, reason: 'discount produced no reduction' }
   if (newTransfer != null && (newTransfer <= 0 || newTransfer >= piTransfer!)) return { applied: false, reason: 'transfer reduction invalid' }
 
-  await stripe.paymentIntents.update(paymentIntentId, {
-    amount: newAmount,
-    ...(newTransfer != null ? { transfer_data: { amount: newTransfer } } : {}),
+  // Reserve the cap slot ATOMICALLY before touching the real charge — same
+  // guarantee as native's reserveNativeRestaurantPromoUse (lib/promo-native.ts,
+  // reused directly: it's a generic promo_codes/promo_code_uses primitive with
+  // no native-specific fields, not a unification of the two pricing paths).
+  // The FM order + PaymentIntent already exist at full price by the time this
+  // runs (FM created them when placing the order) — reserving first means a
+  // lost race refuses the PROMO before ever touching the PI, instead of
+  // applying the discount and only discovering afterward that a concurrent
+  // request already exhausted the cap.
+  const reservation = await reserveNativeRestaurantPromoUse({
+    promoId: resolved.id, userEmail, maxUses: resolved.maxUses, maxUsesPerUser: resolved.maxUsesPerUser, restaurantRef,
   })
-
-  // Record the use + increment the counter (usage-limit enforcement), idempotent
-  // per order so a retry can't double-count. No refund/reversal bookkeeping — the
-  // discount is fully settled in the charge itself.
-  try {
-    const existing = (await sql`SELECT 1 FROM promo_code_uses WHERE promo_code_id = ${resolved.id} AND order_ref = ${orderRef} LIMIT 1`) as unknown[]
-    if (!existing.length) {
-      await sql`
-        INSERT INTO promo_code_uses (promo_code_id, user_email, order_ref, discount_applied, refund_status, funded_by, restaurant_ref, stripe_payment_intent_id)
-        VALUES (${resolved.id}, ${userEmail || ''}, ${orderRef}, ${disc.discount}, 'not_applicable', 'RESTAURANT', ${restaurantRef}, ${paymentIntentId})
-      `
-      await sql`UPDATE promo_codes SET uses_count = uses_count + 1 WHERE id = ${resolved.id}`
+  if (!reservation.ok) {
+    return {
+      applied: false,
+      reason: reservation.reason === 'max_uses' ? 'promo code has reached its usage limit' : 'diner has already used this promo code the maximum number of times',
     }
-  } catch (e) {
-    console.error('[promo-apply] use recording failed (charge already discounted):', e instanceof Error ? e.message : e)
   }
+
+  try {
+    await stripe.paymentIntents.update(paymentIntentId, {
+      amount: newAmount,
+      ...(newTransfer != null ? { transfer_data: { amount: newTransfer } } : {}),
+    })
+  } catch (e) {
+    // The reservation held a slot for a charge that never actually changed —
+    // give it back rather than burning it on a failed Stripe call.
+    await releaseNativeRestaurantPromoUse(reservation.reservationId, resolved.id)
+    return { applied: false, reason: `Stripe update failed: ${e instanceof Error ? e.message : String(e)}` }
+  }
+
+  // Attach the real order/PI to the reservation now that the charge is
+  // actually discounted. Best-effort: the charge is already correct even if
+  // this bookkeeping write fails.
+  await finalizeNativeRestaurantPromoUse(reservation.reservationId, {
+    orderRef, discountDollars: disc.discount, paymentIntentId,
+  })
 
   return {
     applied: true,

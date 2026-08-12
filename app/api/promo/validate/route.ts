@@ -103,9 +103,10 @@ export async function POST(req: NextRequest) {
     }
     // Both caps, checked here for an honest preview — the ACTUAL gate against a
     // double-submit or a second concurrent order is reserveNativeRestaurantPromoUse
-    // at placement (lib/promo-native.ts), which re-checks both atomically right
-    // before the charge. This read here can go stale between validate and place;
-    // that's fine, since placement never trusts it.
+    // (lib/promo-native.ts), called atomically right before the charge from BOTH
+    // real placement paths: native (native-place-checkout.ts) and FM-backed
+    // (lib/promo-apply.ts's applyRestaurantFundedDiscount). This read here can go
+    // stale between validate and place; that's fine, placement never trusts it.
     if (promo.max_uses != null && promo.uses_count >= promo.max_uses) {
       return NextResponse.json({ valid: false, message: 'This promo code has reached its usage limit.' })
     }
