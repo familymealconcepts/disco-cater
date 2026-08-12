@@ -1,5 +1,8 @@
 import { NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
+import { fmFetch } from './fm-fetch'
+
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export const RESTAURANT_TOKEN_COOKIE = 'fm_restaurant_token'
 export const RESTAURANT_REFRESH_COOKIE = 'fm_restaurant_refresh'
@@ -64,20 +67,45 @@ export async function getRestaurantRole(): Promise<string | null> {
   return (payload?.role as string) || null
 }
 
-// Decode restaurant reference UUID. For SYSTEM_ADMIN/SUPER_ADMIN, prefers the
-// selected-restaurant cookie set when the user picks a location. For ADMIN,
-// reads the 'restaurant' field from the JWT.
+// FM's own switch-target list for the JWT-identified admin — the FM-session
+// twin of getDiscoGroupAccounts(). Never throws: any failure (network, non-2xx,
+// unexpected shape) resolves to an empty set so the caller falls back to home,
+// same fail-closed contract resolveDiscoScopeRef uses for its own group lookup.
+async function getFmPermittedRefs(token: string): Promise<Set<string>> {
+  try {
+    const res = await fmFetch(`${FM}/api/system-admin/restaurants/list`, {
+      headers: { Authorization: token },
+    }, 5_000)
+    if (!res.ok) return new Set()
+    const list = (await res.json()) as Array<{ reference?: string }>
+    if (!Array.isArray(list)) return new Set()
+    return new Set(list.map(r => r.reference).filter((r): r is string => typeof r === 'string' && !!r))
+  } catch {
+    return new Set()
+  }
+}
+
+// Decode restaurant reference UUID. For SYSTEM_ADMIN/SUPER_ADMIN, honors the
+// selected-restaurant cookie ONLY if it names a restaurant FM's own
+// system-admin/restaurants/list confirms this admin may manage — otherwise
+// falls back to the 'restaurant' field on the JWT (home). This is the FM-session
+// twin of resolveDiscoScopeRef (lib/restaurant-auth-context.ts) and MUST match
+// its semantics exactly: never widen access, any doubt resolves to home. Plain
+// ADMIN never trusts the cookie, same as before.
 export async function getRestaurantRef(): Promise<string | null> {
   const store = await cookies()
   const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
   if (!token) return null
   const payload = decodeJwt(token)
   const role = (payload?.role as string) || ''
-  if (role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN') {
-    const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value
-    if (selected) return selected
-  }
-  return (payload?.restaurant as string) || null
+  const home = (payload?.restaurant as string) || null
+  if (role !== 'SYSTEM_ADMIN' && role !== 'SUPER_ADMIN') return home
+
+  const selected = store.get(SELECTED_RESTAURANT_COOKIE)?.value
+  if (!selected || selected === home) return home
+
+  const permitted = await getFmPermittedRefs(token)
+  return permitted.has(selected) ? selected : home
 }
 
 // For Middleware (Edge runtime — next/headers not available)
