@@ -56,33 +56,52 @@ interface DiscoProfile {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// name + autoComplete are REQUIRED, not optional — this is the fix for the bug
+// where an unlabeled type="tel" field sitting next to an email field let a
+// browser drop a saved email into the phone field (confirmed 2026-08-12: the
+// database itself was clean, this was purely a client-side autofill
+// misclassification). Making them required means a future field added to this
+// page can't silently omit them the way the old optional opts did.
 function inp(
   value: string,
   onChange: (v: string) => void,
-  opts?: { placeholder?: string; disabled?: boolean; type?: string; maxLength?: number }
+  opts: {
+    name: string
+    autoComplete: string
+    placeholder?: string
+    disabled?: boolean
+    type?: string
+    maxLength?: number
+  }
 ): React.ReactElement {
   return (
     <input
-      type={opts?.type || 'text'}
+      id={opts.name}
+      name={opts.name}
+      autoComplete={opts.autoComplete}
+      type={opts.type || 'text'}
       value={value}
       onChange={e => onChange(e.target.value)}
-      placeholder={opts?.placeholder}
-      disabled={opts?.disabled}
-      maxLength={opts?.maxLength}
+      placeholder={opts.placeholder}
+      disabled={opts.disabled}
+      maxLength={opts.maxLength}
       style={{
         width: '100%', border: '1.5px solid #e0e0e0', borderRadius: 8,
         padding: '9px 12px', fontSize: 13, fontFamily: F, outline: 'none',
-        background: opts?.disabled ? '#f5f5f5' : '#fff',
-        color: opts?.disabled ? '#999' : DARK,
+        background: opts.disabled ? '#f5f5f5' : '#fff',
+        color: opts.disabled ? '#999' : DARK,
       }}
     />
   )
 }
 
-function FormField({ label, children }: { label: string; children: React.ReactNode }) {
+// htmlFor links the label to the input by id (matching inp()'s id={opts.name})
+// — another signal browsers use to classify a field, reinforcing name/
+// autoComplete rather than replacing them.
+function FormField({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 16 }}>
-      <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>
+      <label htmlFor={htmlFor} style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>
         {label}
       </label>
       {children}
@@ -495,42 +514,47 @@ export default function ProfilePage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(440px, 1fr))', gap: 20, alignItems: 'start' }}>
         {/* Card 1: Personal Info */}
         <Card title="Profile" onSave={saveProfile} saving={profileSaving} success={profileSuccess} error={profileError}>
-          <FormField label="First Name">
-            {inp(admin.firstName, v => setAdmin({ ...admin, firstName: v }))}
+          <FormField label="First Name" htmlFor="admin-first-name">
+            {inp(admin.firstName, v => setAdmin({ ...admin, firstName: v }), { name: 'admin-first-name', autoComplete: 'given-name' })}
           </FormField>
-          <FormField label="Last Name">
-            {inp(admin.lastName, v => setAdmin({ ...admin, lastName: v }))}
+          <FormField label="Last Name" htmlFor="admin-last-name">
+            {inp(admin.lastName, v => setAdmin({ ...admin, lastName: v }), { name: 'admin-last-name', autoComplete: 'family-name' })}
           </FormField>
-          <FormField label="Email">
-            {inp(admin.email, () => {}, { disabled: true, type: 'email' })}
+          <FormField label="Email" htmlFor="admin-email">
+            {inp(admin.email, () => {}, { disabled: true, type: 'email', name: 'admin-email', autoComplete: 'email' })}
             <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>To change your email, contact concierge@discocater.com</div>
           </FormField>
-          <FormField label="Phone Number">
-            {inp(admin.phoneNumber, v => setAdmin({ ...admin, phoneNumber: v }), { type: 'tel' })}
+          <FormField label="Phone Number" htmlFor="admin-phone-number">
+            {inp(admin.phoneNumber, v => setAdmin({ ...admin, phoneNumber: v }), { type: 'tel', name: 'admin-phone-number', autoComplete: 'tel' })}
           </FormField>
         </Card>
 
         {/* Card 2: Change Password */}
         <Card title="Change Password" onSave={savePassword} saving={pwSaving} success={pwSuccess} error={pwError}>
-          <FormField label="Current Password">
-            {inp(password, setPassword, { type: 'password' })}
+          <FormField label="Current Password" htmlFor="current-password">
+            {inp(password, setPassword, { type: 'password', name: 'current-password', autoComplete: 'current-password' })}
           </FormField>
-          <FormField label="New Password">
-            {inp(newPassword, setNewPassword, { type: 'password' })}
+          <FormField label="New Password" htmlFor="new-password">
+            {inp(newPassword, setNewPassword, { type: 'password', name: 'new-password', autoComplete: 'new-password' })}
           </FormField>
         </Card>
 
         {/* Card 3: Restaurant Info (Disco-native; pre-populated from onboarding,
             saved to Neon — not synced to FM) */}
         <Card title="Restaurant Info" onSave={saveDiscoProfile} saving={discoSaving} success={discoSuccess} error={discoError}>
-          <FormField label="Restaurant Name">
-            {inp(discoProfile.restaurantName, v => setDiscoProfile({ ...discoProfile, restaurantName: v }))}
+          <FormField label="Restaurant Name" htmlFor="restaurant-name">
+            {inp(discoProfile.restaurantName, v => setDiscoProfile({ ...discoProfile, restaurantName: v }), { name: 'restaurant-name', autoComplete: 'organization' })}
           </FormField>
-          <FormField label="Phone Number">
-            {inp(discoProfile.phone, v => setDiscoProfile({ ...discoProfile, phone: v }), { type: 'tel' })}
+          <FormField label="Phone Number" htmlFor="restaurant-phone-number">
+            {inp(discoProfile.phone, v => setDiscoProfile({ ...discoProfile, phone: v }), { type: 'tel', name: 'restaurant-phone-number', autoComplete: 'tel' })}
           </FormField>
-          <FormField label="Address">
-            {inp(discoProfile.address, v => setDiscoProfile({ ...discoProfile, address: v }), { placeholder: 'Street, City, State ZIP' })}
+          {/* Single free-text line (street + city/state/zip combined, per the
+              placeholder below) — 'street-address' is the spec token for a
+              combined single-field address, distinct from the split
+              address-line1/address-line2/address-level2 tokens; there's no
+              other address field on this form for it to conflict with. */}
+          <FormField label="Address" htmlFor="restaurant-address">
+            {inp(discoProfile.address, v => setDiscoProfile({ ...discoProfile, address: v }), { placeholder: 'Street, City, State ZIP', name: 'restaurant-address', autoComplete: 'street-address' })}
           </FormField>
         </Card>
 

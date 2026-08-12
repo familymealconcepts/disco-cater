@@ -1172,19 +1172,26 @@ export default function CheckoutDrawer({
           <div style={{ marginBottom: 18 }}>
             <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Contact</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <input value={contactFirst} onChange={e => setContactFirst(e.target.value)} placeholder="First name" aria-label="First name"
+              <input name="checkout-first-name" autoComplete="given-name" value={contactFirst} onChange={e => setContactFirst(e.target.value)} placeholder="First name" aria-label="First name"
                 style={{ height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
-              <input value={contactLast} onChange={e => setContactLast(e.target.value)} placeholder="Last name" aria-label="Last name"
+              <input name="checkout-last-name" autoComplete="family-name" value={contactLast} onChange={e => setContactLast(e.target.value)} placeholder="Last name" aria-label="Last name"
                 style={{ height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
             </div>
-            <input value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email" type="email" inputMode="email" aria-label="Email"
+            <input name="checkout-email" autoComplete="email" value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="Email" type="email" inputMode="email" aria-label="Email"
               style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', marginBottom: 10, boxSizing: 'border-box' }} />
             {/* contactPhone holds digits only; the field shows them formatted and
-                auto-strips any non-digit the user types/pastes. FM gets digits. */}
-            <input value={formatPhoneDisplay(contactPhone)} onChange={e => setContactPhone(sanitizePhone(e.target.value))} placeholder="Phone" type="tel" inputMode="tel" aria-label="Phone" maxLength={16}
+                auto-strips any non-digit the user types/pastes. FM gets digits.
+                name+autoComplete="tel" (previously absent, like every other field
+                here) is what actually gates browser autofill to a real phone
+                number — an unlabeled type="tel" next to an email field is exactly
+                what let a browser drop a saved email into a phone value in the
+                restaurant portal's near-identical Account > Profile form; on a
+                real diner order that same misclassification would silently
+                corrupt the number delivery/SMS depends on. */}
+            <input name="checkout-phone" autoComplete="tel" value={formatPhoneDisplay(contactPhone)} onChange={e => setContactPhone(sanitizePhone(e.target.value))} placeholder="Phone" type="tel" inputMode="tel" aria-label="Phone" maxLength={16}
               style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }} />
             {/* Optional company name — subtle, below phone. Disco-only. */}
-            <input value={contactCompany} onChange={e => setContactCompany(e.target.value)} placeholder="Company name (optional)" aria-label="Company name"
+            <input name="checkout-company-name" autoComplete="organization" value={contactCompany} onChange={e => setContactCompany(e.target.value)} placeholder="Company name (optional)" aria-label="Company name"
               style={{ width: '100%', height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box', marginTop: 10 }} />
           </div>
 
