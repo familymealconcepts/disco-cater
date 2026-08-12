@@ -92,10 +92,12 @@ interface Props {
   // Close the drawer and reopen the order-setup modal so the diner can
   // re-validate a different delivery address. Falls back to onClose.
   onChangeAddress?: () => void
-  // Notifies the parent when a Disco promo is applied/cleared so the
-  // restaurant-page order summary can show the discount (display only). FM
-  // coupons are not surfaced — they're priced by FM, not a Disco credit.
-  onPromoChange?: (promo: { code: string; discountAmount: number } | null) => void
+  // Notifies the parent when a Disco/restaurant promo is applied/cleared so the
+  // restaurant-page order summary can price its own preview + tip base correctly
+  // (fundedBy: 'restaurant' actually reduces the subtotal pre-charge; 'disco'
+  // charges full price and credits back, so the summary's preview must NOT send
+  // it to the server). FM coupons are not surfaced — they're priced by FM.
+  onPromoChange?: (promo: { code: string; discountAmount: number; fundedBy: 'disco' | 'restaurant' } | null) => void
   onClose: () => void
 }
 
@@ -192,7 +194,7 @@ export default function CheckoutDrawer({
   useEffect(() => {
     if (!onPromoChange) return
     onPromoChange(appliedPromo?.type === 'disco' || appliedPromo?.type === 'restaurant'
-      ? { code: appliedPromo.code, discountAmount: appliedPromo.discountAmount }
+      ? { code: appliedPromo.code, discountAmount: appliedPromo.discountAmount, fundedBy: appliedPromo.type }
       : null)
   }, [appliedPromo, onPromoChange])
   const [error, setError] = useState('')
@@ -412,13 +414,19 @@ export default function CheckoutDrawer({
   const fmTotalEffective = fm?.total != null
     ? (taxExemptApplied ? Math.max(0, Math.round((fm.total - (fm.tax ?? 0)) * 100) / 100) : fm.total)
     : null
-  // Best-known order total for analytics — mirrors PaymentStep's payTotal
-  // (FM's canonical total, else the client estimate). Kept in a ref so the
-  // Stripe focus handler reads the freshest value.
+  // The order total — single formula, used for BOTH the Review & Pay display/
+  // Place Order button (PaymentStep's payTotal below just reads this) and
+  // analytics. fmTotalEffective (the server-priced total, already discounted —
+  // priceNativeCart resolves the promo before pricing, so this is correct for
+  // 'fm' AND 'restaurant' promos, not just 'fm') is preferred; the fallback
+  // (before the first preview response lands) also subtracts the promo's own
+  // dollar amount so the estimate doesn't visibly jump once the real preview
+  // arrives. Kept in a ref so the Stripe focus handler reads the freshest value.
+  const pendingPromoDiscount = (appliedPromo?.type === 'restaurant' || appliedPromo?.type === 'disco') ? appliedPromo.discountAmount : 0
   const trackingTotal = fmTotalEffective ?? (
     subtotal + (displayTips || 0) + (displaySvc || 0)
       + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0)
-      - (fm?.discount ?? 0)
+      - (fm?.discount ?? 0) - pendingPromoDiscount
   )
   totalRef.current = trackingTotal
 
@@ -457,13 +465,21 @@ export default function CheckoutDrawer({
   // The full ICheckoutPreview DTO that FM's init, re-price (PUT), and place all
   // take. Built from one place so the priced order and the placed order can't
   // drift apart.
-  function buildCheckoutDto(opts?: { couponCode?: string | null }) {
+  function buildCheckoutDto(opts?: { couponCode?: string | null; restaurantPromoCode?: string | null }) {
     // FM coupon code: explicit override (used by apply/clear to validate before
     // committing state), else the currently-applied FM promo. Disco promos are
     // NEVER sent to FM (display-only).
     const couponCode = opts && 'couponCode' in opts
       ? opts.couponCode
       : (appliedPromo?.type === 'fm' ? appliedPromo.code : null)
+    // Restaurant-funded promo: same explicit-override pattern as couponCode, so
+    // apply/clear can re-price before appliedPromo's state update has landed.
+    // This is what the server-side preview (priceNativeCart, via /api/order/
+    // init|update) needs to price tax/fee/delivery/total off the DISCOUNTED
+    // subtotal — without it the preview has zero knowledge the promo exists.
+    const restaurantPromoCode = opts && 'restaurantPromoCode' in opts
+      ? opts.restaurantPromoCode
+      : (appliedPromo?.type === 'restaurant' ? appliedPromo.code : null)
     const base = buildCheckoutPayload({
       restaurantRef: fmRef,
       cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
@@ -485,6 +501,7 @@ export default function CheckoutDrawer({
       // is still passed so the Neon mirror can persist it on disco_orders.
       ...(taxExemptApplied && taxExemptId ? { taxExemptId } : {}),
       ...(couponCode ? { couponCode } : {}),
+      ...(restaurantPromoCode ? { restaurantPromoCode } : {}),
     }
   }
 
@@ -631,8 +648,22 @@ export default function CheckoutDrawer({
       const d = await res.json().catch(() => ({}))
       if (res.ok && d.valid) {
         const type = d.fundedBy === 'RESTAURANT' ? 'restaurant' : 'disco'
-        setAppliedPromo({ type, code: d.code || code, discountAmount: d.discountAmount })
+        const promoCode = d.code || code
+        setAppliedPromo({ type, code: promoCode, discountAmount: d.discountAmount })
         setPromoError('')
+        // Restaurant-funded: re-price the draft NOW with an explicit override (the
+        // appliedPromo state update above hasn't landed yet, so buildCheckoutDto's
+        // default read of it would still see null) — this is what makes tax/fee/
+        // delivery/total in the preview reflect the discount immediately, not just
+        // at placement.
+        if (type === 'restaurant') {
+          const ref = orderRefRef.current
+          if (ref) {
+            const dto = { ...buildCheckoutDto({ restaurantPromoCode: promoCode }), restaurantRef: fmRef, orderRef: ref }
+            fetch('/api/order/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dto) })
+              .then(r => r.json()).then(rd => { if (rd && !rd.error) setFmTotals(rd) }).catch(() => {})
+          }
+        }
       } else {
         setAppliedPromo(null)
         setPromoError(d.message || 'Invalid promo code.')
@@ -644,15 +675,23 @@ export default function CheckoutDrawer({
     }
   }
 
-  // Clear the applied promo. For an FM coupon, re-price the draft WITHOUT the
-  // couponCode so the displayed total reverts.
+  // Clear the applied promo. For an FM coupon or a restaurant-funded promo,
+  // re-price the draft with the code explicitly nulled out so every derived
+  // amount (tax/fee/delivery/total) reverts to the undiscounted figure.
   function clearPromo() {
     const wasFm = appliedPromo?.type === 'fm'
+    const wasRestaurant = appliedPromo?.type === 'restaurant'
     setAppliedPromo(null); setPromoError(''); setPromoInput('')
-    if (wasFm) {
+    if (wasFm || wasRestaurant) {
       const ref = orderRefRef.current
       if (ref) {
-        const dto = { ...buildCheckoutDto({ couponCode: null }), restaurantRef: fmRef, orderRef: ref }
+        const dto = {
+          ...buildCheckoutDto({
+            ...(wasFm ? { couponCode: null } : {}),
+            ...(wasRestaurant ? { restaurantPromoCode: null } : {}),
+          }),
+          restaurantRef: fmRef, orderRef: ref,
+        }
         fetch('/api/order/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dto) })
           .then(r => r.json()).then(d => { if (d && !d.error) setFmTotals(d) }).catch(() => {})
       }
@@ -1008,16 +1047,16 @@ export default function CheckoutDrawer({
     // nested under data.* so the direct lookup missed it and silently fell
     // through to subtotal+tip+svc, dropping tax/fees from the displayed total.
     const fmSubtotal = fm?.subtotal ?? subtotal
-    // fmTotalEffective already removes FM's tax when tax-exempt (see above), so
-    // the customer is charged the exemption-adjusted total.
-    const payTotal = fmTotalEffective ?? (
-      subtotal + (displayTips || 0) + (displaySvc || 0)
-        + (taxesAndFees ?? 0) + (displayDeliveryFee ?? 0)
-        - (fm?.discount ?? 0)
-    )
+    // Single source of truth — see trackingTotal's definition above. Never
+    // re-derive a second copy of this formula here; that duplication (subtracting
+    // only fm?.discount, which is 0 for a 'restaurant'-type promo) is exactly what
+    // let the Total/Place Order button show the undiscounted amount before this
+    // fix, while the "Promo applied" pill showed the correct discount alongside it.
+    const payTotal = trackingTotal
     // Disco promo charges the full FM total, then credits it back via Stripe
     // after placement — so the displayed total is always the full payTotal, with
-    // a note about the pending credit. (FM coupons are already in payTotal.)
+    // a note about the pending credit. (FM coupons and restaurant-funded promos
+    // are already reflected in payTotal via the server-priced fm.total.)
     return (
       <>
         <div style={{ padding: '20px 24px', borderBottom: '1px solid #f0f0f0' }}>
@@ -1181,7 +1220,7 @@ export default function CheckoutDrawer({
             )}
             {fm && fm.discount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#1D9E75', marginBottom: 5 }}>
-                <span>Discount{appliedPromo?.type === 'fm' ? ` (${appliedPromo.code})` : ''}</span><span>−{fmt$(fm.discount)}</span>
+                <span>Discount{(appliedPromo?.type === 'fm' || appliedPromo?.type === 'restaurant') ? ` (${appliedPromo.code})` : ''}</span><span>−{fmt$(fm.discount)}</span>
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1.5px solid #ebebeb', paddingTop: 10, marginTop: 6, fontSize: 17, fontWeight: 800, color: DARK }}>
@@ -1192,14 +1231,6 @@ export default function CheckoutDrawer({
             {appliedPromo?.type === 'disco' && (
               <div style={{ fontSize: 11, color: '#999', marginTop: 6, lineHeight: 1.45 }}>
                 Promo code {appliedPromo.code} will apply a {fmt$(appliedPromo.discountAmount)} credit to your card after your order is placed
-              </div>
-            )}
-            {/* Restaurant-funded promo discounts the order pre-charge — the total
-                above is the pre-discount estimate; your discounted total is applied
-                at payment. */}
-            {appliedPromo?.type === 'restaurant' && (
-              <div style={{ fontSize: 11, color: '#999', marginTop: 6, lineHeight: 1.45 }}>
-                Promo code {appliedPromo.code} applies your discount at checkout — you’ll be charged the discounted total.
               </div>
             )}
             {!fmTotals && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>Estimate — final total confirmed at payment</div>}

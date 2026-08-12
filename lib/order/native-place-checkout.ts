@@ -1,13 +1,12 @@
 import type Stripe from 'stripe'
 import {
-  fmItemsToNativeCart, cartSubtotal, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
+  fmItemsToNativeCart, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
   isNativeDateTimeValid, loadRestaurantServiceChargePct, placeAndPayNativeOrder, placeNativeInvoiceOrder,
-  type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
+  priceNativeCart, type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
+  type NativeDeliveryAddressInput,
 } from './native-checkout'
-import { validateNativeDelivery } from './native-delivery'
 import { checkItemInventoryAvailability } from './native-inventory'
-import { resolveNativeRestaurantPromo, recordNativeRestaurantPromoUse, type NativePromoResolution } from '../promo-native'
-import type { Fulfillment } from '../pricing/native-order'
+import { recordNativeRestaurantPromoUse, type NativePromoResolution } from '../promo-native'
 
 export type NativeCheckoutOutcome =
   | { ok: true; result: NativePlaceAndPayResult }
@@ -101,24 +100,29 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     return { ok: false, status: 409, error: msg }
   }
 
-  // Fulfillment + delivery fee resolved authoritatively from the menu's delivery
-  // settings + the real distance/subtotal — the client never dictates them.
-  let fulfillment: Fulfillment = 'PICKUP'
-  let deliveryFee = 0
-  let thirdPartyDeliverySubsiding = 0
-  if (orderTypeRaw === 'DELIVERY') {
-    const dv = await validateNativeDelivery(ref, (params.deliveryAddress || {}) as Parameters<typeof validateNativeDelivery>[1], cartSubtotal(items))
-    if (!dv.valid) return { ok: false, status: 400, error: dv.message || 'That delivery address is not serviceable.' }
-    fulfillment = dv.fulfillment
-    deliveryFee = dv.deliveryFee
-    thirdPartyDeliverySubsiding = dv.thirdPartyDeliverySubsiding
-  }
+  const tip = tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips }
 
-  // Restaurant-funded promo (M6): resolve so the discount is baked into the price
-  // (customer total + restaurant transfer both drop). null/invalid → full price.
-  const promo = params.restaurantPromoCode
-    ? await resolveNativeRestaurantPromo(params.restaurantPromoCode, ref)
-    : null
+  // Resolve the promo + fulfillment + delivery fee TOGETHER, off the discounted
+  // subtotal — priceNativeCart is the exact same function the pricing preview
+  // calls (native-checkout.ts), so what the customer saw before placing cannot
+  // drift from what's charged here. Its own breakdown is discarded below (the
+  // authoritative persisted breakdown still comes from placeAndPayNativeOrder's
+  // own priceNativeCheckout call) — this call exists only to resolve promo/
+  // fulfillment/deliveryFee/thirdPartyDeliverySubsiding through the single path.
+  const priced = await priceNativeCart({
+    restaurantReference: ref,
+    customerEmail: params.customerEmail,
+    items,
+    orderType: orderTypeRaw === 'DELIVERY' ? 'DELIVERY' : 'PICKUP',
+    deliveryAddress: params.deliveryAddress as NativeDeliveryAddressInput | undefined,
+    tip,
+    restaurantPromoCode: params.restaurantPromoCode,
+    sourceOfOrder,
+  })
+  if (!priced.deliveryValid) {
+    return { ok: false, status: 400, error: priced.deliveryMessage || 'That delivery address is not serviceable.' }
+  }
+  const promo = priced.promo
 
   const input: NativePlaceInput = {
     restaurantReference: ref,
@@ -127,11 +131,11 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     customerFirstName: params.customerFirstName ?? undefined,
     customerLastName: params.customerLastName ?? undefined,
     customerPhone: params.customerPhone ?? undefined,
-    fulfillment,
+    fulfillment: priced.fulfillment,
     items,
-    tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
-    deliveryFee,
-    thirdPartyDeliverySubsiding,
+    tip,
+    deliveryFee: priced.deliveryFee,
+    thirdPartyDeliverySubsiding: priced.thirdPartyDeliverySubsiding,
     discountPct: promo?.pct ?? 0,
     scPct: await loadRestaurantServiceChargePct(ref),
     orderDate,

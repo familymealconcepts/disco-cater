@@ -155,7 +155,7 @@ function fmtTime(t: string) {
 // CheckoutDrawer's extractFmMoney (kept local to avoid touching the drawer):
 // FM nests the priced totals under data.checkoutPublicResponseDto, and tax is
 // the sum of state+local+other sales tax. Display-only — see previewPricing().
-function extractPreviewMoney(raw: any): { subtotal: number | null; tax: number; fee: number; deliveryFee: number | null; total: number | null } {
+function extractPreviewMoney(raw: any): { subtotal: number | null; tax: number; fee: number; deliveryFee: number | null; total: number | null; discount: number } {
   const d = raw?.data?.checkoutPublicResponseDto ?? raw?.data ?? raw ?? {}
   const num = (v: any) => (typeof v === 'number' ? v : 0)
   const components = num(d.stateSalesTaxInPrice) + num(d.localSalesTaxInPrice) + num(d.otherSalesTaxInPrice)
@@ -166,6 +166,7 @@ function extractPreviewMoney(raw: any): { subtotal: number | null; tax: number; 
     fee: num(d.fee ?? d.serviceFee ?? d.platformFee),
     deliveryFee: d.deliveryFee ?? d.delivery ?? null,
     total: d.total ?? d.totalAmount ?? d.totalCost ?? null,
+    discount: num(d.discount),
   }
 }
 
@@ -270,9 +271,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const [headerImgError, setHeaderImgError] = useState(false)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
-  // Disco promo surfaced back from CheckoutDrawer so the restaurant-page order
-  // summary can show the discount line + discounted total (display-only).
-  const [summaryPromo, setSummaryPromo] = useState<{ code: string; discountAmount: number } | null>(null)
+  // Promo surfaced back from CheckoutDrawer so the restaurant-page order summary
+  // can price its own preview correctly. fundedBy distinguishes 'restaurant'
+  // (actually reduces the subtotal — must be sent to the pricing preview AND
+  // used as the base for tip/service-charge) from 'disco' (charged in full,
+  // credited back after — display-only here, never sent to the preview).
+  const [summaryPromo, setSummaryPromo] = useState<{ code: string; discountAmount: number; fundedBy: 'disco' | 'restaurant' } | null>(null)
 
   // Mode 2 (menu advisor) — pick up intake context handed off from the fullmap
   // discovery flow via sessionStorage, if present.
@@ -773,14 +777,23 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     count: i.quantity,
     addOns: i.addOns,
   })))
+  // Restaurant-funded promos reduce the subtotal pre-charge — every subtotal-
+  // derived amount (tip, service charge, and via the preview below: tax/fee/
+  // delivery) must price off THIS, never off raw `subtotal`. Disco-funded promos
+  // charge in full and credit back after, so they never touch this base. The
+  // discount dollar amount itself comes straight from /api/promo/validate
+  // (the same r2(subtotal × pct/100) formula lib/promo-pricing.ts uses), so this
+  // stays in sync even before the debounced server preview below lands.
+  const discountedSubtotal = Math.max(0, subtotal - (summaryPromo?.fundedBy === 'restaurant' ? summaryPromo.discountAmount : 0))
   // activeTip is already in PERCENTAGE POINTS (presets 10/15/20, custom
-  // (dollars/subtotal)*100, default tipsPrice ?? 15). computeTip divides
+  // (dollars/discountedSubtotal)*100, default tipsPrice ?? 15). computeTip divides
   // by 100 internally, so pass activeTip directly — the prior `* 100`
-  // double-scaled it (15 → 1500 → $15 tip on a $1 subtotal, the 100× bug).
-  const tipAmt = computeTip({ base: subtotal, pct: activeTip })
+  // double-scaled it (15 → 1500 → $15 tip on a $1 subtotal, the 100× bug). The
+  // tip amount itself is never discounted — only its % base is.
+  const tipAmt = computeTip({ base: discountedSubtotal, pct: activeTip })
   const svcPct = settings?.serviceCharge ?? 0
-  const svcAmt = computeServiceCharge(subtotal, svcPct)
-  const clientTotal = computeGrandTotal({ subtotal, serviceCharge: svcAmt, tip: tipAmt })
+  const svcAmt = computeServiceCharge(discountedSubtotal, svcPct)
+  const clientTotal = computeGrandTotal({ subtotal: discountedSubtotal, serviceCharge: svcAmt, tip: tipAmt })
   const belowMin = minOrder > 0 && subtotal < minOrder && cart.length > 0
 
   // ── Pricing preview (taxes & fees before checkout) ─────────────────────────
@@ -850,6 +863,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       // FM TipsType is CUSTOM (fixed $) | PERCENTAGE; a $ tip is CUSTOM, none is PERCENTAGE 0.
       tipsType: tipAmt > 0 ? 'CUSTOM' : 'PERCENTAGE',
       taxExempt: false,
+      // Restaurant-funded promo only — 'disco'-funded charges full price and
+      // credits back after, so the server must never discount it pre-charge.
+      ...(summaryPromo?.fundedBy === 'restaurant' ? { restaurantPromoCode: summaryPromo.code } : {}),
     }
 
     try {
@@ -902,16 +918,23 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     return () => { if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current) }
     // tipAmt is intentionally NOT a dep: tax/fees don't depend on tip, and the
     // displayed Total folds in the live tip client-side (see previewTotal).
+    // summaryPromo?.code IS a dep — applying/clearing a restaurant-funded promo
+    // must re-price tax/fee/delivery off the (now different) discounted base.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartKey, selDate, selTime, orderType, addrValidated, addr.line1, addr.lat, addr.lng])
+  }, [cartKey, selDate, selTime, orderType, addrValidated, addr.line1, addr.lat, addr.lng, summaryPromo?.code, summaryPromo?.fundedBy])
 
   // Derived display values. Taxes & Fees = FM fee + tax (mirrors the drawer's
-  // combined line). Total is built from parts + the LIVE tip so changing the tip
-  // updates it instantly without re-firing init.
+  // combined line, already priced off the discounted subtotal once a
+  // restaurant-funded promo is applied — see previewPricing's DTO above). Total
+  // is built from parts + the LIVE tip so changing the tip updates it instantly
+  // without re-firing init. discountedSubtotal (not pricingPreview.subtotal,
+  // which is always the RAW subtotal — same as the Subtotal display line) is
+  // the base here so Total = Subtotal − Discount + everything else, matching
+  // the itemized list exactly, never a second independent subtraction.
   const previewTaxesFees = pricingPreview ? pricingPreview.fee + pricingPreview.tax : null
   const previewDelivery = pricingPreview ? pricingPreview.deliveryFee : null
   const previewTotal = pricingPreview
-    ? (pricingPreview.subtotal ?? subtotal) + (previewTaxesFees ?? 0)
+    ? discountedSubtotal + (previewTaxesFees ?? 0)
         + (orderType === 'DELIVERY' ? (previewDelivery ?? 0) : 0) + svcAmt + tipAmt
     : null
 
@@ -1294,8 +1317,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 <span style={{ color: '#555' }}>Subtotal</span>
                 <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(pricingPreview?.subtotal ?? subtotal)}</span>
               </div>
-              {/* Disco promo — display only. The FM payload + Stripe charge are
-                  unchanged; the discount is refunded via Stripe after the order. */}
+              {/* Discount — 'restaurant'-funded actually reduces the charge (the
+                  preview above is priced off the discounted subtotal); 'disco'-
+                  funded is charged in full and credited back via Stripe after the
+                  order, so this line is display-only for that type. Either way the
+                  dollar amount itself is real (from /api/promo/validate). */}
               {summaryPromo && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
                   <span style={{ color: '#16A34A' }}>Promo ({summaryPromo.code})</span>
@@ -1386,7 +1412,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                         const val = e.target.value
                         setTipCustomInput(val)
                         const dollars = parseFloat(val) || 0
-                        setTipPct(subtotal > 0 ? (dollars / subtotal) * 100 : 0)
+                        // Round-trips through discountedSubtotal (not raw subtotal) —
+                        // tipAmt below is computeTip({ base: discountedSubtotal, pct }),
+                        // so converting the entered dollar figure with a DIFFERENT base
+                        // would silently rescale a custom tip, which must never be
+                        // discounted (only its % preset base is).
+                        setTipPct(discountedSubtotal > 0 ? (dollars / discountedSubtotal) * 100 : 0)
                       }}
                       placeholder="0.00"
                       style={{ width: '100%', padding: '9px 10px 9px 24px', border: `1.5px solid ${BLUE}`, borderRadius: 8, fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' as const }}
@@ -1401,13 +1432,18 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 )}
               </div>
               {/* Total — shown once FM has priced the order (or while it's loading).
-                  Built from FM's parts + the live tip, so it tracks tip changes. */}
+                  Built from FM's parts + the live tip, so it tracks tip changes.
+                  previewTotal already nets the discount out via discountedSubtotal
+                  (see its definition above) — do NOT subtract summaryPromo.discountAmount
+                  a second time here; that naive subtraction was itself a bug (it left
+                  tax/fee/delivery computed on the undiscounted base while only Total
+                  got a linear haircut, off by the tax+fee "shadow" of the discount). */}
               {(previewLoading || previewTotal != null) && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1.5px solid #ebebeb', paddingTop: 12, marginBottom: 14, fontSize: 15, fontWeight: 800, color: DARK }}>
                   <span>Total</span>
                   {previewLoading
                     ? priceSkeleton
-                    : <span>{formatPrice(Math.max(0, (previewTotal as number) - (summaryPromo?.discountAmount ?? 0)))}</span>}
+                    : <span>{formatPrice(Math.max(0, previewTotal as number))}</span>}
                 </div>
               )}
               {/* Below-min warning */}

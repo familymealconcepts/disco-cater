@@ -8,9 +8,11 @@ import { sql, withDiscoTables } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
 import { computeThirdPartyDelivery, menuRowToScheduleExtras, type DeliverySettings, type MenuSettingsRow } from '../menu-settings'
-import { cents } from '../promo-pricing'
+import { cents, discountedBase } from '../promo-pricing'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../scheduling/native-schedule'
 import { isDateTimeBookable } from '../scheduling/cutoffs'
+import { validateNativeDelivery, type NativeDeliveryAddress } from './native-delivery'
+import { resolveNativeRestaurantPromo, type NativePromoResolution } from '../promo-native'
 
 export interface NativeCartItem {
   reference?: string; name: string; price: number; quantity: number
@@ -208,6 +210,111 @@ export function cartSubtotal(items: NativeCartItem[]): number {
   return round2((items || []).reduce((s, it) => s + (Number(it.price) || 0) * Math.max(1, Math.trunc(Number(it.quantity) || 1)), 0))
 }
 
+export interface PriceNativeCartInput {
+  restaurantReference: string
+  customerEmail: string
+  items: NativeCartItem[]
+  orderType: 'PICKUP' | 'DELIVERY'
+  // Present at real placement (and the /validate-address step) once the diner
+  // has entered a real address; absent during the FIRST pricing preview
+  // (/api/order/init|update), which has never geocoded anything. Own-delivery's
+  // fee is distance-dependent and stays deferred (0) until an address exists —
+  // unchanged from before this fix. Third-party's fee needs no address at all
+  // (courier fee is subtotal-only), so it prices correctly either way.
+  deliveryAddress?: NativeDeliveryAddressInput
+  tip: NativeTip
+  // Restaurant-funded promo code (M6). Resolved HERE — before delivery is
+  // priced — so the 3P 15%/$85-cap and own-delivery tiers see the DISCOUNTED
+  // subtotal, same as tax/fee/lead-gen. This is the fix for the bug where
+  // validateNativeDelivery was called with the raw pre-discount subtotal.
+  restaurantPromoCode?: string | null
+  sourceOfOrder?: 'DISCO' | 'FAMILYMEAL'
+}
+
+export interface PriceNativeCartResult {
+  breakdown: NativePricedOrder & { subtotal: number; discountedSubtotal: number }
+  fulfillment: Fulfillment
+  deliveryFee: number
+  thirdPartyDeliverySubsiding: number
+  promo: NativePromoResolution | null
+  // Delivery serviceability — false only when an address was supplied and it's
+  // out of range / ungeocodable. Always true when deliveryAddress is absent
+  // (preview) or orderType is PICKUP.
+  deliveryValid: boolean
+  deliveryMessage?: string
+}
+
+// THE single function that prices a native cart — resolves the restaurant
+// promo, derives the discounted subtotal ONCE (lib/promo-pricing.ts's
+// discountedBase, the same formula computeBreakdown uses internally), prices
+// delivery off THAT discounted figure, then calls priceNativeOrder with the
+// resolved discountPct. Both the pricing preview (priceNativeFmDto, below) and
+// real placement (lib/order/native-place-checkout.ts's buildNativePlaceInput)
+// call this — there is no second path that can drift from it.
+export async function priceNativeCart(input: PriceNativeCartInput): Promise<PriceNativeCartResult> {
+  const subtotal = cartSubtotal(input.items)
+  const promo = input.restaurantPromoCode
+    ? await resolveNativeRestaurantPromo(input.restaurantPromoCode, input.restaurantReference)
+    : null
+  const discountPct = promo?.pct ?? 0
+  const discountedSubtotal = discountedBase(subtotal, discountPct)
+
+  let fulfillment: Fulfillment = 'PICKUP'
+  let deliveryFee = 0
+  let thirdPartyDeliverySubsiding = 0
+  let deliveryValid = true
+  let deliveryMessage: string | undefined
+
+  if (input.orderType === 'DELIVERY') {
+    if (input.deliveryAddress) {
+      // Real address known — validateNativeDelivery is the single authority for
+      // BOTH own- and third-party fees; feed it the DISCOUNTED subtotal.
+      const dv = await validateNativeDelivery(input.restaurantReference, input.deliveryAddress as NativeDeliveryAddress, discountedSubtotal)
+      fulfillment = dv.fulfillment
+      deliveryFee = dv.deliveryFee
+      thirdPartyDeliverySubsiding = dv.thirdPartyDeliverySubsiding
+      deliveryValid = dv.valid
+      deliveryMessage = dv.message
+    } else {
+      // No address yet (initial preview). Third-party needs none; own-delivery
+      // stays deferred to the address-known call above (same as before this fix).
+      const del = await loadRestaurantDeliverySettings(input.restaurantReference)
+      if (del?.method === 'OWN_DELIVERY') {
+        fulfillment = 'OWN_DELIVERY'
+      } else {
+        fulfillment = 'THIRD_PARTY_DELIVERY'
+        const tp = computeThirdPartyDelivery(discountedSubtotal, del?.thirdPartySubsidyPct ?? 0)
+        deliveryFee = tp.customerFee
+        thirdPartyDeliverySubsiding = tp.subsidy
+      }
+    }
+  }
+
+  const scPct = await loadRestaurantServiceChargePct(input.restaurantReference)
+  const breakdown = await priceNativeOrder({
+    restaurantReference: input.restaurantReference,
+    customerEmail: input.customerEmail,
+    subtotal,
+    fulfillment,
+    deliveryFee,
+    thirdPartyDeliverySubsiding,
+    scPct,
+    tip: input.tip,
+    discountPct,
+    sourceOfOrder: input.sourceOfOrder,
+  })
+
+  return {
+    breakdown: { ...breakdown, subtotal, discountedSubtotal },
+    fulfillment,
+    deliveryFee,
+    thirdPartyDeliverySubsiding,
+    promo,
+    deliveryValid,
+    deliveryMessage,
+  }
+}
+
 // Price a native cart. Returns the full cent-exact breakdown (customer `total`,
 // restaurant `transfer`, and every withheld component). No persistence.
 export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<NativePricedOrder & { subtotal: number }> {
@@ -239,8 +346,8 @@ interface FmDtoAddOn { name?: string; price?: number; count?: number; quantity?:
 interface FmDtoItem { reference?: string; name?: string; price?: number; count?: number; extraItems?: FmDtoAddOn[]; addOns?: FmDtoAddOn[] }
 
 // Map FM-shaped checkout items → native cart items, folding each line's add-on
-// prices into the unit price and count→quantity, so cartSubtotal is consistent
-// with fmDtoSubtotal (the pricing preview) and with FM's line math.
+// prices into the unit price and count→quantity, so cartSubtotal matches FM's
+// own line math.
 export function fmItemsToNativeCart(items: FmDtoItem[] | undefined): NativeCartItem[] {
   return (items || []).map((it, i) => {
     // Accept add-ons as `addOns` (carries names) or the legacy `extraItems`.
@@ -264,70 +371,44 @@ export function fmItemsToNativeCart(items: FmDtoItem[] | undefined): NativeCartI
   })
 }
 
-export function fmDtoSubtotal(items: FmDtoItem[] | undefined): number {
-  return round2((items || []).reduce((sum, it) => {
-    const addOns = Array.isArray(it.extraItems)
-      ? it.extraItems.reduce((a, e) => a + (Number(e.price) || 0) * Math.max(1, Math.trunc(Number(e.count) || 1)), 0)
-      : 0
-    const unit = (Number(it.price) || 0) + addOns
-    const qty = Math.max(1, Math.trunc(Number(it.count) || 1))
-    return sum + unit * qty
-  }, 0))
-}
-
 // Price an FM-shaped checkout DTO for a native restaurant and return the FM
 // response envelope the client already understands. Delivery is third-party (Disco
 // uses Expedite for all delivery); own-delivery + real delivery fees arrive with
 // Stage 6 settings.
 export async function priceNativeFmDto(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const restaurantRef = String(body?.restaurantRef || body?.restaurantReference || '')
-  const orderType = String(body?.orderType || 'PICKUP')
+  const orderType = String(body?.orderType || 'PICKUP') === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
   const tipsType = String(body?.tipsType || 'PERCENTAGE')
   const tips = Number(body?.tips) || 0
-  const subtotal = fmDtoSubtotal(body?.items as FmDtoItem[])
-  const scPct = await loadRestaurantServiceChargePct(restaurantRef)
+  const items = fmItemsToNativeCart(body?.items as FmDtoItem[])
+  const restaurantPromoCode = typeof body?.restaurantPromoCode === 'string' ? body.restaurantPromoCode : null
 
-  // Delivery fee for the PREVIEW must match what place charges. Third-party needs only
-  // the subtotal + subsidy % (fixed platform rule), so include it here; the customer
-  // pays the subsidy-reduced fee. Own-delivery is distance-based → validate-address.
-  let fulfillment: Fulfillment = 'PICKUP'
-  let deliveryFee = 0
-  let thirdPartyDeliverySubsiding = 0
-  if (orderType === 'DELIVERY') {
-    const del = await loadRestaurantDeliverySettings(restaurantRef)
-    if (del?.method === 'OWN_DELIVERY') {
-      fulfillment = 'OWN_DELIVERY' // fee is address-dependent → supplied by validate-address
-    } else {
-      fulfillment = 'THIRD_PARTY_DELIVERY'
-      const tp = computeThirdPartyDelivery(subtotal, del?.thirdPartySubsidyPct ?? 0)
-      deliveryFee = tp.customerFee
-      thirdPartyDeliverySubsiding = tp.subsidy
-    }
-  }
-
-  const b = await priceNativeOrder({
+  // Same priceNativeCart() the real placement path calls (native-place-checkout.ts) —
+  // resolves the promo, prices delivery off the DISCOUNTED subtotal, then prices the
+  // whole order. No address here (the preview has never geocoded anything); own-
+  // delivery's distance-based fee stays deferred to /validate-address, unchanged.
+  const priced = await priceNativeCart({
     restaurantReference: restaurantRef,
     customerEmail: '', // total is lead-gen-independent; place() resolves the real customer
-    subtotal,
-    fulfillment,
-    deliveryFee,
-    thirdPartyDeliverySubsiding,
-    scPct,
+    items,
+    orderType,
     tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
+    restaurantPromoCode,
   })
+  const b = priced.breakdown
   const tipsInPrice = round2(b.tipsInPrice + b.thirdPartyDeliveryTips)
   return {
     native: true,
     data: {
       orderReference: 'native',
       checkoutPublicResponseDto: {
-        subtotal,
+        subtotal: b.subtotal,
         fee: b.familyMealFee,
         serviceCharge: b.serviceCharge,
         stateSalesTaxInPrice: b.stateTax,
         localSalesTaxInPrice: b.localTax,
         otherSalesTaxInPrice: b.otherTax,
-        deliveryFee,
+        deliveryFee: priced.deliveryFee,
         tipsInPrice,
         discount: b.discount,
         total: b.total,

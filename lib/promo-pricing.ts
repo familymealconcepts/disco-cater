@@ -9,23 +9,52 @@
 // 2-decimal components. r2() mirrors that with an epsilon guard against binary
 // float error near .xx5 boundaries.
 //
+// Also the single pricing function for Disco-NATIVE orders (lib/pricing/
+// native-order.ts's priceNativeOrder) — both the FM-adjustment path above and
+// the native path call this same computeBreakdown, so there is exactly one
+// place the discount math lives.
+//
 // FM composition (all bases use the DISCOUNTED subtotal = subtotal − discount):
 //   discount      = round(subtotal × discountPct/100)
-//   serviceCharge = round(base × scPct/100)                       base = subtotal − discount
+//   base          = discountedBase(subtotal, discountPct)         (== subtotal − discount, r2-safe)
+//   serviceCharge = round(base × scPct/100)
 //   taxBase       = base + serviceCharge
 //   stateTax      = round(taxBase × statePct/100 + stateFixed)
 //   localTax      = round(taxBase × localPct/100 + localFixed)
 //   otherTax      = applies ? round(taxBase × otherPct/100 + otherFixed) : 0
 //   familyMealFee = round(base × 3/100)                           (platform keeps it; NOT in transfer)
 //   tips          = custom ? amount : round(base × tipPct/100)    (own tips → tipsInPrice; Nash → thirdPartyDeliveryTips)
+//   ownDeliveryFee / thirdPartyDeliveryFee — NOT computed here (opaque inputs on
+//                   `order`); the CALLER must derive them from discountedBase(subtotal,
+//                   discountPct), same as `base` above — see native-checkout.ts's
+//                   priceNativeCart, the one place that resolves them for both the
+//                   pricing preview and real placement, so this contract can't drift.
 //   total         = round(base + taxes + delivery + familyMealFee + serviceCharge + tips)   ← customer charge
 //   stripeFee     = round(total × 2.9/100 + 0.30)                 (restaurant bears it; subtracted from transfer)
 //   leadGen       = round(base × leadGenPct/100)                  (subtracted from transfer; derived at runtime)
 //   transfer      = round(subtotal + tipsInPrice + taxes + ownDeliveryFee + serviceCharge
 //                          − thirdPartyDeliverySubsiding − discount − stripeFee − leadGen)   ← restaurant payout
+//
+// Rounding: every component above rounds HALF_UP to 2 decimals INDIVIDUALLY via
+// r2() the moment it's computed (never carried as a float and rounded once at
+// the end) — this is what makes `total` (dollars, → the Stripe PaymentIntent's
+// `amount` in cents) exactly reproducible from the SAME breakdown object the UI
+// renders. Tips are the one amount that never touches discountPct's rounding at
+// all — a custom tip is a raw dollar figure, a percentage tip rounds off `base`
+// like everything else, but the discount itself never touches the tip.
 
 export function r2(x: number): number {
   return (x < 0 ? -1 : 1) * Math.floor(Math.abs(x) * 100 + 0.5 + 1e-6) / 100
+}
+
+// The ONE formula for "subtotal after a restaurant-funded discount" — every
+// subtotal-derived amount (tax, 3P/own delivery fee, the 3% platform fee,
+// lead-gen) must price off this exact figure, never off raw subtotal. Used
+// internally by computeBreakdown (base, below) AND by priceNativeCart's
+// delivery-fee resolution (lib/order/native-checkout.ts), so the two can never
+// round to different cents for the same order. discountPct=0 → base === subtotal.
+export function discountedBase(subtotal: number, discountPct: number): number {
+  return r2(subtotal - r2(subtotal * discountPct / 100))
 }
 
 export interface TaxRate { percent: number; fixedAmount: number }
@@ -71,7 +100,7 @@ export interface Breakdown {
 export function computeBreakdown(order: PricingOrder, cfg: PricingConfig, discountPct: number): Breakdown {
   const s = order.subtotal
   const discount = r2(s * discountPct / 100)
-  const base = s - discount
+  const base = discountedBase(s, discountPct)
   const serviceCharge = r2(base * cfg.scPct / 100)
   const taxBase = base + serviceCharge
   const stateTax = r2(taxBase * cfg.stateTax.percent / 100 + cfg.stateTax.fixedAmount)
