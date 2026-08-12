@@ -355,7 +355,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
     // awaiting runMigrations() (57 statements) put that on the cold-render
     // critical path of the hottest customer surface for no benefit.
     const rows = (await withDiscoTables(() => sql`
-      SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description, c.image_url,
+      SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description, c.image_url, c.icon_url,
              COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled,
              COALESCE(o.enable_menu_search, false) AS enable_menu_search,
              o.announcement, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows
@@ -363,7 +363,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE LOWER(c.slug) = LOWER(${slug}) AND c.is_disco_native = true AND c.is_live = true
       LIMIT 1
-    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; announcement: string | null; delivery_order_time_windows: string }[]
+    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; announcement: string | null; delivery_order_time_windows: string }[]
     const r = rows[0]
     if (!r) return null
 
@@ -492,6 +492,10 @@ async function loadDiscoNativeRestaurant(slug: string) {
       restaurant: {
         name: r.name, address: r.address || undefined, cuisine: r.cuisine || undefined,
         description: r.description || undefined, image: r.image_url || null,
+        // Logo (icon_url) — the header thumbnail prefers this over the
+        // Marketplace Image; native restaurants never carried it before, so the
+        // header silently fell straight to image_url regardless of a real logo.
+        iconUrl: r.icon_url || null, imageUrl: r.image_url || null,
         isDisco: true, location: r.location || undefined,
       },
       menuData: [{

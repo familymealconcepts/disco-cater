@@ -1193,15 +1193,21 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   }
 
   // ── Header image ──────────────────────────────────────────────────────────
-  // Priority: a plain image URL already resolved upstream (disco-native
-  // restaurants pass Neon's image_url directly as `restaurant.image`, a
-  // string) → FM's own image asset (shared.tsx builds this into
-  // `.asset.url` when FM has one) → the Neon disco_restaurant_cache fallback
-  // (icon_url, then image_url) — the common case, since Neon independently
-  // holds curated hero images for virtually every restaurant.
-  const headerImg = (typeof restaurant.image === 'string' && restaurant.image)
+  // This is the small square thumbnail next to the restaurant name — it must
+  // show the Logo (Account > Profile > Restaurant Images > Logo, Neon's
+  // icon_url), not the wide Marketplace Image hero photo. Priority: Logo →
+  // Marketplace Image (Neon's image_url, then whichever hero photo the
+  // restaurant type has — FM's own Sanity/CMS image asset, or the plain
+  // string shared.tsx resolves for native restaurants) → the letter
+  // placeholder below. The directory/map card image is a SEPARATE render path
+  // (not this component) and correctly keeps using the Marketplace Image —
+  // do not change this priority order to affect that.
+  const headerImgIsLogo = !!restaurant.iconUrl
+  const headerImg = restaurant.iconUrl
+    || restaurant.imageUrl
+    || (typeof restaurant.image === 'string' && restaurant.image)
     || restaurant.image?.asset?.url
-    || restaurant.iconUrl || restaurant.imageUrl || null
+    || null
   const tags = restaurant.cuisines?.length ? restaurant.cuisines : restaurant.cuisine ? [restaurant.cuisine] : []
 
   const [taxTooltip, setTaxTooltip] = useState(false)
@@ -1573,7 +1579,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             />
             <div style={{ width: 80, height: 80, borderRadius: 14, overflow: 'hidden', flexShrink: 0, background: (headerImg && !headerImgError) ? '#f0f0f0' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {headerImg && !headerImgError
-                ? <img src={headerImg} alt={restaurant.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={() => setHeaderImgError(true)} />
+                // Logos are often non-square (wordmarks, icons with padding) —
+                // 'contain' so the square container never crops or distorts one.
+                // The Marketplace Image fallback is a wide hero photo, where
+                // 'cover' (crop-to-fill) is the look this thumbnail already had.
+                ? <img src={headerImg} alt={restaurant.name} style={{ width: '100%', height: '100%', objectFit: headerImgIsLogo ? 'contain' : 'cover' }} onError={() => setHeaderImgError(true)} />
                 : <span style={{ fontSize: 32, color: '#fff', fontWeight: 700, fontFamily: F }}>{(restaurant.name?.[0] || '·').toUpperCase()}</span>}
             </div>
             <div style={{ flex: 1 }}>
