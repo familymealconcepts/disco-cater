@@ -501,7 +501,14 @@ export default function CheckoutDrawer({
       // is still passed so the Neon mirror can persist it on disco_orders.
       ...(taxExemptApplied && taxExemptId ? { taxExemptId } : {}),
       ...(couponCode ? { couponCode } : {}),
-      ...(restaurantPromoCode ? { restaurantPromoCode } : {}),
+      // serviceChargePct + userEmail travel with the promo code so the FM-backed
+      // preview (/api/order/update) can run the SAME self-check + discounted
+      // recompute placement uses (lib/promo-apply.ts's computeRestaurantFundedBreakdown)
+      // — sending the client's own already-known percentage here, not deriving it
+      // server-side from FM's rounded dollar serviceCharge, is what keeps preview
+      // and placement from ever disagreeing by a cent (a derived pct is provably
+      // not exact — see computeRestaurantFundedBreakdown's own comment).
+      ...(restaurantPromoCode ? { restaurantPromoCode, serviceChargePct, userEmail: contactEmail || authUser?.email || undefined } : {}),
     }
   }
 

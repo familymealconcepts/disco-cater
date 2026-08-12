@@ -1,6 +1,6 @@
 import type Stripe from 'stripe'
 import { sql } from './db'
-import { computeBreakdown, deriveLeadGenPct, r2, cents, type PricingConfig, type PricingOrder } from './promo-pricing'
+import { computeBreakdown, deriveLeadGenPct, r2, cents, type PricingConfig, type PricingOrder, type Breakdown } from './promo-pricing'
 import { reserveNativeRestaurantPromoUse, finalizeNativeRestaurantPromoUse, releaseNativeRestaurantPromoUse } from './promo-native'
 
 // Applies a restaurant-funded promo discount PRE-CHARGE (Path B): recompute FM's
@@ -25,77 +25,46 @@ export interface ApplyResult {
   moneyFlow?: 'DIRECT' | 'FAMILY_MEAL'
 }
 
-interface TaxRatesMirror {
+export interface TaxRatesMirror {
   stateSalesTax?: { percent?: number; fixedAmount?: number }
   localSalesTax?: { percent?: number; fixedAmount?: number }
   otherSalesTax?: { percent?: number; fixedAmount?: number; types?: string[] }
 }
 
-// Look up + basic-validate the restaurant-funded code (authoritative discount %).
-// This is a PREVIEW-strength check only (same as native's resolveNativeRestaurantPromo)
-// — the authoritative gate against a double-submit or a concurrent second order is
-// the atomic reservation below, which re-checks both caps right before the charge.
-async function resolveCode(code: string, restaurantRef: string, userEmail: string): Promise<{ id: number; pct: number; maxUses: number | null; maxUsesPerUser: number } | null> {
-  const rows = (await sql`
-    SELECT id, discount_value, valid_from, valid_until, active, max_uses, uses_count, max_uses_per_user
-    FROM promo_codes
-    WHERE UPPER(code) = UPPER(${code}) AND funded_by = 'RESTAURANT' AND restaurant_ref = ${restaurantRef}
-    ORDER BY id DESC LIMIT 1
-  `) as { id: number; discount_value: string | number; valid_from: string | null; valid_until: string | null; active: boolean; max_uses: number | null; uses_count: number; max_uses_per_user: number }[]
-  const p = rows[0]
-  if (!p || !p.active) return null
-  const now = Date.now()
-  if (p.valid_from && new Date(p.valid_from).getTime() > now) return null
-  if (p.valid_until && new Date(p.valid_until).getTime() < now) return null
-  if (p.max_uses != null && p.uses_count >= p.max_uses) return null
-  const userKey = (userEmail || '').trim().toLowerCase()
-  if (userKey) {
-    const used = (await sql`SELECT COUNT(*)::int AS c FROM promo_code_uses WHERE promo_code_id = ${p.id} AND LOWER(user_email) = ${userKey}`.catch(() => [{ c: 0 }])) as { c: number }[]
-    if ((used[0]?.c ?? 0) >= p.max_uses_per_user) return null
-  }
-  const pct = num(p.discount_value)
-  if (!(pct >= 1 && pct <= 100)) return null
-  return { id: p.id, pct, maxUses: p.max_uses, maxUsesPerUser: p.max_uses_per_user }
-}
+export type RestaurantFundedBreakdownResult =
+  | { ok: true; full: Breakdown; discounted: Breakdown }
+  | { ok: false; reason: string }
 
-export async function applyRestaurantFundedDiscount(args: {
-  stripe: Stripe
-  paymentIntentId: string
-  restaurantRef: string
-  code: string
-  serviceChargePct: number         // from the order's menu settings (client-supplied; self-check validates it)
-  orderType: string                // 'PICKUP' | 'DELIVERY' (for otherTax.types gate)
-  fmCheckout: Record<string, unknown>  // FM's full-price CheckoutPublicResponseDto
-  orderRef: string                 // for recording the use (usage-limit enforcement) idempotently
-  userEmail: string
-}): Promise<ApplyResult> {
-  const { stripe, paymentIntentId, restaurantRef, code, serviceChargePct, orderType, fmCheckout, orderRef, userEmail } = args
-  if (!paymentIntentId) return { applied: false, reason: 'no payment intent' }
+// THE single computation shared by the pricing PREVIEW (/api/order/update's
+// FM-backed branch) and real PLACEMENT (applyRestaurantFundedDiscount below) —
+// there is exactly one place this math lives, called with the same inputs by
+// both. Reproduces FM's FULL-price total (and, for DIRECT, transfer) from our
+// own engine and requires an exact cent match against fullPriceTotalCents/
+// fullPriceTransferCents before trusting the discounted recompute.
+//
+// Preview and placement differ only in WHAT they can self-check against, out of
+// necessity, not choice: placement has a real Stripe PaymentIntent (the actual
+// money), so it self-checks total AND transfer. Preview runs before any
+// PaymentIntent exists — the only authoritative number available is FM's own
+// just-returned total — so it passes fullPriceTransferCents: null and this
+// function simply skips the transfer self-check. That's safe specifically
+// because leadGenPct/transfer are mathematically absent from computeBreakdown's
+// `total` formula — the customer-facing number preview needs is never affected
+// by the piece preview can't verify.
+export function computeRestaurantFundedBreakdown(args: {
+  fmCheckout: Record<string, unknown>
+  serviceChargePct: number
+  orderType: string
+  taxRates: TaxRatesMirror
+  discountPct: number
+  moneyFlow: 'DIRECT' | 'FAMILY_MEAL'
+  fullPriceTotalCents: number
+  fullPriceTransferCents: number | null
+}): RestaurantFundedBreakdownResult {
+  const { fmCheckout, serviceChargePct, orderType, taxRates: tax, discountPct, moneyFlow, fullPriceTotalCents, fullPriceTransferCents } = args
 
-  const resolved = await resolveCode(code, restaurantRef, userEmail)
-  if (!resolved) return { applied: false, reason: 'code invalid/expired/inactive' }
-
-  // Tax rates + money-flow from the Neon mirror (the only source at checkout time).
-  const mrows = (await sql`SELECT tax_rates, money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`) as { tax_rates: TaxRatesMirror | null; money_flow: string | null }[]
-
-  // DIRECT-only gate. Restaurant-funded promo codes can ONLY settle where the
-  // restaurant is the merchant of record (FM moneyFlow=DIRECT: a destination charge
-  // whose transfer we reduce so the restaurant absorbs the discount). Under
-  // FAMILY_MEAL, FamilyMeal is the MoR (plain platform charge, no transfer_data)
-  // and the restaurant is paid OUT-OF-BAND from FM's own undiscounted saleTransaction
-  // — so reducing the charge would make FamilyMeal, NOT the restaurant, absorb the
-  // discount. There is no FM-side lever to fix that (Revyrie gone). So decline.
-  // This is a PERMANENT constraint, not a temporary gap.
-  if (mrows[0]?.money_flow === 'FAMILY_MEAL') {
-    return { applied: false, reason: 'restaurant is FAMILY_MEAL money-flow (FM is merchant of record) — restaurant-funded promos are DIRECT-only' }
-  }
-
-  const tax = mrows[0]?.tax_rates
-  if (!tax) return { applied: false, reason: 'tax rates not mirrored for restaurant' }
-
-  // FM full-price components.
   const subtotal = num(fmCheckout.subtotal)
-  if (subtotal <= 0) return { applied: false, reason: 'no subtotal' }
+  if (subtotal <= 0) return { ok: false, reason: 'no subtotal' }
   const fullServiceCharge = num(fmCheckout.serviceCharge)
   const fullStateTax = num(fmCheckout.stateSalesTaxInPrice)
   const fullLocalTax = num(fmCheckout.localSalesTaxInPrice)
@@ -120,32 +89,22 @@ export async function applyRestaurantFundedDiscount(args: {
   const other = tax.otherSalesTax
   const otherApplies = !!other && (!other.types || other.types.length === 0 || other.types.includes(orderType))
 
-  // Retrieve the authoritative PI (amount + transfer_data for DIRECT).
-  const pi = await stripe.paymentIntents.retrieve(paymentIntentId)
-  const piAmount = pi.amount ?? 0
-  const piTransfer = pi.transfer_data?.amount
-  const moneyFlow: 'DIRECT' | 'FAMILY_MEAL' = piTransfer != null ? 'DIRECT' : 'FAMILY_MEAL'
-  // Defense-in-depth for the DIRECT-only gate: the ABSENCE of transfer_data on the
-  // FM-created PI is the real-time proof that FM is the merchant of record
-  // (FAMILY_MEAL) — catches it even if the money_flow mirror is missing/stale.
-  if (moneyFlow !== 'DIRECT') {
-    return { applied: false, reason: 'PI has no transfer_data (FM is merchant of record) — restaurant-funded promos are DIRECT-only' }
-  }
-
   const order: PricingOrder = {
     subtotal, ownDeliveryFee, thirdPartyDeliveryFee, thirdPartyDeliverySubsiding: subsidy,
     tipCustom, tipAmount: tipVal, tipPct, tipsAreThirdParty,
   }
 
-  // Derive the applied lead-gen % from FM's real full transfer (DIRECT only).
+  // leadGenPct only affects `transfer`, never `total` (see computeBreakdown) — so
+  // when there's no transfer figure to derive it from (preview) it's simply 0,
+  // which never distorts the customer-facing number either self-check verifies.
   let leadGenPct = 0
-  if (moneyFlow === 'DIRECT') {
-    const fullTotalForStripe = piAmount / 100
+  if (moneyFlow === 'DIRECT' && fullPriceTransferCents != null) {
+    const fullTotalForStripe = fullPriceTotalCents / 100
     const fullStripeFee = r2(fullTotalForStripe * 2.9 / 100 + 0.30)
     leadGenPct = deriveLeadGenPct({
       subtotal, fullTipsInPrice, fullStateTax, fullLocalTax, fullOtherTax,
       ownDeliveryFee, fullServiceCharge, thirdPartyDeliverySubsiding: subsidy,
-      fullStripeFee, actualFullTransfer: piTransfer! / 100,
+      fullStripeFee, actualFullTransfer: fullPriceTransferCents / 100,
     })
   }
 
@@ -159,15 +118,141 @@ export async function applyRestaurantFundedDiscount(args: {
 
   // ── SELF-CHECK: reproduce FM's FULL-price numbers exactly, or bail. ──
   const full = computeBreakdown(order, cfg, 0)
-  if (cents(full.total) !== piAmount) {
-    return { applied: false, reason: `self-check total mismatch: ours=${cents(full.total)}c fm=${piAmount}c` }
+  if (cents(full.total) !== fullPriceTotalCents) {
+    return { ok: false, reason: `self-check total mismatch: ours=${cents(full.total)}c ref=${fullPriceTotalCents}c` }
   }
-  if (moneyFlow === 'DIRECT' && cents(full.transfer) !== piTransfer) {
-    return { applied: false, reason: `self-check transfer mismatch: ours=${cents(full.transfer)}c fm=${piTransfer}c` }
+  if (moneyFlow === 'DIRECT' && fullPriceTransferCents != null && cents(full.transfer) !== fullPriceTransferCents) {
+    return { ok: false, reason: `self-check transfer mismatch: ours=${cents(full.transfer)}c ref=${fullPriceTransferCents}c` }
   }
 
   // Self-check passed → the discounted recompute is trustworthy.
-  const disc = computeBreakdown(order, cfg, resolved.pct)
+  const discounted = computeBreakdown(order, cfg, discountPct)
+  return { ok: true, full, discounted }
+}
+
+// Look up + basic-validate the restaurant-funded code (authoritative discount %).
+// This is a PREVIEW-strength check only (same as native's resolveNativeRestaurantPromo)
+// — the authoritative gate against a double-submit or a concurrent second order is
+// the atomic reservation below, which re-checks both caps right before the charge.
+export async function resolveCode(code: string, restaurantRef: string, userEmail: string): Promise<{ id: number; pct: number; maxUses: number | null; maxUsesPerUser: number } | null> {
+  const rows = (await sql`
+    SELECT id, discount_value, valid_from, valid_until, active, max_uses, uses_count, max_uses_per_user
+    FROM promo_codes
+    WHERE UPPER(code) = UPPER(${code}) AND funded_by = 'RESTAURANT' AND restaurant_ref = ${restaurantRef}
+    ORDER BY id DESC LIMIT 1
+  `) as { id: number; discount_value: string | number; valid_from: string | null; valid_until: string | null; active: boolean; max_uses: number | null; uses_count: number; max_uses_per_user: number }[]
+  const p = rows[0]
+  if (!p || !p.active) return null
+  const now = Date.now()
+  if (p.valid_from && new Date(p.valid_from).getTime() > now) return null
+  if (p.valid_until && new Date(p.valid_until).getTime() < now) return null
+  if (p.max_uses != null && p.uses_count >= p.max_uses) return null
+  const userKey = (userEmail || '').trim().toLowerCase()
+  if (userKey) {
+    const used = (await sql`SELECT COUNT(*)::int AS c FROM promo_code_uses WHERE promo_code_id = ${p.id} AND LOWER(user_email) = ${userKey}`.catch(() => [{ c: 0 }])) as { c: number }[]
+    if ((used[0]?.c ?? 0) >= p.max_uses_per_user) return null
+  }
+  const pct = num(p.discount_value)
+  if (!(pct >= 1 && pct <= 100)) return null
+  return { id: p.id, pct, maxUses: p.max_uses, maxUsesPerUser: p.max_uses_per_user }
+}
+
+// Restaurant-scoped tax_rates + money_flow mirror — the only source available at
+// checkout time (FM exposes real tax rates only to the restaurant's own admin
+// token). Shared by placement and preview so both read the identical row.
+export async function getTaxRatesMirror(restaurantRef: string): Promise<{ taxRates: TaxRatesMirror | null; moneyFlow: string | null }> {
+  const rows = (await sql`SELECT tax_rates, money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`) as { tax_rates: TaxRatesMirror | null; money_flow: string | null }[]
+  return { taxRates: rows[0]?.tax_rates ?? null, moneyFlow: rows[0]?.money_flow ?? null }
+}
+
+// Preview-side orchestration around computeRestaurantFundedBreakdown — same
+// core function applyRestaurantFundedDiscount uses below, called with the
+// self-check reference FM's OWN just-returned total (no PaymentIntent exists
+// yet at preview time, so there's nothing else authoritative to check against;
+// transfer is skipped for the reason documented on computeRestaurantFundedBreakdown
+// itself). Never touches Stripe or the atomic reservation — those only matter
+// once there's a real charge to gate, which is placement's job, not preview's.
+export async function previewRestaurantFundedDiscount(args: {
+  restaurantRef: string
+  code: string
+  serviceChargePct: number
+  orderType: string
+  fmCheckout: Record<string, unknown>
+  userEmail: string
+}): Promise<{ applied: true; breakdown: Breakdown } | { applied: false; reason: string }> {
+  const { restaurantRef, code, serviceChargePct, orderType, fmCheckout, userEmail } = args
+
+  const resolved = await resolveCode(code, restaurantRef, userEmail)
+  if (!resolved) return { applied: false, reason: 'code invalid/expired/inactive' }
+
+  const mirror = await getTaxRatesMirror(restaurantRef)
+  if (mirror.moneyFlow === 'FAMILY_MEAL') return { applied: false, reason: 'FAMILY_MEAL money-flow — restaurant-funded promos are DIRECT-only' }
+  const tax = mirror.taxRates
+  if (!tax) return { applied: false, reason: 'tax rates not mirrored for restaurant' }
+
+  const fullTotalCents = cents(num(fmCheckout.total))
+  if (fullTotalCents <= 0) return { applied: false, reason: 'no total in FM response' }
+
+  const result = computeRestaurantFundedBreakdown({
+    fmCheckout, serviceChargePct, orderType, taxRates: tax, discountPct: resolved.pct,
+    moneyFlow: 'DIRECT', // preview never sees FAMILY_MEAL past the gate above
+    fullPriceTotalCents: fullTotalCents, fullPriceTransferCents: null,
+  })
+  if (!result.ok) return { applied: false, reason: result.reason }
+  return { applied: true, breakdown: result.discounted }
+}
+
+export async function applyRestaurantFundedDiscount(args: {
+  stripe: Stripe
+  paymentIntentId: string
+  restaurantRef: string
+  code: string
+  serviceChargePct: number         // from the order's menu settings (client-supplied; self-check validates it)
+  orderType: string                // 'PICKUP' | 'DELIVERY' (for otherTax.types gate)
+  fmCheckout: Record<string, unknown>  // FM's full-price CheckoutPublicResponseDto
+  orderRef: string                 // for recording the use (usage-limit enforcement) idempotently
+  userEmail: string
+}): Promise<ApplyResult> {
+  const { stripe, paymentIntentId, restaurantRef, code, serviceChargePct, orderType, fmCheckout, orderRef, userEmail } = args
+  if (!paymentIntentId) return { applied: false, reason: 'no payment intent' }
+
+  const resolved = await resolveCode(code, restaurantRef, userEmail)
+  if (!resolved) return { applied: false, reason: 'code invalid/expired/inactive' }
+
+  // DIRECT-only gate. Restaurant-funded promo codes can ONLY settle where the
+  // restaurant is the merchant of record (FM moneyFlow=DIRECT: a destination charge
+  // whose transfer we reduce so the restaurant absorbs the discount). Under
+  // FAMILY_MEAL, FamilyMeal is the MoR (plain platform charge, no transfer_data)
+  // and the restaurant is paid OUT-OF-BAND from FM's own undiscounted saleTransaction
+  // — so reducing the charge would make FamilyMeal, NOT the restaurant, absorb the
+  // discount. There is no FM-side lever to fix that (Revyrie gone). So decline.
+  // This is a PERMANENT constraint, not a temporary gap.
+  const mirror = await getTaxRatesMirror(restaurantRef)
+  if (mirror.moneyFlow === 'FAMILY_MEAL') {
+    return { applied: false, reason: 'restaurant is FAMILY_MEAL money-flow (FM is merchant of record) — restaurant-funded promos are DIRECT-only' }
+  }
+  const tax = mirror.taxRates
+  if (!tax) return { applied: false, reason: 'tax rates not mirrored for restaurant' }
+
+  // Retrieve the authoritative PI (amount + transfer_data for DIRECT).
+  const pi = await stripe.paymentIntents.retrieve(paymentIntentId)
+  const piAmount = pi.amount ?? 0
+  const piTransfer = pi.transfer_data?.amount
+  const moneyFlow: 'DIRECT' | 'FAMILY_MEAL' = piTransfer != null ? 'DIRECT' : 'FAMILY_MEAL'
+  // Defense-in-depth for the DIRECT-only gate: the ABSENCE of transfer_data on the
+  // FM-created PI is the real-time proof that FM is the merchant of record
+  // (FAMILY_MEAL) — catches it even if the money_flow mirror is missing/stale.
+  if (moneyFlow !== 'DIRECT') {
+    return { applied: false, reason: 'PI has no transfer_data (FM is merchant of record) — restaurant-funded promos are DIRECT-only' }
+  }
+
+  const result = computeRestaurantFundedBreakdown({
+    fmCheckout, serviceChargePct, orderType, taxRates: tax, discountPct: resolved.pct,
+    moneyFlow, fullPriceTotalCents: piAmount, fullPriceTransferCents: piTransfer ?? null,
+  })
+  if (!result.ok) return { applied: false, reason: result.reason }
+  const disc = result.discounted
+
   const newAmount = cents(disc.total)
   const newTransfer = moneyFlow === 'DIRECT' ? cents(disc.transfer) : null
   if (newAmount <= 0 || newAmount >= piAmount) return { applied: false, reason: 'discount produced no reduction' }

@@ -865,7 +865,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       taxExempt: false,
       // Restaurant-funded promo only — 'disco'-funded charges full price and
       // credits back after, so the server must never discount it pre-charge.
-      ...(summaryPromo?.fundedBy === 'restaurant' ? { restaurantPromoCode: summaryPromo.code } : {}),
+      // serviceChargePct travels with it so an FM-backed restaurant's preview
+      // can run the same self-check placement uses (lib/promo-apply.ts) — the
+      // client-known percentage, not a value derived server-side from FM's
+      // rounded dollar amount, which can round differently (see that file).
+      ...(summaryPromo?.fundedBy === 'restaurant' ? { restaurantPromoCode: summaryPromo.code, serviceChargePct: svcPct, userEmail: user?.email || undefined } : {}),
     }
 
     try {
