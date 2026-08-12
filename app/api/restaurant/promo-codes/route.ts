@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { sql, runMigrations } from '../../../../lib/db'
 import { resolvePromoScope } from '../../../../lib/restaurant-promo'
+import { getRestaurantTimezone, localDayBoundaryToUTC } from '../../../../lib/timezone'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -147,6 +148,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'This location holds payments on FamilyMeal (money-flow), so restaurant-funded promo codes can’t settle here — the discount would come off FamilyMeal, not the restaurant. Not supported.' }, { status: 409 })
     }
 
+    // Restaurant-LOCAL day boundaries, not UTC midnight — a bare date cast
+    // straight to ::timestamptz is read as UTC, which cuts a US-timezone promo
+    // off hours early (a restaurant setting "end Aug 31" got shut off at 8pm
+    // local on Aug 30). See lib/timezone.ts for the fallback when a restaurant
+    // has no timezone on file.
+    const { timezone } = await getRestaurantTimezone(restaurantRef)
+    const validFrom = localDayBoundaryToUTC(startDate, timezone, false)
+    const validUntil = localDayBoundaryToUTC(endDate, timezone, true)
+
     try {
       const rows = (await sql`
         INSERT INTO promo_codes (
@@ -154,7 +164,7 @@ export async function POST(req: NextRequest) {
           max_uses, max_uses_per_user, valid_from, valid_until
         ) VALUES (
           ${code}, 'percent', ${discountPercentage}, 'restaurant', ${restaurantRef}, 'RESTAURANT',
-          ${maxAvailable}, ${maxPerDiner}, ${startDate}::timestamptz, ${endDate}::timestamptz
+          ${maxAvailable}, ${maxPerDiner}, ${validFrom.toISOString()}::timestamptz, ${validUntil.toISOString()}::timestamptz
         )
         RETURNING *
       `) as Record<string, unknown>[]

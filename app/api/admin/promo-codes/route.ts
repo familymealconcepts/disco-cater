@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 import { sql, runMigrations } from '../../../../lib/db'
+import { getRestaurantTimezone, localDayBoundaryToUTC } from '../../../../lib/timezone'
 
 export const runtime = 'nodejs'
 
@@ -30,13 +31,26 @@ export async function POST(req: NextRequest) {
   const firstTimeOnly = b.firstTimeOnly === true
   const minOrderSubtotal = b.minOrderSubtotal == null || b.minOrderSubtotal === '' ? null : parseFloat(String(b.minOrderSubtotal))
   const maxDiscountCap = discountType === 'percent' && b.maxDiscountCap != null && b.maxDiscountCap !== '' ? parseFloat(String(b.maxDiscountCap)) : null
-  const validFrom = b.validFrom ? String(b.validFrom) : null
-  const validUntil = b.validUntil ? String(b.validUntil) : null
+  const validFromRaw = b.validFrom ? String(b.validFrom) : null
+  const validUntilRaw = b.validUntil ? String(b.validUntil) : null
   const notes = b.notes ? String(b.notes) : null
 
   if (!code) return NextResponse.json({ error: 'Code is required.' }, { status: 400 })
   if (!Number.isFinite(discountValue) || discountValue <= 0) return NextResponse.json({ error: 'Discount value must be greater than 0.' }, { status: 400 })
   if (scope === 'restaurant' && !restaurantRef) return NextResponse.json({ error: 'Pick a restaurant for a restaurant-scoped code.' }, { status: 400 })
+
+  // Restaurant-LOCAL day boundaries for a restaurant-scoped code (same fix as
+  // the restaurant-facing route — see lib/timezone.ts) — a bare date cast
+  // straight to ::timestamptz is read as UTC, cutting a US-timezone promo off
+  // hours early. A global code has no single restaurant to anchor to, so it
+  // keeps the previous UTC-cast behavior unchanged (not part of the reported bug).
+  let validFrom: string | null = validFromRaw
+  let validUntil: string | null = validUntilRaw
+  if (scope === 'restaurant' && restaurantRef) {
+    const { timezone } = await getRestaurantTimezone(restaurantRef)
+    if (validFromRaw) validFrom = localDayBoundaryToUTC(validFromRaw, timezone, false).toISOString()
+    if (validUntilRaw) validUntil = localDayBoundaryToUTC(validUntilRaw, timezone, true).toISOString()
+  }
 
   try {
     const rows = (await sql`

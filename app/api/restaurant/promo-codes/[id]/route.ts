@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../../lib/db'
 import { resolvePromoScope } from '../../../../../lib/restaurant-promo'
+import { getRestaurantTimezone, localDayBoundaryToUTC } from '../../../../../lib/timezone'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,7 +23,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try {
     await runMigrations()
     const id = parseInt((await params).id, 10)
-    if (!(await ownedRestaurantRef(id, scope.allowedRefs))) {
+    const ownedRef = await ownedRestaurantRef(id, scope.allowedRefs)
+    if (!ownedRef) {
       return NextResponse.json({ error: 'Promo code not found.' }, { status: 404 })
     }
     const body = await req.json().catch(() => ({}))
@@ -53,14 +55,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (body.startDate !== undefined) {
       start = String(body.startDate || '').trim()
       if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return NextResponse.json({ error: 'Start date is invalid.' }, { status: 400 })
-      push('valid_from = ?::timestamptz', start)
     }
     if (body.endDate !== undefined) {
       end = String(body.endDate || '').trim()
       if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) return NextResponse.json({ error: 'End date is invalid.' }, { status: 400 })
-      push('valid_until = ?::timestamptz', end)
     }
     if (start && end && end < start) return NextResponse.json({ error: 'End date must be on or after the start date.' }, { status: 400 })
+    // Restaurant-LOCAL day boundaries, not UTC midnight — see lib/timezone.ts.
+    if (start || end) {
+      const { timezone } = await getRestaurantTimezone(ownedRef)
+      if (start) push('valid_from = ?::timestamptz', localDayBoundaryToUTC(start, timezone, false).toISOString())
+      if (end) push('valid_until = ?::timestamptz', localDayBoundaryToUTC(end, timezone, true).toISOString())
+    }
 
     if (!sets.length) return NextResponse.json({ error: 'Nothing to update.' }, { status: 400 })
 
