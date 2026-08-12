@@ -101,6 +101,20 @@ export async function POST(req: NextRequest) {
     if (!trows[0]?.tax_rates) {
       return NextResponse.json({ valid: false, message: 'This promo code can’t be applied for this restaurant right now.' })
     }
+    // Both caps, checked here for an honest preview — the ACTUAL gate against a
+    // double-submit or a second concurrent order is reserveNativeRestaurantPromoUse
+    // at placement (lib/promo-native.ts), which re-checks both atomically right
+    // before the charge. This read here can go stale between validate and place;
+    // that's fine, since placement never trusts it.
+    if (promo.max_uses != null && promo.uses_count >= promo.max_uses) {
+      return NextResponse.json({ valid: false, message: 'This promo code has reached its usage limit.' })
+    }
+    if (userEmail) {
+      const used = (await sql`SELECT COUNT(*)::int AS c FROM promo_code_uses WHERE promo_code_id = ${promo.id} AND LOWER(user_email) = ${userEmail}`) as { c: number }[]
+      if ((used[0]?.c ?? 0) >= promo.max_uses_per_user) {
+        return NextResponse.json({ valid: false, message: 'You’ve already used this promo code the maximum number of times.' })
+      }
+    }
     // Discount the SUBTOTAL (headline). The exact charge reduction (tax/fee/tip also
     // recompute off the discounted subtotal) is finalized authoritatively at placement.
     const value = n(promo.discount_value) ?? 0

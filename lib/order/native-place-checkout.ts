@@ -6,7 +6,10 @@ import {
   type NativeDeliveryAddressInput,
 } from './native-checkout'
 import { checkItemInventoryAvailability } from './native-inventory'
-import { recordNativeRestaurantPromoUse, type NativePromoResolution } from '../promo-native'
+import {
+  reserveNativeRestaurantPromoUse, finalizeNativeRestaurantPromoUse, releaseNativeRestaurantPromoUse,
+  type NativePromoResolution,
+} from '../promo-native'
 
 export type NativeCheckoutOutcome =
   | { ok: true; result: NativePlaceAndPayResult }
@@ -149,6 +152,27 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   return { ok: true, built: { input, promo } }
 }
 
+// Reserve the promo's cap slot BEFORE any charge is attempted — this is the
+// gate itself, not bookkeeping. Concurrent orders for the same code/diner race
+// here (see reserveNativeRestaurantPromoUse's own comment for why it's safe),
+// and one of them gets refused before Stripe is ever involved.
+async function reservePromoOrFail(promo: NativePromoResolution | null, params: NativeCheckoutParams, restaurantRef: string):
+  Promise<{ ok: true; reservationId: number | null } | { ok: false; status: number; error: string }> {
+  if (!promo) return { ok: true, reservationId: null }
+  const r = await reserveNativeRestaurantPromoUse({
+    promoId: promo.id, userEmail: params.customerEmail, maxUses: promo.maxUses, maxUsesPerUser: promo.maxUsesPerUser, restaurantRef,
+  })
+  if (!r.ok) {
+    return {
+      ok: false, status: 409,
+      error: r.reason === 'max_uses'
+        ? 'This promo code has reached its usage limit.'
+        : 'You’ve already used this promo code the maximum number of times.',
+    }
+  }
+  return { ok: true, reservationId: r.reservationId }
+}
+
 // Shared Disco-native order placement for BOTH the customer flow
 // (/api/order/place) and Direct Entry (/api/restaurant/orders/place). Card path:
 // places + creates the PaymentIntent for the browser to confirm; the webhook flips
@@ -158,13 +182,20 @@ export async function placeNativeCheckout(params: NativeCheckoutParams): Promise
   if (!b.ok) return b
   const { input, promo } = b.built
 
-  const result = await placeAndPayNativeOrder(input, params.stripe, params.savedOpts)
+  const reserved = await reservePromoOrFail(promo, params, input.restaurantReference)
+  if (!reserved.ok) return reserved
 
-  if (promo) {
-    await recordNativeRestaurantPromoUse({
-      promoId: promo.id, orderRef: result.orderReference, userEmail: params.customerEmail,
-      discountDollars: result.breakdown.discount, restaurantRef: input.restaurantReference,
-      paymentIntentId: result.paymentIntentId,
+  let result: NativePlaceAndPayResult
+  try {
+    result = await placeAndPayNativeOrder(input, params.stripe, params.savedOpts)
+  } catch (e) {
+    if (reserved.reservationId != null && promo) await releaseNativeRestaurantPromoUse(reserved.reservationId, promo.id)
+    throw e
+  }
+
+  if (reserved.reservationId != null) {
+    await finalizeNativeRestaurantPromoUse(reserved.reservationId, {
+      orderRef: result.orderReference, discountDollars: result.breakdown.discount, paymentIntentId: result.paymentIntentId,
     })
   }
   return { ok: true, result }
@@ -177,13 +208,20 @@ export async function placeNativeInvoiceCheckout(params: NativeCheckoutParams): 
   if (!b.ok) return b
   const { input, promo } = b.built
 
-  const result = await placeNativeInvoiceOrder(input, params.stripe)
+  const reserved = await reservePromoOrFail(promo, params, input.restaurantReference)
+  if (!reserved.ok) return reserved
 
-  if (promo) {
-    await recordNativeRestaurantPromoUse({
-      promoId: promo.id, orderRef: result.orderReference, userEmail: params.customerEmail,
-      discountDollars: result.breakdown.discount, restaurantRef: input.restaurantReference,
-      paymentIntentId: null,
+  let result: NativeInvoiceResult
+  try {
+    result = await placeNativeInvoiceOrder(input, params.stripe)
+  } catch (e) {
+    if (reserved.reservationId != null && promo) await releaseNativeRestaurantPromoUse(reserved.reservationId, promo.id)
+    throw e
+  }
+
+  if (reserved.reservationId != null) {
+    await finalizeNativeRestaurantPromoUse(reserved.reservationId, {
+      orderRef: result.orderReference, discountDollars: result.breakdown.discount, paymentIntentId: null,
     })
   }
   return { ok: true, result }
