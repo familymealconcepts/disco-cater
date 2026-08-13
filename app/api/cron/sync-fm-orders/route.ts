@@ -49,6 +49,14 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
+// Tried 200 (syncAllRestaurantOrders's own cap) — measured 465,941ms (~7.8
+// min) for a real 200-restaurant run, an order of magnitude past the 300s
+// platform maxDuration and the ~200s "dial it back" threshold. The cost
+// estimate that suggested 200 was safe didn't account for repairBareOrderDetail
+// clearing a real, still-large backlog (up to 20 orders × ~250ms per restaurant
+// that has one) — that cost shrinks as the backlog clears, but not fast enough
+// to raise this today. Left at the original, proven-safe value; revisit once
+// bareRepaired trends near zero across runs (see the log line below).
 const BATCH = 50
 const CURSOR_KEY = 'fm_orders_sync_offset'
 
