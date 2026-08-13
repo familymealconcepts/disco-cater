@@ -550,3 +550,55 @@ CREATE UNIQUE INDEX IF NOT EXISTS disco_orders_restaurant_order_number_uq ON dis
 -- previously keyed off source_of_order alone, mislabeling every genuine
 -- customer-initiated 1P order (e.g. #900000080) as Direct Entry.
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS is_direct_entry BOOLEAN NOT NULL DEFAULT false;
+
+-- FM order-detail backfill support (fm_backup snapshot, frozen 2026-06-17).
+--
+-- placed_at: FM's real order-placement instant (tbl_restaurant_orders.created_date),
+-- distinct from created_at (which is Neon SYNC time for FM-mirrored orders, not
+-- placement time — fm-orders-sync.ts always wrote NOW()). We deliberately do NOT
+-- overwrite created_at: 14,110 of 23,144 FM orders have a real created_date more
+-- than 365 days old, so overwriting would silently drop them from
+-- app/api/export/orders's "last 365 days" default window and shift every existing
+-- Created-Date report bucket for historical orders — a real behavior change for a
+-- column three other things (the reminder cron's placement-skip gate, that same
+-- export window, Created-Date reporting) already depend on. placed_at is
+-- additive-only: nothing reads it yet except the "Order Placed"/"Received" display,
+-- so there is nothing to break. fm-orders-sync.ts is updated to populate this for
+-- future syncs too, so new orders don't keep arriving with the old sync-time-only
+-- semantics while history is being corrected.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS placed_at TIMESTAMPTZ;
+
+-- source: provenance marker distinguishing a reconstructed-from-FM-snapshot row
+-- from real money-of-record. Both look identical otherwise (transaction_type
+-- ORIGINAL either way) — needed for reconciliation and to diagnose a future bug in
+-- the backfill script itself. No existing unused column fit (receipt_number,
+-- payment_type, stripe_invoice_id are all genuinely reserved for their own literal
+-- meaning, not free); disco_order_items already has an unused fm_package_id column
+-- for exactly this purpose, so no matching column was added there. Existing rows
+-- stay NULL (they predate this column and are all real native-checkout/manual-edit
+-- rows) — NATIVE_CHECKOUT / MANUAL_EDIT / FM_BACKFILL are written explicitly by
+-- their respective writers going forward so NULL never means anything but "written
+-- before this column existed."
+ALTER TABLE disco_sale_transactions ADD COLUMN IF NOT EXISTS source TEXT;
+
+-- fm_addon_id: the add-on backfill's equivalent of disco_order_items.fm_package_id
+-- — FM's own tbl_restaurant_order_add_ons.id, used as the idempotency join key so
+-- a re-run's DELETE-then-INSERT only ever touches previously-backfilled add-on
+-- rows, never a native order's add-ons (which have this column NULL).
+ALTER TABLE disco_order_item_addons ADD COLUMN IF NOT EXISTS fm_addon_id BIGINT;
+
+-- Idempotency backstops (defense in depth on top of the backfill script's own
+-- DELETE-then-INSERT-per-order_id): both are partial so they only constrain the
+-- rows that should genuinely be unique, never the legitimate multi-row cases.
+--   - Every order has at most one ORIGINAL sale_transaction row (0 violations
+--     found against 23,014 real production rows before adding this) — additional
+--     edits/refunds use transaction_type ADDITIONAL/REFUND and are unaffected.
+--   - A backfilled order_item is unique per (order_id, fm_package_id); native rows
+--     have fm_package_id NULL and are excluded from the constraint entirely, so
+--     the normal multiple-line-items-per-order case is untouched.
+CREATE UNIQUE INDEX IF NOT EXISTS disco_sale_transactions_order_original_uq
+  ON disco_sale_transactions (order_id) WHERE transaction_type = 'ORIGINAL';
+CREATE UNIQUE INDEX IF NOT EXISTS disco_order_items_order_fmpkg_uq
+  ON disco_order_items (order_id, fm_package_id) WHERE fm_package_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS disco_order_item_addons_item_fmaddon_uq
+  ON disco_order_item_addons (order_item_id, fm_addon_id) WHERE fm_addon_id IS NOT NULL;

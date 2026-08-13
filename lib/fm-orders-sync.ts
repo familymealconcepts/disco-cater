@@ -76,6 +76,17 @@ interface NormalizedFmOrder {
   seenByAdmin: boolean
   note: string | null
   deliveryInstructions: string | null
+  placedAt: string | null
+}
+
+// FM's real order-placement instant — OrderPublicResponseDto.createdDate
+// (ZonedDateTime) or OrderInfoResponseDto.orderCreatedDate (Date), confirmed from
+// FM's own Java DTOs. Both serialize to an ISO-parseable string; disco_orders.
+// created_at is Neon SYNC time, not this — see placed_at's migration comment.
+function parsePlacedAt(v: unknown): string | null {
+  if (v == null) return null
+  const d = new Date(String(v))
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
 function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null {
@@ -126,6 +137,7 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
     note: s(o.note) || null,
     // Mirror FM's true delivery instructions (distinct from the general note).
     deliveryInstructions: s(o.dinerDeliveryInstructions) || s(o.deliveryInstructions) || null,
+    placedAt: parsePlacedAt(o.createdDate ?? o.orderCreatedDate),
   }
 }
 
@@ -210,12 +222,12 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
           fm_order_reference, order_number, order_status, order_type, delivery_type, source_of_order,
           restaurant_reference, restaurant_name, restaurant_address, restaurant_phone,
           customer_email, customer_first_name, customer_last_name, customer_phone,
-          order_date, order_time, subtotal, total, fee, tips, tips_type, note, delivery_instructions, seen_by_admin, created_at, updated_at
+          order_date, order_time, subtotal, total, fee, tips, tips_type, note, delivery_instructions, seen_by_admin, placed_at, created_at, updated_at
         ) VALUES (
           ${o.fmRef}::uuid, ${o.orderNumber}::bigint, ${o.status}, ${o.orderType}, ${o.deliveryType}, ${o.source},
           ${restaurantReference}::uuid, ${o.restaurantName || snap.name}, ${snap.address}, ${snap.phone},
           ${o.email}, ${o.firstName || null}, ${o.lastName || null}, ${o.phone},
-          ${o.dateIso}::date, ${o.time}::time, ${o.subtotal}, ${o.total}, ${o.fee}, ${o.tips}, ${o.tipsType}, ${o.note}, ${o.deliveryInstructions}, ${o.seenByAdmin}, NOW(), NOW()
+          ${o.dateIso}::date, ${o.time}::time, ${o.subtotal}, ${o.total}, ${o.fee}, ${o.tips}, ${o.tipsType}, ${o.note}, ${o.deliveryInstructions}, ${o.seenByAdmin}, ${o.placedAt}, NOW(), NOW()
         )
         RETURNING id
       `) as { id: number }[]
@@ -272,7 +284,7 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
       subtotal = COALESCE(${o.subtotal}, subtotal), total = COALESCE(${o.total}, total), fee = COALESCE(${o.fee}, fee),
       tips = ${o.tips}, tips_type = ${o.tipsType}, note = COALESCE(${o.note}, note),
       delivery_instructions = COALESCE(${o.deliveryInstructions}, delivery_instructions),
-      seen_by_admin = ${o.seenByAdmin}, updated_at = NOW()
+      seen_by_admin = ${o.seenByAdmin}, placed_at = COALESCE(placed_at, ${o.placedAt}), updated_at = NOW()
     WHERE id = ${row.id}
   `.catch(e => console.error('[fm-orders-sync] update:', e instanceof Error ? e.message : e))
   if (withItems) await syncOrderItems(row.id, o.fmRef)

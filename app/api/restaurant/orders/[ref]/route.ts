@@ -55,6 +55,13 @@ interface DiscoFull {
   company_name: string | null
 }
 interface DiscoItem { meal_package_reference: string | null; name: string; quantity: number; price_per_unit: string; serves: number | null }
+interface DiscoTxn {
+  service_charge: string | null; stripe_fee: string | null
+  state_tax: string | null; local_tax: string | null; other_tax: string | null
+  tips_in_price: string | null; third_party_delivery_tips: string | null
+  own_delivery_fee: string | null; third_party_delivery_fee: string | null
+  discount: string | null; lead_gen_one_disco_fee: string | null; lead_gen_two_disco_fee: string | null
+}
 
 function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
 
@@ -80,9 +87,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     ?? fmDetails
     ?? null) as Record<string, unknown> | null
 
-  // Neon order + items.
+  // Neon order + items + full breakdown (populated by native checkout, the
+  // order-edit route, and — once backfilled — the FM order-detail backfill).
+  // Read added ahead of the backfill landing so this route can be verified to
+  // render identically from Neon before the live loadFmOrderDetails() call above
+  // is removed in a later, separate commit (that removal is the point of the
+  // backfill — reading FM live for every FM-backed order, including Disco-native
+  // ones, is a standing policy violation today).
   let disco: DiscoFull | null = null
   let items: DiscoItem[] = []
+  let txn: DiscoTxn | null = null
   if (isUuid(ref)) {
     const rows = (await sql`
       SELECT id, reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
@@ -101,6 +115,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         SELECT meal_package_reference, name, quantity, price_per_unit, serves
         FROM disco_order_items WHERE order_id = ${disco.id} ORDER BY id
       `.catch(() => [])) as DiscoItem[]
+      const txnRows = (await sql`
+        SELECT service_charge, stripe_fee, state_tax, local_tax, other_tax,
+               tips_in_price, third_party_delivery_tips, own_delivery_fee, third_party_delivery_fee,
+               discount, lead_gen_one_disco_fee, lead_gen_two_disco_fee
+        FROM disco_sale_transactions WHERE order_id = ${disco.id} AND transaction_type = 'ORIGINAL' LIMIT 1
+      `.catch(() => [])) as DiscoTxn[]
+      txn = txnRows[0] ?? null
     }
   }
 
@@ -142,6 +163,24 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (d.refund != null) base.refund = num(d.refund)
   // Tax-exempt id — Neon-first, else keep FM's (taxExempt/taxExemptId).
   if (d.tax_exempt_id) { base.taxExemptId = d.tax_exempt_id; base.taxExempt = true }
+  // Full financial breakdown — Neon-first when a transaction row exists (native
+  // checkout, a manual edit, or a completed FM backfill), else keep FM's own
+  // paymentDetails fields. Same flat key names FM's OrderPublicResponseDto uses,
+  // so the drawer (orders/page.tsx) and the PDF need no changes to consume this.
+  if (txn) {
+    base.serviceCharge = num(txn.service_charge)
+    base.stripeFee = num(txn.stripe_fee)
+    base.stateSalesTaxInPrice = num(txn.state_tax)
+    base.localSalesTaxInPrice = num(txn.local_tax)
+    base.otherSalesTaxInPrice = num(txn.other_tax)
+    base.tipsInPrice = num(txn.tips_in_price)
+    base.thirdPartyDeliveryTipsInPrice = num(txn.third_party_delivery_tips)
+    base.ownDeliveryFee = num(txn.own_delivery_fee)
+    base.thirdPartyDeliveryFee = num(txn.third_party_delivery_fee)
+    base.discount = num(txn.discount)
+    base.leadGenOneDiscoFee = num(txn.lead_gen_one_disco_fee)
+    base.leadGenTwoDiscoFee = num(txn.lead_gen_two_disco_fee)
+  }
   // Restaurant identity for the drawer + PDF. Canonical name/address/phone live
   // in disco_restaurant_cache (native orders have no FM restaurant, and
   // disco_orders.restaurant_name is often null). Prefer any FM values already on

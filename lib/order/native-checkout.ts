@@ -527,12 +527,12 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
       order_id, transaction_status, transaction_type, subtotal, total, fee, service_charge, stripe_fee,
       state_tax, local_tax, other_tax, tips_in_price, third_party_delivery_tips,
       own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
-      lead_gen_one_disco_fee, lead_gen_two_disco_fee, money_flow, created_at, updated_at
+      lead_gen_one_disco_fee, lead_gen_two_disco_fee, money_flow, source, created_at, updated_at
     ) VALUES (
       ${order.id}, 'INITIATED', 'ORIGINAL', ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${b.serviceCharge}, ${b.stripeFee},
       ${b.stateTax}, ${b.localTax}, ${b.otherTax}, ${b.tipsInPrice}, ${b.thirdPartyDeliveryTips},
       ${ownDeliveryFee}, ${thirdPartyDeliveryFee}, ${thirdPartyDeliverySubsiding}, ${b.discount},
-      ${b.leadGenTier === 1 ? b.leadGen : 0}, ${b.leadGenTier === 2 ? b.leadGen : 0}, 'DIRECT', NOW(), NOW()
+      ${b.leadGenTier === 1 ? b.leadGen : 0}, ${b.leadGenTier === 2 ? b.leadGen : 0}, 'DIRECT', 'NATIVE_CHECKOUT', NOW(), NOW()
     )
   `
 

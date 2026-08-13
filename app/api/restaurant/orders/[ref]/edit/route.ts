@@ -317,14 +317,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         order_id, transaction_type, transaction_status, subtotal, total, fee, stripe_payment_intent_id, transaction_date, paid_at,
         service_charge, stripe_fee, state_tax, local_tax, other_tax, tips_in_price, third_party_delivery_tips,
         own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
-        lead_gen_one_disco_fee, lead_gen_two_disco_fee
+        lead_gen_one_disco_fee, lead_gen_two_disco_fee, source
       ) VALUES (
         ${discoOrder.id}, ${paymentAction === 'charge' ? 'ADDITIONAL' : 'REFUND'}, 'PAID',
         ${newSubtotal}, ${Math.abs(delta)}, ${newFee}, ${stripePaymentIntentId || null}, NOW()::date, NOW(),
         ${b?.serviceCharge ?? null}, ${b?.stripeFee ?? null}, ${b?.stateTax ?? null}, ${b?.localTax ?? null}, ${b?.otherTax ?? null},
         ${b?.tipsInPrice ?? null}, ${b?.thirdPartyDeliveryTips ?? null},
         ${ownDeliveryFee}, ${thirdPartyDeliveryFee}, ${thirdPartyDeliverySubsiding}, ${b?.discount ?? null},
-        ${leadGenOne}, ${leadGenTwo}
+        ${leadGenOne}, ${leadGenTwo}, 'MANUAL_EDIT'
       )
     `.catch(e => console.error('[orders/edit] sale_transactions insert:', e))
   }

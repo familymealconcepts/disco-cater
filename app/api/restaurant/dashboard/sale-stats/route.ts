@@ -21,25 +21,23 @@ function toIso(s: string | null): string | null {
 // matches the fallback used elsewhere in the portal (orders/page.tsx).
 const RESTAURANT_TZ_DEFAULT = 'America/New_York'
 
-// Financial cards for a Disco-native restaurant — aggregated DIRECTLY from
-// disco_orders, the same source the Daily Revenue graph (app/api/restaurant/
-// orders/route.ts) and the CSV/Excel/PDF exports already use. disco_orders
-// mirrors BOTH FM-origin and native orders for every restaurant, so this
-// always reflects real order history — unlike the previous query below, which
-// INNER JOINed disco_sale_transactions (populated only by native checkout —
-// 21 rows platform-wide against 21,264 real orders) and silently dropped
-// every FM-mirrored order that has no such row. That's what produced Net
-// Sales $1.00 / 1 order for a restaurant with 318+ real orders.
+// Financial cards for a Disco-native restaurant. # of Orders/Net Sales/Avg.
+// Check/Total Amount are aggregated DIRECTLY from disco_orders — the same
+// source the Daily Revenue graph (app/api/restaurant/orders/route.ts) and the
+// CSV/Excel/PDF exports use — since disco_orders mirrors BOTH FM-origin and
+// native orders for every restaurant and is never missing a row.
 //
-// Trade-off: disco_orders has no tax/lead-gen/delivery-split/tips-split/
-// stripe-fee columns — only subtotal/total/fee/tips as combined figures. So
-// Net Sales, # of Orders, Avg. Check, and Total Amount are fully reliable
-// here; Tax Amount, Lead Gen 1/2, Pickup/Self-Delivery/Third-Party Tips,
-// Self-Delivery/Third-Party Delivery (fee), and Stripe Fees genuinely need
-// per-order transaction detail that doesn't exist yet for FM-mirrored orders
-// (see the FM order-detail backfill scope report) — returned as `null`
-// (never a fabricated 0) so the UI can show "Not available" instead of a
-// real-looking zero.
+// Tax/lead-gen/delivery-split/tips-split/stripe-fee are LEFT JOINed from
+// disco_sale_transactions, now backfilled from fm_backup for FM-mirrored
+// orders (previously this JOIN was an INNER JOIN against a table populated
+// only by native checkout — 21 rows platform-wide against 21,264 real orders —
+// which silently dropped every FM-mirrored order and produced Net Sales $1.00
+// / 1 order for a restaurant with 318+ real orders; LEFT JOIN + separate
+// disco_orders aggregates fixed that). Orders with genuinely no transaction
+// row (the ~1,057 post-freeze orders with no fm_backup source, and any order
+// placed before this backfill's cutoff — see the FM order-detail backfill
+// report) are simply absent from these sums, same as any real revenue report
+// with incomplete detail for a known subset of orders.
 async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, req: NextRequest) {
   const sp = req.nextUrl.searchParams
   const from = toIso(sp.get('fromDate'))
@@ -75,14 +73,44 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
   // zone's wall-clock time before the ::date cast. (Previously this cast had
   // no timezone conversion at all, so "Created Date" mode used the UTC day
   // boundary — a real bug in its own right, separate from the join issue.)
+  // LEFT JOIN (not INNER — see the comment above) so an order with no
+  // transaction row still counts toward the always-reliable 4 fields, just
+  // contributes 0 to the transaction-derived sums below (COALESCE, never NULL
+  // arithmetic). Only transaction_type='ORIGINAL' — matches the admin
+  // dashboard's nativeSaleStats() convention (app/api/admin/dashboard/
+  // sale-stats/route.ts) of excluding ADDITIONAL/REFUND rows so an edit or
+  // refund isn't double-counted on top of the original sale.
+  //
+  // Neon's schema has one combined third-party bucket (own_delivery_fee vs
+  // third_party_delivery_fee/tips — no separate DoorDash columns), so
+  // "DoorDash" cards are populated only when this order's delivery_type is
+  // literally DOORDASH; a Nash or other third-party order shows under the
+  // generic Third-Party cards instead. Pickup vs Self-Delivery tips are split
+  // by the SAME order's own delivery_type/order_type, since disco_sale_
+  // transactions.tips_in_price doesn't carry that distinction itself.
   const rows = (await sql`
     SELECT
       COUNT(*)::int AS "totalOrdersCount",
       COALESCE(SUM(o.subtotal), 0)::float8 AS "subtotalOrdersSum",
       COALESCE(AVG(o.subtotal), 0)::float8 AS "subtotalOrdersAvg",
-      COALESCE(SUM(o.total), 0)::float8 AS "totalOrdersSum"
+      COALESCE(SUM(o.total), 0)::float8 AS "totalOrdersSum",
+      COALESCE(SUM(st.state_tax), 0)::float8 AS "stateSalesTaxInPriceSum",
+      COALESCE(SUM(st.local_tax), 0)::float8 AS "localSalesTaxInPriceSum",
+      COALESCE(SUM(st.other_tax), 0)::float8 AS "otherSalesTaxInPriceSum",
+      COALESCE(SUM(st.lead_gen_one_disco_fee), 0)::float8 AS "leadgenonediscofee",
+      COALESCE(SUM(st.lead_gen_two_disco_fee), 0)::float8 AS "leadgentwodiscofee",
+      COALESCE(SUM(st.service_charge), 0)::float8 AS "serviceChargesSum",
+      COALESCE(SUM(st.stripe_fee), 0)::float8 AS "stripeFeeSum",
+      COALESCE(SUM(st.own_delivery_fee), 0)::float8 AS "ownDeliveryPriceSum",
+      COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN st.third_party_delivery_fee ELSE 0 END), 0)::float8 AS "doordashDeliveryFeeSum",
+      COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN 0 ELSE st.third_party_delivery_fee END), 0)::float8 AS "thirdPartyDeliveryFeeSum",
+      COALESCE(SUM(CASE WHEN o.delivery_type = 'OWN_DELIVERY' THEN 0 ELSE st.tips_in_price END), 0)::float8 AS "pickupTipsInPrice",
+      COALESCE(SUM(CASE WHEN o.delivery_type = 'OWN_DELIVERY' THEN st.tips_in_price ELSE 0 END), 0)::float8 AS "owndeliveryTipsInPrice",
+      COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN st.third_party_delivery_tips ELSE 0 END), 0)::float8 AS "doordashTipsOrdersSum",
+      COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN 0 ELSE st.third_party_delivery_tips END), 0)::float8 AS "thirdPartyDeliveryTipsOrdersSum"
     FROM disco_orders o
     LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
+    LEFT JOIN disco_sale_transactions st ON st.order_id = o.id AND st.transaction_type = 'ORIGINAL'
     WHERE o.restaurant_reference = ANY(${refs}::uuid[])
       AND o.is_deleted = false
       AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND','REFUND')
@@ -102,17 +130,7 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       )
   `) as Record<string, unknown>[]
 
-  // Genuinely unavailable until the FM order-detail backfill lands — null
-  // (never 0) so the UI shows "Not available" rather than a real-looking zero.
-  const unavailable = {
-    stateSalesTaxInPriceSum: null, localSalesTaxInPriceSum: null, otherSalesTaxInPriceSum: null,
-    leadgenonediscofee: null, leadgentwodiscofee: null,
-    serviceChargesSum: null, stripeFeeSum: null,
-    ownDeliveryPriceSum: null, thirdPartyDeliveryFeeSum: null, doordashDeliveryFeeSum: null,
-    pickupTipsInPrice: null, owndeliveryTipsInPrice: null,
-    thirdPartyDeliveryTipsOrdersSum: null, doordashTipsOrdersSum: null,
-  }
-  return NextResponse.json({ ...(rows[0] || {}), ...unavailable })
+  return NextResponse.json(rows[0] || {})
 }
 
 // FM's dashboard expects dates as DD.MM.YYYY (DateFormatService.formatDate,
