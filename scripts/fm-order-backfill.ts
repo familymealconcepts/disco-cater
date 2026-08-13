@@ -19,8 +19,17 @@
 //   npx tsx scripts/fm-order-backfill.ts                          dry run, no writes (default)
 //   npx tsx scripts/fm-order-backfill.ts --execute --sample=20     real writes, first 20 orders only
 //   npx tsx scripts/fm-order-backfill.ts --execute --limit=500     real writes, first 500 orders
-//   npx tsx scripts/fm-order-backfill.ts --execute                 real writes, full run (20,166 orders)
+//   npx tsx scripts/fm-order-backfill.ts --execute                 real writes, full run
 //   npx tsx scripts/fm-order-backfill.ts --execute --resume-after=12345   skip orders with id <= 12345
+//
+// Source database: defaults to the local `fm_backup` database (the original
+// 2026-06-17 full snapshot). Override with --source-db=<name> or the
+// FM_BACKUP_DB env var (flag wins) to point at a different local restore —
+// e.g. a scoped, more-recent snapshot restored as `fm_backup_scoped` — without
+// touching this file. Never a remote connection string: this always connects
+// to a LOCAL database by name, same as the existing `new Client({ database })`
+// convention used elsewhere in this repo (scripts/migrate-fm-to-neon.ts,
+// scripts/backfill-logos-from-fm.ts).
 //
 // This file is never auto-run — every invocation is explicit and logs exactly
 // what it did.
@@ -349,14 +358,35 @@ async function executeChunk(fm: Client, batch: Candidate[]): Promise<{ txnRows: 
   // inserted) and leave the old addon rows orphaned forever, doubling on every
   // re-run — a real bug the sample=50-run-twice idempotency proof caught (33
   // addon rows became 66 on a naive re-run before this reordering fix).
+  //
+  // Unconditional on order_id (no fm_addon_id IS NOT NULL filter): every order_id
+  // reaching this point came from loadCandidates(), which only ever selects FM-
+  // sourced orders with a confirmed fm_backup match — there is no legitimate
+  // native or manually-added addon row on one of these orders to protect. Scoping
+  // by fm_addon_id IS NOT NULL here would only matter if the ongoing fm-orders-
+  // sync.ts path had ever written addons of its own — verified it hasn't (see the
+  // add-on parsing bug fix in lib/order-edit.ts), so this was never actually a
+  // risk for addons specifically, but items (below) is a different story.
   await sql`
     DELETE FROM disco_order_item_addons
     WHERE order_item_id IN (SELECT id FROM disco_order_items WHERE order_id = ANY(${orderIds}::bigint[]))
-      AND fm_addon_id IS NOT NULL
   `
 
-  // ── disco_order_items: DELETE-then-INSERT, scoped to previously-backfilled rows ──
-  await sql`DELETE FROM disco_order_items WHERE order_id = ANY(${orderIds}::bigint[]) AND fm_package_id IS NOT NULL`
+  // ── disco_order_items: DELETE-then-INSERT ──
+  // Unconditional on order_id, NOT scoped to fm_package_id IS NOT NULL. The
+  // original scoping assumed only a prior run of THIS script could have written
+  // items for these orders — wrong: fm-orders-sync.ts's ongoing per-order-load
+  // sync also writes bare disco_order_items (name/qty/price, no fm_package_id,
+  // no add-ons) for the same orders whenever the orders page loads. Scoping the
+  // DELETE to fm_package_id IS NOT NULL left those pre-existing bare rows in
+  // place and inserted a second, correct set alongside them — 25 real orders
+  // ended up with EXACTLY DOUBLED item counts (e.g. order 4106: 10 bare + 10
+  // backfilled = 20 shown) before this fix. Safe to delete unconditionally here
+  // for the same reason as the addons DELETE above: every order_id here is
+  // FM-sourced with a confirmed fm_backup match, so this backfill's reconstructed
+  // set is always the authoritative, complete replacement — there's no native or
+  // manually-entered item on one of these orders to lose.
+  await sql`DELETE FROM disco_order_items WHERE order_id = ANY(${orderIds}::bigint[])`
 
   const itemCols = {
     orderId: [] as number[], ref: [] as (string | null)[], name: [] as string[], qty: [] as number[],
@@ -442,10 +472,13 @@ async function main() {
   const sample = sampleArg ? parseInt(sampleArg.split('=')[1], 10) : null
   const limit = limitArg ? parseInt(limitArg.split('=')[1], 10) : null
   const resumeAfter = resumeArg ? parseInt(resumeArg.split('=')[1], 10) : null
+  const sourceDbArg = args.find(a => a.startsWith('--source-db='))
+  const sourceDb = sourceDbArg ? sourceDbArg.split('=')[1] : (process.env.FM_BACKUP_DB || 'fm_backup')
 
-  const fm = new Client({ database: 'fm_backup' })
+  const fm = new Client({ database: sourceDb })
   await fm.connect()
 
+  console.log(`Source database: ${sourceDb}`)
   console.log(`Mode: ${execute ? 'EXECUTE' : 'DRY RUN (no writes)'}${sample ? ` sample=${sample}` : ''}${limit ? ` limit=${limit}` : ''}${resumeAfter ? ` resume-after=${resumeAfter}` : ''}`)
 
   const { candidates, fmOrderMap: map, excludedFound } = await loadCandidates(fm)
