@@ -57,7 +57,8 @@ interface DiscoFull {
   persons: number | null
   company_name: string | null
 }
-interface DiscoItem { meal_package_reference: string | null; name: string; quantity: number; price_per_unit: string; serves: number | null }
+interface DiscoItem { id: number; meal_package_reference: string | null; name: string; quantity: number; price_per_unit: string; serves: number | null }
+interface DiscoAddOn { order_item_id: number; name: string; price: string; quantity: number }
 interface DiscoTxn {
   service_charge: string | null; stripe_fee: string | null
   state_tax: string | null; local_tax: string | null; other_tax: string | null
@@ -92,6 +93,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // and the FM order-detail backfill/sync.
   let disco: DiscoFull | null = null
   let items: DiscoItem[] = []
+  let addOns: DiscoAddOn[] = []
   let txn: DiscoTxn | null = null
   if (isUuid(ref)) {
     const rows = (await sql`
@@ -108,9 +110,21 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     disco = rows[0] ?? null
     if (disco) {
       items = (await sql`
-        SELECT meal_package_reference, name, quantity, price_per_unit, serves
+        SELECT id, meal_package_reference, name, quantity, price_per_unit, serves
         FROM disco_order_items WHERE order_id = ${disco.id} ORDER BY id
       `.catch(() => [])) as DiscoItem[]
+      // Per-item add-ons — same join order-pdf.ts already does. Without this the
+      // popout showed every item at its base price_per_unit with no indication
+      // the real charge sits on an add-on (e.g. order 17159: "Mac'N Cheese —
+      // $0.00" against a $390 subtotal) — the money was always in
+      // disco_order_item_addons, just never fetched here.
+      const itemIds = items.map((it) => Number(it.id)).filter((n) => Number.isFinite(n))
+      addOns = itemIds.length
+        ? ((await sql`
+            SELECT order_item_id, name, price, quantity FROM disco_order_item_addons
+            WHERE order_item_id = ANY(${itemIds}) ORDER BY id
+          `.catch(() => [])) as DiscoAddOn[])
+        : []
       const txnRows = (await sql`
         SELECT service_charge, stripe_fee, state_tax, local_tax, other_tax,
                tips_in_price, third_party_delivery_tips, own_delivery_fee, third_party_delivery_fee,
@@ -243,9 +257,21 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
 
   // Line items — Neon is source of truth when present, else keep FM's.
   if (items.length) {
+    const addOnsByItem = new Map<number, { name: string; count: number; price: number }[]>()
+    for (const a of addOns) {
+      const key = Number(a.order_item_id)
+      const list = addOnsByItem.get(key) ?? []
+      // FM's own field names (count/price), matching lib/pricing/lineItem.ts's
+      // OrderLineModifier — the drawer/popout already renders this shape
+      // correctly (including a $0.00 add-on as its own sub-line, never
+      // filtered out) for FM-native orders; it was only ever missing here.
+      list.push({ name: a.name || 'Add-on', count: num(a.quantity) || 1, price: num(a.price) })
+      addOnsByItem.set(key, list)
+    }
     base.orderMealPackages = items.map(it => ({
       name: it.name, count: it.quantity, price: num(it.price_per_unit),
       mealPackageReference: it.meal_package_reference || undefined,
+      orderAddOns: addOnsByItem.get(Number(it.id)),
     }))
     base.orderClassics = []
   }
