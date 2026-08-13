@@ -8,9 +8,10 @@
 // problem, a candidate-list problem. This is a separate, cache-independent
 // path: it fetches FM's live restaurant list directly (reusing restaurant-
 // cache.ts's own pagination), filters to references not already in the cache,
-// and pulls each one's full history exactly once (see
-// syncNonCacheRestaurantOrders in lib/fm-orders-sync.ts for the full
-// reasoning, including why there's no new progress-marker column).
+// and pulls each one's full history, re-attempting on a later run if a prior
+// one left it partial (see syncNonCacheRestaurantOrders in
+// lib/fm-orders-sync.ts for the full reasoning, including why there's no new
+// progress-marker column).
 //
 // Daily, not hourly — this population is small (currently ~57 restaurants)
 // and static (blocked restaurants aren't taking new orders), so there's no
@@ -41,7 +42,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     const result = await syncNonCacheRestaurantOrders()
     const synced = result.results.reduce((a, r) => a + r.inserted + r.updated, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/sync-fm-orders-noncache] fmRestaurants=${result.fmRestaurants} notInCache=${result.notInCache} alreadyHasOrders=${result.alreadyHasOrders} attempted=${result.attempted} synced=${synced} (${duration_ms}ms)`)
+    console.log(`[cron/sync-fm-orders-noncache] fmRestaurants=${result.fmRestaurants} notInCache=${result.notInCache} alreadyComplete=${result.alreadyComplete} resumedPartial=${result.resumedPartial} attempted=${result.attempted} countCheckFailed=${result.countCheckFailed} synced=${synced} (${duration_ms}ms)`)
     return NextResponse.json({ ...result, synced, duration_ms })
   } catch (e) {
     console.error('[cron/sync-fm-orders-noncache] failed:', e instanceof Error ? e.message : e)

@@ -384,6 +384,27 @@ async function fetchFmOrdersPage(restaurantReference: string, auth: Record<strin
   return null
 }
 
+// Cheap page=0,size=1 fetch just to read FM's totalElements for a restaurant —
+// used to tell a genuinely-complete sync apart from a partial one (see
+// syncNonCacheRestaurantOrders). Confirmed live: the admin endpoint returns
+// {totalPages, pageSize, totalElements, content}; the public-api one 404s for
+// at least some restaurants, so both URLs are tried like fetchFmOrdersPage.
+async function fetchFmOrderTotalCount(restaurantReference: string, auth: Record<string, string>): Promise<number | null> {
+  const urls = [
+    `${FM}/public-api/v2/restaurants/${restaurantReference}/orders?page=0&size=1`,
+    `${FM}/api/admin/restaurants/${restaurantReference}/orders?page=0&size=1`,
+  ]
+  for (const url of urls) {
+    try {
+      const res = await fmFetch(url, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' })
+      if (!res.ok) continue
+      const data = await res.json().catch(() => null) as Record<string, unknown> | null
+      if (data && typeof data.totalElements === 'number') return data.totalElements
+    } catch { /* try next url */ }
+  }
+  return null
+}
+
 // Sync one restaurant's FM orders into Neon. `maxPages` bounds the pull (most
 // recent first, FM has no documented since-date filter on this endpoint so we
 // can't ask it to skip old pages directly); `withItems` also pulls per-order
@@ -515,12 +536,17 @@ export async function syncAllRestaurantOrders(
 // disco_restaurant_cache, and writing it for a restaurant with no cache row
 // would mean either creating one (reopening the exact "must audit every live
 // consumer" risk this path exists to avoid) or a silent no-op update. Instead,
-// "already handled" is just "does this restaurant have any disco_orders row
-// yet" — checked fresh each run. Cheap and sufficient at this scale (currently
-// ~57 restaurants, never the full fleet): a restaurant is pulled in full
-// exactly once; the only edge case is a restaurant with genuinely zero real
-// orders being harmlessly re-checked (not re-pulled — the check itself is a
-// single fast query) on every future run.
+// "already handled" is a Neon-count-vs-FM-count comparison, checked fresh each
+// run — NOT "does this restaurant have any disco_orders row yet" (that was the
+// original design and it was a bug: a restaurant that only got partially synced
+// — a time-budget cutoff mid-run, a transient FM error on some page, or a
+// per-restaurant data issue like Mav's Top Buns' duplicate order_numbers,
+// below — would satisfy ">=1 row" forever and never be revisited, silently
+// freezing whatever gap it had at the moment of that first partial run. Cost:
+// one extra lightweight FM call (page=0,size=1, just for totalElements) per
+// restaurant that already has >0 rows; restaurants at 0 rows skip straight to
+// a full attempt as before, so the common case (genuinely-untouched restaurant)
+// pays no extra cost.
 // Verified empirically before shipping: "not in disco_restaurant_cache" is
 // 329 restaurants today, not the ~57 with real historical orders — most of
 // the extra ~270 are FM accounts with genuinely zero orders ever (incomplete
@@ -549,9 +575,11 @@ function shuffle<T>(arr: T[]): T[] {
 export async function syncNonCacheRestaurantOrders(): Promise<{
   fmRestaurants: number
   notInCache: number
-  alreadyHasOrders: number
+  alreadyComplete: number
+  resumedPartial: number
   attempted: number
   skippedOnTimeBudget: number
+  countCheckFailed: number
   results: SyncResult[]
 }> {
   const startedAt = Date.now()
@@ -564,19 +592,48 @@ export async function syncNonCacheRestaurantOrders(): Promise<{
   const cacheRefSet = new Set(cacheRows.map(r => r.ref))
   const notInCache = shuffle(fmRefs.filter(ref => !cacheRefSet.has(ref)))
 
+  // Bulk-load current Neon counts up front (one query) rather than one COUNT
+  // per restaurant in the loop — matches fm_order_reference IS NOT NULL so a
+  // stray native order for the same reference (unlikely for a blocked
+  // restaurant, but not impossible) never counts toward "FM history synced."
+  const neonCountRows = (await sql`
+    SELECT restaurant_reference::text AS ref, COUNT(*)::int AS n
+    FROM disco_orders
+    WHERE restaurant_reference = ANY(${notInCache}::uuid[]) AND fm_order_reference IS NOT NULL AND is_deleted = false
+    GROUP BY restaurant_reference
+  `) as { ref: string; n: number }[]
+  const neonCount = new Map(neonCountRows.map(r => [r.ref, r.n]))
+
+  let auth: Record<string, string> | null = null
   const results: SyncResult[] = []
-  let alreadyHasOrders = 0
+  let alreadyComplete = 0
+  let resumedPartial = 0
   let skippedOnTimeBudget = 0
+  let countCheckFailed = 0
   for (const ref of notInCache) {
     if (Date.now() - startedAt > NON_CACHE_TIME_BUDGET_MS) { skippedOnTimeBudget++; continue }
-    const existing = (await sql`SELECT 1 FROM disco_orders WHERE restaurant_reference = ${ref}::uuid AND is_deleted = false LIMIT 1`) as unknown[]
-    if (existing.length > 0) { alreadyHasOrders++; continue }
+    const currentCount = neonCount.get(ref) || 0
+    if (currentCount > 0) {
+      // Not "never touched" — decide complete vs partial by comparing counts,
+      // not by existence. A restaurant can never fully reach fmTotal if it has
+      // its own duplicate-order_number rows in FM's raw data (a real, separate
+      // issue — see Mav's Top Buns) or genuinely-unsyncable rows (no resolvable
+      // email); either way, more attempts stay harmless (a fully-synced-except-
+      // for-those restaurant re-attempts every run, cheap: fetchFmOrdersPage
+      // fetches, upsertOne re-checks each by fm_order_reference and updates,
+      // no duplicate rows are ever created).
+      if (!auth) { try { auth = await getFmServiceAuthHeader() } catch { auth = null } }
+      const fmTotal = auth ? await fetchFmOrderTotalCount(ref, auth) : null
+      if (fmTotal == null) { countCheckFailed++; continue } // can't tell — don't guess, try again next run
+      if (currentCount >= fmTotal) { alreadyComplete++; continue }
+      resumedPartial++
+    }
     // Same params as backfillFmOrderHistory (lib/native-conversion.ts) —
     // full-history pull, not the hourly cron's shallow incremental one.
     results.push(await syncRestaurantOrders(ref, { withItems: false, pageSize: 100, maxPages: 500 }))
   }
   return {
-    fmRestaurants: fmRefs.length, notInCache: notInCache.length, alreadyHasOrders,
-    attempted: results.length, skippedOnTimeBudget, results,
+    fmRestaurants: fmRefs.length, notInCache: notInCache.length, alreadyComplete, resumedPartial,
+    attempted: results.length, skippedOnTimeBudget, countCheckFailed, results,
   }
 }
