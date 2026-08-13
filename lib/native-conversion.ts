@@ -18,7 +18,7 @@ import { randomUUID } from 'crypto'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
 import { verifyAccountReusable } from './stripe-connect'
 import { syncRestaurantOrders } from './fm-orders-sync'
-import { setInviteToken } from './disco-restaurant-auth'
+import { setInviteToken, grantLocationAccess } from './disco-restaurant-auth'
 import { sendTeamMemberInvite } from './email/notifications'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { sanitizePhone } from './utils/phone'
@@ -177,6 +177,7 @@ export interface ConversionResult {
   reason?: string
   readiness: ConversionReadiness
   invite?: InviteResult
+  systemAdminInvites?: SystemAdminInviteResult[]
   notificationSettings?: NotificationCarryOverResult
   closedDays?: ClosedDaysCarryOverResult
   promoCodes?: PromoCodesCarryOverResult
@@ -253,6 +254,106 @@ export async function ensureRestaurantLoginInvited(ref: string, restaurantName: 
     restaurantName: restaurantName || undefined,
   })
   return { invited: sent.success, email, reason: sent.success ? 'Invited — no prior working login existed.' : 'Invite email failed to send (login was still created/upgraded).' }
+}
+
+export interface SystemAdminInviteResult {
+  email: string
+  invited: boolean       // a NEW account+invite was created this call (false if one already existed)
+  grantedRefs: string[]  // restaurant_reference values granted/synced this call (idempotent)
+  reason: string
+}
+
+// FM's SYSTEM_ADMIN structure is a SEPARATE list from the single per-restaurant
+// admin field ensureRestaurantLoginInvited reads — a multi-location brand can
+// have several SYSTEM_ADMINs covering the same restaurant with none of them
+// being that restaurant's own admin field (confirmed real at DeCheco's: Tyron
+// User is SYSTEM_ADMIN across all 6 locations but was never any single
+// location's per-restaurant admin, so the old conversion path silently never
+// invited him). Invite every FM SYSTEM_ADMIN whose managedRestaurants include
+// this restaurant, and mirror FM's FULL managedRestaurants set into
+// disco_restaurant_location_access for each — not just this one restaurant, so
+// a converting brand's grants match FM immediately rather than location-by-
+// location as each one happens to convert. Idempotent (ON CONFLICT DO NOTHING)
+// and safe to re-run on every conversion in a multi-location batch.
+//
+// Best-effort, per person: one system admin's failure (FM lookup miss, email
+// collision, etc.) must never affect another's, or the conversion itself —
+// same non-blocking contract as ensureRestaurantLoginInvited and the
+// notification/closed-days/promo-code carry-over steps.
+export async function inviteFmSystemAdminsFor(ref: string, restaurantName: string | null): Promise<SystemAdminInviteResult[]> {
+  let auth: Record<string, string>
+  try { auth = await getFmServiceAuthHeader() } catch (e) {
+    return [{ email: '', invited: false, grantedRefs: [], reason: `FM auth failed: ${e instanceof Error ? e.message : e}` }]
+  }
+
+  type FmSystemAdmin = {
+    firstName?: string; lastName?: string; email?: string; enabled?: boolean
+    managedRestaurants?: { reference?: string }[]
+  }
+  let admins: FmSystemAdmin[]
+  try {
+    // FM's system-admin list has no working server-side filter (confirmed
+    // empirically — see app/api/admin/system-admins/route.ts) but returns its
+    // full ~363-record list in one page at this size, so fetch once and match
+    // managedRestaurants client-side.
+    const res = await fetch(`${FM}/api/admin/users/system-admin?size=2000`, { headers: { ...auth, Accept: 'application/json' } })
+    if (!res.ok) return [{ email: '', invited: false, grantedRefs: [], reason: `FM system-admin list failed (${res.status}).` }]
+    const j = await res.json().catch(() => null) as { content?: FmSystemAdmin[] } | null
+    admins = j?.content || []
+  } catch (e) {
+    return [{ email: '', invited: false, grantedRefs: [], reason: `FM system-admin list threw: ${e instanceof Error ? e.message : e}` }]
+  }
+
+  const covering = admins.filter(a =>
+    a.enabled !== false && (a.managedRestaurants || []).some(r => r.reference === ref),
+  )
+
+  const results: SystemAdminInviteResult[] = []
+  for (const a of covering) {
+    const email = (a.email || '').trim().toLowerCase()
+    if (!email) continue
+    try {
+      const existing = (await sql`SELECT email FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1`) as { email: string }[]
+      let invited = false
+      let reason: string
+
+      if (existing.length) {
+        // Already has a login — most commonly because ensureRestaurantLoginInvited
+        // (or this same function, on a sibling location's conversion) already
+        // created it. Never re-invite; just keep their grants in sync below.
+        reason = 'Account already exists — location access synced, no new invite sent.'
+      } else {
+        const sentinelHash = bcrypt.hashSync(randomUUID(), 10) // overwritten when the invite is accepted
+        await sql`
+          INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, first_name, last_name, restaurant_name, role)
+          VALUES (${email}, ${sentinelHash}, ${ref}, ${ref}, ${a.firstName || null}, ${a.lastName || null}, ${restaurantName}, 'SYSTEM_ADMIN')
+        `
+        const token = await setInviteToken(email)
+        const sent = await sendTeamMemberInvite({
+          to: email,
+          firstName: a.firstName,
+          inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
+          restaurantName: restaurantName || undefined,
+        })
+        invited = sent.success
+        reason = sent.success ? 'Invited — FM SYSTEM_ADMIN covering this restaurant.' : 'Account created; invite email failed to send.'
+      }
+
+      const grantedRefs: string[] = []
+      for (const mr of a.managedRestaurants || []) {
+        if (!mr.reference) continue
+        await grantLocationAccess(email, mr.reference, 'fm-system-admin-sync')
+        grantedRefs.push(mr.reference)
+      }
+
+      results.push({ email, invited, grantedRefs, reason })
+    } catch (e) {
+      // Most likely a unique-constraint collision (email in use elsewhere) —
+      // flag for manual review rather than letting it affect the next admin.
+      results.push({ email, invited: false, grantedRefs: [], reason: `Threw: ${e instanceof Error ? e.message : e}` })
+    }
+  }
+  return results
 }
 
 export interface NotificationCarryOverResult {
@@ -627,6 +728,18 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     invite = { invited: false, email: null, reason: `Invite step threw: ${e instanceof Error ? e.message : e}` }
   }
 
+  // Best-effort, same contract as `invite` above — covers FM SYSTEM_ADMINs that
+  // the single per-restaurant admin field never surfaces (see
+  // inviteFmSystemAdminsFor's header comment). A failure here must never affect
+  // `invite` above, the conversion itself, or any other step below.
+  let systemAdminInvites: SystemAdminInviteResult[] = []
+  try {
+    const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
+    systemAdminInvites = await inviteFmSystemAdminsFor(readiness.restaurantReference, nameRow[0]?.name ?? null)
+  } catch (e) {
+    console.error(`[convertToNative] system-admin invite step threw: ${e instanceof Error ? e.message : e}`)
+  }
+
   let notificationSettings: NotificationCarryOverResult
   try {
     notificationSettings = await carryOverNotificationSettings(readiness.restaurantReference)
@@ -671,7 +784,7 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real promo codes carried over: ${promoCodes.reason}`)
   }
 
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, notificationSettings, closedDays, promoCodes }
+  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, systemAdminInvites, notificationSettings, closedDays, promoCodes }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────
