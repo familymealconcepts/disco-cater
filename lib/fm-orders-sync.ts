@@ -614,10 +614,13 @@ export async function syncAllRestaurantOrders(
         const check = await checkFmSyncComplete(ref, neonCount, auth)
         if (check && !check.complete) {
           const delta = check.fmTotal - neonCount
+          // Log only, deliberately no alertOps here: this fires for every restaurant with a
+          // historical gap across the 21-hour rotation, and the sweep repairs it automatically
+          // in the same run (stopAtKnownDate/maxPages widened below) — posting each one to
+          // Slack turned into per-restaurant maintenance noise in the orders channel. The
+          // per-run summary line in cron/sync-fm-orders/route.ts (mismatches.length) is the
+          // aggregate signal; this line is what stays for a human to grep in Vercel logs.
           console.warn(`[fm-orders-sync] reconciliation mismatch: restaurant=${ref} neonCount=${neonCount} fmTotal=${check.fmTotal} delta=${delta}`)
-          await alertOps('fm-orders-sync: reconciliation sweep found a historical gap', {
-            restaurantReference: ref, neonCount, fmTotal: check.fmTotal, delta,
-          })
           mismatches.push({ restaurantReference: ref, neonCount, fmTotal: check.fmTotal })
           stopAtKnownDate = false
           maxPages = 500
