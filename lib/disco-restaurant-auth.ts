@@ -49,14 +49,17 @@ export interface InviteAccount {
   business_name: string | null
 }
 
-// Issue (or re-issue) a one-time invite token for an account, expiring in 72h.
-// Returns the raw token to embed in the invite link.
+// Issue (or re-issue) a one-time invite token for an account, expiring in 14
+// days. Was 72h — too short for an unsolicited email with no reminder and no
+// resend path, which is how Glen Rock/Elmwood Park/Briscola's invites all
+// died unused (see the resend-invite route for the fix to the "no resend
+// path" half of that). Returns the raw token to embed in the invite link.
 export async function setInviteToken(email: string): Promise<string> {
   const token = randomBytes(32).toString('hex')
   await sql`
     UPDATE disco_restaurant_accounts
     SET invite_token = ${token},
-        invite_token_expires_at = NOW() + INTERVAL '72 hours',
+        invite_token_expires_at = NOW() + INTERVAL '14 days',
         updated_at = NOW()
     WHERE email = ${email}
   `

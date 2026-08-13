@@ -72,6 +72,11 @@ interface OverrideMeta {
   // restaurants whose FM menu has changed since the last import/verification.
   menuDriftDetected: boolean
   menuDriftDetails: { type: string; reference: string; name: string; before?: string | number; after?: string | number }[]
+  // Disco-native restaurant with a set-password invite that was issued but
+  // never accepted before its window passed (invite_token still set,
+  // invite_token_expires_at < NOW()) — nobody can log in. Cheapest real
+  // signal for a dead invite; see Kebab's "Resend invite".
+  inviteExpired: boolean
 }
 
 function fmtDate(d?: string) {
@@ -393,6 +398,18 @@ export default function RestaurantsOrderingPage() {
     else showToast('Password reset email sent')
   }
 
+  // Reissue a fresh set-password invite (new token, new 14-day window) for a
+  // native restaurant whose original invite died unused, and email it.
+  async function resendInvite(r: Restaurant) {
+    if (!confirm(`Resend the set-password invite for ${r.businessName}?`)) return
+    const res = await fetch(`/api/admin/restaurants/${r.reference}/resend-invite`, { method: 'POST' })
+    const data = await res.json().catch(() => ({} as { error?: string; email?: string; emailed?: boolean }))
+    if (!res.ok) { showToast(data?.error || 'Could not resend the invite'); return }
+    if (data?.emailed === false) showToast(`New invite issued for ${data.email}, but the email could not be sent`)
+    else showToast(`Invite resent to ${data?.email}`)
+    loadStripeMap() // refresh so the expired-invite badge clears
+  }
+
   // Promote the restaurant's Disco account (and its group) to SYSTEM_ADMIN.
   async function confirmPromote() {
     if (!promoteConfirm) return
@@ -541,6 +558,7 @@ export default function RestaurantsOrderingPage() {
         isLive?: boolean; isDiscoNative?: boolean; hasStripeAccount?: boolean
         onlineOrderingEnabled?: boolean | null
         menuDriftDetected?: boolean; menuDriftDetails?: OverrideMeta['menuDriftDetails']
+        inviteExpired?: boolean
       }[]) {
         sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt, hasStripeAccount: !!o.hasStripeAccount }
         oMap[o.restaurantReference] = {
@@ -549,6 +567,7 @@ export default function RestaurantsOrderingPage() {
           isLive: !!o.isLive, isDiscoNative: !!o.isDiscoNative,
           onlineOrderingEnabled: o.onlineOrderingEnabled ?? null,
           menuDriftDetected: !!o.menuDriftDetected, menuDriftDetails: o.menuDriftDetails ?? [],
+          inviteExpired: !!o.inviteExpired,
         }
       }
       setStripeMap(sMap)
@@ -847,6 +866,7 @@ export default function RestaurantsOrderingPage() {
               }) : null
               const dropOff = readiness?.wouldDropOff ? readiness : null
               const drift = ov?.isDiscoNative && ov.menuDriftDetected ? ov.menuDriftDetails : null
+              const inviteDead = ov?.isDiscoNative && ov.inviteExpired
               return (
                 <tr key={r._rowId}>
                   {/* Disco Cater Marketplace: the single Disco-native map/marketplace
@@ -883,6 +903,20 @@ export default function RestaurantsOrderingPage() {
                             {dropOff.blockers[0]?.code === 'online-ordering-off' ? 'Online ordering is off — enable it first.'
                               : dropOff.blockers[0]?.code === 'stripe-not-connected' ? 'Stripe not connected for a native account.'
                               : 'Marketplace visibility is off.'}
+                          </span>
+                        </span>
+                      </div>
+                    )}
+                    {inviteDead && (
+                      <div
+                        title="The admin's set-password invite expired before anyone accepted it — nobody can log in yet. Use Resend invite (⋯ menu)."
+                        style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 5, marginTop: 5, maxWidth: 260, fontSize: 10.5, fontWeight: 600, lineHeight: 1.35, color: '#B45309', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 5, padding: '3px 7px' }}
+                      >
+                        <span style={{ flexShrink: 0 }}>⚠</span>
+                        <span>
+                          Admin invite expired, unused
+                          <span style={{ display: 'block', fontWeight: 400, marginTop: 1 }}>
+                            Nobody has logged in — resend from the ⋯ menu.
                           </span>
                         </span>
                       </div>
@@ -958,7 +992,9 @@ export default function RestaurantsOrderingPage() {
                       <button title="Delete" onClick={() => deleteRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗑</button>
                       <Kebab
                         menuUrl={overrideMap[r.reference]?.menuUploadUrl || null}
+                        showResendInvite={!!overrideMap[r.reference]?.isDiscoNative}
                         onResetPassword={() => resetPassword(r)}
+                        onResendInvite={() => resendInvite(r)}
                         onTransferSystemAdmin={() => setPromoteConfirm(r)}
                       />
                     </div>
@@ -1097,7 +1133,7 @@ export default function RestaurantsOrderingPage() {
 // scroll (capture, so the inner scrolling table fires it too) / resize.
 const KEBAB_MENU_WIDTH = 200
 
-function Kebab({ menuUrl, onResetPassword, onTransferSystemAdmin }: { menuUrl: string | null; onResetPassword: () => void; onTransferSystemAdmin: () => void }) {
+function Kebab({ menuUrl, showResendInvite, onResetPassword, onResendInvite, onTransferSystemAdmin }: { menuUrl: string | null; showResendInvite: boolean; onResetPassword: () => void; onResendInvite: () => void; onTransferSystemAdmin: () => void }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement | null>(null)
@@ -1170,6 +1206,11 @@ function Kebab({ menuUrl, onResetPassword, onTransferSystemAdmin }: { menuUrl: s
           <button onClick={() => { setOpen(false); onResetPassword() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0' }}>
             Reset password
           </button>
+          {showResendInvite && (
+            <button onClick={() => { setOpen(false); onResendInvite() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0' }}>
+              Resend invite
+            </button>
+          )}
           <button onClick={() => { setOpen(false); onTransferSystemAdmin() }} style={{ ...itemStyle, borderTop: '1px solid #f0f0f0' }}>
             Transfer to System Admin
           </button>
