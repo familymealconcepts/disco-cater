@@ -3,20 +3,12 @@ import { getRestaurantAuthHeader, getRestaurantUserRef, getRestaurantRef } from 
 import { buildForwardForm } from '../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow, getRestaurantLocationLinks } from '../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
-import { getDiscoGroupAccounts } from '../../../../lib/disco-restaurant-auth'
+import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../lib/restaurant-write-scope'
 import { listNativeLinks, createNativeLink, slugTaken } from '../../../../lib/multi-unit-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
-
-// The location refs a disco SA may put in a link = their group (+ home).
-async function allowedRefs(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>): Promise<Set<string>> {
-  const set = new Set<string>()
-  if (ctx.restaurantReference) set.add(ctx.restaurantReference)
-  try { for (const g of await getDiscoGroupAccounts(ctx.businessName, ctx.email)) set.add(g.restaurant_reference) } catch { /* home only */ }
-  return set
-}
 
 // Read the multipart `request` JSON part (FM shape) the client sends.
 async function readRequestPart(req: NextRequest): Promise<Record<string, unknown>> {
@@ -50,8 +42,8 @@ async function nativeCreate(ctx: NonNullable<Awaited<ReturnType<typeof getRestau
   if (!title) return NextResponse.json({ error: 'Title is required', description: 'Title is required' }, { status: 400 })
   if (!SLUG_RE.test(slug)) return NextResponse.json({ error: 'Invalid URL slug', description: 'URL may contain only lowercase letters, numbers, and hyphens.' }, { status: 400 })
   if (!memberRefs.length) return NextResponse.json({ error: 'Pick at least one location', description: 'Choose at least one location.' }, { status: 400 })
-  const allow = await allowedRefs(ctx)
-  const members = memberRefs.filter(r => allow.has(r))
+  const allow = await resolveDiscoGroupScope(ctx)
+  const members = memberRefs.filter(r => discoRefAllowed(allow, r))
   if (!members.length) return NextResponse.json({ error: 'Locations not in your group', description: 'Those locations are not in your group.' }, { status: 403 })
   if (await slugTaken(slug)) return NextResponse.json({ error: 'URL already in use', description: 'That URL is already in use — pick another.' }, { status: 409 })
   const { reference } = await createNativeLink({ slug, title, ownerEmail: ctx.email, memberRefs: members })

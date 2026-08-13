@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { sql, runMigrations } from '../../../../../../lib/db'
-import { discoGroupRefs } from '../../../../../../lib/disco-restaurant-auth'
+import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -14,7 +14,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // (is_live). Scoped to the SA's group.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    if (!(await discoGroupRefs(ctx.businessName, ctx.email, ctx.restaurantReference)).has(ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+    if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     await runMigrations()
     await sql`UPDATE disco_restaurant_cache SET is_live = ${blocked !== 'true'}, cached_at = NOW() WHERE restaurant_reference = ${ref}`
     return NextResponse.json({ ok: true })

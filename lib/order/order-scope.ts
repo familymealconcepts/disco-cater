@@ -1,39 +1,46 @@
 import { sql } from '../db'
 import type { RestaurantAuthContext } from '../restaurant-auth-context'
-import { getLocationAccessRefs } from '../disco-restaurant-auth'
 import { getRestaurantRef } from '../restaurant-auth'
+import { resolveDiscoAccessScope } from '../restaurant-write-scope'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// A Set that reports having every ref — used for the unrestricted (disco-
+// native SUPER_ADMIN) case below so assertOrderInScope's `scope.has(owner)`
+// check needs no special-casing. size is reported non-zero so the existing
+// "empty scope → fail closed" guard in assertOrderInScope doesn't trip.
+class UnrestrictedRefSet extends Set<string> {
+  has(): boolean { return true }
+  get size(): number { return 1 }
+}
 
 // The full set of restaurant references the authenticated caller may act on.
 // Mirrors the scoping the orders LIST route uses (app/api/restaurant/orders/route.ts):
 //   - disco ADMIN                        → own restaurant only
-//   - disco SYSTEM_ADMIN / SUPER_ADMIN   → every location in
+//   - disco SYSTEM_ADMIN                 → every location in
 //       disco_restaurant_location_access for their email, PLUS the home ref
+//   - disco SUPER_ADMIN (Disco Cater team) → unrestricted
 //   - FM session                         → the FM JWT's restaurant, or the
-//       selected-location cookie for FM SAs (getRestaurantRef handles both)
+//       selected-location cookie for FM SAs (getRestaurantRef handles both).
+//       FM-session scoping is deliberately left as-is — see
+//       lib/restaurant-write-scope.ts's header comment.
 // Refs are normalized to lowercase strings so membership tests sidestep the
 // disco_orders.restaurant_reference UUID vs disco_restaurant_location_access TEXT
 // cast footgun. Never widens the set on a lookup error (keeps home ref only).
 export async function getCallerScopeRefs(ctx: RestaurantAuthContext): Promise<Set<string>> {
-  const set = new Set<string>()
-  const add = (r: string | null | undefined) => {
-    const v = (r || '').trim().toLowerCase()
-    if (v && UUID_RE.test(v)) set.add(v)
-  }
-
   if (ctx.authType === 'disco') {
-    add(ctx.restaurantReference)
-    if (ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN') {
-      try {
-        for (const r of await getLocationAccessRefs(ctx.email)) add(r)
-      } catch {
-        /* keep the home ref only — never widen access on error */
-      }
+    const scope = await resolveDiscoAccessScope(ctx)
+    if (scope.unrestricted) return new UnrestrictedRefSet()
+    const set = new Set<string>()
+    for (const r of scope.refs) {
+      const v = (r || '').trim().toLowerCase()
+      if (v && UUID_RE.test(v)) set.add(v)
     }
-  } else {
-    add(await getRestaurantRef())
+    return set
   }
+  const set = new Set<string>()
+  const v = ((await getRestaurantRef()) || '').trim().toLowerCase()
+  if (v && UUID_RE.test(v)) set.add(v)
   return set
 }
 

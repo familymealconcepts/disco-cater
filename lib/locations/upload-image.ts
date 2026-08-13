@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { put } from '@vercel/blob'
 import { getRestaurantAuthContext } from '../restaurant-auth-context'
-import { discoGroupRefs } from '../disco-restaurant-auth'
+import { resolveDiscoGroupScope, discoRefAllowed } from '../restaurant-write-scope'
 import { sql, runMigrations } from '../db'
 
 const IMG_MAX = 5 * 1024 * 1024
@@ -18,7 +18,7 @@ export async function uploadLocationImage(
 ): Promise<NextResponse> {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (!(await discoGroupRefs(ctx.businessName, ctx.email, ctx.restaurantReference)).has(ref)) {
+  if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) {
     return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
   }
   if (!process.env.BLOB_READ_WRITE_TOKEN) return NextResponse.json({ error: 'Image storage is not configured.' }, { status: 500 })

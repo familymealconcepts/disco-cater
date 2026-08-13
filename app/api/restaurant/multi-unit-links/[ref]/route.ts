@@ -3,7 +3,7 @@ import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/re
 import { buildForwardForm } from '../../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
-import { getDiscoGroupAccounts } from '../../../../../lib/disco-restaurant-auth'
+import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../lib/restaurant-write-scope'
 import { updateNativeLink, deleteNativeLink, slugTaken, linkOwnerEmail } from '../../../../../lib/multi-unit-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -26,9 +26,8 @@ async function nativeUpdate(ctx: Ctx, ref: string, req: NextRequest) {
   if (!title) return NextResponse.json({ error: 'Title is required', description: 'Title is required' }, { status: 400 })
   if (!SLUG_RE.test(slug)) return NextResponse.json({ error: 'Invalid URL', description: 'URL may contain only lowercase letters, numbers, and hyphens.' }, { status: 400 })
   if (!memberRefs.length) return NextResponse.json({ error: 'Pick at least one location', description: 'Choose at least one location.' }, { status: 400 })
-  const allow = new Set<string>([ctx.restaurantReference])
-  try { for (const g of await getDiscoGroupAccounts(ctx.businessName, ctx.email)) allow.add(g.restaurant_reference) } catch { /* home only */ }
-  const members = memberRefs.filter(r => allow.has(r))
+  const allow = await resolveDiscoGroupScope(ctx)
+  const members = memberRefs.filter(r => discoRefAllowed(allow, r))
   if (!members.length) return NextResponse.json({ error: 'Locations not in your group', description: 'Those locations are not in your group.' }, { status: 403 })
   if (await slugTaken(slug, ref)) return NextResponse.json({ error: 'URL already in use', description: 'That URL is already in use — pick another.' }, { status: 409 })
   const okUpd = await updateNativeLink(ref, { slug, title, memberRefs: members })

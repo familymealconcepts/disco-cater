@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
-import { discoGroupRefs, getLocationAccessRefs, grantLocationAccess } from '../../../../../../lib/disco-restaurant-auth'
+import { getLocationAccessRefs, grantLocationAccess } from '../../../../../../lib/disco-restaurant-auth'
+import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
 import { sql, runMigrations, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { cloneDiscoRestaurantMenus } from '../../../../../../lib/locations/clone-restaurant'
 
@@ -15,8 +16,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
   // not-live restaurant in the SA's group. Zero FM.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    const refs = await discoGroupRefs(ctx.businessName, ctx.email, ctx.restaurantReference)
-    if (!refs.has(ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+    const scope = await resolveDiscoGroupScope(ctx)
+    if (!discoRefAllowed(scope, ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     await runMigrations(); await runDiscoOrderMigrations()
     const rows = (await sql`SELECT * FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as Record<string, unknown>[]
     if (!rows.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -36,7 +37,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
     // their current group into explicit access (else granting one ref would hide the
     // rest, since explicit access wins over business-name grouping).
     const existing = await getLocationAccessRefs(ctx.email)
-    const toGrant = existing.length ? [newRef] : [...refs, newRef]
+    const toGrant = existing.length || scope.unrestricted ? [newRef] : [...scope.refs, newRef]
     for (const r of toGrant) await grantLocationAccess(ctx.email, r, ctx.email).catch(() => {})
     await cloneDiscoRestaurantMenus(ref, newRef)
     return NextResponse.json({ ok: true, reference: newRef })

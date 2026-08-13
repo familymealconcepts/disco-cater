@@ -116,6 +116,25 @@ export async function POST(req: NextRequest) {
   const priceNum = typeof body.price === 'number' ? body.price : parseFloat(String(body.price ?? ''))
   if (!isFinite(priceNum) || priceNum < 0) return NextResponse.json({ ok: false, error: 'Invalid price' }, { status: 400 })
 
+  // DEFERRED RISK (FM-session only, not fixed): `restaurantRef` here is a raw
+  // client-supplied value with NO membership check against this caller's FM
+  // locations before being used to move FM's own "current restaurant" pointer
+  // below — unlike every other FM switch, this one bypasses the validated
+  // /api/restaurant/selected-restaurant route entirely and calls FM directly.
+  // If FM's own backend doesn't independently enforce that this SYSTEM_ADMIN/
+  // SUPER_ADMIN actually manages restaurantRef (unconfirmed), this is the same
+  // cross-tenant vulnerability class Steps 1-3 closed, reachable through an
+  // unaudited route, and it would let the caller write a price change (step 4
+  // below) to a restaurant outside their own scope. Deliberately deferred:
+  // all restaurants convert to disco-native within weeks and admins move to
+  // the Disco Cater portal, so FM-session code paths here have a short shelf
+  // life and are not worth hardening now. Also leaves FM's global "current
+  // restaurant" pointer moved for the DURATION of a bulk-pricing batch (the
+  // frontend restores it once at the end, not per-item, not in a try/finally
+  // — see BulkPricingClient.tsx's apply()) — a live correctness issue for any
+  // OTHER FM-session request that races this pointer mid-batch, separate
+  // from the security question above.
+  //
   // 1. Scope FM to the target location (best-effort).
   try {
     await fetch(`${FM}/api/system-admin/restaurants/current?restaurantReference=${encodeURIComponent(restaurantRef)}`, { method: 'PUT', headers: h })

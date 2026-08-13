@@ -36,6 +36,12 @@ async function nativeSearch(ctx: NonNullable<Awaited<ReturnType<typeof getRestau
   // Location universe = the SA's group (+ their own location), same source the
   // location picker uses. disco_menu_items only exist for native restaurants, so
   // this naturally excludes any FM-backed refs.
+  //
+  // READ-PATH GAP (deliberately deferred, not fixed): a disco-native
+  // SUPER_ADMIN's search universe here is still their own group/home ref, not
+  // literally every restaurant — a true fleet-wide search would need a real
+  // list-all query, not built. With neither, the search returns zero matches
+  // below (never an error, never another owner's items).
   const refName = new Map<string, string>()
   if (ctx.restaurantReference) refName.set(ctx.restaurantReference, ctx.restaurantName || '')
   try {

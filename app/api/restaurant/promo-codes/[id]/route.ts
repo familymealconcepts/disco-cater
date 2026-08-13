@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../../lib/db'
-import { resolvePromoScope } from '../../../../../lib/restaurant-promo'
+import { resolvePromoScope, isPromoRefAllowed, type PromoScope } from '../../../../../lib/restaurant-promo'
 import { getRestaurantTimezone, localDayBoundaryToUTC } from '../../../../../lib/timezone'
 
 export const runtime = 'nodejs'
@@ -8,11 +8,11 @@ export const dynamic = 'force-dynamic'
 
 // Confirm the code exists, is restaurant-funded, and belongs to a location the
 // caller may manage. Returns the row's restaurant_ref or null.
-async function ownedRestaurantRef(id: number, allowedRefs: string[]): Promise<string | null> {
-  if (!Number.isFinite(id) || !allowedRefs.length) return null
+async function ownedRestaurantRef(id: number, scope: PromoScope): Promise<string | null> {
+  if (!Number.isFinite(id) || (!scope.unrestricted && !scope.allowedRefs.length)) return null
   const rows = (await sql`SELECT restaurant_ref FROM promo_codes WHERE id = ${id} AND funded_by = 'RESTAURANT' LIMIT 1`) as { restaurant_ref: string | null }[]
   const ref = rows[0]?.restaurant_ref || ''
-  return ref && allowedRefs.includes(ref) ? ref : null
+  return ref && isPromoRefAllowed(scope, ref) ? ref : null
 }
 
 // PATCH — edit fields and/or toggle active. Any subset of:
@@ -23,7 +23,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   try {
     await runMigrations()
     const id = parseInt((await params).id, 10)
-    const ownedRef = await ownedRestaurantRef(id, scope.allowedRefs)
+    const ownedRef = await ownedRestaurantRef(id, scope)
     if (!ownedRef) {
       return NextResponse.json({ error: 'Promo code not found.' }, { status: 404 })
     }
@@ -90,7 +90,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   try {
     await runMigrations()
     const id = parseInt((await params).id, 10)
-    if (!(await ownedRestaurantRef(id, scope.allowedRefs))) {
+    if (!(await ownedRestaurantRef(id, scope))) {
       return NextResponse.json({ error: 'Promo code not found.' }, { status: 404 })
     }
     // A code that's been used is kept for its redemption history — deactivate

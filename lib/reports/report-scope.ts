@@ -3,6 +3,12 @@
 // that list arrives from the client — so it must be constrained to the caller's
 // OWN restaurants, else a crafted payload could pull other restaurants' orders
 // into the report (RM8). Unknown/empty → the report's own restaurant only.
+//
+// READ-PATH GAP (deliberately deferred, not fixed): doesn't branch on role at
+// all, so a disco-native SUPER_ADMIN's report filter here is narrowed to
+// `scope` (the report's own restaurant) + their group, same as anyone else —
+// a true "any restaurant" report filter would need a real list-all query, not
+// built. Never an error, never another owner's orders in the report.
 import { getDiscoGroupAccounts } from '../disco-restaurant-auth'
 import type { ReportFilter } from './native-reports'
 

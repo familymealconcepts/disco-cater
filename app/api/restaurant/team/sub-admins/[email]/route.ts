@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
-import { getLocationAccessRefs, grantLocationAccess, getHomeLocationRef } from '../../../../../../lib/disco-restaurant-auth'
+import { grantLocationAccess, getHomeLocationRef } from '../../../../../../lib/disco-restaurant-auth'
+import { resolveDiscoAccessScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,10 +41,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ emai
       ? body.restaurantReferences.map((r: unknown) => String(r)).filter(Boolean)
       : []
 
-    let psaRefs = await getLocationAccessRefs(ctx.email)
-    if (!psaRefs.length && ctx.restaurantReference) psaRefs = [ctx.restaurantReference]
-    const psaSet = new Set(psaRefs)
-    const granted = requested.filter(r => psaSet.has(r))
+    // Unrestricted for a SUPER_ADMIN — the Disco Cater team.
+    const psaScope = await resolveDiscoAccessScope(ctx)
+    const granted = requested.filter(r => discoRefAllowed(psaScope, r))
 
     const home = await getHomeLocationRef(subEmail)
     const keep = new Set(granted)

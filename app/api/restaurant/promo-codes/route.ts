@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { sql, runMigrations } from '../../../../lib/db'
-import { resolvePromoScope } from '../../../../lib/restaurant-promo'
+import { resolvePromoScope, isPromoRefAllowed } from '../../../../lib/restaurant-promo'
 import { getRestaurantTimezone, localDayBoundaryToUTC } from '../../../../lib/timezone'
 
 export const runtime = 'nodejs'
@@ -47,8 +47,14 @@ export async function GET(req: NextRequest) {
     // scope, otherwise all in-scope locations.
     let refs = scope.allowedRefs
     const focus = queryRef || (scope.isSystemAdmin ? selected : '')
-    if (focus && scope.allowedRefs.includes(focus)) refs = [focus]
+    if (focus && isPromoRefAllowed(scope, focus)) refs = [focus]
 
+    // NOTE: a disco-native SUPER_ADMIN with no explicit ?restaurantReference/
+    // selected-location focus falls through to `scope.allowedRefs` here, which
+    // is empty for that role (see resolvePromoScope) — this list/location-
+    // dropdown only shows a specific focused location, never "every
+    // restaurant," pending a real list-all-restaurants query. Documented
+    // deliberately-deferred read-path gap; see lib/restaurant-write-scope.ts.
     if (!refs.length) {
       return NextResponse.json({ role: scope.role, isSystemAdmin: scope.isSystemAdmin, codes: [], locations: [] })
     }
@@ -108,7 +114,7 @@ export async function POST(req: NextRequest) {
       restaurantRef = String(body?.restaurantReference || '').trim()
       if (!restaurantRef) return NextResponse.json({ error: 'Select a location for this promo code.' }, { status: 400 })
     }
-    if (!UUID_RE.test(restaurantRef) || !scope.allowedRefs.includes(restaurantRef)) {
+    if (!UUID_RE.test(restaurantRef) || !isPromoRefAllowed(scope, restaurantRef)) {
       return NextResponse.json({ error: 'You don’t have access to that location.' }, { status: 403 })
     }
 

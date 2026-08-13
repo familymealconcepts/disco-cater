@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
-import { discoGroupRefs } from '../../../../../lib/disco-restaurant-auth'
+import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -13,7 +13,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // edit dialog expects. Category/fulfillment defaults keep the form submittable.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    if (!(await discoGroupRefs(ctx.businessName, ctx.email, ctx.restaurantReference)).has(ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+    // Properly role-scoped: ADMIN → home only, SYSTEM_ADMIN → their group,
+    // SUPER_ADMIN → unrestricted. Previously this checked discoGroupRefs
+    // directly with no role gate at all, so a plain ADMIN would ALSO get
+    // whatever business_name/email-domain group that primitive resolves —
+    // safe today only by coincidence (single-location ADMIN accounts don't
+    // currently share a group), not by design.
+    if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     await runMigrations()
     const rows = (await sql`
       SELECT restaurant_reference AS reference, name, address, address_line2, city, state, zipcode, phone, lat, lng, timezone, cuisine
@@ -58,7 +64,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // Disco-native: persist the editable fields to disco_restaurant_cache.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    if (!(await discoGroupRefs(ctx.businessName, ctx.email, ctx.restaurantReference)).has(ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+    // Properly role-scoped: ADMIN → home only, SYSTEM_ADMIN → their group,
+    // SUPER_ADMIN → unrestricted. Previously this checked discoGroupRefs
+    // directly with no role gate at all, so a plain ADMIN would ALSO get
+    // whatever business_name/email-domain group that primitive resolves —
+    // safe today only by coincidence (single-location ADMIN accounts don't
+    // currently share a group), not by design.
+    if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     try {
       const ct = req.headers.get('content-type') || ''
       let payload: Record<string, unknown> = {}

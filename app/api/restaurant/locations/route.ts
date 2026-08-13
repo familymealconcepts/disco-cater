@@ -9,6 +9,15 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // Disco-native: the SA's locations are their group accounts (getDiscoGroupAccounts),
 // enriched from disco_restaurant_cache. Returns FM's { content, totalElements } +
 // Location field names so the page needs no changes. Zero FM.
+//
+// READ-PATH GAP (deliberately deferred, not fixed): doesn't branch on role at
+// all, so a disco-native SUPER_ADMIN (unrestricted by the write-path fix) gets
+// no special treatment here — this list only ever shows their own
+// business_name/email-domain group. A true "every restaurant" view for
+// SUPER_ADMIN would need a real list-all-restaurants query, which does not
+// exist; building one wasn't in scope. Today a SUPER_ADMIN sees their own
+// home restaurant only (if their account has restaurantReference set) or an
+// empty list (if not) — never an error, never another owner's locations.
 async function discoLocations(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, req: NextRequest) {
   const group = await getDiscoGroupAccounts(ctx.businessName, ctx.email)
   const refs = [...new Set([ctx.restaurantReference, ...group.map(g => g.restaurant_reference)].filter(Boolean))]

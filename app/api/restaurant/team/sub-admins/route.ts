@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { runDiscoOrderMigrations, sql } from '../../../../../lib/db'
-import { getLocationAccessRefs, grantLocationAccess, hashPassword, setInviteToken } from '../../../../../lib/disco-restaurant-auth'
+import { grantLocationAccess, hashPassword, setInviteToken } from '../../../../../lib/disco-restaurant-auth'
+import { resolveDiscoAccessScope, discoRefAllowed } from '../../../../../lib/restaurant-write-scope'
 import { sendTeamMemberInvite } from '../../../../../lib/email/notifications'
 
 const SITE_URL = 'https://www.discocater.com'
@@ -40,11 +41,10 @@ export async function POST(req: NextRequest) {
 
     await runDiscoOrderMigrations()
 
-    // Enforce: the new user can only get locations the inviter actually has.
-    let psaRefs = await getLocationAccessRefs(ctx.email)
-    if (!psaRefs.length && ctx.restaurantReference) psaRefs = [ctx.restaurantReference]
-    const psaSet = new Set(psaRefs)
-    let granted = requested.filter(r => psaSet.has(r))
+    // Enforce: the new user can only get locations the inviter actually has
+    // (unrestricted for a SUPER_ADMIN — the Disco Cater team).
+    const psaScope = await resolveDiscoAccessScope(ctx)
+    let granted = requested.filter(r => discoRefAllowed(psaScope, r))
     if (!granted.length) {
       return NextResponse.json({ error: 'You can only assign locations you have access to' }, { status: 403 })
     }

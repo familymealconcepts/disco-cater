@@ -29,6 +29,12 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
 
   // Scope: an explicit in-group location wins; else an SA sees their whole group
   // ("All restaurants"), and a single-location admin sees their own.
+  //
+  // READ-PATH GAP (deliberately deferred, not fixed): "All restaurants" for a
+  // disco-native SUPER_ADMIN still means their own group here, not literally
+  // every restaurant — a true platform-wide aggregate would need a real
+  // list-all query, not built. With no group and no home ref this returns an
+  // empty {} (blank cards), never an error and never another owner's figures.
   const queryRef = sp.get('restaurantReference') || ''
   let refs: string[] = []
   let group: { restaurant_reference: string }[] = []

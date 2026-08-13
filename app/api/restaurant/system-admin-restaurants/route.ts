@@ -20,6 +20,12 @@ export async function GET() {
   // Disco-native sessions have no FM token — resolve their location list from
   // Neon. A Disco SYSTEM_ADMIN sees every location in their group; a Disco
   // ADMIN sees only their own (mirrors the FM-side per-role filtering).
+  //
+  // READ-PATH GAP (deliberately deferred, not fixed): a disco-native
+  // SUPER_ADMIN's location-switcher list here is still their own group, not
+  // literally every restaurant — a true "pick any restaurant" picker would
+  // need a real list-all query, not built. With no group and no home ref this
+  // returns an empty list (never an error, never another owner's locations).
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
     try {

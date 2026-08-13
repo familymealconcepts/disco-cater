@@ -1,6 +1,6 @@
-import { getRestaurantAuthContext } from './restaurant-auth-context'
+import { getRestaurantAuthContext, type RestaurantAuthContext } from './restaurant-auth-context'
 import { getRestaurantRole, getRestaurantHomeRef, getFmSystemAdminPermittedRefs } from './restaurant-auth'
-import { getDiscoGroupAccounts } from './disco-restaurant-auth'
+import { getDiscoGroupAccounts, discoGroupRefs, getLocationAccessRefs } from './disco-restaurant-auth'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -74,4 +74,47 @@ export async function requireWritableRestaurantRef(claimedRef: unknown): Promise
   if (!scope) return { ok: false, status: 401, error: 'Not authenticated' }
   if (!isRefAllowed(scope, ref)) return { ok: false, status: 403, error: 'You do not have access to that restaurant' }
   return { ok: true, ref }
+}
+
+// ── Disco-native-only scoping helpers ──────────────────────────────────────
+//
+// A handful of disco-native routes already hold a `ctx` (from
+// getRestaurantAuthContext()) and only need a yes/no "is this specific ref in
+// reach" check against ONE of two existing group primitives — discoGroupRefs
+// (business_name/email-domain grouping, preferring explicit
+// disco_restaurant_location_access when present) or getLocationAccessRefs
+// (the explicit ACL table only, home-ref fallback). Neither primitive branches
+// on role: they just answer "what is this email's group," which is the wrong
+// question for a SUPER_ADMIN (unrestricted — the Disco Cater team) and is
+// unsafe to apply to a plain ADMIN too (a coincidental shared business_name/
+// email-domain would otherwise hand them another owner's locations). These
+// two helpers wrap each primitive with the correct role gate; callers that
+// already picked one of the two primitives keep using that same data source,
+// only the role handling changes.
+//
+// FM-session scoping is untouched by these — see each call site's own
+// deferred-FM comment (native conversion makes those short-lived).
+export interface DiscoPermittedRefs { unrestricted: boolean; refs: Set<string> }
+
+export function discoRefAllowed(scope: DiscoPermittedRefs, ref: string): boolean {
+  return scope.unrestricted || scope.refs.has(ref)
+}
+
+// For call sites keyed on discoGroupRefs (locations/*, upload-image, bulk-pricing).
+export async function resolveDiscoGroupScope(ctx: RestaurantAuthContext): Promise<DiscoPermittedRefs> {
+  if (ctx.role === 'SUPER_ADMIN') return { unrestricted: true, refs: new Set() }
+  if (ctx.role !== 'SYSTEM_ADMIN') return { unrestricted: false, refs: new Set([ctx.restaurantReference].filter(Boolean)) }
+  return { unrestricted: false, refs: await discoGroupRefs(ctx.businessName, ctx.email, ctx.restaurantReference) }
+}
+
+// For call sites keyed on getLocationAccessRefs (order-scope, multi-unit-links,
+// team/sub-admins) — explicit ACL table only, with a home-ref fallback when the
+// account has no explicit rows yet.
+export async function resolveDiscoAccessScope(ctx: RestaurantAuthContext): Promise<DiscoPermittedRefs> {
+  if (ctx.role === 'SUPER_ADMIN') return { unrestricted: true, refs: new Set() }
+  if (ctx.role !== 'SYSTEM_ADMIN') return { unrestricted: false, refs: new Set([ctx.restaurantReference].filter(Boolean)) }
+  let refs: string[] = []
+  try { refs = await getLocationAccessRefs(ctx.email) } catch { /* fall through to home-only below */ }
+  if (!refs.length && ctx.restaurantReference) refs = [ctx.restaurantReference]
+  return { unrestricted: false, refs: new Set(refs) }
 }

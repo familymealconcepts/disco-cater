@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
-import { discoGroupRefs } from '../../../../../../lib/disco-restaurant-auth'
+import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -19,11 +19,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // location to the target index, and renumber location_position across the group.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    const refs = await discoGroupRefs(ctx.businessName, ctx.email, ctx.restaurantReference)
-    if (!refs.has(ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+    const scope = await resolveDiscoGroupScope(ctx)
+    if (!discoRefAllowed(scope, ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     try {
       await runMigrations()
-      const refArr = [...refs]
+      // Reordering only makes sense within a bounded group. A SUPER_ADMIN
+      // (unrestricted — no bounded group at all) reorders `ref` in isolation
+      // rather than renumbering every restaurant in Neon; SYSTEM_ADMIN/ADMIN
+      // reorder within their actual group, unchanged.
+      const refArr = scope.unrestricted ? [ref] : [...scope.refs]
       const ordered = (await sql`
         SELECT restaurant_reference AS ref FROM disco_restaurant_cache
         WHERE restaurant_reference = ANY(${refArr}::text[])

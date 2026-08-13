@@ -142,6 +142,12 @@ export async function GET(req: NextRequest) {
   // rows (e.g. an FM-native SYSTEM_ADMIN whose email isn't in our table), fall
   // back to their own FM-JWT / account restaurant_reference so they still see
   // their location instead of an empty list.
+  //
+  // READ-PATH GAP (deliberately deferred, not fixed): a disco-native
+  // SUPER_ADMIN's aggregate here is still their own access rows / home ref,
+  // not literally every restaurant's orders — a true platform-wide view would
+  // need a real list-all query, not built. With neither, this returns an
+  // empty order list below (never an error, never another owner's orders).
   let groupRefs: string[] | null = null
   if (!scopeRef && isSA) {
     let accessRefs: string[] = []

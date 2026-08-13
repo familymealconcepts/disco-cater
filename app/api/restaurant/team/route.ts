@@ -24,6 +24,11 @@ export async function GET() {
     await runDiscoOrderMigrations()
 
     // Section 1 — locations the PSA can access (name + address + live status).
+    // READ-PATH GAP (deliberately deferred, not fixed): doesn't branch on role
+    // — a disco-native SUPER_ADMIN sees only their own explicit-access rows
+    // here (home restaurant only, or empty if their account has none), same
+    // as any other account. A true "every restaurant" view would need a real
+    // list-all query; not built. Never an error, never another owner's data.
     let refs = await getLocationAccessRefs(ctx.email)
     if (!refs.length && ctx.restaurantReference) refs = [ctx.restaurantReference]
     const locations = refs.length
