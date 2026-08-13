@@ -34,6 +34,21 @@
 //   npx tsx scripts/fm-order-backfill.ts --backfill-placed-at                 dry run
 //   npx tsx scripts/fm-order-backfill.ts --backfill-placed-at --execute       real writes, full run
 //
+// --backfill-tax-exempt-id: same shape as --backfill-placed-at — fills
+// disco_orders.tax_exempt_id from fm_backup's tbl_restaurant_orders.tax_exempt_id
+// for FM-mirrored orders that don't have it yet. This is the field that
+// actually drives isTaxExempt (order pages/PDF check taxExemptId, not the
+// display-only taxExemptState label) — a tax-exempt order missing this shows
+// as taxable, a real invoice-correctness bug, not cosmetic. Confirmed neither
+// FM live endpoint used by the sync (list or per-order details) exposes any
+// tax-exempt field at all, so this can only ever be filled from fm_backup —
+// pre-freeze orders are the entire fixable population; nothing closes the
+// same gap for post-freeze/ongoing FM orders without a change on FM's side.
+// Fill-blank-only (WHERE tax_exempt_id IS NULL both in the candidate query and
+// the UPDATE itself), trivially idempotent.
+//   npx tsx scripts/fm-order-backfill.ts --backfill-tax-exempt-id               dry run
+//   npx tsx scripts/fm-order-backfill.ts --backfill-tax-exempt-id --execute     real writes, full run
+//
 // Source database: defaults to the local `fm_backup` database (the original
 // 2026-06-17 full snapshot). Override with --source-db=<name> or the
 // FM_BACKUP_DB env var (flag wins) to point at a different local restore —
@@ -597,6 +612,48 @@ async function executePlacedAtChunk(batch: PlacedAtCandidate[]): Promise<number>
   return updated.length
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// tax_exempt_id backfill — see the header comment for --backfill-tax-exempt-id.
+// Same shape as the placed_at fill above; independent of EXCLUDED_ORDER_IDS for
+// the same reason (this order-level field has no dependency on the sale-
+// transaction data those 6 are excluded for).
+// ═══════════════════════════════════════════════════════════════════════════
+interface TaxExemptCandidate { orderId: number; fmRef: string; taxExemptId: string }
+
+async function loadTaxExemptCandidates(fm: Client): Promise<{ candidates: TaxExemptCandidate[] }> {
+  const discoRows = (await sql`
+    SELECT id, fm_order_reference FROM disco_orders
+    WHERE source_of_order = 'FAMILYMEAL' AND is_deleted = false
+      AND fm_order_reference IS NOT NULL AND tax_exempt_id IS NULL
+    ORDER BY id
+  `) as { id: number; fm_order_reference: string }[]
+
+  const fmOrders = await fm.query<{ reference: string; tax_exempt_id: string | null }>(`
+    SELECT reference, tax_exempt_id FROM familymeal.tbl_restaurant_orders
+    WHERE tax_exempt_id IS NOT NULL AND tax_exempt_id <> ''
+  `)
+  const idByRef = new Map(fmOrders.rows.map(r => [r.reference, r.tax_exempt_id as string]))
+
+  const candidates: TaxExemptCandidate[] = []
+  for (const r of discoRows) {
+    const id = idByRef.get(r.fm_order_reference)
+    if (id) candidates.push({ orderId: r.id, fmRef: r.fm_order_reference, taxExemptId: id })
+  }
+  return { candidates }
+}
+
+async function executeTaxExemptChunk(batch: TaxExemptCandidate[]): Promise<number> {
+  const orderIds = batch.map(c => c.orderId)
+  const ids = batch.map(c => c.taxExemptId)
+  const updated = (await sql`
+    UPDATE disco_orders o SET tax_exempt_id = u.tid, updated_at = NOW()
+    FROM unnest(${orderIds}::bigint[], ${ids}::text[]) AS u(order_id, tid)
+    WHERE o.id = u.order_id AND o.tax_exempt_id IS NULL
+    RETURNING o.id
+  `) as { id: number }[]
+  return updated.length
+}
+
 async function main() {
   const args = process.argv.slice(2)
   const execute = args.includes('--execute')
@@ -641,6 +698,32 @@ async function main() {
       console.log(`  [chunk ${i + 1}/${pChunks.length}] orders ${batch[0].orderId}-${batch[batch.length - 1].orderId} (${batch.length}) → +${n} placed_at filled  [${elapsedSec}s elapsed, last completed order_id=${batch[batch.length - 1].orderId}]`)
     }
     console.log(`\n=== PLACED_AT EXECUTE COMPLETE === filled=${totalFilled} of ${pWorking.length} candidates`)
+    await fm.end()
+    return
+  }
+
+  if (args.includes('--backfill-tax-exempt-id')) {
+    const { candidates: tCandidates } = await loadTaxExemptCandidates(fm)
+    let tWorking = tCandidates
+    if (resumeAfter != null) tWorking = tWorking.filter(c => c.orderId > resumeAfter)
+    if (sample) tWorking = tWorking.slice(0, sample)
+    else if (limit) tWorking = tWorking.slice(0, limit)
+
+    if (!execute) {
+      console.log('\n=== TAX_EXEMPT_ID DRY RUN REPORT ===')
+      console.log(JSON.stringify({ rowsToFill: tCandidates.length }, null, 2))
+      await fm.end()
+      return
+    }
+
+    const tChunks = chunk(tWorking, 1000)
+    let totalFilled = 0
+    for (const batch of tChunks) {
+      const n = await executeTaxExemptChunk(batch)
+      totalFilled += n
+      console.log(`  orders ${batch[0].orderId}-${batch[batch.length - 1].orderId} (${batch.length}) → +${n} tax_exempt_id filled`)
+    }
+    console.log(`\n=== TAX_EXEMPT_ID EXECUTE COMPLETE === filled=${totalFilled} of ${tWorking.length} candidates`)
     await fm.end()
     return
   }
