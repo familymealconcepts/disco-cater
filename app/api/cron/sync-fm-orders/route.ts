@@ -16,6 +16,15 @@
 // app/api/admin/backfill-fm-history/route.ts, which corrected the existing
 // gap; this is what stops the gap from recurring).
 //
+// reconcile:true adds the fix for stopAtKnownDate's own blind spot: it stops
+// at known-covered dates, so it can never detect a hole INSIDE already-
+// covered history (e.g. left behind by the old ceiling bug above, before
+// stopAtKnownDate existed to prevent new ones). Each restaurant in the batch
+// gets one cheap FM count check; on a mismatch this run's pull for that
+// restaurant is upgraded to a full non-incremental pass. See
+// syncAllRestaurantOrders in lib/fm-orders-sync.ts for the full design and
+// cost (~one extra lightweight call per restaurant per batch visit).
+//
 // REQUIRED ENV: CRON_SECRET — Vercel Cron sends it as `Authorization: Bearer …`.
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -69,14 +78,14 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // after page 0 as before; this only pages further when a restaurant has
     // genuinely accumulated more than a page's worth of orders since the last
     // hourly pass.
-    const { restaurants, results } = await syncAllRestaurantOrders({ withItems: false, limit: BATCH, offset, maxPages: 10, stopAtKnownDate: true })
+    const { restaurants, results, mismatches } = await syncAllRestaurantOrders({ withItems: false, limit: BATCH, offset, maxPages: 10, stopAtKnownDate: true, reconcile: true })
     // Advance the cursor; wrap to 0 when this batch was the tail.
     await writeCursor(restaurants < BATCH ? 0 : offset + BATCH)
 
     const synced = results.reduce((a, r) => a + r.inserted + r.updated, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/sync-fm-orders] offset=${offset} restaurants=${restaurants} synced=${synced} (${duration_ms}ms)`)
-    return NextResponse.json({ synced, restaurants, offset, duration_ms })
+    console.log(`[cron/sync-fm-orders] offset=${offset} restaurants=${restaurants} synced=${synced} mismatches=${mismatches.length} (${duration_ms}ms)`)
+    return NextResponse.json({ synced, restaurants, offset, mismatches, duration_ms })
   } catch (e) {
     console.error('[cron/sync-fm-orders] failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'sync failed', duration_ms: Date.now() - startedAt }, { status: 500 })

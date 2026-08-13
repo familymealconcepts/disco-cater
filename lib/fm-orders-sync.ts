@@ -405,6 +405,26 @@ async function fetchFmOrderTotalCount(restaurantReference: string, auth: Record<
   return null
 }
 
+// Single source of truth for "is this restaurant's FM order history fully
+// synced" — used by BOTH syncNonCacheRestaurantOrders and the hourly cron's
+// reconciliation pass (syncAllRestaurantOrders's reconcile option) so there is
+// exactly one definition of "complete," not two implementations that can
+// silently drift apart from each other over time. Complete means Neon's count
+// of FM-mirrored rows is >= FM's live total — >= rather than === because a
+// restaurant can never legitimately exceed FM's count, but treating a rare
+// exact-tie-or-over as "still incomplete" would retry it forever for no reason.
+// Returns null (unknown) if the FM call fails — callers must treat unknown as
+// "try again next run," never as proof of either complete or incomplete.
+export async function checkFmSyncComplete(
+  restaurantReference: string,
+  neonCount: number,
+  auth: Record<string, string>,
+): Promise<{ complete: boolean; fmTotal: number } | null> {
+  const fmTotal = await fetchFmOrderTotalCount(restaurantReference, auth)
+  if (fmTotal == null) return null
+  return { complete: neonCount >= fmTotal, fmTotal }
+}
+
 // Sync one restaurant's FM orders into Neon. `maxPages` bounds the pull (most
 // recent first, FM has no documented since-date filter on this endpoint so we
 // can't ask it to skip old pages directly); `withItems` also pulls per-order
@@ -491,9 +511,28 @@ export async function syncOneFmOrder(fmRef: string, withItems = true): Promise<{
 
 // Sync many restaurants (super-admin / cron). Pulls candidate restaurant UUIDs
 // from the restaurant cache. Bounded by limit/offset for batching.
+//
+// `reconcile: true` adds the fix for the stopAtKnownDate blind spot: that
+// option (used by the hourly cron for its normal incremental pass) stops
+// paging as soon as it reaches order dates already covered by a prior sync —
+// it has no way to detect a HOLE inside already-covered territory (exactly
+// the shape of damage the old "~100 most recent orders" ceiling bug left
+// behind for restaurants first synced before stopAtKnownDate existed). With
+// reconcile on, each restaurant in the batch gets one extra cheap FM call
+// (checkFmSyncComplete, shared with syncNonCacheRestaurantOrders) comparing
+// Neon's count against FM's live total; on a mismatch, that restaurant's pull
+// for this run is upgraded to a full non-incremental pass (stopAtKnownDate:
+// false, maxPages:500) instead of the normal shallow one, and the mismatch is
+// both logged and alerted — a mismatch found by a low-noise, otherwise-cheap
+// sweep is worth surfacing, not silently absorbed as if the sweep's job is to
+// hide problems rather than report them. Cost: one lightweight page=0,size=1
+// FM call per restaurant per batch visit (e.g. 50/hour at the hourly cron's
+// current BATCH), so a full 4,082-restaurant fleet sweep completes in ~82
+// hourly runs (~3.4 days) — the expensive full pull only fires for the small
+// minority that actually mismatch.
 export async function syncAllRestaurantOrders(
-  opts: { withItems?: boolean; limit?: number; offset?: number; maxPages?: number; stopAtKnownDate?: boolean } = {},
-): Promise<{ restaurants: number; results: SyncResult[] }> {
+  opts: { withItems?: boolean; limit?: number; offset?: number; maxPages?: number; stopAtKnownDate?: boolean; reconcile?: boolean } = {},
+): Promise<{ restaurants: number; results: SyncResult[]; mismatches: { restaurantReference: string; neonCount: number; fmTotal: number }[] }> {
   const limit = Math.min(opts.limit ?? 50, 200)
   const offset = opts.offset ?? 0
   const rows = (await sql`
@@ -503,14 +542,42 @@ export async function syncAllRestaurantOrders(
 
   const refs = rows.map(r => r.restaurant_reference).filter(isUuid)
   const results: SyncResult[] = []
+  const mismatches: { restaurantReference: string; neonCount: number; fmTotal: number }[] = []
+  let auth: Record<string, string> | null = null
+
   for (const ref of refs) {
+    let stopAtKnownDate = opts.stopAtKnownDate
+    let maxPages = opts.maxPages ?? 3
+
+    if (opts.reconcile) {
+      if (!auth) { try { auth = await getFmServiceAuthHeader() } catch { auth = null } }
+      if (auth) {
+        const neonRows = (await sql`
+          SELECT COUNT(*)::int AS n FROM disco_orders
+          WHERE restaurant_reference = ${ref}::uuid AND fm_order_reference IS NOT NULL AND is_deleted = false
+        `.catch(() => [])) as { n: number }[]
+        const neonCount = neonRows[0]?.n ?? 0
+        const check = await checkFmSyncComplete(ref, neonCount, auth)
+        if (check && !check.complete) {
+          const delta = check.fmTotal - neonCount
+          console.warn(`[fm-orders-sync] reconciliation mismatch: restaurant=${ref} neonCount=${neonCount} fmTotal=${check.fmTotal} delta=${delta}`)
+          await alertOps('fm-orders-sync: reconciliation sweep found a historical gap', {
+            restaurantReference: ref, neonCount, fmTotal: check.fmTotal, delta,
+          })
+          mismatches.push({ restaurantReference: ref, neonCount, fmTotal: check.fmTotal })
+          stopAtKnownDate = false
+          maxPages = 500
+        }
+      }
+    }
+
     results.push(await syncRestaurantOrders(ref, {
       withItems: opts.withItems ?? false,
-      maxPages: opts.maxPages ?? 3,
-      stopAtKnownDate: opts.stopAtKnownDate,
+      maxPages,
+      stopAtKnownDate,
     }))
   }
-  return { restaurants: refs.length, results }
+  return { restaurants: refs.length, results, mismatches }
 }
 
 // Cache-independent history sync for restaurants disco_restaurant_cache's own
@@ -623,9 +690,9 @@ export async function syncNonCacheRestaurantOrders(): Promise<{
       // fetches, upsertOne re-checks each by fm_order_reference and updates,
       // no duplicate rows are ever created).
       if (!auth) { try { auth = await getFmServiceAuthHeader() } catch { auth = null } }
-      const fmTotal = auth ? await fetchFmOrderTotalCount(ref, auth) : null
-      if (fmTotal == null) { countCheckFailed++; continue } // can't tell — don't guess, try again next run
-      if (currentCount >= fmTotal) { alreadyComplete++; continue }
+      const check = auth ? await checkFmSyncComplete(ref, currentCount, auth) : null
+      if (!check) { countCheckFailed++; continue } // can't tell — don't guess, try again next run
+      if (check.complete) { alreadyComplete++; continue }
       resumedPartial++
     }
     // Same params as backfillFmOrderHistory (lib/native-conversion.ts) —
