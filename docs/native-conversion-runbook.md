@@ -336,36 +336,72 @@ fixed — that's a separate decision.
 
 ## Admin access for multi-location brands
 
-`ensureRestaurantLoginInvited` hardcodes `role: 'ADMIN'` and creates exactly
-**one row, scoped to one restaurant**. It has no concept of "this person also
-runs 5 other locations." For a multi-location brand, after the admin's first
-successful login (see §6 — this is the step currently blocking DeCheco's),
-someone with `SUPER_ADMIN` access has to grant the other locations explicitly:
+**FM's own SYSTEM_ADMIN structure is authoritative — mirror it, don't invent a
+Disco-side grant plan.** `GET /api/admin/users/system-admin` (paged, no working
+server-side filter — see the search-bug note below) returns every FM system
+admin with a `role` (`SYSTEM_ADMIN` or `ADMIN`) and a `managedRestaurants[]`
+list of every location they cover. This is the real, complete structure —
+checked, not assumed, after an earlier turn in this thread wrongly concluded
+DeCheco's only had two single-location admins (Nathan, Cory) based on a search
+box that was silently filtering the wrong thing (see below). Live data showed
+**four** FM SYSTEM_ADMINs — Dominic LaGuardia, Nathan DeCheco, Cory O'Connor,
+and Tyron User — each already covering all 6 DeCheco's locations in FM.
 
-```
-POST /api/admin/system-admins/{email}/locations
-Body: { "restaurantReference": "<other location's ref>" }
-```
+Two gaps this exposed, both now fixed:
 
-which calls `grantLocationAccess(email, restaurantReference, grantedBy)` —
-a plain `INSERT INTO disco_restaurant_location_access (account_email,
-restaurant_reference, granted_by) ... ON CONFLICT (account_email,
-restaurant_reference) DO NOTHING`. One call per location; there's no
-"grant this whole brand" bulk action today.
+1. **`ensureRestaurantLoginInvited` only ever reads the single per-restaurant
+   `admin` field**, never FM's separate system-admin list. A brand can have
+   system admins covering a restaurant that never appears in that one field at
+   all — confirmed real: Tyron covered all 6 DeCheco's locations in FM but was
+   never invited by anything, because he was never any single location's
+   `admin.email`. Fixed by `inviteFmSystemAdminsFor(ref, restaurantName)`
+   (`lib/native-conversion.ts`), called from `convertToNative` alongside (not
+   instead of) the existing per-restaurant invite — same best-effort,
+   never-blocks-the-conversion contract as every other carry-over step. For
+   each FM SYSTEM_ADMIN whose `managedRestaurants` includes the converting
+   restaurant: invite them if they have no Disco account yet (skip silently if
+   they already do — most will, from a sibling location's conversion or the
+   per-restaurant admin invite), and mirror FM's **full** `managedRestaurants`
+   set into `disco_restaurant_location_access` for them — not just the one
+   restaurant currently converting, so a multi-location brand's grants match
+   FM immediately rather than trickling in location-by-location as each one
+   happens to convert.
+2. **Grants should mirror FM, never be assigned by hand.** A super admin
+   manually granting `grantLocationAccess` — even with good intentions — can
+   silently disagree with FM the moment FM's own structure differs from what's
+   assumed (exactly what happened here: Nathan and Cory were manually granted
+   all 6 on the belief they were single-location, when FM already had them at
+   all 6). `grantLocationAccess` itself does no FM cross-check — it's a plain
+   `INSERT INTO disco_restaurant_location_access (account_email,
+   restaurant_reference, granted_by) ... ON CONFLICT (account_email,
+   restaurant_reference) DO NOTHING` with no validation against anything. The
+   fix is procedural, not code: **don't hand-grant locations — verify FM's
+   mirrored system-admin scope came through** (via
+   `inviteFmSystemAdminsFor`/conversion, or `POST /api/admin/system-admins/
+   {email}/locations` if a location needs syncing after the fact), and if FM
+   disagrees with an assumption, FM wins.
 
 Confirmed from the table's own migration (`lib/migrations/001_disco_orders.sql`):
 `account_email` is a plain `TEXT` column with **no foreign key** to
 `disco_restaurant_accounts` — only a `UNIQUE(account_email, restaurant_reference)`
-constraint. **A grant can be pre-created for an email before that email has
-ever logged in or has any account row at all.** This matters directly for
-DeCheco's: Nathan and Cory currently have zero `disco_restaurant_accounts`
-rows (they're FM admins, not Disco accounts yet), but their location grants
-for all 6 DeCheco's locations could be inserted today, ahead of anyone's
-first login — they'd just be sitting there, ready, the moment each admin
-actually accepts an invite and gets a real account row. The self-service
-`/api/restaurant/team/sub-admins` path can't do this bootstrapping — it only
-lets an existing `SYSTEM_ADMIN` delegate locations they themselves already
-have, so it's admin-side-only for a first-time multi-location grant.
+constraint, so a grant can be pre-created for an email before that person has
+ever logged in or has any account row at all. This is exactly how
+`inviteFmSystemAdminsFor` pre-seeds a brand's *other*, not-yet-converted
+locations into the same person's grants the moment any one of their
+locations converts.
+
+**Why this was initially misread**: the super admin System Admins page's
+search box filtered client-side, over whatever 25-row page of FM's 363 total
+system admins happened to already be loaded — typing "decheco" found only
+whichever DeCheco's admin(s) landed on page 1 (Dominic), making it look like
+Nathan and Cory didn't exist as system admins at all. FM's own
+`/api/admin/users/system-admin` endpoint has no working server-side filter
+either (confirmed empirically — `search`, `query`, `name`, `email`, `q`,
+`searchName`, and several other likely param names were all tried live; none
+changed the 363-record result). Fixed in `app/api/admin/system-admins/route.ts`
+by fetching FM's full list once (it returns all 363 in a single page at
+`size=2000`) and filtering server-side across name, email, and
+`managedRestaurants[].businessName` — the fix lives in the route, not in FM.
 
 ---
 
@@ -409,8 +445,18 @@ Live query, today, against all 6 (`Cuyahoga Falls`, `Fairlawn`,
 | Stripe account | Real `acct_...` id exists for each (FM's own `tbl_stripe_connected_accounts`, matched by reference — not fuzzy-matched); live-verified **reusable (`charges_enabled` + `transfers: active`) for all 6** | **Ours** — one `importRestaurantStripeAccount` call per location, no restaurant action needed |
 | Tax rate | Null in FM's own data for all 6 (confirmed, not just inaccessible) | **DeCheco's** — a real conversation, not a data fix; genuinely nothing to import |
 | Native menu | 0 items in Neon, all 6 | **Ours** — one `import-fm-menu` call per location, real FM menus exist to pull from |
-| Admin accounts | **Zero rows** in `disco_restaurant_accounts` for any of the 6 — Nathan and Cory are FM admins only | **Ours**, automatic — `ensureRestaurantLoginInvited` fires the moment each location converts |
-| Multi-location grant | Not yet grantable via the self-service path (no account rows yet), but **can be pre-created now** via `grantLocationAccess`/the admin locations route, ahead of first login | **Ours** — 12 calls (2 admins × 6 locations), can be done today |
+| Admin accounts | **Zero rows** in `disco_restaurant_accounts` for any of the 6 at the time of this check | **Ours**, automatic — `ensureRestaurantLoginInvited` + `inviteFmSystemAdminsFor` both fire the moment each location converts |
+| System-admin scope | FM already has **four** SYSTEM_ADMINs — Dominic, Nathan, Cory, Tyron — each covering all 6 (checked live via `/api/admin/users/system-admin`, not assumed from the per-restaurant admin field) | **FM's, mirror it** — `inviteFmSystemAdminsFor` grants each of them all 6 automatically on conversion; no manual `grantLocationAccess` calls needed or wanted |
+
+**Update, post-conversion:** all 6 locations have since actually been converted.
+`ensureRestaurantLoginInvited` invited Nathan (Cuyahoga Falls), Cory (Firestone
+Park), and Dominic (Fairlawn) via the per-restaurant admin field, exactly as
+predicted; Tyron was missed by that path (never any single location's admin
+field) and had to be backfilled once `inviteFmSystemAdminsFor` existed —
+exactly the gap it now closes automatically for the next brand. A fleet-wide
+audit after the fix found only one other FM SYSTEM_ADMIN covering a native
+restaurant with no Disco account — an internal test fixture on Pelican
+Delicatessen (`chef+1@familymeal.com`, "Peter Remy Test"), not a real person.
 
 **Your expectation — that this reduces to Stripe account ids plus tax rates,
 with the menu handled by the FM import — is correct for 5 of 6 pieces, with
