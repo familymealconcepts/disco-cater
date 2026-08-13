@@ -234,7 +234,7 @@ export async function sendCustomerOrderConfirmation(
     // Subject mirrors FM: "Disco Cater Order N ($total) date for Name". Total is
     // the net (after any refund), matching the body.
     const subjectTotal = money(p.totalPrice - (p.refund && p.refund > 0 ? p.refund : 0))
-    const subject = `Disco Cater Order ${p.orderNumber} (${subjectTotal})${p.orderDate ? ` ${p.orderDate}` : ''}${customerName ? ` for ${customerName}` : ''}`
+    const subject = `Disco Cater Order ${p.orderNumber} (${subjectTotal})${p.orderDate ? ` ${p.orderDate}` : ''}${p.orderTime ? `, ${p.orderTime}` : ''}${customerName ? ` for ${customerName}` : ''}`
 
     const content = `
 <p style="font-size:15px;font-weight:800;letter-spacing:.05em;margin:0 0 6px;">ORDER RECEIPT</p>

@@ -17,9 +17,29 @@ function toIso(s: string | null): string | null {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : s
 }
 
-// Financial cards for a Disco-native restaurant — aggregated from Neon
-// (disco_sale_transactions + disco_orders), not FM. Field names match the page's
-// SaleStats shape (subtotalOrdersSum, stateSalesTaxInPriceSum, leadgenonediscofee, …).
+// Default restaurant timezone when disco_restaurant_cache has none on file —
+// matches the fallback used elsewhere in the portal (orders/page.tsx).
+const RESTAURANT_TZ_DEFAULT = 'America/New_York'
+
+// Financial cards for a Disco-native restaurant — aggregated DIRECTLY from
+// disco_orders, the same source the Daily Revenue graph (app/api/restaurant/
+// orders/route.ts) and the CSV/Excel/PDF exports already use. disco_orders
+// mirrors BOTH FM-origin and native orders for every restaurant, so this
+// always reflects real order history — unlike the previous query below, which
+// INNER JOINed disco_sale_transactions (populated only by native checkout —
+// 21 rows platform-wide against 21,264 real orders) and silently dropped
+// every FM-mirrored order that has no such row. That's what produced Net
+// Sales $1.00 / 1 order for a restaurant with 318+ real orders.
+//
+// Trade-off: disco_orders has no tax/lead-gen/delivery-split/tips-split/
+// stripe-fee columns — only subtotal/total/fee/tips as combined figures. So
+// Net Sales, # of Orders, Avg. Check, and Total Amount are fully reliable
+// here; Tax Amount, Lead Gen 1/2, Pickup/Self-Delivery/Third-Party Tips,
+// Self-Delivery/Third-Party Delivery (fee), and Stripe Fees genuinely need
+// per-order transaction detail that doesn't exist yet for FM-mirrored orders
+// (see the FM order-detail backfill scope report) — returned as `null`
+// (never a fabricated 0) so the UI can show "Not available" instead of a
+// real-looking zero.
 async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, req: NextRequest) {
   const sp = req.nextUrl.searchParams
   const from = toIso(sp.get('fromDate'))
@@ -50,37 +70,49 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
   if (!refs.length) return NextResponse.json({})
 
   await runDiscoOrderMigrations()
-  // Only paid/settled orders; one ORIGINAL transaction per order (edits excluded to
-  // avoid double-counting). tips_in_price is restaurant-kept (pickup/own delivery);
-  // third_party_delivery_tips route to Disco.
+  // Created Date mode needs the restaurant's OWN local date, not created_at's
+  // UTC date — `created_at AT TIME ZONE tz` converts the timestamptz to that
+  // zone's wall-clock time before the ::date cast. (Previously this cast had
+  // no timezone conversion at all, so "Created Date" mode used the UTC day
+  // boundary — a real bug in its own right, separate from the join issue.)
   const rows = (await sql`
     SELECT
       COUNT(*)::int AS "totalOrdersCount",
-      COALESCE(SUM(st.subtotal), 0)::float8 AS "subtotalOrdersSum",
-      COALESCE(AVG(st.subtotal), 0)::float8 AS "subtotalOrdersAvg",
-      COALESCE(SUM(st.total), 0)::float8 AS "totalOrdersSum",
-      COALESCE(SUM(st.state_tax), 0)::float8 AS "stateSalesTaxInPriceSum",
-      COALESCE(SUM(st.local_tax), 0)::float8 AS "localSalesTaxInPriceSum",
-      COALESCE(SUM(st.other_tax), 0)::float8 AS "otherSalesTaxInPriceSum",
-      COALESCE(SUM(st.lead_gen_one_disco_fee), 0)::float8 AS "leadgenonediscofee",
-      COALESCE(SUM(st.lead_gen_two_disco_fee), 0)::float8 AS "leadgentwodiscofee",
-      COALESCE(SUM(st.service_charge), 0)::float8 AS "serviceChargesSum",
-      COALESCE(SUM(st.stripe_fee), 0)::float8 AS "stripeFeeSum",
-      COALESCE(SUM(st.own_delivery_fee), 0)::float8 AS "ownDeliveryPriceSum",
-      COALESCE(SUM(st.third_party_delivery_tips), 0)::float8 AS "thirdPartyDeliveryTipsOrdersSum",
-      COALESCE(SUM(st.tips_in_price) FILTER (WHERE o.order_type = 'PICKUP'), 0)::float8 AS "pickupTipsInPrice",
-      COALESCE(SUM(st.tips_in_price) FILTER (WHERE o.delivery_type = 'OWN_DELIVERY'), 0)::float8 AS "owndeliveryTipsInPrice",
-      0::float8 AS "doordashTipsOrdersSum",
-      0::float8 AS "doordashDeliveryFeeSum"
-    FROM disco_sale_transactions st
-    JOIN disco_orders o ON o.id = st.order_id
+      COALESCE(SUM(o.subtotal), 0)::float8 AS "subtotalOrdersSum",
+      COALESCE(AVG(o.subtotal), 0)::float8 AS "subtotalOrdersAvg",
+      COALESCE(SUM(o.total), 0)::float8 AS "totalOrdersSum"
+    FROM disco_orders o
+    LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
     WHERE o.restaurant_reference = ANY(${refs}::uuid[])
-      AND st.transaction_type = 'ORIGINAL'
+      AND o.is_deleted = false
       AND o.order_status IN ('DUE','COMPLETED','PAID','PARTIAL_REFUND','REFUND')
-      AND (${from}::date IS NULL OR (CASE WHEN ${byCreated} THEN o.created_at::date ELSE o.order_date END) >= ${from}::date)
-      AND (${to}::date IS NULL OR (CASE WHEN ${byCreated} THEN o.created_at::date ELSE o.order_date END) <= ${to}::date)
+      AND (
+        ${from}::date IS NULL OR
+        (CASE WHEN ${byCreated}
+           THEN (o.created_at AT TIME ZONE COALESCE(rc.timezone, ${RESTAURANT_TZ_DEFAULT}))::date
+           ELSE o.order_date
+         END) >= ${from}::date
+      )
+      AND (
+        ${to}::date IS NULL OR
+        (CASE WHEN ${byCreated}
+           THEN (o.created_at AT TIME ZONE COALESCE(rc.timezone, ${RESTAURANT_TZ_DEFAULT}))::date
+           ELSE o.order_date
+         END) <= ${to}::date
+      )
   `) as Record<string, unknown>[]
-  return NextResponse.json(rows[0] || {})
+
+  // Genuinely unavailable until the FM order-detail backfill lands — null
+  // (never 0) so the UI shows "Not available" rather than a real-looking zero.
+  const unavailable = {
+    stateSalesTaxInPriceSum: null, localSalesTaxInPriceSum: null, otherSalesTaxInPriceSum: null,
+    leadgenonediscofee: null, leadgentwodiscofee: null,
+    serviceChargesSum: null, stripeFeeSum: null,
+    ownDeliveryPriceSum: null, thirdPartyDeliveryFeeSum: null, doordashDeliveryFeeSum: null,
+    pickupTipsInPrice: null, owndeliveryTipsInPrice: null,
+    thirdPartyDeliveryTipsOrdersSum: null, doordashTipsOrdersSum: null,
+  }
+  return NextResponse.json({ ...(rows[0] || {}), ...unavailable })
 }
 
 // FM's dashboard expects dates as DD.MM.YYYY (DateFormatService.formatDate,

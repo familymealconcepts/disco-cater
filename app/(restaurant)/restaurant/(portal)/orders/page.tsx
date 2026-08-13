@@ -8,6 +8,7 @@ import {
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 import { toast } from '../../../../components/ui/feedback'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
+import { fulfillmentDateTime } from '../../../../../lib/order/fulfillment-time'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -832,6 +833,23 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             {/* DELIVERY / PICKUP TIME — customer info */}
             <SectionHeader>{order.orderType === 'DELIVERY' ? 'Delivery Pick-up Time' : 'Pickup Time'}</SectionHeader>
             {(() => {
+              // Self-delivery: order time minus 30 minutes (FM's OWN_DELIVERY
+              // convention), computed fresh — never the raw customer-selected
+              // order time. Pickup and third-party delivery are unchanged here:
+              // pickup has no offset; third-party's real fulfillment time is
+              // meant to come from the courier (Expedite), which has no stored
+              // value yet — deferred, see the backfill scope report.
+              if (order.deliveryType === 'OWN_DELIVERY') {
+                const ft = fulfillmentDateTime(order.deliveryType, order.orderDate, order.orderTime)
+                if (ft) {
+                  return (
+                    <>
+                      <DetailRow label="Date" value={fmtDate(ft.date)} />
+                      <DetailRow label="Time" value={fmtTime(ft.time)} />
+                    </>
+                  )
+                }
+              }
               // Show the drop-off only when it parses to a real datetime; otherwise
               // fall back to the order date/time (never render "Invalid Date").
               const dropOff = fmtDateTime(order.orderDropOffTime)

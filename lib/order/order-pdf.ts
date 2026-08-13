@@ -5,7 +5,7 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import { sql } from '../db'
-import { formatTimeWindow } from '../utils/deliveryTimeWindow'
+import { fulfillmentDateTime } from './fulfillment-time'
 import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
 
 function num(v: unknown): number {
@@ -13,12 +13,27 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 function money(n: number): string { return `$${(Number.isFinite(n) ? n : 0).toFixed(2)}` }
+function toIsoDate(v: unknown): string {
+  return v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? '').slice(0, 10)
+}
 function fmtDate(v: unknown): string {
-  const iso = v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? '').slice(0, 10)
+  const iso = toIsoDate(v)
   if (!iso) return ''
   const [y, m, d] = iso.split('-').map(Number)
   if (!y) return iso
   return `${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}/${y}`
+}
+// Plain "h:mm a" from a raw "HH:MM" / "HH:MM:SS" string — no window-ranging.
+// The pick-up/fulfillment time is a single kitchen-readiness instant, not a
+// customer-facing arrival window (formatTimeWindow's "start - end" range is a
+// different concept and doesn't belong on this box — see fulfillment-time.ts).
+function fmtTime(t: string): string {
+  if (!t) return ''
+  const [h, m] = t.split(':').map(Number)
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return t
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
 export interface OrderPdfData {
@@ -34,6 +49,13 @@ export interface OrderPdfData {
   orderService: string
   orderDate: string
   orderTime: string
+  // Fulfillment/pick-up date+time — same as orderDate/orderTime EXCEPT for a
+  // self-delivery (OWN_DELIVERY) order, which is order time minus 30 minutes
+  // (FM's convention). This is what the "{SERVICE} TIME" box shows; orderDate/
+  // orderTime (the customer's actual selection) stay untouched for the subject
+  // line and ORDER DETAILS block.
+  pickupDate: string
+  pickupTime: string
   orderReceived: string
   deliveryAddress?: string
   persons?: number
@@ -58,7 +80,7 @@ export interface OrderPdfData {
 // disco_orders; FM-mirrored orders on disco_sale_transactions).
 export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData | null> {
   const orders = (await sql`
-    SELECT id, reference, order_number, order_type, order_date, order_time, delivery_time_window, note, delivery_instructions, created_at,
+    SELECT id, reference, order_number, order_type, delivery_type, order_date, order_time, delivery_time_window, note, delivery_instructions, created_at,
            customer_email, customer_first_name, customer_last_name, customer_phone,
            delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
            restaurant_reference, restaurant_name, restaurant_address, restaurant_phone, tax_exempt_id, tips,
@@ -146,7 +168,13 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     companyName: o.company_name ? String(o.company_name) : undefined,
     orderService: String(o.order_type ?? ''),
     orderDate: fmtDate(o.order_date),
-    orderTime: formatTimeWindow(String(o.order_time ?? ''), o.delivery_time_window as string | null, isDelivery),
+    orderTime: fmtTime(String(o.order_time ?? '')),
+    ...(() => {
+      const rawOrderDate = toIsoDate(o.order_date)
+      const rawOrderTime = String(o.order_time ?? '')
+      const ft = fulfillmentDateTime(o.delivery_type as string | null, rawOrderDate, rawOrderTime)
+      return { pickupDate: fmtDate(ft?.date ?? rawOrderDate), pickupTime: fmtTime(ft?.time ?? rawOrderTime) }
+    })(),
     // "Received on …" in the restaurant's local timezone (was UTC, which read
     // ~4h ahead for an EDT restaurant). Falls back to America/New_York.
     orderReceived: o.created_at ? new Date(o.created_at as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: cacheTimezone || 'America/New_York' }) : '',
@@ -215,18 +243,23 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
 
   // ── Subject box + "Received on" ──
   const custName = (d.customerName && d.customerName !== '—') ? d.customerName : ''
-  const subject = `Disco Cater Order ${d.orderNumber} (${money(d.total)})${d.orderDate ? ` ${d.orderDate}` : ''}${custName ? ` for ${custName}` : ''}`
+  const subject = `Disco Cater Order ${d.orderNumber} (${money(d.total)})${d.orderDate ? ` ${d.orderDate}` : ''}${d.orderTime ? `, ${d.orderTime}` : ''}${custName ? ` for ${custName}` : ''}`
   fullBox([{ t: subject, b: true, s: 12 }])
   if (d.orderReceived) fullBox([{ t: `Received on ${d.orderReceived}`, s: 9.5, c: GREY }])
 
   // ── ORDER DETAILS: | {SERVICE} TIME: ──
   const isDelivery = (d.orderService || '').toUpperCase() === 'DELIVERY'
   const timeLabel = isDelivery ? 'DELIVERY PICK-UP TIME:' : `${(d.orderService || 'PICKUP').toUpperCase()} TIME:`
+  // ORDER DETAILS shows the same date/time as the adjacent {SERVICE} TIME box
+  // (previously just the raw service string, e.g. "DELIVERY", with no date/time
+  // at all) — both already computed above, just not included here before.
   const leftDetail: Ln[] = [{ t: 'ORDER DETAILS:', label: true, s: 9.5 }, { t: d.orderService || 'Pickup', s: 11 }]
+  if (d.pickupDate) leftDetail.push({ t: `Date: ${d.pickupDate}`, s: 10, c: GREY })
+  if (d.pickupTime) leftDetail.push({ t: `Time: ${d.pickupTime}`, s: 10, c: GREY })
   if (d.persons) leftDetail.push({ t: `Headcount: ${d.persons}`, s: 10, c: GREY })
   const rightTime: Ln[] = [{ t: timeLabel, label: true, s: 9.5 }]
-  if (d.orderDate) rightTime.push({ t: `Date: ${d.orderDate}`, s: 11 })
-  if (d.orderTime) rightTime.push({ t: `Time: ${d.orderTime}`, s: 11 })
+  if (d.pickupDate) rightTime.push({ t: `Date: ${d.pickupDate}`, s: 11 })
+  if (d.pickupTime) rightTime.push({ t: `Time: ${d.pickupTime}`, s: 11 })
   // 0.5 split so the right column ({SERVICE} TIME) lines up exactly with the
   // Customer box below it — matching the Store column on the left at 0.5.
   splitBox(leftDetail, rightTime, 0.5)

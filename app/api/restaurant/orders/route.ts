@@ -41,6 +41,7 @@ interface OrderRow {
   customer_last_name: string | null
   customer_email: string | null
   order_date: string
+  bucket_date: string
   order_time: string
   subtotal: string | null
   total: string | null
@@ -75,6 +76,11 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     email: r.customer_email || '',
     restaurantName: r.restaurant_name || undefined,
     orderDate: String(r.order_date).slice(0, 10), // YYYY-MM-DD
+    // Which day this order counts toward for trend-chart bucketing — order_date
+    // (default) or the restaurant-local created_at date, matching whichever the
+    // ?dateType= request selected. Distinct from orderDate, which always shows
+    // the customer's actual catering date regardless of dateType.
+    bucketDate: String(r.bucket_date || r.order_date).slice(0, 10),
     orderTime: r.order_time,
     // Restaurant IANA tz — anchors the client's past-date / pickup gates so they
     // agree with the server regardless of the viewer's location.
@@ -119,6 +125,11 @@ export async function GET(req: NextRequest) {
   const search = (sp.get('search') || '').trim()
   const fromDate = (sp.get('fromDate') || '').trim()
   const toDate = (sp.get('toDate') || '').trim()
+  // Order Date (default) vs Created Date — mirrors app/api/restaurant/dashboard/
+  // sale-stats/route.ts's discoSaleStats() so the graph and the cards agree on
+  // which orders are in range. Previously this route ignored dateType entirely
+  // (always filtered on order_date), silently overriding the toggle.
+  const byCreated = sp.get('dateType') === 'createdDate'
 
   // Scope to ONE restaurant (UUID). Explicit ?restaurantReference wins; else a
   // SA's selected location; else the ADMIN's own restaurant. A SA with no
@@ -206,8 +217,15 @@ export async function GET(req: NextRequest) {
     const placeholders = statuses.map(s => { params.push(s); return `$${params.length}` })
     where.push(`order_status IN (${placeholders.join(',')})`)
   }
-  if (fromDate) add('order_date >= ?::date', fromDate)
-  if (toDate) add('order_date <= ?::date', toDate)
+  // Created Date mode compares the restaurant's LOCAL day, not created_at's UTC
+  // day — a correlated subquery (rather than a JOIN) so this slots into both
+  // the COUNT query and the list query, which don't otherwise share a FROM
+  // clause with disco_restaurant_cache.
+  const bucketDateExpr = byCreated
+    ? `(created_at AT TIME ZONE COALESCE((SELECT timezone FROM disco_restaurant_cache WHERE restaurant_reference = disco_orders.restaurant_reference::text LIMIT 1), 'America/New_York'))::date`
+    : 'order_date'
+  if (fromDate) add(`${bucketDateExpr} >= ?::date`, fromDate)
+  if (toDate) add(`${bucketDateExpr} <= ?::date`, toDate)
   if (search) {
     // Strip a leading '#' so "#87803110" matches the same as "87803110". Search
     // across full name, order number, and email — case-insensitive, at the SQL
@@ -251,6 +269,7 @@ export async function GET(req: NextRequest) {
       `SELECT disco_orders.reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
               source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name,
               to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
+              to_char(${byCreated ? "(created_at AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))" : 'order_date'}, 'YYYY-MM-DD') AS bucket_date,
               subtotal, COALESCE(NULLIF(disco_orders.total, 0), sp.sp_total) AS total, fee, tips, refund, note, seen_by_admin,
               COALESCE(edit_count,0) AS edit_count, edit_status, created_at, persons,
               company_name, tax_exempt_id, tax_exempt_state, rc.timezone AS timezone

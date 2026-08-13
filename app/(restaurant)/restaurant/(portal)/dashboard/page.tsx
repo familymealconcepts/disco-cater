@@ -21,24 +21,31 @@ const MAX_PAGES = 10
 const PAGE_SIZE = 200
 
 interface SaleStats {
-  doordashDeliveryFeeSum?: number
-  thirdPartyDeliveryFeeSum?: number
-  doordashTipsOrdersSum?: number
-  thirdPartyDeliveryTipsOrdersSum?: number
-  ownDeliveryPriceSum?: number
-  pickupTipsInPrice?: number
+  // These 4 are computed directly from disco_orders (subtotal/total/count) and
+  // are always reliable, for both FM-mirrored and native orders.
   subtotalOrdersAvg?: number
   subtotalOrdersSum?: number
-  stateSalesTaxInPriceSum?: number
-  localSalesTaxInPriceSum?: number
-  otherSalesTaxInPriceSum?: number
-  owndeliveryTipsInPrice?: number
   totalOrdersCount?: number
   totalOrdersSum?: number
-  stripeFeeSum?: number
-  serviceChargesSum?: number
-  leadgenonediscofee?: number
-  leadgentwodiscofee?: number
+  // Everything below needs per-order transaction detail (tax breakdown,
+  // delivery-fee split, tips split, stripe fee) that only exists for native-
+  // checkout orders today — the API returns `null` (not 0) for these until the
+  // FM order-detail backfill lands, and the Card component shows "Not
+  // available" rather than a fabricated $0.00.
+  doordashDeliveryFeeSum?: number | null
+  thirdPartyDeliveryFeeSum?: number | null
+  doordashTipsOrdersSum?: number | null
+  thirdPartyDeliveryTipsOrdersSum?: number | null
+  ownDeliveryPriceSum?: number | null
+  pickupTipsInPrice?: number | null
+  stateSalesTaxInPriceSum?: number | null
+  localSalesTaxInPriceSum?: number | null
+  otherSalesTaxInPriceSum?: number | null
+  owndeliveryTipsInPrice?: number | null
+  stripeFeeSum?: number | null
+  serviceChargesSum?: number | null
+  leadgenonediscofee?: number | null
+  leadgentwodiscofee?: number | null
 }
 
 interface DashStats {
@@ -66,6 +73,7 @@ interface Restaurant {
 // Minimal order shape for the chart/marketplace aggregation.
 interface ListOrder {
   orderDate?: string
+  bucketDate?: string
   transactionsTotal?: number
   orderType?: string
   deliveryType?: string
@@ -134,9 +142,16 @@ function enumerateDays(from: string, to: string): string[] {
   return out
 }
 
-function Card({ title, value, isCurrency = true, gray = false, tooltip }: {
-  title: string; value: number | undefined; isCurrency?: boolean; gray?: boolean; tooltip?: string
+// `value == null` (null from the API, meaning "genuinely not computable yet" —
+// see sale-stats route's `unavailable` fields) renders "Not available" instead
+// of a fabricated $0.00. A real zero (the API returning 0) still renders as
+// $0.00 — only null/undefined means unavailable.
+function Card({ title, value, isCurrency = true, gray = false, tooltip, unavailableReason }: {
+  title: string; value: number | null | undefined; isCurrency?: boolean; gray?: boolean; tooltip?: string
+  unavailableReason?: string
 }) {
+  const unavailable = value == null
+  const effectiveTooltip = unavailable ? (unavailableReason || tooltip) : tooltip
   const [showTip, setShowTip] = useState(false)
   return (
     <div style={{
@@ -146,7 +161,7 @@ function Card({ title, value, isCurrency = true, gray = false, tooltip }: {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <div style={{ fontSize: 12, color: '#888', fontWeight: 500 }}>{title}</div>
-        {tooltip && (
+        {effectiveTooltip && (
           <div style={{ position: 'relative' }}>
             <span
               onMouseEnter={() => setShowTip(true)}
@@ -158,14 +173,14 @@ function Card({ title, value, isCurrency = true, gray = false, tooltip }: {
                 borderRadius: 8, padding: '8px 10px', fontSize: 11, whiteSpace: 'pre', zIndex: 10,
                 boxShadow: '0 4px 12px rgba(0,0,0,0.2)', marginBottom: 4, minWidth: 180,
               }}>
-                {tooltip}
+                {effectiveTooltip}
               </div>
             )}
           </div>
         )}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: DARK }}>
-        {isCurrency ? fmt(value) : (value ?? 0).toLocaleString()}
+      <div style={{ fontSize: 22, fontWeight: 700, color: unavailable ? '#bbb' : DARK }}>
+        {unavailable ? 'Not available' : (isCurrency ? fmt(value) : (value ?? 0).toLocaleString())}
       </div>
     </div>
   )
@@ -307,7 +322,7 @@ export default function DashboardPage() {
       let totalPages = 1
       let hitCap = false
       do {
-        const p = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE), fromDate: from, toDate: to })
+        const p = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE), fromDate: from, toDate: to, dateType })
         CHART_STATUSES.forEach(s => p.append('orderStatuses', s))
         // Scope to the selected restaurant when one is picked (mirrors the
         // sale-stats fetch). Empty selectedRef = "All restaurants" → aggregate.
@@ -325,11 +340,15 @@ export default function DashboardPage() {
       } while (page < totalPages)
       setTruncated(hitCap)
 
-      // Daily revenue trend (fill $0 days).
+      // Daily revenue trend (fill $0 days). Buckets by bucketDate — order_date
+      // or the restaurant-local created_at date, matching whichever dateType
+      // mode is selected (previously always order_date, silently ignoring the
+      // toggle even though the fromDate/toDate range filter above now honors it).
       const byDay: Record<string, number> = {}
       for (const o of all) {
-        if (!o.orderDate) continue
-        byDay[o.orderDate] = (byDay[o.orderDate] || 0) + (o.transactionsTotal || 0)
+        const day = o.bucketDate || o.orderDate
+        if (!day) continue
+        byDay[day] = (byDay[day] || 0) + (o.transactionsTotal || 0)
       }
       setTrend(enumerateDays(from, to).map(d => ({ full: d, date: dayLabel(d), revenue: byDay[d] || 0 })))
 
@@ -348,7 +367,7 @@ export default function DashboardPage() {
     } finally {
       setChartLoading(false)
     }
-  }, [selectedRef])
+  }, [selectedRef, dateType])
 
   const runReport = useCallback((from: string, to: string) => {
     loadSaleStats(from, to)
@@ -385,18 +404,26 @@ export default function DashboardPage() {
     }
   }
 
-  const tax = (saleStats.stateSalesTaxInPriceSum || 0) +
-    (saleStats.localSalesTaxInPriceSum || 0) +
-    (saleStats.otherSalesTaxInPriceSum || 0)
+  // null unless at least one tax component has come back populated (post-
+  // backfill) — never a fabricated $0.00 while all three are still null.
+  const taxAvailable = saleStats.stateSalesTaxInPriceSum != null
+    || saleStats.localSalesTaxInPriceSum != null || saleStats.otherSalesTaxInPriceSum != null
+  const tax = taxAvailable
+    ? (saleStats.stateSalesTaxInPriceSum || 0) + (saleStats.localSalesTaxInPriceSum || 0) + (saleStats.otherSalesTaxInPriceSum || 0)
+    : null
 
   const taxTooltip = [
-    `State: ${fmt(saleStats.stateSalesTaxInPriceSum)}`,
-    `Local: ${fmt(saleStats.localSalesTaxInPriceSum)}`,
-    `Other: ${fmt(saleStats.otherSalesTaxInPriceSum)}`,
+    `State: ${fmt(saleStats.stateSalesTaxInPriceSum ?? undefined)}`,
+    `Local: ${fmt(saleStats.localSalesTaxInPriceSum ?? undefined)}`,
+    `Other: ${fmt(saleStats.otherSalesTaxInPriceSum ?? undefined)}`,
   ].join('\n')
+  const NOT_AVAILABLE_REASON = 'Needs per-order transaction detail not yet available for FM-mirrored orders.'
 
   const isDoorDash = (saleStats.doordashDeliveryFeeSum || 0) > 0
   const deliveryFeeTitle = isDoorDash ? 'DoorDash Delivery' : 'Third-Party Delivery'
+  // Previously hardcoded to 0 regardless of data — now reads the real field
+  // (still null/"Not available" until the backfill populates it).
+  const deliveryFee = isDoorDash ? saleStats.doordashDeliveryFeeSum : saleStats.thirdPartyDeliveryFeeSum
   const deliveryTips = isDoorDash
     ? saleStats.doordashTipsOrdersSum
     : saleStats.thirdPartyDeliveryTipsOrdersSum
@@ -555,18 +582,18 @@ export default function DashboardPage() {
           dropdown selection scopes to one location. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
         <Card title="Net Sales" value={saleStats.subtotalOrdersSum} />
-        <Card title="Tax Amount" value={tax} tooltip={taxTooltip} />
+        <Card title="Tax Amount" value={tax} tooltip={taxAvailable ? taxTooltip : undefined} unavailableReason={NOT_AVAILABLE_REASON} />
         <Card title="# of Orders" value={saleStats.totalOrdersCount} isCurrency={false} />
         <Card title="Avg. Check (Net)" value={saleStats.subtotalOrdersAvg} />
-        <Card title="Lead Gen 1" value={saleStats.leadgenonediscofee} />
-        <Card title="Lead Gen 2" value={saleStats.leadgentwodiscofee} />
-        <Card title="Pickup Tips" value={saleStats.pickupTipsInPrice} />
-        <Card title="Self-Delivery" value={saleStats.ownDeliveryPriceSum} />
-        <Card title="Self-Delivery Tips" value={saleStats.owndeliveryTipsInPrice} />
-        <Card title={deliveryFeeTitle} value={0} />
-        <Card title={deliveryTipsTitle} value={deliveryTips} />
-        {hasServiceCharge && <Card title={serviceChargeTitle} value={saleStats.serviceChargesSum} />}
-        <Card title="Stripe Fees" value={saleStats.stripeFeeSum} gray />
+        <Card title="Lead Gen 1" value={saleStats.leadgenonediscofee} unavailableReason={NOT_AVAILABLE_REASON} />
+        <Card title="Lead Gen 2" value={saleStats.leadgentwodiscofee} unavailableReason={NOT_AVAILABLE_REASON} />
+        <Card title="Pickup Tips" value={saleStats.pickupTipsInPrice} unavailableReason={NOT_AVAILABLE_REASON} />
+        <Card title="Self-Delivery" value={saleStats.ownDeliveryPriceSum} unavailableReason={NOT_AVAILABLE_REASON} />
+        <Card title="Self-Delivery Tips" value={saleStats.owndeliveryTipsInPrice} unavailableReason={NOT_AVAILABLE_REASON} />
+        <Card title={deliveryFeeTitle} value={deliveryFee} unavailableReason={NOT_AVAILABLE_REASON} />
+        <Card title={deliveryTipsTitle} value={deliveryTips} unavailableReason={NOT_AVAILABLE_REASON} />
+        {hasServiceCharge && <Card title={serviceChargeTitle} value={saleStats.serviceChargesSum} unavailableReason={NOT_AVAILABLE_REASON} />}
+        <Card title="Stripe Fees" value={saleStats.stripeFeeSum} gray unavailableReason={NOT_AVAILABLE_REASON} />
         <Card title="Total Amount" value={saleStats.totalOrdersSum} />
       </div>
 
