@@ -6,21 +6,37 @@ import { displayEmail } from '../../../../lib/customer-email-guard'
 
 // Read-only order export for CRM sync. API-key protected.
 //
-// Source of truth is Disco's own Neon order store (disco_orders), which carries
-// customer_email — FM's order list does not. We still page FM's platform-wide
-// order list (for any order not yet in Neon, e.g. legacy/FM-only), then merge:
-// Neon rows win on dedup since they have email.
+// Source of truth is Disco's own Neon order store (disco_orders) — the FM
+// missing-row backfill (2026-08) closed the historical gap, so Neon is now
+// complete for everything older than the FM leg's own window below. The FM
+// leg exists only to cover ongoing sync latency: the hourly cron rotates
+// through restaurants in batches (~3.4 days for a full cycle today), so an
+// order can be real and current on FM before its restaurant's next turn
+// syncs it into Neon. FM_RECENT_WINDOW_DAYS is set generously wider than that
+// cycle so the leg reliably covers it; it is NOT a general-purpose historical
+// fallback anymore — Neon owns everything past that window. Confirmed via
+// checkFmSyncComplete-style diffing before this changed: 0 rows outstanding
+// in Neon's own backfill scope, 368 recent (sync-latency) orders were the
+// only real gap, all inside a much narrower window than 14 days.
 //
-// No default window — omit ?from=/?to= entirely to get full history. Both sides
-// (Neon and FM) date orders by COALESCE(placed_at, created_at): placed_at is
-// FM's real order-creation timestamp (backfilled for pre-freeze orders, populated
-// going forward by the fixed sync); created_at is Neon SYNC time, which for
-// FM-mirrored orders can trail real placement by hours to years — dating this
-// export by created_at made "last 365 days" a no-op in practice (sync time is
-// always recent) while silently misdating everything else.
+// Sorted by FM as createdDate,desc (verified stable — unsorted default
+// pagination on this endpoint drifts/jumbles) so the loop can stop as soon as
+// a page goes past the window, rather than paging FM's full history.
 //
-// Pass ?from=YYYY-MM-DD and/or ?to=YYYY-MM-DD to scope a request explicitly
-// (recommended for large pulls — see the truncation-safety comment below).
+// Neon rows win on dedup (they carry customer_email; FM's own list doesn't).
+//
+// No default window on the NEON side — omit ?from=/?to= entirely to get full
+// history from Neon. Both sides date orders by COALESCE(placed_at, created_at):
+// placed_at is FM's real order-creation timestamp (backfilled for pre-freeze
+// orders, populated going forward by the fixed sync); created_at is Neon SYNC
+// time, which for FM-mirrored orders can trail real placement by hours to
+// years — dating this export by created_at made "last 365 days" a no-op in
+// practice (sync time is always recent) while silently misdating everything else.
+//
+// Pass ?from=YYYY-MM-DD and/or ?to=YYYY-MM-DD to scope the Neon side of a
+// request explicitly (recommended for large pulls). The FM leg's window is
+// independent of these — it always covers the last FM_RECENT_WINDOW_DAYS,
+// regardless of what from/to ask for, since anything older is Neon's job now.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,18 +45,19 @@ export const maxDuration = 300
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-// Stops the FM pagination loop with margin before Vercel's own 300s cutoff, so
-// we can return an explicit error while there's still time to respond at all —
-// a function killed mid-write by the platform timeout wouldn't get to say
-// anything. Measured a real full-history pull (24,316 rows, 122 pages, no date
-// filter) at 187s — comfortably under this budget today, but not permanently:
-// as FM's order volume grows, a genuinely unbounded pull will eventually exceed
-// it. That's the failure mode this guards, not today's volume.
+// ~4x the hourly cron's current full-rotation cycle (~3.4 days) — generous
+// margin so a slower cycle (a bigger fleet, a paused cron) doesn't quietly
+// reopen the gap this is meant to close.
+const FM_RECENT_WINDOW_DAYS = 14
+
+// Stops the FM pagination loop with margin before Vercel's own 300s cutoff —
+// now just a backstop (the createdDate,desc + window-cutoff design below means
+// a normal run stops after a handful of pages), not the everyday guard it used
+// to be when this fetched full unbounded history.
 const TIME_BUDGET_MS = 270_000
 
-// A backstop against a pagination bug (e.g. FM's totalPages never converging),
-// not a real limit — 5,000 pages is ~1,000,000 rows, an order of magnitude past
-// any plausible real volume. If this ever fires, something is actually wrong.
+// A backstop against a pagination bug (e.g. FM's totalPages never converging
+// or the sort somehow not holding), not a real limit for a 14-day window.
 const RUNAWAY_GUARD_PAGES = 5000
 
 type FmRow = Record<string, unknown>
@@ -139,7 +156,14 @@ export async function GET(request: Request) {
                o.restaurant_name, o.restaurant_reference, o.order_date, o.order_type,
                o.source_of_order, o.order_status, o.tips, o.fm_order_reference,
                COALESCE(o.placed_at, o.created_at) AS created_date,
-               t.subtotal, t.total, t.own_delivery_fee, t.third_party_delivery_fee
+               -- Header fallback for orders with no transaction row at all (no
+               -- sync ever writes one for a plain FAMILYMEAL order without
+               -- withItems, until repaired) — o.total/subtotal are set at
+               -- header-insert time regardless, so a bare order still reports
+               -- its real total instead of a null that looks like $0.
+               COALESCE(t.subtotal, o.subtotal) AS subtotal,
+               COALESCE(t.total, o.total) AS total,
+               t.own_delivery_fee, t.third_party_delivery_fee
         FROM disco_orders o
         LEFT JOIN LATERAL (
           SELECT subtotal, total, own_delivery_fee, third_party_delivery_fee
@@ -162,27 +186,22 @@ export async function GET(request: Request) {
       console.error('[export/orders] Neon disco_orders query failed, FM-only:', e instanceof Error ? e.message : e)
     }
 
-    // 2) FM platform-wide order list. No default window. Runs until FM reports
-    // no more pages (or an empty page), not a fixed page cap. Two independent
-    // safety valves, BOTH of which end the request with an explicit error —
-    // never a 200 that looks like the full history when it isn't:
-    //   - RUNAWAY_GUARD_PAGES: a pagination-bug backstop, not a real limit.
-    //   - TIME_BUDGET_MS: stops with margin before Vercel's own maxDuration, so
-    //     we can still respond with a clear error instead of being killed
-    //     mid-write. See the constant's own comment for the measured baseline.
+    // 2) FM's recent order list — bounded to FM_RECENT_WINDOW_DAYS, not FM's
+    // full history. Sorted createdDate,desc (verified stable server-side —
+    // the endpoint's unsorted default drifts across pages) so the loop can
+    // stop as soon as a page goes past the window, the same "stop once we've
+    // reached known territory" shape as the sync's stopAtKnownDate. Two
+    // independent safety valves remain, BOTH of which end the request with an
+    // explicit error — never a 200 that looks complete when it isn't:
+    //   - RUNAWAY_GUARD_PAGES: a pagination-bug backstop, not a real limit —
+    //     a 14-day window is normally a handful of pages.
+    //   - TIME_BUDGET_MS: stops with margin before Vercel's own maxDuration.
     //
-    // Deliberately NOT passing fromIso/toIso to FM as fromDate/toDate: traced
-    // FM's own Java specification (RestaurantOrderInfoSpecification.
-    // getPredicateForDate) and confirmed those params filter by ORDER_DATE (the
-    // delivery date), not by any creation/placement timestamp — FM's API has no
-    // created-date filter at all. Sending our createdDate-scoped from/to as
-    // FM's order_date-scoped params produced real, verified leakage (an order
-    // booked in one month for delivery in another falls on the wrong side of
-    // the filter) — caught by testing a ranged request before trusting it: 65 of
-    // 167 rows fell outside the requested window. Always fetching FM's full set
-    // and filtering by createdDate client-side (below) is correct regardless of
-    // range size; it just means a narrow ?from=/&to= doesn't speed up the FM
-    // side today, only the Neon side. Documented, not silent.
+    // order_date (FM's fromDate/toDate params) is the delivery date, not a
+    // creation timestamp (traced FM's own Java spec, confirmed with a real
+    // ranged request: 65 of 167 rows fell outside the requested window when
+    // sent as fromDate/toDate) — irrelevant to this leg now, since it sorts
+    // and filters by createdDate directly instead of asking FM to filter at all.
     const SIZE = 200
     const fmRaw: FmRow[] = []
     let header = await getFmServiceAuthHeader()
@@ -190,6 +209,7 @@ export async function GET(request: Request) {
     let totalPages = 1
     let retried = false
     let truncatedReason: string | null = null
+    const windowCutoffMs = Date.now() - FM_RECENT_WINDOW_DAYS * 86_400_000
 
     while (page < totalPages) {
       if (page >= RUNAWAY_GUARD_PAGES) {
@@ -201,7 +221,7 @@ export async function GET(request: Request) {
         break
       }
 
-      const params = new URLSearchParams({ page: String(page), size: String(SIZE) })
+      const params = new URLSearchParams({ page: String(page), size: String(SIZE), sort: 'createdDate,desc' })
       const res = await fetch(`${FM}/api/admin/userOrders?${params}`, { headers: header, cache: 'no-store' })
       if (res.status === 401 && !retried) {
         retried = true
@@ -220,14 +240,23 @@ export async function GET(request: Request) {
       // An empty/short final page also means we're done, regardless of what
       // totalPages claims — never keep looping past what FM actually returned.
       if (content.length === 0) break
+      // Stop once this page's oldest order is past the window — the whole
+      // page is still processed first (a same-page mix of in/out-of-window
+      // rows is filtered below, not silently dropped), matching
+      // stopAtKnownDate's "boundary page always fully processed" rule.
+      const oldestOnPageMs = content.reduce((oldest: number, o: FmRow) => {
+        const t = Date.parse(String(o.createdDate ?? o.orderCreatedDate ?? ''))
+        return Number.isFinite(t) && t < oldest ? t : oldest
+      }, Infinity)
+      if (oldestOnPageMs < windowCutoffMs) break
     }
 
     if (truncatedReason) {
       return NextResponse.json({
-        error: "Export incomplete — stopped before fetching FM's full order history",
+        error: "Export incomplete — stopped before finishing FM's recent-order window",
         reason: truncatedReason,
         ordersFetchedSoFar: discoOrders.length + fmRaw.length,
-        recommendation: 'Retry with a narrower ?from=&to= date range to pull this data in smaller chunks.',
+        recommendation: 'Retry — a transient FM error or an unexpectedly large recent-order volume, not the historical scope (Neon owns that now).',
       }, { status: 503 })
     }
 
@@ -265,19 +294,21 @@ export async function GET(request: Request) {
     // 3) Merge: Neon rows first (precedence), then FM rows whose orderRef isn't
     // already represented by a Neon order (matched on Disco ref or fm_order_reference).
     const fmDeduped = fmOrders.filter(o => !o.orderRef || !neonRefs.has(String(o.orderRef)))
-    // FM's own list was never date-filtered (see the comment above) — apply the
-    // createdDate range here, client-side, so the merged output is correctly
-    // scoped regardless of range size. Neon's own rows are already filtered by
-    // the SQL WHERE clause above; this only touches the FM-only remainder.
-    const fmInRange = (fromIso || toIso)
-      ? fmDeduped.filter(o => {
-          const d = String(o.createdDate || '').slice(0, 10)
-          if (!d) return false
-          if (fromIso && d < fromIso) return false
-          if (toIso && d > toIso) return false
-          return true
-        })
-      : fmDeduped
+    // Client-side createdDate filter: always enforce the window cutoff (the
+    // boundary page above is fetched whole, so it can contain rows older than
+    // the window mixed in with ones still inside it — those belong to Neon,
+    // not this leg) — plus any explicit ?from=/&to=, narrower or not, same as
+    // before. Neon's own rows are already filtered by the SQL WHERE clause
+    // above; this only touches the FM-only remainder.
+    const windowCutoffIso = new Date(windowCutoffMs).toISOString().slice(0, 10)
+    const fmInRange = fmDeduped.filter(o => {
+      const d = String(o.createdDate || '').slice(0, 10)
+      if (!d) return false
+      if (d < windowCutoffIso) return false
+      if (fromIso && d < fromIso) return false
+      if (toIso && d > toIso) return false
+      return true
+    })
     const combined = [...discoOrders, ...fmInRange]
 
     return NextResponse.json(combined, { headers: { 'X-Total-Count': String(combined.length) } })
