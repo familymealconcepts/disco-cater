@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../../lib/restaurant-write-scope'
 import { sanitizeReportFilter } from '../../../../../lib/reports/report-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
       FROM disco_scheduled_reports WHERE restaurant_reference = ${scope}::uuid
       ORDER BY created_at DESC LIMIT ${size} OFFSET ${page * size}
     `) as Record<string, unknown>[]
-    return NextResponse.json({ content: rows, totalElements: total, totalPages: Math.ceil(total / size), number: page, size })
+    return NextResponse.json({ restaurant_reference: scope, content: rows, totalElements: total, totalPages: Math.ceil(total / size), number: page, size })
   }
 
   let h: Record<string, string>
@@ -53,14 +54,20 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}))
+
+  // Write target is the client-claimed restaurant_reference, verified against
+  // the caller's permitted set — never the session's current selection (see
+  // disco-profile's PUT for the full stale-intent rationale).
+  const check = await requireWritableRestaurantRef(body?.restaurant_reference)
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const scope = check.ref
+
   // Disco-native: create a scheduled report in Neon.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    const body = await req.json().catch(() => ({}))
     const name = String(body?.name || '').trim()
     if (!name) return NextResponse.json({ error: 'Report name is required.' }, { status: 400 })
-    const scope = await resolveDiscoScopeRef(ctx)
-    if (!scope) return NextResponse.json({ error: 'No restaurant selected.' }, { status: 400 })
     const owners = Array.isArray(body?.ownerReferences) && body.ownerReferences.length ? body.ownerReferences.map(String) : [scope]
     const filter = await sanitizeReportFilter(ctx, scope, body?.filter)
     await runDiscoOrderMigrations()
@@ -80,16 +87,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ reference: rows[0]?.reference }, { status: 201 })
   }
 
+  // FM's reports/scheduled endpoint has no explicit restaurant param — it
+  // always targets FM's own internal "current restaurant" pointer, which we
+  // cannot retarget per-call. So the claimed ref must also be the one
+  // CURRENTLY active, or this write would silently land on FM's pointer
+  // instead of what the page displayed — refuse rather than risk that.
+  const active = await getRestaurantRef()
+  if (scope !== active) {
+    return NextResponse.json({ error: 'Your selected restaurant has changed — reload and try again.' }, { status: 409 })
+  }
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   try {
-    const body = await req.json()
+    // Never forward our own scoping field to FM.
+    const { restaurant_reference: _rr, ...fmBody } = body
     const res = await fetch(`${FM}/api/reports/scheduled`, {
       method: 'POST',
       headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(fmBody),
     })
     const data = await res.json().catch(() => ({}))
     return NextResponse.json(data, { status: res.status })

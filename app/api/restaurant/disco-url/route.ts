@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -22,11 +23,17 @@ function slugError(s: string): string | null {
 export async function PUT(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType !== 'disco') return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
-  const ref = await resolveDiscoScopeRef(ctx)
-  if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
 
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
+
+  // Write target is the client-claimed restaurant_reference, verified against
+  // the caller's permitted set — never the session's current selection (see
+  // disco-profile's PUT for the full stale-intent rationale).
+  const check = await requireWritableRestaurantRef(body?.restaurant_reference)
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
+
   const slug = String(body?.slug || '').trim().toLowerCase()
   const err = slugError(slug)
   if (err) return NextResponse.json({ error: err }, { status: 400 })

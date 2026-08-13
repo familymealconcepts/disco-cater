@@ -1220,6 +1220,21 @@ function OrdersContent() {
     } catch {}
   }, [])
 
+  // restaurant_reference for the write-scope check on Mark All Complete. The
+  // orders-list GET doesn't carry this field, so it's captured once on mount from
+  // a lightweight disco-profile fetch — NOT the live selected-restaurant context —
+  // so a mid-session restaurant switch can't silently retarget the bulk-complete
+  // write to a different restaurant than the list currently on screen.
+  const [restaurantRef, setRestaurantRef] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/restaurant/disco-profile')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d?.restaurant_reference) setRestaurantRef(d.restaurant_reference) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   // After a successful order edit the edit page redirects here with
   // ?editSuccess=true&orderNumber=XXXXX&editOutcome=success|invoiced. Capture it
   // into a dismissible banner, then strip the params from the URL (preserving any
@@ -1419,6 +1434,7 @@ function OrdersContent() {
         const params = new URLSearchParams()
         if (appliedFrom) params.set('fromDate', appliedFrom)
         if (appliedTo) params.set('toDate', appliedTo)
+        if (restaurantRef) params.set('restaurant_reference', restaurantRef)
         await fetch(`/api/restaurant/orders/set-completed?${params}`, { method: 'PUT' })
         loadOrders()
       },

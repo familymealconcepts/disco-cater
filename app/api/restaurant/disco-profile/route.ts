@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,6 +53,7 @@ export async function GET() {
     const a = acct[0] || {}
     const c = cache[0] || {}
     return NextResponse.json({
+      restaurant_reference: ref,
       restaurantName: a.restaurant_name || a.business_name || c.name || '',
       phone: a.phone || c.phone || '',
       address: a.address || c.address || '',
@@ -65,10 +67,17 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const ref = await resolveRef()
-  if (!ref) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   try {
     const body = await req.json().catch(() => ({}))
+    // The write target is the restaurant_reference the CLIENT explicitly claims
+    // (the one its form was loaded for), verified against the caller's permitted
+    // set — never whatever the session's CURRENT selection resolves to. That's
+    // the DeCheco's bug: load Location A's profile, switch to Location B, save —
+    // without this, the write silently landed on B because that's what resolveRef()
+    // resolves to at save time, not what the form displayed.
+    const check = await requireWritableRestaurantRef(body?.restaurant_reference)
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+    const ref = check.ref
     const restaurantName = String(body?.restaurantName || '').trim()
     const phone = String(body?.phone || '').trim()
     const address = String(body?.address || '').trim()

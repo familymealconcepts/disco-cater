@@ -96,7 +96,7 @@ export async function getRestaurantHomeRef(): Promise<string | null> {
 const fmPermittedRefsCache = new Map<string, { expiresAt: number; refs: Set<string> }>()
 const FM_PERMITTED_REFS_TTL_MS = 30_000
 
-async function getFmSystemAdminPermittedRefs(token: string): Promise<Set<string>> {
+export async function getFmSystemAdminPermittedRefs(token: string): Promise<Set<string>> {
   const now = Date.now()
   const cached = fmPermittedRefsCache.get(token)
   if (cached && now < cached.expiresAt) return cached.refs

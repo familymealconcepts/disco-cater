@@ -335,6 +335,20 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
   const [emailInput, setEmailInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // restaurant_reference for the write-scope check on Save. Nothing this editor
+  // already fetches carries the field (the scheduled-reports LIST call that does
+  // is made by the sibling ScheduledTab, not here), so it's captured once on
+  // mount from a lightweight disco-profile fetch — NOT the live selected-
+  // restaurant context — so a mid-edit restaurant switch can't silently retarget
+  // this save.
+  const [restaurantRef, setRestaurantRef] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/restaurant/disco-profile')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.restaurant_reference) setRestaurantRef(d.restaurant_reference) })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     fetch('/api/restaurant/locations?size=1000')
@@ -426,10 +440,14 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
       filter: { ...form.filter, locationReferenceIds },
     }
 
+    // restaurant_reference is only added on the create (POST) path — that's the
+    // route the write-scope fix touched. The edit (PUT .../[ref]) route wasn't
+    // part of that fix and forwards its body to FM as-is (no field-stripping), so
+    // adding an extra key there risks a strict-deserialization 400 on FM's side.
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(form.reference ? payload : { ...payload, restaurant_reference: restaurantRef }),
     })
     setSaving(false)
     if (res.ok) { onSaved() }

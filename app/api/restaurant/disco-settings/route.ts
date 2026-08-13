@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -34,7 +35,7 @@ export async function GET() {
   `) as Record<string, unknown>[]
   // The restaurant's public slug (for the "Disco Cater URL" row) lives on the cache.
   const cacheRows = (await sql`SELECT slug FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { slug: string | null }[]
-  return NextResponse.json({ settings: rows[0] || {}, slug: cacheRows[0]?.slug || null })
+  return NextResponse.json({ restaurant_reference: ref, settings: rows[0] || {}, slug: cacheRows[0]?.slug || null })
 }
 
 const WINDOWS = new Set(['exact', '30_min', '1_hour'])
@@ -42,10 +43,15 @@ const WINDOWS = new Set(['exact', '30_min', '1_hour'])
 export async function PUT(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const ref = await currentRef(ctx)
-  if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
+
+  // Write target is the client-claimed restaurant_reference, verified against
+  // the caller's permitted set — never the session's current selection (see
+  // disco-profile's PUT for the full stale-intent rationale).
+  const check = await requireWritableRestaurantRef(body?.restaurant_reference)
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
 
   let onlineOrdering = body?.onlineOrderingEnabled === true
   // RM2: online ordering requires a connected + onboarding-complete Stripe account

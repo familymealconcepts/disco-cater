@@ -38,6 +38,10 @@ export default function ModifierLibraryPage() {
   const [dialog, setDialog] = useState<null | { reference?: string; name: string; price: string }>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  // Captured from the modifiers GET, once per load — the restaurant this
+  // page's data was loaded for. Sent explicitly on create so a stale
+  // selection can never misfile a new modifier under the wrong restaurant.
+  const [restaurantRef, setRestaurantRef] = useState('')
 
   async function load() {
     setLoading(true)
@@ -48,6 +52,7 @@ export default function ModifierLibraryPage() {
       ])
       setModifiers(Array.isArray(mRes.modifiers) ? mRes.modifiers : [])
       setGroups(Array.isArray(gRes.groups) ? gRes.groups : [])
+      if (mRes.restaurant_reference) setRestaurantRef(mRes.restaurant_reference)
     } catch { setModifiers([]); setGroups([]) } finally { setLoading(false) }
   }
   useEffect(() => { load() /* eslint-disable-next-line */ }, [showArchived])
@@ -65,7 +70,7 @@ export default function ModifierLibraryPage() {
     if (dialog.price && !/^\d*\.?\d*$/.test(dialog.price)) { setError('Price must be a number.'); return }
     setSaving(true); setError('')
     try {
-      const body = { name, price: parseFloat(dialog.price) || 0 }
+      const body = { restaurant_reference: restaurantRef, name, price: parseFloat(dialog.price) || 0 }
       const res = dialog.reference
         ? await fetch(`/api/restaurant/disco-modifiers/${dialog.reference}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await fetch('/api/restaurant/disco-modifiers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })

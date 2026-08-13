@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getRestaurantAuthHeader, getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -76,9 +77,10 @@ export async function GET() {
     try {
       await runMigrations()
       const rows = (await sql`SELECT tax_rates FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { tax_rates: unknown }[]
-      return NextResponse.json(rows[0]?.tax_rates || DEFAULT_TAX)
+      const tax = (rows[0]?.tax_rates || DEFAULT_TAX) as Record<string, unknown>
+      return NextResponse.json({ ...tax, restaurant_reference: ref })
     } catch {
-      return NextResponse.json(DEFAULT_TAX)
+      return NextResponse.json({ ...DEFAULT_TAX, restaurant_reference: ref })
     }
   }
 
@@ -93,27 +95,48 @@ export async function GET() {
     // Opportunistic mirror: every time a restaurant views its tax settings, keep
     // Neon current so restaurant-funded promos stay cent-exact.
     void mirrorTaxRates(data)
-    return NextResponse.json(data)
+    const ref = await currentRef()
+    return NextResponse.json({ ...data, restaurant_reference: ref })
   } catch {
     return NextResponse.json({ error: 'Unable to fetch tax rate' }, { status: 500 })
   }
 }
 
 export async function PUT(req: NextRequest) {
+  let body: Record<string, unknown>
+  try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
+
+  // Write target is the client-claimed restaurant_reference, verified against
+  // the caller's permitted set — never the session's current selection (see
+  // disco-profile's PUT for the full stale-intent rationale).
+  const check = await requireWritableRestaurantRef(body?.restaurant_reference)
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
+  // Never persist/forward our own scoping field as part of the tax-rates payload.
+  const { restaurant_reference: _rr, ...taxBody } = body
+
   // Disco-native restaurants save tax rates entirely in Neon — never touch FM.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    const ref = await currentRef()
-    if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
-    let body: unknown
-    try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
     try {
-      await saveDiscoTaxRates(ref, body)
-      return NextResponse.json(body)
+      await saveDiscoTaxRates(ref, taxBody)
+      return NextResponse.json(taxBody)
     } catch (e) {
       console.error('[tax-rate] disco save failed:', e instanceof Error ? e.message : e)
       return NextResponse.json({ error: 'Unable to save tax rate' }, { status: 500 })
     }
+  }
+
+  // FM's own taxRate endpoint has no explicit restaurant param — it always
+  // targets FM's own internal "current restaurant" pointer (set via the
+  // now-validated selected-restaurant switch), and we cannot retarget that
+  // per-call. So being in the permitted SET isn't enough here: the claimed ref
+  // must also be the one CURRENTLY active, or this write would silently land on
+  // whatever FM's pointer says instead of what the form displayed — refuse
+  // rather than risk that.
+  const active = await getRestaurantRef()
+  if (ref !== active) {
+    return NextResponse.json({ error: 'Your selected restaurant has changed — reload and try again.' }, { status: 409 })
   }
 
   let h: Record<string, string>
@@ -121,11 +144,10 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   try {
-    const body = await req.json()
     const res = await fetch(`${FM}/api/restaurants/taxRate`, {
       method: 'PUT',
       headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(taxBody),
     })
     if (!res.ok) {
       const err = await res.text()
@@ -135,7 +157,7 @@ export async function PUT(req: NextRequest) {
     const data = text ? JSON.parse(text) : null
     // Mirror the authoritative saved rates (FM's response echoes them; fall back to
     // the request body if the response is empty).
-    await mirrorTaxRates(data ?? body)
+    await mirrorTaxRates(data ?? taxBody)
     return NextResponse.json(data ?? { ok: true })
   } catch {
     return NextResponse.json({ error: 'Unable to update tax rate' }, { status: 500 })

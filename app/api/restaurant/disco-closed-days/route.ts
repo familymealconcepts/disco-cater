@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runDiscoMenuMigrations } from '../../../../lib/db'
 import { holidayDates, isHolidayName } from '../../../../lib/holidays'
 
@@ -22,16 +23,22 @@ export async function GET() {
   // Custom one-off closures (holiday IS NULL) vs. the set of toggled-on holidays.
   const closedDays = rows.filter(r => !r.holiday)
   const holidays = [...new Set(rows.filter(r => r.holiday).map(r => r.holiday as string))]
-  return NextResponse.json({ closedDays, holidays })
+  return NextResponse.json({ restaurant_reference: ref, closedDays, holidays })
 }
 
 export async function POST(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const ref = await resolveDiscoScopeRef(ctx)
-  if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
+
+  // Write target is the client-claimed restaurant_reference, verified against
+  // the caller's permitted set — never the session's current selection (see
+  // disco-profile's PUT for the full stale-intent rationale). Both branches
+  // below (holiday toggle + custom closure) share this same write boundary.
+  const check = await requireWritableRestaurantRef(body?.restaurant_reference)
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
   await runDiscoMenuMigrations()
 
   // Holiday toggle: pre-compute + store every year's date for the next 50 years so

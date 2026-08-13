@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -43,13 +44,17 @@ export async function GET() {
   }
 }
 
-// PUT /api/restaurant/sms-settings  { sms_enabled?, sms_phone? } → updated values
+// PUT /api/restaurant/sms-settings  { restaurant_reference, sms_enabled?, sms_phone? } → updated values
 export async function PUT(req: NextRequest) {
-  const r = await resolveRef()
-  if ('error' in r) return NextResponse.json({ error: r.error }, { status: r.status })
-
-  let body: { sms_enabled?: unknown; sms_phone?: unknown }
+  let body: { restaurant_reference?: unknown; sms_enabled?: unknown; sms_phone?: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
+
+  // Write target is the client-claimed restaurant_reference, verified against
+  // the caller's permitted set — never the session's current selection (see
+  // disco-profile's PUT for the full stale-intent rationale).
+  const check = await requireWritableRestaurantRef(body.restaurant_reference)
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
 
   // Partial update: omitted fields keep their current value.
   const enabled = typeof body.sms_enabled === 'boolean' ? body.sms_enabled : null
@@ -63,7 +68,7 @@ export async function PUT(req: NextRequest) {
       SET sms_enabled = COALESCE(${enabled}::boolean, sms_enabled),
           sms_phone = CASE WHEN ${phoneProvided}::boolean THEN NULLIF(${phone}::text, '') ELSE sms_phone END,
           updated_at = NOW()
-      WHERE restaurant_reference = ${r.ref}
+      WHERE restaurant_reference = ${ref}
       RETURNING sms_enabled, sms_phone
     `) as { sms_enabled: boolean | null; sms_phone: string | null }[]
 

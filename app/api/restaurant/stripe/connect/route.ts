@@ -1,20 +1,28 @@
-import { NextResponse } from 'next/server'
-import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
-import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
+import { NextRequest, NextResponse } from 'next/server'
+import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../../lib/restaurant-write-scope'
 import { createConnectAccount, createAccountLink } from '../../../../../lib/stripe-connect'
 import { sql, runMigrations } from '../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.discocater.com'
 
-export async function POST() {
+// Money movement: this attaches/creates a Stripe payout account for a
+// restaurant. The target is the client-claimed restaurant_reference (query
+// param — this route has no body), verified against the caller's permitted
+// set — never the session's current selection (see disco-profile's PUT for
+// the full stale-intent rationale). Fails closed on any mismatch.
+export async function POST(req: NextRequest) {
+  const check = await requireWritableRestaurantRef(req.nextUrl.searchParams.get('restaurant_reference'))
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
+
   // Disco-native: start Stripe Connect onboarding via Disco's own Stripe. Reuses
   // the location's connected account if one exists, else creates it. Returns the
   // hosted onboarding link (stripeConnectUrl) the banking page redirects to.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    const ref = await resolveDiscoScopeRef(ctx)
-    if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
     if (!process.env.STRIPE_SECRET_KEY) return NextResponse.json({ error: 'Payments are not configured.' }, { status: 500 })
     try {
       await runMigrations()
@@ -41,11 +49,12 @@ export async function POST() {
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
-  const restaurantRef = await getRestaurantRef()
-  if (!restaurantRef) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-
+  // FM's stripe/clients/{ref}/connect endpoint DOES take an explicit
+  // restaurantRef in the URL (unlike tax-rate/online-ordering's FM proxies) —
+  // use the verified ref directly rather than whatever the session's current
+  // selection happens to be.
   try {
-    const res = await fetch(`${FM}/api/stripe/clients/${restaurantRef}/connect`, {
+    const res = await fetch(`${FM}/api/stripe/clients/${encodeURIComponent(ref)}/connect`, {
       method: 'POST',
       headers: { ...h, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'callbackUri=https://familymeal.com/restaurant/account',

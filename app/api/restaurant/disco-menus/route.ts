@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { parseMenuSettingsInput, parseDeliverySettings, parseSkippedDays } from '../../../../lib/menu-settings'
 import { sql, runDiscoMenuMigrations } from '../../../../lib/db'
 
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
       WHERE m.restaurant_reference = ${ref}::uuid AND (${includeArchived} OR m.archived = false)
       ORDER BY m.position, m.name
     `) as Record<string, unknown>[]
-    return NextResponse.json({ menus })
+    return NextResponse.json({ restaurant_reference: ref, menus })
   } catch (e) {
     console.error('[restaurant/disco-menus] GET failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to load menus' }, { status: 500 })
@@ -62,12 +63,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  // Create under the SA's selected location when applicable (else home).
-  const ref = await resolveDiscoScopeRef(ctx)
-  if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
 
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
+
+  // Create under the restaurant_reference the CLIENT explicitly claims (the one
+  // its form was loaded for), verified against the caller's permitted set —
+  // never whatever the session's current selection resolves to. A stale
+  // selection must never misfile a brand-new menu under the wrong restaurant.
+  const check = await requireWritableRestaurantRef(body?.restaurant_reference)
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
 
   const name = String(body?.name || '').trim()
   if (!name) return NextResponse.json({ error: 'Menu name is required.' }, { status: 400 })

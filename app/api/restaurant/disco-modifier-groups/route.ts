@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runDiscoMenuMigrations } from '../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
       WHERE restaurant_reference = ${ref}::uuid AND (${includeArchived} OR archived = false)
       ORDER BY position, name
     `) as Record<string, unknown>[]
-    return NextResponse.json({ groups: await withItemUsage(await withMembers(groups)) })
+    return NextResponse.json({ restaurant_reference: ref, groups: await withItemUsage(await withMembers(groups)) })
   } catch (e) {
     console.error('[disco-modifier-groups] GET failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to load groups' }, { status: 500 })
@@ -76,10 +77,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  const ref = await resolveDiscoScopeRef(ctx)
-  if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
+
+  // Create under the client-claimed restaurant_reference, verified against the
+  // caller's permitted set — never the session's current selection (see
+  // disco-menus' POST for the full stale-intent rationale).
+  const check = await requireWritableRestaurantRef(body?.restaurant_reference)
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
   const name = String(body?.name || '').trim()
   if (!name) return NextResponse.json({ error: 'Group name is required.' }, { status: 400 })
   const min = Math.trunc(Number(body?.minSelected ?? 0))

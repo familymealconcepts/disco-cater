@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 
 export const runtime = 'nodejs'
 
@@ -28,24 +29,30 @@ export async function GET() {
     const rows = (await sql`
       SELECT visible FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref}
     `) as { visible: boolean }[]
-    return NextResponse.json({ visible: rows[0]?.visible ?? false })
+    return NextResponse.json({ visible: rows[0]?.visible ?? false, restaurant_reference: ref })
   } catch (err) {
     console.error('[marketplace-visibility] read failed:', err instanceof Error ? err.message : err)
-    return NextResponse.json({ visible: false })
+    return NextResponse.json({ visible: false, restaurant_reference: ref })
   }
 }
 
 export async function PATCH(req: Request) {
-  const ref = await resolveRef()
-  if (!ref) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-
   let visible = false
+  let restaurantReference: unknown
   try {
     const body = await req.json()
     visible = !!body?.visible
+    restaurantReference = body?.restaurant_reference
   } catch {
     return NextResponse.json({ error: 'Invalid request.' }, { status: 400 })
   }
+
+  // Write target is the client-claimed restaurant_reference, verified against
+  // the caller's permitted set — never the session's current selection (see
+  // disco-profile's PUT for the full stale-intent rationale).
+  const check = await requireWritableRestaurantRef(restaurantReference)
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
 
   try {
     await runMigrations()

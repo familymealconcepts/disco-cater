@@ -21,6 +21,10 @@ export default function RestaurantSettingsPage() {
   const [flash, setFlash] = useState('')
 
   const [slug, setSlug] = useState<string | null>(null)
+  // Captured once from the disco-settings GET response (the restaurant this page's
+  // form was actually loaded for) — NEVER read from the live selected-restaurant
+  // context, or a mid-edit restaurant switch could silently retarget these writes.
+  const [restaurantRef, setRestaurantRef] = useState<string | null>(null)
   const [urlSlug, setUrlSlug] = useState('')     // editable Disco Cater URL slug
   const [urlError, setUrlError] = useState('')
   const [onlineOrdering, setOnlineOrdering] = useState(true)
@@ -55,6 +59,7 @@ export default function RestaurantSettingsPage() {
       ])
       const set = s.settings || {}
       setSlug(s.slug || null); setUrlSlug(s.slug || ''); setUrlError('')
+      setRestaurantRef(s.restaurant_reference || null)
       setStripeConnected(!!st.connected)
       setMarketplaceVisible(!!mv.visible)
       setOnlineOrdering(set.online_ordering_enabled !== false)
@@ -88,6 +93,7 @@ export default function RestaurantSettingsPage() {
       await fetch('/api/restaurant/disco-settings', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          restaurant_reference: restaurantRef,
           onlineOrderingEnabled: onlineOrdering,
           notificationEmails, textNotificationsEnabled: textNotifications, notificationSmsNumbers: notificationSms,
           orderReminderEmailsEnabled: orderReminders, adminOrderReminderEmailsEnabled: adminReminders,
@@ -101,7 +107,7 @@ export default function RestaurantSettingsPage() {
       for (const name of [...toEnable, ...toDisable]) {
         await fetch('/api/restaurant/disco-closed-days', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ holiday: name, enabled: holidays.has(name) }),
+          body: JSON.stringify({ restaurant_reference: restaurantRef, holiday: name, enabled: holidays.has(name) }),
         })
       }
       setInitialHolidays(new Set(holidays))
@@ -121,7 +127,7 @@ export default function RestaurantSettingsPage() {
   async function saveUrl() {
     const err = slugError(urlSlug)
     if (err || !urlSlug) { setUrlError(err || 'Enter a URL.'); return }
-    const res = await fetch('/api/restaurant/disco-url', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: urlSlug }) })
+    const res = await fetch('/api/restaurant/disco-url', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_reference: restaurantRef, slug: urlSlug }) })
     const d = await res.json().catch(() => ({}))
     if (!res.ok) { setUrlError(d.error || 'Could not save URL.'); return }
     setSlug(urlSlug); setUrlError(''); setFlash('URL updated'); setTimeout(() => setFlash(''), 2000)
@@ -129,7 +135,7 @@ export default function RestaurantSettingsPage() {
 
   async function addClosedDay() {
     if (!cdFrom) return
-    await fetch('/api/restaurant/disco-closed-days', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: cdName, fromDate: cdFrom, toDate: cdTo || cdFrom }) })
+    await fetch('/api/restaurant/disco-closed-days', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_reference: restaurantRef, name: cdName, fromDate: cdFrom, toDate: cdTo || cdFrom }) })
     setCdName(''); setCdFrom(''); setCdTo(''); await loadClosedDays()
   }
   async function removeClosedDay(ref: string) { await fetch(`/api/restaurant/disco-closed-days/${ref}`, { method: 'DELETE' }); await loadClosedDays() }

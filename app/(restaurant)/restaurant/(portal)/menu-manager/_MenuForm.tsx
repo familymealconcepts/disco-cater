@@ -40,6 +40,11 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   // slug. There is no separate per-menu route today; the live link this menu
   // actually lives under is the restaurant's own /order/[slug] page.
   const [restaurantSlug, setRestaurantSlug] = useState('')
+  // The restaurant this menu is being created/edited for, captured once at
+  // load time and sent explicitly on save — never inferred from whatever the
+  // session's current selection happens to be at save time (a stale selection
+  // must never misfile a menu under the wrong restaurant).
+  const [restaurantRef, setRestaurantRef] = useState('')
   const [imageUrl, setImageUrl] = useState('')
   const [uploading, setUploading] = useState(false)
   const [visible, setVisible] = useState(true)
@@ -91,6 +96,15 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
 
   // Live slug preview from the name until the user edits the slug field.
   const effectiveSlug = urlDirty ? url : slugify(name)
+
+  // Capture the restaurant this form is for, once, regardless of create/edit
+  // mode — the edit-load effect below only runs for isEdit.
+  useEffect(() => {
+    fetch('/api/restaurant/disco-profile')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.restaurant_reference) setRestaurantRef(d.restaurant_reference) })
+      .catch(() => {})
+  }, [])
 
   // ── Load (edit) ──
   useEffect(() => {
@@ -190,6 +204,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
       perDay: Object.fromEntries(activeDays.map(k => [k, perDay[k] || { from: sameFrom, to: sameTo }])),
     }
     const payload = {
+      restaurant_reference: restaurantRef,
       name: name.trim(), type: MENU_TYPE_DEFAULT, url: effectiveSlug, urlAuto: !urlDirty,
       imageUrl: imageUrl || undefined, visible,
       availabilityMode, startDate: startDate || undefined, endDate: endDate || undefined,

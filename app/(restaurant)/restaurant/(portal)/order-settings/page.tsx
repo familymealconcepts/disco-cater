@@ -190,7 +190,10 @@ export default function OrderSettingsPage() {
 
   async function toggleOnlineOrdering(val: boolean) {
     if (val && !stripeConnected) { showToast('Stripe must be connected to enable online ordering.'); return }
-    await fetch(`/api/restaurant/online-ordering?onlineOrderingAllowed=${val}`, { method: 'PATCH' })
+    // restaurant_reference sourced from the profile GET captured into `restaurant`
+    // state at load — NOT the live selected-restaurant context — so a mid-edit
+    // restaurant switch can't silently retarget this write.
+    await fetch(`/api/restaurant/online-ordering?onlineOrderingAllowed=${val}&restaurant_reference=${encodeURIComponent(restaurant?.reference || '')}`, { method: 'PATCH' })
     setOnlineOrderingEnabled(val)
     setRestaurant(prev => prev ? { ...prev, onlineOrderingAllowed: val } : prev)
     showToast('Saved')
@@ -203,7 +206,7 @@ export default function OrderSettingsPage() {
     try {
       const res = await fetch('/api/restaurant/marketplace-visibility', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ visible: val }),
+        body: JSON.stringify({ restaurant_reference: restaurant?.reference, visible: val }),
       })
       if (!res.ok) { setMarketplaceVisible(!val); showToast('Could not update marketplace visibility.'); return }
       showToast('Saved')

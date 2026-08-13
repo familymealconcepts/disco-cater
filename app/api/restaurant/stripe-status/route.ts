@@ -36,9 +36,9 @@ export async function GET(req: NextRequest) {
           ORDER BY id ASC LIMIT 1
         `) as { stripe_account_id: string | null; stripe_onboarding_complete: boolean | null }[]
         const acct = rows[0]
-        if (!acct?.stripe_account_id) return NextResponse.json({ connected: false })
+        if (!acct?.stripe_account_id) return NextResponse.json({ connected: false, restaurant_reference: ref })
         // Already confirmed — no need to hit Stripe again.
-        if (acct.stripe_onboarding_complete === true) return NextResponse.json({ connected: true })
+        if (acct.stripe_onboarding_complete === true) return NextResponse.json({ connected: true, restaurant_reference: ref })
         // Account exists but completion isn't recorded (RH5): confirm live and persist.
         const enabled = await isChargesEnabled(acct.stripe_account_id).catch(() => false)
         if (enabled) {
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
             WHERE restaurant_reference = ${ref}
           `.catch((e) => console.error('[restaurant/stripe-status] complete persist failed:', e instanceof Error ? e.message : e))
         }
-        return NextResponse.json({ connected: enabled })
+        return NextResponse.json({ connected: enabled, restaurant_reference: ref })
       }
     } catch (err) {
       console.error('[restaurant/stripe-status] disco lookup failed:', err instanceof Error ? err.message : err)
@@ -64,6 +64,6 @@ export async function GET(req: NextRequest) {
   if (!ref) return NextResponse.json({ connected: false })
   try {
     const res = await fetch(`${FM}/api/stripe/${ref}`, { method: 'HEAD', headers: h })
-    return NextResponse.json({ connected: res.ok })
-  } catch { return NextResponse.json({ connected: false }) }
+    return NextResponse.json({ connected: res.ok, restaurant_reference: ref })
+  } catch { return NextResponse.json({ connected: false, restaurant_reference: ref }) }
 }

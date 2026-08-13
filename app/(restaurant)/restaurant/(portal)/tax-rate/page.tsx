@@ -39,6 +39,11 @@ function fmt3(n: number) { return n.toFixed(3) }
 
 export default function TaxRatePage() {
   const [taxRate, setTaxRate] = useState<TaxRate>(DEFAULT_TAX)
+  // Captured once from the GET response's sibling `restaurant_reference` field —
+  // NEVER read from the live selected-restaurant context, so a mid-edit restaurant
+  // switch can't silently retarget the save. Kept out of `taxRate` state so it's
+  // never mistaken for a fourth tax bracket by the render logic below.
+  const [restaurantRef, setRestaurantRef] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [edit, setEdit] = useState<EditState | null>(null)
@@ -49,7 +54,11 @@ export default function TaxRatePage() {
     fetch('/api/restaurant/tax-rate')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
-        if (d) setTaxRate(d)
+        if (d) {
+          const { restaurant_reference, ...tax } = d
+          setTaxRate(tax)
+          setRestaurantRef(restaurant_reference || null)
+        }
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -84,7 +93,7 @@ export default function TaxRatePage() {
       const res = await fetch('/api/restaurant/tax-rate', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
+        body: JSON.stringify({ ...updated, restaurant_reference: restaurantRef }),
       })
       if (!res.ok) {
         setError('Failed to save. Please try again.')

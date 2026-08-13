@@ -200,12 +200,16 @@ export default function ProfilePage() {
   // null = unknown/loading; false = not connected (show banner).
   const [stripeConnected, setStripeConnected] = useState<boolean | null>(null)
   const [connectingStripe, setConnectingStripe] = useState(false)
+  // Captured from the SAME stripe-status response that drives the banner above —
+  // guaranteed present by the time the button is clickable, unlike `restaurant`
+  // (a separate, independently-timed fetch that could still be in flight).
+  const [stripeRef, setStripeRef] = useState('')
 
   useEffect(() => {
     let cancelled = false
     fetch('/api/restaurant/stripe-status')
       .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (!cancelled) setStripeConnected(!!d?.connected) })
+      .then(d => { if (!cancelled) { setStripeConnected(!!d?.connected); setStripeRef(d?.restaurant_reference || '') } })
       .catch(() => { if (!cancelled) setStripeConnected(null) })
     return () => { cancelled = true }
   }, [])
@@ -215,7 +219,8 @@ export default function ProfilePage() {
   async function connectStripe() {
     setConnectingStripe(true)
     try {
-      const res = await fetch('/api/restaurant/stripe/connect', { method: 'POST' })
+      const ref = encodeURIComponent(stripeRef)
+      const res = await fetch(`/api/restaurant/stripe/connect?restaurant_reference=${ref}`, { method: 'POST' })
       const d = await res.json().catch(() => null)
       if (res.ok && d?.stripeConnectUrl) { window.location.href = d.stripeConnectUrl; return }
     } catch { /* fall through to re-enable the button */ }
@@ -367,7 +372,7 @@ export default function ProfilePage() {
       const res = await fetch('/api/restaurant/disco-profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(discoProfile),
+        body: JSON.stringify({ ...discoProfile, restaurant_reference: restaurant?.reference || '' }),
       })
       if (!res.ok) {
         setDiscoError('Failed to save. Please try again.')
@@ -417,7 +422,7 @@ export default function ProfilePage() {
       const res = await fetch('/api/restaurant/disco-profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(discoProfile),
+        body: JSON.stringify({ ...discoProfile, restaurant_reference: restaurant?.reference || '' }),
       })
       if (!res.ok) {
         setImgError('Failed to save images. Please try again.')

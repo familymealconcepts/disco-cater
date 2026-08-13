@@ -37,6 +37,10 @@ export default function BankingPage() {
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
+  // Captured from the SAME stripe-status call that drives `connected` — the
+  // connect/disconnect buttons only render once loading is false, so this is
+  // guaranteed populated by the time they're clickable.
+  const [stripeRef, setStripeRef] = useState('')
 
   async function loadStatus() {
     setLoading(true)
@@ -45,6 +49,7 @@ export default function BankingPage() {
       if (res.ok) {
         const d = await res.json()
         setConnected(d.connected === true)
+        setStripeRef(d.restaurant_reference || '')
       } else {
         setConnected(false)
       }
@@ -60,7 +65,8 @@ export default function BankingPage() {
     setActionLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/restaurant/stripe/connect', { method: 'POST' })
+      const ref = encodeURIComponent(stripeRef)
+      const res = await fetch(`/api/restaurant/stripe/connect?restaurant_reference=${ref}`, { method: 'POST' })
       if (!res.ok) {
         setError('Failed to initiate Stripe connection. Please try again.')
         setActionLoading(false)
@@ -84,7 +90,8 @@ export default function BankingPage() {
     setActionLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/restaurant/stripe/disconnect', { method: 'DELETE' })
+      const ref = encodeURIComponent(stripeRef)
+      const res = await fetch(`/api/restaurant/stripe/disconnect?restaurant_reference=${ref}`, { method: 'DELETE' })
       if (!res.ok) {
         setError('Failed to disconnect Stripe. Please try again.')
       } else {

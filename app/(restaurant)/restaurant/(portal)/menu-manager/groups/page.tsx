@@ -43,6 +43,10 @@ export default function GroupLibraryPage() {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [modSearch, setModSearch] = useState('')
+  // Captured from the groups GET, once per load — the restaurant this page's
+  // data was loaded for. Sent explicitly on create so a stale selection can
+  // never misfile a new group under the wrong restaurant.
+  const [restaurantRef, setRestaurantRef] = useState('')
 
   async function load() {
     setLoading(true)
@@ -53,6 +57,7 @@ export default function GroupLibraryPage() {
       ])
       setGroups(Array.isArray(gRes.groups) ? gRes.groups : [])
       setLibrary(Array.isArray(mRes.modifiers) ? mRes.modifiers : [])
+      if (gRes.restaurant_reference) setRestaurantRef(gRes.restaurant_reference)
     } catch { setGroups([]); setLibrary([]) } finally { setLoading(false) }
   }
   useEffect(() => { load() /* eslint-disable-next-line */ }, [showArchived])
@@ -76,7 +81,7 @@ export default function GroupLibraryPage() {
       // (Required when at least one selection is mandatory, else Optional) rather
       // than a separate free-text field.
       const subExternalName = min > 0 ? 'Required' : 'Optional'
-      const body = { name: dialog.name.trim(), externalName: dialog.externalName.trim(), subExternalName, minSelected: min, maxSelected: max, modifierReferences: dialog.modifierReferences }
+      const body = { restaurant_reference: restaurantRef, name: dialog.name.trim(), externalName: dialog.externalName.trim(), subExternalName, minSelected: min, maxSelected: max, modifierReferences: dialog.modifierReferences }
       const res = dialog.reference
         ? await fetch(`/api/restaurant/disco-modifier-groups/${dialog.reference}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await fetch('/api/restaurant/disco-modifier-groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
-import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
+import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
+import { requireWritableRestaurantRef } from '../../../../../lib/restaurant-write-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -13,11 +14,16 @@ function toIso(s: string | null): string | null {
 }
 
 export async function PUT(req: NextRequest) {
+  // Write target is the client-claimed restaurant_reference, verified against
+  // the caller's permitted set — never the session's current selection (see
+  // disco-profile's PUT for the full stale-intent rationale).
+  const check = await requireWritableRestaurantRef(req.nextUrl.searchParams.get('restaurant_reference'))
+  if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
+  const ref = check.ref
+
   // Disco-native: bulk-complete the restaurant's outstanding (DUE) orders in Neon.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    const ref = await resolveDiscoScopeRef(ctx)
-    if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
     const from = toIso(req.nextUrl.searchParams.get('fromDate'))
     const to = toIso(req.nextUrl.searchParams.get('toDate'))
     try {
@@ -31,6 +37,16 @@ export async function PUT(req: NextRequest) {
       `) as { id: number }[]
       return NextResponse.json({ ok: true, completed: rows.length })
     } catch { return NextResponse.json({ error: 'Unable to update' }, { status: 500 }) }
+  }
+
+  // FM's setCompleted endpoint has no explicit restaurant param — it always
+  // targets FM's own internal "current restaurant" pointer, which we cannot
+  // retarget per-call. So the claimed ref must also be the one CURRENTLY
+  // active, or this write would silently land on FM's pointer instead of what
+  // the page displayed — refuse rather than risk that.
+  const active = await getRestaurantRef()
+  if (ref !== active) {
+    return NextResponse.json({ error: 'Your selected restaurant has changed — reload and try again.' }, { status: 409 })
   }
 
   let authHeaders: Record<string, string>
