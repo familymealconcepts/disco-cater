@@ -132,12 +132,20 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
   }
   const stripeReady = stripeMode === 'reuse'
 
-  // Settings: an overrides row with tax rates mirrored and online ordering not off.
+  // Settings: an overrides row with a REAL state tax percent (not just a non-null
+  // tax_rates shell) and online ordering not off. Previously checked only
+  // `!!tax_rates` — every one of DeCheco's 6 locations has a non-null tax_rates
+  // JSON with stateSalesTax.percent/localSalesTax.percent both null, and this
+  // passed anyway ("Tax rates mirrored") — a false positive that would have let
+  // a restaurant go native pricing every order at $0 tax. 0 is a real, valid
+  // percent (Pelican Delicatessen is deliberately 0%) — only null/missing fails.
   const ov = (await sql`
     SELECT tax_rates, online_ordering_enabled FROM disco_restaurant_overrides
     WHERE restaurant_reference = ${nativeRef} LIMIT 1
-  `.catch(() => [])) as { tax_rates: unknown; online_ordering_enabled: boolean | null }[]
-  const settingsOk = !!ov[0]?.tax_rates && ov[0]?.online_ordering_enabled !== false
+  `.catch(() => [])) as { tax_rates: { stateSalesTax?: { percent?: number | null } } | null; online_ordering_enabled: boolean | null }[]
+  const stateTaxPct = ov[0]?.tax_rates?.stateSalesTax?.percent
+  const hasRealStateTaxPct = typeof stateTaxPct === 'number' && Number.isFinite(stateTaxPct)
+  const settingsOk = hasRealStateTaxPct && ov[0]?.online_ordering_enabled !== false
 
   // Orders already mirrored (advisory — a final sync is recommended before flip).
   const orders = (await sql`
@@ -153,7 +161,10 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
     { key: 'not-already-native', label: 'Not already Disco-native', done: found && !isDiscoNative, blocking: true, detail: !found ? 'Restaurant not found.' : isDiscoNative ? 'Already Disco-native.' : 'FM-backed — eligible to convert.' },
     { key: 'native-menu', label: 'Native menu built', done: hasMenu, blocking: true, detail: hasMenu ? 'A visible Disco-native menu exists.' : 'No visible native menu — run the menu import (dual-write) first.' },
     { key: 'stripe-ready', label: 'Stripe account usable', done: stripeReady, blocking: true, detail: stripeDetail },
-    { key: 'settings', label: 'Settings populated', done: settingsOk, blocking: false, detail: settingsOk ? 'Tax rates mirrored; online ordering on.' : 'Populate tax rates and enable online ordering.' },
+    // Blocking (was advisory-only): a native restaurant with no real state tax
+    // percent charges wrong money — $0 tax — on every single order. That must
+    // refuse conversion, not just warn.
+    { key: 'settings', label: 'Settings populated', done: settingsOk, blocking: true, detail: settingsOk ? 'State tax percent set; online ordering on.' : !hasRealStateTaxPct ? 'No real state tax percent set (tax_rates may exist but stateSalesTax.percent is null) — populate the actual rate before converting.' : 'Enable online ordering.' },
     { key: 'marketplace-ready', label: 'Won’t drop off marketplace', done: marketplaceReady, blocking: true, detail: marketplaceReady ? 'Passes the native 3-part visibility rule.' : `Would be hidden as native: ${mk.blockers.map(b => b.message).join(' ') || 'check visibility.'}` },
   ]
 
