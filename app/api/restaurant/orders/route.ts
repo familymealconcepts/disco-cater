@@ -5,6 +5,7 @@ import { getLocationAccessRefs } from '../../../../lib/disco-restaurant-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { syncRestaurantOrders } from '../../../../lib/fm-orders-sync'
 import { cookies } from 'next/headers'
+import { displayEmail } from '../../../../lib/customer-email-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -74,7 +75,7 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     orderNumber: Number(r.order_number),
     firstName: r.customer_first_name || '',
     lastName: r.customer_last_name || '',
-    email: r.customer_email || '',
+    email: displayEmail(r.customer_email),
     restaurantName: r.restaurant_name || undefined,
     orderDate: String(r.order_date).slice(0, 10), // YYYY-MM-DD
     // Which day this order counts toward for trend-chart bucketing — order_date

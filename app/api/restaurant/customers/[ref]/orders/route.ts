@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
+import { isPlaceholderEmail } from '../../../../../../lib/customer-email-guard'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const PAID = ['DUE', 'COMPLETED', 'PAID', 'PARTIAL_REFUND', 'REFUND']
@@ -10,7 +11,10 @@ const PAID = ['DUE', 'COMPLETED', 'PAID', 'PARTIAL_REFUND', 'REFUND']
 // email (the CRM list uses it as customerReference). Scoped to this restaurant.
 async function discoCustomerOrders(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, email: string) {
   const restaurantRef = await resolveDiscoScopeRef(ctx)
-  if (!restaurantRef || !email) return NextResponse.json({ content: [] })
+  // The Customers list (app/api/restaurant/customers/route.ts) never surfaces a
+  // placeholder as a clickable customer, so this shouldn't be reachable in the
+  // normal UI flow — defensive guard anyway, since `ref` is a raw URL param.
+  if (!restaurantRef || !email || isPlaceholderEmail(email)) return NextResponse.json({ content: [] })
   await runDiscoOrderMigrations()
   const rows = (await sql`
     SELECT order_number AS "orderNumber",

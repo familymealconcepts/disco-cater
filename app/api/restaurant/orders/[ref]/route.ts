@@ -3,6 +3,7 @@ import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-con
 import { assertOrderInScope } from '../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { loadFmOrderDetails, fmDateToIso, isUuid } from '../../../../../lib/order-edit'
+import { displayEmail } from '../../../../../lib/customer-email-guard'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -150,7 +151,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (d.order_drop_off_time) base.orderDropOffTime = d.order_drop_off_time
   base.firstName = d.customer_first_name || base.firstName || ''
   base.lastName = d.customer_last_name || base.lastName || ''
-  base.email = d.customer_email || base.email || ''
+  base.email = displayEmail(d.customer_email) || base.email || ''
   if (d.customer_phone) base.phoneNumber = d.customer_phone
   base.sourceoforder = d.source_of_order
   // Order Placed + headcount — Neon-first. placed_at is FM's real order-creation

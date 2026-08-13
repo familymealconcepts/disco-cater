@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
+import { PLACEHOLDER_EMAIL_SQL_PATTERN } from '../../../../lib/customer-email-guard'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -32,6 +33,7 @@ async function discoCustomers(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       SELECT customer_email FROM disco_orders
       WHERE restaurant_reference = ${ref}::uuid
         AND customer_email IS NOT NULL AND customer_email <> ''
+        AND customer_email NOT LIKE ${PLACEHOLDER_EMAIL_SQL_PATTERN}
         AND order_status = ANY(${PAID})
         AND (${search} = '' OR LOWER(customer_email) LIKE '%' || ${search} || '%'
              OR LOWER(COALESCE(customer_first_name, '') || ' ' || COALESCE(customer_last_name, '')) LIKE '%' || ${search} || '%')
@@ -52,6 +54,7 @@ async function discoCustomers(ctx: NonNullable<Awaited<ReturnType<typeof getRest
     FROM disco_orders
     WHERE restaurant_reference = ${ref}::uuid
       AND customer_email IS NOT NULL AND customer_email <> ''
+      AND customer_email NOT LIKE ${PLACEHOLDER_EMAIL_SQL_PATTERN}
       AND order_status = ANY(${PAID})
       AND (${search} = '' OR LOWER(customer_email) LIKE '%' || ${search} || '%'
            OR LOWER(COALESCE(customer_first_name, '') || ' ' || COALESCE(customer_last_name, '')) LIKE '%' || ${search} || '%')

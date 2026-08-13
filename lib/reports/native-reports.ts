@@ -3,6 +3,7 @@
 // the reports CRUD routes and the /api/cron/scheduled-reports cron. Zero FM.
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib'
 import { sql } from '../db'
+import { displayEmail } from '../customer-email-guard'
 
 export interface ReportColumn { category: string; key: string; displayLabel: string }
 
@@ -118,6 +119,10 @@ async function fetchReportRows(
       AND (${deliveryTypes.length === 0} OR o.delivery_type = ANY(${deliveryTypes}))
     ORDER BY o.order_date DESC NULLS LAST, o.created_at DESC
   `) as OrderRow[]
+
+  // Never surface the synthetic missing-row-backfill placeholder as a real
+  // email — a report the restaurant downloads is exactly a DISPLAY path.
+  for (const r of rows) r.customerEmail = displayEmail(r.customerEmail as string | null) || null
 
   return { rows, useCols }
 }

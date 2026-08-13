@@ -7,6 +7,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf
 import { sql } from '../db'
 import { fulfillmentDateTime } from './fulfillment-time'
 import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
+import { displayEmail } from '../customer-email-guard'
 
 function num(v: unknown): number {
   const n = parseFloat(String(v ?? ''))
@@ -163,7 +164,7 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     restaurantPhone: (o.restaurant_phone ? String(o.restaurant_phone) : '') || cachePhone || undefined,
     restaurantAddress: (o.restaurant_address ? String(o.restaurant_address) : '') || cacheAddress || undefined,
     customerName: [o.customer_first_name, o.customer_last_name].filter(Boolean).join(' ') || '—',
-    customerEmail: o.customer_email ? String(o.customer_email) : undefined,
+    customerEmail: displayEmail(o.customer_email as string | null) || undefined,
     customerPhone: o.customer_phone ? String(o.customer_phone) : undefined,
     companyName: o.company_name ? String(o.company_name) : undefined,
     orderService: String(o.order_type ?? ''),

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { validateApiKey } from '../../../../lib/api-key-auth'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 import { sql } from '../../../../lib/db'
+import { PLACEHOLDER_EMAIL_SQL_PATTERN } from '../../../../lib/customer-email-guard'
 
 // Read-only customer export for CRM sync. API-key protected. Pages through FM's
 // platform-wide customer list, then joins the platform-wide order list (same
@@ -110,6 +111,7 @@ async function statsFromNeon(): Promise<Map<string, OrderStats>> {
       ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
     WHERE o.created_at > NOW() - INTERVAL '365 days'
       AND o.customer_email IS NOT NULL
+      AND o.customer_email NOT LIKE ${PLACEHOLDER_EMAIL_SQL_PATTERN}
       AND o.is_deleted = false
   `) as FmRow[]
   const stats = new Map<string, OrderStats>()

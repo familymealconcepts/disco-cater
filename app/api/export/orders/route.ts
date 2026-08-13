@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { validateApiKey } from '../../../../lib/api-key-auth'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 import { sql } from '../../../../lib/db'
+import { displayEmail } from '../../../../lib/customer-email-guard'
 
 // Read-only order export for CRM sync. API-key protected.
 //
@@ -95,7 +96,7 @@ function discoRowToOrder(r: DiscoOrderRow): ExportOrder {
   return {
     orderRef: r.reference ?? null,
     orderNumber: r.order_number ?? null,
-    customerEmail: r.customer_email ?? null,
+    customerEmail: displayEmail(r.customer_email as string | null) || null,
     customerName: name,
     restaurantName: r.restaurant_name ?? null,
     restaurantReference: r.restaurant_reference ?? null,
@@ -239,7 +240,10 @@ export async function GET(request: Request) {
       return {
         orderRef: (o.orderReference ?? o.reference ?? null) as string | null,
         orderNumber: o.orderNumber ?? null,
-        customerEmail: (customer?.email ?? saleCustomer?.email ?? o.userEmail ?? o.customerEmail ?? o.email ?? null) as string | null,
+        // FM's own live data would never carry this synthetic placeholder (it's
+        // only ever written to disco_orders by the missing-row backfill), but
+        // guard defensively anyway — same helper, zero cost.
+        customerEmail: displayEmail((customer?.email ?? saleCustomer?.email ?? o.userEmail ?? o.customerEmail ?? o.email ?? null) as string | null) || null,
         customerName,
         restaurantName: (o.restaurantName ?? null) as string | null,
         restaurantReference: (o.restaurantReference ?? null) as string | null,
