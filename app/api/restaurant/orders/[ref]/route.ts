@@ -51,6 +51,7 @@ interface DiscoFull {
   delivery_state: string | null
   delivery_zip: string | null
   tax_exempt_id: string | null
+  tax_exempt_state: string | null
   created_at: string | null
   placed_at: string | null
   persons: number | null
@@ -68,9 +69,13 @@ interface DiscoTxn {
 function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
 
 // GET — order details for the portal drawer. Reads Neon (disco_orders +
-// disco_order_items) as the source of truth and overlays FM /details (service
-// auth) for fields Neon doesn't store (tax breakdown, restaurant address, etc.).
-// Falls back to FM-only when the order isn't mirrored in Neon yet.
+// disco_order_items) as the source of truth and, for FM-backed orders,
+// overlays FM /details (service auth) for fields Neon doesn't store (tax
+// breakdown, restaurant address, etc.) — FM stays live and correct for those
+// permanently (restaurants convert to native one at a time; FM keeps running
+// for everyone else). Never called for Disco-native orders — FM never had
+// them, so calling it was pure waste (the actual policy violation this fixed).
+// Falls back to FM-only when the order isn't mirrored in Neon yet at all.
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
   const ctx = await getRestaurantAuthContext()
@@ -82,20 +87,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
 
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 
-  // FM details (best-effort) — supplies the rich fields Neon doesn't store.
-  const fmDetails = await loadFmOrderDetails(ref)
-  const fmOrder = (((fmDetails?.data as Record<string, unknown>)?.order as Record<string, unknown>)
-    ?? (fmDetails?.order as Record<string, unknown>)
-    ?? fmDetails
-    ?? null) as Record<string, unknown> | null
-
-  // Neon order + items + full breakdown (populated by native checkout, the
-  // order-edit route, and — once backfilled — the FM order-detail backfill).
-  // Read added ahead of the backfill landing so this route can be verified to
-  // render identically from Neon before the live loadFmOrderDetails() call above
-  // is removed in a later, separate commit (that removal is the point of the
-  // backfill — reading FM live for every FM-backed order, including Disco-native
-  // ones, is a standing policy violation today).
+  // Neon first — source of truth for native orders, and (once mirrored) for
+  // FM-backed ones too. Populated by native checkout, the order-edit route,
+  // and the FM order-detail backfill/sync.
   let disco: DiscoFull | null = null
   let items: DiscoItem[] = []
   let txn: DiscoTxn | null = null
@@ -105,7 +99,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
              source_of_order, restaurant_reference, restaurant_name, customer_email, customer_first_name, customer_last_name, customer_phone,
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, order_drop_off_time::text AS order_drop_off_time,
              subtotal, total, fee, tips, refund, note,
-             delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, tax_exempt_id,
+             delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, tax_exempt_id, tax_exempt_state,
              created_at, placed_at, persons, company_name
       FROM disco_orders
       WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
@@ -126,6 +120,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       txn = txnRows[0] ?? null
     }
   }
+
+  // FM details — only when the order actually needs them: never for
+  // Disco-native orders (FM never had them; calling FM anyway was the actual
+  // policy violation) — yes for FM-backed orders (FM stays live and correct
+  // for those, permanently — restaurants convert to native one at a time,
+  // FM keeps running for everyone else) and as the only source when Neon
+  // doesn't have the order yet at all.
+  const needsFm = !disco || disco.source_of_order !== 'DISCO'
+  const fmDetails = needsFm ? await loadFmOrderDetails(ref) : null
+  const fmOrder = (((fmDetails?.data as Record<string, unknown>)?.order as Record<string, unknown>)
+    ?? (fmDetails?.order as Record<string, unknown>)
+    ?? fmDetails
+    ?? null) as Record<string, unknown> | null
 
   if (!disco && !fmOrder) {
     return NextResponse.json({ error: 'Order not found' }, { status: 404 })
@@ -169,6 +176,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (d.refund != null) base.refund = num(d.refund)
   // Tax-exempt id — Neon-first, else keep FM's (taxExempt/taxExemptId).
   if (d.tax_exempt_id) { base.taxExemptId = d.tax_exempt_id; base.taxExempt = true }
+  // Display-only label (e.g. "NJ") — captured at native-checkout placement
+  // time, never exposed by FM's live order-details endpoint (checked
+  // directly: no tax/exempt field of any kind in its response) or present in
+  // the frozen fm_backup snapshot (only tax_exempt_id exists there). Doesn't
+  // affect whether tax is charged — isTaxExempt is taxExemptId-driven, above —
+  // just which state's exemption is shown. Blank for FM-only orders is the
+  // real, permanent state of FM's own data, not a gap this route introduces.
+  if (d.tax_exempt_state) base.taxExemptState = d.tax_exempt_state
   // Full financial breakdown — Neon-first when a transaction row exists (native
   // checkout, a manual edit, or a completed FM backfill), else keep FM's own
   // paymentDetails fields. Same flat key names FM's OrderPublicResponseDto uses,
