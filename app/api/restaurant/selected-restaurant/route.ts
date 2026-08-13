@@ -29,15 +29,21 @@ export async function PUT(req: NextRequest) {
   // is expressed purely by the cookie (resolveDiscoScopeRef reads it). Never call
   // FM: a disco-native ref means nothing to FM, and native users must not touch it.
   //
-  // The permitted set mirrors resolveDiscoScopeRef's own role gate exactly: a
-  // plain ADMIN's only permitted ref is their own home restaurant (resolveDiscoScopeRef
-  // never honors the cookie for them regardless), and a SYSTEM_ADMIN/SUPER_ADMIN's
-  // permitted set is their disco group (home + getDiscoGroupAccounts). Any ref
-  // outside that set is rejected outright — never silently narrowed to home,
-  // since a cookie the reader will ignore is still a footgun for future readers.
+  // The permitted set mirrors resolveDiscoScopeRef's own role gate exactly:
+  //   - SUPER_ADMIN (the Disco Cater team) is unrestricted — any ref is honored,
+  //     matching the settled role model and FM's own SUPER_ADMIN parity (see
+  //     getRestaurantRef's comment on the FM side of this same correction).
+  //   - SYSTEM_ADMIN (a restaurant owner managing several locations) is scoped to
+  //     their disco group (home + getDiscoGroupAccounts).
+  //   - Plain ADMIN's only permitted ref is their own home restaurant
+  //     (resolveDiscoScopeRef never honors the cookie for them regardless).
+  // Any ref outside the permitted set is rejected outright — never silently
+  // narrowed to home, since a cookie the reader will ignore is still a footgun
+  // for future readers.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
-    const isSA = ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN'
+    if (ctx.role === 'SUPER_ADMIN') return setSelection(ref)
+    const isSA = ctx.role === 'SYSTEM_ADMIN'
     const permitted = isSA
       ? await discoGroupRefs(ctx.businessName, ctx.email, ctx.restaurantReference)
       : new Set([ctx.restaurantReference].filter(Boolean))

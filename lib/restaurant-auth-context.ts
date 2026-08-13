@@ -77,20 +77,28 @@ export function usesServiceAccount(ctx: RestaurantAuthContext): boolean {
 // location, not the SA's home account — otherwise a multi-location admin can only
 // ever see/edit their home location's menus.
 //
-// Security + fail-safe. The selected ref is honored ONLY when all hold:
-//   (a) the session is Disco — FM contexts are returned unchanged (they don't use
-//       the Neon routes at all), so an FM restaurant can never be redirected here;
-//   (b) the role is SYSTEM_ADMIN/SUPER_ADMIN — a plain ADMIN has one location; and
-//   (c) the ref is within the SA's own group/access set (getDiscoGroupAccounts —
-//       the same source used for order/location scoping).
-// Any doubt — plain ADMIN, no cookie, an unknown/foreign ref, or a lookup error —
-// resolves to the session's home reference. A cookie value is never trusted alone.
+// Security + fail-safe. The selected ref is honored based on role:
+//   - SUPER_ADMIN (the Disco Cater team) is unrestricted — any selected ref is
+//     honored with no group-membership check. This matches FM's own model:
+//     FM's SUPER_ADMIN has its own unrestricted controller with no per-restaurant
+//     ACL (see getRestaurantRef's comment in lib/restaurant-auth.ts for the FM
+//     side of this same correction), so there is no "permitted set" to check
+//     a disco-native SUPER_ADMIN against either — the role itself is the
+//     authorization. The settled model: SUPER_ADMIN = Disco Cater team
+//     (unrestricted), SYSTEM_ADMIN = restaurant owner (scoped to their locations).
+//   - SYSTEM_ADMIN is honored only when the ref is within their own group/access
+//     set (getDiscoGroupAccounts — the same source used for order/location
+//     scoping). A plain ADMIN has one location and never trusts the cookie.
+// Any doubt for SYSTEM_ADMIN — no cookie, an unknown/foreign ref, or a lookup
+// error — resolves to the session's home reference. A cookie value is never
+// trusted alone for that role.
 export async function resolveDiscoScopeRef(ctx: RestaurantAuthContext): Promise<string> {
   const home = ctx.restaurantReference
   if (ctx.authType !== 'disco' || !home) return home
-  if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return home
   const cookieStore = await cookies()
   const selected = (cookieStore.get(SELECTED_RESTAURANT_COOKIE)?.value || '').trim()
+  if (ctx.role === 'SUPER_ADMIN') return selected || home
+  if (ctx.role !== 'SYSTEM_ADMIN') return home
   if (!selected || selected === home) return home
   try {
     const group = await getDiscoGroupAccounts(ctx.businessName, ctx.email)
