@@ -16,6 +16,20 @@ import { countPriorPaidOrders } from './pricing/native-order'
 
 const num = (v: unknown): number => { const n = parseFloat(String(v ?? '')); return Number.isFinite(n) ? n : 0 }
 
+// Diner-facing wording for a failed restaurant-funded promo PREVIEW (never shown
+// verbatim — that's the caller's job to log with restaurant/order context first).
+// Two-tier, same approach as native's equivalent (lib/order/native-checkout.ts's
+// dinerMessageForNativePromoReason): one specific message for the one ordinary
+// rejection a diner can act on (bad/expired code), one generic fallback for every
+// self-check/config-related reason (FAMILY_MEAL money-flow, missing tax mirror, a
+// self-check mismatch) — a diner can't do anything about those besides remove the
+// code, and the exact figures that didn't reconcile belong in the server log, not
+// in front of the customer.
+export function dinerMessageForRestaurantPromoReason(reason: string): string {
+  if (reason === 'code invalid/expired/inactive') return 'This promo code is invalid or has expired.'
+  return 'This promo code can’t be applied right now. You can remove it and check out at full price.'
+}
+
 export interface ApplyResult {
   applied: boolean
   reason?: string

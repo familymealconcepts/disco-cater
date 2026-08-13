@@ -126,6 +126,15 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     return { ok: false, status: 400, error: priced.deliveryMessage || 'That delivery address is not serviceable.' }
   }
   const promo = priced.promo
+  // A code was submitted but didn't resolve AT PLACEMENT specifically (not just
+  // preview) — most likely a race against preview (a use-count cap exhausted, or
+  // min_order_subtotal/first_time_only status changed) since the normal flow
+  // clears the code client-side the moment preview reports promoError. Doesn't
+  // block the order — same as before this fix, it just prices at full price —
+  // but this is now visible server-side instead of a bare silent drop.
+  if (params.restaurantPromoCode && !promo && priced.promoError) {
+    console.error(`[native-place-checkout] restaurant-funded promo not applied at placement: restaurant=${ref} code=${params.restaurantPromoCode} reason=${priced.promoError}`)
+  }
 
   const input: NativePlaceInput = {
     restaurantReference: ref,

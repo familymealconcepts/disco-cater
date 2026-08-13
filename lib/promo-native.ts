@@ -18,11 +18,28 @@ import { countPriorPaidOrders } from './pricing/native-order'
 
 export interface NativePromoResolution { id: number; pct: number; maxUses: number | null; maxUsesPerUser: number }
 
+// Returned on any failure, alongside null, so the caller can surface WHY instead of
+// silently falling back to full price with no explanation (the same shape of bug
+// this was found to share with the FM-backed path's self-check — see
+// promo-apply.ts's previewRestaurantFundedDiscount and its own callers for the
+// parallel fix). Internal/diagnostic wording — callers map this to a diner-facing
+// message, never shown verbatim.
+export type NativePromoReason =
+  | 'invalid input' | 'code not found' | 'inactive' | 'not yet valid' | 'expired'
+  | 'max uses reached' | 'below minimum order subtotal' | 'per-user max uses reached'
+  | 'not a first-time customer at this restaurant' | 'invalid discount value'
+  | 'restaurant is FAMILY_MEAL money-flow (DIRECT-only)'
+
+export type NativePromoResult =
+  | { resolution: NativePromoResolution; reason: null }
+  | { resolution: null; reason: NativePromoReason }
+
 // Look up + validate a RESTAURANT-funded code (flat-$ or percent, with cap/min-order/
 // first-time enforcement) for this native restaurant. Mirrors promo-apply.ts
 // resolveCode (active, validity window, global max_uses), plus a defensive
-// FAMILY_MEAL money-flow decline. Returns null (no discount) on any failure — the
-// order still places at full price.
+// FAMILY_MEAL money-flow decline. Returns `{ resolution: null, reason }` on any
+// failure — the order still places at full price, but the caller now knows why
+// (never just a bare null it can't diagnose or surface to the diner).
 //
 // subtotal is required now (not optional) because min_order_subtotal and the
 // flat-$/cap-to-pct conversion both need it — every caller already computes
@@ -37,9 +54,9 @@ export interface NativePromoResolution { id: number; pct: number; maxUses: numbe
 // the preview show "valid" when it later isn't, never the reverse. The real gate is
 // reserveNativeRestaurantPromoUse below, which re-checks both caps atomically at
 // the moment of placement — this function alone never authorizes a charge.
-export async function resolveNativeRestaurantPromo(code: string, restaurantRef: string, subtotal: number, userEmail?: string): Promise<NativePromoResolution | null> {
+export async function resolveNativeRestaurantPromo(code: string, restaurantRef: string, subtotal: number, userEmail?: string): Promise<NativePromoResult> {
   const c = (code || '').trim()
-  if (!c || !restaurantRef || subtotal <= 0) return null
+  if (!c || !restaurantRef || subtotal <= 0) return { resolution: null, reason: 'invalid input' }
   const rows = (await sql`
     SELECT id, discount_value, discount_type, max_discount_cap, min_order_subtotal, first_time_only,
            valid_from, valid_until, active, max_uses, uses_count, max_uses_per_user
@@ -53,33 +70,34 @@ export async function resolveNativeRestaurantPromo(code: string, restaurantRef: 
     max_uses: number | null; uses_count: number; max_uses_per_user: number
   }[]
   const p = rows[0]
-  if (!p || !p.active) return null
+  if (!p) return { resolution: null, reason: 'code not found' }
+  if (!p.active) return { resolution: null, reason: 'inactive' }
   const now = Date.now()
-  if (p.valid_from && new Date(p.valid_from).getTime() > now) return null
-  if (p.valid_until && new Date(p.valid_until).getTime() < now) return null
-  if (p.max_uses != null && p.uses_count >= p.max_uses) return null
+  if (p.valid_from && new Date(p.valid_from).getTime() > now) return { resolution: null, reason: 'not yet valid' }
+  if (p.valid_until && new Date(p.valid_until).getTime() < now) return { resolution: null, reason: 'expired' }
+  if (p.max_uses != null && p.uses_count >= p.max_uses) return { resolution: null, reason: 'max uses reached' }
   const minOrder = p.min_order_subtotal == null ? null : Number(p.min_order_subtotal)
-  if (minOrder != null && subtotal < minOrder) return null // evaluated against the PRE-discount subtotal
+  if (minOrder != null && subtotal < minOrder) return { resolution: null, reason: 'below minimum order subtotal' } // evaluated against the PRE-discount subtotal
   const userKey = (userEmail || '').trim().toLowerCase()
   if (userKey) {
     const used = (await sql`SELECT COUNT(*)::int AS c FROM promo_code_uses WHERE promo_code_id = ${p.id} AND LOWER(user_email) = ${userKey}`.catch(() => [{ c: 0 }])) as { c: number }[]
-    if ((used[0]?.c ?? 0) >= p.max_uses_per_user) return null
+    if ((used[0]?.c ?? 0) >= p.max_uses_per_user) return { resolution: null, reason: 'per-user max uses reached' }
     if (p.first_time_only) {
       // Restaurant-scoped, same definition the lead-gen fee tier uses — NOT
       // platform-wide FM history (that's a different, wrong question here).
       const prior = await countPriorPaidOrders(userKey, restaurantRef)
-      if (prior > 0) return null
+      if (prior > 0) return { resolution: null, reason: 'not a first-time customer at this restaurant' }
     }
   }
   const discountValue = Number(p.discount_value)
   const maxDiscountCap = p.max_discount_cap == null ? null : Number(p.max_discount_cap)
   const pct = resolveEffectiveDiscountPct(subtotal, p.discount_type, discountValue, maxDiscountCap)
-  if (!(pct > 0 && pct <= 100)) return null
+  if (!(pct > 0 && pct <= 100)) return { resolution: null, reason: 'invalid discount value' }
   // Defense-in-depth: an explicit FAMILY_MEAL money-flow means the restaurant is not
   // merchant-of-record — decline (restaurant-funded is DIRECT-only, permanent rule).
   const mf = (await sql`SELECT money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`.catch(() => [])) as { money_flow: string | null }[]
-  if (mf[0]?.money_flow === 'FAMILY_MEAL') return null
-  return { id: p.id, pct, maxUses: p.max_uses, maxUsesPerUser: p.max_uses_per_user }
+  if (mf[0]?.money_flow === 'FAMILY_MEAL') return { resolution: null, reason: 'restaurant is FAMILY_MEAL money-flow (DIRECT-only)' }
+  return { resolution: { id: p.id, pct, maxUses: p.max_uses, maxUsesPerUser: p.max_uses_per_user }, reason: null }
 }
 
 export type ReserveResult = { ok: true; reservationId: number } | { ok: false; reason: 'max_uses' | 'max_uses_per_user' }

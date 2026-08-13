@@ -12,7 +12,7 @@ import { cents, discountedBase } from '../promo-pricing'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../scheduling/native-schedule'
 import { isDateTimeBookable } from '../scheduling/cutoffs'
 import { validateNativeDelivery, type NativeDeliveryAddress } from './native-delivery'
-import { resolveNativeRestaurantPromo, type NativePromoResolution } from '../promo-native'
+import { resolveNativeRestaurantPromo, type NativePromoResolution, type NativePromoReason } from '../promo-native'
 
 export interface NativeCartItem {
   reference?: string; name: string; price: number; quantity: number
@@ -237,6 +237,11 @@ export interface PriceNativeCartResult {
   deliveryFee: number
   thirdPartyDeliverySubsiding: number
   promo: NativePromoResolution | null
+  // Set whenever a restaurantPromoCode was submitted but didn't resolve — null
+  // whenever no code was submitted at all (never conflate "no code" with "code
+  // failed"). See lib/promo-native.ts's NativePromoReason for the full set; callers
+  // map this to a diner-facing message rather than showing it verbatim.
+  promoError: NativePromoReason | null
   // Delivery serviceability — false only when an address was supplied and it's
   // out of range / ungeocodable. Always true when deliveryAddress is absent
   // (preview) or orderType is PICKUP.
@@ -253,9 +258,19 @@ export interface PriceNativeCartResult {
 // call this — there is no second path that can drift from it.
 export async function priceNativeCart(input: PriceNativeCartInput): Promise<PriceNativeCartResult> {
   const subtotal = cartSubtotal(input.items)
-  const promo = input.restaurantPromoCode
+  const promoResult = input.restaurantPromoCode
     ? await resolveNativeRestaurantPromo(input.restaurantPromoCode, input.restaurantReference, subtotal, input.customerEmail)
     : null
+  const promo = promoResult?.resolution ?? null
+  const promoError = promoResult?.reason ?? null
+  if (promoError) {
+    // A code was submitted but didn't resolve — log with enough context to
+    // diagnose which restaurant/code/reason, same as the FM-backed self-check
+    // failure (lib/promo-apply.ts). Never throws; the order still prices at full
+    // price, the caller (priceNativeFmDto) surfaces this to the diner instead of
+    // silently showing an undiscounted total.
+    console.error(`[native-checkout] restaurant-funded promo not applied: restaurant=${input.restaurantReference} code=${input.restaurantPromoCode} reason=${promoError}`)
+  }
   const discountPct = promo?.pct ?? 0
   const discountedSubtotal = discountedBase(subtotal, discountPct)
 
@@ -310,6 +325,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     deliveryFee,
     thirdPartyDeliverySubsiding,
     promo,
+    promoError,
     deliveryValid,
     deliveryMessage,
   }
@@ -371,6 +387,33 @@ export function fmItemsToNativeCart(items: FmDtoItem[] | undefined): NativeCartI
   })
 }
 
+// Diner-facing wording for a failed restaurant-funded promo resolution — never
+// shows the internal reason verbatim. Same two-tier approach as the FM-backed
+// path's mapping (app/api/order/update|init/route.ts): a specific message for
+// ordinary rejections the diner can act on, one generic fallback for everything
+// else (including the two genuine config-problem reasons, invalid discount value
+// and FAMILY_MEAL money-flow, which a diner can't do anything about besides
+// removing the code).
+function dinerMessageForNativePromoReason(reason: NativePromoReason): string {
+  switch (reason) {
+    case 'code not found':
+    case 'inactive':
+    case 'not yet valid':
+    case 'expired':
+    case 'invalid input':
+      return 'This promo code is invalid or has expired.'
+    case 'max uses reached':
+    case 'per-user max uses reached':
+      return 'This promo code has reached its usage limit.'
+    case 'below minimum order subtotal':
+      return 'This promo code doesn’t meet the minimum order requirement.'
+    case 'not a first-time customer at this restaurant':
+      return 'This promo code is for first-time customers only.'
+    default:
+      return 'This promo code can’t be applied right now. You can remove it and check out at full price.'
+  }
+}
+
 // Price an FM-shaped checkout DTO for a native restaurant and return the FM
 // response envelope the client already understands. Delivery is third-party (Disco
 // uses Expedite for all delivery); own-delivery + real delivery fees arrive with
@@ -414,6 +457,11 @@ export async function priceNativeFmDto(body: Record<string, unknown>): Promise<R
         total: b.total,
       },
     },
+    // Sibling of `data`, not nested inside the FM-shaped DTO — same convention as
+    // the FM-backed path's restaurantPromoError (app/api/order/update|init).
+    // Present ONLY when a code was submitted and failed to resolve; a diner who
+    // submitted no code never sees this key at all.
+    ...(restaurantPromoCode && priced.promoError ? { restaurantPromoError: dinerMessageForNativePromoReason(priced.promoError) } : {}),
   }
 }
 

@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { isDiscoNativeRestaurant, priceNativeFmDto, isNativeOrderingOpen } from '../../../../lib/order/native-checkout'
-import { previewRestaurantFundedDiscount } from '../../../../lib/promo-apply'
+import { previewRestaurantFundedDiscount, dinerMessageForRestaurantPromoReason } from '../../../../lib/promo-apply'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Same discount patch as /api/order/update — see that file's applyPreviewDiscount
-// for the full reasoning (same self-check function placement uses, fallback to
-// FM's undiscounted numbers on any failure, subtotal/deliveryFee left untouched).
+// for the full reasoning (same self-check function placement uses, restaurantPromoError
+// surfaced instead of a silent fallback to FM's undiscounted numbers on any
+// failure, subtotal/deliveryFee left untouched). No orderRef exists yet at init
+// time, so the log line omits it.
 async function applyPreviewDiscount(data: unknown, body: Record<string, unknown>): Promise<void> {
   const restaurantPromoCode = typeof body.restaurantPromoCode === 'string' ? body.restaurantPromoCode.trim() : ''
   if (!restaurantPromoCode) return
@@ -29,7 +31,11 @@ async function applyPreviewDiscount(data: unknown, body: Record<string, unknown>
     console.error('[order/init] preview discount computation threw:', e instanceof Error ? e.message : e)
     return { applied: false as const, reason: 'threw' }
   })
-  if (!result.applied) return
+  if (!result.applied) {
+    console.error(`[order/init] restaurant-funded promo not applied: restaurant=${restaurantRef} code=${restaurantPromoCode} reason=${result.reason}`)
+    container.restaurantPromoError = dinerMessageForRestaurantPromoReason(result.reason)
+    return
+  }
 
   const b = result.breakdown
   dto.stateSalesTaxInPrice = b.stateTax

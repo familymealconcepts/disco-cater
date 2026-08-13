@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { isDiscoNativeRestaurant, priceNativeFmDto } from '../../../../lib/order/native-checkout'
-import { previewRestaurantFundedDiscount } from '../../../../lib/promo-apply'
+import { previewRestaurantFundedDiscount, dinerMessageForRestaurantPromoReason } from '../../../../lib/promo-apply'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -26,8 +26,15 @@ const FM_UPDATE_ALLOWED_FIELDS = [
 // it to the client — this is what makes the preview agree with what
 // applyRestaurantFundedDiscount ultimately charges at placement (lib/promo-
 // apply.ts's computeRestaurantFundedBreakdown is the SAME function both call).
-// Falls back to FM's own undiscounted numbers, untouched, on any self-check
-// failure or resolution failure — never shows a guess.
+//
+// On any self-check/resolution failure, this used to silently fall back to FM's
+// own undiscounted numbers with NO signal at all — a diner would see what looked
+// like a normal checkout, then get blocked at Place Order (a 502) with no
+// explanation, even though the preview failure and the placement failure share
+// the exact same underlying cause. Now sets `restaurantPromoError` (a sibling of
+// `data`, never nested inside FM's own dto shape) so the client can tell the
+// diner immediately and let them proceed without the code — see
+// CheckoutDrawer.tsx's handling of this field.
 async function applyPreviewDiscount(data: unknown, body: Record<string, unknown>): Promise<void> {
   const restaurantPromoCode = typeof body.restaurantPromoCode === 'string' ? body.restaurantPromoCode.trim() : ''
   if (!restaurantPromoCode) return
@@ -41,6 +48,7 @@ async function applyPreviewDiscount(data: unknown, body: Record<string, unknown>
   const serviceChargePct = Number(body.serviceChargePct) || 0
   const orderType = String(body.orderType || 'PICKUP')
   const userEmail = String(body.userEmail || '')
+  const orderRef = String(body.orderRef || '')
 
   const result = await previewRestaurantFundedDiscount({
     restaurantRef, code: restaurantPromoCode, serviceChargePct, orderType, fmCheckout: dto, userEmail,
@@ -48,7 +56,14 @@ async function applyPreviewDiscount(data: unknown, body: Record<string, unknown>
     console.error('[order/update] preview discount computation threw:', e instanceof Error ? e.message : e)
     return { applied: false as const, reason: 'threw' }
   })
-  if (!result.applied) return
+  if (!result.applied) {
+    // Detailed enough to diagnose which config is wrong without reproducing it —
+    // result.reason already includes the actual mismatched cent figures for a
+    // self-check failure (e.g. "self-check total mismatch: ours=5511c ref=5498c").
+    console.error(`[order/update] restaurant-funded promo not applied: restaurant=${restaurantRef} order=${orderRef} code=${restaurantPromoCode} reason=${result.reason}`)
+    container.restaurantPromoError = dinerMessageForRestaurantPromoReason(result.reason)
+    return
+  }
 
   const b = result.breakdown
   dto.stateSalesTaxInPrice = b.stateTax

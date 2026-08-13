@@ -532,6 +532,7 @@ export default function CheckoutDrawer({
       orderRefRef.current = ref
       setOrderRef(ref)
       if (initData.data?.checkoutPublicResponseDto || initData.data) setFmTotals(initData)
+      applyRestaurantPromoError(initData)
       if (orderType === 'DELIVERY') {
         fetch('/api/order/validate-address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantReference: fmRef, deliveryAddress: fmAddr, menuReference }) }).catch(() => {})
       }
@@ -551,8 +552,26 @@ export default function CheckoutDrawer({
       body: JSON.stringify({ ...dto, restaurantRef: fmRef, orderRef: ref }),
     })
     const updData = await updRes.json()
-    if (updRes.ok && !updData.error && (advance || seq === previewSeq.current)) setFmTotals(updData)
+    if (updRes.ok && !updData.error && (advance || seq === previewSeq.current)) {
+      setFmTotals(updData)
+      applyRestaurantPromoError(updData)
+    }
     return ref
+  }
+
+  // A restaurant-funded code was submitted but the server couldn't apply it
+  // (self-check failure, cap/min-order/first-time rejection, etc. — see
+  // lib/promo-apply.ts / lib/order/native-checkout.ts). Previously this signal
+  // didn't exist at all: the preview would silently show full-price totals while
+  // `appliedPromo` still claimed a discount was active, and the diner only found
+  // out when Place Order rejected the whole order. Now: tell the diner in plain
+  // language and drop the applied-promo state so checkout proceeds at full price
+  // (the totals in `rd` are already the undiscounted ones — nothing else to undo).
+  function applyRestaurantPromoError(rd: any) {
+    if (rd && typeof rd.restaurantPromoError === 'string' && rd.restaurantPromoError) {
+      setAppliedPromo(null)
+      setPromoError(rd.restaurantPromoError)
+    }
   }
 
   // Stage 2 is the ONLY drawer view (the old in-drawer "review" step is gone —
@@ -668,7 +687,7 @@ export default function CheckoutDrawer({
           if (ref) {
             const dto = { ...buildCheckoutDto({ restaurantPromoCode: promoCode }), restaurantRef: fmRef, orderRef: ref }
             fetch('/api/order/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dto) })
-              .then(r => r.json()).then(rd => { if (rd && !rd.error) setFmTotals(rd) }).catch(() => {})
+              .then(r => r.json()).then(rd => { if (rd && !rd.error) { setFmTotals(rd); applyRestaurantPromoError(rd) } }).catch(() => {})
           }
         }
       } else {
