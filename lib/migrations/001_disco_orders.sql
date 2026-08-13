@@ -602,3 +602,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS disco_order_items_order_fmpkg_uq
   ON disco_order_items (order_id, fm_package_id) WHERE fm_package_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS disco_order_item_addons_item_fmaddon_uq
   ON disco_order_item_addons (order_item_id, fm_addon_id) WHERE fm_addon_id IS NOT NULL;
+
+-- fm_order_reference had only a plain index (idx_disco_orders_fm_reference) —
+-- uniqueness was enforced by application code checking before insert, never by
+-- the database. Exactly the shape of the order_number bug that silently dropped
+-- ~295 orders before a real constraint existed. Verified 0 violations against
+-- production data before adding this. Partial (WHERE fm_order_reference IS NOT
+-- NULL) so native orders, which never have one, are unaffected — Postgres never
+-- treats NULLs as duplicates under a unique index regardless, but being
+-- explicit here matches the same convention as the other partial indexes above.
+CREATE UNIQUE INDEX IF NOT EXISTS disco_orders_fm_order_reference_uq
+  ON disco_orders (fm_order_reference) WHERE fm_order_reference IS NOT NULL;
