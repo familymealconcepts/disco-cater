@@ -69,6 +69,15 @@ const ALLOWED_DELIVERY_TYPES = new Set([
   'THIRD_PARTY_DELIVERY', 'PICKUP', 'DLIVRD', 'DOOR_DASH_DELIVERY', 'DLIVRD_DELIVERY',
 ])
 
+// Same allowlist + fallback as the live sync path — an order_status fm_backup
+// has that disco_orders' CHECK constraint doesn't recognize (found live:
+// 'SELECTED', an in-progress-cart state on the single newest order in the
+// whole snapshot) maps to DUE rather than failing the row's insert.
+const ALLOWED_STATUS = new Set([
+  'CART', 'RESERVED', 'DUE', 'COMPLETED', 'CANCELED', 'CANCELLED', 'REFUND', 'REFUNDED',
+  'PARTIAL_REFUND', 'EXPIRED', 'VOID', 'VOIDED', 'UNPAID', 'PAID', 'PAYMENT_FAILED', 'REOPEN',
+])
+
 interface FmRow {
   id: number
   fm_order_reference: string
@@ -80,6 +89,7 @@ interface FmRow {
   delivery_type: string | null
   source_of_order: string
   note: string | null
+  created_date: string
   restaurant_id: number
   restaurant_reference: string | null
   restaurant_name: string | null
@@ -123,7 +133,7 @@ async function main() {
   const { rows: allRows } = await fm.query(`
     SELECT
       o.id, o.reference AS fm_order_reference, o.order_number, o.order_date, o.order_time,
-      o.order_type, o.order_status, o.delivery_type, o.source_of_order, o.note,
+      o.order_type, o.order_status, o.delivery_type, o.source_of_order, o.note, o.created_date,
       o.restaurant_id,
       r.reference AS restaurant_reference, r.business_name AS restaurant_name, r.blocked AS restaurant_blocked,
       st.restaurant_customer_id,
@@ -333,11 +343,11 @@ async function main() {
           order_date, order_time, subtotal, total, fee, tips, note, delivery_instructions,
           placed_at, created_at, updated_at
         ) VALUES (
-          ${r.fm_order_reference}::uuid, ${orderNumber}::bigint, ${rawOrderNumber ? Number(rawOrderNumber) : null}, ${r.order_status || 'DUE'}, ${orderType}, ${deliveryType}, 'FAMILYMEAL',
+          ${r.fm_order_reference}::uuid, ${orderNumber}::bigint, ${rawOrderNumber ? Number(rawOrderNumber) : null}, ${ALLOWED_STATUS.has(r.order_status) ? r.order_status : 'DUE'}, ${orderType}, ${deliveryType}, 'FAMILYMEAL',
           ${r.restaurant_reference}::uuid, ${r.restaurant_name || snap?.name || null}, ${snap?.address || null}, ${snap?.phone || null},
           ${email}, ${r.customer_first_name}, ${r.customer_last_name}, ${r.customer_phone},
           ${r.order_date}::date, ${r.order_time}::time, ${n(r.subtotal)}, ${n(r.total)}, ${n(r.fee)}, ${n(r.tips_in_price) ?? 0}, ${r.note}, ${r.delivery_instructions},
-          ${r.order_date}::date, NOW(), NOW()
+          ${r.created_date}, NOW(), NOW()
         )
       `
       inserted++
