@@ -92,7 +92,7 @@ function servesToInt(s: unknown): number | null {
 // exactly once ALL of an order's transaction rows are summed (a genuine edit
 // history: an added charge, or a full refund netting to zero) — those 5 are
 // INCLUDED below with their full transaction history now written, not just
-// ORIGINAL. Only these 6 are excluded, for two distinct, confirmed reasons:
+// ORIGINAL. Only these 5 remain excluded, for one confirmed reason:
 //   - 6741, 5122, 6512, 6517, 18470: FM's own snapshot has TWO 'ORIGINAL' rows
 //     for the same order, identical totals, both transaction_status='INITIATED'
 //     (never PAID), and the order itself is EXPIRED on both FM and Neon. This is
@@ -105,11 +105,17 @@ function servesToInt(s: unknown): number | null {
 //     honest two-row write, since neither attempt was ever actually paid —
 //     would represent real money. Writing a component row here would be worse
 //     than no row.
-//   - 17159: genuinely unexplained. FM's only transaction row is $444.13 PAID,
-//     order status DUE (active, not refunded/edited) — but disco_orders.total
-//     is $381.50, a $62.63 gap with no ADDITIONAL/REFUND row to explain it.
-//     Needs manual review; flagged for you, not guessed at here.
-const EXCLUDED_ORDER_IDS = new Set<number>([6741, 5122, 6512, 6517, 18470, 17159])
+// 17159 was excluded here for the same "genuinely unexplained" reason (FM's
+// only transaction row was $444.13 PAID against disco_orders.total=$381.50, a
+// $62.63 gap with no ADDITIONAL/REFUND row) — now resolved (2026-08-13):
+// Neon's mirror was a stale bare-backfill snapshot; FM's $444.13 PAID row is
+// correct. A full re-run of the reconciliation check across every OTHER
+// FM-sourced candidate order (23,115) found zero further mismatches — this was
+// never a population, just this one order. Fixed directly and removed from
+// this set so it's no longer skipped; the header comment stays as a record of
+// why it was excluded and how it was confirmed resolved, not because 17159
+// needs re-processing by a future run of this script.
+const EXCLUDED_ORDER_IDS = new Set<number>([6741, 5122, 6512, 6517, 18470])
 
 interface Candidate { orderId: number; fmRef: string; discoTotal: number | null }
 interface FmOrderRow { order_reference: string; fm_order_id: number }
