@@ -91,18 +91,24 @@ export async function GET(req: NextRequest) {
   if (!DATE_RE.test(from) || !DATE_RE.test(to)) return NextResponse.json({ error: 'from and to dates (YYYY-MM-DD) are required.' }, { status: 400 })
 
   try {
-    // Filter on the requested date field. created_at is a timestamp → compare on its
-    // date; order_date is a date. Inclusive range.
+    // Filter on the requested date field. COALESCE(placed_at, created_at): placed_at
+    // is FM's real order-creation timestamp (backfilled for pre-freeze orders,
+    // populated going forward by the fixed sync); created_at is Neon sync time,
+    // which for FM-mirrored orders can trail real placement by hours to years —
+    // "Created Date" here means "when was this actually placed." order_date is
+    // a plain date; both compare on a date, inclusive range.
     const rowsRaw = dateField === 'created'
       ? (await sql`
-          SELECT order_number, to_char(order_date,'YYYY-MM-DD') AS order_date, to_char(created_at,'YYYY-MM-DD') AS created_date,
+          SELECT order_number, to_char(order_date,'YYYY-MM-DD') AS order_date,
+                 to_char(COALESCE(placed_at, created_at),'YYYY-MM-DD') AS created_date,
                  customer_first_name, customer_last_name, order_type, order_status, source_of_order, subtotal, tips, total
           FROM disco_orders
           WHERE restaurant_reference = ${ref}::uuid AND is_deleted = false
-            AND created_at::date >= ${from}::date AND created_at::date <= ${to}::date
-          ORDER BY created_at DESC`)
+            AND COALESCE(placed_at, created_at)::date >= ${from}::date AND COALESCE(placed_at, created_at)::date <= ${to}::date
+          ORDER BY COALESCE(placed_at, created_at) DESC`)
       : (await sql`
-          SELECT order_number, to_char(order_date,'YYYY-MM-DD') AS order_date, to_char(created_at,'YYYY-MM-DD') AS created_date,
+          SELECT order_number, to_char(order_date,'YYYY-MM-DD') AS order_date,
+                 to_char(COALESCE(placed_at, created_at),'YYYY-MM-DD') AS created_date,
                  customer_first_name, customer_last_name, order_type, order_status, source_of_order, subtotal, tips, total
           FROM disco_orders
           WHERE restaurant_reference = ${ref}::uuid AND is_deleted = false

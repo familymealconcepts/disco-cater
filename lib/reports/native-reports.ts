@@ -80,10 +80,18 @@ async function fetchReportRows(
   const statuses = (cfg.filter?.orderStatuses || []).filter(Boolean)
   const deliveryTypes = (cfg.filter?.deliveryTypes || []).filter(Boolean)
 
+  // byCreated bucket: COALESCE(placed_at, created_at) — placed_at is FM's real
+  // order-creation timestamp (backfilled for pre-freeze orders, populated going
+  // forward by the fixed sync); created_at is Neon sync time, which for
+  // FM-mirrored orders can trail real placement by hours to years. Also now
+  // timezone-aware (AT TIME ZONE the order's own restaurant's tz before the
+  // ::date cast) — previously this cast used the UTC day boundary directly, the
+  // same bug already fixed elsewhere (orders list, reporting cards) but missed
+  // here.
   const rows = (await sql`
     SELECT o.order_number AS "orderNumber",
            to_char(o.order_date, 'YYYY-MM-DD') AS "orderDate",
-           to_char(o.created_at, 'YYYY-MM-DD') AS "createdDate",
+           to_char(COALESCE(o.placed_at, o.created_at), 'YYYY-MM-DD') AS "createdDate",
            o.order_type AS "orderType",
            o.delivery_type AS "deliveryType",
            o.order_status AS "orderStatus",
@@ -96,9 +104,16 @@ async function fetchReportRows(
                      FROM disco_sale_transactions st
                      WHERE st.order_id = o.id AND st.transaction_type = 'ORIGINAL'), 0) AS "tax"
     FROM disco_orders o
+    LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
     WHERE o.restaurant_reference = ANY(${scopeRefs}::uuid[])
-      AND (CASE WHEN ${byCreated} THEN o.created_at::date ELSE o.order_date END) >= ${period.from}::date
-      AND (CASE WHEN ${byCreated} THEN o.created_at::date ELSE o.order_date END) <= ${period.to}::date
+      AND (CASE WHEN ${byCreated}
+             THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))::date
+             ELSE o.order_date
+           END) >= ${period.from}::date
+      AND (CASE WHEN ${byCreated}
+             THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))::date
+             ELSE o.order_date
+           END) <= ${period.to}::date
       AND (${statuses.length === 0} OR o.order_status = ANY(${statuses}))
       AND (${deliveryTypes.length === 0} OR o.delivery_type = ANY(${deliveryTypes}))
     ORDER BY o.order_date DESC NULLS LAST, o.created_at DESC

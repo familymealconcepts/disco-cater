@@ -80,7 +80,7 @@ export interface OrderPdfData {
 // disco_orders; FM-mirrored orders on disco_sale_transactions).
 export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData | null> {
   const orders = (await sql`
-    SELECT id, reference, order_number, order_type, delivery_type, order_date, order_time, delivery_time_window, note, delivery_instructions, created_at,
+    SELECT id, reference, order_number, order_type, delivery_type, order_date, order_time, delivery_time_window, note, delivery_instructions, created_at, placed_at,
            customer_email, customer_first_name, customer_last_name, customer_phone,
            delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
            restaurant_reference, restaurant_name, restaurant_address, restaurant_phone, tax_exempt_id, tips,
@@ -177,7 +177,11 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     })(),
     // "Received on …" in the restaurant's local timezone (was UTC, which read
     // ~4h ahead for an EDT restaurant). Falls back to America/New_York.
-    orderReceived: o.created_at ? new Date(o.created_at as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: cacheTimezone || 'America/New_York' }) : '',
+    // placed_at is FM's real order-creation timestamp (backfilled for pre-freeze
+    // orders, populated going forward by the fixed sync) — created_at is Neon
+    // sync time, which for FM-mirrored orders can trail real placement by hours
+    // to years.
+    orderReceived: (o.placed_at || o.created_at) ? new Date((o.placed_at || o.created_at) as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: cacheTimezone || 'America/New_York' }) : '',
     deliveryAddress,
     persons: o.persons != null && Number(o.persons) > 0 ? Number(o.persons) : undefined,
     note: o.note ? String(o.note) : undefined,

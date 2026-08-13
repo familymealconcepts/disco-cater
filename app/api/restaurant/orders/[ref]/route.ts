@@ -51,6 +51,7 @@ interface DiscoFull {
   delivery_zip: string | null
   tax_exempt_id: string | null
   created_at: string | null
+  placed_at: string | null
   persons: number | null
   company_name: string | null
 }
@@ -104,7 +105,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, order_drop_off_time::text AS order_drop_off_time,
              subtotal, total, fee, tips, refund, note,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip, tax_exempt_id,
-             created_at, persons, company_name
+             created_at, placed_at, persons, company_name
       FROM disco_orders
       WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
       LIMIT 1
@@ -152,8 +153,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   base.email = d.customer_email || base.email || ''
   if (d.customer_phone) base.phoneNumber = d.customer_phone
   base.sourceoforder = d.source_of_order
-  // Order Placed (created_at) + headcount — Neon-first.
-  if (d.created_at) { base.createdDate = d.created_at; base.orderCreatedDate = d.created_at }
+  // Order Placed + headcount — Neon-first. placed_at is FM's real order-creation
+  // timestamp (backfilled for pre-freeze orders, populated going forward by the
+  // fixed sync) — created_at is Neon sync time, which for FM-mirrored orders can
+  // trail real placement by hours to years.
+  const orderPlaced = d.placed_at || d.created_at
+  if (orderPlaced) { base.createdDate = orderPlaced; base.orderCreatedDate = orderPlaced }
   if (d.persons != null) base.persons = d.persons
   if (d.company_name != null) base.companyName = d.company_name
   if (d.note != null) base.note = d.note

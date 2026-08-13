@@ -68,11 +68,15 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
   if (!refs.length) return NextResponse.json({})
 
   await runDiscoOrderMigrations()
-  // Created Date mode needs the restaurant's OWN local date, not created_at's
-  // UTC date — `created_at AT TIME ZONE tz` converts the timestamptz to that
-  // zone's wall-clock time before the ::date cast. (Previously this cast had
-  // no timezone conversion at all, so "Created Date" mode used the UTC day
-  // boundary — a real bug in its own right, separate from the join issue.)
+  // Created Date mode needs the restaurant's OWN local date, not the UTC date —
+  // `... AT TIME ZONE tz` converts the timestamptz to that zone's wall-clock
+  // time before the ::date cast. And it needs the REAL placement date, not
+  // Neon's sync timestamp: COALESCE(placed_at, created_at) — placed_at is FM's
+  // real order-creation time (backfilled for pre-freeze orders, populated going
+  // forward by the fixed sync); created_at is sync time, which for FM-mirrored
+  // orders can trail real placement by hours to years. Before this, "Created
+  // Date" mode for a restaurant with years of FM history showed its entire
+  // revenue crammed into whichever 1-2 months the mirror job happened to run.
   // LEFT JOIN (not INNER — see the comment above) so an order with no
   // transaction row still counts toward the always-reliable 4 fields, just
   // contributes 0 to the transaction-derived sums below (COALESCE, never NULL
@@ -117,14 +121,14 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       AND (
         ${from}::date IS NULL OR
         (CASE WHEN ${byCreated}
-           THEN (o.created_at AT TIME ZONE COALESCE(rc.timezone, ${RESTAURANT_TZ_DEFAULT}))::date
+           THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(rc.timezone, ${RESTAURANT_TZ_DEFAULT}))::date
            ELSE o.order_date
          END) >= ${from}::date
       )
       AND (
         ${to}::date IS NULL OR
         (CASE WHEN ${byCreated}
-           THEN (o.created_at AT TIME ZONE COALESCE(rc.timezone, ${RESTAURANT_TZ_DEFAULT}))::date
+           THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(rc.timezone, ${RESTAURANT_TZ_DEFAULT}))::date
            ELSE o.order_date
          END) <= ${to}::date
       )

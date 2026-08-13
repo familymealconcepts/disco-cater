@@ -53,6 +53,7 @@ interface OrderRow {
   edit_count: number
   edit_status: string | null
   created_at: string | null
+  placed_at: string | null
   persons: number | null
   company_name: string | null
   tax_exempt_id: string | null
@@ -101,8 +102,11 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     // Disco edit state (used by the edit-history icon rule / edit gate).
     editCount: r.edit_count,
     editStatus: r.edit_status,
-    // When the order was placed (Created column) + headcount.
-    orderCreatedDate: r.created_at || undefined,
+    // When the order was placed (Created column) + headcount. placed_at is FM's
+    // real order-creation timestamp when known (or native-checkout's real insert
+    // time); created_at is Neon SYNC time for FM-mirrored orders, which can trail
+    // real placement by hours to years — never the right thing to show as "Created."
+    orderCreatedDate: r.placed_at || r.created_at || undefined,
     persons: r.persons ?? undefined,
     // Disco-only: company name + tax-exempt id/state for the details panel + PDF.
     companyName: r.company_name || undefined,
@@ -220,9 +224,14 @@ export async function GET(req: NextRequest) {
   // Created Date mode compares the restaurant's LOCAL day, not created_at's UTC
   // day — a correlated subquery (rather than a JOIN) so this slots into both
   // the COUNT query and the list query, which don't otherwise share a FROM
-  // clause with disco_restaurant_cache.
+  // clause with disco_restaurant_cache. COALESCE(placed_at, created_at): placed_at
+  // is FM's real order-creation timestamp (backfilled for pre-freeze orders,
+  // populated going forward by the fixed sync); created_at is Neon sync time,
+  // which for FM-mirrored orders can trail real placement by hours to years —
+  // "Created Date" mode means "when was this actually placed," not "when did
+  // the mirror job run."
   const bucketDateExpr = byCreated
-    ? `(created_at AT TIME ZONE COALESCE((SELECT timezone FROM disco_restaurant_cache WHERE restaurant_reference = disco_orders.restaurant_reference::text LIMIT 1), 'America/New_York'))::date`
+    ? `(COALESCE(placed_at, created_at) AT TIME ZONE COALESCE((SELECT timezone FROM disco_restaurant_cache WHERE restaurant_reference = disco_orders.restaurant_reference::text LIMIT 1), 'America/New_York'))::date`
     : 'order_date'
   if (fromDate) add(`${bucketDateExpr} >= ?::date`, fromDate)
   if (toDate) add(`${bucketDateExpr} <= ?::date`, toDate)
@@ -269,9 +278,9 @@ export async function GET(req: NextRequest) {
       `SELECT disco_orders.reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
               source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name,
               to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
-              to_char(${byCreated ? "(created_at AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))" : 'order_date'}, 'YYYY-MM-DD') AS bucket_date,
+              to_char(${byCreated ? "(COALESCE(placed_at, created_at) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))" : 'order_date'}, 'YYYY-MM-DD') AS bucket_date,
               subtotal, COALESCE(NULLIF(disco_orders.total, 0), sp.sp_total) AS total, fee, tips, refund, note, seen_by_admin,
-              COALESCE(edit_count,0) AS edit_count, edit_status, created_at, persons,
+              COALESCE(edit_count,0) AS edit_count, edit_status, created_at, placed_at, persons,
               company_name, tax_exempt_id, tax_exempt_state, rc.timezone AS timezone
        FROM disco_orders
        LEFT JOIN (

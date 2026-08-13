@@ -22,6 +22,18 @@
 //   npx tsx scripts/fm-order-backfill.ts --execute                 real writes, full run
 //   npx tsx scripts/fm-order-backfill.ts --execute --resume-after=12345   skip orders with id <= 12345
 //
+// --backfill-placed-at: a SEPARATE fill, same script, same source DB/sample/
+// limit/resume-after flags — fills disco_orders.placed_at from fm_backup's
+// tbl_restaurant_orders.created_date for FM-mirrored orders that don't have it
+// yet. Fill-blank-only (WHERE placed_at IS NULL both in the candidate query and
+// the UPDATE itself) and therefore trivially idempotent — a second run finds
+// nothing left to do. Scoped independently of EXCLUDED_ORDER_IDS: those 6
+// orders are excluded from the transaction backfill because THEIR sale-
+// transaction data has known problems: their order-level created_date has no
+// such issue, so there's no reason to withhold their placed_at fill too.
+//   npx tsx scripts/fm-order-backfill.ts --backfill-placed-at                 dry run
+//   npx tsx scripts/fm-order-backfill.ts --backfill-placed-at --execute       real writes, full run
+//
 // Source database: defaults to the local `fm_backup` database (the original
 // 2026-06-17 full snapshot). Override with --source-db=<name> or the
 // FM_BACKUP_DB env var (flag wins) to point at a different local restore —
@@ -484,6 +496,107 @@ async function executeChunk(fm: Client, batch: Candidate[]): Promise<{ txnRows: 
   return { txnRows: txnCols.orderId.length, itemRows: itemCols.orderId.length, addonRows: addonCols.itemId.length, deliveryFilled }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// placed_at backfill — a separate, independent fill (see the header comment
+// for --backfill-placed-at). Reuses this script's fm client, chunk() helper,
+// and CLI flags; does not touch disco_sale_transactions/disco_order_items.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// createdDate is actually a JS Date at runtime (node-postgres's TIMESTAMPTZ
+// mapping), not a string — typed loosely here since both the sql tagged
+// template (executePlacedAtChunk) and .toISOString() (runPlacedAtPlan) handle
+// a Date correctly; only naive String() coercion is the trap.
+interface PlacedAtCandidate { orderId: number; fmRef: string; createdDate: string | Date }
+
+async function loadPlacedAtCandidates(fm: Client): Promise<{ candidates: PlacedAtCandidate[]; fmRefSet: Set<string> }> {
+  // ORDER BY id: same determinism reasoning as loadCandidates() above — sample/
+  // limit/resume-after must be reproducible across repeated runs.
+  const discoRows = (await sql`
+    SELECT id, fm_order_reference FROM disco_orders
+    WHERE source_of_order = 'FAMILYMEAL' AND is_deleted = false
+      AND fm_order_reference IS NOT NULL AND placed_at IS NULL
+    ORDER BY id
+  `) as { id: number; fm_order_reference: string }[]
+
+  const fmOrders = await fm.query<{ reference: string; created_date: Date }>(`
+    SELECT reference, created_date FROM familymeal.tbl_restaurant_orders
+  `)
+  const dateByRef = new Map(fmOrders.rows.map(r => [r.reference, r.created_date]))
+  const fmRefSet = new Set(fmOrders.rows.map(r => r.reference))
+
+  const candidates: PlacedAtCandidate[] = []
+  for (const r of discoRows) {
+    const cd = dateByRef.get(r.fm_order_reference)
+    if (cd) candidates.push({ orderId: r.id, fmRef: r.fm_order_reference, createdDate: cd })
+  }
+  return { candidates, fmRefSet }
+}
+
+interface PlacedAtPlanResult {
+  rowsToFill: number
+  byYear: Record<string, number>
+  alreadyFilled: number
+  postFreezeTotal: number
+  postFreezeAlreadyFilled: number
+  postFreezeStillMissing: number
+}
+
+// fmRefSet: every order reference present in fm_backup (from loadPlacedAtCandidates)
+// — used to identify post-freeze orders (fm_order_reference set, but NOT in
+// fm_backup) so this report can distinguish "can't be filled by this backfill,
+// here's why" from "hasn't been filled yet but could be."
+async function runPlacedAtPlan(candidates: PlacedAtCandidate[], fmRefSet: Set<string>): Promise<PlacedAtPlanResult> {
+  // node-postgres returns TIMESTAMPTZ columns as JS Date objects, not strings —
+  // String(dateObj) invokes Date.prototype.toString() ("Fri May 01 2024...", in
+  // the LOCAL system timezone), not an ISO string. .toISOString() is the
+  // correct extraction, same gotcha fixed earlier this session for the same
+  // driver on a different column.
+  const byYear = new Map<string, number>()
+  for (const c of candidates) {
+    const iso = c.createdDate instanceof Date ? c.createdDate.toISOString() : String(c.createdDate)
+    const year = iso.slice(0, 4)
+    byYear.set(year, (byYear.get(year) || 0) + 1)
+  }
+
+  const allFm = (await sql`
+    SELECT fm_order_reference, placed_at IS NOT NULL AS has_placed_at
+    FROM disco_orders
+    WHERE source_of_order = 'FAMILYMEAL' AND is_deleted = false AND fm_order_reference IS NOT NULL
+  `) as { fm_order_reference: string; has_placed_at: boolean }[]
+
+  let alreadyFilled = 0
+  let postFreezeTotal = 0
+  let postFreezeAlreadyFilled = 0
+  for (const r of allFm) {
+    if (r.has_placed_at) alreadyFilled++
+    if (!fmRefSet.has(r.fm_order_reference)) {
+      postFreezeTotal++
+      if (r.has_placed_at) postFreezeAlreadyFilled++
+    }
+  }
+
+  return {
+    rowsToFill: candidates.length,
+    byYear: Object.fromEntries([...byYear.entries()].sort()),
+    alreadyFilled,
+    postFreezeTotal,
+    postFreezeAlreadyFilled,
+    postFreezeStillMissing: postFreezeTotal - postFreezeAlreadyFilled,
+  }
+}
+
+async function executePlacedAtChunk(batch: PlacedAtCandidate[]): Promise<number> {
+  const orderIds = batch.map(c => c.orderId)
+  const dates = batch.map(c => c.createdDate)
+  const updated = (await sql`
+    UPDATE disco_orders o SET placed_at = u.cd, updated_at = NOW()
+    FROM unnest(${orderIds}::bigint[], ${dates}::timestamptz[]) AS u(order_id, cd)
+    WHERE o.id = u.order_id AND o.placed_at IS NULL
+    RETURNING o.id
+  `) as { id: number }[]
+  return updated.length
+}
+
 async function main() {
   const args = process.argv.slice(2)
   const execute = args.includes('--execute')
@@ -501,6 +614,36 @@ async function main() {
 
   console.log(`Source database: ${sourceDb}`)
   console.log(`Mode: ${execute ? 'EXECUTE' : 'DRY RUN (no writes)'}${sample ? ` sample=${sample}` : ''}${limit ? ` limit=${limit}` : ''}${resumeAfter ? ` resume-after=${resumeAfter}` : ''}`)
+
+  if (args.includes('--backfill-placed-at')) {
+    const { candidates: pCandidates, fmRefSet } = await loadPlacedAtCandidates(fm)
+    let pWorking = pCandidates
+    if (resumeAfter != null) pWorking = pWorking.filter(c => c.orderId > resumeAfter)
+    if (sample) pWorking = pWorking.slice(0, sample)
+    else if (limit) pWorking = pWorking.slice(0, limit)
+
+    if (!execute) {
+      const result = await runPlacedAtPlan(pCandidates, fmRefSet)
+      console.log('\n=== PLACED_AT DRY RUN REPORT ===')
+      console.log(JSON.stringify(result, null, 2))
+      await fm.end()
+      return
+    }
+
+    const pChunks = chunk(pWorking, 1000)
+    let totalFilled = 0
+    const startedAt = Date.now()
+    for (let i = 0; i < pChunks.length; i++) {
+      const batch = pChunks[i]
+      const n = await executePlacedAtChunk(batch)
+      totalFilled += n
+      const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
+      console.log(`  [chunk ${i + 1}/${pChunks.length}] orders ${batch[0].orderId}-${batch[batch.length - 1].orderId} (${batch.length}) → +${n} placed_at filled  [${elapsedSec}s elapsed, last completed order_id=${batch[batch.length - 1].orderId}]`)
+    }
+    console.log(`\n=== PLACED_AT EXECUTE COMPLETE === filled=${totalFilled} of ${pWorking.length} candidates`)
+    await fm.end()
+    return
+  }
 
   const { candidates, fmOrderMap: map, excludedFound } = await loadCandidates(fm)
   fmOrderMap = map

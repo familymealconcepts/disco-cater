@@ -23,7 +23,11 @@ export const maxDuration = 300
 //
 // Placement skip (BOTH passes — FM applies it to the admin reminder; the Disco
 // Cater decision is to apply it to the customer reminder too): never remind if the
-// order was placed less than 24h before pickup (created_at <= pickup − 24h).
+// order was placed less than 24h before pickup (COALESCE(placed_at, created_at)
+// <= pickup − 24h). placed_at is FM's real order-creation timestamp when known;
+// created_at is Neon sync time, which for FM-mirrored orders can trail real
+// placement — using it alone risked skipping a reminder for an order that was
+// truly placed well over 24h out but only synced into Neon recently.
 //
 // The toggles live in FM (session-scoped) and are mirrored into
 // disco_restaurant_overrides on every settings save — this cron reads that mirror
@@ -154,7 +158,7 @@ export async function GET(req: NextRequest) {
         AND o.customer_email IS NOT NULL AND o.customer_email <> ''
         AND ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))
               BETWEEN NOW() + INTERVAL '23 hours 30 minutes' AND NOW() + INTERVAL '24 hours 30 minutes'
-        AND o.created_at <= ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York')) - INTERVAL '24 hours'
+        AND COALESCE(o.placed_at, o.created_at) <= ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York')) - INTERVAL '24 hours'
     `) as ReminderRow[]
 
     let customerSent = 0
@@ -207,7 +211,7 @@ export async function GET(req: NextRequest) {
         AND o.is_deleted = false
         AND ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))
               BETWEEN NOW() + INTERVAL '23 hours 30 minutes' AND NOW() + INTERVAL '24 hours 30 minutes'
-        AND o.created_at <= ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York')) - INTERVAL '24 hours'
+        AND COALESCE(o.placed_at, o.created_at) <= ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York')) - INTERVAL '24 hours'
     `) as ReminderRow[]
 
     let adminSent = 0
