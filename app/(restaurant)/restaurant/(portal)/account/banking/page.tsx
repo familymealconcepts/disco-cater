@@ -1,5 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -32,6 +33,9 @@ function ConfirmDialog({ message, onConfirm, onCancel }: { message: string; onCo
 }
 
 export default function BankingPage() {
+  // Live "currently selected" location — used only to detect a switch and
+  // reset this page below; never read at save time (see loadStatus/stripeRef).
+  const { ref: selectedRestaurantRef } = useSelectedRestaurant()
   const [connected, setConnected] = useState<boolean | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
@@ -61,19 +65,31 @@ export default function BankingPage() {
 
   useEffect(() => { loadStatus() }, [])
 
+  // Reset when the SA switches to a different location so this page never
+  // keeps showing stale connect/disconnect state for the wrong restaurant.
+  const mountedSelectionRef = useRef(false)
+  useEffect(() => {
+    if (!mountedSelectionRef.current) { mountedSelectionRef.current = true; return }
+    setError('')
+    loadStatus()
+  }, [selectedRestaurantRef])
+
   async function handleConnect() {
     setActionLoading(true)
     setError('')
     try {
       const ref = encodeURIComponent(stripeRef)
       const res = await fetch(`/api/restaurant/stripe/connect?restaurant_reference=${ref}`, { method: 'POST' })
+      const d = await res.json().catch(() => null)
       if (!res.ok) {
-        setError('Failed to initiate Stripe connection. Please try again.')
+        // Surface the write-scope gate's real message instead of a generic
+        // failure, and reload so this page re-points at whatever's selected now.
+        setError(d?.error || 'Failed to initiate Stripe connection. Please try again.')
+        if (res.status === 400 || res.status === 403 || res.status === 409) loadStatus()
         setActionLoading(false)
         return
       }
-      const d = await res.json()
-      if (d.stripeConnectUrl) {
+      if (d?.stripeConnectUrl) {
         window.location.href = d.stripeConnectUrl
       } else {
         setError('No redirect URL returned. Please try again.')
@@ -93,7 +109,9 @@ export default function BankingPage() {
       const ref = encodeURIComponent(stripeRef)
       const res = await fetch(`/api/restaurant/stripe/disconnect?restaurant_reference=${ref}`, { method: 'DELETE' })
       if (!res.ok) {
-        setError('Failed to disconnect Stripe. Please try again.')
+        const d = await res.json().catch(() => null)
+        setError(d?.error || 'Failed to disconnect Stripe. Please try again.')
+        if (res.status === 400 || res.status === 403 || res.status === 409) loadStatus()
       } else {
         await loadStatus()
       }

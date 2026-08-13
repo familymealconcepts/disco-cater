@@ -1,7 +1,8 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { TimeSelect, normalizeTime } from '../_components/TimeSelect'
+import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -31,6 +32,11 @@ const DEFAULT_PERDAY = (): Record<string, Win> =>
 export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const router = useRouter()
   const isEdit = !!menuRef
+  // Live "currently selected" location — used ONLY to detect a switch and
+  // trigger a reset/refetch of the create-mode restaurantRef below. Never read
+  // at save time (that would reintroduce the stale-intent bug the write-scope
+  // fix closes); saves use `restaurantRef`, captured from this form's own load.
+  const { ref: selectedRestaurantRef } = useSelectedRestaurant()
 
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
@@ -99,12 +105,25 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
 
   // Capture the restaurant this form is for, once, regardless of create/edit
   // mode — the edit-load effect below only runs for isEdit.
-  useEffect(() => {
+  function loadRestaurantRef() {
     fetch('/api/restaurant/disco-profile')
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d?.restaurant_reference) setRestaurantRef(d.restaurant_reference) })
       .catch(() => {})
-  }, [])
+  }
+  useEffect(() => { loadRestaurantRef() }, [])
+
+  // Reset ONLY the create-mode restaurantRef capture when the SA switches to a
+  // different location — editing a specific existing menu (isEdit) by its own
+  // menuRef doesn't change meaning just because the sidebar's selection
+  // changed, so that path is deliberately left untouched here.
+  const mountedSelectionRef = useRef(false)
+  useEffect(() => {
+    if (!mountedSelectionRef.current) { mountedSelectionRef.current = true; return }
+    if (isEdit) return
+    loadRestaurantRef()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRestaurantRef])
 
   // ── Load (edit) ──
   useEffect(() => {
@@ -235,7 +254,13 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         body: JSON.stringify(payload),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data?.error || 'Could not save menu.'); return }
+      if (!res.ok) {
+        setError(data?.error || 'Could not save menu.')
+        // Only refresh the create-mode restaurantRef capture — see the note by
+        // the reset effect above on why the edit path is left untouched.
+        if (!isEdit && (res.status === 400 || res.status === 403 || res.status === 409)) loadRestaurantRef()
+        return
+      }
       const ref = isEdit ? menuRef : (data.reference || '')
       router.push(ref ? `/restaurant/menu-manager/${ref}` : '/restaurant/menu-manager')
     } catch { setError('Network error. Please try again.') } finally { setSaving(false) }

@@ -1,5 +1,6 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -30,6 +31,11 @@ function UsedIn({ names }: { names: string[] }) {
 }
 
 export default function ModifierLibraryPage() {
+  // Live "currently selected" location — used ONLY to detect a switch and
+  // trigger a reset/refetch below. Never read at save time (that would
+  // reintroduce the stale-intent bug the write-scope fix closes); saves use
+  // `restaurantRef`, captured from this page's own load fetch.
+  const { ref: selectedRestaurantRef } = useSelectedRestaurant()
   const [modifiers, setModifiers] = useState<Modifier[]>([])
   const [groups, setGroups] = useState<GroupLite[]>([])
   const [loading, setLoading] = useState(true)
@@ -57,6 +63,15 @@ export default function ModifierLibraryPage() {
   }
   useEffect(() => { load() /* eslint-disable-next-line */ }, [showArchived])
 
+  // Reset when the SA switches to a different location so this page never
+  // keeps showing stale data for the location it was originally loaded for.
+  const mountedSelectionRef = useRef(false)
+  useEffect(() => {
+    if (!mountedSelectionRef.current) { mountedSelectionRef.current = true; return }
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRestaurantRef])
+
   // modifier reference → names of groups that contain it (#16).
   const groupsByModifier = new Map<string, string[]>()
   for (const g of groups) for (const m of g.modifiers || []) {
@@ -74,7 +89,12 @@ export default function ModifierLibraryPage() {
       const res = dialog.reference
         ? await fetch(`/api/restaurant/disco-modifiers/${dialog.reference}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         : await fetch('/api/restaurant/disco-modifiers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || 'Could not save.'); return }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setError(d.error || 'Could not save.')
+        if (res.status === 400 || res.status === 403 || res.status === 409) load()
+        return
+      }
       setDialog(null); await load()
     } finally { setSaving(false) }
   }

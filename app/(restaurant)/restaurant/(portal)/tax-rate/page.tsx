@@ -1,5 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -38,6 +39,11 @@ function fmt2(n: number) { return n.toFixed(2) }
 function fmt3(n: number) { return n.toFixed(3) }
 
 export default function TaxRatePage() {
+  // Live "currently selected" location — used ONLY to detect a switch and
+  // trigger a reset/refetch below. Never read at save time (that would
+  // reintroduce the stale-intent bug the write-scope fix closes); saves use
+  // `restaurantRef`, captured from this page's own load fetch.
+  const { ref: selectedRestaurantRef } = useSelectedRestaurant()
   const [taxRate, setTaxRate] = useState<TaxRate>(DEFAULT_TAX)
   // Captured once from the GET response's sibling `restaurant_reference` field —
   // NEVER read from the live selected-restaurant context, so a mid-edit restaurant
@@ -50,7 +56,8 @@ export default function TaxRatePage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  useEffect(() => {
+  function loadTaxRate() {
+    setLoading(true)
     fetch('/api/restaurant/tax-rate')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
@@ -62,7 +69,16 @@ export default function TaxRatePage() {
         setLoading(false)
       })
       .catch(() => setLoading(false))
-  }, [])
+  }
+  useEffect(() => { loadTaxRate() }, [])
+
+  // Reset when the SA switches to a different location so this page never
+  // keeps showing stale data for the location it was originally loaded for.
+  const mountedSelectionRef = useRef(false)
+  useEffect(() => {
+    if (!mountedSelectionRef.current) { mountedSelectionRef.current = true; return }
+    loadTaxRate()
+  }, [selectedRestaurantRef])
 
   function openEdit(row: EditState['row']) {
     const entry = taxRate[row]
@@ -96,7 +112,12 @@ export default function TaxRatePage() {
         body: JSON.stringify({ ...updated, restaurant_reference: restaurantRef }),
       })
       if (!res.ok) {
-        setError('Failed to save. Please try again.')
+        const d = await res.json().catch(() => null)
+        // Surface the write-scope gate's real message (e.g. a stale/foreign
+        // restaurant_reference) instead of a generic failure — and reload so
+        // the form re-points at whatever location is actually selected now.
+        setError(d?.error || 'Failed to save. Please try again.')
+        if (res.status === 400 || res.status === 403 || res.status === 409) loadTaxRate()
       } else {
         setTaxRate(updated)
         setEdit(null)

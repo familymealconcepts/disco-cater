@@ -1,6 +1,7 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { checkOrderingWouldDisable } from '../../../../../../lib/ordering-validation'
+import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -155,6 +156,11 @@ function Card({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ProfilePage() {
+  // The live "currently selected" location — used ONLY to detect a switch and
+  // trigger a reset/refetch below. Never read at save time (that would
+  // reintroduce the stale-intent bug the write-scope fix closes); saves use
+  // `restaurant`/`discoProfile`, captured from this page's own load fetch.
+  const { ref: selectedRestaurantRef } = useSelectedRestaurant()
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
 
   // Disco-native profile card (Neon-backed; pre-populated from onboarding).
@@ -200,6 +206,7 @@ export default function ProfilePage() {
   // null = unknown/loading; false = not connected (show banner).
   const [stripeConnected, setStripeConnected] = useState<boolean | null>(null)
   const [connectingStripe, setConnectingStripe] = useState(false)
+  const [stripeError, setStripeError] = useState('')
   // Captured from the SAME stripe-status response that drives the banner above —
   // guaranteed present by the time the button is clickable, unlike `restaurant`
   // (a separate, independently-timed fetch that could still be in flight).
@@ -218,16 +225,25 @@ export default function ProfilePage() {
   // redirect to the returned hosted URL.
   async function connectStripe() {
     setConnectingStripe(true)
+    setStripeError('')
     try {
       const ref = encodeURIComponent(stripeRef)
       const res = await fetch(`/api/restaurant/stripe/connect?restaurant_reference=${ref}`, { method: 'POST' })
       const d = await res.json().catch(() => null)
       if (res.ok && d?.stripeConnectUrl) { window.location.href = d.stripeConnectUrl; return }
-    } catch { /* fall through to re-enable the button */ }
+      setStripeError(d?.error || 'Could not start Stripe Connect. Please try again.')
+    } catch {
+      setStripeError('Network error. Please try again.')
+    }
     setConnectingStripe(false)
   }
 
-  useEffect(() => {
+  // Reloads every section of this page from scratch — used for the initial
+  // mount AND to reset the page when the selected restaurant changes
+  // underneath it (see the effect below), so a stale form never keeps
+  // showing a different location's data after a switch.
+  function loadProfileData() {
+    setLoading(true)
     Promise.all([
       fetch('/api/restaurant/profile').then(r => r.ok ? r.json() : null),
       fetch('/api/restaurant/disco-profile').then(r => r.ok ? r.json() : null),
@@ -276,7 +292,17 @@ export default function ProfilePage() {
       }
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(() => { loadProfileData() }, [])
+
+  // Reset when the SA switches to a different location so this page never
+  // keeps showing stale data for the location it was originally loaded for.
+  const mountedSelectionRef = useRef(false)
+  useEffect(() => {
+    if (!mountedSelectionRef.current) { mountedSelectionRef.current = true; return }
+    loadProfileData()
+  }, [selectedRestaurantRef])
 
   function buildRestaurantPayload(overrides: Partial<Restaurant> = {}): Restaurant {
     return {
@@ -375,7 +401,12 @@ export default function ProfilePage() {
         body: JSON.stringify({ ...discoProfile, restaurant_reference: restaurant?.reference || '' }),
       })
       if (!res.ok) {
-        setDiscoError('Failed to save. Please try again.')
+        const d = await res.json().catch(() => null)
+        // Surface the write-scope gate's real message (e.g. a stale/foreign
+        // restaurant_reference) instead of a generic failure — and reload so
+        // the form re-points at whatever location is actually selected now.
+        setDiscoError(d?.error || 'Failed to save. Please try again.')
+        if (res.status === 400 || res.status === 403 || res.status === 409) loadProfileData()
       } else {
         setDiscoSuccess('Restaurant info updated.')
         setTimeout(() => setDiscoSuccess(''), 3000)
@@ -425,7 +456,9 @@ export default function ProfilePage() {
         body: JSON.stringify({ ...discoProfile, restaurant_reference: restaurant?.reference || '' }),
       })
       if (!res.ok) {
-        setImgError('Failed to save images. Please try again.')
+        const d = await res.json().catch(() => null)
+        setImgError(d?.error || 'Failed to save images. Please try again.')
+        if (res.status === 400 || res.status === 403 || res.status === 409) loadProfileData()
       } else {
         setImgSuccess('Images updated.')
         setTimeout(() => setImgSuccess(''), 3000)
@@ -512,6 +545,9 @@ export default function ProfilePage() {
             }}>
             {connectingStripe ? 'Connecting…' : 'Connect to Stripe →'}
           </button>
+          {stripeError && (
+            <div style={{ width: '100%', fontSize: 12, color: '#9A3412', marginTop: -4 }}>{stripeError}</div>
+          )}
         </div>
       )}
       <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 24px' }}>Profile</h1>

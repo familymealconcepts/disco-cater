@@ -1,6 +1,7 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { confirmDialog } from '../../../../../components/ui/feedback'
+import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -329,6 +330,10 @@ function statusPill(s?: string): React.CSSProperties {
 // ── Report Editor (Create / Edit) ───────────────────────────────────────────
 
 function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; onClose: () => void; onSaved: () => void }) {
+  // Live "currently selected" location — used ONLY to detect a switch and
+  // trigger a reset/refetch of restaurantRef below. Never read at save time
+  // (that would reintroduce the stale-intent bug the write-scope fix closes).
+  const { ref: selectedRestaurantRef } = useSelectedRestaurant()
   const [form, setForm] = useState<ReportPayload>(initial)
   const [locations, setLocations] = useState<LocationOption[]>([])
   const [columns, setColumns] = useState<ReportColumn[]>([])
@@ -343,12 +348,24 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
   // this save.
   const [restaurantRef, setRestaurantRef] = useState<string | null>(null)
 
-  useEffect(() => {
+  function loadRestaurantRef() {
     fetch('/api/restaurant/disco-profile')
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.restaurant_reference) setRestaurantRef(d.restaurant_reference) })
       .catch(() => {})
-  }, [])
+  }
+  useEffect(() => { loadRestaurantRef() }, [])
+
+  // Reset when the SA switches to a different location so this editor never
+  // keeps a stale restaurantRef for the location it was originally opened
+  // for. (This dialog is freshly mounted each time it's opened — see the
+  // report — but the switch-mid-edit scenario is still reachable if the
+  // location switcher stays accessible while the dialog is open.)
+  const mountedSelectionRef = useRef(false)
+  useEffect(() => {
+    if (!mountedSelectionRef.current) { mountedSelectionRef.current = true; return }
+    loadRestaurantRef()
+  }, [selectedRestaurantRef])
 
   useEffect(() => {
     fetch('/api/restaurant/locations?size=1000')
@@ -450,8 +467,14 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
       body: JSON.stringify(form.reference ? payload : { ...payload, restaurant_reference: restaurantRef }),
     })
     setSaving(false)
-    if (res.ok) { onSaved() }
-    else { const d = await res.json().catch(() => ({})); setError(d?.error || 'Save failed') }
+    if (res.ok) { onSaved(); return }
+    const d = await res.json().catch(() => ({}))
+    // Surface the write-scope gate's real message instead of a generic
+    // failure — and reload the create-mode restaurantRef so this editor
+    // re-points at whatever restaurant is actually selected now. (Only the
+    // create/POST path sends restaurant_reference — see the note above.)
+    setError(d?.error || 'Save failed')
+    if (!form.reference && (res.status === 400 || res.status === 403 || res.status === 409)) loadRestaurantRef()
   }
 
   const grouped = groupByCategory(columns)

@@ -1,6 +1,7 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { HOLIDAYS } from '../../../../../../lib/holidays'
+import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -16,9 +17,15 @@ interface ClosedDay { reference: string; name: string | null; from_date: string;
 // Banner, Schedule Override. Stored in disco_restaurant_overrides via
 // /api/restaurant/disco-settings — zero FM. (Tax lives on its own "Tax Rate" page.)
 export default function RestaurantSettingsPage() {
+  // Live "currently selected" location — used ONLY to detect a switch and
+  // trigger a reset/refetch below. Never read at save time (that would
+  // reintroduce the stale-intent bug the write-scope fix closes); saves use
+  // `restaurantRef`, captured from this page's own load fetch.
+  const { ref: selectedRestaurantRef } = useSelectedRestaurant()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [flash, setFlash] = useState('')
+  const [saveError, setSaveError] = useState('')
 
   const [slug, setSlug] = useState<string | null>(null)
   // Captured once from the disco-settings GET response (the restaurant this page's
@@ -79,6 +86,14 @@ export default function RestaurantSettingsPage() {
   }
   useEffect(() => { load() }, [])
 
+  // Reset when the SA switches to a different location so this page never
+  // keeps showing stale data for the location it was originally loaded for.
+  const mountedSelectionRef = useRef(false)
+  useEffect(() => {
+    if (!mountedSelectionRef.current) { mountedSelectionRef.current = true; return }
+    load()
+  }, [selectedRestaurantRef])
+
   // Reload ONLY the closed-days list (custom dates) without touching holidays or
   // any settings state — used after Add/Remove of a custom closed date so those
   // discrete actions don't wipe unsaved edits elsewhere on the page.
@@ -88,9 +103,9 @@ export default function RestaurantSettingsPage() {
   }
 
   async function save() {
-    setSaving(true); setFlash('')
+    setSaving(true); setFlash(''); setSaveError('')
     try {
-      await fetch('/api/restaurant/disco-settings', {
+      const res = await fetch('/api/restaurant/disco-settings', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           restaurant_reference: restaurantRef,
@@ -100,18 +115,35 @@ export default function RestaurantSettingsPage() {
           enableMenuSearch, deliveryOrderTimeWindows: deliveryWindow, announcement,
         }),
       })
+      if (!res.ok) {
+        const d = await res.json().catch(() => null)
+        // Surface the write-scope gate's real message (e.g. a stale/foreign
+        // restaurant_reference) instead of a generic failure — and reload so
+        // the form re-points at whatever location is actually selected now.
+        setSaveError(d?.error || 'Failed to save. Please try again.')
+        if (res.status === 400 || res.status === 403 || res.status === 409) load()
+        return
+      }
       // Persist holiday checkbox changes (edited in-memory since load) by diffing
       // against the baseline. The server pre-computes/clears 50 years of dates.
       const toEnable = [...holidays].filter(h => !initialHolidays.has(h))
       const toDisable = [...initialHolidays].filter(h => !holidays.has(h))
       for (const name of [...toEnable, ...toDisable]) {
-        await fetch('/api/restaurant/disco-closed-days', {
+        const hRes = await fetch('/api/restaurant/disco-closed-days', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ restaurant_reference: restaurantRef, holiday: name, enabled: holidays.has(name) }),
         })
+        if (!hRes.ok) {
+          const d = await hRes.json().catch(() => null)
+          setSaveError(d?.error || 'Failed to save. Please try again.')
+          if (hRes.status === 400 || hRes.status === 403 || hRes.status === 409) load()
+          return
+        }
       }
       setInitialHolidays(new Set(holidays))
       setFlash('Saved'); setTimeout(() => setFlash(''), 2500)
+    } catch {
+      setSaveError('Network error. Please try again.')
     } finally { setSaving(false) }
   }
 
@@ -129,13 +161,24 @@ export default function RestaurantSettingsPage() {
     if (err || !urlSlug) { setUrlError(err || 'Enter a URL.'); return }
     const res = await fetch('/api/restaurant/disco-url', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_reference: restaurantRef, slug: urlSlug }) })
     const d = await res.json().catch(() => ({}))
-    if (!res.ok) { setUrlError(d.error || 'Could not save URL.'); return }
+    if (!res.ok) {
+      setUrlError(d.error || 'Could not save URL.')
+      if (res.status === 400 || res.status === 403 || res.status === 409) load()
+      return
+    }
     setSlug(urlSlug); setUrlError(''); setFlash('URL updated'); setTimeout(() => setFlash(''), 2000)
   }
 
   async function addClosedDay() {
     if (!cdFrom) return
-    await fetch('/api/restaurant/disco-closed-days', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_reference: restaurantRef, name: cdName, fromDate: cdFrom, toDate: cdTo || cdFrom }) })
+    setSaveError('')
+    const res = await fetch('/api/restaurant/disco-closed-days', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_reference: restaurantRef, name: cdName, fromDate: cdFrom, toDate: cdTo || cdFrom }) })
+    if (!res.ok) {
+      const d = await res.json().catch(() => null)
+      setSaveError(d?.error || 'Failed to add closed day. Please try again.')
+      if (res.status === 400 || res.status === 403 || res.status === 409) load()
+      return
+    }
     setCdName(''); setCdFrom(''); setCdTo(''); await loadClosedDays()
   }
   async function removeClosedDay(ref: string) { await fetch(`/api/restaurant/disco-closed-days/${ref}`, { method: 'DELETE' }); await loadClosedDays() }
@@ -179,6 +222,12 @@ export default function RestaurantSettingsPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>General Settings</h1>
         <button onClick={save} disabled={saving} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: saving ? 0.6 : 1, boxShadow: '0 2px 8px rgba(107,110,249,0.25)' }}>{saving ? 'Saving…' : 'Save'}{flash && <span style={{ marginLeft: 8 }}>✓ {flash}</span>}</button>
       </div>
+
+      {saveError && (
+        <div style={{ background: '#FFF0F0', border: '1px solid #FFCDD2', borderRadius: 8, padding: '8px 12px', margin: '0 0 14px', fontSize: 13, color: '#C62828' }}>
+          {saveError}
+        </div>
+      )}
 
       {/* 1 — Online Ordering (RM2: requires a connected Stripe account) */}
       <div style={card}>

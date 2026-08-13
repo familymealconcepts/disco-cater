@@ -7,6 +7,7 @@ import {
 } from '../../../../../lib/pricing/lineItem'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 import { toast } from '../../../../components/ui/feedback'
+import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -1184,6 +1185,11 @@ function OrderCountsTab() {
 // ─── Main Orders Page ─────────────────────────────────────────────────────────
 
 function OrdersContent() {
+  // Live "currently selected" location — used ONLY to detect a switch and
+  // trigger a reset/refetch below. Never read at save time (that would
+  // reintroduce the stale-intent bug the write-scope fix closes); the write
+  // uses `restaurantRef`, captured from this page's own load fetch.
+  const { ref: selectedRestaurantRef } = useSelectedRestaurant()
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
@@ -1226,7 +1232,7 @@ function OrdersContent() {
   // so a mid-session restaurant switch can't silently retarget the bulk-complete
   // write to a different restaurant than the list currently on screen.
   const [restaurantRef, setRestaurantRef] = useState<string | null>(null)
-  useEffect(() => {
+  const loadRestaurantRef = useCallback(() => {
     let cancelled = false
     fetch('/api/restaurant/disco-profile')
       .then(r => r.ok ? r.json() : null)
@@ -1234,6 +1240,7 @@ function OrdersContent() {
       .catch(() => {})
     return () => { cancelled = true }
   }, [])
+  useEffect(() => loadRestaurantRef(), [loadRestaurantRef])
 
   // After a successful order edit the edit page redirects here with
   // ?editSuccess=true&orderNumber=XXXXX&editOutcome=success|invoiced. Capture it
@@ -1383,6 +1390,18 @@ function OrdersContent() {
     loadOrders()
   }, [loadOrders])
 
+  // Reset when the SA switches to a different location so this page never
+  // keeps showing stale orders (or a stale restaurantRef for Mark All
+  // Complete) for the location it was originally loaded for.
+  const mountedSelectionRef = useRef(false)
+  useEffect(() => {
+    if (!mountedSelectionRef.current) { mountedSelectionRef.current = true; return }
+    loadRestaurantRef()
+    setPage(0)
+    loadOrders(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRestaurantRef])
+
   // Fetch the edit-history count for the loaded page of orders so the table only
   // shows the edit-history icon on orders that actually have edits. Best-effort.
   useEffect(() => {
@@ -1435,7 +1454,16 @@ function OrdersContent() {
         if (appliedFrom) params.set('fromDate', appliedFrom)
         if (appliedTo) params.set('toDate', appliedTo)
         if (restaurantRef) params.set('restaurant_reference', restaurantRef)
-        await fetch(`/api/restaurant/orders/set-completed?${params}`, { method: 'PUT' })
+        const res = await fetch(`/api/restaurant/orders/set-completed?${params}`, { method: 'PUT' })
+        if (!res.ok) {
+          const d = await res.json().catch(() => null)
+          // Surface the write-scope gate's real message instead of a silent/
+          // generic failure, and reload so this page re-points at whatever
+          // restaurant is actually selected now.
+          toast(d?.error || 'Failed to mark orders complete. Please try again.', { kind: 'error' })
+          if (res.status === 400 || res.status === 403 || res.status === 409) { loadRestaurantRef(); loadOrders() }
+          return
+        }
         loadOrders()
       },
     })

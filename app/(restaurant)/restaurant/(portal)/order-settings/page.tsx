@@ -1,5 +1,6 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -107,6 +108,11 @@ function slugValidationError(s: string): string | null {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function OrderSettingsPage() {
+  // Live "currently selected" location — used ONLY to detect a switch and
+  // trigger a reset/refetch below. Never read at save time (that would
+  // reintroduce the stale-intent bug the write-scope fix closes); saves use
+  // `restaurant`, captured from this page's own load fetch.
+  const { ref: selectedRestaurantRef } = useSelectedRestaurant()
   const [restaurant, setRestaurant] = useState<{ reference?: string; onlineOrderingAllowed?: boolean; businessNameWithoutSpaces?: string } | null>(null)
   const [stripeConnected, setStripeConnected] = useState(false)
   const [marketplaceVisible, setMarketplaceVisible] = useState(false)
@@ -173,6 +179,14 @@ export default function OrderSettingsPage() {
 
   useEffect(() => { loadAll() }, [loadAll])
 
+  // Reset when the SA switches to a different location so this page never
+  // keeps showing stale data for the location it was originally loaded for.
+  const mountedSelectionRef = useRef(false)
+  useEffect(() => {
+    if (!mountedSelectionRef.current) { mountedSelectionRef.current = true; return }
+    loadAll()
+  }, [selectedRestaurantRef])
+
   async function saveNotifications(updated: Notifications) {
     setSaving(true)
     await fetch('/api/restaurant/notifications', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) })
@@ -193,7 +207,13 @@ export default function OrderSettingsPage() {
     // restaurant_reference sourced from the profile GET captured into `restaurant`
     // state at load — NOT the live selected-restaurant context — so a mid-edit
     // restaurant switch can't silently retarget this write.
-    await fetch(`/api/restaurant/online-ordering?onlineOrderingAllowed=${val}&restaurant_reference=${encodeURIComponent(restaurant?.reference || '')}`, { method: 'PATCH' })
+    const res = await fetch(`/api/restaurant/online-ordering?onlineOrderingAllowed=${val}&restaurant_reference=${encodeURIComponent(restaurant?.reference || '')}`, { method: 'PATCH' })
+    if (!res.ok) {
+      const d = await res.json().catch(() => null)
+      showToast(d?.error || 'Failed to update online ordering.')
+      if (res.status === 400 || res.status === 403 || res.status === 409) loadAll()
+      return
+    }
     setOnlineOrderingEnabled(val)
     setRestaurant(prev => prev ? { ...prev, onlineOrderingAllowed: val } : prev)
     showToast('Saved')
@@ -208,7 +228,13 @@ export default function OrderSettingsPage() {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restaurant_reference: restaurant?.reference, visible: val }),
       })
-      if (!res.ok) { setMarketplaceVisible(!val); showToast('Could not update marketplace visibility.'); return }
+      if (!res.ok) {
+        const d = await res.json().catch(() => null)
+        setMarketplaceVisible(!val)
+        showToast(d?.error || 'Could not update marketplace visibility.')
+        if (res.status === 400 || res.status === 403 || res.status === 409) loadAll()
+        return
+      }
       showToast('Saved')
     } catch {
       setMarketplaceVisible(!val); showToast('Could not update marketplace visibility.')
