@@ -220,7 +220,8 @@ export function toIsoDateStr(v: unknown): string {
 // metadata we need for delta/tax math and emails. Reads defensively — FM nests
 // the order under data.order or returns it flat.
 export function parseFmOrder(details: Record<string, unknown>): FmOrderMoney {
-  const order = (((details?.data as Record<string, unknown>)?.order as Record<string, unknown>)
+  const dataLevel = (details?.data as Record<string, unknown>) ?? {}
+  const order = ((dataLevel.order as Record<string, unknown>)
     ?? (details?.order as Record<string, unknown>)
     ?? details
     ?? {}) as Record<string, unknown>
@@ -263,7 +264,14 @@ export function parseFmOrder(details: Record<string, unknown>): FmOrderMoney {
     orderDateIso: fmDateToIso(s(order.orderDate)),
     orderTime: s(order.orderTime),
     orderNumber: (order.orderNumber as string | number) ?? s(order.orderNo) ?? '',
-    restaurantRef: s(order.restaurantReference) || s(restaurant.reference),
+    // FM's /public-api/v2/orders/{ref}/details response shape puts
+    // restaurantReference as a SIBLING of `order` (details.data.restaurantReference),
+    // not nested inside it or under order.restaurant — confirmed against a real
+    // live response. Without this fallback, restaurantRef came back empty for
+    // that response shape, which silently broke syncOneFmOrder (isUuid gate)
+    // for any order fetched via this endpoint — a pre-existing bug, not
+    // something introduced by the add-on parsing fix.
+    restaurantRef: s(order.restaurantReference) || s(restaurant.reference) || s(dataLevel.restaurantReference),
     restaurantName: s(order.restaurantName) || s(restaurant.businessName) || s(restaurant.name),
     customerEmail: s(order.userEmail) || s(order.email) || s(user.email),
     firstName: s(order.firstName) || s(user.firstName),

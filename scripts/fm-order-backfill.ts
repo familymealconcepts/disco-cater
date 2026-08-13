@@ -38,6 +38,7 @@ import { config } from 'dotenv'
 config({ path: '.env.local', quiet: true })
 import { neon } from '@neondatabase/serverless'
 import { Client, types } from 'pg'
+import { buildSaleTransactionFields } from '../lib/order/fm-sale-transaction'
 
 // node-postgres returns BIGINT (OID 20) columns as strings by default — every FK
 // this script joins on (restaurant_order_id, restaurant_order_meal_package_id) is
@@ -288,8 +289,16 @@ async function executeChunk(fm: Client, batch: Candidate[]): Promise<{ txnRows: 
 
   const fmIdToOrderId = new Map(batch.map(c => [fmOrderMap.get(c.fmRef), c.orderId]))
 
-  // ── disco_sale_transactions: DELETE-then-INSERT, scoped to backfill-owned rows ──
-  await sql`DELETE FROM disco_sale_transactions WHERE order_id = ANY(${orderIds}::bigint[]) AND source = 'FM_BACKFILL'`
+  // ── disco_sale_transactions: DELETE-then-INSERT ──
+  // Scoped to FM_BACKFILL and FM_SYNC (never NATIVE_CHECKOUT/MANUAL_EDIT, which
+  // shouldn't exist for these FM-mirrored candidate orders anyway). Includes
+  // FM_SYNC so that once real fm_backup data becomes available for an order
+  // that was previously only covered by the ongoing sync's best-effort
+  // reconstruction (lib/fm-orders-sync.ts, no service_charge, tips derived from
+  // a raw percentage), this backfill's snapshot-sourced data always wins and
+  // replaces it — never leaves both rows sitting side by side, which would
+  // violate the partial unique index (order_id) WHERE transaction_type='ORIGINAL'.
+  await sql`DELETE FROM disco_sale_transactions WHERE order_id = ANY(${orderIds}::bigint[]) AND source IN ('FM_BACKFILL', 'FM_SYNC')`
 
   const txnCols = {
     orderId: [] as number[], subtotal: [] as (number | null)[], total: [] as (number | null)[], fee: [] as (number | null)[],
@@ -318,16 +327,28 @@ async function executeChunk(fm: Client, batch: Candidate[]): Promise<{ txnRows: 
       if (seenOriginalForOrder.has(orderId)) continue
       seenOriginalForOrder.add(orderId)
     }
+    // The dump's tips_in_price and service_charge are FM's own precomputed,
+    // stored values (ground truth) — passed straight through, not re-derived.
+    const fields = buildSaleTransactionFields({
+      subtotal: n(t.subtotal), total: n(t.total), fee: n(t.fee),
+      stateTax: n(t.state_sales_tax_in_price), localTax: n(t.local_sales_tax_in_price), otherTax: n(t.other_sales_tax_in_price),
+      ownDeliveryFee: n(t.own_delivery_fee), thirdPartyDeliveryFee: n(t.third_party_delivery_fee), doordashDeliveryFee: n(t.doordash_delivery_fee),
+      thirdPartyDeliverySubsiding: n(t.third_party_delivery_subsiding),
+      thirdPartyDeliveryTips: n(t.third_party_delivery_tips_in_price), doordashTips: n(t.doordash_tips_in_price),
+      discount: n(t.discount), leadGenOne: n(t.leadgenone_discofee), leadGenTwo: n(t.leadgentwo_discofee),
+      stripeFee: n(t.stripe_fee), serviceCharge: n(t.service_charge),
+      tipsInPrice: n(t.tips_in_price), rawTips: null, tipsType: null,
+    })
     txnCols.orderId.push(orderId)
-    txnCols.subtotal.push(n(t.subtotal)); txnCols.total.push(n(t.total)); txnCols.fee.push(n(t.fee))
-    txnCols.serviceCharge.push(n(t.service_charge)); txnCols.stripeFee.push(n(t.stripe_fee))
-    txnCols.stateTax.push(n(t.state_sales_tax_in_price)); txnCols.localTax.push(n(t.local_sales_tax_in_price)); txnCols.otherTax.push(n(t.other_sales_tax_in_price))
-    txnCols.tipsInPrice.push(n(t.tips_in_price))
-    txnCols.thirdPartyTips.push((n(t.third_party_delivery_tips_in_price) || 0) + (n(t.doordash_tips_in_price) || 0))
-    txnCols.ownDeliveryFee.push(n(t.own_delivery_fee))
-    txnCols.thirdPartyDeliveryFee.push((n(t.third_party_delivery_fee) || 0) + (n(t.doordash_delivery_fee) || 0))
-    txnCols.thirdPartySubsiding.push(n(t.third_party_delivery_subsiding))
-    txnCols.discount.push(n(t.discount)); txnCols.leadGenOne.push(n(t.leadgenone_discofee)); txnCols.leadGenTwo.push(n(t.leadgentwo_discofee))
+    txnCols.subtotal.push(fields.subtotal); txnCols.total.push(fields.total); txnCols.fee.push(fields.fee)
+    txnCols.serviceCharge.push(fields.serviceCharge); txnCols.stripeFee.push(fields.stripeFee)
+    txnCols.stateTax.push(fields.stateTax); txnCols.localTax.push(fields.localTax); txnCols.otherTax.push(fields.otherTax)
+    txnCols.tipsInPrice.push(fields.tipsInPrice)
+    txnCols.thirdPartyTips.push(fields.thirdPartyDeliveryTips)
+    txnCols.ownDeliveryFee.push(fields.ownDeliveryFee)
+    txnCols.thirdPartyDeliveryFee.push(fields.thirdPartyDeliveryFee)
+    txnCols.thirdPartySubsiding.push(fields.thirdPartyDeliverySubsiding)
+    txnCols.discount.push(fields.discount); txnCols.leadGenOne.push(fields.leadGenOne); txnCols.leadGenTwo.push(fields.leadGenTwo)
     txnCols.txnType.push(type)
   }
   if (txnCols.orderId.length) {

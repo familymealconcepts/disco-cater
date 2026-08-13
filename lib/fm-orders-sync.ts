@@ -15,6 +15,7 @@ import { loadFmOrderDetails, parseFmOrder, fmDateToIso, isUuid } from './order-e
 import { fmFetch } from './fm-fetch'
 import { dispatchOrderConfirmations } from './order-notifications'
 import { alertOps } from './ops-alert'
+import { buildSaleTransactionFields } from './order/fm-sale-transaction'
 
 // A backfilled order is worth confirming only if its pickup is still upcoming —
 // a full-cycle sync also inserts historical orders, which must NOT trigger emails.
@@ -141,10 +142,18 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
   }
 }
 
-// Replace disco_order_items for an order from FM's per-order details. Best-effort.
-async function syncOrderItems(orderId: number, fmRef: string): Promise<void> {
+// Replace disco_order_items + write disco_sale_transactions for an order from a
+// SINGLE loadFmOrderDetails fetch (shared, not fetched twice) — items/add-ons and
+// the financial-breakdown row both come from the same FM response.
+async function syncOrderDetail(orderId: number, fmRef: string): Promise<void> {
   const details = await loadFmOrderDetails(fmRef)
   if (!details) return
+  await syncOrderItemsFromDetails(orderId, details)
+  await syncSaleTransactionFromDetails(orderId, details)
+}
+
+// Replace disco_order_items for an order from FM's per-order details. Best-effort.
+async function syncOrderItemsFromDetails(orderId: number, details: Record<string, unknown>): Promise<void> {
   const items = parseFmOrder(details).items
   if (!items.length) return
   // Atomic replace: DELETE + all INSERTs in one transaction, so a failed insert
@@ -181,6 +190,68 @@ async function syncOrderItems(orderId: number, fmRef: string): Promise<void> {
       await sql.transaction(addStmts)
     } catch (e) { console.error('[fm-orders-sync] add-on mirror failed:', e instanceof Error ? e.message : e) }
   }
+}
+
+// Write disco_sale_transactions for an order from FM's per-order details — the
+// same reconstruction the snapshot-based backfill performs (scripts/
+// fm-order-backfill.ts), via the shared lib/order/fm-sale-transaction.ts, so
+// this money math is defined exactly once regardless of which writer runs it.
+//
+// service_charge is written as NULL, not 0 — FM's API has no working path to
+// the real applied service charge (paymentDetails is dead code on FM's own
+// DTO, never set anywhere in their backend; the one endpoint that maps the
+// real persisted value, GET /api/orders/list, 500s with a
+// NonUniqueResultException for every restaurant tested). A confident-looking
+// $0 would be worse than an honest unknown.
+//
+// tips_in_price is converted from FM's raw tips + tipsType via
+// resolveTipsInPrice (not a residual from total — verified against 800 real
+// historical orders, ~90% accurate; the ~10% miss is a pre-existing FM data
+// quirk, not something any available field resolves).
+async function syncSaleTransactionFromDetails(orderId: number, details: Record<string, unknown>): Promise<void> {
+  const order = (((details?.data as Record<string, unknown>)?.order as Record<string, unknown>)
+    ?? (details?.order as Record<string, unknown>)
+    ?? details
+    ?? {}) as Record<string, unknown>
+
+  // A FM_BACKFILL row, when one exists, was reconstructed from the real fm_backup
+  // snapshot (precomputed tips, real service_charge, stripe fee) — strictly more
+  // trustworthy than this live, best-effort reconstruction. Never overwrite it.
+  const existing = (await sql`
+    SELECT source FROM disco_sale_transactions WHERE order_id = ${orderId} AND transaction_type = 'ORIGINAL' LIMIT 1
+  `.catch(() => [])) as { source: string | null }[]
+  if (existing[0]?.source === 'FM_BACKFILL') return
+
+  const rawTips = n(order.tips)
+  const fields = buildSaleTransactionFields({
+    subtotal: n(order.subtotal), total: n(order.total) || n(order.transactionsTotal), fee: n(order.fee),
+    stateTax: n(order.stateSalesTaxInPrice), localTax: n(order.localSalesTaxInPrice), otherTax: n(order.otherSalesTaxInPrice),
+    ownDeliveryFee: n(order.ownDeliveryFee), thirdPartyDeliveryFee: n(order.thirdPartyDeliveryFee), doordashDeliveryFee: n(order.doordashDeliveryFee),
+    thirdPartyDeliverySubsiding: null,
+    thirdPartyDeliveryTips: n(order.thirdPartyDeliveryTipsInPrice), doordashTips: null,
+    discount: n(order.discount),
+    // Not exposed by this endpoint at all (unlike service_charge, which has a
+    // dead field to point at — lead gen and Stripe fee have no field here,
+    // dead or otherwise) — NULL, not 0.
+    leadGenOne: null, leadGenTwo: null, stripeFee: null,
+    serviceCharge: null,
+    tipsInPrice: null, rawTips: rawTips > 0 ? rawTips : null, tipsType: s(order.tipsType) || null,
+  })
+
+  await sql`DELETE FROM disco_sale_transactions WHERE order_id = ${orderId} AND source = 'FM_SYNC'`
+  await sql`
+    INSERT INTO disco_sale_transactions (
+      order_id, transaction_status, transaction_type, subtotal, total, fee, service_charge, stripe_fee,
+      state_tax, local_tax, other_tax, tips_in_price, third_party_delivery_tips,
+      own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
+      lead_gen_one_disco_fee, lead_gen_two_disco_fee, source
+    ) VALUES (
+      ${orderId}, 'PAID', 'ORIGINAL', ${fields.subtotal}, ${fields.total}, ${fields.fee}, ${fields.serviceCharge}, ${fields.stripeFee},
+      ${fields.stateTax}, ${fields.localTax}, ${fields.otherTax}, ${fields.tipsInPrice}, ${fields.thirdPartyDeliveryTips},
+      ${fields.ownDeliveryFee}, ${fields.thirdPartyDeliveryFee}, ${fields.thirdPartyDeliverySubsiding}, ${fields.discount},
+      ${fields.leadGenOne}, ${fields.leadGenTwo}, 'FM_SYNC'
+    )
+  `.catch(e => console.error('[fm-orders-sync] sale_transaction insert failed:', e instanceof Error ? e.message : e))
 }
 
 interface ExistingRow { id: number; source_of_order: string; edit_count: number | null; edit_status: string | null }
@@ -240,7 +311,7 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
       })
       return 'skipped'
     }
-    if (withItems && inserted[0]?.id) await syncOrderItems(inserted[0].id, o.fmRef)
+    if (withItems && inserted[0]?.id) await syncOrderDetail(inserted[0].id, o.fmRef)
 
     // Backfill notification: this DISCO order was pulled by the sync, meaning the
     // real-time mirror missed it (an already-mirrored DISCO order has an existing
@@ -249,7 +320,7 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
     // it). FAMILYMEAL-source orders are excluded — FamilyMeal notifies those itself.
     if (inserted[0]?.id && o.source === 'DISCO' && isUpcomingIso(o.dateIso)) {
       try {
-        if (!withItems) await syncOrderItems(inserted[0].id, o.fmRef) // ensure the email has line items
+        if (!withItems) await syncOrderDetail(inserted[0].id, o.fmRef) // ensure the email has line items
         await dispatchOrderConfirmations(inserted[0].id, 'FM_SYNC_BACKFILL')
       } catch (e) {
         await alertOps('fm-orders-sync: backfill confirmation failed', {
@@ -287,7 +358,7 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
       seen_by_admin = ${o.seenByAdmin}, placed_at = COALESCE(placed_at, ${o.placedAt}), updated_at = NOW()
     WHERE id = ${row.id}
   `.catch(e => console.error('[fm-orders-sync] update:', e instanceof Error ? e.message : e))
-  if (withItems) await syncOrderItems(row.id, o.fmRef)
+  if (withItems) await syncOrderDetail(row.id, o.fmRef)
   return 'updated'
 }
 
