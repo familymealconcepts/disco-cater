@@ -21,8 +21,13 @@ function asNumber(v: unknown): number | null {
 type FmRow = Record<string, unknown>
 
 // Fetch every page of FM's admin restaurants list with the service JWT. Retries
-// once on 401 by force-refreshing the token.
-async function fetchAllFmRestaurants(): Promise<FmRow[]> {
+// once on 401 by force-refreshing the token. Exported so lib/fm-orders-sync.ts's
+// cache-independent history-sync path can reuse this exact pagination rather
+// than a second implementation — that path deliberately does NOT run this
+// through normalize() (below), since blocked/coordinate-missing restaurants
+// should still sync their order history even though they're excluded from the
+// live/marketplace cache.
+export async function fetchAllFmRestaurants(): Promise<FmRow[]> {
   const SIZE = 200
   const MAX_PAGES = 100
   const all: FmRow[] = []

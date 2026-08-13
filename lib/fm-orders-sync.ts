@@ -16,6 +16,7 @@ import { fmFetch } from './fm-fetch'
 import { dispatchOrderConfirmations } from './order-notifications'
 import { alertOps } from './ops-alert'
 import { buildSaleTransactionFields } from './order/fm-sale-transaction'
+import { fetchAllFmRestaurants } from './restaurant-cache'
 
 // A backfilled order is worth confirming only if its pickup is still upcoming —
 // a full-cycle sync also inserts historical orders, which must NOT trigger emails.
@@ -489,4 +490,93 @@ export async function syncAllRestaurantOrders(
     }))
   }
   return { restaurants: refs.length, results }
+}
+
+// Cache-independent history sync for restaurants disco_restaurant_cache's own
+// normalize() excludes from LIVE/marketplace visibility (blocked, or missing
+// address coordinates — lib/restaurant-cache.ts:75). That exclusion is
+// deliberate for map/search/orderability, but syncAllRestaurantOrders (above),
+// the hourly cron, and the one-time fleet backfill all discover their
+// restaurant candidates FROM disco_restaurant_cache — so a blocked restaurant's
+// entire order history was permanently invisible to every one of them, not
+// just missing a recent page. Confirmed empirically: 57 of 59 restaurants with
+// zero synced orders were also absent from the cache entirely; 56 of those 57
+// are blocked in FM.
+//
+// This discovers candidates directly from FM's live restaurant list instead
+// (reusing restaurant-cache.ts's own pagination, not a second implementation),
+// filters to references NOT already in disco_restaurant_cache, and pulls each
+// one's full history via the exact same call backfillFmOrderHistory makes
+// (lib/native-conversion.ts) — inlined here rather than imported, since
+// native-conversion.ts already imports syncRestaurantOrders FROM this file;
+// importing back would be a circular dependency for a one-line wrapper.
+//
+// No new progress-marker column or table: fm_history_backfilled_at lives ON
+// disco_restaurant_cache, and writing it for a restaurant with no cache row
+// would mean either creating one (reopening the exact "must audit every live
+// consumer" risk this path exists to avoid) or a silent no-op update. Instead,
+// "already handled" is just "does this restaurant have any disco_orders row
+// yet" — checked fresh each run. Cheap and sufficient at this scale (currently
+// ~57 restaurants, never the full fleet): a restaurant is pulled in full
+// exactly once; the only edge case is a restaurant with genuinely zero real
+// orders being harmlessly re-checked (not re-pulled — the check itself is a
+// single fast query) on every future run.
+// Verified empirically before shipping: "not in disco_restaurant_cache" is
+// 329 restaurants today, not the ~57 with real historical orders — most of
+// the extra ~270 are FM accounts with genuinely zero orders ever (incomplete
+// signups, etc.), which is fine, but it means a single unbounded pass through
+// all 329 (each needing at least one live FM page-0 fetch) risks exceeding
+// maxDuration before ever reaching a restaurant that actually matters, like
+// Mav's Top Buns (1,200 orders) — if it happens to sort late. Two guards:
+//   - TIME_BUDGET_MS stops the loop with margin, same pattern as the CRM
+//     export (app/api/export/orders/route.ts) — partial progress is fine
+//     here (daily cadence, self-healing over a few days), an uncontrolled
+//     platform timeout mid-write is not.
+//   - The candidate order is shuffled per run, not always alphabetical —
+//     otherwise a truncated run would always retry the same early subset
+//     forever and never reach the tail.
+const NON_CACHE_TIME_BUDGET_MS = 270_000
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+export async function syncNonCacheRestaurantOrders(): Promise<{
+  fmRestaurants: number
+  notInCache: number
+  alreadyHasOrders: number
+  attempted: number
+  skippedOnTimeBudget: number
+  results: SyncResult[]
+}> {
+  const startedAt = Date.now()
+  const fmRows = await fetchAllFmRestaurants()
+  const fmRefs = [...new Set(
+    fmRows.map(r => String((r as Record<string, unknown>).reference ?? (r as Record<string, unknown>).restaurantReference ?? '')).filter(isUuid),
+  )]
+
+  const cacheRows = (await sql`SELECT restaurant_reference::text AS ref FROM disco_restaurant_cache`) as { ref: string }[]
+  const cacheRefSet = new Set(cacheRows.map(r => r.ref))
+  const notInCache = shuffle(fmRefs.filter(ref => !cacheRefSet.has(ref)))
+
+  const results: SyncResult[] = []
+  let alreadyHasOrders = 0
+  let skippedOnTimeBudget = 0
+  for (const ref of notInCache) {
+    if (Date.now() - startedAt > NON_CACHE_TIME_BUDGET_MS) { skippedOnTimeBudget++; continue }
+    const existing = (await sql`SELECT 1 FROM disco_orders WHERE restaurant_reference = ${ref}::uuid AND is_deleted = false LIMIT 1`) as unknown[]
+    if (existing.length > 0) { alreadyHasOrders++; continue }
+    // Same params as backfillFmOrderHistory (lib/native-conversion.ts) —
+    // full-history pull, not the hourly cron's shallow incremental one.
+    results.push(await syncRestaurantOrders(ref, { withItems: false, pageSize: 100, maxPages: 500 }))
+  }
+  return {
+    fmRestaurants: fmRefs.length, notInCache: notInCache.length, alreadyHasOrders,
+    attempted: results.length, skippedOnTimeBudget, results,
+  }
 }
