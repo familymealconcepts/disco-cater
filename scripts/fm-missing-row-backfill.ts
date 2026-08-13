@@ -13,20 +13,23 @@
 // var), same convention as fm-order-backfill.ts. Never a remote connection.
 //
 // Scope: every fm_backup order with no disco_orders row (by fm_order_reference),
-// MINUS the 3 confirmed EXPIRED/INITIATED order_number-collision artifacts
+// MINUS the 5 confirmed EXPIRED/INITIATED order_number-collision artifacts
 // below (FM's checkout retried an abandoned cart and wrote a second identical-
 // total row instead of replacing the first — never paid, not a real order; same
 // exclusion shape as scripts/fm-order-backfill.ts's EXCLUDED_ORDER_IDS, applied
 // here by fm_backup order id for the same reason: fm_order_reference values
 // aren't known ahead of time by anyone reading this file, ids are stable and
-// visible in fm_backup directly).
+// visible in fm_backup directly). Also excludes bucket C (restaurants the
+// existing cache-independent cron will close on its own — see the bucket
+// classification below) so this script never redundantly races that cron.
 //
 // Two other EXPIRED/INITIATED artifacts in the same shape (fm_backup id 2890,
-// 2389) already landed in Neon before this population was known — reported
-// separately, deliberately NOT touched by this script. Their groups' real
-// order_number slot is therefore already occupied; every real order in those
-// two groups gets a synthetic number below (see "slot already occupied").
-const EXCLUDED_ORDER_IDS = new Set<number>([2324, 1946, 3416])
+// 2389, disco_orders id 26783/26869) had already landed in Neon before this
+// population was known — deleted (confirmed zero dependents in
+// disco_sale_transactions/disco_order_items/disco_stripe_payments/
+// disco_order_events) so their groups' real order_number slot is free for the
+// tie-break rule to decide properly instead of being pre-empted by an artifact.
+const EXCLUDED_ORDER_IDS = new Set<number>([2324, 1946, 3416, 2890, 2389])
 
 // Deliberate completeness: no restaurant- or dollar-value-based filtering.
 // Test Kitchen (187 orders) and the 126 zero-dollar no-email orders are in
