@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   getRestaurantAuthHeader,
+  getRestaurantHomeRef,
+  getRestaurantRole,
   RESTAURANT_COOKIE_OPTS,
   SELECTED_RESTAURANT_COOKIE,
 } from '../../../../lib/restaurant-auth'
@@ -43,6 +45,25 @@ export async function PUT(req: NextRequest) {
     return setSelection(ref)
   }
 
+  // FM's own authorization model, not ours: api/system-admin/restaurants/* is
+  // @PreAuthorize("hasAuthority('SYSTEM_ADMIN')") ONLY — it flatly denies
+  // SUPER_ADMIN (confirmed against a real SUPER_ADMIN account: FM returns a 500
+  // "Access is denied"). SUPER_ADMIN's real authority is its OWN unrestricted
+  // controller (api/admin/restaurants/*, hasAuthority('SUPER_ADMIN'), no
+  // per-restaurant ACL) — there is nothing to validate against FM for that role,
+  // so we never call FM's SYSTEM_ADMIN-only switch endpoint for it.
+  const role = await getRestaurantRole()
+  if (role === 'SUPER_ADMIN') return setSelection(ref)
+
+  // Any other FM role (plain ADMIN, RESTAURANT_ADMIN, RESTAURANT_USER) has no
+  // "current restaurant" concept in FM at all — same api/system-admin/restaurants
+  // controller would deny them too. Only their own home ref is ever valid.
+  if (role !== 'SYSTEM_ADMIN') {
+    const home = await getRestaurantHomeRef()
+    if (ref !== home) return forbidden()
+    return setSelection(ref)
+  }
+
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -56,8 +77,8 @@ export async function PUT(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Unable to reach FamilyMeal to validate this selection' }, { status: 502 })
   }
-  // FM's own switch endpoint is the authority on what this admin may select — if
-  // FM rejects it (wrong role, not a managed location, etc.) the cookie must
+  // FM's own switch endpoint is the authority on what this SYSTEM_ADMIN may
+  // select — if FM rejects it (not a managed location, etc.) the cookie must
   // never be set. Previously this was an empty `catch {}` that swallowed any
   // FM-side rejection and set the cookie unconditionally regardless of outcome.
   if (!fmRes.ok) {
