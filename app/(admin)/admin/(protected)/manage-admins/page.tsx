@@ -36,6 +36,7 @@ export default function ManageSystemAdminsPage() {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
   const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<FormState | null>(null)
   const [saving, setSaving] = useState(false)
@@ -126,11 +127,19 @@ export default function ManageSystemAdminsPage() {
     return () => { cancelled = true }
   }, [editing, locations.length])
 
+  // Debounce searchInput -> search, resetting to page 0 on every real change —
+  // same pattern as the Ordering table's search box.
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(0) }, 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
   const load = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams()
     if (page > 0) params.set('page', String(page))
     params.set('size', String(pageSize))
+    if (search) params.set('search', search)
     const res = await fetch(`/api/admin/system-admins?${params}`)
     if (res.ok) {
       const d = await res.json()
@@ -141,18 +150,14 @@ export default function ManageSystemAdminsPage() {
       setTotal(0)
     }
     setLoading(false)
-  }, [page, pageSize])
+  }, [page, pageSize, search])
 
   useEffect(() => { load() }, [load])
 
-  // Client-side search over the already-loaded list — by full name (first + last)
-  // and email, case-insensitive, whitespace-trimmed.
-  const q = searchInput.trim().toLowerCase()
-  const displayRows = q
-    ? rows.filter(u =>
-        `${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) ||
-        (u.email || '').toLowerCase().includes(q))
-    : rows
+  // Search now runs server-side across the FULL FM system-admin list (name,
+  // email, and managed-restaurant name — not just whatever page happened to be
+  // loaded), so `rows` is already the matching set.
+  const displayRows = rows
 
   async function save() {
     if (!editing) return
