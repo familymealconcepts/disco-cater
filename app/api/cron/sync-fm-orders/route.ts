@@ -25,6 +25,19 @@
 // syncAllRestaurantOrders in lib/fm-orders-sync.ts for the full design and
 // cost (~one extra lightweight call per restaurant per batch visit).
 //
+// withItems:true — this run's work is incremental (stopAtKnownDate means most
+// restaurants sync zero or a handful of new orders per hour), so the per-order
+// detail fetch this adds is cheap here (measured ~250ms/order, ~4-5 new orders/
+// hour fleet-wide) — unlike a full historical pull (see
+// syncNonCacheRestaurantOrders, which stays withItems:false for exactly that
+// reason). Without this, every order synced from here on would get a header
+// with no transaction row, no items, no add-ons, forever — the same failure
+// shape as the sync candidate-list bug: history gets repaired while the
+// ongoing writer stays broken. syncAllRestaurantOrders also runs
+// repairBareOrderDetail per restaurant regardless of this flag, closing the
+// backlog that withItems:false pulls (this one's own mismatch branch, and
+// syncNonCacheRestaurantOrders) still produce.
+//
 // REQUIRED ENV: CRON_SECRET — Vercel Cron sends it as `Authorization: Bearer …`.
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -78,14 +91,15 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // after page 0 as before; this only pages further when a restaurant has
     // genuinely accumulated more than a page's worth of orders since the last
     // hourly pass.
-    const { restaurants, results, mismatches } = await syncAllRestaurantOrders({ withItems: false, limit: BATCH, offset, maxPages: 10, stopAtKnownDate: true, reconcile: true })
+    const { restaurants, results, mismatches, bareRepairs } = await syncAllRestaurantOrders({ withItems: true, limit: BATCH, offset, maxPages: 10, stopAtKnownDate: true, reconcile: true })
     // Advance the cursor; wrap to 0 when this batch was the tail.
     await writeCursor(restaurants < BATCH ? 0 : offset + BATCH)
 
     const synced = results.reduce((a, r) => a + r.inserted + r.updated, 0)
+    const bareRepaired = bareRepairs.reduce((a, r) => a + r.repaired, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/sync-fm-orders] offset=${offset} restaurants=${restaurants} synced=${synced} mismatches=${mismatches.length} (${duration_ms}ms)`)
-    return NextResponse.json({ synced, restaurants, offset, mismatches, duration_ms })
+    console.log(`[cron/sync-fm-orders] offset=${offset} restaurants=${restaurants} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} (${duration_ms}ms)`)
+    return NextResponse.json({ synced, restaurants, offset, mismatches, bareRepairs, duration_ms })
   } catch (e) {
     console.error('[cron/sync-fm-orders] failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'sync failed', duration_ms: Date.now() - startedAt }, { status: 500 })

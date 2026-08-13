@@ -41,8 +41,9 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     await runMigrations()
     const result = await syncNonCacheRestaurantOrders()
     const synced = result.results.reduce((a, r) => a + r.inserted + r.updated, 0)
+    const bareRepaired = result.bareRepairs.reduce((a, r) => a + r.repaired, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/sync-fm-orders-noncache] fmRestaurants=${result.fmRestaurants} notInCache=${result.notInCache} alreadyComplete=${result.alreadyComplete} resumedPartial=${result.resumedPartial} attempted=${result.attempted} countCheckFailed=${result.countCheckFailed} synced=${synced} (${duration_ms}ms)`)
+    console.log(`[cron/sync-fm-orders-noncache] fmRestaurants=${result.fmRestaurants} notInCache=${result.notInCache} alreadyComplete=${result.alreadyComplete} resumedPartial=${result.resumedPartial} attempted=${result.attempted} countCheckFailed=${result.countCheckFailed} synced=${synced} bareRepaired=${bareRepaired} (${duration_ms}ms)`)
     return NextResponse.json({ ...result, synced, duration_ms })
   } catch (e) {
     console.error('[cron/sync-fm-orders-noncache] failed:', e instanceof Error ? e.message : e)

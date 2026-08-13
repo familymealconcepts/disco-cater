@@ -425,6 +425,55 @@ export async function checkFmSyncComplete(
   return { complete: neonCount >= fmTotal, fmTotal }
 }
 
+// Repairs "bare" FAMILYMEAL orders for one restaurant — a header row with no
+// ORIGINAL disco_sale_transactions row at all (so no tax/fee breakdown, no
+// items, no add-ons). Same count-comparison shape as checkFmSyncComplete, just
+// applied to a different signal (bare-order count instead of missing-header
+// count) — one pattern, two uses, not two implementations. This is the
+// ongoing-writer half of the missing-detail gap; scripts/fm-order-backfill.ts
+// is the historical half and can only ever reach pre-freeze orders (it matches
+// against the frozen fm_backup snapshot). This function works from the live
+// API instead, so it also covers every post-freeze order going forward.
+//
+// Bounded by `cap` per call — a restaurant with a large backlog (e.g. one the
+// cache-independent cron just pulled in full with withItems:false, deliberately,
+// to avoid that pull itself blowing its own time budget) self-heals over
+// multiple calls rather than risking this one's. Cheap when there's no
+// backlog: one COUNT query, nothing else.
+export async function repairBareOrderDetail(
+  restaurantReference: string,
+  cap: number = 20,
+): Promise<{ bareBefore: number; repaired: number }> {
+  const countRows = (await sql`
+    SELECT COUNT(*)::int AS n
+    FROM disco_orders o
+    LEFT JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
+    WHERE o.restaurant_reference = ${restaurantReference}::uuid
+      AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
+      AND o.is_deleted = false AND t.id IS NULL
+  `.catch(() => [])) as { n: number }[]
+  const bareBefore = countRows[0]?.n ?? 0
+  if (bareBefore === 0) return { bareBefore, repaired: 0 }
+
+  const bareRows = (await sql`
+    SELECT o.id, o.fm_order_reference::text AS fm_ref
+    FROM disco_orders o
+    LEFT JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
+    WHERE o.restaurant_reference = ${restaurantReference}::uuid
+      AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
+      AND o.is_deleted = false AND t.id IS NULL
+    ORDER BY o.placed_at DESC NULLS LAST
+    LIMIT ${cap}
+  `.catch(() => [])) as { id: number; fm_ref: string }[]
+
+  let repaired = 0
+  for (const r of bareRows) {
+    try { await syncOrderDetail(r.id, r.fm_ref); repaired++ }
+    catch (e) { console.error('[fm-orders-sync] bare-order repair failed:', r.id, e instanceof Error ? e.message : e) }
+  }
+  return { bareBefore, repaired }
+}
+
 // Sync one restaurant's FM orders into Neon. `maxPages` bounds the pull (most
 // recent first, FM has no documented since-date filter on this endpoint so we
 // can't ask it to skip old pages directly); `withItems` also pulls per-order
@@ -532,7 +581,11 @@ export async function syncOneFmOrder(fmRef: string, withItems = true): Promise<{
 // minority that actually mismatch.
 export async function syncAllRestaurantOrders(
   opts: { withItems?: boolean; limit?: number; offset?: number; maxPages?: number; stopAtKnownDate?: boolean; reconcile?: boolean } = {},
-): Promise<{ restaurants: number; results: SyncResult[]; mismatches: { restaurantReference: string; neonCount: number; fmTotal: number }[] }> {
+): Promise<{
+  restaurants: number; results: SyncResult[]
+  mismatches: { restaurantReference: string; neonCount: number; fmTotal: number }[]
+  bareRepairs: { restaurantReference: string; bareBefore: number; repaired: number }[]
+}> {
   const limit = Math.min(opts.limit ?? 50, 200)
   const offset = opts.offset ?? 0
   const rows = (await sql`
@@ -543,6 +596,7 @@ export async function syncAllRestaurantOrders(
   const refs = rows.map(r => r.restaurant_reference).filter(isUuid)
   const results: SyncResult[] = []
   const mismatches: { restaurantReference: string; neonCount: number; fmTotal: number }[] = []
+  const bareRepairs: { restaurantReference: string; bareBefore: number; repaired: number }[] = []
   let auth: Record<string, string> | null = null
 
   for (const ref of refs) {
@@ -571,13 +625,22 @@ export async function syncAllRestaurantOrders(
       }
     }
 
+    // Bare-order detail repair — unconditional (not gated behind reconcile):
+    // cheap when there's no backlog (one COUNT query), and "no FM order sits
+    // bare indefinitely" shouldn't depend on an opt-in flag.
+    const bareResult = await repairBareOrderDetail(ref)
+    if (bareResult.bareBefore > 0) {
+      console.warn(`[fm-orders-sync] bare-order repair: restaurant=${ref} bareBefore=${bareResult.bareBefore} repaired=${bareResult.repaired}`)
+      bareRepairs.push({ restaurantReference: ref, ...bareResult })
+    }
+
     results.push(await syncRestaurantOrders(ref, {
       withItems: opts.withItems ?? false,
       maxPages,
       stopAtKnownDate,
     }))
   }
-  return { restaurants: refs.length, results, mismatches }
+  return { restaurants: refs.length, results, mismatches, bareRepairs }
 }
 
 // Cache-independent history sync for restaurants disco_restaurant_cache's own
@@ -648,6 +711,7 @@ export async function syncNonCacheRestaurantOrders(): Promise<{
   skippedOnTimeBudget: number
   countCheckFailed: number
   results: SyncResult[]
+  bareRepairs: { restaurantReference: string; bareBefore: number; repaired: number }[]
 }> {
   const startedAt = Date.now()
   const fmRows = await fetchAllFmRestaurants()
@@ -673,6 +737,7 @@ export async function syncNonCacheRestaurantOrders(): Promise<{
 
   let auth: Record<string, string> | null = null
   const results: SyncResult[] = []
+  const bareRepairs: { restaurantReference: string; bareBefore: number; repaired: number }[] = []
   let alreadyComplete = 0
   let resumedPartial = 0
   let skippedOnTimeBudget = 0
@@ -680,6 +745,7 @@ export async function syncNonCacheRestaurantOrders(): Promise<{
   for (const ref of notInCache) {
     if (Date.now() - startedAt > NON_CACHE_TIME_BUDGET_MS) { skippedOnTimeBudget++; continue }
     const currentCount = neonCount.get(ref) || 0
+    let shouldSync = currentCount === 0
     if (currentCount > 0) {
       // Not "never touched" — decide complete vs partial by comparing counts,
       // not by existence. A restaurant can never fully reach fmTotal if it has
@@ -691,16 +757,30 @@ export async function syncNonCacheRestaurantOrders(): Promise<{
       // no duplicate rows are ever created).
       if (!auth) { try { auth = await getFmServiceAuthHeader() } catch { auth = null } }
       const check = auth ? await checkFmSyncComplete(ref, currentCount, auth) : null
-      if (!check) { countCheckFailed++; continue } // can't tell — don't guess, try again next run
-      if (check.complete) { alreadyComplete++; continue }
-      resumedPartial++
+      if (!check) countCheckFailed++ // can't tell — don't guess, try again next run
+      else if (check.complete) alreadyComplete++
+      else { resumedPartial++; shouldSync = true }
     }
     // Same params as backfillFmOrderHistory (lib/native-conversion.ts) —
-    // full-history pull, not the hourly cron's shallow incremental one.
-    results.push(await syncRestaurantOrders(ref, { withItems: false, pageSize: 100, maxPages: 500 }))
+    // full-history pull, not the hourly cron's shallow incremental one. Always
+    // withItems:false here — a large restaurant's first full pull is exactly
+    // the case that's genuinely expensive per-order (see repairBareOrderDetail
+    // below for how the resulting bare backlog gets closed instead).
+    if (shouldSync) {
+      results.push(await syncRestaurantOrders(ref, { withItems: false, pageSize: 100, maxPages: 500 }))
+    }
+    // Bare-order detail repair — runs regardless of shouldSync (a header-
+    // complete restaurant, e.g. one this cron already fully pulled on a prior
+    // run, can still have a bare-detail backlog from that same withItems:false
+    // pull). Cheap when clean: one COUNT query.
+    const bareResult = await repairBareOrderDetail(ref)
+    if (bareResult.bareBefore > 0) {
+      console.warn(`[fm-orders-sync] bare-order repair: restaurant=${ref} bareBefore=${bareResult.bareBefore} repaired=${bareResult.repaired}`)
+      bareRepairs.push({ restaurantReference: ref, ...bareResult })
+    }
   }
   return {
     fmRestaurants: fmRefs.length, notInCache: notInCache.length, alreadyComplete, resumedPartial,
-    attempted: results.length, skippedOnTimeBudget, countCheckFailed, results,
+    attempted: results.length, skippedOnTimeBudget, countCheckFailed, results, bareRepairs,
   }
 }
