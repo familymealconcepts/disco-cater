@@ -146,7 +146,30 @@ export async function getDiscoOrder(ref: string): Promise<DiscoOrderRow | null> 
   }
 }
 
-export interface FmOrderItem { reference: string; name: string; price: number; count: number; serves?: string | number | null }
+export interface FmOrderItem {
+  reference: string; name: string; price: number; count: number; serves?: string | number | null
+  addOns?: { name: string; price: number; count: number }[]
+}
+
+// FM's /public-api/v2/orders/{ref}/details does NOT return a flat addOns array
+// on each meal package — every possible menu option is nested under
+// extraItemsGroups[].addOns[], with a `count` field marking which were actually
+// selected on THIS order (count > 0 = selected; count 0 = an available-but-
+// unselected option, still listed). Flattens across all groups for one item and
+// keeps only the selected ones, including $0-priced selections (a real,
+// deliberate choice — e.g. a bagel-flavor pick — not absent data).
+function extractSelectedAddOns(item: Record<string, unknown>): { name: string; price: number; count: number }[] {
+  const groups = Array.isArray(item.extraItemsGroups) ? item.extraItemsGroups as Record<string, unknown>[] : []
+  const out: { name: string; price: number; count: number }[] = []
+  for (const g of groups) {
+    const groupAddOns = Array.isArray(g.addOns) ? g.addOns as Record<string, unknown>[] : []
+    for (const a of groupAddOns) {
+      const count = n(a.count)
+      if (count > 0) out.push({ name: s(a.name) || 'Add-on', price: n(a.price), count })
+    }
+  }
+  return out
+}
 export interface FmOrderMoney {
   order: Record<string, unknown>
   subtotal: number
@@ -227,6 +250,7 @@ export function parseFmOrder(details: Record<string, unknown>): FmOrderMoney {
     price: n(it.price) || n(it.pricePerUnit) || n((it.mealPackage as Record<string, unknown>)?.price),
     count: n(it.count) || n(it.quantity) || 1,
     serves: (it.serves as string | number | null | undefined) ?? null,
+    addOns: extractSelectedAddOns(it),
   }))
 
   const restaurant = (order.restaurant as Record<string, unknown>) ?? {}
