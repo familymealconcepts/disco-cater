@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations, withDiscoTables } from '../../../../lib/db'
-import { r2 } from '../../../../lib/promo-pricing'
+import { r2, resolveEffectiveDiscountPct } from '../../../../lib/promo-pricing'
+import { countPriorPaidOrders } from '../../../../lib/pricing/native-order'
 
 export const runtime = 'nodejs'
 
@@ -30,7 +31,10 @@ const n = (v: string | number | null | undefined): number | null => {
 }
 
 // POST /api/promo/validate
-// { code, restaurantRef, orderSubtotal, orderTotal, userEmail, isFirstTimeUser }
+// { code, restaurantRef, orderSubtotal, orderTotal, userEmail }
+// isFirstTimeUser is no longer read here — first_time_only is now resolved
+// server-side via countPriorPaidOrders (restaurant-scoped), not a client-supplied,
+// platform-wide boolean. A caller that still sends it is harmlessly ignored.
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ valid: false, message: 'Invalid request.' }, { status: 400 }) }
@@ -40,7 +44,6 @@ export async function POST(req: NextRequest) {
   const orderSubtotal = n(body.orderSubtotal as number) ?? 0
   const orderTotal = n(body.orderTotal as number) ?? 0
   const userEmail = String(body.userEmail || '').trim().toLowerCase()
-  const isFirstTimeUser = body.isFirstTimeUser === true
 
   if (!code) return NextResponse.json({ valid: false, message: 'Enter a promo code.' }, { status: 400 })
 
@@ -83,7 +86,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'This promo code isn’t valid for this restaurant.' })
   }
 
-  // (5b) restaurant-funded codes discount the SUBTOTAL pre-charge (Path B): the
+  // (6) minimum subtotal — evaluated against the PRE-discount subtotal, universally
+  // (previously the restaurant-funded branch returned before ever reaching this).
+  const minSub = n(promo.min_order_subtotal)
+  if (minSub != null && orderSubtotal < minSub) {
+    return NextResponse.json({ valid: false, message: `Add $${minSub.toFixed(2)} more to use this code.` })
+  }
+
+  // (7) first-time-only — restaurant-scoped (countPriorPaidOrders), the same
+  // definition the lead-gen fee tier uses, NOT the caller-supplied isFirstTimeUser
+  // (which was platform-wide FM order history — a different, wrong question here).
+  // Universal, same reason as (6).
+  if (promo.first_time_only) {
+    const ref = promo.restaurant_ref || restaurantRef
+    const prior = userEmail ? await countPriorPaidOrders(userEmail, ref) : 0
+    if (prior > 0) {
+      return NextResponse.json({ valid: false, message: 'This promo code is for first-time customers only.' })
+    }
+  }
+
+  // (8) per-user usage limit — universal, checked once (previously duplicated
+  // between the restaurant-funded and DISCO-funded branches).
+  if (userEmail) {
+    const used = (await sql`SELECT COUNT(*)::int AS c FROM promo_code_uses WHERE promo_code_id = ${promo.id} AND LOWER(user_email) = ${userEmail}`) as { c: number }[]
+    if ((used[0]?.c ?? 0) >= promo.max_uses_per_user) {
+      return NextResponse.json({ valid: false, message: 'You’ve already used this promo code the maximum number of times.' })
+    }
+  }
+
+  // (9) restaurant-funded codes discount the SUBTOTAL pre-charge (Path B): the
   // customer is charged the discounted total and the restaurant's transfer is
   // naturally smaller — no refund/reversal. Two prerequisites, both DIRECT-only:
   //  (1) the restaurant must be on FM moneyFlow=DIRECT — under FAMILY_MEAL, FM is
@@ -101,7 +132,7 @@ export async function POST(req: NextRequest) {
     if (!trows[0]?.tax_rates) {
       return NextResponse.json({ valid: false, message: 'This promo code can’t be applied for this restaurant right now.' })
     }
-    // Both caps, checked here for an honest preview — the ACTUAL gate against a
+    // max_uses re-checked here for an honest preview — the ACTUAL gate against a
     // double-submit or a second concurrent order is reserveNativeRestaurantPromoUse
     // (lib/promo-native.ts), called atomically right before the charge from BOTH
     // real placement paths: native (native-place-checkout.ts) and FM-backed
@@ -110,50 +141,33 @@ export async function POST(req: NextRequest) {
     if (promo.max_uses != null && promo.uses_count >= promo.max_uses) {
       return NextResponse.json({ valid: false, message: 'This promo code has reached its usage limit.' })
     }
-    if (userEmail) {
-      const used = (await sql`SELECT COUNT(*)::int AS c FROM promo_code_uses WHERE promo_code_id = ${promo.id} AND LOWER(user_email) = ${userEmail}`) as { c: number }[]
-      if ((used[0]?.c ?? 0) >= promo.max_uses_per_user) {
-        return NextResponse.json({ valid: false, message: 'You’ve already used this promo code the maximum number of times.' })
-      }
-    }
-    // Discount the SUBTOTAL (headline). The exact charge reduction (tax/fee/tip also
-    // recompute off the discounted subtotal) is finalized authoritatively at placement.
+    // Discount the SUBTOTAL (headline) — flat-$/percent-with-cap resolved to an
+    // equivalent pct the exact same way placement will (resolveEffectiveDiscountPct),
+    // so the preview number can't drift from what actually charges. The exact charge
+    // reduction (tax/fee/tip also recompute off the discounted subtotal) is finalized
+    // authoritatively at placement.
     const value = n(promo.discount_value) ?? 0
-    const subtotalDiscount = r2(orderSubtotal * (value / 100))
+    const cap = n(promo.max_discount_cap)
+    const effectivePct = resolveEffectiveDiscountPct(orderSubtotal, promo.discount_type, value, cap)
+    const subtotalDiscount = r2(orderSubtotal * (effectivePct / 100))
     return NextResponse.json({
       valid: true,
       fundedBy: 'RESTAURANT',
       discountAmount: subtotalDiscount,
-      discountType: 'percent',
+      discountType: promo.discount_type,
       discountValue: value,
       code: promo.code,
-      message: `Promo applied — ${value}% off. Your discounted total is calculated at checkout.`,
+      message: promo.discount_type === 'flat'
+        ? `Promo applied — $${value.toFixed(2)} off. Your discounted total is calculated at checkout.`
+        : `Promo applied — ${value}% off. Your discounted total is calculated at checkout.`,
     })
   }
 
-  // (6) minimum subtotal
-  const minSub = n(promo.min_order_subtotal)
-  if (minSub != null && orderSubtotal < minSub) {
-    return NextResponse.json({ valid: false, message: `Add $${minSub.toFixed(2)} more to use this code.` })
-  }
-
-  // (7) first-time-only
-  if (promo.first_time_only && !isFirstTimeUser) {
-    return NextResponse.json({ valid: false, message: 'This promo code is for first-time customers only.' })
-  }
-
-  // (8) per-user usage limit
-  if (userEmail) {
-    const used = (await sql`
-      SELECT COUNT(*)::int AS c FROM promo_code_uses
-      WHERE promo_code_id = ${promo.id} AND LOWER(user_email) = ${userEmail}
-    `) as { c: number }[]
-    if ((used[0]?.c ?? 0) >= promo.max_uses_per_user) {
-      return NextResponse.json({ valid: false, message: 'You’ve already used this promo code.' })
-    }
-  }
-
-  // Compute discount.
+  // (10) DISCO-funded: knocks a flat amount off orderTotal at redemption time
+  // (post-charge, /api/promo/redeem) — a different mechanism from restaurant-funded's
+  // pre-charge subtotal recompute above, so it's intentionally not unified with
+  // resolveEffectiveDiscountPct (that function is specifically for the subtotal-based
+  // recompute pipeline).
   const value = n(promo.discount_value) ?? 0
   let discountAmount: number
   if (promo.discount_type === 'flat') {

@@ -10,8 +10,9 @@ export const dynamic = 'force-dynamic'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// Map a promo_codes row to the restaurant-portal shape (percent discount, plain
-// date strings, remaining-uses count).
+// Map a promo_codes row to the restaurant-portal shape — same field naming as the
+// admin builder (discountType/discountValue/maxDiscountCap/minOrderSubtotal/
+// firstTimeOnly/notes) so the two builders share one wire contract, not two.
 function toApiCode(r: Record<string, unknown>) {
   const maxUses = r.max_uses == null ? null : Number(r.max_uses)
   const uses = Number(r.uses_count || 0)
@@ -19,12 +20,17 @@ function toApiCode(r: Record<string, unknown>) {
   return {
     id: Number(r.id),
     code: String(r.code),
-    discountPercentage: Number(r.discount_value),
-    startDate: isoDay(r.valid_from),
-    endDate: isoDay(r.valid_until),
-    maxAvailable: maxUses,
-    remainingAvailable: maxUses == null ? null : Math.max(0, maxUses - uses),
-    maxPerDiner: Number(r.max_uses_per_user || 1),
+    discountType: r.discount_type === 'flat' ? 'flat' : 'percent',
+    discountValue: Number(r.discount_value),
+    maxDiscountCap: r.max_discount_cap == null ? null : Number(r.max_discount_cap),
+    minOrderSubtotal: r.min_order_subtotal == null ? null : Number(r.min_order_subtotal),
+    firstTimeOnly: r.first_time_only === true,
+    validFrom: isoDay(r.valid_from),
+    validUntil: isoDay(r.valid_until),
+    maxUses,
+    remainingUses: maxUses == null ? null : Math.max(0, maxUses - uses),
+    maxUsesPerUser: Number(r.max_uses_per_user || 1),
+    notes: r.notes ? String(r.notes) : '',
     active: r.active === true,
     restaurantRef: r.restaurant_ref ? String(r.restaurant_ref) : '',
     restaurantName: r.restaurant_name ? String(r.restaurant_name) : '',
@@ -119,29 +125,54 @@ export async function POST(req: NextRequest) {
     }
 
     const code = String(body?.code || '').trim().toUpperCase()
-    const discountPercentage = Number(body?.discountPercentage)
-    const maxAvailable = Math.trunc(Number(body?.maxAvailable))
-    const maxPerDiner = body?.maxPerDiner != null && body.maxPerDiner !== '' ? Math.trunc(Number(body.maxPerDiner)) : 1
-    const startDate = String(body?.startDate || '').trim()
-    const endDate = String(body?.endDate || '').trim()
+    const discountType = body?.discountType === 'flat' ? 'flat' : 'percent'
+    const discountValue = Number(body?.discountValue)
+    const maxDiscountCap = discountType === 'percent' && body?.maxDiscountCap != null && body.maxDiscountCap !== '' ? Number(body.maxDiscountCap) : null
+    const minOrderSubtotal = body?.minOrderSubtotal != null && body.minOrderSubtotal !== '' ? Number(body.minOrderSubtotal) : null
+    const firstTimeOnly = body?.firstTimeOnly === true
+    const maxUses = body?.maxUses != null && body.maxUses !== '' ? Math.trunc(Number(body.maxUses)) : null
+    const maxUsesPerUser = body?.maxUsesPerUser != null && body.maxUsesPerUser !== '' ? Math.trunc(Number(body.maxUsesPerUser)) : 1
+    const validFromDate = String(body?.validFrom || '').trim()
+    const validUntilDate = String(body?.validUntil || '').trim()
+    const notes = body?.notes ? String(body.notes).trim() : null
 
     if (!code || !/^[A-Z0-9]+$/.test(code)) {
       return NextResponse.json({ error: 'Code must be uppercase letters and numbers only.' }, { status: 400 })
     }
-    if (!Number.isFinite(discountPercentage) || discountPercentage < 1 || discountPercentage > 100) {
-      return NextResponse.json({ error: 'Discount must be a number between 1 and 100.' }, { status: 400 })
+    if (discountType === 'percent') {
+      if (!Number.isFinite(discountValue) || discountValue < 1 || discountValue > 100) {
+        return NextResponse.json({ error: 'Discount must be a number between 1 and 100.' }, { status: 400 })
+      }
+    } else {
+      if (!Number.isFinite(discountValue) || discountValue <= 0) {
+        return NextResponse.json({ error: 'Discount must be a dollar amount greater than 0.' }, { status: 400 })
+      }
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-      return NextResponse.json({ error: 'Start and end dates are required.' }, { status: 400 })
+    if (maxDiscountCap != null && (!Number.isFinite(maxDiscountCap) || maxDiscountCap <= 0)) {
+      return NextResponse.json({ error: 'Max discount cap must be a dollar amount greater than 0.' }, { status: 400 })
     }
-    if (endDate < startDate) {
-      return NextResponse.json({ error: 'End date must be on or after the start date.' }, { status: 400 })
+    if (minOrderSubtotal != null && (!Number.isFinite(minOrderSubtotal) || minOrderSubtotal < 0)) {
+      return NextResponse.json({ error: 'Min order subtotal must be 0 or more.' }, { status: 400 })
     }
-    if (!Number.isFinite(maxAvailable) || maxAvailable < 1) {
-      return NextResponse.json({ error: 'Max available must be a whole number of 1 or more.' }, { status: 400 })
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(validFromDate)) {
+      return NextResponse.json({ error: 'Valid-from date is required.' }, { status: 400 })
     }
-    if (!Number.isFinite(maxPerDiner) || maxPerDiner < 1) {
-      return NextResponse.json({ error: 'Max per diner must be a whole number of 1 or more.' }, { status: 400 })
+    if (validUntilDate && !/^\d{4}-\d{2}-\d{2}$/.test(validUntilDate)) {
+      return NextResponse.json({ error: 'Valid-until date is invalid.' }, { status: 400 })
+    }
+    if (validUntilDate && validUntilDate < validFromDate) {
+      return NextResponse.json({ error: 'Valid-until date must be on or after valid-from.' }, { status: 400 })
+    }
+    if (maxUses != null && (!Number.isInteger(maxUses) || maxUses < 1)) {
+      return NextResponse.json({ error: 'Max total uses must be a whole number of 1 or more, or left blank for unlimited.' }, { status: 400 })
+    }
+    if (!Number.isInteger(maxUsesPerUser) || maxUsesPerUser < 1) {
+      return NextResponse.json({ error: 'Max uses per diner must be a whole number of 1 or more.' }, { status: 400 })
+    }
+    // 100%-off guard: not blocked outright, just requires the caller to have
+    // explicitly acknowledged it — see the confirmation dialog in the form.
+    if (discountType === 'percent' && discountValue >= 90 && body?.confirmHighDiscount !== true) {
+      return NextResponse.json({ error: 'confirm_high_discount', requiresConfirmation: true }, { status: 409 })
     }
 
     // Restaurant-funded codes are DIRECT-only (permanent). Under FAMILY_MEAL money-
@@ -158,19 +189,21 @@ export async function POST(req: NextRequest) {
     // straight to ::timestamptz is read as UTC, which cuts a US-timezone promo
     // off hours early (a restaurant setting "end Aug 31" got shut off at 8pm
     // local on Aug 30). See lib/timezone.ts for the fallback when a restaurant
-    // has no timezone on file.
+    // has no timezone on file. Same conversion for every date field here — there's
+    // only ever the two (valid_from/valid_until); none of the new fields are dates.
     const { timezone } = await getRestaurantTimezone(restaurantRef)
-    const validFrom = localDayBoundaryToUTC(startDate, timezone, false)
-    const validUntil = localDayBoundaryToUTC(endDate, timezone, true)
+    const validFrom = localDayBoundaryToUTC(validFromDate, timezone, false)
+    const validUntil = validUntilDate ? localDayBoundaryToUTC(validUntilDate, timezone, true) : null
 
     try {
       const rows = (await sql`
         INSERT INTO promo_codes (
-          code, discount_type, discount_value, scope, restaurant_ref, funded_by,
-          max_uses, max_uses_per_user, valid_from, valid_until
+          code, discount_type, discount_value, max_discount_cap, min_order_subtotal, first_time_only,
+          scope, restaurant_ref, funded_by, max_uses, max_uses_per_user, valid_from, valid_until, notes
         ) VALUES (
-          ${code}, 'percent', ${discountPercentage}, 'restaurant', ${restaurantRef}, 'RESTAURANT',
-          ${maxAvailable}, ${maxPerDiner}, ${validFrom.toISOString()}::timestamptz, ${validUntil.toISOString()}::timestamptz
+          ${code}, ${discountType}, ${discountValue}, ${maxDiscountCap}, ${minOrderSubtotal}, ${firstTimeOnly},
+          'restaurant', ${restaurantRef}, 'RESTAURANT', ${maxUses}, ${maxUsesPerUser},
+          ${validFrom.toISOString()}::timestamptz, ${validUntil ? validUntil.toISOString() : null}::timestamptz, ${notes}
         )
         RETURNING *
       `) as Record<string, unknown>[]

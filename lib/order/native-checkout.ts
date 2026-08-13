@@ -254,7 +254,7 @@ export interface PriceNativeCartResult {
 export async function priceNativeCart(input: PriceNativeCartInput): Promise<PriceNativeCartResult> {
   const subtotal = cartSubtotal(input.items)
   const promo = input.restaurantPromoCode
-    ? await resolveNativeRestaurantPromo(input.restaurantPromoCode, input.restaurantReference, input.customerEmail)
+    ? await resolveNativeRestaurantPromo(input.restaurantPromoCode, input.restaurantReference, subtotal, input.customerEmail)
     : null
   const discountPct = promo?.pct ?? 0
   const discountedSubtotal = discountedBase(subtotal, discountPct)

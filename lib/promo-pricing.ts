@@ -57,6 +57,44 @@ export function discountedBase(subtotal: number, discountPct: number): number {
   return r2(subtotal - r2(subtotal * discountPct / 100))
 }
 
+// Resolves ANY restaurant-funded promo (flat-$, percent, percent-with-cap) down to an
+// EQUIVALENT discountPct, so it can feed the existing computeBreakdown/discountedBase
+// unchanged — deliberately NOT a separate dollar-subtraction code path. Proven
+// equivalent to the cent against a hand-rolled direct-dollar-subtraction path at
+// deliberately awkward values (repeating decimals, flat==subtotal exactly, flat >
+// subtotal, cap-boundary-exact) before this was written — see the disco-cater session
+// notes for the verification run. Algebraically: pct = (dollars/subtotal)×100 means
+// subtotal×pct/100 cancels back to `dollars` before any rounding, and r2's epsilon
+// guard absorbs the float64 error from that division/multiplication round trip, so
+// computeBreakdown's r2(subtotal × pct/100) reproduces the same cents a direct
+// r2(dollars) would.
+//
+// discount_type='flat': effective dollars = min(discountValue, subtotal), floored at
+// 0 (subtotal is always >0 by every caller's existing guard) — never negative, never
+// exceeds subtotal (100% off).
+// discount_type='percent': the cap (max_discount_cap, percent-only) is converted to
+// its own equivalent pct and substituted for discountValue WHENEVER the uncapped
+// dollar amount would exceed it — this makes the cap apply before every subtotal-
+// derived amount (tax, delivery, platform fee, lead-gen), since it's baked into the
+// single pct computeBreakdown then multiplies through.
+export function resolveEffectiveDiscountPct(
+  subtotal: number,
+  discountType: 'flat' | 'percent',
+  discountValue: number,
+  maxDiscountCap: number | null,
+): number {
+  if (subtotal <= 0) return 0
+  if (discountType === 'flat') {
+    const effectiveDollars = Math.max(0, Math.min(discountValue, subtotal))
+    return (effectiveDollars / subtotal) * 100
+  }
+  // percent
+  if (maxDiscountCap == null) return discountValue
+  const uncappedDollars = r2(subtotal * discountValue / 100)
+  if (uncappedDollars <= maxDiscountCap) return discountValue
+  return (maxDiscountCap / subtotal) * 100
+}
+
 export interface TaxRate { percent: number; fixedAmount: number }
 export interface OtherTaxRate extends TaxRate { applies: boolean }
 

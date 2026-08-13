@@ -1,7 +1,8 @@
 import type Stripe from 'stripe'
 import { sql } from './db'
-import { computeBreakdown, deriveLeadGenPct, r2, cents, type PricingConfig, type PricingOrder, type Breakdown } from './promo-pricing'
+import { computeBreakdown, deriveLeadGenPct, r2, cents, resolveEffectiveDiscountPct, type PricingConfig, type PricingOrder, type Breakdown } from './promo-pricing'
 import { reserveNativeRestaurantPromoUse, finalizeNativeRestaurantPromoUse, releaseNativeRestaurantPromoUse } from './promo-native'
+import { countPriorPaidOrders } from './pricing/native-order'
 
 // Applies a restaurant-funded promo discount PRE-CHARGE (Path B): recompute FM's
 // discounted total + restaurant transfer and adjust the FM-created PaymentIntent's
@@ -130,30 +131,54 @@ export function computeRestaurantFundedBreakdown(args: {
   return { ok: true, full, discounted }
 }
 
-// Look up + basic-validate the restaurant-funded code (authoritative discount %).
-// This is a PREVIEW-strength check only (same as native's resolveNativeRestaurantPromo)
-// — the authoritative gate against a double-submit or a concurrent second order is
-// the atomic reservation below, which re-checks both caps right before the charge.
-export async function resolveCode(code: string, restaurantRef: string, userEmail: string): Promise<{ id: number; pct: number; maxUses: number | null; maxUsesPerUser: number } | null> {
+// Look up + basic-validate the restaurant-funded code (flat-$ or percent, with
+// cap/min-order/first-time enforcement). This is a PREVIEW-strength check only
+// (same as native's resolveNativeRestaurantPromo) — the authoritative gate against
+// a double-submit or a concurrent second order is the atomic reservation below,
+// which re-checks both caps right before the charge.
+//
+// subtotal is required (not optional) — same reasoning as resolveNativeRestaurantPromo:
+// min_order_subtotal and the flat-$/cap-to-pct conversion both need it, and both
+// callers already have fmCheckout.subtotal before calling this. Previously this
+// function never looked at discount_type at all — a flat-$ code would have been
+// silently read as a percent (confirmed no live row has ever been discount_type='flat',
+// so this hasn't actually mispriced anything, but it was a live latent bug).
+export async function resolveCode(code: string, restaurantRef: string, subtotal: number, userEmail: string): Promise<{ id: number; pct: number; maxUses: number | null; maxUsesPerUser: number } | null> {
+  if (subtotal <= 0) return null
   const rows = (await sql`
-    SELECT id, discount_value, valid_from, valid_until, active, max_uses, uses_count, max_uses_per_user
+    SELECT id, discount_value, discount_type, max_discount_cap, min_order_subtotal, first_time_only,
+           valid_from, valid_until, active, max_uses, uses_count, max_uses_per_user
     FROM promo_codes
     WHERE UPPER(code) = UPPER(${code}) AND funded_by = 'RESTAURANT' AND restaurant_ref = ${restaurantRef}
     ORDER BY id DESC LIMIT 1
-  `) as { id: number; discount_value: string | number; valid_from: string | null; valid_until: string | null; active: boolean; max_uses: number | null; uses_count: number; max_uses_per_user: number }[]
+  `) as {
+    id: number; discount_value: string | number; discount_type: 'flat' | 'percent'
+    max_discount_cap: string | number | null; min_order_subtotal: string | number | null; first_time_only: boolean
+    valid_from: string | null; valid_until: string | null; active: boolean
+    max_uses: number | null; uses_count: number; max_uses_per_user: number
+  }[]
   const p = rows[0]
   if (!p || !p.active) return null
   const now = Date.now()
   if (p.valid_from && new Date(p.valid_from).getTime() > now) return null
   if (p.valid_until && new Date(p.valid_until).getTime() < now) return null
   if (p.max_uses != null && p.uses_count >= p.max_uses) return null
+  const minOrder = p.min_order_subtotal == null ? null : num(p.min_order_subtotal)
+  if (minOrder != null && subtotal < minOrder) return null // evaluated against the PRE-discount subtotal
   const userKey = (userEmail || '').trim().toLowerCase()
   if (userKey) {
     const used = (await sql`SELECT COUNT(*)::int AS c FROM promo_code_uses WHERE promo_code_id = ${p.id} AND LOWER(user_email) = ${userKey}`.catch(() => [{ c: 0 }])) as { c: number }[]
     if ((used[0]?.c ?? 0) >= p.max_uses_per_user) return null
+    if (p.first_time_only) {
+      // Restaurant-scoped, same definition the lead-gen fee tier uses.
+      const prior = await countPriorPaidOrders(userKey, restaurantRef)
+      if (prior > 0) return null
+    }
   }
-  const pct = num(p.discount_value)
-  if (!(pct >= 1 && pct <= 100)) return null
+  const discountValue = num(p.discount_value)
+  const maxDiscountCap = p.max_discount_cap == null ? null : num(p.max_discount_cap)
+  const pct = resolveEffectiveDiscountPct(subtotal, p.discount_type, discountValue, maxDiscountCap)
+  if (!(pct > 0 && pct <= 100)) return null
   return { id: p.id, pct, maxUses: p.max_uses, maxUsesPerUser: p.max_uses_per_user }
 }
 
@@ -182,7 +207,8 @@ export async function previewRestaurantFundedDiscount(args: {
 }): Promise<{ applied: true; breakdown: Breakdown } | { applied: false; reason: string }> {
   const { restaurantRef, code, serviceChargePct, orderType, fmCheckout, userEmail } = args
 
-  const resolved = await resolveCode(code, restaurantRef, userEmail)
+  const subtotal = num(fmCheckout.subtotal)
+  const resolved = await resolveCode(code, restaurantRef, subtotal, userEmail)
   if (!resolved) return { applied: false, reason: 'code invalid/expired/inactive' }
 
   const mirror = await getTaxRatesMirror(restaurantRef)
@@ -216,7 +242,8 @@ export async function applyRestaurantFundedDiscount(args: {
   const { stripe, paymentIntentId, restaurantRef, code, serviceChargePct, orderType, fmCheckout, orderRef, userEmail } = args
   if (!paymentIntentId) return { applied: false, reason: 'no payment intent' }
 
-  const resolved = await resolveCode(code, restaurantRef, userEmail)
+  const subtotal = num(fmCheckout.subtotal)
+  const resolved = await resolveCode(code, restaurantRef, subtotal, userEmail)
   if (!resolved) return { applied: false, reason: 'code invalid/expired/inactive' }
 
   // DIRECT-only gate. Restaurant-funded promo codes can ONLY settle where the

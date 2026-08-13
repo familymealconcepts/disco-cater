@@ -13,47 +13,68 @@
 // (/api/promo/redeem). Phase 1 is percent-only (flat = a later phase).
 import crypto from 'node:crypto'
 import { sql } from './db'
+import { resolveEffectiveDiscountPct } from './promo-pricing'
+import { countPriorPaidOrders } from './pricing/native-order'
 
 export interface NativePromoResolution { id: number; pct: number; maxUses: number | null; maxUsesPerUser: number }
 
-// Look up + validate a RESTAURANT-funded percent code for this native restaurant.
-// Mirrors promo-apply.ts resolveCode (active, validity window, global max_uses,
-// percent 1-100), plus a defensive FAMILY_MEAL money-flow decline. Returns null
-// (no discount) on any failure — the order still places at full price.
+// Look up + validate a RESTAURANT-funded code (flat-$ or percent, with cap/min-order/
+// first-time enforcement) for this native restaurant. Mirrors promo-apply.ts
+// resolveCode (active, validity window, global max_uses), plus a defensive
+// FAMILY_MEAL money-flow decline. Returns null (no discount) on any failure — the
+// order still places at full price.
 //
-// userEmail is used for a best-effort PREVIEW of the per-user cap only — the
-// pricing preview (priceNativeCart with no known customer yet) calls this with
-// '' and the check is skipped there; a wrong/blank email here can only make the
-// preview show "valid" when it later isn't, never the reverse. The real gate is
+// subtotal is required now (not optional) because min_order_subtotal and the
+// flat-$/cap-to-pct conversion both need it — every caller already computes
+// subtotal before resolving the promo (see priceNativeCart). The returned `pct` is
+// the EFFECTIVE percent (see resolveEffectiveDiscountPct in lib/promo-pricing.ts),
+// already accounting for discount_type/max_discount_cap — callers still just feed
+// it into discountedBase/computeBreakdown exactly as before, unchanged.
+//
+// userEmail is used for a best-effort PREVIEW of the per-user cap AND first_time_only
+// only — the pricing preview (priceNativeCart with no known customer yet) calls this
+// with '' and both checks are skipped there; a wrong/blank email here can only make
+// the preview show "valid" when it later isn't, never the reverse. The real gate is
 // reserveNativeRestaurantPromoUse below, which re-checks both caps atomically at
 // the moment of placement — this function alone never authorizes a charge.
-export async function resolveNativeRestaurantPromo(code: string, restaurantRef: string, userEmail?: string): Promise<NativePromoResolution | null> {
+export async function resolveNativeRestaurantPromo(code: string, restaurantRef: string, subtotal: number, userEmail?: string): Promise<NativePromoResolution | null> {
   const c = (code || '').trim()
-  if (!c || !restaurantRef) return null
+  if (!c || !restaurantRef || subtotal <= 0) return null
   const rows = (await sql`
-    SELECT id, discount_value, discount_type, valid_from, valid_until, active, max_uses, uses_count, max_uses_per_user
+    SELECT id, discount_value, discount_type, max_discount_cap, min_order_subtotal, first_time_only,
+           valid_from, valid_until, active, max_uses, uses_count, max_uses_per_user
     FROM promo_codes
     WHERE UPPER(code) = UPPER(${c}) AND funded_by = 'RESTAURANT' AND restaurant_ref = ${restaurantRef}
     ORDER BY id DESC LIMIT 1
   `.catch(() => [])) as {
-    id: number; discount_value: string | number; discount_type: string
+    id: number; discount_value: string | number; discount_type: 'flat' | 'percent'
+    max_discount_cap: string | number | null; min_order_subtotal: string | number | null; first_time_only: boolean
     valid_from: string | null; valid_until: string | null; active: boolean
     max_uses: number | null; uses_count: number; max_uses_per_user: number
   }[]
   const p = rows[0]
   if (!p || !p.active) return null
-  if (p.discount_type !== 'percent') return null // Phase 1: percent only
   const now = Date.now()
   if (p.valid_from && new Date(p.valid_from).getTime() > now) return null
   if (p.valid_until && new Date(p.valid_until).getTime() < now) return null
   if (p.max_uses != null && p.uses_count >= p.max_uses) return null
-  const pct = Number(p.discount_value)
-  if (!(pct >= 1 && pct <= 100)) return null
+  const minOrder = p.min_order_subtotal == null ? null : Number(p.min_order_subtotal)
+  if (minOrder != null && subtotal < minOrder) return null // evaluated against the PRE-discount subtotal
   const userKey = (userEmail || '').trim().toLowerCase()
   if (userKey) {
     const used = (await sql`SELECT COUNT(*)::int AS c FROM promo_code_uses WHERE promo_code_id = ${p.id} AND LOWER(user_email) = ${userKey}`.catch(() => [{ c: 0 }])) as { c: number }[]
     if ((used[0]?.c ?? 0) >= p.max_uses_per_user) return null
+    if (p.first_time_only) {
+      // Restaurant-scoped, same definition the lead-gen fee tier uses — NOT
+      // platform-wide FM history (that's a different, wrong question here).
+      const prior = await countPriorPaidOrders(userKey, restaurantRef)
+      if (prior > 0) return null
+    }
   }
+  const discountValue = Number(p.discount_value)
+  const maxDiscountCap = p.max_discount_cap == null ? null : Number(p.max_discount_cap)
+  const pct = resolveEffectiveDiscountPct(subtotal, p.discount_type, discountValue, maxDiscountCap)
+  if (!(pct > 0 && pct <= 100)) return null
   // Defense-in-depth: an explicit FAMILY_MEAL money-flow means the restaurant is not
   // merchant-of-record — decline (restaurant-funded is DIRECT-only, permanent rule).
   const mf = (await sql`SELECT money_flow FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantRef} LIMIT 1`.catch(() => [])) as { money_flow: string | null }[]
