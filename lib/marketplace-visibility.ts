@@ -47,6 +47,23 @@ export interface MarketplaceReadiness {
 }
 
 export function evaluateMarketplaceReadiness(i: MarketplaceVisibilityInput): MarketplaceReadiness {
+  // KNOWN GAP, not fixed here (2026-08-13): for an is_disco_native restaurant,
+  // i.stripeConnected (disco_restaurant_overrides.stripe_connected) is NOT a
+  // valid payout signal. Every restaurant converted via convertToNative
+  // inherits stripe_connected=true from the one-time historical FM migration
+  // (scripts/migrate-fm-to-neon.ts, which set it true for anyone with ANY
+  // stripe_account_id on FM's side, no capability check) — it answers "can FM
+  // process this restaurant's payments," which is the CORRECT and only signal
+  // for the FM-backed 642-restaurant population this OR also serves, but it's
+  // the wrong question once a restaurant is native. hasCompletedNativeStripeAccount
+  // is the only signal that's actually meaningful post-conversion. Confirmed via
+  // a live audit: only 1 native restaurant (a non-visible test fixture) is
+  // currently exploiting this — no real, visible native restaurant is affected
+  // today — but this OR will misfire again as more restaurants convert with a
+  // stale inherited true and no real account imported yet. Left as-is
+  // deliberately: fixing it (e.g. an AND for native, or a separate native-only
+  // check) needs its own decision, not a silent behavior change bundled into
+  // an unrelated fix.
   const stripeOkNative = i.stripeConnected === true || i.hasCompletedNativeStripeAccount === true
   // COALESCE(online_ordering_enabled, true): null/unset defaults ON; only false gates.
   const onlineOk = i.onlineOrderingEnabled !== false
