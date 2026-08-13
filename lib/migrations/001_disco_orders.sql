@@ -613,3 +613,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS disco_order_item_addons_item_fmaddon_uq
 -- explicit here matches the same convention as the other partial indexes above.
 CREATE UNIQUE INDEX IF NOT EXISTS disco_orders_fm_order_reference_uq
   ON disco_orders (fm_order_reference) WHERE fm_order_reference IS NOT NULL;
+
+-- FM's raw order data has a handful of genuine order_number collisions within
+-- one restaurant (different orders, different customers, FM's own generation
+-- scheme just isn't unique under some burst-creation pattern — confirmed at
+-- Mav's Top Buns, not a fleet-wide issue). disco_orders_restaurant_order_number_uq
+-- means only one order per colliding group can keep FM's real order_number; the
+-- rest get a synthetic one (70,000,000,000 + the FM order's own id — see the
+-- missing-row backfill script) so the row can still exist instead of being
+-- silently dropped. fm_order_number_raw holds FM's real original order_number
+-- for exactly those disambiguated rows, so a Neon row can still be matched back
+-- to its real FM receipt; NULL everywhere else (order_number already IS the
+-- real value there, nothing to preserve separately).
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS fm_order_number_raw BIGINT;
