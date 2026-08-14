@@ -151,24 +151,43 @@ export interface FmOrderItem {
   addOns?: { name: string; price: number; count: number }[]
 }
 
-// FM's /public-api/v2/orders/{ref}/details does NOT return a flat addOns array
-// on each meal package — every possible menu option is nested under
-// extraItemsGroups[].addOns[], with a `count` field marking which were actually
-// selected on THIS order (count > 0 = selected; count 0 = an available-but-
-// unselected option, still listed). Flattens across all groups for one item and
-// keeps only the selected ones, including $0-priced selections (a real,
-// deliberate choice — e.g. a bagel-flavor pick — not absent data).
+// Each of FM's three order-item catalogs (OrderPublicEditResponseDto, the real
+// DTO behind /public-api/v2/orders/{ref}/details — confirmed against FM's own
+// Java source) shapes its modifiers/add-ons differently:
+//   • orderMealPackages (OrderMealPackagePublicEditResponseDto): every possible
+//     menu option nested under extraItemsGroups[].addOns[], with a `count`
+//     field marking which were actually selected on THIS order (count > 0 =
+//     selected; count 0 = an available-but-unselected option, still listed).
+//     $0-priced selections are kept — a real, deliberate choice (e.g. a
+//     bagel-flavor pick), not absent data.
+//   • orderSubscription (OrderSubscriptionResponseDto): a flat orderAddOns[]
+//     array directly on the item — no grouping, no unselected options to filter.
+//   • orderClassics (OrderClassicResponseDto): a single named classicModifier
+//     {count,name,price} object, not a list at all.
+// Checked in that order; a real order only ever populates one shape (they're
+// mutually exclusive item types), so the first match wins.
 function extractSelectedAddOns(item: Record<string, unknown>): { name: string; price: number; count: number }[] {
   const groups = Array.isArray(item.extraItemsGroups) ? item.extraItemsGroups as Record<string, unknown>[] : []
-  const out: { name: string; price: number; count: number }[] = []
+  const fromGroups: { name: string; price: number; count: number }[] = []
   for (const g of groups) {
     const groupAddOns = Array.isArray(g.addOns) ? g.addOns as Record<string, unknown>[] : []
     for (const a of groupAddOns) {
       const count = n(a.count)
-      if (count > 0) out.push({ name: s(a.name) || 'Add-on', price: n(a.price), count })
+      if (count > 0) fromGroups.push({ name: s(a.name) || 'Add-on', price: n(a.price), count })
     }
   }
-  return out
+  if (fromGroups.length) return fromGroups
+
+  const flatAddOns = Array.isArray(item.orderAddOns) ? item.orderAddOns as Record<string, unknown>[] : []
+  if (flatAddOns.length) {
+    return flatAddOns.map(a => ({ name: s(a.name) || 'Add-on', price: n(a.price), count: n(a.count) || 1 }))
+  }
+
+  const cm = item.classicModifier as Record<string, unknown> | null | undefined
+  if (cm && (s(cm.name) || n(cm.price) > 0)) {
+    return [{ name: s(cm.name) || 'Modifier', price: n(cm.price), count: n(cm.count) || 1 }]
+  }
+  return []
 }
 export interface FmOrderMoney {
   order: Record<string, unknown>
@@ -241,20 +260,35 @@ export function parseFmOrder(details: Record<string, unknown>): FmOrderMoney {
   const taxRate = subtotal > 0 ? taxAndFee / subtotal : 0
 
   // Items live under orderMealPackages (fall back to mealPackages/items), PLUS
-  // orderClassics — a separate, simpler FM catalog (no reference/
-  // extraItemsGroups; just count/name/price) that this parser never read at
-  // all until now. Confirmed real via a live audit of the 69 orders that had a
-  // disco_sale_transactions row with zero disco_order_items: 62 of them had
-  // orderMealPackages genuinely empty (mealPackagesCount: 0) but real,
-  // priced items sitting in orderClassics the whole time — e.g. a $54.45
-  // order with two real platters, previously synced as if it had no items at
-  // all. Concatenated, not either/or: a real order can carry both types.
+  // two more catalogs confirmed by reading FM's actual Java source
+  // (OrderPublicEditResponseDto — the real DTO behind
+  // /public-api/v2/orders/{ref}/details) rather than assumed:
+  //   • orderClassics — a separate, simpler catalog (no reference/
+  //     extraItemsGroups; count/name/price + a single classicModifier instead
+  //     of grouped add-ons). Confirmed real via a live audit of 69 orders with
+  //     a transaction row and zero items: 62 had orderMealPackages genuinely
+  //     empty (mealPackagesCount: 0) but real, priced items sitting in
+  //     orderClassics the whole time — e.g. a $54.45 order with two real
+  //     platters, previously synced as if it had no items at all.
+  //   • orderSubscription — NOT a list; a single object (one line item per
+  //     order: name/price/count/serves + flat orderAddOns[]). Found by reading
+  //     OrderPublicEditResponseDto directly after the orderClassics gap was
+  //     the second time this shape of bug appeared: every one of the 6 orders
+  //     that looked "genuinely itemless" (empty orderMealPackages AND empty
+  //     orderClassics) turned out to be a real subscription order — e.g. a
+  //     "Sunday Supper Club Membership" — with its entire content sitting
+  //     here, unread. There is no fourth catalog on this DTO — confirmed by
+  //     reading the complete class.
+  // Concatenated, not either/or: these are mutually exclusive per real order,
+  // but nothing stops checking all three.
   const rawItems = (Array.isArray(order.orderMealPackages) ? order.orderMealPackages
     : Array.isArray(order.mealPackages) ? order.mealPackages
     : Array.isArray(order.items) ? order.items
     : []) as Record<string, unknown>[]
   const rawClassics = (Array.isArray(order.orderClassics) ? order.orderClassics : []) as Record<string, unknown>[]
-  const items: FmOrderItem[] = [...rawItems, ...rawClassics].map(it => ({
+  const rawSubscription = order.orderSubscription as Record<string, unknown> | null | undefined
+  const subscriptionAsItems = (rawSubscription && (s(rawSubscription.name) || n(rawSubscription.price) > 0)) ? [rawSubscription] : []
+  const items: FmOrderItem[] = [...rawItems, ...rawClassics, ...subscriptionAsItems].map(it => ({
     reference: s(it.reference) || s(it.mealPackageReference) || s((it.mealPackage as Record<string, unknown>)?.reference),
     name: s(it.name) || s((it.mealPackage as Record<string, unknown>)?.name),
     price: n(it.price) || n(it.pricePerUnit) || n((it.mealPackage as Record<string, unknown>)?.price),
