@@ -18,7 +18,17 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const PAGE_SIZE = 200
 
 export type UsernameQuality = 'ok' | 'single-token' | 'empty' | 'email-in-name'
-export interface UsernameSplit { firstName: string | null; lastName: string | null; quality: UsernameQuality }
+export interface UsernameSplit { firstName: string | null; lastName: string | null; quality: UsernameQuality; noAlnumNulled: number }
+
+// Unicode-aware — \p{L}/\p{N} match Cyrillic, Japanese, and accented Latin
+// (all confirmed real in the live data: "Юра Шляпаков", "汐音 黒田",
+// "Jēňňīfēr Āňň") the same as plain ASCII letters, so real international
+// names are never affected. Only genuinely letter-and-digit-free strings —
+// found live: "- -" — are punctuation-only garbage.
+const HAS_ALNUM_RE = /[\p{L}\p{N}]/u
+function hasAlnum(s: string): boolean {
+  return HAS_ALNUM_RE.test(s)
+}
 
 // FM's customer list has no separate firstName/lastName field at all — just a
 // single `username` string (confirmed live: e.g. " Lee Darling", leading
@@ -26,14 +36,24 @@ export interface UsernameSplit { firstName: string | null; lastName: string | nu
 // split: first whitespace-separated token -> first_name, remainder ->
 // last_name. A value containing '@' is never trusted as a name (a handful of
 // real records have an email sitting in this field) — left blank rather than
-// shown as a name.
+// shown as a name. Each resulting component is independently nulled if it has
+// no letters or digits at all (e.g. "-" for a first name next to a real last
+// name is still garbage, even though the other half of the same record isn't).
 export function splitUsername(raw: unknown): UsernameSplit {
   const trimmed = typeof raw === 'string' ? raw.trim() : ''
-  if (!trimmed) return { firstName: null, lastName: null, quality: 'empty' }
-  if (trimmed.includes('@')) return { firstName: null, lastName: null, quality: 'email-in-name' }
+  if (!trimmed) return { firstName: null, lastName: null, quality: 'empty', noAlnumNulled: 0 }
+  if (trimmed.includes('@')) return { firstName: null, lastName: null, quality: 'email-in-name', noAlnumNulled: 0 }
   const parts = trimmed.split(/\s+/)
-  if (parts.length === 1) return { firstName: parts[0], lastName: null, quality: 'single-token' }
-  return { firstName: parts[0], lastName: parts.slice(1).join(' '), quality: 'ok' }
+  let noAlnumNulled = 0
+  const clean = (s: string): string | null => {
+    if (hasAlnum(s)) return s
+    noAlnumNulled++
+    return null
+  }
+  if (parts.length === 1) return { firstName: clean(parts[0]), lastName: null, quality: 'single-token', noAlnumNulled }
+  const firstName = clean(parts[0])
+  const lastName = clean(parts.slice(1).join(' '))
+  return { firstName, lastName, quality: 'ok', noAlnumNulled }
 }
 
 interface FmCustomerRow { username?: unknown; email?: unknown }
@@ -81,6 +101,7 @@ export interface FmCustomerSyncResult {
   mirrorTotal: number
   durationMs: number
   usernameQuality?: Record<UsernameQuality, number>
+  noAlnumNulled?: number
   reason?: string
 }
 
@@ -111,12 +132,14 @@ export async function syncFmCustomers(): Promise<FmCustomerSyncResult> {
   }
 
   const usernameQuality: Record<UsernameQuality, number> = { ok: 0, 'single-token': 0, empty: 0, 'email-in-name': 0 }
+  let noAlnumNulled = 0
   const emails: string[] = []
   const firstNames: (string | null)[] = []
   const lastNames: (string | null)[] = []
   for (const [email, r] of byEmail) {
     const split = splitUsername(r.username)
     usernameQuality[split.quality]++
+    noAlnumNulled += split.noAlnumNulled
     emails.push(email)
     firstNames.push(split.firstName)
     lastNames.push(split.lastName)
@@ -160,6 +183,6 @@ export async function syncFmCustomers(): Promise<FmCustomerSyncResult> {
   const mirrorTotal = mirrorCountRows[0]?.n ?? -1
   const durationMs = Date.now() - startedAt
 
-  console.log(`[fm-customer-sync] fmTotal=${fmTotal} fetched=${rows.length} upserted=${upserted} newlyRemoved=${removedRows.length} mirrorTotal=${mirrorTotal} (${durationMs}ms)`)
-  return { ok: true, fmTotal, fetched: rows.length, upserted, newlyRemoved: removedRows.length, mirrorTotal, durationMs, usernameQuality }
+  console.log(`[fm-customer-sync] fmTotal=${fmTotal} fetched=${rows.length} upserted=${upserted} newlyRemoved=${removedRows.length} mirrorTotal=${mirrorTotal} noAlnumNulled=${noAlnumNulled} (${durationMs}ms)`)
+  return { ok: true, fmTotal, fetched: rows.length, upserted, newlyRemoved: removedRows.length, mirrorTotal, durationMs, usernameQuality, noAlnumNulled }
 }
