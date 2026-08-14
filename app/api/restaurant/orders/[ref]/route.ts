@@ -135,13 +135,27 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     }
   }
 
-  // FM details — only when the order actually needs them: never for
-  // Disco-native orders (FM never had them; calling FM anyway was the actual
-  // policy violation) — yes for FM-backed orders (FM stays live and correct
-  // for those, permanently — restaurants convert to native one at a time,
-  // FM keeps running for everyone else) and as the only source when Neon
-  // doesn't have the order yet at all.
-  const needsFm = !disco || disco.source_of_order !== 'DISCO'
+  // FM details — only when Neon's data is actually incomplete, not just
+  // because the order happens to be FM-sourced. Was gated on
+  // `source_of_order !== 'DISCO'` alone, which called FM live for every one of
+  // ~24,200 FM-sourced orders on every lookup — including the ~23,100 that
+  // already have a complete transaction row AND items in Neon and never
+  // needed it. Confirmed empirically that "a transaction row exists" is NOT
+  // sufficient on its own: 69 real orders have a disco_sale_transactions row
+  // but zero disco_order_items (syncOrderItemsFromDetails bails early on an
+  // empty items array while syncSaleTransactionFromDetails writes
+  // unconditionally — see lib/fm-orders-sync.ts) — so both are checked. Never
+  // for Disco-native orders regardless (FM never had them; calling FM anyway
+  // was the actual policy violation this fixed). Falls back to FM as the only
+  // source when Neon doesn't have the order yet at all.
+  //
+  // NOT verified complete by this check: per-item add-ons. A real order can
+  // legitimately have zero add-ons, so an empty disco_order_item_addons set
+  // can't be distinguished from "add-on sync failed for this item" without
+  // FM's own data — which is exactly what skipping the FM call means not
+  // fetching. This is a pre-existing, latent gap (nothing before this change
+  // detected it either); not made worse here, just not newly closed.
+  const needsFm = !disco || (disco.source_of_order !== 'DISCO' && (!txn || items.length === 0))
   const fmDetails = needsFm ? await loadFmOrderDetails(ref) : null
   const fmOrder = (((fmDetails?.data as Record<string, unknown>)?.order as Record<string, unknown>)
     ?? (fmDetails?.order as Record<string, unknown>)
