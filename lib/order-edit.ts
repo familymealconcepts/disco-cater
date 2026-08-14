@@ -240,12 +240,21 @@ export function parseFmOrder(details: Record<string, unknown>): FmOrderMoney {
   const taxAndFee = total - subtotal - tip - delivery
   const taxRate = subtotal > 0 ? taxAndFee / subtotal : 0
 
-  // Items live under orderMealPackages (fall back to mealPackages/items).
+  // Items live under orderMealPackages (fall back to mealPackages/items), PLUS
+  // orderClassics — a separate, simpler FM catalog (no reference/
+  // extraItemsGroups; just count/name/price) that this parser never read at
+  // all until now. Confirmed real via a live audit of the 69 orders that had a
+  // disco_sale_transactions row with zero disco_order_items: 62 of them had
+  // orderMealPackages genuinely empty (mealPackagesCount: 0) but real,
+  // priced items sitting in orderClassics the whole time — e.g. a $54.45
+  // order with two real platters, previously synced as if it had no items at
+  // all. Concatenated, not either/or: a real order can carry both types.
   const rawItems = (Array.isArray(order.orderMealPackages) ? order.orderMealPackages
     : Array.isArray(order.mealPackages) ? order.mealPackages
     : Array.isArray(order.items) ? order.items
     : []) as Record<string, unknown>[]
-  const items: FmOrderItem[] = rawItems.map(it => ({
+  const rawClassics = (Array.isArray(order.orderClassics) ? order.orderClassics : []) as Record<string, unknown>[]
+  const items: FmOrderItem[] = [...rawItems, ...rawClassics].map(it => ({
     reference: s(it.reference) || s(it.mealPackageReference) || s((it.mealPackage as Record<string, unknown>)?.reference),
     name: s(it.name) || s((it.mealPackage as Record<string, unknown>)?.name),
     price: n(it.price) || n(it.pricePerUnit) || n((it.mealPackage as Record<string, unknown>)?.price),

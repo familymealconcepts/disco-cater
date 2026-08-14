@@ -146,17 +146,38 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
 // Replace disco_order_items + write disco_sale_transactions for an order from a
 // SINGLE loadFmOrderDetails fetch (shared, not fetched twice) — items/add-ons and
 // the financial-breakdown row both come from the same FM response.
-async function syncOrderDetail(orderId: number, fmRef: string): Promise<void> {
+//
+// The transaction row is written ONLY when items were too — was unconditional,
+// which produced 69 real orders with a disco_sale_transactions row and zero
+// disco_order_items (syncOrderItemsFromDetails bails on an empty items array;
+// syncSaleTransactionFromDetails didn't check that at all). Most of those 69
+// turned out to have real items after all — orderClassics, a second FM item
+// catalog parseFmOrder never read (see its own comment) — so this mostly self-
+// corrects now that both catalogs are parsed. For the remainder — confirmed via
+// a live audit to be orders in a terminal state (CANCELED/EXPIRED) where FM's
+// /details response genuinely omits the original cart under any known field —
+// writing neither is the honest choice: the popout's own completeness check
+// (items.length === 0) still falls back to a live FM call for these, same as
+// before this fix existed, rather than recording financial data with no way to
+// show what was actually ordered.
+export async function syncOrderDetail(orderId: number, fmRef: string): Promise<void> {
   const details = await loadFmOrderDetails(fmRef)
   if (!details) return
-  await syncOrderItemsFromDetails(orderId, details)
+  const itemsWritten = await syncOrderItemsFromDetails(orderId, details)
+  if (!itemsWritten) {
+    console.warn(`[fm-orders-sync] order ${orderId} (fm ${fmRef}): FM's response has no items under any known field (meal packages or classics) — skipping the transaction write too, not just items.`)
+    return
+  }
   await syncSaleTransactionFromDetails(orderId, details)
 }
 
-// Replace disco_order_items for an order from FM's per-order details. Best-effort.
-async function syncOrderItemsFromDetails(orderId: number, details: Record<string, unknown>): Promise<void> {
+// Replace disco_order_items for an order from FM's per-order details. Returns
+// whether items now genuinely exist for this order (false when FM's response
+// had none under any known field, or the write itself failed) — syncOrderDetail
+// uses this to decide whether the transaction row should be written at all.
+async function syncOrderItemsFromDetails(orderId: number, details: Record<string, unknown>): Promise<boolean> {
   const items = parseFmOrder(details).items
-  if (!items.length) return
+  if (!items.length) return false
   // Atomic replace: DELETE + all INSERTs in one transaction, so a failed insert
   // can never leave the order with missing items (I4).
   const stmts = [sql`DELETE FROM disco_order_items WHERE order_id = ${orderId}`]
@@ -169,11 +190,18 @@ async function syncOrderItemsFromDetails(orderId: number, details: Record<string
       VALUES (${orderId}, ${it.reference || null}, ${it.name || it.reference || 'Item'}, ${qty}, ${unit}, ${Math.round(unit * qty * 100) / 100}, ${serves})
     `)
   }
-  await sql.transaction(stmts).catch(e => console.error('[fm-orders-sync] items replace failed:', e instanceof Error ? e.message : e))
+  let itemsOk = true
+  await sql.transaction(stmts).catch(e => {
+    console.error('[fm-orders-sync] items replace failed:', e instanceof Error ? e.message : e)
+    itemsOk = false
+  })
+  if (!itemsOk) return false
 
   // Mirror per-item add-ons when FM supplies them (parseFmOrder items carry an
-  // `addOns` array). Best-effort + a no-op when absent. Item ids are re-loaded in
-  // insert order (ORDER BY id) so they line up with the parsed items 1:1.
+  // `addOns` array). Best-effort + a no-op when absent — an add-on failure
+  // doesn't invalidate the items themselves, so this doesn't affect the return
+  // value. Item ids are re-loaded in insert order (ORDER BY id) so they line up
+  // with the parsed items 1:1.
   const anyAddOns = items.some((it) => Array.isArray((it as { addOns?: unknown }).addOns) && ((it as { addOns?: unknown[] }).addOns?.length ?? 0) > 0)
   if (anyAddOns) {
     try {
@@ -191,6 +219,7 @@ async function syncOrderItemsFromDetails(orderId: number, details: Record<string
       await sql.transaction(addStmts)
     } catch (e) { console.error('[fm-orders-sync] add-on mirror failed:', e instanceof Error ? e.message : e) }
   }
+  return true
 }
 
 // Write disco_sale_transactions for an order from FM's per-order details — the
