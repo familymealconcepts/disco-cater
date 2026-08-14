@@ -1,486 +1,521 @@
 # Native Conversion Runbook
 
-How an FM-backed restaurant actually becomes Disco-native, as proven by four real
-conversions: **Francesca Catering – Glen Rock**, **Francesca Catering – Elmwood
-Park**, **Pelican Delicatessen**, and **Briscola Trattoria**. This is a
-description of what happened, sourced from git history and live database
-records — not a design document. Where the evidence contradicts the "this is
-solved" framing, that's called out rather than smoothed over (see the Admin
-Access section — it's the one step that did NOT reliably work for any of these
-four).
+Written for Peter, running conversions directly with Claude Code and DB
+access. No hand-holding, no pre-flight-check accumulation — FM is the source
+of truth for what a restaurant's real settings are, and where something looks
+off after conversion, the fix is manual, after the fact. This doc is the
+procedure, not a design document; every claim in it is checked against real
+records, not against how the code ought to behave.
 
-## 0. The tools involved
+**Conversions are one at a time right now.** Everything below assumes that.
+See "Batch, later" at the end for what changes if that stops being true.
 
-- `checkConversionReadiness(ref)` / `convertToNative(ref)` — `lib/native-conversion.ts`
-- `runPreflightCheck(ref)` — `lib/conversion-preflight.ts` (a second, more granular
-  read-only checker, built after real friction converting Francesca Catering's
-  two locations; catches partial menu imports and duplicate FM records that
-  `checkConversionReadiness` doesn't)
-- `importFmMenuFaithfully(ref)` — `lib/menu-import/fm-faithful-import.ts`
-- `importRestaurantStripeAccount(ref, accountId)` — `lib/native-conversion.ts`
-- `grantLocationAccess(email, ref, grantedBy)` — `lib/disco-restaurant-auth.ts`
+**There is no rollback.** `is_disco_native` is written to `true` in exactly
+two places in the codebase, and neither ever sets it back to `false`. Once a
+restaurant converts, there is no code path to FM-backed again, and re-running
+the menu import doesn't replace a bad import — it duplicates it (`INSERT INTO
+disco_menus` has no conflict handling). If something's wrong post-conversion,
+fix it forward in Neon. Don't convert a restaurant you're not ready to fix
+forward.
 
 ---
 
-## 1. Confirm the FM restaurant reference and status
+## Two tiers, not one
 
-Before anything else: the FM `restaurant_reference` is ACCEPTED, live, and not
-a duplicate record.
+**Tier 1 — every conversion, every time.** Cheap, no order placement, no
+payout reconciliation. The procedure below. Run it in full for every
+restaurant that converts.
 
-- **ACCEPTED**: FM's `tbl_restaurants.status` column. Confirmed `ACCEPTED` for
-  all 6 DeCheco's locations, Glen Rock, and Elmwood Park in the June 17
-  fm_backup snapshot. This is a real, checkable field — verify it before
-  starting.
-- **Not a duplicate**: `runPreflightCheck`'s `duplicateRecords` check compares
-  normalized addresses against every other `disco_restaurant_cache` row.
-  This is a real, live problem — Glen Rock has a decoy
-  *"Francesca Catering - Glen Rock - NEW"* record (not native, not live), and
-  Pelican has two decoy *"Location 2"* / *"Location 3"* records. None of the
-  decoys are the one that actually converted; converting the wrong duplicate
-  is the exact failure mode this check exists for.
-- One caveat found while pulling this evidence: fm_backup is a **point-in-time
-  snapshot (June 17)**, not live. Pelican Delicatessen's native
-  `restaurant_reference` resolves in that snapshot to an FM record labeled
-  "Test Bakery" — almost certainly a pre-rename business name FM itself later
-  updated after the snapshot was taken, not a reference collision. Briscola's
-  reference isn't in the snapshot at all (onboarded to FM after June 17).
-  Treat fm_backup as directional for anything recent; the live FM admin
-  lookup (`GET /api/admin/restaurants/{ref}`, service auth) is authoritative.
+**Tier 2 — a one-time batch-readiness gate, not a recurring step.** The full
+parity checklist: does everything that was in FM still work in Disco Cater,
+to the cent, for real order history? This ran once, on 2026-08-14, covering
+two subjects — a fresh FM test restaurant (conversion mechanics, including
+the two carry-over/gate questions Tier 1 alone can't answer) and Francesca
+Catering – Glen Rock (data parity, using 377 real orders). Its results are
+the **batch-readiness record** at the bottom of this doc. It does not need to
+run again before converting the next single restaurant — only before moving
+from one-at-a-time to batch.
 
 ---
 
-## 2. Stripe: reused, never re-onboarded
+## Tier 1 — the procedure
 
-**The single most misleading part of the tooling.** `checkConversionReadiness`
-reports `stripeMode: "not-linked"` for a restaurant with a perfectly good,
-live, reusable Stripe account. That wording means **"nobody has imported the
-account ID yet,"** not "this restaurant needs to onboard to Stripe." The
-distinction matters because the fix is a single backend call, not a
-merchant-facing KYC flow.
+### 1. Confirm the FM restaurant reference
 
-How it actually works, per the code (`lib/stripe-connect.ts`,
-`lib/native-conversion.ts`, commit `2b661fe`):
+Look it up directly (`GET /api/admin/restaurants/{ref}`, service auth, or
+`tbl_restaurants` in fm_backup for a quick offline check) and confirm:
+- `status` is `ACCEPTED`.
+- It's not a duplicate. Real, live problem, not hypothetical — Glen Rock has
+  a decoy *"Francesca Catering - Glen Rock - NEW"* row (not native, not
+  live), Pelican has two decoy *"Location 2"/"Location 3"* rows. None of the
+  decoys are the one that converted. Converting the wrong duplicate is the
+  actual failure mode this step exists to catch. `runPreflightCheck`
+  (`lib/conversion-preflight.ts`) does this comparison for you.
 
-1. **Peter supplies the `acct_...` id**, read directly from the Stripe
-   Dashboard → Connected accounts (or, if FM's own `tbl_stripe_connected_accounts`
-   table has it recorded against the restaurant's exact reference, that's an
-   acceptable source too — that's how Glen Rock's `acct_1LT2GVAiQrFq77Fo`,
-   Elmwood Park's `acct_1LYZBtLPlGXXB6ha`, Briscola's `acct_1TqkQoBdEVwh2uSq`,
-   and Pelican's `acct_1TvGqL34v0I6NXRL` all got imported). **Never fuzzy-match
-   an account by restaurant name** — always resolve by the restaurant's own
-   reference or ask for the id directly. Business names collide across
-   locations and franchises in a way account ids don't.
-2. `verifyAccountReusable(accountId)` does a **live** Stripe API call and
-   checks `charges_enabled === true && capabilities.transfers === 'active'`.
-   `2b661fe`'s own commit note is explicit that this per-account live check is
-   load-bearing: a live audit found only 635 connected accounts total, 576 of
-   them reuse-eligible — nowhere near the ~4,000 `money_flow=DIRECT` restaurants
-   the money-flow field alone would suggest. DIRECT does not imply reusable;
-   each account has to be checked.
-3. **Standing rule: ignore "future requirements due."** `requirementsDue` on
-   the reusability check can be non-zero (Stripe asking for something like an
-   updated business representative by a future date) without blocking
-   reuse — `reusable` only cares about `charges_enabled` and `transfers`
-   being active right now.
-4. `importRestaurantStripeAccount(ref, accountId)` then writes
+fm_backup is a stale point-in-time snapshot (June 17), not live — use it to
+look something up quickly, but the live FM admin lookup is authoritative if
+they disagree.
+
+### 2. Stripe — reuse, never re-onboard
+
+`checkConversionReadiness` reporting `stripeMode: "not-linked"` means **the
+account id hasn't been imported yet** — it does not mean the restaurant needs
+to onboard to Stripe. That wording cost real time on DeCheco's; read it
+correctly.
+
+1. Get the real `acct_...` id. Either from FM's own
+   `tbl_stripe_connected_accounts` (matched by the restaurant's exact
+   reference — not by business name; names collide across locations and
+   franchises in a way account ids don't), or ask Peter directly if that
+   table doesn't have it.
+2. `verifyAccountReusable(accountId)` — a live Stripe check:
+   `charges_enabled && capabilities.transfers === 'active'`. Ignore
+   `requirementsDue` (Stripe asking for something by a future date) — it
+   doesn't block reuse.
+3. `importRestaurantStripeAccount(ref, accountId)` — writes
    `disco_restaurant_accounts.stripe_account_id` +
-   `stripe_onboarding_complete = true`, and sets
-   `disco_restaurant_overrides.stripe_connected = true`. Bulk entry point:
-   `POST /api/admin/stripe-accounts/import`.
+   `stripe_onboarding_complete = true`, and
+   `disco_restaurant_overrides.stripe_connected = true`. One call, no
+   restaurant action, no onboarding flow.
 
-**A second, separate `stripe_connected` writer that will mislead you if you
-don't know about it:** `app/api/admin/sync-stripe-status/route.ts` runs
-regularly and sets the same `disco_restaurant_overrides.stripe_connected`
-column, but it's checking something different — whether FM's *own*
-Stripe-Connect status is live (`HEAD /api/stripe/{ref}` → 204). It has nothing
-to do with native reuse-eligibility. This is why DeCheco's 6 locations all
-show `stripe_connected: true` (checked as recently as `2026-08-10` for
-Firestone Park) with **zero rows in `disco_restaurant_accounts`** — that flag
-is FM's payment-processing status, not evidence that anyone has imported a
-Stripe account for native use. Don't read it as readiness.
+**Don't confuse this with `app/api/admin/sync-stripe-status/route.ts`**, a
+separate, unrelated writer of the same `stripe_connected` column — it checks
+FM's *own* Stripe-Connect status (`HEAD /api/stripe/{ref}`), not native
+reuse-eligibility. A restaurant can show `stripe_connected: true` from that
+job with zero rows in `disco_restaurant_accounts` — that's FM's payment
+status, not native readiness. Confirmed this is exactly what DeCheco's showed
+before its Stripe accounts were imported.
 
----
+Proven on all 6 known accounts checked live for DeCheco's (all
+`charges_enabled` + `transfers: active`) plus Glen Rock, Elmwood Park,
+Briscola, and Pelican's already-imported accounts — reuse, not onboarding,
+every time so far.
 
-## 3. Tax rate
+### 3. Tax rate
 
-If `disco_restaurant_overrides.tax_rates.stateSalesTax.percent` is null,
-native checkout charges **$0 tax** on every order. Set it before conversion.
+`disco_restaurant_overrides.tax_rates.stateSalesTax.percent` — if it's null,
+native checkout charges **$0 tax** on every order. `checkConversionReadiness`
+blocks on this (checks the real percent, not just whether a `tax_rates` blob
+exists — `0` passes, `null` fails). **Verified directly against unmodified
+production code** during the Tier 2 gate (2026-08-14): a restaurant with no
+`tax_rates` row at all fails the `settings` step with "No real state tax
+percent set"; setting an explicit `stateSalesTax.percent: 0` flips it to
+pass. `0` is a real, valid rate — only null/missing blocks.
 
-- FM often has no tax field to mirror at all — this isn't always a Disco gap.
-  Direct query of FM's own `tbl_restaurants.tax_rates` (fm_backup) for
-  DeCheco's 6 locations shows `stateSalesTax.percent: null` **in FM's own
-  data**, not just inaccessible to us. There is nothing to import for these
-  six; a real percentage has to be entered.
-- **0% can be legitimate.** Pelican Delicatessen has
-  `stateSalesTax.percent: 0` (and `localSalesTax`/`otherSalesTax` also
-  explicitly `0`, not null) — a real, deliberate rate. This is why the
-  readiness check has to distinguish "0" (passes) from "null" (fails) rather
-  than treating any falsy value as missing. (This distinction was a real bug
-  in `checkConversionReadiness` — see the code-history note at the bottom.)
-- Glen Rock (NJ, 6.625%) and Elmwood Park (NJ, 6.625%) both carry real state
-  rates. Briscola (NY/NYC, 8.875% state, null local) is the same shape —
-  state set, local not populated, and that's fine because the check only
-  gates on `stateSalesTax.percent`.
-- For a Disco-native restaurant, `GET/PUT /api/restaurant/tax-rate` never
-  calls FM at all — it reads/writes `disco_restaurant_overrides.tax_rates`
-  in Neon directly. There is no FM mirror-on-save path for tax the way there
-  is for notifications; it has to be entered once, directly, in the native
-  portal or by an admin action.
+**FM often genuinely has nothing to mirror.** Checked FM's own data directly
+for DeCheco's 6 locations — `stateSalesTax.percent: null` in FM's own
+records, not just inaccessible to us. Nothing to import; it's a real
+conversation with the restaurant, not a data-recovery task. Pelican
+Delicatessen is the counter-example worth knowing: `0%` there is a real,
+deliberate rate (state/local/other all explicitly `0`).
 
----
+`GET/PUT /api/restaurant/tax-rate` never calls FM for a native restaurant —
+reads/writes `disco_restaurant_overrides.tax_rates` in Neon directly. Enter
+it once, there's no ongoing mirror to rely on.
 
-## 4. Menu: faithful FM import
+### 4. Menu — faithful FM import
 
-`importFmMenuFaithfully(fmRef, {targetRef?})` (`lib/menu-import/fm-faithful-import.ts`),
-triggered via `POST /api/admin/restaurants/{ref}/import-fm-menu` — one call
-per restaurant. This is **not** the AI-PDF menu importer (`writeDiscoNativeMenu`);
-that one drops modifier prices and settings. This one pulls FM's real menu
-structure, modifier prices/rules, service charge, tips, delivery config, order
-minimums, and lead time, and writes it faithfully into `disco_menus` /
-`disco_menu_items` / `disco_modifier_groups`.
+`importFmMenuFaithfully(fmRef, {targetRef?})`
+(`lib/menu-import/fm-faithful-import.ts`), via
+`POST /api/admin/restaurants/{ref}/import-fm-menu` — one call per restaurant.
+Not the AI-PDF importer (`writeDiscoNativeMenu`, which drops modifier prices
+and settings) — this one pulls FM's real menu structure, modifier
+prices/rules, service charge, tips, delivery config, order minimums, and lead
+time.
 
-**Correction to "zero heuristic filtering":** the *primary* placement pass is
-exact and heuristic-free — it walks FM's public per-menu endpoint
-(`GET /public-api/restaurants/{ref}/mealPackages?menuReference={menu}`), which
-returns each menu's real categories and items directly, no guessing. But FM
-has no usable item→menu link in its flat catalog for items belonging to an
-**Inactive/hidden** menu (the public endpoint never surfaces those), so a
-*supplementary* pass exists for exactly that case, using — in order — an exact
-schedule-window match, a category name learned from window-matched siblings,
-normalized name overlap, and a narrow party-size-tier regex, with "first
-visible menu" as the last resort so nothing is silently dropped
-(`unplacedFallbackCount` tracks how often that happens).
+The **primary** placement pass is exact, no heuristics — it walks FM's public
+per-menu endpoint, which returns each menu's real categories/items directly,
+but only for items on a menu FM currently marks visible/active. A
+**supplementary** pass exists for anything that misses primary placement —
+most commonly items on an Inactive/hidden menu, but confirmed this run
+(2026-08-14) to also correctly catch a single **hidden item on an otherwise-
+visible menu** (`visible: false` on the meal package itself): the public
+endpoint omits it from its response even though the menu is active, so it
+never gets a `placedRefs` hit and falls to the supplementary pass. That pass
+placed it via priority order (exact schedule-window match → learned category
+placement → name overlap → a party-size regex → first-visible-menu as a last
+resort) — in the test case, via **learned category placement** (the item
+shared a category with an already-placed visible sibling), not the blind
+fallback. `duplicatedAcrossMenus: 0`, `unplacedFallbackCount: 0` — a clean,
+non-fallback placement, and the item imported with `visible: false` preserved
+in Neon.
 
-What *is* true without qualification, and matches your framing exactly: **a
-genuinely shared item is duplicated into every menu it belongs to, never
-arbitrarily assigned to one.** This is deliberate (`duplicatedAcrossMenus` in
-the summary) — confirmed real, not hypothetical, via twin party-size tiers
-sharing an identical season window in production FM data. The importer
-never picks a winner between two menus that legitimately share an item.
+Also imported, fill-blank-only (never overwrites an existing value):
+`announcement`, `delivery_order_time_windows`, `icon_url`/`image_url`.
+`maxOrder` is deliberately left null — FM's cap is per-15-minute-window,
+Disco's is per-day, not convertible; a manual decision if the restaurant
+wants a cap.
 
-Also faithfully imported in the same pass, fill-blank-only (never overwrites
-an existing value): `announcement` and `delivery_order_time_windows` (via the
-public `feesAndTips` endpoint — deliberately not the session-scoped one, which
-has no by-reference variant a service account could use), and `icon_url` /
-`image_url` (via `GET /api/admin/restaurants/{ref}`, only written when
-currently null).
+Proven clean on all 6 DeCheco's locations (29 items, 5 categories, 9 modifier
+groups, 87 modifiers each, zero fallback placements) and again on the
+2026-08-14 test restaurant (1 menu, 1 category, 2 items including one hidden,
+1 modifier group, 2 modifiers — one of them a genuine **$0.00 modifier**,
+confirmed imported at the correct price, not dropped or defaulted).
 
-**Not imported, by design, no available endpoint:** notification recipients
-(FM's `/api/notifications` is session-scoped with no admin/by-ref mirror — see
-§7). `maxOrder` is deliberately left null — FM's cap is per-15-minute-window,
-Disco's is per-day, and the two aren't convertible; it's a manual decision.
+### 5. Marketplace visibility — a real prerequisite, separate from Stripe
 
----
+`disco_restaurant_overrides.visible` has to be explicitly `true` before
+`checkConversionReadiness`'s `marketplace-ready` step can pass — this is the
+"Disco Cater Marketplace" toggle a restaurant gets during normal onboarding,
+and a brand-new restaurant that's never been touched in the admin panel won't
+have it set. Confirmed this run: on the freshly created test restaurant, the
+gate reported **two** failing blocking steps until this was set — `stripe-
+ready` (expected) and `marketplace-ready`, citing *"Marketplace visibility is
+off"* as an independent reason alongside the Stripe one. Once `visible` was
+set `true` (same effect as the admin-panel toggle), `marketplace-ready`'s
+only remaining failure reason collapsed to the Stripe one — confirming it's
+normally a real, separate, one-time setup step, not something Stripe import
+implicitly covers. Any restaurant that's been through normal onboarding
+already has this set; only relevant if you're converting something unusual
+enough to have skipped it.
 
-## 5. `convertToNative` — never `goLiveNativeRestaurant`
+### 6. Confirm readiness, then convert
 
-The actual flip. `convertToNative(ref)`:
+Run `checkConversionReadiness(ref)`. All five blocking steps
+(`not-already-native`, `native-menu`, `stripe-ready`, `settings`,
+`marketplace-ready`) should read `done: true` before you flip anything. Then
+`convertToNative(ref)` — **never `goLiveNativeRestaurant`**, which is a
+different function for restaurants starting native from zero (it gates on a
+real $1 charge and a real signed Expedite dispatch, neither relevant here).
 
-- Refuses if `checkConversionReadiness` isn't fully green.
-- Runs a gated, one-time FM order-history backfill first (aborts the whole
-  conversion if FM is unreachable — this preserves lead-gen fee-tier history,
-  since a restaurant's fee tier depends on prior paid-order count).
-- Sets `disco_restaurant_cache.is_disco_native = true` **and**
-  `is_live = true` in the same call (as of commit `50cd61c`, 2026-07-29 — no
-  separate go-live step is needed for this path). `goLiveNativeRestaurant` is
-  a different function with different gates (a real live-mode $1 charge, a
-  real signed Expedite dispatch test) — it's for restaurants that started
-  native from zero, not for a conversion. Using it here would be redundant at
-  best and gate on things a conversion doesn't need.
-- It's a **one-way flag flip on our side**, and FM is untouched by it. FM
-  keeps serving the restaurant exactly as before — same admin login, same
-  order flow, same everything — until whoever manages DNS/routing/marketing
-  stops sending customers to the FM URL. Nothing about this call locks FM
-  out or breaks it. Cooperation, not lockout.
+`convertToNative`:
+- Runs a gated FM order-history backfill first; aborts (doesn't convert) if
+  FM is unreachable, so lead-gen fee-tier history is never silently lost.
+- Sets `is_disco_native = true` **and** `is_live = true` in the same call —
+  no separate go-live step.
+- Fires the invite step (§7) and the notification/closed-days/promo-code
+  carry-over attempts (§8) automatically, best-effort — none of them can
+  fail the conversion itself.
+- Is a **one-way flag flip on our side only**. FM is untouched — same admin
+  login, same order flow — until DNS/routing/marketing stops sending
+  customers to the FM URL. Cooperation, not lockout.
 
----
+### 7. Confirm the invite actually landed — required, not optional
 
-## 6. `ensureRestaurantLoginInvited` fires automatically — but check it actually landed
+This is the step that has failed on every real conversion so far. Don't skip
+it, and don't consider a conversion done until it passes.
 
-On conversion, this reads FM's real admin email off `admin.email` (never the
-Stripe-import sentinel), creates a `disco_restaurant_accounts` row with
-`role: 'ADMIN'`, and sends a password-set invite. It was added in commit
-`3bc6507` (2026-08-06) — **restaurants converted before that commit (Pelican,
-Glen Rock, Elmwood Park) never got one automatically** and needed it run
-retroactively.
+**What fires automatically.** Two things, both inside `convertToNative`:
+- `ensureRestaurantLoginInvited` — reads FM's single per-restaurant
+  `admin.email` field, creates a `disco_restaurant_accounts` row
+  (`role: 'ADMIN'`), sends a password-set invite.
+- `inviteFmSystemAdminsFor(ref, restaurantName)` — reads FM's **full**
+  system-admin list (`GET /api/admin/users/system-admin`) and invites every
+  SYSTEM_ADMIN whose `managedRestaurants` includes this restaurant, skipping
+  anyone who already has an account (most will, from the step above or a
+  sibling location). This exists because the single `admin` field and FM's
+  system-admin list are genuinely separate data — confirmed real on
+  DeCheco's: Tyron User was SYSTEM_ADMIN across all 6 locations but was never
+  any single location's `admin.email`, so nothing invited him until this
+  function was added.
 
-**This is the one step in the whole proven flow that did not actually work for
-any of the four reference restaurants, and it's still broken right now for
-three of them.** Live query of `disco_restaurant_accounts` today:
+**ADMIN vs SYSTEM_ADMIN is FM's call, not ours.** Whatever role FM's own
+system-admin list reports is what gets mirrored. There's no Disco-side
+decision to make here, and no reason to hand-grant `grantLocationAccess` for
+anyone — `grantLocationAccess` does no FM cross-check at all, so a manual
+grant can silently disagree with FM's real structure (this happened: Nathan
+and Cory were manually granted all 6 DeCheco's locations on the belief they
+were single-location admins, when FM already had all four — Dominic, Nathan,
+Cory, Tyron — covering all 6). If a location's access ever looks wrong after
+the fact, re-sync from FM's system-admin list; don't hand-edit
+`disco_restaurant_location_access`.
 
-| Restaurant | Account created | Invite pending? | Invite expired? |
-|---|---|---|---|
-| Glen Rock | 2026-08-06 (retroactive) | yes, still unconsumed | **yes** — expired 2026-08-11 16:57 UTC |
-| Briscola | 2026-08-07 (retroactive) | yes, still unconsumed | **yes** — expired 2026-08-10 16:33 UTC |
-| Elmwood Park | 2026-08-06 (retroactive) | yes, still unconsumed | **yes** — expired 2026-08-13 19:57 UTC (~1hr before this was checked) |
-| Pelican | 2026-07-23 (original, pre-`3bc6507`) | no invite ever generated | n/a — account exists only via the Stripe-import sentinel path, email is `chef@familymeal.com`, not a real recipient |
+**Verify the token, don't assume the email worked.** Query
+`disco_restaurant_accounts` for the new row(s): `invite_token IS NOT NULL`
+and `invite_token_expires_at` in the future. Then prove the link itself
+works, with no session:
 
-None of the three retroactive invites were ever accepted
-(`acceptInvite()` nulls `invite_token` on success — all three still have a
-live, non-null token, just an expired one). The reason: their invites were
-generated in the exact window `middleware.ts` was redirecting
-`/restaurant/accept-invite` straight to `/restaurant/login` before the token
-could ever be validated (see §8, commit `42e78e5`). That bug was fixed
-2026-08-11 ~16:04 UTC. Glen Rock's token expired ~53 minutes *after* the fix
-shipped, so it's not certain it was ever actually usable in practice (deploy
-propagation, etc.); Briscola's expired entirely *before* the fix; Elmwood
-Park's window mostly postdates the fix but has also now lapsed. **Practically:
-treat all three as not logged in yet.** Fresh invites need to be re-sent for
-Glen Rock, Briscola, and Elmwood Park, and Pelican needs a real invite
-generated for the first time (its current sentinel account isn't usable by
-anyone real).
+```
+curl -sIL "https://www.discocater.com/restaurant/accept-invite?token=<token>"
+   # expect: 200, no redirect to /restaurant/login
+curl -s "https://www.discocater.com/api/restaurant/accept-invite?token=<token>"
+   # expect: {"valid":true,"email":"...","restaurantName":"..."} matching the real person/restaurant
+```
 
----
+Confirmed again this run against the 2026-08-14 test restaurant, cold (no
+cookies, no session): `GET /api/restaurant/accept-invite?token=...` returned
+`200 {"valid":true,"email":"peter+paritytest@discocater.com","firstName":
+"Disco","restaurantName":"Disco Parity Test 2026-08-14"}` — right email,
+right restaurant name, from a brand-new token minted seconds earlier by
+`ensureRestaurantLoginInvited` inside the conversion itself.
 
-## 7. Notification settings
+Tokens are **14 days** (`setInviteToken`, extended from an original 72 hours
+— the 72-hour window is exactly how Glen Rock, Briscola, and Elmwood Park's
+first retroactive invites all died unused before anyone clicked them). If a
+token's dead or was never sent, there's a **resend-invite button** in the
+super admin's `manage-restaurants/ordering` table (⋯ menu, "Resend invite")
+next to an **expired-invite badge** that flags it automatically
+(`invite_token IS NOT NULL AND invite_token_expires_at < NOW()`, only when
+`is_disco_native`) — no script required to check it; a token 14 days from
+expiry reads clean by construction.
 
-Carry-over is attempted (`carryOverNotificationSettings`) against FM's
-`GET /api/notifications`, but that endpoint is **session-scoped** — a service
-account gets HTTP 500 "Access is denied" regardless of the `restaurantReference`
-param, and there's no admin/by-ref equivalent anywhere in FM
-(`/api/admin/notifications` and `/api/admin/restaurants/{ref}/notifications`
-both 404). Every attempted carry-over fails and sets
-`notification_settings_flagged_at`, for manual entry.
+**Current real state**, so you don't re-investigate something already
+resolved: Briscola's admin (`briscolabrooklyn@gmail.com`) accepted their
+invite and logged in on 2026-08-13 — working. Glen Rock and Elmwood Park both
+have valid, unexpired 14-day tokens sitting unsent — ready, just need the
+email (§9) sent. DeCheco's four real admins (Dominic, Nathan, Cory, Tyron)
+were emailed and are pending, not yet accepted. Pelican's only account is
+FM's own fake sentinel (`chef@familymeal.com`, fabricated name, placeholder
+phone) — there's no real contact to invite until the actual owner's details
+come from the restaurant directly; don't invent one.
 
-**Check Neon before assuming a restaurant's notification recipients are
-missing.** A direct query today shows 778 of 4,432 `disco_restaurant_overrides`
-rows already have `notification_emails` populated, with 755 of those
-written in a single batch on 2026-08-06 — consistent with a bulk backfill
-pulled from the June 17 fm_backup snapshot (the same snapshot the
-`migrate-fm-to-neon.ts` Stripe-status migration used, commit `4323945`), not
-from the per-restaurant carry-over path. Glen Rock and Elmwood Park's real
-recipient emails (`sreina5@yahoo.com,Jeff@franpizzanj.com` /
-`sreina5@yahoo.com,info@elmwoodparkpizza.com`) are already in this
-population — don't re-flag or re-request these from the restaurant.
+### 8. What doesn't carry over — expected, not a blocker
 
-Separately, `app/api/restaurant/notifications/route.ts` mirrors on every
-*save* the restaurant makes through their own FM-token session (not a service
-account) — that's how a restaurant actively using the portal keeps this
-current going forward, once they have a working login (see §6).
+Notification recipients, closed days, and promo codes all fail to carry over
+automatically, for **two distinct reasons**, both confirmed directly against
+FM's own source this run (not inferred from behavior alone):
 
-Pelican's `notification_emails` is `chef@familymeal.com` — a generic FM
-placeholder, not flagged (`notification_settings_flagged_at: null`) because
-Pelican converted before the flagging column existed. Commit `1e0b29f` added
-a second, independently-derived admin warning ("native + no
-non-@familymeal.com recipient") specifically so cases like this don't hide
-behind a clean-looking null flag.
+- **Notifications and promo codes are a hard role exclusion, not just
+  "session-scoped."** `NotificationSettingController` and `CouponController`
+  are both annotated `@PreAuthorize("hasAnyAuthority('ADMIN', 'SYSTEM_ADMIN')")`
+  — **SUPER_ADMIN is not in that list.** No service-account credential, no
+  matter how privileged, can ever call these two endpoints; this isn't a bug
+  FM could accidentally fix, it's a deliberate role boundary. Confirmed live
+  against a restaurant with real, known data behind it (not an empty test):
+  the service account gets `HTTP 500 "Access is denied"` from both, every
+  time.
+- **Closed days is a genuine empty-response wall**, not a role exclusion —
+  `RestaurantClosedDayController` *does* allow SUPER_ADMIN. But the service
+  account's `GET /api/closedDays` still returns `200 []` for a restaurant
+  independently confirmed (this run) to have 13 real rows (12 default
+  holidays + 1 custom range) behind that same login. The wall is real; its
+  mechanism is just different from the other two.
 
----
+`convertToNative` attempts all three anyway (best-effort), and on failure
+sets an audit column (`notification_settings_flagged_at` /
+`closed_days_flagged_at` / `promo_codes_flagged_at`) — confirmed this run
+that all three set correctly and immediately on a real conversion, not just
+in isolated unit testing.
 
-## 8. Closed days / holidays
+**Two additional, previously-unknown gaps found this run, worth knowing if
+this code is ever revisited (not yet fixed — flagging, since they'd bite even
+if the access wall above were ever lifted):**
+- `carryOverClosedDays`'s field-name guesses (`holiday`/`name`/`fromDate`/
+  `toDate`) don't match FM's real shape at all. The real
+  `RestaurantClosedDaysRequestDto`/response is `{ eventName, available,
+  eventDates: [dates...] }` — a flat list of discrete dates, not a from/to
+  range, and no field named `holiday`. Even with API access, this parser
+  would silently produce zero usable rows against real FM data.
+- `carryOverPromoCodes`'s field-name guesses are actually **right**
+  (`code`, `discountPercentage`, `maxAvailable`, `maxPerDiner`, `startDate`,
+  `endDate` all match FM's real `CouponResponseDto` exactly) — but the
+  **shape** assumption is wrong: the code expects an array (`Array.isArray`
+  check) and treats anything else as a parse failure, while FM's real
+  `GET /api/coupon` returns a **single object** (one coupon per restaurant,
+  by design — `CouponController` has no list endpoint). Confirmed via
+  `POST /api/coupon` + `GET /api/coupon` as a real restaurant admin, no
+  service-account access needed.
 
-Two completely different mechanisms exist; only one of them is proven to
-work.
+**This is expected to fail every time. It's not a bug to chase, and it's not
+a reason to hold up the conversion.** Enter the real values manually
+afterward:
+- Notifications: check `disco_restaurant_overrides.notification_emails`
+  first — 778 of 4,432 restaurants already have this populated from an
+  earlier bulk mirror, so it may already be correct. If it's a
+  `@familymeal.com` placeholder or empty, get the real recipient list from
+  the restaurant and enter it (or have them save it once through their own
+  portal session, which mirrors correctly going forward).
+- Closed days: the native "Closed Days" settings page
+  (`POST /api/restaurant/disco-closed-days`) writes straight to Neon,
+  self-service, a few seconds per holiday. This is how Glen Rock's real
+  holidays exist today — entered directly, not carried over.
+- Promo codes: get the restaurant's active codes and re-enter them through
+  the native promo-code UI.
 
-- **Automated carry-over at conversion** (`carryOverClosedDays`) hits the same
-  session-scoped wall: FM's `GET /api/closedDays` returns HTTP 200 with an
-  **empty array** for a service account — confirmed against Glen Rock
-  specifically, independently known (via screenshots) to have 5 real holidays
-  plus a custom vacation range. The empty array is the wall, not "this
-  restaurant has none." Every attempted carry-over (Briscola, Elmwood Park +
-  3 others) failed and set `closed_days_flagged_at`. It never destructively
-  deletes existing rows on failure — the delete-then-reinsert only runs after
-  a confirmed non-empty fetch.
-- **The self-service native "Closed Days" page** (`POST /api/restaurant/disco-closed-days`)
-  writes straight to `disco_restaurant_closed_days` in Neon, with no FM call
-  at all. Toggling one holiday pre-computes that date for the next 50 years in
-  one insert. **This is how Glen Rock actually has 251 real rows today** — 5
-  holidays × 50 years = 250, plus 1 custom range = 251, entered directly
-  through this page (Glen Rock converted before the automated carry-over
-  existed, so nothing was ever attempted or flagged for it — the rows are
-  self-service, not carried over).
+If notifications are wrong, the restaurant never learns an order arrived —
+this is worth actually doing before calling a restaurant live, just not worth
+blocking the flag flip over.
 
-Practical read: closed days aren't reliably carried over from FM by any
-automated path today, but re-entering them post-conversion is a few seconds
-per holiday through a page that already exists, not a data-recovery problem.
+### 9. Send the invite email — the only restaurant communication
 
-Promo codes follow the identical wall (`GET /api/coupon` → HTTP 500 "Access
-is denied" for a service account, confirmed for Glen Rock — which
-independently has a real code, FRAN10) — `carryOverPromoCodes` flags via
-`promo_codes_flagged_at` on failure. One open discrepancy found while pulling
-this evidence and not explained: commit `d8ad889` lists Briscola among the 5
-restaurants retroactively flagged for promo codes, but Briscola's
-`promo_codes_flagged_at` is currently null, and so is Elmwood Park's (which
-wasn't in that commit's list at all). Not resolved here — noting it rather
-than guessing.
+No advance notice, no feature pitch, no fee discussion. One email, to the
+system admins and restaurant admin(s) confirmed working in step 7, after
+their accept-invite links are verified — not before.
 
----
+```
+From:     Disco Cater Concierge <concierge@discocater.com>
+Reply-To: concierge@discocater.com
+Subject:  {Restaurant Name} is live on Disco Cater
 
-## 9. Post-conversion verification
+Hi {First Name},
 
-Before telling a restaurant it's live, confirm:
+{Restaurant Name} is now live on Disco Cater.
 
-- Live and visible on the marketplace (`evaluateMarketplaceReadiness` /
-  `disco_restaurant_cache.is_live` + `.visible` = true, and the native 3-part
-  rule — visible AND online-ordering-on AND a real Stripe signal — actually
-  passes; see the marketplace-visibility caveat below).
-- The menu renders on the customer-facing page, including modifier prices.
-- The **max order/inventory field** shows up in the native menu manager for
-  the imported menu (it will be blank/null post-import by design — §4 — but
-  the field itself should be present and settable, not missing).
-- FM is untouched: the restaurant's FM admin login and FM-side order flow
-  still work exactly as before (§5 — this should never need active
-  verification-as-a-fix, only a sanity check that nothing broke).
+To get in, set a new password. Your login email stays the same.
 
-One caveat worth carrying into this check: `disco_restaurant_overrides.stripe_connected`
-is not a valid post-conversion payout signal on its own (§2) — every
-converted restaurant inherits `stripe_connected = true` from the historical
-2026-06-17 migration regardless of whether a native account has actually been
-imported. The marketplace rule ORs it with `hasCompletedNativeStripeAccount`,
-so today it happens to not misfire for any real, visible restaurant — but it
-will as more restaurants convert with a stale inherited `true` and no
-imported account yet. Flagged in code (`lib/marketplace-visibility.ts`), not
-fixed — that's a separate decision.
+[Set your password]  -> https://www.discocater.com/restaurant/accept-invite?token={token}
 
----
+The link is good for 14 days — reply if you need a new one.
 
-## Admin access for multi-location brands
+Disco Cater Concierge
+concierge@discocater.com
+```
 
-**FM's own SYSTEM_ADMIN structure is authoritative — mirror it, don't invent a
-Disco-side grant plan.** `GET /api/admin/users/system-admin` (paged, no working
-server-side filter — see the search-bug note below) returns every FM system
-admin with a `role` (`SYSTEM_ADMIN` or `ADMIN`) and a `managedRestaurants[]`
-list of every location they cover. This is the real, complete structure —
-checked, not assumed, after an earlier turn in this thread wrongly concluded
-DeCheco's only had two single-location admins (Nathan, Cory) based on a search
-box that was silently filtering the wrong thing (see below). Live data showed
-**four** FM SYSTEM_ADMINs — Dominic LaGuardia, Nathan DeCheco, Cory O'Connor,
-and Tyron User — each already covering all 6 DeCheco's locations in FM.
+One email per person, one token per person, never reused across recipients.
+Confirm delivery via Mailgun's Events API (`accepted` and `delivered`, not
+just that the send call returned success) — this has caught real send
+failures before. (In a local/dev environment without Mailgun configured, the
+invite step logs "Mailgun not configured — skipping email" but still creates
+the real `disco_restaurant_accounts` row and token — the accept-invite link
+itself is fully testable without a working local Mailgun key; only actual
+delivery isn't.)
 
-Two gaps this exposed, both now fixed:
+### 10. Post-conversion verification
 
-1. **`ensureRestaurantLoginInvited` only ever reads the single per-restaurant
-   `admin` field**, never FM's separate system-admin list. A brand can have
-   system admins covering a restaurant that never appears in that one field at
-   all — confirmed real: Tyron covered all 6 DeCheco's locations in FM but was
-   never invited by anything, because he was never any single location's
-   `admin.email`. Fixed by `inviteFmSystemAdminsFor(ref, restaurantName)`
-   (`lib/native-conversion.ts`), called from `convertToNative` alongside (not
-   instead of) the existing per-restaurant invite — same best-effort,
-   never-blocks-the-conversion contract as every other carry-over step. For
-   each FM SYSTEM_ADMIN whose `managedRestaurants` includes the converting
-   restaurant: invite them if they have no Disco account yet (skip silently if
-   they already do — most will, from a sibling location's conversion or the
-   per-restaurant admin invite), and mirror FM's **full** `managedRestaurants`
-   set into `disco_restaurant_location_access` for them — not just the one
-   restaurant currently converting, so a multi-location brand's grants match
-   FM immediately rather than trickling in location-by-location as each one
-   happens to convert.
-2. **Grants should mirror FM, never be assigned by hand.** A super admin
-   manually granting `grantLocationAccess` — even with good intentions — can
-   silently disagree with FM the moment FM's own structure differs from what's
-   assumed (exactly what happened here: Nathan and Cory were manually granted
-   all 6 on the belief they were single-location, when FM already had them at
-   all 6). `grantLocationAccess` itself does no FM cross-check — it's a plain
-   `INSERT INTO disco_restaurant_location_access (account_email,
-   restaurant_reference, granted_by) ... ON CONFLICT (account_email,
-   restaurant_reference) DO NOTHING` with no validation against anything. The
-   fix is procedural, not code: **don't hand-grant locations — verify FM's
-   mirrored system-admin scope came through** (via
-   `inviteFmSystemAdminsFor`/conversion, or `POST /api/admin/system-admins/
-   {email}/locations` if a location needs syncing after the fact), and if FM
-   disagrees with an assumption, FM wins.
+- **Login works** — this is new, and it's here because it's the step that's
+  silently failed 4 times in a row. Don't consider a conversion done without
+  this: the accept-invite check in step 7, and (once someone's actually
+  logged in) a real session row in `disco_restaurant_sessions`.
+- Live and visible on the marketplace (`disco_restaurant_cache.is_live` +
+  `.visible`, and the native 3-part rule passes — visible AND online-ordering
+  on AND a real Stripe signal). Note:
+  `disco_restaurant_overrides.stripe_connected` alone is not a valid native
+  signal — every converted restaurant inherits it `true` from a historical
+  migration regardless of real native readiness; the marketplace rule ORs it
+  with `hasCompletedNativeStripeAccount`, which is the one that actually
+  means something post-conversion.
+- Menu renders on the customer-facing page, modifier prices included.
+- FM is untouched — the restaurant's FM login and FM-side order flow still
+  work exactly as before. Should never need an active fix, just a sanity
+  check nothing broke.
 
-Confirmed from the table's own migration (`lib/migrations/001_disco_orders.sql`):
-`account_email` is a plain `TEXT` column with **no foreign key** to
-`disco_restaurant_accounts` — only a `UNIQUE(account_email, restaurant_reference)`
-constraint, so a grant can be pre-created for an email before that person has
-ever logged in or has any account row at all. This is exactly how
-`inviteFmSystemAdminsFor` pre-seeds a brand's *other*, not-yet-converted
-locations into the same person's grants the moment any one of their
-locations converts.
-
-**Why this was initially misread**: the super admin System Admins page's
-search box filtered client-side, over whatever 25-row page of FM's 363 total
-system admins happened to already be loaded — typing "decheco" found only
-whichever DeCheco's admin(s) landed on page 1 (Dominic), making it look like
-Nathan and Cory didn't exist as system admins at all. FM's own
-`/api/admin/users/system-admin` endpoint has no working server-side filter
-either (confirmed empirically — `search`, `query`, `name`, `email`, `q`,
-`searchName`, and several other likely param names were all tried live; none
-changed the 363-record result). Fixed in `app/api/admin/system-admins/route.ts`
-by fetching FM's full list once (it returns all 363 in a single page at
-`size=2000`) and filtering server-side across name, email, and
-`managedRestaurants[].businessName` — the fix lives in the route, not in FM.
+That's the list. Not a general audit — the things that have actually gone
+wrong or would visibly matter to a customer.
 
 ---
 
-## Bugs fixed along the way (don't reintroduce)
+## Multi-location brands need nothing special — except the parts that are still per-location
 
-- **`checkConversionReadiness` tax false-positive** (fixed this session,
-  uncommitted in `lib/native-conversion.ts`): the old check was
-  `!!ov[0]?.tax_rates` — truthy on *any* tax_rates JSON blob, including one
-  where every percent is null. Now checks
-  `typeof tax_rates.stateSalesTax.percent === 'number'` specifically, and the
-  step is blocking (was advisory). Pelican's legitimate `0%` still passes;
-  DeCheco's null now correctly fails.
-- **Commit `42e78e5` (2026-08-11), two invite bugs:**
-  1. `middleware.ts`'s restaurant-portal auth gate only exempted
-     `/restaurant/login` — every invite/reset link points at
-     `/restaurant/accept-invite`, by definition visited by someone with no
-     session, so the gate redirected them to login (silently appending the
-     token to the query string) before the page's own validation ever ran.
-     This is the direct cause of §6's still-live problem — the fix landed
-     too late to save Glen Rock's and Briscola's already-issued tokens.
-  2. The restaurant login page's "Forgot password?" link pointed at
-     `/reset-password` (a customer-facing FM temp-password page with nothing
-     to actually trigger for a restaurant admin). Added
-     `/restaurant/forgot-password`, wired to the real, working
-     `/api/auth/forgot-password` backend.
-- **`d5bb300`** (2026-07-26): a stale FM-ref read could make an
-  *already-native* restaurant show as eligible to convert again — named
-  "Test 50, Test 34" by the commit as the restaurants that exposed it.
-  `resolveNativeRef` now guards against this.
+DeCheco's (6 locations) needed zero extra admin-access work once FM's real
+system-admin structure was read correctly — `inviteFmSystemAdminsFor` mirrors
+it automatically, per location, as each one converts. That's the only thing
+that's automatically brand-wide.
+
+**Stripe import, tax entry, menu import, and the conversion flip itself are
+each still genuinely one call per location.** A 6-location brand is still 6
+Stripe imports, 6 tax entries (or 6 "nothing to import" confirmations), 6
+menu imports, and 6 `convertToNative` calls — the win is only that nobody
+has to think about admin access location-by-location anymore.
 
 ---
 
-## Applying this to DeCheco's (6 locations)
+## Tier 2 — the batch-readiness gate (run once, 2026-08-14)
 
-Live query, today, against all 6 (`Cuyahoga Falls`, `Fairlawn`,
-`Firestone Park`, `Hudson`, `Munroe Falls`, `Springfield / Ellet`):
+Two subjects. **Subject A** — conversion mechanics — a fresh FM restaurant
+("Disco Parity Test 2026-08-14", reference `6be8f6b5-e6c8-4db2-a057-
+2b3d599bba6c`), created on FM production, built out as a real restaurant
+admin (not the SUPER_ADMIN service account, which cannot reach menu/
+notification/closed-day/promo-code creation — those all resolve the target
+restaurant from the calling user's own session), converted via an explicit,
+logged bypass (below), fully verified, then torn down. **Subject B** — data
+parity — Francesca Catering – Glen Rock, 377 real orders spanning 2022-09-01
+to 2026-08-20, checked against live FM values, not expectations. Stripe and
+payout reconciliation were explicitly out of scope for this run (Peter is
+confident payouts work); every item below is either a real Stripe-independent
+check or is marked not-testable for that reason.
 
-| Check | Result | Whose |
+**Classification used for every finding:** SYSTEMIC (a whole category
+missing or a pattern affecting many orders — would block batching),
+ISOLATED (a handful of orders, no shared cause — note and move on), KNOWN
+IRRECOVERABLE (accept without investigation — `service_charge`, ~10% of
+`tips_in_price`, `tax_exempt_state`, a small number of unreachable-FM-fetch
+orders and `FM_BACKFILL` artifacts; only confirm the count hasn't grown).
+
+### The Stripe bypass (explicit, logged, never committed)
+
+Stripe is real, correctly missing (no linked account, and none should exist
+for a throwaway test restaurant), and `checkConversionReadiness` correctly
+blocked on it (`stripe-ready`, plus `marketplace-ready`'s Stripe-only
+reason). The gate itself was never weakened. Instead, a one-off script
+(`scripts/tmp-tier2-bypass.ts`, deleted immediately after use, never
+committed) did exactly two things: (1) called the real, unmodified
+`checkConversionReadiness` and asserted every failing blocking step's cause
+was Stripe — aborting instead of proceeding if anything else was also
+failing; (2) called every individual real function `convertToNative` itself
+calls (`backfillFmOrderHistory`, the `is_disco_native`/`is_live` cache
+update, `ensureRestaurantLoginInvited`, `inviteFmSystemAdminsFor`,
+`carryOverNotificationSettings`, `carryOverClosedDays`,
+`carryOverPromoCodes`) directly, in the same order, skipping only the
+top-level `readiness.ready` gate check that would otherwise refuse to run
+them. No source file in `lib/native-conversion.ts` was edited.
+
+### Subject A results — Disco Parity Test 2026-08-14
+
+| Check | Result |
+|---|---|
+| Native / visible / live after conversion | **PASS** — `disco_restaurant_cache.is_disco_native = true`, `is_live = true` |
+| Menu item count/structure matches FM exactly | **PASS** — 1 menu, 1 category, 2 items, 1 modifier group, 2 modifiers (one priced $2.50, one a genuine **$0.00 modifier**, both imported at the correct price) |
+| Hidden/inactive item handled by the supplementary heuristic pass | **PASS** — a `visible: false` meal package on an otherwise-active menu was correctly skipped by the primary public-endpoint pass and picked up by the supplementary pass via learned category placement (not the blind fallback); imported with `visible: false` preserved |
+| Notifications flagged, not lost | **PASS** — `notification_settings_flagged_at` set; real data behind the wall confirmed present (2 emails, 1 phone, `phoneNotificationType: ALL`) and still correctly inaccessible to the service account |
+| Closed days flagged, not lost | **PASS** — `closed_days_flagged_at` set; 13 real rows (12 holidays + 1 custom) behind the wall, still returned as `[]` to the service account |
+| Promo code flagged, not lost | **PASS** — `promo_codes_flagged_at` set; a real code (`PARITY10`, 10%, 100 uses, 1/diner) behind the wall, still a 500 to the service account |
+| Admin invited, accept-invite URL valid | **PASS** — `GET /api/restaurant/accept-invite?token=...`, no cookies, returned `200 {"valid":true,"email":"peter+paritytest@discocater.com",...,"restaurantName":"Disco Parity Test 2026-08-14"}` |
+| Expired-invite badge clean | **PASS** — token minted with a 14-day expiry, `invite_token_expires_at` far in the future at check time |
+| Null-tax case blocks; explicit 0% passes | **PASS** — real, unmodified `settings` gate: null → FAIL ("No real state tax percent set"), explicit `0` → PASS |
+| Marketplace-visibility toggle is a real, separate prerequisite | **CONFIRMED** — see Tier 1 §5; not a Stripe artifact |
+| Teardown: FM soft-delete | **DONE** — `DELETE /api/admin/restaurants/{ref}` → 200; restaurant now 404s on normal lookup, appears only in `/api/admin/restaurants/deleted` |
+| Teardown: gone from restaurant counts / marketplace / system-admin list | **CONFIRMED** — 0 matches in `searchName`-filtered admin list, 0 matches in the live marketplace feed (387 other rows unaffected), 0 matches among 363 system admins |
+| Teardown: Neon cleanup | **DONE** — `disco_restaurant_cache`/`_overrides`/`_accounts`, menu tables, `disco_restaurant_closed_days`, `promo_codes` all confirmed at 0 rows for this reference (the cache row was unexpectedly already gone by the time cleanup ran — worth a later look at whether something prunes cache rows for FM-deleted restaurants faster than the known daily syncs, but not a blocker for this record) |
+
+**Two real FM bugs found incidentally, out of scope to fix here, worth
+knowing:**
+- FM's `POST /api/mealPackages` (and every sibling create/update path calling
+  the same internal `processScheduleOption`) throws an unhandled NPE
+  (generic `500-001`) if `inheritScheduleOptionFromRestaurant` is omitted
+  from the request — it's typed `Boolean` on the DTO but unboxed into a
+  primitive `boolean` with no null guard. Include it explicitly (`true`,
+  assuming the target menu already has a schedule option) on any tooling
+  that creates meal packages directly.
+- FM's JWT auth does **not** use a `Bearer ` prefix — `resolveToken` reads
+  the raw `Authorization` header value directly into the JWT parser with no
+  stripping. A token sent as `Authorization: Bearer <jwt>` fails to parse and
+  reads as a generic 401; send `Authorization: <jwt>` with no prefix.
+
+### Subject B results — Francesca Catering – Glen Rock (377 orders)
+
+| Check | Result | Classification |
 |---|---|---|
-| FM status | ACCEPTED, all 6 | — (already true) |
-| Stripe account | Real `acct_...` id exists for each (FM's own `tbl_stripe_connected_accounts`, matched by reference — not fuzzy-matched); live-verified **reusable (`charges_enabled` + `transfers: active`) for all 6** | **Ours** — one `importRestaurantStripeAccount` call per location, no restaurant action needed |
-| Tax rate | Null in FM's own data for all 6 (confirmed, not just inaccessible) | **DeCheco's** — a real conversation, not a data fix; genuinely nothing to import |
-| Native menu | 0 items in Neon, all 6 | **Ours** — one `import-fm-menu` call per location, real FM menus exist to pull from |
-| Admin accounts | **Zero rows** in `disco_restaurant_accounts` for any of the 6 at the time of this check | **Ours**, automatic — `ensureRestaurantLoginInvited` + `inviteFmSystemAdminsFor` both fire the moment each location converts |
-| System-admin scope | FM already has **four** SYSTEM_ADMINs — Dominic, Nathan, Cory, Tyron — each covering all 6 (checked live via `/api/admin/users/system-admin`, not assumed from the per-restaurant admin field) | **FM's, mirror it** — `inviteFmSystemAdminsFor` grants each of them all 6 automatically on conversion; no manual `grantLocationAccess` calls needed or wanted |
+| Every order has ≥1 item, every order has a transaction row | 377/377 | — |
+| Tax populated (state/local/other) | 377/377 | — |
+| `tips_in_price` accuracy vs. the real `resolveTipsInPrice` formula | 30/30 sampled | PASS |
+| Fulfillment-time rule (pickup/self-delivery −30min/3P unchanged, day-rollover) | Verified against real order timestamps | PASS |
+| Tax-exempt orders (2 exist) | Both $0 tax across all three tax fields | PASS |
+| `service_charge`/`stripe_fee` null | 16/377 (exactly the `FM_SYNC`-sourced rows; all 359 `FM_BACKFILL` rows populated) | KNOWN IRRECOVERABLE |
+| `lead_gen_one_disco_fee` null | 350/377, concentrated entirely in 2022–2025 orders (0/307); only appears starting 2026 (27/71) — FM's own lead-gen tracking predates 2026 | KNOWN IRRECOVERABLE (newly characterized) |
+| `source` null | 2/377 (order numbers 900000080/081) | ISOLATED |
+| 3-catalog usage in this restaurant | Only `orderMealPackages` seen (0 classics, 0 subscription) — a pizzeria doesn't use FM's other two catalogs | not applicable here, already verified fleet-wide elsewhere |
+| Single `DLIVRD_DELIVERY` order (#24933) with fee in `own_delivery_fee` instead of `third_party_delivery_fee` | n=1 | ISOLATED |
+| Reporting-surface agreement (summary cards / Daily Revenue / CSV export) | All three read `disco_orders` directly via the same join already confirmed complete above; no separate pipeline to diverge | pass-by-construction |
 
-**Update, post-conversion:** all 6 locations have since actually been converted.
-`ensureRestaurantLoginInvited` invited Nathan (Cuyahoga Falls), Cory (Firestone
-Park), and Dominic (Fairlawn) via the per-restaurant admin field, exactly as
-predicted; Tyron was missed by that path (never any single location's admin
-field) and had to be backfilled once `inviteFmSystemAdminsFor` existed —
-exactly the gap it now closes automatically for the next brand. A fleet-wide
-audit after the fix found only one other FM SYSTEM_ADMIN covering a native
-restaurant with no Disco account — an internal test fixture on Pelican
-Delicatessen (`chef+1@familymeal.com`, "Peter Remy Test"), not a real person.
+**Overall Tier 2 verdict: zero systemic issues.** Every discrepancy found is
+either already-known-irrecoverable, newly characterized but still
+irrecoverable (the pre-2026 lead-gen gap — confirm this count doesn't grow,
+don't try to close it), or isolated to 1–2 orders with no shared cause.
+**Batching is not blocked by data parity.**
 
-**Your expectation — that this reduces to Stripe account ids plus tax rates,
-with the menu handled by the FM import — is correct for 5 of 6 pieces, with
-one addition:** the Stripe id lookup is already done and verified (not an
-open task), the menu import is a real, ready path (not a build), and there's
-a real, per-location tax conversation still needed with DeCheco's ownership.
-The one thing your framing doesn't cover is admin access — because DeCheco's
-currently has **no native account rows at all**, not because of a
-multi-location grant problem specifically. That resolves itself automatically
-per location the moment each one converts (no separate ask), but given §6's
-finding that this exact step silently failed for 3 of the 4 restaurants it's
-supposedly already proven on, it's worth actively confirming — not assuming —
-that Nathan's and Cory's invites land and get accepted this time, rather than
-declaring DeCheco's done the moment the flag flips.
+---
 
-Ordered, concretely:
+## Batch, later
 
-1. **Ours:** run `importRestaurantStripeAccount` for each of the 6 known
-   account ids.
-2. **DeCheco's:** provide real state/local tax percentages per location.
-3. **Ours:** run `importFmMenuFaithfully` (via `POST /api/admin/restaurants/{ref}/import-fm-menu`)
-   for each of the 6.
-4. **Ours:** once 1–3 are green for a location, run `convertToNative` for it.
-   `ensureRestaurantLoginInvited` fires automatically, but **verify the
-   invite is actually usable and gets accepted** (§6 — don't assume it did).
-5. **Ours:** pre-create (or, once each admin has logged in, grant)
-   `grantLocationAccess` for Nathan and Cory across all 6.
+Everything above the Tier 2 section is written for converting one restaurant
+at a time, which is the current mode. If/when this moves to batch:
+
+- The invite email (Tier 1 §9) needs a real bulk-send path with per-recipient
+  Mailgun delivery confirmation, not one-by-one manual verification — the
+  verification step (§7) doesn't change, but running it N times by hand
+  won't scale.
+- `inviteFmSystemAdminsFor` re-fetches FM's entire ~363-record system-admin
+  list on every single restaurant's conversion — harmless at one-at-a-time
+  cadence, wasteful run back-to-back across many locations in the same
+  batch. Worth caching within a batch run if this becomes routine.
+- Nothing about the Stripe/tax/menu steps parallelizes today — they're
+  independent per restaurant, so batching them is a scripting question, not
+  a design change.
+- The Tier 2 gate does **not** need to re-run per restaurant once batching
+  starts — it's the reason batching is unblocked, not a per-restaurant
+  precondition. Re-run it only if something structural changes (a new FM
+  order-item catalog, a new payout path, a schema change to
+  `disco_sale_transactions`).
+
+Not building any of this now — noting it so batch mode doesn't start from
+scratch when it's needed.
