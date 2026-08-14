@@ -2,21 +2,28 @@
 // sweep can't close, since it only ever looks at orders CURRENTLY sitting in
 // RESERVED. A payment that succeeded in Stripe but whose order got stuck in
 // ANY other non-paid state (or whose order row is missing entirely) would
-// never surface there. Root cause of the 2026-08-14 incident this exists for:
-// no Stripe webhook endpoint is registered for discocater.com at all (checked
-// Stripe's own webhook_endpoints list, not our logs — all 9 configured
-// endpoints on this shared "FamilyMeal Live" account point at FM's own
-// staging/dev domains or long-disabled ngrok tunnels; test mode confirmed,
-// live mode needs the same check with the production key). Most orders still
-// reach DUE via the direct client-side confirm-payment call right after
-// Stripe.js confirms — this sweep is the safety net for the ones where that
-// call never lands (closed tab, dropped connection) and no webhook exists to
-// catch it either. Same shape as the FM order-reconciliation sweep and the
-// expired-invite badge: a periodic "does Stripe's truth match ours" check
-// that doesn't require the failure to be visible in any one status bucket.
+// never surface there.
+//
+// Built for the 2026-08-14 incident (#900000078/079: succeeded native
+// PaymentIntents stuck in RESERVED for weeks). Root cause investigation ruled
+// out every checkable config-level explanation — both live webhook endpoints
+// exist, are healthy (0% error rate), and payment_intent.succeeded IS
+// subscribed on the right one; native PaymentIntents are unambiguously
+// created on the platform account, never a connected account; Stripe's own
+// delivery log doesn't retain far enough back to say whether delivery was
+// ever attempted for those two events. It's accepted as unresolved — this
+// sweep is the intentional outcome: it catches this failure class hourly
+// regardless of cause, which matters more than knowing the cause. Native
+// checkout does nothing server-side after Stripe.js confirms (by design —
+// the webhook is the only intended path to DUE), so this really is the
+// sole safety net for whatever occasionally doesn't reach it.
+//
+// Same shape as the FM order-reconciliation sweep and the expired-invite
+// badge: a periodic "does Stripe's truth match ours" check that doesn't
+// require the failure to be visible in any one status bucket.
 import Stripe from 'stripe'
 import { sql } from '../db'
-import { recordOrderEvent } from './native-payment-succeeded'
+import { recordOrderEvent, handleNativePaymentIntentSucceeded } from './native-payment-succeeded'
 import { alertOps } from '../ops-alert'
 
 export const DEFAULT_RECONCILIATION_LOOKBACK_HOURS = 26 // > the hourly cadence, so a missed run can't create a gap
@@ -32,6 +39,7 @@ export interface ReconciliationMismatch {
   orderStatus: string | null
   amount: number | null
   detail: string
+  autoReconciled: boolean // true when this call flipped the order to DUE itself, not just alerted
 }
 
 export interface ReconciliationSummary {
@@ -57,6 +65,14 @@ async function findStripeSucceededSinceByKind(stripe: Stripe, kind: string, sinc
 // Direction 1 (the severe one — money taken, nothing to show for it): every
 // succeeded native PaymentIntent Stripe knows about, cross-checked against
 // the order its own metadata.orderReference points at.
+//
+// When a real order row exists and just isn't in a paid state, this AUTO-
+// RECONCILES via the same shared path the webhook and the RESERVED-expiry
+// sweep both use (handleNativePaymentIntentSucceeded) — not alert-only. The
+// customer already paid; the restaurant needs the order to show up, not a
+// Slack message asking a human to go flip a status by hand. Only the
+// no-matching-order-row case (nothing to attach the payment to) stays
+// alert-only, since there's no safe automatic action to take there.
 async function checkStripeSucceededAgainstOrders(stripe: Stripe, sinceEpochSeconds: number): Promise<{ checked: number; mismatches: ReconciliationMismatch[] }> {
   const mismatches: ReconciliationMismatch[] = []
   let checked = 0
@@ -70,6 +86,7 @@ async function checkStripeSucceededAgainstOrders(stripe: Stripe, sinceEpochSecon
         mismatches.push({
           direction: 'stripe_succeeded_not_paid', paymentIntentId: pi.id, orderReference: null, orderNumber, orderStatus: null,
           amount: pi.amount, detail: 'succeeded PaymentIntent tagged as a native order but carries no orderReference metadata',
+          autoReconciled: false,
         })
         continue
       }
@@ -79,16 +96,25 @@ async function checkStripeSucceededAgainstOrders(stripe: Stripe, sinceEpochSecon
       if (orders.length === 0) {
         mismatches.push({
           direction: 'stripe_succeeded_not_paid', paymentIntentId: pi.id, orderReference, orderNumber, orderStatus: null,
-          amount: pi.amount, detail: 'succeeded PaymentIntent — NO MATCHING ORDER ROW AT ALL',
+          amount: pi.amount, detail: 'succeeded PaymentIntent — NO MATCHING ORDER ROW AT ALL (nothing to auto-reconcile against)',
+          autoReconciled: false,
         })
         continue
       }
       const order = orders[0]
       if (!PAID_STATES.has(order.order_status)) {
+        let autoReconciled = false
+        let detail = `succeeded PaymentIntent but order is "${order.order_status}", not a paid state`
+        try {
+          await handleNativePaymentIntentSucceeded(pi, stripe, 'PAYMENT_RECONCILIATION_SWEEP')
+          autoReconciled = true
+          detail += ' — auto-reconciled to DUE via the shared payment-succeeded path'
+        } catch (e) {
+          detail += ` — auto-reconcile FAILED (${e instanceof Error ? e.message : e}), needs manual attention`
+        }
         mismatches.push({
           direction: 'stripe_succeeded_not_paid', paymentIntentId: pi.id, orderReference, orderNumber: order.order_number,
-          orderStatus: order.order_status, amount: pi.amount,
-          detail: `succeeded PaymentIntent but order is "${order.order_status}", not a paid state`,
+          orderStatus: order.order_status, amount: pi.amount, detail, autoReconciled,
         })
       }
     }
@@ -116,7 +142,8 @@ async function checkLocalPaidAgainstStripe(stripe: Stripe, sinceIso: string): Pr
         mismatches.push({
           direction: 'local_paid_not_succeeded', paymentIntentId: r.stripe_payment_intent_id, orderReference: r.order_reference,
           orderNumber: r.order_number, orderStatus: r.order_status, amount: pi.amount,
-          detail: `we recorded this as SUCCEEDED but Stripe now shows "${pi.status}"`,
+          detail: `we recorded this as SUCCEEDED but Stripe now shows "${pi.status}" — needs manual review (a dispute/reversal, not something to auto-fix)`,
+          autoReconciled: false,
         })
       }
     } catch (e) {
@@ -144,11 +171,15 @@ export async function reconcileNativePayments(
   for (const m of mismatches) {
     await recordOrderEvent(m.orderReference, 'PAYMENT_RECONCILIATION_MISMATCH', m, 'PAYMENT_RECONCILIATION_SWEEP')
     const dollars = m.amount != null ? (m.amount / 100).toFixed(2) : 'unknown'
-    // Loud on purpose — this is money taken with no food made (or the reverse:
-    // a payment we can no longer verify). alertOps is the same channel every
-    // other "someone needs to look at this NOW" condition in this codebase uses.
+    // Still loud even when auto-reconciled — this is the "we just fixed a paid
+    // order that was silently stuck" case, not a routine event; a human should
+    // know it happened, same as every other "someone should look at this"
+    // condition in this codebase uses alertOps for. Only genuinely unresolved
+    // cases (no order to attach to, auto-reconcile itself failed, or a local-
+    // says-paid/Stripe-disagrees dispute) read as still-needing-action.
+    const label = m.autoReconciled ? 'AUTO-RECONCILED' : 'NEEDS ATTENTION'
     await alertOps(
-      `URGENT — PAYMENT RECONCILIATION MISMATCH (${m.direction}): PaymentIntent ${m.paymentIntentId} ($${dollars}), ` +
+      `PAYMENT RECONCILIATION MISMATCH — ${label} (${m.direction}): PaymentIntent ${m.paymentIntentId} ($${dollars}), ` +
       `order ${m.orderNumber ?? 'UNKNOWN'} (${m.orderReference ?? 'no reference'}), status=${m.orderStatus ?? 'n/a'}. ${m.detail}`,
     )
   }
