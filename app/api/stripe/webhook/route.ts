@@ -2,15 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
-import { dispatchOrderConfirmations, dispatchInventoryUnavailableNotification } from '../../../../lib/order-notifications'
-import { applyOrderInventoryDecrements } from '../../../../lib/order/native-inventory'
-import { refundNativeOrder } from '../../../../lib/order/native-refund'
-import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../lib/expedite'
+import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
+import { handleNativePaymentIntentSucceeded } from '../../../../lib/order/native-payment-succeeded'
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { alertOps } from '../../../../lib/ops-alert'
 import { waitUntil } from '@vercel/functions'
-
-const round2 = (n: number) => Math.round(n * 100) / 100
 
 export const runtime = 'nodejs'
 
@@ -156,117 +152,14 @@ export async function POST(request: NextRequest) {
   try {
     switch (event.type) {
       // ── payment_intent.succeeded — the critical "order paid" confirmation ──
+      // Extracted to lib/order/native-payment-succeeded.ts so the stale-RESERVED
+      // expiry sweep can reconcile an order whose webhook delivery was missed
+      // (confirmed real: 2 of 5 stuck-RESERVED native orders found 2026-08-14
+      // had ALREADY succeeded in Stripe) via the exact same, complete path
+      // (inventory decrement, confirmations, dispatch) instead of a partial copy.
       case 'payment_intent.succeeded': {
         const pi = event.data.object as Stripe.PaymentIntent
-        const customer = typeof pi.customer === 'string' ? pi.customer : pi.customer?.id ?? null
-        console.log('[Webhook] payment_intent.succeeded:', pi.id, pi.amount, customer)
-
-        const payments = (await sql`
-          SELECT order_reference FROM disco_stripe_payments
-          WHERE stripe_payment_intent_id = ${pi.id} LIMIT 1
-        `) as { order_reference: string }[]
-
-        if (payments.length === 0) {
-          console.log('[Webhook] payment_intent.succeeded — not a Disco order, skipping:', pi.id)
-          break
-        }
-
-        const orderReference = payments[0].order_reference
-
-        await sql`
-          UPDATE disco_stripe_payments
-          SET status = 'SUCCEEDED', updated_at = NOW()
-          WHERE stripe_payment_intent_id = ${pi.id}
-        `
-
-        const orders = (await sql`
-          SELECT id, reference FROM disco_orders WHERE reference = ${orderReference}::uuid LIMIT 1
-        `) as { id: number; reference: string }[]
-
-        if (orders.length > 0) {
-          const order = orders[0]
-
-          // Max Inventory Per Day — the REAL enforcement point. Atomically
-          // decrement every capped item in this order now that money has
-          // actually moved. Uncapped items no-op inside applyOrderInventoryDecrements.
-          // If any item's cap was exhausted by a concurrent order in the
-          // split-second before this webhook ran, refund immediately rather
-          // than leave the customer charged with an unfulfillable order.
-          const orderDateRows = (await sql`
-            SELECT order_date::text AS order_date FROM disco_orders WHERE id = ${order.id} LIMIT 1
-          `) as { order_date: string }[]
-          const orderDate = orderDateRows[0]?.order_date
-          const orderItemRows = orderDate ? (await sql`
-            SELECT oi.meal_package_reference AS item_ref, oi.quantity, mi.name
-            FROM disco_order_items oi
-            JOIN disco_menu_items mi ON mi.reference = oi.meal_package_reference
-            WHERE oi.order_id = ${order.id} AND oi.meal_package_reference IS NOT NULL
-          `.catch(() => [])) as { item_ref: string; quantity: number; name: string }[] : []
-
-          let inventoryFailedItem: string | null = null
-          if (orderDate && orderItemRows.length > 0) {
-            const result = await applyOrderInventoryDecrements(
-              orderItemRows.map(oi => ({ itemRef: oi.item_ref, itemName: oi.name, quantity: oi.quantity })),
-              orderDate,
-            )
-            if (!result.ok) inventoryFailedItem = result.failedItem.name
-          }
-
-          if (inventoryFailedItem) {
-            const refundAmount = round2((pi.amount || 0) / 100)
-            try {
-              // refundNativeOrder (not a plain stripe.refunds.create) so the
-              // restaurant's connected-account transfer share is correctly
-              // reversed too — same helper every other native refund path uses.
-              await refundNativeOrder(stripe, order.reference, refundAmount)
-              await sql`UPDATE disco_orders SET order_status = 'REFUNDED', refund = ${refundAmount}, updated_at = NOW() WHERE id = ${order.id}`
-              await recordEvent(order.reference, 'INVENTORY_EXHAUSTED_REFUND', { itemName: inventoryFailedItem, refundAmount }, 'STRIPE_WEBHOOK')
-              waitUntil(dispatchInventoryUnavailableNotification(order.id, inventoryFailedItem))
-            } catch (refundErr) {
-              console.error('[Webhook] inventory-exhausted refund FAILED:', refundErr instanceof Error ? refundErr.message : refundErr)
-              await alertOps(`URGENT: customer charged but "${inventoryFailedItem}" sold out (Max Inventory Per Day) and the automatic refund FAILED for order ${order.reference} (PI ${pi.id}) — manual refund needed.`)
-            }
-            break
-          }
-
-          await sql`
-            UPDATE disco_orders SET order_status = 'DUE', updated_at = NOW() WHERE id = ${order.id}
-          `
-
-          const txns = (await sql`
-            SELECT id FROM disco_sale_transactions
-            WHERE order_id = ${order.id} AND transaction_type = 'ORIGINAL' LIMIT 1
-          `) as { id: number }[]
-
-          if (txns.length > 0) {
-            await sql`
-              UPDATE disco_sale_transactions
-              SET transaction_status = 'PAID',
-                  stripe_payment_intent_id = ${pi.id},
-                  paid_at = NOW(),
-                  updated_at = NOW()
-              WHERE id = ${txns[0].id}
-            `
-          }
-
-          await recordEvent(order.reference, 'PAYMENT_SUCCEEDED', event, 'STRIPE_WEBHOOK')
-
-          // Order confirmations (customer + restaurant email, SMS, Slack).
-          // waitUntil keeps the send alive after the 200 ack. Shared, idempotent
-          // dispatch — native orders also trigger it from /api/order/confirm-
-          // payment, and the guard ensures it only ever fires once per order.
-          waitUntil(dispatchOrderConfirmations(order.id, 'STRIPE_WEBHOOK'))
-
-          // Native third-party-delivery orders complete here (not via the FM
-          // confirm-payment path), so dispatch their courier here too. OFF by
-          // default — gated on EXPEDITE_NATIVE_DISPATCH_ENABLED (real courier
-          // cost). Idempotent + strict THIRD_PARTY_DELIVERY guard inside.
-          if (nativeDispatchEnabled()) waitUntil(dispatchExpediteForOrder(order.id))
-        } else {
-          // Payment row exists but order is missing — still log against the ref.
-          console.warn('[Webhook] payment_intent.succeeded — payment found but order missing:', orderReference)
-          await recordEvent(orderReference, 'PAYMENT_SUCCEEDED', event, 'STRIPE_WEBHOOK')
-        }
+        await handleNativePaymentIntentSucceeded(pi, stripe, 'STRIPE_WEBHOOK')
         break
       }
 

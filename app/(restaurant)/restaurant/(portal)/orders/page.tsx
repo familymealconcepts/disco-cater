@@ -141,10 +141,16 @@ const HISTORY_STATUSES = ['COMPLETED', 'REOPEN', 'CANCELED', 'EXPIRED', 'RESERVE
 const COUNTS_STATUSES = ['COMPLETED', 'DUE']
 const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'PARTIAL_REFUND', 'CANCELED', 'VOID', 'VOIDED'])
 
+// RESERVED/EXPIRED/CART/SELECTED get funnel-stage wording instead of the raw
+// FM enum name — "Reserved"/"Expired" don't say where in checkout an order
+// actually got to. CART/SELECTED are rarely seen here (FM hard-deletes them
+// within 10-20 minutes), but label them the same way on the off chance one's
+// caught mid-abandonment.
 const STATUS_LABEL: Record<string, string> = {
   DUE: 'Due', COMPLETED: 'Completed', REOPEN: 'Reopened', REFUND: 'Refunded', REFUNDED: 'Refunded',
-  PARTIAL_REFUND: 'Partial refunded', CANCELED: 'Canceled', EXPIRED: 'Expired',
-  RESERVED: 'Reserved', VOID: 'Voided', VOIDED: 'Voided', PAID: 'Paid', UNPAID: 'Unpaid',
+  PARTIAL_REFUND: 'Partial refunded', CANCELED: 'Canceled', EXPIRED: 'Abandoned at checkout',
+  RESERVED: 'At checkout', VOID: 'Voided', VOIDED: 'Voided', PAID: 'Paid', UNPAID: 'Unpaid',
+  CART: 'Items in cart', SELECTED: 'Date/time picked',
 }
 
 // Display label for an order's OWN status. Refunded orders read "Refunded" when

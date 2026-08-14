@@ -175,11 +175,16 @@ function TaxExemptBadge({ order }: { order: Order }) {
 
 // Friendly labels for the raw FM enum (mirrors the restaurant portal orders
 // page). Falls back to the raw value for any status not mapped here.
+// RESERVED/EXPIRED/CART/SELECTED use funnel-stage wording — "Reserved" and
+// "Expired" don't say where in checkout an order actually got to. CART/
+// SELECTED are rarely visible here (FM hard-deletes them within 10-20
+// minutes), but labeled the same way on the off chance one's caught
+// mid-abandonment in a live fetch.
 const STATUS_LABEL: Record<string, string> = {
   DUE: 'Due', PAID: 'Paid', UNPAID: 'Unpaid', COMPLETED: 'Completed',
   CANCELED: 'Canceled', REFUND: 'Refunded', PARTIAL_REFUND: 'Partial Refund',
-  VOID: 'Void', EXPIRED: 'Expired', RESERVED: 'Reserved', REOPEN: 'Reopened',
-  IN_PROGRESS: 'In Progress',
+  VOID: 'Void', EXPIRED: 'Abandoned at checkout', RESERVED: 'At checkout', REOPEN: 'Reopened',
+  IN_PROGRESS: 'In Progress', CART: 'Items in cart', SELECTED: 'Date/time picked',
 }
 const statusLabel = (s: string) => STATUS_LABEL[s] || s
 
