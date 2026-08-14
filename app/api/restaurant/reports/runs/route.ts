@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
+import { toClientIso } from '../../../../../lib/utils/timestamp'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -21,11 +22,19 @@ export async function GET(req: NextRequest) {
     const total = totalRows[0]?.n ?? 0
     const rows = (await sql`
       SELECT reference, report_name AS "reportName", file_type AS "fileType",
-             run_status AS "runStatus", to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdDate"
+             run_status AS "runStatus", created_at AS "createdAtRaw"
       FROM disco_report_runs WHERE restaurant_reference = ${scope}::uuid
       ORDER BY created_at DESC LIMIT ${size} OFFSET ${page * size}
     `) as Record<string, unknown>[]
-    return NextResponse.json({ content: rows, totalElements: total, totalPages: Math.ceil(total / size), number: page, size })
+    // Merge boundary — see lib/utils/timestamp.ts. This branch doesn't combine
+    // with FM's own report-runs response today (the FM branch below returns
+    // its list untouched), but it's one of the three routes flagged for the
+    // same bare-to_char pattern that broke admin Orders sort.
+    const normalized = rows.map((r) => {
+      const { createdAtRaw, ...rest } = r
+      return { ...rest, createdDate: toClientIso(createdAtRaw) }
+    })
+    return NextResponse.json({ content: normalized, totalElements: total, totalPages: Math.ceil(total / size), number: page, size })
   }
 
   let h: Record<string, string>

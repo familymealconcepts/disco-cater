@@ -3,6 +3,7 @@ import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
+import { toClientIso } from '../../../../../../lib/utils/timestamp'
 
 const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -32,7 +33,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       const history = (await sql`
         SELECT edit_number AS "editNumber",
                editor_email AS "editedBy",
-               to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdAt",
+               created_at AS "createdAtRaw",
                original_total::float8 AS "previousTotal",
                new_total::float8 AS "newTotal",
                delta::float8 AS "delta",
@@ -44,7 +45,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
         WHERE fm_order_reference = ${ref}::uuid
         ORDER BY edit_number ASC
       `) as Record<string, unknown>[]
-      return NextResponse.json({ history })
+      // Merge boundary — see lib/utils/timestamp.ts. This branch's rows never
+      // actually combine with FM's own (the FM branch below returns its own
+      // separate JSON), but this is one of the three routes flagged for the
+      // same bare-to_char pattern that broke admin Orders sort, so it's fixed
+      // here too before anyone merges these into a shared history view.
+      const normalized = history.map((h) => {
+        const { createdAtRaw, ...rest } = h
+        return { ...rest, createdAt: toClientIso(createdAtRaw) }
+      })
+      return NextResponse.json({ history: normalized })
     } catch (err) {
       console.error('[orders/edit-history] disco read failed:', err instanceof Error ? err.message : err)
       return NextResponse.json({ error: 'Unable to load edit history' }, { status: 500 })

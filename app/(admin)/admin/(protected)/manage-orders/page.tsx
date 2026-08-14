@@ -123,15 +123,17 @@ function orderSortValue(o: Order, key: SortKey): string | number {
     case 'placed': return Date.parse(o.createdDate) || 0
     case 'restaurant': return (o.restaurantName || '').toLowerCase()
     case 'customer': return customerName(o).toLowerCase()
-    // Number(...) matters here: native rows come from disco_orders' BIGINT/
-    // NUMERIC columns, which Neon's driver returns as STRINGS (to avoid
-    // precision loss) — "900000085"/"1.13" — while FM's JSON has real numbers.
-    // Comparing a string against a number falls through to a lexicographic
-    // String().localeCompare() below (typeof va === typeof vb === 'number'
-    // fails), which orders "45.99" before "9.00" — confirmed live for `total`
-    // the same way createdDate's missing "Z" broke `placed`.
-    case 'orderNumber': return Number(o.orderNumber ?? 0)
-    case 'total': return Number(o.total ?? o.transactionsTotal ?? 0)
+    // Plain field access is safe here — native rows are normalized to real
+    // numbers/Z-suffixed ISO strings at the merge boundary (fetchNativeOrders
+    // in app/api/admin/orders/route.ts), not coerced here. Comparing a
+    // Postgres NUMERIC/BIGINT-as-string against FM's real JSON number used to
+    // fall through to a lexicographic String().localeCompare() below (the
+    // typeof va === typeof vb === 'number' check failed), which ordered
+    // "45.99" before "9.00" — fixed at the source, not with a Number() call
+    // per column here, so a future numeric column added to disco_orders can't
+    // reintroduce this by skipping a comparator update.
+    case 'orderNumber': return o.orderNumber ?? 0
+    case 'total': return o.total ?? o.transactionsTotal ?? 0
     case 'orderTime': return Date.parse(`${o.orderDate}T${o.orderTime || '00:00:00'}`) || Date.parse(o.orderDate || '') || 0
     case 'type': return typeBadgeLabels(o).join('')
     case 'source': return o.sourceoforder === 'DISCO' ? '3P' : '1P'
@@ -696,7 +698,7 @@ function AdminOrdersContent() {
       const va = orderSortValue(a, active.key)
       const vb = orderSortValue(b, active.key)
       let cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb))
-      if (cmp === 0) cmp = Number(a.orderNumber ?? 0) - Number(b.orderNumber ?? 0)
+      if (cmp === 0) cmp = (a.orderNumber ?? 0) - (b.orderNumber ?? 0)
       return cmp * mul
     })
   })()
