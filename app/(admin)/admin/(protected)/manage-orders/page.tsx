@@ -123,8 +123,15 @@ function orderSortValue(o: Order, key: SortKey): string | number {
     case 'placed': return Date.parse(o.createdDate) || 0
     case 'restaurant': return (o.restaurantName || '').toLowerCase()
     case 'customer': return customerName(o).toLowerCase()
-    case 'orderNumber': return o.orderNumber ?? 0
-    case 'total': return o.total ?? o.transactionsTotal ?? 0
+    // Number(...) matters here: native rows come from disco_orders' BIGINT/
+    // NUMERIC columns, which Neon's driver returns as STRINGS (to avoid
+    // precision loss) — "900000085"/"1.13" — while FM's JSON has real numbers.
+    // Comparing a string against a number falls through to a lexicographic
+    // String().localeCompare() below (typeof va === typeof vb === 'number'
+    // fails), which orders "45.99" before "9.00" — confirmed live for `total`
+    // the same way createdDate's missing "Z" broke `placed`.
+    case 'orderNumber': return Number(o.orderNumber ?? 0)
+    case 'total': return Number(o.total ?? o.transactionsTotal ?? 0)
     case 'orderTime': return Date.parse(`${o.orderDate}T${o.orderTime || '00:00:00'}`) || Date.parse(o.orderDate || '') || 0
     case 'type': return typeBadgeLabels(o).join('')
     case 'source': return o.sourceoforder === 'DISCO' ? '3P' : '1P'
@@ -676,14 +683,21 @@ function AdminOrdersContent() {
     // Default (no column chosen): newest-created first (placed,desc) across the FULL
     // merged set — native + FM-backed together. The API prepends all Disco-native
     // orders onto page 0, but this ALWAYS re-sorts the full set, so native orders are
-    // never pinned above FM orders — they interleave purely by placed date.
+    // never pinned above FM orders — they interleave purely by placed timestamp.
     const active = sort ?? { key: 'placed' as SortKey, dir: 'desc' as const }
     const mul = active.dir === 'asc' ? 1 : -1
+    // Tie-break on order number whenever the primary key ties (most relevant for
+    // 'placed': many orders share a date, and — before the createdDate timezone
+    // fix in app/api/admin/orders/route.ts — native and FM timestamps could even
+    // collide after mis-parsing). Applied to every column, not just 'placed', so
+    // sort order stays deterministic instead of falling back to whatever order
+    // the array happened to be in.
     return [...filtered].sort((a, b) => {
       const va = orderSortValue(a, active.key)
       const vb = orderSortValue(b, active.key)
-      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mul
-      return String(va).localeCompare(String(vb)) * mul
+      let cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb))
+      if (cmp === 0) cmp = Number(a.orderNumber ?? 0) - Number(b.orderNumber ?? 0)
+      return cmp * mul
     })
   })()
 

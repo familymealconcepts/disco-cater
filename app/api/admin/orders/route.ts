@@ -11,6 +11,19 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // hardcoded 'DISCO', which mislabeled genuinely-1P native orders as 3P — see
 // the super-admin-native-order-source-hardcode-bug investigation). Honors the
 // same date range as the FM call.
+//
+// createdDate MUST carry an explicit "Z" — this is the actual root cause of the
+// native-orders-pinned-to-top sort bug (2026-08-14): FM's own createdDate values
+// arrive UTC-with-Z (e.g. "2026-08-14T16:10:16.965Z"), but to_char() on a
+// timestamptz has no way to emit one on its own, so this used to come back as a
+// bare "2026-08-14T17:59:37" — real UTC digits (the Neon session runs in GMT,
+// confirmed via current_setting('TIMEZONE')), just missing the marker. The
+// client's Date.parse(createdDate) (manage-orders/page.tsx orderSortValue) treats
+// a timezone-designator-free ISO string as LOCAL time, not UTC — so for an
+// admin browsing from America/New_York (UTC-4 in August), that same native order
+// was parsed 4 hours LATER than its true instant, systematically outranking
+// genuinely more-recent FM orders it should have sorted below. FM's Z-suffixed
+// values were never affected; only native's were silently wrong.
 async function fetchNativeOrders(fromIso: string | null, toIso: string | null): Promise<Record<string, unknown>[]> {
   try {
     const rows = (await sql`
@@ -18,7 +31,7 @@ async function fetchNativeOrders(fromIso: string | null, toIso: string | null): 
              o.restaurant_reference::text AS "restaurantReference",
              COALESCE(o.restaurant_name, rc.name, '') AS "restaurantName",
              rc.timezone AS "restaurantTimezone",
-             to_char(o.created_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS "createdDate",
+             to_char(o.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdDate",
              to_char(o.order_date, 'YYYY-MM-DD') AS "orderDate",
              o.order_time::text AS "orderTime",
              o.order_type AS "orderType", o.order_status AS "orderStatus",
