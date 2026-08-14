@@ -48,15 +48,21 @@ export interface OrderPdfData {
   customerPhone?: string
   companyName?: string
   orderService: string
+  // What the customer selected — when they expect the food. Never offset.
+  // This is what the subject line AND the ORDER DETAILS block show.
   orderDate: string
   orderTime: string
-  // Fulfillment/pick-up date+time — same as orderDate/orderTime EXCEPT for a
-  // self-delivery (OWN_DELIVERY) order, which is order time minus 30 minutes
-  // (FM's convention). This is what the "{SERVICE} TIME" box shows; orderDate/
-  // orderTime (the customer's actual selection) stay untouched for the subject
-  // line and ORDER DETAILS block.
-  pickupDate: string
-  pickupTime: string
+  // KITCHEN-READINESS deadline, not a fulfillment/arrival time — when the food
+  // must be ready so a driver can get it there by orderTime. Same as
+  // orderDate/orderTime for pickup (the customer is their own driver, ready AT
+  // order time) and for third-party delivery (no fixed offset — the real
+  // readiness moment is the courier's own ETA, which Disco doesn't yet capture
+  // reliably enough to show here; see fulfillment-time.ts). Only self-delivery
+  // (OWN_DELIVERY) actually offsets this, by minus 30 minutes (FM's own
+  // convention). This is what the "{SERVICE} TIME" box shows — never
+  // ORDER DETAILS, which always shows the raw orderDate/orderTime above.
+  readinessDate: string
+  readinessTime: string
   orderReceived: string
   deliveryAddress?: string
   persons?: number
@@ -81,7 +87,7 @@ export interface OrderPdfData {
 // disco_orders; FM-mirrored orders on disco_sale_transactions).
 export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData | null> {
   const orders = (await sql`
-    SELECT id, reference, order_number, order_type, delivery_type, order_date, order_time, delivery_time_window, note, delivery_instructions, created_at, placed_at,
+    SELECT id, reference, order_number, order_type, delivery_type, order_date, order_time, order_drop_off_time, delivery_time_window, note, delivery_instructions, created_at, placed_at,
            customer_email, customer_first_name, customer_last_name, customer_phone,
            delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
            restaurant_reference, restaurant_name, restaurant_address, restaurant_phone, tax_exempt_id, tips,
@@ -173,8 +179,9 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     ...(() => {
       const rawOrderDate = toIsoDate(o.order_date)
       const rawOrderTime = String(o.order_time ?? '')
-      const ft = fulfillmentDateTime(o.delivery_type as string | null, rawOrderDate, rawOrderTime)
-      return { pickupDate: fmtDate(ft?.date ?? rawOrderDate), pickupTime: fmtTime(ft?.time ?? rawOrderTime) }
+      const courierDropOffTime = o.order_drop_off_time ? String(o.order_drop_off_time) : null
+      const ft = fulfillmentDateTime(o.delivery_type as string | null, rawOrderDate, rawOrderTime, courierDropOffTime)
+      return { readinessDate: fmtDate(ft?.date ?? rawOrderDate), readinessTime: fmtTime(ft?.time ?? rawOrderTime) }
     })(),
     // "Received on …" in the restaurant's local timezone (was UTC, which read
     // ~4h ahead for an EDT restaurant). Falls back to America/New_York.
@@ -182,7 +189,16 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     // orders, populated going forward by the fixed sync) — created_at is Neon
     // sync time, which for FM-mirrored orders can trail real placement by hours
     // to years.
-    orderReceived: (o.placed_at || o.created_at) ? new Date((o.placed_at || o.created_at) as string).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: cacheTimezone || 'America/New_York' }) : '',
+    // Date portion is MM/DD/YYYY — matching fmtDate and every other date on the
+    // page (was `dateStyle: 'medium'`, e.g. "Aug 14, 2026", the only written-month
+    // date on an otherwise all-numeric page).
+    orderReceived: (o.placed_at || o.created_at) ? (() => {
+      const dt = new Date((o.placed_at || o.created_at) as string)
+      const tz = cacheTimezone || 'America/New_York'
+      const date = dt.toLocaleDateString('en-US', { timeZone: tz, month: '2-digit', day: '2-digit', year: 'numeric' })
+      const time = dt.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' })
+      return `${date}, ${time}`
+    })() : '',
     deliveryAddress,
     persons: o.persons != null && Number(o.persons) > 0 ? Number(o.persons) : undefined,
     note: o.note ? String(o.note) : undefined,
@@ -200,8 +216,21 @@ const GREY = rgb(0.35, 0.35, 0.40)
 const BORDER = rgb(0, 0, 0)
 const FILL = rgb(0.95, 0.95, 0.965)
 
+// Shared per-block line styles, defined once so a future block can't drift
+// from the others the way ORDER DETAILS' Date/Time lines (10pt, grey) and
+// DELIVERY PICK-UP TIME's (11pt, dark) used to. Every "Label:" line and every
+// "Date: …" / "Time: …" value line on the page goes through these, not
+// per-block literals.
+const LABEL_SIZE = 9.5
+const VALUE_SIZE = 10
+const SECONDARY_SIZE = 9.5
+type Ln = { t: string; b?: boolean; s?: number; c?: ReturnType<typeof rgb>; label?: boolean }
+const labelLine = (t: string): Ln => ({ t, label: true, s: LABEL_SIZE })
+const valueLine = (t: string): Ln => ({ t, s: VALUE_SIZE, c: GREY })
+const secondaryLine = (t: string): Ln => ({ t, s: SECONDARY_SIZE, c: GREY })
+
 // Render the order as a bordered-grid invoice closely matching FamilyMeal's original
-// order PDF (subject box, "Received on", ORDER DETAILS | {SERVICE} TIME, side-by-side
+// order PDF (subject box, "Received on", ORDER DETAILS | READY BY, side-by-side
 // Store/Customer boxes, bordered items table, totals with Taxes/Delivery/Tips), with
 // Disco Cater's wordmark in place of FM's branding. (Itemized add-ons + true delivery
 // instructions are a deferred follow-up — that data isn't captured yet.)
@@ -222,7 +251,6 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
     if (maxW <= 0 || f.widthOfTextAtSize(t, size) <= maxW) return t
     let s = t; while (s.length > 1 && f.widthOfTextAtSize(s + '…', size) > maxW) s = s.slice(0, -1); return s + '…'
   }
-  type Ln = { t: string; b?: boolean; s?: number; c?: ReturnType<typeof rgb>; label?: boolean }
   const boxH = (lines: Ln[]) => Math.max(PADY * 2 + lines.reduce((a, l) => a + (l.s ?? 10) + LH, 0) - LH, 20)
   const cell = (x: number, top: number, w: number, lines: Ln[], h: number, fill?: ReturnType<typeof rgb>) => {
     page.drawRectangle({ x, y: top - h, width: w, height: h, borderColor: BORDER, borderWidth: 1.2, ...(fill ? { color: fill } : {}) })
@@ -252,38 +280,47 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   fullBox([{ t: subject, b: true, s: 12 }])
   if (d.orderReceived) fullBox([{ t: `Received on ${d.orderReceived}`, s: 9.5, c: GREY }])
 
-  // ── ORDER DETAILS: | {SERVICE} TIME: ──
-  const isDelivery = (d.orderService || '').toUpperCase() === 'DELIVERY'
-  const timeLabel = isDelivery ? 'DELIVERY PICK-UP TIME:' : `${(d.orderService || 'PICKUP').toUpperCase()} TIME:`
-  // ORDER DETAILS shows the same date/time as the adjacent {SERVICE} TIME box
-  // (previously just the raw service string, e.g. "DELIVERY", with no date/time
-  // at all) — both already computed above, just not included here before.
-  const leftDetail: Ln[] = [{ t: 'ORDER DETAILS:', label: true, s: 9.5 }, { t: d.orderService || 'Pickup', s: 11 }]
-  if (d.pickupDate) leftDetail.push({ t: `Date: ${d.pickupDate}`, s: 10, c: GREY })
-  if (d.pickupTime) leftDetail.push({ t: `Time: ${d.pickupTime}`, s: 10, c: GREY })
-  if (d.persons) leftDetail.push({ t: `Headcount: ${d.persons}`, s: 10, c: GREY })
-  const rightTime: Ln[] = [{ t: timeLabel, label: true, s: 9.5 }]
-  if (d.pickupDate) rightTime.push({ t: `Date: ${d.pickupDate}`, s: 11 })
-  if (d.pickupTime) rightTime.push({ t: `Time: ${d.pickupTime}`, s: 11 })
-  // 0.5 split so the right column ({SERVICE} TIME) lines up exactly with the
+  // ── ORDER DETAILS: | READY BY: ──
+  // Deliberately NOT FM's label. FM's own template (mail/pdf/order-details.ftl)
+  // uses "DELIVERY PICK-UP TIME:" for every delivery sub-type — self-delivery
+  // (OWN_DELIVERY) AND third-party (NASH_DELIVERY/DLIVRD_DELIVERY) alike — and
+  // "{orderService} TIME:" (i.e. "PICKUP TIME:") only for pickup. That wording
+  // is wrong on a self-delivery order (nobody's picking anything up; it's the
+  // restaurant's own driver leaving) — noted for the record, but "READY BY" is
+  // used here instead, for every fulfillment type, because it's accurate in
+  // all three cases (self-delivery, third-party, pickup) and FM's own
+  // imprecision isn't worth preserving.
+  const timeLabel = 'READY BY:'
+  // ORDER DETAILS shows the RAW order date/time — what the customer selected,
+  // never offset. (Bug fixed here: this used to read readinessDate/readinessTime,
+  // the kitchen-readiness value, so a self-delivery order showed the SAME
+  // minus-30 time in both boxes instead of differing by 30 minutes.)
+  const leftDetail: Ln[] = [labelLine('ORDER DETAILS:'), { t: d.orderService || 'Pickup', s: 11 }]
+  if (d.orderDate) leftDetail.push(valueLine(`Date: ${d.orderDate}`))
+  if (d.orderTime) leftDetail.push(valueLine(`Time: ${d.orderTime}`))
+  if (d.persons) leftDetail.push(valueLine(`Headcount: ${d.persons}`))
+  const rightTime: Ln[] = [labelLine(timeLabel)]
+  if (d.readinessDate) rightTime.push(valueLine(`Date: ${d.readinessDate}`))
+  if (d.readinessTime) rightTime.push(valueLine(`Time: ${d.readinessTime}`))
+  // 0.5 split so the right column (READY BY) lines up exactly with the
   // Customer box below it — matching the Store column on the left at 0.5.
   splitBox(leftDetail, rightTime, 0.5)
 
   // ── Store: | Customer: ──
-  const storeLines: Ln[] = [{ t: 'Store:', label: true, s: 9.5 }, { t: d.restaurantName || 'Restaurant', b: true, s: 11 }]
-  if (d.restaurantAddress) storeLines.push({ t: d.restaurantAddress, s: 9.5, c: GREY })
-  if (d.restaurantPhone) storeLines.push({ t: d.restaurantPhone, s: 9.5, c: GREY })
-  const custLines: Ln[] = [{ t: 'Customer:', label: true, s: 9.5 }, { t: d.customerName || '—', b: true, s: 11 }]
-  if (d.companyName) custLines.push({ t: d.companyName, s: 9.5, c: GREY })
-  if (d.deliveryAddress) custLines.push({ t: d.deliveryAddress, s: 9.5, c: GREY })
-  if (d.customerEmail) custLines.push({ t: d.customerEmail, s: 9.5, c: GREY })
-  if (d.customerPhone) custLines.push({ t: d.customerPhone, s: 9.5, c: GREY })
+  const storeLines: Ln[] = [labelLine('Store:'), { t: d.restaurantName || 'Restaurant', b: true, s: 11 }]
+  if (d.restaurantAddress) storeLines.push(secondaryLine(d.restaurantAddress))
+  if (d.restaurantPhone) storeLines.push(secondaryLine(d.restaurantPhone))
+  const custLines: Ln[] = [labelLine('Customer:'), { t: d.customerName || '—', b: true, s: 11 }]
+  if (d.companyName) custLines.push(secondaryLine(d.companyName))
+  if (d.deliveryAddress) custLines.push(secondaryLine(d.deliveryAddress))
+  if (d.customerEmail) custLines.push(secondaryLine(d.customerEmail))
+  if (d.customerPhone) custLines.push(secondaryLine(d.customerPhone))
   splitBox(storeLines, custLines, 0.5)
 
   // ── Note (general order note) ──
-  if (d.note) fullBox([{ t: 'Note:', label: true, s: 9.5 }, { t: d.note, s: 10 }])
+  if (d.note) fullBox([labelLine('Note:'), { t: d.note, s: 10 }])
   // ── Delivery Instructions (distinct from the general note) ──
-  if (d.deliveryInstructions) fullBox([{ t: 'Delivery Instructions:', label: true, s: 9.5 }, { t: d.deliveryInstructions, s: 10 }])
+  if (d.deliveryInstructions) fullBox([labelLine('Delivery Instructions:'), { t: d.deliveryInstructions, s: 10 }])
 
   // ── Items table (bordered rows) ──
   const IROW = 20, itemMaxW = CW - 92

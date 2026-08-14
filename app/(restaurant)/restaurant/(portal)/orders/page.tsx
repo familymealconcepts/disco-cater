@@ -830,35 +830,23 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
             {isTaxExempt && <DetailRow label="Tax Exempt ID" value={order.taxExemptId || '—'} />}
             {isTaxExempt && order.taxExemptState && <DetailRow label="Tax Exempt State" value={order.taxExemptState} />}
 
-            {/* DELIVERY / PICKUP TIME — customer info */}
-            <SectionHeader>{order.orderType === 'DELIVERY' ? 'Delivery Pick-up Time' : 'Pickup Time'}</SectionHeader>
+            {/* READY BY — kitchen-readiness deadline, not a fulfillment/arrival
+                time. Same label for every fulfillment type (was "Delivery
+                Pick-up Time" / "Pickup Time" — wrong on self-delivery, where
+                nobody's picking anything up; matches lib/order/order-pdf.ts). */}
+            <SectionHeader>Ready By</SectionHeader>
             {(() => {
-              // Self-delivery: order time minus 30 minutes (FM's OWN_DELIVERY
-              // convention), computed fresh — never the raw customer-selected
-              // order time. Pickup and third-party delivery are unchanged here:
-              // pickup has no offset; third-party's real fulfillment time is
-              // meant to come from the courier (Expedite), which has no stored
-              // value yet — deferred, see the backfill scope report.
-              if (order.deliveryType === 'OWN_DELIVERY') {
-                const ft = fulfillmentDateTime(order.deliveryType, order.orderDate, order.orderTime)
-                if (ft) {
-                  return (
-                    <>
-                      <DetailRow label="Date" value={fmtDate(ft.date)} />
-                      <DetailRow label="Time" value={fmtTime(ft.time)} />
-                    </>
-                  )
-                }
-              }
-              // Show the drop-off only when it parses to a real datetime; otherwise
-              // fall back to the order date/time (never render "Invalid Date").
-              const dropOff = fmtDateTime(order.orderDropOffTime)
-              return dropOff ? (
-                <DetailRow label="Drop-off" value={dropOff} />
-              ) : (
+              // Self-delivery: order time minus 30 (FM's OWN_DELIVERY
+              // convention). Third-party: the courier's own drop-off time
+              // once dispatched (order.orderDropOffTime — a bare time-of-day,
+              // no writer populates it in production yet, so this currently
+              // always falls through). Pickup: no offset, order time IS ready
+              // time. Shared computation with the PDF generator.
+              const ft = fulfillmentDateTime(order.deliveryType, order.orderDate, order.orderTime, order.orderDropOffTime)
+              return (
                 <>
-                  <DetailRow label="Date" value={fmtDate(order.orderDate)} />
-                  <DetailRow label="Time" value={fmtTime(order.orderTime)} />
+                  <DetailRow label="Date" value={fmtDate(ft?.date ?? order.orderDate)} />
+                  <DetailRow label="Time" value={fmtTime(ft?.time ?? order.orderTime)} />
                 </>
               )
             })()}
