@@ -2,12 +2,20 @@ import { NextResponse } from 'next/server'
 import { validateApiKey } from '../../../../lib/api-key-auth'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
 import { sql } from '../../../../lib/db'
-import { PLACEHOLDER_EMAIL_SQL_PATTERN } from '../../../../lib/customer-email-guard'
+import { PLACEHOLDER_EMAIL_SQL_PATTERN, normalizeEmail } from '../../../../lib/customer-email-guard'
 
-// Read-only customer export for CRM sync. API-key protected. Pages through FM's
-// platform-wide customer list, then joins the platform-wide order list (same
-// source as /api/export/orders) on customer email to enrich each customer with
-// order-derived metrics (total orders, lifetime value, AOV, first/last order).
+// Read-only customer export for CRM sync. API-key protected.
+//
+// Roster source: disco_customer_roster (lib/fm-customer-sync.ts), a mirror of
+// FM's platform-wide customer list kept current by a daily cron — NOT a live
+// FM pull on every call anymore (that was 85 pages, ~32s, every single time
+// this was hit). Pass ?source=fm to force the original live-FM-pull path
+// instead — kept as a fallback until the mirror's output is confirmed to
+// match; not deleted in this change, per instruction.
+//
+// Either way, order-derived metrics (total orders, lifetime value, AOV,
+// first/last order) are unchanged — computed from disco_orders (Neon-first,
+// FM-list fallback), joined by normalized email, exactly as before.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,16 +45,11 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-// Normalize an email for case-insensitive joining (null when absent).
-function normEmail(v: unknown): string | null {
-  return typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : null
-}
-
 // Pull the customer email off an order row (same precedence as /api/export/orders).
 function orderEmail(o: FmRow): string | null {
   const customer = o.customer as FmRow | undefined
   const saleCustomer = (o.saleTransaction as FmRow | undefined)?.customer as FmRow | undefined
-  return normEmail(customer?.email ?? saleCustomer?.email ?? o.userEmail ?? o.customerEmail ?? o.email)
+  return normalizeEmail(customer?.email ?? saleCustomer?.email ?? o.userEmail ?? o.customerEmail ?? o.email)
 }
 
 // Page through an FM list endpoint, refreshing the service token once on 401.
@@ -115,7 +118,7 @@ async function statsFromNeon(): Promise<Map<string, OrderStats>> {
       AND o.is_deleted = false
   `) as FmRow[]
   const stats = new Map<string, OrderStats>()
-  for (const r of rows) accumulate(stats, normEmail(r.customer_email), r.subtotal, r.order_date)
+  for (const r of rows) accumulate(stats, normalizeEmail(r.customer_email), r.subtotal, r.order_date)
   return stats
 }
 
@@ -132,41 +135,76 @@ async function statsFromFm(headerRef: { h: Record<string, string> }): Promise<Ma
   return stats
 }
 
+interface RosterEntry { email: string | null; firstName: string | null; lastName: string | null }
+
+// Default source: the Neon mirror (lib/fm-customer-sync.ts), kept current by
+// the daily cron. Excludes anything soft-deleted (no longer on FM).
+async function rosterFromMirror(): Promise<RosterEntry[]> {
+  const rows = (await sql`
+    SELECT email, first_name, last_name FROM disco_customer_roster WHERE removed_from_fm_at IS NULL
+  `) as { email: string; first_name: string | null; last_name: string | null }[]
+  return rows.map(r => ({ email: r.email, firstName: r.first_name, lastName: r.last_name }))
+}
+
+// Fallback source: FM's live customer list, exactly as this export worked
+// before the mirror existed (same fields read, same shape — including that
+// firstName/lastName are read from fields this endpoint doesn't actually
+// have, so they come back null here, same as always). Kept verbatim for a
+// side-by-side comparison against the mirror, not modernized — this is the
+// known-behavior baseline, not a second implementation to maintain.
+async function rosterFromFm(headerRef: { h: Record<string, string> }): Promise<RosterEntry[]> {
+  const customersRaw = await fetchAllFmPages(
+    (page, size) => `${FM}/api/customer/users?${new URLSearchParams({ page: String(page), size: String(size) })}`,
+    headerRef,
+  )
+  return customersRaw.map(c => ({
+    email: (c.email as string | null) ?? null,
+    firstName: (c.firstName as string | null) ?? null,
+    lastName: (c.lastName as string | null) ?? null,
+  }))
+}
+
 export async function GET(request: Request) {
   if (!validateApiKey(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const url = new URL(request.url)
+  const useFm = url.searchParams.get('source') === 'fm'
+
   try {
-    const headerRef = { h: await getFmServiceAuthHeader() }
+    // headerRef is only ever needed for an FM call — the roster-from-FM
+    // fallback, or the stats-from-FM fallback if the Neon stats query fails.
+    // Lazy so the common case (mirror roster + Neon stats) never logs into FM.
+    let headerRefCache: { h: Record<string, string> } | null = null
+    const getHeaderRef = async () => {
+      if (!headerRefCache) headerRefCache = { h: await getFmServiceAuthHeader() }
+      return headerRefCache
+    }
 
-    // 1) All customers.
-    const customersRaw = await fetchAllFmPages(
-      (page, size) => `${FM}/api/customer/users?${new URLSearchParams({ page: String(page), size: String(size) })}`,
-      headerRef,
-    )
+    const roster = useFm ? await rosterFromFm(await getHeaderRef()) : await rosterFromMirror()
 
-    // 2+3) Aggregate orders by customer email. Prefer Neon (disco_orders);
-    // fall back to the FM order list if the query fails so this never breaks.
+    // Aggregate orders by customer email. Prefer Neon (disco_orders); fall
+    // back to the FM order list if the query fails so this never breaks.
     let stats: Map<string, OrderStats>
     try {
       stats = await statsFromNeon()
     } catch (e) {
       console.error('[export/customers] Neon orders query failed, falling back to FM:', e instanceof Error ? e.message : e)
-      stats = await statsFromFm(headerRef)
+      stats = await statsFromFm(await getHeaderRef())
     }
 
-    // 4) Join onto each customer and compute the derived fields.
-    const customers = customersRaw.map((c) => {
-      const email = (c.email as string | null) ?? null
-      const s = email ? stats.get(normEmail(email) ?? '') : undefined
+    // Join onto each customer and compute the derived fields.
+    const customers = roster.map((c) => {
+      const email = c.email
+      const s = email ? stats.get(normalizeEmail(email) ?? '') : undefined
       const totalOrders = s?.count ?? 0
       const lifetimeValue = round2(s?.lifetime ?? 0)
       const averageOrderValue = totalOrders > 0 ? round2(lifetimeValue / totalOrders) : 0
       return {
         email,
-        firstName: (c.firstName as string | null) ?? null,
-        lastName: (c.lastName as string | null) ?? null,
+        firstName: c.firstName,
+        lastName: c.lastName,
         totalOrders,
         lifetimeValue,
         averageOrderValue,
@@ -175,7 +213,7 @@ export async function GET(request: Request) {
       }
     })
 
-    return NextResponse.json(customers, { headers: { 'X-Total-Count': String(customers.length) } })
+    return NextResponse.json(customers, { headers: { 'X-Total-Count': String(customers.length), 'X-Roster-Source': useFm ? 'fm' : 'mirror' } })
   } catch (e) {
     console.error('[export/customers] failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to export customers' }, { status: 500 })

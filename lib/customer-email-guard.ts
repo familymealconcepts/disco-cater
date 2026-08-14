@@ -21,6 +21,14 @@ export function isPlaceholderEmail(email: string | null | undefined): boolean {
   return !!email && email.endsWith(PLACEHOLDER_EMAIL_DOMAIN)
 }
 
+// The one normalizer for matching/joining on email (trim + lowercase) — used
+// to join disco_orders to a customer by email, and to key the customer
+// roster mirror. Moved here from app/api/export/customers/route.ts so the
+// roster sync doesn't grow a second copy of the same logic.
+export function normalizeEmail(v: unknown): string | null {
+  return typeof v === 'string' && v.trim() ? v.trim().toLowerCase() : null
+}
+
 // DISPLAY paths (orders list, popout, order PDF, scheduled reports, CRM
 // export): call this at the point of output. Returns '' for a placeholder —
 // never the synthetic string — and the real value (or '') otherwise.

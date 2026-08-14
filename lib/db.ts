@@ -258,6 +258,27 @@ export async function runMigrations(): Promise<void> {
       opted_out_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       source TEXT
     )`,
+    // Read-only mirror of FM's platform-wide customer list, kept current by a
+    // daily cron (lib/fm-customer-sync.ts) so /api/export/customers stops
+    // paging FM's live list (16,846 records, ~32s) on every call. These people
+    // never log in — no password, no account. email is the only reliable key
+    // (FM's own customerReference is null on every record, checked against
+    // 2,000 live samples — not worth a column that's permanently empty).
+    // first_name/last_name are parsed from FM's single `username` field
+    // (heuristic — see splitUsername) rather than left null, which is what
+    // this data has always rendered as (there is no separate firstName/
+    // lastName field on this endpoint at all).
+    `CREATE TABLE IF NOT EXISTS disco_customer_roster (
+      id SERIAL PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      first_name TEXT,
+      last_name TEXT,
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      removed_from_fm_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_disco_customer_roster_email ON disco_customer_roster(email)`,
   ]
   for (const s of statements) await sql.query(s)
   promoMigrated = true
