@@ -193,33 +193,55 @@ export default function RestaurantsOrderingPage() {
     return () => clearTimeout(t)
   }, [searchInput])
 
+  // Fetch the FULL FM-backed set (all pages), not one server-paginated slice —
+  // same fix as the admin Orders list (S12): search and pagination now run
+  // over the combined FM + Disco-only set client-side, so a Disco-only
+  // restaurant can never survive a non-matching search (it was never filtered
+  // at all before) or get re-shown on every page (it was unconditionally
+  // prepended to whatever FM slice happened to be loaded, with no client-side
+  // page boundary — visible on every single page, not paginated at all).
+  // restaurantStatus stays server-side (a real FM concept the FM-backed
+  // fetch still filters on); search moves entirely client-side in
+  // visibleRows below, across both sets.
+  const FM_FETCH_SIZE = 500
+  const FM_MAX_PAGES = 50
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
-    const params = new URLSearchParams()
-    if (page > 0) params.set('page', String(page))
-    params.set('size', String(pageSize))
-    if (search) params.set('search', search)
-    if (statusFilter) params.set('restaurantStatus', statusFilter)
-    const res = await fetch(`/api/admin/restaurants?${params}`)
-    if (res.ok) {
-      const d = await res.json()
+    const url = (p: number) => {
+      const params = new URLSearchParams()
+      if (p > 0) params.set('page', String(p))
+      params.set('size', String(FM_FETCH_SIZE))
+      if (statusFilter) params.set('restaurantStatus', statusFilter)
+      return `/api/admin/restaurants?${params}`
+    }
+    try {
+      const first = await fetch(url(0)).then(r => (r.ok ? r.json() : null))
+      if (!first) { setError('Failed to load restaurants'); setRows([]); setTotal(0); setLoading(false); return }
+      let all: Restaurant[] = Array.isArray(first.content) ? first.content : []
+      const totalElements = Number(first.totalElements ?? first.total_elements ?? 0)
+      const reportedPages = first.totalPages ?? first.total_pages
+      const computedPages = totalElements > 0 ? Math.ceil(totalElements / FM_FETCH_SIZE) : (all.length > 0 ? 1 : 0)
+      const totalPagesFm = Math.min(Number(reportedPages ?? computedPages) || (all.length > 0 ? 1 : 0), FM_MAX_PAGES)
+      if (totalPagesFm > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPagesFm - 1 }, (_, i) => fetch(url(i + 1)).then(r => (r.ok ? r.json() : null))),
+        )
+        for (const pg of rest) if (Array.isArray(pg?.content)) all = all.concat(pg.content)
+      }
       // Tag every row with a unique local id. FM can repeat `reference` across
       // multi-unit locations, so we suffix with the array index to guarantee
       // uniqueness for React keys + per-row optimistic updates.
-      const content: Restaurant[] = (d.content || []).map((r: Restaurant, i: number) => ({
-        ...r,
-        _rowId: `${r.reference ?? 'noref'}#${i}`,
-      }))
+      const content: Restaurant[] = all.map((r, i) => ({ ...r, _rowId: `${r.reference ?? 'noref'}#${i}` }))
       setRows(content)
-      setTotal(d.totalElements || 0)
-    } else {
+      setTotal(totalElements)
+    } catch {
       setError('Failed to load restaurants')
       setRows([])
       setTotal(0)
     }
     setLoading(false)
-  }, [page, pageSize, search, statusFilter])
+  }, [statusFilter])
 
   useEffect(() => { load() }, [load])
 
@@ -436,7 +458,6 @@ export default function RestaurantsOrderingPage() {
     }
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const [addOpen, setAddOpen] = useState(false)
   const [editRef, setEditRef] = useState<string | null>(null)
   // Online-ordering confirmation modal (FM onlineOrderingAllowed). next = target on/off.
@@ -508,7 +529,19 @@ export default function RestaurantsOrderingPage() {
   const [overrideMap, setOverrideMap] = useState<Record<string, OverrideMeta>>({})
 
   // Client-side sort of the currently-loaded page (no extra API calls).
-  const sortedRows = useMemo(() => {
+  // Merge → filter (search, across BOTH sets) → sort (whole combined set) →
+  // the caller slices for pagination. Search used to run FM-side only (an FM
+  // orphan was never sent to FM at all, so it could never be excluded by a
+  // query it didn't match); sort used to run on [...orphanRows, ...rows]
+  // directly, which does re-sort correctly, but two things still broke it:
+  // orphans had no adminName field at all (fixed at the merge boundary in
+  // /api/admin/disco-native-orphans, not here — see that route), so every
+  // orphan tied at '' on the Admin column and rode the stable-sort's
+  // preserved-input-order artifact toward one end regardless of real data;
+  // and nothing paginated the combined set — orphans were unconditionally
+  // prepended to whatever one FM page happened to be loaded, so they
+  // rendered on every page, not a real position in one.
+  const visibleRows = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1
     const stripeRank = (r: Restaurant) => {
       const s = stripeMap[r.reference]
@@ -536,14 +569,33 @@ export default function RestaurantsOrderingPage() {
     const orphanRows = discoOrphans
       .filter(o => !fmRefs.has(o.reference))
       .map(o => ({ ...o, _rowId: `disco-only#${o.reference}`, discoOnly: true }))
-    return [...orphanRows, ...rows].sort((a, b) => {
+    const combined = [...orphanRows, ...rows]
+
+    const q = search.trim().toLowerCase()
+    const filtered = q
+      ? combined.filter(r =>
+          (r.businessName || '').toLowerCase().includes(q) ||
+          adminNameOf(r).toLowerCase().includes(q) ||
+          adminEmailOf(r).toLowerCase().includes(q),
+        )
+      : combined
+
+    return filtered.sort((a, b) => {
       const va = val(a), vb = val(b)
-      const cmp = typeof va === 'number' && typeof vb === 'number'
+      let cmp = typeof va === 'number' && typeof vb === 'number'
         ? va - vb
         : String(va).localeCompare(String(vb), undefined, { sensitivity: 'base' })
+      // Tie-break on restaurant name so a tie (e.g. every Disco-only row
+      // sharing '' before the Admin-name fix, or any two real ties) doesn't
+      // fall back to stable-sort's preserved-input-order — which always
+      // favored orphans, since they're spliced in at the front above.
+      if (cmp === 0) cmp = (a.businessName || '').localeCompare(b.businessName || '', undefined, { sensitivity: 'base' })
       return cmp * dir
     })
-  }, [rows, discoOrphans, sortKey, sortDir, stripeMap])
+  }, [rows, discoOrphans, sortKey, sortDir, stripeMap, search, overrideMap])
+
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize))
+  const pageRows = useMemo(() => visibleRows.slice(page * pageSize, (page + 1) * pageSize), [visibleRows, page, pageSize])
 
   const loadStripeMap = useCallback(async () => {
     try {
@@ -848,7 +900,7 @@ export default function RestaurantsOrderingPage() {
           <tbody>
             {loading && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
             {!loading && !rows.length && <tr><td colSpan={12} style={{ ...cell, textAlign: 'center', color: '#999' }}>No restaurants.</td></tr>}
-            {!loading && sortedRows.map(r => {
+            {!loading && pageRows.map(r => {
               const adminName = r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
               const adminEmail = r.adminEmail || r.admin?.email || ''
               // M4 drop-off guard (report-only): flag an FM-backed row that is
@@ -1007,7 +1059,7 @@ export default function RestaurantsOrderingPage() {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
-        <div style={{ fontSize: 12, color: '#666' }}>{total} restaurant{total === 1 ? '' : 's'}</div>
+        <div style={{ fontSize: 12, color: '#666' }}>{visibleRows.length} restaurant{visibleRows.length === 1 ? '' : 's'}</div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#666' }}>
           <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} style={pageBtn}>‹</button>
           <span>Page {page + 1} of {totalPages}</span>

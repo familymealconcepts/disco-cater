@@ -25,6 +25,12 @@ export async function GET() {
                a.restaurant_reference AS reference,
                a.restaurant_name AS "businessName",
                a.email AS "adminEmail",
+               -- The ordering page's Admin column reads adminName — this was
+               -- missing entirely (disco_restaurant_accounts has first_name/
+               -- last_name, just never selected), so every orphan tied at ''
+               -- when sorted by Admin, a real shape mismatch against FM rows
+               -- (which always carry a name), not just a missing-data gap.
+               NULLIF(TRIM(CONCAT(a.first_name, ' ', a.last_name)), '') AS "adminName",
                a.created_at AS "createdAtRaw",
                (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true) AS "stripeConnected",
                COALESCE(a.fm_creation_failed, false) AS "fmCreationFailed",
