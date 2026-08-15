@@ -15,6 +15,7 @@ import { loadFmOrderDetails, parseFmOrder, fmDateToIso, isUuid } from './order-e
 import { fmFetch } from './fm-fetch'
 import { dispatchOrderConfirmations } from './order-notifications'
 import { alertOps } from './ops-alert'
+import { isKnownFmDuplicateOrderNumber } from './known-fm-order-duplicates'
 import { buildSaleTransactionFields } from './order/fm-sale-transaction'
 import { fetchAllFmRestaurants } from './restaurant-cache'
 
@@ -333,12 +334,28 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
         RETURNING id
       `) as { id: number }[]
     } catch (e) {
-      // order_number UNIQUE collision or a bad cast → skip this order. Alert so a
-      // silently-dropped order is visible rather than lost in the skip counter.
-      await alertOps('fm-orders-sync: order insert skipped (dropped)', {
-        orderNumber: o.orderNumber ?? null, restaurantReference,
-        error: e instanceof Error ? e.message : String(e),
-      })
+      // order_number UNIQUE collision or a bad cast → skip this order.
+      // Suppress the alert ONLY for a collision already confirmed (offline,
+      // against fm_backup) to be a real FM-side duplicate order_number for
+      // THIS restaurant AND order_number — disco_orders_restaurant_order_number_uq
+      // rejecting it is correct, permanent, expected behavior that will recur
+      // every rotation forever, not a new failure each time (see
+      // lib/known-fm-order-duplicates.ts). Anything else — a different
+      // restaurant, or an order_number not in that known set — still alerts;
+      // that would be genuinely new information about a fresh collision.
+      const known = isKnownFmDuplicateOrderNumber(restaurantReference, o.orderNumber)
+      if (known) {
+        console.log('[fm-orders-sync] order insert skipped — known FM-side duplicate order_number, not alerting:', {
+          orderNumber: o.orderNumber, restaurantReference,
+        })
+      } else {
+        // Alert so a silently-dropped order is visible rather than lost in
+        // the skip counter.
+        await alertOps('fm-orders-sync: order insert skipped (dropped)', {
+          orderNumber: o.orderNumber ?? null, restaurantReference,
+          error: e instanceof Error ? e.message : String(e),
+        })
+      }
       return 'skipped'
     }
     if (withItems && inserted[0]?.id) await syncOrderDetail(inserted[0].id, o.fmRef)

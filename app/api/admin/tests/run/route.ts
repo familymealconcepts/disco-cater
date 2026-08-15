@@ -302,8 +302,13 @@ async function testSlack(): Promise<TestResult> {
   const steps: Step[] = []
   const order = !!process.env.SLACK_NEW_ORDER_WEBHOOK_URL
   const partner = !!process.env.SLACK_PARTNER_WEBHOOK_URL
+  const notifications = !!process.env.SLACK_NOTIFICATIONS_WEBHOOK_URL
   steps.push({ name: 'SLACK_NEW_ORDER_WEBHOOK_URL set', status: order ? 'passed' : 'failed', detail: order ? 'configured' : 'missing' })
   steps.push({ name: 'SLACK_PARTNER_WEBHOOK_URL set', status: partner ? 'passed' : 'failed', detail: partner ? 'configured' : 'missing' })
+  // Ops alerts (lib/ops-alert.ts) — no fallback to SLACK_NEW_ORDER_WEBHOOK_URL
+  // on purpose (that fallback was the #orders-pollution bug); if this is
+  // unset, alerts are console-only, not silently misrouted.
+  steps.push({ name: 'SLACK_NOTIFICATIONS_WEBHOOK_URL set', status: notifications ? 'passed' : 'failed', detail: notifications ? 'configured' : 'missing — ops alerts will be console-only' })
   return { steps, testData: { createdRecords: [] } }
 }
 
