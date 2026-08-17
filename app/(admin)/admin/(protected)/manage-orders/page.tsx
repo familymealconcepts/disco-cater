@@ -184,7 +184,7 @@ const STATUS_LABEL: Record<string, string> = {
   DUE: 'Due', PAID: 'Paid', UNPAID: 'Unpaid', COMPLETED: 'Completed',
   CANCELED: 'Canceled', REFUND: 'Refunded', PARTIAL_REFUND: 'Partial Refund',
   VOID: 'Void', EXPIRED: 'Abandoned at checkout', RESERVED: 'At checkout', REOPEN: 'Reopened',
-  IN_PROGRESS: 'In Progress', CART: 'Items in cart', SELECTED: 'Date/time picked',
+  CART: 'Items in cart', SELECTED: 'Date/time picked',
 }
 const statusLabel = (s: string) => STATUS_LABEL[s] || s
 

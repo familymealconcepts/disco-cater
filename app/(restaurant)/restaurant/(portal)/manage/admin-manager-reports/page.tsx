@@ -59,7 +59,10 @@ const TIMEZONES = [
   { value: 'Pacific/Honolulu', label: 'Hawaii Time (HAT)' },
 ]
 
-const ORDER_STATUSES = ['COMPLETED','REFUND','REFUNDED','IN_PROGRESS','CANCELED','RESERVED','EXPIRED','DUE','VOID','VOIDED','UNPAID','PAID']
+// IN_PROGRESS removed — it isn't part of FM's OrderStatus enum (it's an
+// unrelated CSV-export job's polling state); no real order can ever have it,
+// so offering it as a filter option could only ever match zero rows.
+const ORDER_STATUSES = ['COMPLETED','REFUND','REFUNDED','CANCELED','RESERVED','EXPIRED','DUE','VOID','VOIDED','UNPAID','PAID']
 const FULFILLMENT_TYPES = ['PICKUP','OWN_DELIVERY','DLIVRD_DELIVERY']
 
 function fmtTime12(t?: string) {
