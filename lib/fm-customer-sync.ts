@@ -105,6 +105,10 @@ export interface FmCustomerSyncResult {
   reason?: string
 }
 
+// Platform-wide by email — no restaurant_reference concept anywhere in this
+// file. MUST STAY that way: this sync can't be scoped to (or exempt) a
+// restaurant's visibility/archive status by construction, and it shouldn't
+// gain one. Archiving one restaurant must never affect the roster mirror.
 export async function syncFmCustomers(): Promise<FmCustomerSyncResult> {
   const startedAt = Date.now()
   await runMigrations()

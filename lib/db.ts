@@ -185,6 +185,19 @@ export async function runMigrations(): Promise<void> {
     // service account (the same session-scoped wall confirmed for notifications
     // and closed-days).
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS promo_codes_flagged_at TIMESTAMPTZ`,
+    // ── Restaurant archive (soft-delete), Disco-native only ────────────────────
+    // Canonical archive flag. NULL = active; a timestamp = archived (removed from
+    // every customer- and admin-facing surface, but every row — orders, payments,
+    // menus, Stripe account — is retained; fully reversible via restore).
+    // Deliberately distinct from `visible`/`is_live`: archive is a fourth, STRONGER
+    // gate checked first everywhere those are checked, and restore is the only
+    // thing that clears it — an unrelated visibility toggle must never look like
+    // (or accidentally cause) a restore. This column already existed live in
+    // production from the unmerged archive-restaurants branch (9afe4cf) running its
+    // own migration against the same database; this ALTER just gives it a real,
+    // committed migration record so a fresh clone reproduces it.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS archived_by TEXT`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.
@@ -232,6 +245,11 @@ export async function runMigrations(): Promise<void> {
     // Index the slug so the favorites enrichment can join on slug (some favorites
     // were stored by Sanity slug rather than the restaurant_reference UUID).
     `CREATE INDEX IF NOT EXISTS idx_disco_restaurant_cache_slug ON disco_restaurant_cache(slug)`,
+    // Mirror of disco_restaurant_overrides.archived_at (the canonical flag) onto
+    // the marketplace snapshot, so the discovery-feed query can filter archived
+    // restaurants in one join instead of a second lookup. Kept in lockstep by
+    // archiveDiscoNativeRestaurant/restoreDiscoNativeRestaurant (lib/disco-restaurant-archive.ts).
+    `ALTER TABLE disco_restaurant_cache ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`,
     // Per-menu Disco-only settings (keyed by the FM/menu reference). Holds the
     // "Include Utensils" toggle — a Disco concept FM has no field for. When true,
     // the customer ordering page offers an optional "Include utensils" checkbox

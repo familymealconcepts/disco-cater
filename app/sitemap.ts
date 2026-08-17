@@ -1,7 +1,16 @@
 import type { MetadataRoute } from 'next'
-import { sql, runMigrations, withDiscoTables } from '../lib/db'
+import { getMarketplaceRestaurants } from '../lib/marketplace-restaurants'
 
 const SITE = 'https://www.discocater.com'
+
+// Forced dynamic: without this, Next statically generates sitemap.xml once at
+// build time (confirmed via `npm run build` — it showed up as ○ Static). An
+// archived (or newly visible) restaurant would then stay/miss from the crawl
+// until the next deploy — the only real cache-staleness gap found when
+// scoping archive, since every other discovery surface here reads Neon fresh
+// on every request already. Deploys are frequent, but there's no reason to
+// accept even that window when this route is cheap.
+export const dynamic = 'force-dynamic'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date()
@@ -9,35 +18,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Every restaurant with a usable slug that's actually visible on the public
   // marketplace today — same visibility rule as /api/restaurants (the fullmap
   // feed), so the sitemap never lists a restaurant page that 404s or a hidden
-  // one. Defensive on errors — a transient DB failure shouldn't 500 the
-  // sitemap and tank crawl.
+  // one. Shared via lib/marketplace-restaurants.ts. Defensive on errors — a
+  // transient DB failure shouldn't 500 the sitemap and tank crawl.
   let restaurantSlugs: { slug: string }[] = []
   try {
-    const rows = (await withDiscoTables(() => sql`
-      SELECT c.slug
-      FROM disco_restaurant_cache c
-      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-      LEFT JOIN LATERAL (
-        SELECT a2.stripe_account_id, a2.stripe_onboarding_complete
-        FROM disco_restaurant_accounts a2
-        WHERE (a2.restaurant_reference = c.restaurant_reference OR a2.fm_restaurant_reference = c.restaurant_reference)
-          AND a2.stripe_account_id IS NOT NULL
-        ORDER BY a2.stripe_onboarding_complete DESC NULLS LAST, a2.id ASC
-        LIMIT 1
-      ) a ON true
-      WHERE c.slug IS NOT NULL
-        AND (
-          (COALESCE(c.is_disco_native, false) = false
-            AND o.visible = true AND o.stripe_connected = true)
-          OR
-          (c.is_disco_native = true
-            AND o.visible = true
-            AND COALESCE(o.online_ordering_enabled, true) = true
-            AND (o.stripe_connected = true
-                 OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
-        )
-    `, runMigrations)) as { slug: string }[]
-    restaurantSlugs = rows || []
+    const rows = await getMarketplaceRestaurants()
+    restaurantSlugs = rows.filter((r) => !!r.slug).map((r) => ({ slug: r.slug as string }))
   } catch {
     restaurantSlugs = []
   }

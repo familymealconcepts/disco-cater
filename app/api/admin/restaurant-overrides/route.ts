@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
         SELECT COALESCE(o.restaurant_reference, c.restaurant_reference) AS restaurant_reference,
                o.is_premium, o.visible, o.stripe_connected,
                o.stripe_checked_at, o.order_url, o.online_ordering_enabled, c.menu_upload_url,
-               c.is_live, c.is_disco_native,
+               c.is_live, c.is_disco_native, o.archived_at,
                -- Disco-native restaurants connect Stripe via disco_restaurant_accounts;
                -- expose whether a Stripe account exists as a connection fallback.
                (a.stripe_account_id IS NOT NULL) AS has_stripe_account,
@@ -59,6 +59,7 @@ export async function GET(req: NextRequest) {
         order_url: string | null; online_ordering_enabled: boolean | null; menu_upload_url: string | null
         is_live: boolean | null; is_disco_native: boolean | null; has_stripe_account: boolean | null
         menu_drift_detected: boolean | null; menu_drift_details: unknown | null; invite_expired: boolean | null
+        archived_at: string | null
       }[]
 
       // Disco-native restaurants connect Stripe under their Disco reference, which
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest) {
         stripeCheckedAt: string | null; orderUrl: string; onlineOrderingEnabled: boolean | null
         menuUploadUrl: string | null; isLive: boolean; isDiscoNative: boolean; hasStripeAccount: boolean
         menuDriftDetected: boolean; menuDriftDetails: unknown[]; inviteExpired: boolean
+        archivedAt: string | null
       }
       const byRef = new Map<string, OverrideDto>()
       for (const r of rows) {
@@ -99,6 +101,7 @@ export async function GET(req: NextRequest) {
           menuDriftDetected: r.menu_drift_detected ?? false,
           menuDriftDetails: (r.menu_drift_details as unknown[]) ?? [],
           inviteExpired: (r.is_disco_native ?? false) && (r.invite_expired ?? false),
+          archivedAt: r.archived_at,
         })
       }
 
@@ -112,7 +115,7 @@ export async function GET(req: NextRequest) {
       const nativeRows = (await sql`
         SELECT a.fm_restaurant_reference AS fm_ref,
                o.is_premium, o.visible, o.stripe_connected, o.stripe_checked_at, o.order_url,
-               o.online_ordering_enabled, c.menu_upload_url, c.is_live,
+               o.online_ordering_enabled, c.menu_upload_url, c.is_live, o.archived_at,
                (a.stripe_account_id IS NOT NULL) AS has_stripe_account,
                d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details,
                (a.invite_token IS NOT NULL AND a.invite_token_expires_at < NOW()) AS invite_expired
@@ -126,6 +129,7 @@ export async function GET(req: NextRequest) {
         stripe_checked_at: string | null; order_url: string | null; online_ordering_enabled: boolean | null
         menu_upload_url: string | null; is_live: boolean | null; has_stripe_account: boolean | null
         menu_drift_detected: boolean | null; menu_drift_details: unknown | null; invite_expired: boolean | null
+        archived_at: string | null
       }[]
       for (const n of nativeRows) {
         if (!n.fm_ref) continue
@@ -144,6 +148,7 @@ export async function GET(req: NextRequest) {
           menuDriftDetected: n.menu_drift_detected ?? false,
           menuDriftDetails: (n.menu_drift_details as unknown[]) ?? [],
           inviteExpired: n.invite_expired ?? false,
+          archivedAt: n.archived_at,
         })
       }
 

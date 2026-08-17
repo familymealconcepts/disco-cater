@@ -56,6 +56,10 @@ export async function expireStaleNativeReservedOrders(
 ): Promise<ReservedExpirySummary> {
   const summary: ReservedExpirySummary = { checked: 0, reconciled: 0, expired: 0, skipped: 0, details: [] }
 
+  // MUST NOT filter by restaurant visibility/archive status. A restaurant
+  // with a stuck RESERVED order (or a succeeded charge and no order) still
+  // needs catching whether it's archived or not — archiving hides a
+  // storefront, it does not exempt a restaurant from payment reconciliation.
   const rows = (await sql`
     SELECT o.id, o.reference::text AS reference, o.order_number, o.created_at::text AS created_at,
            COALESCE(sp.stripe_payment_intent_id, st.stripe_payment_intent_id) AS payment_intent_id

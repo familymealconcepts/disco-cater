@@ -85,10 +85,14 @@ export async function setResetToken(email: string): Promise<string> {
 // Resolve an account by a non-expired invite token, or null.
 export async function getAccountByInviteToken(token: string): Promise<InviteAccount | null> {
   if (!token) return null
+  // archived_at IS NULL is a backstop, not the primary defense — archiving
+  // already clears invite_token/invite_token_expires_at (see
+  // lib/disco-restaurant-archive.ts), so this mostly guards a race between an
+  // in-flight accept and an archive landing at the same moment.
   const rows = (await sql`
     SELECT email, first_name, last_name, restaurant_reference, restaurant_name, role, business_name
     FROM disco_restaurant_accounts
-    WHERE invite_token = ${token} AND invite_token_expires_at > NOW()
+    WHERE invite_token = ${token} AND invite_token_expires_at > NOW() AND archived_at IS NULL
     LIMIT 1
   `) as InviteAccount[]
   return rows[0] ?? null
@@ -105,6 +109,29 @@ export async function acceptInvite(email: string, passwordHash: string): Promise
         updated_at = NOW()
     WHERE email = ${email}
   `
+}
+
+// The shared archive gate for portal login. Called by all three login
+// routes (disco-native, accept-invite auto-login, FM-legacy) right after
+// identity resolves to a restaurant_reference and before a session is
+// issued — archived restaurants have no login path, full stop. Disco-native
+// only: an FM-backed restaurant_reference will simply never have
+// archived_at set (archive is deferred for FM-backed), so this is a safe
+// no-op for that population. Never throws — an archive-check failure must
+// not accidentally lock out a legitimate login, so it fails open (false).
+export async function isDiscoRestaurantArchived(restaurantReference: string): Promise<boolean> {
+  if (!restaurantReference) return false
+  try {
+    const rows = (await sql`
+      SELECT 1 FROM disco_restaurant_accounts
+      WHERE restaurant_reference = ${restaurantReference} AND archived_at IS NOT NULL
+      LIMIT 1
+    `) as unknown[]
+    return rows.length > 0
+  } catch (err) {
+    console.error('[isDiscoRestaurantArchived] check failed — failing open:', err instanceof Error ? err.message : err)
+    return false
+  }
 }
 
 // Create a session token (30 day expiry)
@@ -226,6 +253,12 @@ export async function getDiscoGroupAccounts(businessName: string | null, email: 
 
   // This function must NEVER throw — a scoping failure must not break login or any
   // portal request. On any error we return [] and let the caller fall back.
+  //
+  // Every branch below excludes archived locations (disco_restaurant_accounts.
+  // archived_at IS NOT NULL) — this is a LIVE query re-run on every request (no
+  // session-cached location list anywhere in this codebase), so a SYSTEM_ADMIN
+  // with both an archived and an active location loses access to the archived
+  // one and keeps the active one immediately, mid-session, with no re-login.
   try {
     // Explicit access wins (disco_restaurant_location_access). One row per access
     // entry (la is UNIQUE per email+ref); name comes from the restaurant cache.
@@ -236,7 +269,8 @@ export async function getDiscoGroupAccounts(businessName: string | null, email: 
                NULL AS business_name, 'SYSTEM_ADMIN' AS role
         FROM disco_restaurant_location_access la
         LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = la.restaurant_reference
-        WHERE la.account_email = ${e}
+        LEFT JOIN disco_restaurant_accounts acc ON acc.restaurant_reference = la.restaurant_reference
+        WHERE la.account_email = ${e} AND acc.archived_at IS NULL
         ORDER BY la.id ASC
       `) as DiscoGroupAccount[]
       if (access.length) return access
@@ -248,19 +282,19 @@ export async function getDiscoGroupAccounts(businessName: string | null, email: 
     if (bn) {
       return (await sql`
         SELECT id, email, restaurant_reference, restaurant_name, business_name, role
-        FROM disco_restaurant_accounts WHERE business_name = ${bn}
+        FROM disco_restaurant_accounts WHERE business_name = ${bn} AND archived_at IS NULL
       `) as DiscoGroupAccount[]
     }
     const domain = discoEmailDomain(e)
     if (!domain) {
       return (await sql`
         SELECT id, email, restaurant_reference, restaurant_name, business_name, role
-        FROM disco_restaurant_accounts WHERE email = ${e}
+        FROM disco_restaurant_accounts WHERE email = ${e} AND archived_at IS NULL
       `) as DiscoGroupAccount[]
     }
     return (await sql`
       SELECT id, email, restaurant_reference, restaurant_name, business_name, role
-      FROM disco_restaurant_accounts WHERE LOWER(SPLIT_PART(email, '@', 2)) = ${domain}
+      FROM disco_restaurant_accounts WHERE LOWER(SPLIT_PART(email, '@', 2)) = ${domain} AND archived_at IS NULL
     `) as DiscoGroupAccount[]
   } catch (err) {
     console.error('[getDiscoGroupAccounts] scoping lookup failed — returning empty:', err instanceof Error ? err.message : err)

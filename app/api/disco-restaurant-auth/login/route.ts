@@ -4,6 +4,7 @@ import {
   verifyPassword,
   getDiscoRestaurantAccount,
   createDiscoRestaurantSession,
+  isDiscoRestaurantArchived,
   DISCO_RESTAURANT_COOKIE,
   DISCO_RESTAURANT_COOKIE_OPTS,
 } from '../../../../lib/disco-restaurant-auth'
@@ -59,6 +60,14 @@ export async function POST(req: NextRequest) {
     }
 
     const restaurantReference = String(account.restaurant_reference)
+
+    // Archived restaurants have no login path — checked AFTER identity/password
+    // (so a wrong password still reads as "invalid," not "archived," giving
+    // nothing away to an unauthenticated caller), before a session is issued.
+    if (await isDiscoRestaurantArchived(restaurantReference)) {
+      return NextResponse.json({ error: 'This restaurant is no longer active.' }, { status: 403 })
+    }
+
     const token = await createDiscoRestaurantSession(restaurantReference, email)
 
     const res = NextResponse.json({

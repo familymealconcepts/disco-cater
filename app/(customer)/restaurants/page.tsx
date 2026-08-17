@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { sql, runMigrations, withDiscoTables } from '../../../lib/db'
+import { getMarketplaceRestaurants } from '../../../lib/marketplace-restaurants'
 
 export const metadata = {
   title: 'All Restaurants — Disco Cater',
@@ -23,32 +23,26 @@ type Restaurant = {
 // Same public-marketplace visibility rule as /api/restaurants (the fullmap
 // feed) and sitemap.ts — this page claims "every restaurant below is
 // available for catering orders," so it must only list restaurants that
-// actually are.
+// actually are. Shared via lib/marketplace-restaurants.ts.
 async function getRestaurants(): Promise<Restaurant[]> {
-  return (await withDiscoTables(() => sql`
-    SELECT c.restaurant_reference, c.name, c.slug, c.location, c.cuisine, c.description, o.is_premium
-    FROM disco_restaurant_cache c
-    LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-    LEFT JOIN LATERAL (
-      SELECT a2.stripe_account_id, a2.stripe_onboarding_complete
-      FROM disco_restaurant_accounts a2
-      WHERE (a2.restaurant_reference = c.restaurant_reference OR a2.fm_restaurant_reference = c.restaurant_reference)
-        AND a2.stripe_account_id IS NOT NULL
-      ORDER BY a2.stripe_onboarding_complete DESC NULLS LAST, a2.id ASC
-      LIMIT 1
-    ) a ON true
-    WHERE (
-      (COALESCE(c.is_disco_native, false) = false
-        AND o.visible = true AND o.stripe_connected = true)
-      OR
-      (c.is_disco_native = true
-        AND o.visible = true
-        AND COALESCE(o.online_ordering_enabled, true) = true
-        AND (o.stripe_connected = true
-             OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
-    )
-    ORDER BY c.location ASC NULLS LAST, c.name ASC
-  `, runMigrations)) as Restaurant[]
+  const rows = await getMarketplaceRestaurants()
+  return rows
+    .map((r): Restaurant => ({
+      restaurant_reference: r.reference,
+      name: r.name,
+      slug: r.slug,
+      location: r.location,
+      cuisine: r.cuisine,
+      description: r.description,
+      is_premium: r.isPremium,
+    }))
+    // location ASC NULLS LAST, then name ASC — matches the prior SQL ORDER BY.
+    .sort((a, b) => {
+      if (!a.location && !b.location) return a.name.localeCompare(b.name)
+      if (!a.location) return 1
+      if (!b.location) return -1
+      return a.location.localeCompare(b.location) || a.name.localeCompare(b.name)
+    })
 }
 
 function groupByLocation(restaurants: Restaurant[]): Record<string, Restaurant[]> {

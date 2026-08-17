@@ -73,6 +73,11 @@ async function findStripeSucceededSinceByKind(stripe: Stripe, kind: string, sinc
 // Slack message asking a human to go flip a status by hand. Only the
 // no-matching-order-row case (nothing to attach the payment to) stays
 // alert-only, since there's no safe automatic action to take there.
+//
+// MUST NOT filter by restaurant visibility/archive status anywhere in this
+// sweep — a restaurant with a succeeded charge and no order still needs
+// catching, archived or not. Archiving hides a storefront; it does not
+// exempt a restaurant from payment reconciliation.
 async function checkStripeSucceededAgainstOrders(stripe: Stripe, sinceEpochSeconds: number): Promise<{ checked: number; mismatches: ReconciliationMismatch[] }> {
   const mismatches: ReconciliationMismatch[] = []
   let checked = 0

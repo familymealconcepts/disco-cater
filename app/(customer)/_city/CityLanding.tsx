@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { sql, runMigrations, withDiscoTables } from '../../../lib/db'
+import { getMarketplaceRestaurants, type MarketplaceRestaurantRow } from '../../../lib/marketplace-restaurants'
 import GlobalHeader from '../../components/GlobalHeader'
 
 // Shared server-rendered city landing page. The four city routes
@@ -90,44 +90,32 @@ export function buildCityMetadata(cfg: CityConfig): Metadata {
 
 // Same public-marketplace visibility rule as /api/restaurants (the fullmap
 // feed) — a city page shouldn't list a restaurant that isn't actually
-// orderable. City filtering itself stays a JS substring match against
-// `location` (unchanged behavior — just sourced from Neon now).
+// orderable. Shared with the fullmap feed, the /restaurants directory, and the
+// sitemap via lib/marketplace-restaurants.ts. City filtering itself stays a JS
+// substring match against `location` (unchanged behavior).
 async function fetchCityRestaurants(cfg: CityConfig): Promise<CityRestaurant[]> {
-  let rows: CityRestaurant[] = []
+  let rows: MarketplaceRestaurantRow[] = []
   try {
-    rows = (await withDiscoTables(() => sql`
-      SELECT c.restaurant_reference, c.name, c.slug, c.cuisine, c.location,
-             COALESCE(c.image_url, c.icon_url) AS image, o.is_premium, c.description
-      FROM disco_restaurant_cache c
-      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-      LEFT JOIN LATERAL (
-        SELECT a2.stripe_account_id, a2.stripe_onboarding_complete
-        FROM disco_restaurant_accounts a2
-        WHERE (a2.restaurant_reference = c.restaurant_reference OR a2.fm_restaurant_reference = c.restaurant_reference)
-          AND a2.stripe_account_id IS NOT NULL
-        ORDER BY a2.stripe_onboarding_complete DESC NULLS LAST, a2.id ASC
-        LIMIT 1
-      ) a ON true
-      WHERE c.slug IS NOT NULL AND c.location IS NOT NULL
-        AND (
-          (COALESCE(c.is_disco_native, false) = false
-            AND o.visible = true AND o.stripe_connected = true)
-          OR
-          (c.is_disco_native = true
-            AND o.visible = true
-            AND COALESCE(o.online_ordering_enabled, true) = true
-            AND (o.stripe_connected = true
-                 OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
-        )
-    `, runMigrations)) as CityRestaurant[]
+    rows = await getMarketplaceRestaurants()
   } catch {
     return []
   }
   return rows
+    .filter(r => !!r.slug && !!r.location)
     .filter(r => {
       const loc = (r.location || '').toLowerCase()
       return cfg.matchTerms.some(t => loc.includes(t))
     })
+    .map((r): CityRestaurant => ({
+      restaurant_reference: r.reference,
+      name: r.name,
+      slug: r.slug,
+      cuisine: r.cuisine,
+      location: r.location,
+      image: r.imageUrl,
+      is_premium: r.isPremium,
+      description: r.description,
+    }))
     // Premium (Disco) first, then alphabetical — stable, deterministic order.
     .sort((a, b) => Number(!!b.is_premium) - Number(!!a.is_premium) || a.name.localeCompare(b.name))
 }

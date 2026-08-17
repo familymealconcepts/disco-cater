@@ -77,6 +77,9 @@ interface OverrideMeta {
   // invite_token_expires_at < NOW()) — nobody can log in. Cheapest real
   // signal for a dead invite; see Kebab's "Resend invite".
   inviteExpired: boolean
+  // Disco-native only — null = active, a timestamp = archived. Stronger than
+  // isLive/visible; the Archive button reads this to switch to Restore.
+  archivedAt: string | null
 }
 
 function fmtDate(d?: string) {
@@ -318,20 +321,37 @@ export default function RestaurantsOrderingPage() {
     else showToast(`${r.businessName}: payments ${next === 'FAMILY_MEAL' ? 'held' : 'released'}`)
   }
 
-  async function deleteRestaurant(r: Restaurant) {
-    if (!confirm(`Delete "${r.businessName}"? This cannot be undone.`)) return
+  // Archive (Disco-native only) replaces the old hard delete: reversible via
+  // Restore, no rows removed, order/payment history untouched. FM-backed
+  // restaurants can't reach this — the button is disabled before it's ever
+  // clicked (see the Actions cell below).
+  async function archiveRestaurant(r: Restaurant) {
+    if (!confirm(`Archive "${r.businessName}"? This removes it from the marketplace, admin lists, and portal login. It's fully reversible via Restore.`)) return
     let res = await fetch(`/api/admin/restaurants/${r.reference}`, { method: 'DELETE' })
     // Server safeguard: a restaurant with real order history requires a second,
-    // explicit confirmation before it can be deleted.
+    // explicit confirmation before it's archived.
     if (res.status === 409) {
       const d = await res.json().catch(() => null)
       if (d?.requiresConfirmation) {
-        if (!confirm(`⚠️ "${r.businessName}" has ${d.orderCount} order(s) in its history. Deleting it permanently removes the restaurant and cannot be undone.\n\nAre you absolutely sure you want to delete it?`)) return
-        res = await fetch(`/api/admin/restaurants/${r.reference}?confirmDeleteWithOrders=${encodeURIComponent(r.reference)}`, { method: 'DELETE' })
+        if (!confirm(`⚠️ "${r.businessName}" has ${d.orderCount} order(s) in its history. Archiving hides it from the marketplace, admin lists, and portal login — reversible via Restore.\n\nContinue?`)) return
+        res = await fetch(`/api/admin/restaurants/${r.reference}?confirmArchiveWithOrders=${encodeURIComponent(r.reference)}`, { method: 'DELETE' })
       }
     }
-    if (res.ok) { showToast(`${r.businessName} deleted`); load() }
-    else showToast('Delete failed')
+    if (res.ok) { showToast(`${r.businessName} archived`); load() }
+    else {
+      const d = await res.json().catch(() => null)
+      showToast(d?.error || 'Archive failed')
+    }
+  }
+
+  async function restoreRestaurant(r: Restaurant) {
+    if (!confirm(`Restore "${r.businessName}"? It reappears on the marketplace, admin lists, and portal login immediately. Its admin will need a fresh invite — the old one was revoked on archive.`)) return
+    const res = await fetch(`/api/admin/restaurants/${r.reference}/restore`, { method: 'POST' })
+    if (res.ok) { showToast(`${r.businessName} restored`); load() }
+    else {
+      const d = await res.json().catch(() => null)
+      showToast(d?.error || 'Restore failed')
+    }
   }
 
   // Stripe must be connected before online ordering can be toggled — a
@@ -610,7 +630,7 @@ export default function RestaurantsOrderingPage() {
         isLive?: boolean; isDiscoNative?: boolean; hasStripeAccount?: boolean
         onlineOrderingEnabled?: boolean | null
         menuDriftDetected?: boolean; menuDriftDetails?: OverrideMeta['menuDriftDetails']
-        inviteExpired?: boolean
+        inviteExpired?: boolean; archivedAt?: string | null
       }[]) {
         sMap[o.restaurantReference] = { connected: !!o.stripeConnected, checkedAt: o.stripeCheckedAt, hasStripeAccount: !!o.hasStripeAccount }
         oMap[o.restaurantReference] = {
@@ -620,6 +640,7 @@ export default function RestaurantsOrderingPage() {
           onlineOrderingEnabled: o.onlineOrderingEnabled ?? null,
           menuDriftDetected: !!o.menuDriftDetected, menuDriftDetails: o.menuDriftDetails ?? [],
           inviteExpired: !!o.inviteExpired,
+          archivedAt: o.archivedAt ?? null,
         }
       }
       setStripeMap(sMap)
@@ -937,6 +958,12 @@ export default function RestaurantsOrderingPage() {
                       ) : overrideMap[r.reference]?.isDiscoNative ? (
                         <span style={{ fontSize: 10, fontWeight: 400, color: '#6B7280', background: '#F3F4F6', padding: '2px 6px', borderRadius: 4 }}>Disco</span>
                       ) : null}
+                      {ov?.archivedAt && (
+                        <span
+                          title={`Archived ${new Date(ov.archivedAt).toLocaleDateString()} — hidden from the marketplace, admin lists, and portal login. Restore to reverse.`}
+                          style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#E53935', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}
+                        >Archived</span>
+                      )}
                     </span>
                     {(r.address?.city || r.address?.state) && (
                       <div style={{ fontSize: 11, fontWeight: 400, color: '#999', marginTop: 2 }}>
@@ -1041,7 +1068,17 @@ export default function RestaurantsOrderingPage() {
                     <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                       <button title="Refresh" onClick={() => load()} style={iconBtn}>⟳</button>
                       <button title="Edit restaurant" onClick={() => setEditRef(r.reference)} style={{ ...iconBtn, color: '#6B6EF9', fontWeight: 700 }}>Edit</button>
-                      <button title="Delete" onClick={() => deleteRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗑</button>
+                      {ov?.archivedAt ? (
+                        <button title="Restore" onClick={() => restoreRestaurant(r)} style={{ ...iconBtn, color: '#1D9E75' }}>↺</button>
+                      ) : ov?.isDiscoNative ? (
+                        <button title="Archive" onClick={() => archiveRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗄</button>
+                      ) : (
+                        <button
+                          title="Archiving isn't available yet for FamilyMeal-backed restaurants — FM's block endpoint has never been confirmed to actually stop its own checkout, so this is deferred pending verification."
+                          disabled
+                          style={{ ...iconBtn, color: '#ccc', cursor: 'not-allowed' }}
+                        >🗄</button>
+                      )}
                       <Kebab
                         menuUrl={overrideMap[r.reference]?.menuUploadUrl || null}
                         showResendInvite={!!overrideMap[r.reference]?.isDiscoNative}

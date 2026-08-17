@@ -20,6 +20,12 @@ export async function DELETE(req: NextRequest) {
   // itself stays on Stripe but is no longer referenced). Reconnecting starts a
   // fresh Connect onboarding. Existing orders' refunds still work — they go through
   // the original PaymentIntent, not the current stripe_account_id.
+  //
+  // Restaurant archiving (lib/disco-restaurant-archive.ts) MUST NEVER call this
+  // route or otherwise touch stripe_account_id — an archived restaurant's
+  // Stripe connection and any money in flight (pending payouts, in-progress
+  // PaymentIntents) must be left completely alone. Archiving hides the
+  // storefront and access; it is not a payments action.
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
     await runMigrations()

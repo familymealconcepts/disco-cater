@@ -159,8 +159,10 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
   if (nativeLink) {
     if (!nativeLink.memberRefs.length) return null
     const rows = (await sql`
-      SELECT restaurant_reference, name, slug, address, location FROM disco_restaurant_cache
-      WHERE restaurant_reference = ANY(${nativeLink.memberRefs}) AND is_live = true
+      SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location
+      FROM disco_restaurant_cache c
+      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+      WHERE c.restaurant_reference = ANY(${nativeLink.memberRefs}) AND c.is_live = true AND o.archived_at IS NULL
     `.catch(() => [])) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null }[]
     if (!rows.length) return null
     const locations: LocationItem[] = rows.map(r => ({

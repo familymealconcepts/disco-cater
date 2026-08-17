@@ -97,6 +97,10 @@ export async function GET(req: NextRequest) {
     // which for FM-mirrored orders can trail real placement by hours to years —
     // "Created Date" here means "when was this actually placed." order_date is
     // a plain date; both compare on a date, inclusive range.
+    // MUST NOT be scoped to the restaurant's current visibility/archive
+    // status — an archived restaurant's order history, reporting, and
+    // exports must keep working exactly as before. Archiving is not
+    // deletion; do not add an is_live/visible/archived_at filter here.
     const rowsRaw = dateField === 'created'
       ? (await sql`
           SELECT order_number, to_char(order_date,'YYYY-MM-DD') AS order_date,

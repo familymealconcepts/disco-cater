@@ -26,19 +26,43 @@ export async function GET(req: NextRequest) {
     // Enrich via TWO joins: by restaurant_reference (UUID-stored favorites) and by
     // slug (legacy slug-stored favorites). COALESCE so either match populates the
     // card, and surface the canonical UUID so the client stores/deletes by UUID.
+    //
+    // Status filter (previously missing entirely — a favorited restaurant that
+    // went is_live=false already rendered a normal-looking card that 404'd on
+    // click). Two exclusions, both matching the discovery-feed rule in
+    // lib/marketplace-restaurants.ts:
+    //   • archived_at IS NOT NULL — the new, stronger gate (Disco-native only;
+    //     harmless no-op for FM-backed rows, which never get archived_at set).
+    //   • is_disco_native = true AND is_live = false — is_live is only a
+    //     reliable signal for disco-native restaurants (see
+    //     marketplace-restaurants.ts's comment on why it's excluded there for
+    //     FM-backed rows: ~93% of FM-backed restaurants have is_live=false
+    //     simply because it was never set, not because they're hidden).
+    // A favorite with no cache match at all (is_disco_native/is_live both
+    // NULL) is left exactly as it rendered before — that's a separate,
+    // pre-existing "orphaned favorite" case, not this one.
     const rows = (await sql`
-      SELECT f.restaurant_reference,
-             COALESCE(c.restaurant_reference, c2.restaurant_reference) AS canonical_reference,
-             COALESCE(c.name, c2.name)             AS name,
-             COALESCE(c.slug, c2.slug)             AS slug,
-             COALESCE(c.image_url, c2.image_url)   AS image_url,
-             COALESCE(c.cuisine, c2.cuisine)       AS cuisine,
-             COALESCE(c.location, c2.location)     AS location
-      FROM disco_customer_favorites f
-      LEFT JOIN disco_restaurant_cache c  ON c.restaurant_reference = f.restaurant_reference
-      LEFT JOIN disco_restaurant_cache c2 ON c2.slug = f.restaurant_reference
-      WHERE f.customer_email = ${session.email}
-      ORDER BY f.created_at DESC
+      WITH enriched AS (
+        SELECT f.restaurant_reference, f.created_at,
+               COALESCE(c.restaurant_reference, c2.restaurant_reference) AS canonical_reference,
+               COALESCE(c.name, c2.name)             AS name,
+               COALESCE(c.slug, c2.slug)             AS slug,
+               COALESCE(c.image_url, c2.image_url)   AS image_url,
+               COALESCE(c.cuisine, c2.cuisine)       AS cuisine,
+               COALESCE(c.location, c2.location)     AS location,
+               COALESCE(c.is_disco_native, c2.is_disco_native) AS is_disco_native,
+               COALESCE(c.is_live, c2.is_live)       AS is_live
+        FROM disco_customer_favorites f
+        LEFT JOIN disco_restaurant_cache c  ON c.restaurant_reference = f.restaurant_reference
+        LEFT JOIN disco_restaurant_cache c2 ON c2.slug = f.restaurant_reference
+        WHERE f.customer_email = ${session.email}
+      )
+      SELECT e.*
+      FROM enriched e
+      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = e.canonical_reference
+      WHERE o.archived_at IS NULL
+        AND NOT (COALESCE(e.is_disco_native, false) = true AND COALESCE(e.is_live, true) = false)
+      ORDER BY e.created_at DESC
     `) as Array<{
       restaurant_reference: string
       canonical_reference: string | null

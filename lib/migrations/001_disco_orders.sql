@@ -469,6 +469,12 @@ ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS delivery_time_window TEXT;
 -- restaurant portal's own marketplace toggle.
 ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS joined_marketplace BOOLEAN DEFAULT false;
 
+-- Mirror of disco_restaurant_overrides.archived_at (the canonical flag) onto the
+-- identity/login table, so portal login and invite-accept can check it with no
+-- extra join. Kept in lockstep by archiveDiscoNativeRestaurant/
+-- restoreDiscoNativeRestaurant (lib/disco-restaurant-archive.ts). Disco-native only.
+ALTER TABLE disco_restaurant_accounts ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+
 -- Native-checkout order numbers. Disco-native orders have no FM to assign an
 -- order_number, so they draw from this sequence. Started high (900,000,000) so
 -- native numbers never collide with the (smaller) FM order numbers mirrored in.

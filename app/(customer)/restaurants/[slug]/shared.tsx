@@ -2,6 +2,7 @@ import { cache } from 'react'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
+import NoLongerAvailable from '../../../components/NoLongerAvailable'
 import { sql, runMigrations, runDiscoMenuMigrations, withDiscoTables } from '../../../../lib/db'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../../lib/scheduling/native-schedule'
 import { menuRowToSettings, menuRowToScheduleExtras, type MenuSettingsRow } from '../../../../lib/menu-settings'
@@ -35,6 +36,12 @@ export interface CachedRestaurant {
   isPremium: boolean | null
   lat: number | null
   lng: number | null
+  // Disco-native only (see lib/disco-restaurant-archive.ts). Checked FIRST,
+  // ahead of is_live/visible/online_ordering_enabled — archive is a stronger
+  // gate than any of those, so an archived restaurant must never fall through
+  // to native-menu rendering or the FM lookup below just because those other
+  // flags happen to still say "on."
+  isArchived: boolean
 }
 
 // React.cache() memoizes within a single request — generateMetadata and the
@@ -47,7 +54,7 @@ export interface CachedRestaurant {
 export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRestaurant | null> => {
   const rows = (await withDiscoTables(() => sql`
     SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description,
-           c.image_url, c.icon_url, c.lat, c.lng, o.is_premium
+           c.image_url, c.icon_url, c.lat, c.lng, o.is_premium, o.archived_at
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
     WHERE LOWER(c.slug) = LOWER(${slug})
@@ -55,7 +62,7 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
   `, runMigrations).catch(() => [])) as {
     restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null
     cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null
-    lat: string | number | null; lng: string | number | null; is_premium: boolean | null
+    lat: string | number | null; lng: string | number | null; is_premium: boolean | null; archived_at: string | null
   }[]
   const r = rows[0]
   if (!r) return null
@@ -65,6 +72,7 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
     cuisine: r.cuisine, description: r.description,
     imageUrl: r.image_url, iconUrl: r.icon_url, isPremium: r.is_premium,
     lat: r.lat != null ? Number(r.lat) : null, lng: r.lng != null ? Number(r.lng) : null,
+    isArchived: r.archived_at != null,
   }
 })
 
@@ -267,7 +275,10 @@ export async function buildRestaurantMetadata(
   // doesn't split SEO; the 3P (/restaurants) page is self-canonical.
   const canonical = opts.noindex ? `${SITE}/restaurants/${canonicalSlug}` : `${SITE}${opts.basePath}/${canonicalSlug}`
   const url = `${SITE}${opts.basePath}/${canonicalSlug}`
-  const robots = opts.noindex ? { index: false, follow: true } : undefined
+  // An archived restaurant is always noindex, regardless of which route this
+  // is — it must never rank in search once it's gone, even on the otherwise-
+  // indexable /restaurants page.
+  const robots = (opts.noindex || r?.isArchived) ? { index: false, follow: true } : undefined
 
   // Fall back to a minimal but useful set if Neon has no cache row yet (e.g.
   // FM fallback path) — the page itself still renders via the FM lookup.
@@ -524,6 +535,24 @@ export async function RestaurantView({
   slug: string
   isFirstParty?: boolean
 }) {
+  // Archive is checked FIRST, ahead of everything else in this function —
+  // it's a fourth, stronger gate than is_live/visible/online_ordering_enabled
+  // (see lib/disco-restaurant-archive.ts), so an archived restaurant must
+  // never reach native-menu loading or the FM fallback below. Disco-native
+  // only for now; getCachedRestaurant is React-memoized per request, so this
+  // costs nothing extra — loadDiscoNativeRestaurant and the FM path below
+  // both call it again and get the same cached row.
+  const cachedForArchiveCheck = await getCachedRestaurant(slug)
+  if (cachedForArchiveCheck?.isArchived) {
+    return (
+      <NoLongerAvailable
+        icon="🏚"
+        title="This restaurant is no longer available"
+        message="This restaurant has closed on Disco Cater. Browse our marketplace to find catering near you."
+      />
+    )
+  }
+
   // Disco-native restaurants (no FM/Sanity record) take precedence — render
   // their Neon menu directly. TODO: date/time availability + checkout for
   // disco-native restaurants use the native ordering endpoints; FM-specific

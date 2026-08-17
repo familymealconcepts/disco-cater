@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
 import { sql } from '../../../../../lib/db'
-import { deleteDiscoNativeRestaurant } from '../../../../../lib/disco-restaurant-delete'
+import { archiveDiscoNativeRestaurant } from '../../../../../lib/disco-restaurant-archive'
+import { requireArchiveAccess } from '../../../../../lib/admin-archive-access'
+import { logAdminAction } from '../../../../../lib/admin-audit'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -18,6 +20,31 @@ async function isDiscoNativeNoFm(ref: string): Promise<boolean> {
     return !!a && a.is_disco_native === true && !a.fm_restaurant_reference
   } catch {
     return false // on any doubt, fall through to the FM path (unchanged behavior)
+  }
+}
+
+// Archive eligibility check — deliberately DIFFERENT from isDiscoNativeNoFm
+// above. That helper means "never had any FM record at all" (a true orphan,
+// e.g. a become-a-partner-only restaurant) — checked, this excludes 28 of the
+// 29 real native restaurants in production, because native-conversion.ts
+// stores the FM restaurant a conversion came FROM as fm_restaurant_reference
+// (an audit/historical link, not a live-FM-presence flag) on every converted
+// restaurant. The canonical "is this restaurant native right now" signal —
+// used by the storefront (shared.tsx), the checkout gate
+// (isDiscoNativeRestaurant in lib/order/native-checkout.ts), and the
+// discovery feed (lib/marketplace-restaurants.ts) — is
+// disco_restaurant_cache.is_disco_native alone, regardless of
+// fm_restaurant_reference. Archive eligibility must match that, or the
+// button would silently misfire "FM-backed, deferred" for almost every real
+// native restaurant.
+async function isCurrentlyNative(ref: string): Promise<boolean> {
+  try {
+    const rows = (await sql`
+      SELECT 1 FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} AND is_disco_native = true LIMIT 1
+    `) as unknown[]
+    return rows.length > 0
+  } catch {
+    return false // on any doubt, treat as not-eligible — archive stays deferred, never silently proceeds
   }
 }
 
@@ -79,55 +106,64 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   }
 }
 
+// ARCHIVE (soft-delete), Disco-native only. There is no hard delete anymore for
+// native restaurants — this hides the restaurant from the marketplace, admin
+// lists, portal login, and new ordering while retaining every row (orders,
+// payments, menus, Stripe account), fully reversible via the restore route
+// (./restore/route.ts). Old lib/disco-restaurant-delete.ts (dynamic hard-delete
+// across every restaurant_reference-keyed table, no way back) is removed —
+// this replaces it for the one case it covered.
+//
+// FM-backed archiving is DEFERRED, not silently no-op'd: FM's block endpoint
+// has never been confirmed to actually stop FM's own checkout (see
+// docs/fm-marketplace-and-access-audit.md's own "[NEEDS REVIEW]" on this), so
+// claiming an FM-backed restaurant is "removed from the internet" would not be
+// verifiable from this repo. The admin UI disables the action for FM-backed
+// rows with this reason shown; this route returns the same reason if reached
+// directly. See the archive/restore report for what testing FM-backed archive
+// would need before it can ship.
+//
+// Restricted to the two-account allowlist AT THE ROUTE (defense in depth: the
+// /api/admin/* paths are not covered by the page middleware, so cookie
+// presence alone is not sufficient authorization).
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
-  let h: Record<string, string>
-  try { h = await getAdminAuthHeader() } catch {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  }
+  const access = await requireArchiveAccess()
+  if (!access.ok) return access.response
   const { ref } = await params
 
-  // SAFEGUARD: never delete a restaurant that has real order history without an
-  // explicit, restaurant-specific confirmation — regardless of how it's labeled
-  // (FM or Disco-native). The caller must re-send ?confirmDeleteWithOrders=<ref>
-  // (the exact reference), so a blanket/mis-clicked delete can't wipe a live
-  // restaurant. This is exactly what would have protected Test Kitchen (c8322ff4).
+  if (!(await isCurrentlyNative(ref))) {
+    return NextResponse.json(
+      { error: 'Archiving is not yet available for FamilyMeal-backed restaurants. This is deferred pending verification that FamilyMeal\'s own block endpoint actually stops its checkout — see the archive/restore report.' },
+      { status: 501 },
+    )
+  }
+
+  // A restaurant with real order history requires an explicit,
+  // restaurant-specific confirmation before it's archived. Archiving is
+  // reversible via Restore, but hiding a restaurant that's actively taking
+  // orders should never be a mis-click.
+  let orderCount = 0
   try {
-    const [fm, disco] = await Promise.all([
-      sql`SELECT count(*)::int n FROM fm_historical_orders WHERE restaurant_reference::text = ${ref}`,
-      sql`SELECT count(*)::int n FROM disco_orders WHERE restaurant_reference::text = ${ref}`,
-    ])
-    const orderCount = ((fm as { n: number }[])[0]?.n || 0) + ((disco as { n: number }[])[0]?.n || 0)
-    if (orderCount > 0 && req.nextUrl.searchParams.get('confirmDeleteWithOrders') !== ref) {
+    const disco = await sql`SELECT count(*)::int n FROM disco_orders WHERE restaurant_reference::text = ${ref}`
+    orderCount = (disco as { n: number }[])[0]?.n || 0
+    if (orderCount > 0 && req.nextUrl.searchParams.get('confirmArchiveWithOrders') !== ref) {
       return NextResponse.json(
-        { error: `This restaurant has ${orderCount} order(s) in its history. Deletion is destructive and requires explicit confirmation.`, requiresConfirmation: true, orderCount },
+        { error: `This restaurant has ${orderCount} order(s) in its history. Archiving hides it from the marketplace, admin lists, and portal login — this is reversible via Restore, but please confirm.`, requiresConfirmation: true, orderCount },
         { status: 409 },
       )
     }
   } catch (guardErr) {
-    // If the history check itself fails, do NOT proceed with a destructive delete.
-    console.error('[admin/restaurants DELETE] order-history guard failed — blocking delete:', guardErr instanceof Error ? guardErr.message : guardErr)
-    return NextResponse.json({ error: 'Could not verify order history; delete blocked for safety.' }, { status: 500 })
-  }
-
-  // Disco-native restaurants have no FM record — delete from Neon, never call FM
-  // (which would just 404). Everything else deletes through FM as before.
-  if (await isDiscoNativeNoFm(ref)) {
-    try {
-      const summary = await deleteDiscoNativeRestaurant(ref)
-      return NextResponse.json({ ok: true, deletedFrom: 'neon', deleted: summary })
-    } catch (e) {
-      console.error('[admin/restaurants DELETE] Neon delete failed:', e instanceof Error ? e.message : e)
-      return NextResponse.json({ error: 'Unable to delete restaurant' }, { status: 500 })
-    }
+    console.error('[admin/restaurants DELETE] order-history check failed:', guardErr instanceof Error ? guardErr.message : guardErr)
+    return NextResponse.json({ error: 'Could not verify order history; please retry.' }, { status: 500 })
   }
 
   try {
-    const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, { method: 'DELETE', headers: h })
-    if (!res.ok) return NextResponse.json({ error: 'Failed to delete restaurant' }, { status: res.status })
-    const text = await res.text()
-    return NextResponse.json(text ? JSON.parse(text) : { ok: true })
-  } catch {
-    return NextResponse.json({ error: 'Unable to delete restaurant' }, { status: 500 })
+    await archiveDiscoNativeRestaurant(ref, access.email)
+    await logAdminAction({ action: 'restaurant_archive', restaurantReference: ref, actorEmail: access.email, detail: { orderCount } })
+    return NextResponse.json({ ok: true, archived: true })
+  } catch (e) {
+    console.error('[admin/restaurants DELETE] archive failed:', e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: 'Unable to archive restaurant' }, { status: 500 })
   }
 }
 

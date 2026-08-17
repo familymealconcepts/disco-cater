@@ -29,6 +29,14 @@ export interface RestaurantPayoutConfig {
 }
 
 // Resolve a restaurant's Stripe connected account + payout-hold flag from Neon.
+// Restaurant archiving (lib/disco-restaurant-archive.ts) MUST NEVER write
+// withhold_payouts or stripe_account_id, and must never interrupt an in-flight
+// PaymentIntent or pending transfer — archiving hides a storefront and portal
+// access, not money. A pending payout for an archived restaurant completes
+// normally. (In practice an archived restaurant's checkout is already
+// unreachable — the storefront is gone — so this function simply won't be
+// called for new orders; it stays untouched for the same reason existing
+// orders' refunds still work after Stripe is disconnected.)
 export async function getRestaurantPayoutConfig(restaurantReference: string): Promise<RestaurantPayoutConfig> {
   const acctRows = (await sql`
     SELECT stripe_account_id FROM disco_restaurant_accounts

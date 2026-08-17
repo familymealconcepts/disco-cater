@@ -367,3 +367,35 @@ What changes when converting more than one restaurant at a time:
 
 Not building any of this now — noting it so batch mode doesn't start from
 scratch when it's needed.
+
+---
+
+## FM-backed archive — queued, not built
+
+Archive/restore (`lib/disco-restaurant-archive.ts`) ships Disco-native only.
+An FM-backed restaurant currently has no archive path at all — the admin UI
+disables the action for it and states why (`app/api/admin/restaurants/[ref]/route.ts`'s
+`DELETE` handler returns 501 with the reason if the route is somehow reached
+directly).
+
+The blocker: "archived" is specified as gone from the internet at every
+level, including FM's own checkout if a restaurant is FM-backed. The only
+lever available is FM's `blocked` flag
+(`POST /api/admin/restaurants/manage/block/{ref}`), and whether setting it
+actually stops FM's own Angular frontend / API from taking an order has never
+been confirmed — `docs/fm-marketplace-and-access-audit.md` flags this
+explicitly as `[NEEDS REVIEW]`. Shipping FM-backed archive on an unverified
+assumption would mean telling an admin a restaurant is gone while it's still
+orderable on familymeal.com.
+
+What unblocks it, whenever someone picks this up:
+1. Test `blocked=true` against a real FM-backed test restaurant — attempt an
+   order through FM's own frontend/API directly, not through Disco, and
+   confirm it's actually rejected.
+2. If confirmed: wire the archive/restore routes to call FM's block/restore
+   endpoints for the FM-backed branch, symmetric with the Disco-native path.
+3. If not confirmed: FM-backed archive stays unbuilt — the honest state is
+   "hidden from Disco, not gone from the internet," which doesn't meet the
+   spec, so there's nothing safe to ship until FM's own behavior changes or
+   the restaurant converts to native (see the rest of this runbook — most
+   restaurants get there within weeks anyway, which may make this moot).

@@ -150,6 +150,10 @@ export async function GET(request: Request) {
     let discoOrders: ExportOrder[] = []
     const neonRefs = new Set<string>()
     try {
+      // Purely date-range + restaurant_reference scoped — never add an
+      // is_live/visible/archived_at filter here. An archived restaurant's
+      // orders belong in this export exactly like an active one's; archiving
+      // is not deletion.
       const rows = (await sql`
         SELECT o.reference, o.order_number, o.customer_email,
                o.customer_first_name, o.customer_last_name,
