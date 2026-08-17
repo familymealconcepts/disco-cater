@@ -8,6 +8,7 @@ import { formatCurrency } from '../../../../lib/pricing/lineItem'
 import { trackEvent } from '../../../../lib/analytics'
 import { sanitizePhone, formatPhoneDisplay } from '../../../../lib/utils/phone'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
+import { postFunnelStage } from '../../../../lib/utils/funnel-session'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
@@ -89,6 +90,12 @@ interface Props {
   // instead of charging; method=payment keeps the card UI but is gated.
   isDirectEntry?: boolean
   directEntryMethod?: 'payment' | 'invoice'
+  // Checkout funnel capture (abandonment tracking) — the session id
+  // RestaurantClient created/read on mount. Empty for Direct Entry (no cookie
+  // exists there — see RestaurantClient's funnelSessionId effect), which
+  // naturally no-ops every capture call below (postFunnelStage/recordFunnelStage
+  // both skip on an empty sessionId).
+  funnelSessionId?: string
   // Close the drawer and reopen the order-setup modal so the diner can
   // re-validate a different delivery address. Falls back to onClose.
   onChangeAddress?: () => void
@@ -156,7 +163,7 @@ function fmtTime(t: string) {
 export default function CheckoutDrawer({
   fmRef, fmSlug, restaurantName, cart, selDate, selTime, orderType, deliveryOrderTimeWindows, includeUtensils = false,
   addr, menuReference, subtotal, tipAmt, svcAmt, serviceChargePct = 0, minOrder, headcount, onHeadcount, hideHeadcount = false,
-  isFirstParty = false, isDirectEntry = false, directEntryMethod = 'payment',
+  isFirstParty = false, isDirectEntry = false, directEntryMethod = 'payment', funnelSessionId = '',
   onChangeAddress, onPromoChange, onClose,
 }: Props) {
   const router = useRouter()
@@ -266,13 +273,22 @@ export default function CheckoutDrawer({
 
   // GA funnel: contact details completed. Fires once when all four contact
   // fields are non-empty; later edits don't re-fire (the ref latches).
+  // Checkout funnel capture piggybacks on the same latch: CONTACT_ENTERED
+  // stores only a boolean + timestamp (never the name/email/phone itself —
+  // see 004_checkout_funnel.sql's comment for why).
   useEffect(() => {
     if (isDirectEntry || contactCompletedRef.current) return
     if (contactFirst.trim() && contactLast.trim() && contactEmail.trim() && contactPhone.trim()) {
       contactCompletedRef.current = true
       trackEvent('checkout_contact_completed', { restaurant_name: restaurantName })
+      if (funnelSessionId) {
+        postFunnelStage({
+          sessionId: funnelSessionId, restaurantReference: fmRef, stage: 'CONTACT_ENTERED',
+          fulfillmentType: orderType, cartValueCents: Math.round(subtotal * 100), itemCount: cart.reduce((s, i) => s + i.quantity, 0),
+        })
+      }
     }
-  }, [contactFirst, contactLast, contactEmail, contactPhone, isDirectEntry, restaurantName])
+  }, [contactFirst, contactLast, contactEmail, contactPhone, isDirectEntry, restaurantName, funnelSessionId, fmRef, orderType, subtotal, cart])
 
   // Continue checkout after login via AuthModal
   useEffect(() => {
@@ -523,7 +539,21 @@ export default function CheckoutDrawer({
 
     let ref = orderRefRef.current
     if (!ref) {
-      const initRes = await fetch('/api/order/init', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dto) })
+      // Checkout funnel capture: this IS the checkout-open transition (the
+      // customer has an actual drawer open, about to place — distinct from
+      // RestaurantClient's earlier, display-only CHECKOUT_READY preview call).
+      // Disco-only fields, stripped by /api/order/init before FM/native pricing.
+      const initBody = {
+        ...dto,
+        ...(!isDirectEntry && funnelSessionId ? {
+          funnelSessionId,
+          funnelStage: 'CHECKOUT_OPENED' as const,
+          funnelCartValueCents: Math.round(subtotal * 100),
+          funnelItemCount: cart.reduce((s, i) => s + i.quantity, 0),
+          funnelFulfillmentType: orderType,
+        } : {}),
+      }
+      const initRes = await fetch('/api/order/init', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(initBody) })
       const initData = await initRes.json()
       if (!initRes.ok) throw new Error(initData.error || initData.message || 'Failed to create order draft.')
       // FM init returns { success, data: { orderReference, checkoutPublicResponseDto } }.
@@ -768,6 +798,15 @@ export default function CheckoutDrawer({
         order_type: orderType,
         payment_method: isInvoice ? 'invoice' : (usingSavedCard ? 'saved_card' : 'card'),
       })
+      // Checkout funnel capture: PAYMENT_ATTEMPTED, at the same moment as the
+      // GA event above — before any API call, so it's recorded even if the
+      // place call that follows fails or the browser never gets a response.
+      if (funnelSessionId) {
+        postFunnelStage({
+          sessionId: funnelSessionId, restaurantReference: fmRef, stage: 'PAYMENT_ATTEMPTED',
+          fulfillmentType: orderType, cartValueCents: Math.round(subtotal * 100), itemCount: cart.reduce((s, i) => s + i.quantity, 0),
+        })
+      }
     }
     // Direct-entry payment RETRY after a declined card: FM
     // (confirmOrderPaymentByPayStatement, checkout-sidebar-preview.component.ts:
@@ -841,6 +880,10 @@ export default function CheckoutDrawer({
             // FM requires a digits-only phone ("Phone number has wrong format"
             // otherwise) — "732-239-7055" → "7322397055".
             customer: { firstName: contactFirst, lastName: contactLast, email: contactEmail, phoneNumber: sanitizePhone(contactPhone) },
+            // Checkout funnel capture: lets /api/order/place record ORDER_PLACED
+            // + link order_reference back to this session on success. Omitted
+            // entirely for Direct Entry (funnelSessionId is '' there).
+            ...(!isDirectEntry && funnelSessionId ? { funnelSessionId } : {}),
             // Saved-card native checkout: tells /api/order/place to build the
             // PaymentIntent with the vault card's Stripe customer so the browser
             // can confirm with that saved PaymentMethod. Ignored by the FM path.

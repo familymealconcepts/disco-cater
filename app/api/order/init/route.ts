@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { isDiscoNativeRestaurant, priceNativeFmDto, isNativeOrderingOpen } from '../../../../lib/order/native-checkout'
 import { previewRestaurantFundedDiscount, dinerMessageForRestaurantPromoReason } from '../../../../lib/promo-apply'
+import { recordFunnelStage, isTrackableInitStage } from '../../../../lib/checkout-funnel'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -54,8 +56,35 @@ export async function POST(req: NextRequest) {
     // restaurantPromoCode/serviceChargePct/userEmail are Disco-only signals for
     // applyPreviewDiscount below — never forwarded to FM (see that function's
     // comment for why forwarding a Disco code into FM isn't the fix here).
-    const { restaurantRef, restaurantPromoCode: _rpc, serviceChargePct: _scp, userEmail: _ue, ...orderBody } = body
+    // funnel* fields are the checkout-funnel-capture signal (lib/checkout-funnel.ts)
+    // — also Disco-only, also never forwarded.
+    const {
+      restaurantRef, restaurantPromoCode: _rpc, serviceChargePct: _scp, userEmail: _ue,
+      funnelSessionId, funnelStage, funnelCartValueCents, funnelItemCount, funnelFulfillmentType,
+      ...orderBody
+    } = body
     if (!restaurantRef) return NextResponse.json({ error: 'restaurantRef required' }, { status: 400 })
+
+    // Fire-and-forget: this route is hit by BOTH RestaurantClient's display-only
+    // pricing preview (funnelStage CHECKOUT_READY — earliest signal of a
+    // checkout-ready cart, fires before the drawer even opens) and
+    // CheckoutDrawer's own real init (funnelStage CHECKOUT_OPENED, the call
+    // that actually mints the order draft). Only fires on a real priced
+    // response, never on an error/403, and never blocks or affects it —
+    // waitUntil schedules the write after the response is already underway.
+    function trackInit() {
+      if (!isTrackableInitStage(funnelStage) || !funnelSessionId) return
+      waitUntil(
+        recordFunnelStage({
+          sessionId: funnelSessionId,
+          restaurantReference: restaurantRef,
+          stage: funnelStage,
+          fulfillmentType: funnelFulfillmentType === 'PICKUP' || funnelFulfillmentType === 'DELIVERY' ? funnelFulfillmentType : null,
+          cartValueCents: Number.isFinite(funnelCartValueCents) ? funnelCartValueCents : null,
+          itemCount: Number.isFinite(funnelItemCount) ? funnelItemCount : null,
+        }).catch((e) => console.error('[order/init] funnel capture failed (non-fatal):', e instanceof Error ? e.message : e)),
+      )
+    }
 
     // ── Disco-native path: price the FM-shaped cart DTO in Neon (zero FM) and
     // return the FM response envelope the client already reads. ──
@@ -63,7 +92,9 @@ export async function POST(req: NextRequest) {
       if (!(await isNativeOrderingOpen(restaurantRef))) {
         return NextResponse.json({ error: 'This restaurant is not currently accepting online orders.' }, { status: 403 })
       }
-      return NextResponse.json(await priceNativeFmDto(body))
+      const priced = await priceNativeFmDto(body)
+      trackInit()
+      return NextResponse.json(priced)
     }
 
     // FM rejects formatted phone numbers — digits only. Sanitize any phone field
@@ -76,7 +107,10 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(orderBody),
     })
     const data = await res.json()
-    if (res.ok) await applyPreviewDiscount(data, body)
+    if (res.ok) {
+      await applyPreviewDiscount(data, body)
+      trackInit()
+    }
     return NextResponse.json(data, { status: res.status })
   } catch {
     return NextResponse.json({ error: 'Failed to init order' }, { status: 500 })

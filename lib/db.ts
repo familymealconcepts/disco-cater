@@ -475,3 +475,25 @@ export async function runMenuDriftMigrations(): Promise<void> {
   for (const s of statements) await sql.query(s)
   menuDriftMigrated = true
 }
+
+// ── Checkout funnel capture ────────────────────────────────────────────────────
+// Reads lib/migrations/004_checkout_funnel.sql. Same idempotent, split-on-`;`,
+// cached-per-lambda approach as runDiscoOrderMigrations.
+let checkoutFunnelMigrated = false
+export async function runCheckoutFunnelMigrations(): Promise<void> {
+  if (checkoutFunnelMigrated) return
+
+  const sqlPath = path.join(process.cwd(), 'lib', 'migrations', '004_checkout_funnel.sql')
+  const file = await readFile(sqlPath, 'utf8')
+
+  const statements = file
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
+  for (const s of statements) await sql.query(s)
+  checkoutFunnelMigrated = true
+}

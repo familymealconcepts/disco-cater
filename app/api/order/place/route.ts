@@ -12,6 +12,7 @@ import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
 import { placeNativeCheckout } from '../../../../lib/order/native-place-checkout'
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { alertOps } from '../../../../lib/ops-alert'
+import { recordFunnelStage } from '../../../../lib/checkout-funnel'
 
 export const runtime = 'nodejs'
 
@@ -355,6 +356,21 @@ export async function POST(req: NextRequest) {
       if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status })
       const result = outcome.result
 
+      // Funnel capture: ORDER_PLACED, linked via order_reference — this is the
+      // join that turns raw abandonment volume into a conversion rate. Fire-
+      // and-forget; cart/fulfillment snapshot is deliberately omitted here (the
+      // upsert's COALESCE keeps whatever the earlier stages already captured).
+      if (typeof body?.funnelSessionId === 'string' && body.funnelSessionId) {
+        waitUntil(
+          recordFunnelStage({
+            sessionId: body.funnelSessionId,
+            restaurantReference: body.restaurantRef,
+            stage: 'ORDER_PLACED',
+            orderReference: result.orderReference,
+          }).catch((e) => console.error('[order/place] funnel capture failed (non-fatal):', e instanceof Error ? e.message : e)),
+        )
+      }
+
       return NextResponse.json({
         native: true,
         orderReference: result.orderReference,
@@ -380,8 +396,10 @@ export async function POST(req: NextRequest) {
     // taxExemptApplied / taxAmount are Disco-only directives — pull them OUT of the
     // body so they're never forwarded to FM (the rest of the body, including
     // checkoutDetails + customer, is proxied to FM untouched). FM keeps the tax in
-    // its total/PaymentIntent; Disco subtracts it from the PI below.
-    const { restaurantRef, orderRef, taxExemptApplied, taxAmount, taxExemptState, companyName, note, restaurantPromoCode, serviceChargePct, ...placeBody } = body
+    // its total/PaymentIntent; Disco subtracts it from the PI below. funnelSessionId
+    // is the checkout-funnel-capture signal (lib/checkout-funnel.ts) — also
+    // Disco-only, also never forwarded.
+    const { restaurantRef, orderRef, taxExemptApplied, taxAmount, taxExemptState, companyName, note, restaurantPromoCode, serviceChargePct, funnelSessionId, ...placeBody } = body
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
     }
@@ -484,6 +502,21 @@ export async function POST(req: NextRequest) {
     // waitUntil — non-blocking and never affects the response below.
     if (res.ok) {
       waitUntil(mirrorOrderToNeon({ restaurantRef, orderRef, placeBody, fmData: data, taxExemptCharge, companyName: typeof companyName === 'string' ? companyName : null, taxExemptState: typeof taxExemptState === 'string' ? taxExemptState : null, note: typeof note === 'string' ? note : null }))
+
+      // Funnel capture: ORDER_PLACED, linked via order_reference (orderRef is
+      // the FM order reference — same value mirrorOrderToNeon persists onto
+      // disco_orders.reference). Fire-and-forget; cart/fulfillment snapshot
+      // deliberately omitted (the upsert's COALESCE keeps the earlier stages').
+      if (typeof funnelSessionId === 'string' && funnelSessionId) {
+        waitUntil(
+          recordFunnelStage({
+            sessionId: funnelSessionId,
+            restaurantReference: restaurantRef,
+            stage: 'ORDER_PLACED',
+            orderReference: orderRef,
+          }).catch((e) => console.error('[order/place] funnel capture failed (non-fatal):', e instanceof Error ? e.message : e)),
+        )
+      }
     }
 
     // Surface the tax-exempt-adjusted charge so the frontend knows the real amount.

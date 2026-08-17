@@ -15,6 +15,7 @@ import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
 import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
 import { trackEvent } from '../../../../lib/analytics'
+import { getOrCreateFunnelSessionId, postFunnelStage } from '../../../../lib/utils/funnel-session'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
@@ -485,6 +486,18 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // call (and, for method=invoice, the no-card "Send Invoice" flow).
   const isDirectEntry = searchParams?.get('mode') === 'direct-entry'
   const directEntryMethod: 'payment' | 'invoice' = searchParams?.get('method') === 'invoice' ? 'invoice' : 'payment'
+
+  // Checkout funnel capture (abandonment tracking) — Direct Entry is a
+  // restaurant admin placing on behalf of a customer, not a diner session, so
+  // it's excluded entirely: no cookie, no capture calls, no prop passed down.
+  // The id is scoped per restaurant (see getOrCreateFunnelSessionId) so it
+  // never leaks between two restaurants visited in the same browser.
+  const [funnelSessionId, setFunnelSessionId] = useState('')
+  useEffect(() => {
+    if (isDirectEntry || !fmRef) return
+    setFunnelSessionId(getOrCreateFunnelSessionId(fmRef))
+  }, [isDirectEntry, fmRef])
+
   const prefilledRef = useRef(false)
   useEffect(() => {
     if (prefilledRef.current || !presetOrderDate) return
@@ -804,6 +817,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // "Calculated at checkout" (never a guessed amount). The orderRef FM returns
   // here is DISPLAY-ONLY and is intentionally never read/stored — CheckoutDrawer
   // always runs its own fresh init to mint the orderRef it actually places.
+  //
+  // This same request also DOES feed the checkout funnel capture now (funnelStage
+  // CHECKOUT_READY, see the dto below and lib/checkout-funnel.ts) — that's a
+  // Disco-only field the /api/order/init route reads and strips before ever
+  // touching FM, so it doesn't change what "display-only, never read/stored"
+  // means for the pricing data above: the orderRef is still ignored client-side,
+  // this is only recording that a checkout-ready cart existed at this moment.
   const [pricingPreview, setPricingPreview] = useState<{ subtotal: number | null; tax: number; fee: number; deliveryFee: number | null; total: number | null } | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const previewAbortRef = useRef<AbortController | null>(null)
@@ -821,6 +841,38 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // needs). Logged-out users are fine: /orders/init is public (no auth).
   const canPreview = !!fmRef && cart.length > 0 && !!selDate && !!selTime &&
     (orderType === 'PICKUP' || (addrValidated && !!addr.line1 && addr.lat != null && addr.lng != null))
+
+  // ── Checkout funnel capture: pure-client transitions ───────────────────────
+  // date/time selected and item-added/cart-modified never touch the server on
+  // their own (unlike the preview call above) — this is the "lightweight
+  // endpoint" leg of capture (/api/checkout-funnel/track). Effect-driven
+  // rather than instrumented at each commit call site (startOrder,
+  // confirmPicker, addItemWithConfig, incrementLine, the reorder-cart
+  // rebuild, …) so every path that sets these values is covered uniformly.
+  // Fire-and-forget: postFunnelStage never blocks or throws into the UI.
+  useEffect(() => {
+    if (isDirectEntry || !funnelSessionId || !fmRef || !selDate || !selTime) return
+    postFunnelStage({ sessionId: funnelSessionId, restaurantReference: fmRef, stage: 'DATE_TIME_SELECTED', fulfillmentType: orderType })
+  }, [isDirectEntry, funnelSessionId, fmRef, selDate, selTime, orderType])
+
+  // "Cart modified" collapses into the same ITEM_ADDED stage as "first item
+  // added" — see checkout-funnel-shared.ts's comment for why. Debounced like
+  // the pricing preview above so rapid qty +/- clicks collapse into one write.
+  useEffect(() => {
+    if (isDirectEntry || !funnelSessionId || !fmRef || cart.length === 0) return
+    const t = setTimeout(() => {
+      postFunnelStage({
+        sessionId: funnelSessionId,
+        restaurantReference: fmRef,
+        stage: 'ITEM_ADDED',
+        fulfillmentType: orderType,
+        cartValueCents: Math.round(subtotal * 100),
+        itemCount: cart.reduce((s, i) => s + i.quantity, 0),
+      })
+    }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirectEntry, funnelSessionId, fmRef, cartKey])
 
   // Cancel any pending debounce + in-flight fetch and invalidate late responses.
   function cancelPreview() {
@@ -870,6 +922,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       // client-known percentage, not a value derived server-side from FM's
       // rounded dollar amount, which can round differently (see that file).
       ...(summaryPromo?.fundedBy === 'restaurant' ? { restaurantPromoCode: summaryPromo.code, serviceChargePct: svcPct, userEmail: user?.email || undefined } : {}),
+      // Checkout funnel capture (Disco-only — stripped by /api/order/init before
+      // it ever reaches FM/native pricing). Skipped for Direct Entry (no cookie
+      // exists there at all — see the funnelSessionId effect above).
+      ...(!isDirectEntry && funnelSessionId ? {
+        funnelSessionId,
+        funnelStage: 'CHECKOUT_READY' as const,
+        funnelCartValueCents: Math.round(subtotal * 100),
+        funnelItemCount: cart.reduce((s, i) => s + i.quantity, 0),
+        funnelFulfillmentType: orderType,
+      } : {}),
     }
 
     try {
@@ -2032,6 +2094,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           isFirstParty={isFirstParty}
           isDirectEntry={isDirectEntry}
           directEntryMethod={directEntryMethod}
+          funnelSessionId={funnelSessionId}
           onChangeAddress={() => { setCheckoutOpen(false); openMenus() }}
           onPromoChange={setSummaryPromo}
           onClose={() => setCheckoutOpen(false)}
