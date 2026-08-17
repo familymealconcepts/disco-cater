@@ -35,6 +35,10 @@
       "schedule": "0 4 * * *"
     },
     {
+      "path": "/api/cron/refresh-restaurant-admin-list",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/sync-restaurants",
       "schedule": "0 5 * * *"
     },

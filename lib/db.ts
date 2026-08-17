@@ -515,3 +515,25 @@ export async function runCheckoutFunnelMigrations(): Promise<void> {
   for (const s of statements) await sql.query(s)
   checkoutFunnelMigrated = true
 }
+
+// ── Restaurant admin-list cache (manage-restaurants/ordering) ────────────────
+// Reads lib/migrations/005_restaurant_admin_list_cache.sql. Same idempotent,
+// split-on-`;`, cached-per-lambda approach as runMenuDriftMigrations.
+let restaurantAdminListCacheMigrated = false
+export async function runRestaurantAdminListCacheMigrations(): Promise<void> {
+  if (restaurantAdminListCacheMigrated) return
+
+  const sqlPath = path.join(process.cwd(), 'lib', 'migrations', '005_restaurant_admin_list_cache.sql')
+  const file = await readFile(sqlPath, 'utf8')
+
+  const statements = file
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .split(';')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
+  for (const s of statements) await sql.query(s)
+  restaurantAdminListCacheMigrated = true
+}

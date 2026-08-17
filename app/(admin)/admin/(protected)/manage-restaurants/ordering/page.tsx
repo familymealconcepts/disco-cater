@@ -82,6 +82,19 @@ interface OverrideMeta {
   archivedAt: string | null
 }
 
+// Fallback used only when an optimistic patch (archive/restore) needs to
+// write into overrideMap before that row's real override entry has loaded
+// from /api/admin/restaurant-overrides — should be rare, since Archive/
+// Restore only render for rows that already have one.
+function defaultOverrideMeta(isDiscoNative: boolean): OverrideMeta {
+  return {
+    visible: false, isPremium: false, orderUrl: '', menuUploadUrl: null,
+    isLive: false, isDiscoNative, onlineOrderingEnabled: null,
+    menuDriftDetected: false, menuDriftDetails: [], inviteExpired: false,
+    archivedAt: null,
+  }
+}
+
 function fmtDate(d?: string) {
   if (!d) return ''
   try {
@@ -219,61 +232,39 @@ export default function RestaurantsOrderingPage() {
     return () => clearTimeout(t)
   }, [searchInput])
 
-  // Fetch the FULL FM-backed set (all pages), not one server-paginated slice —
-  // same fix as the admin Orders list (S12): search and pagination now run
-  // over the combined FM + Disco-only set client-side, so a Disco-only
-  // restaurant can never survive a non-matching search (it was never filtered
-  // at all before) or get re-shown on every page (it was unconditionally
-  // prepended to whatever FM slice happened to be loaded, with no client-side
-  // page boundary — visible on every single page, not paginated at all).
-  // restaurantStatus stays server-side (a real FM concept the FM-backed
-  // fetch still filters on); search moves entirely client-side in
-  // visibleRows below, across both sets.
-  const FM_FETCH_SIZE = 500
-  const FM_MAX_PAGES = 50
+  // Read the full restaurant admin-list from Neon (disco_restaurant_admin_list_cache)
+  // instead of calling FM directly. FM's restaurant-list endpoint has a low
+  // concurrency ceiling and pulling ~9 pages sequentially on every page load
+  // took ~145s — this now reads a background-synced cache in one fast Neon
+  // query instead (see lib/restaurant-admin-list-cache.ts, synced every 15
+  // min by a cron + this page's own "Refresh Now" button). restaurantStatus
+  // used to be filtered server-side on the FM request; now that the full set
+  // is always read from cache, that filter runs client-side in visibleRows
+  // above, alongside search — both across the combined FM + Disco-only set.
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     setIncomplete(null)
-    const url = (p: number) => {
-      const params = new URLSearchParams()
-      if (p > 0) params.set('page', String(p))
-      params.set('size', String(FM_FETCH_SIZE))
-      if (statusFilter) params.set('restaurantStatus', statusFilter)
-      return `/api/admin/restaurants?${params}`
-    }
     try {
-      const first = await fetchPageWithRetry(url(0))
-      if (!first) { setError('Failed to load restaurants'); setRows([]); setTotal(0); setLoading(false); return }
-      let all: Restaurant[] = Array.isArray(first.content) ? first.content : []
-      const totalElements = Number(first.totalElements ?? first.total_elements ?? 0)
-      const reportedPages = first.totalPages ?? first.total_pages
-      const computedPages = totalElements > 0 ? Math.ceil(totalElements / FM_FETCH_SIZE) : (all.length > 0 ? 1 : 0)
-      const totalPagesFm = Math.min(Number(reportedPages ?? computedPages) || (all.length > 0 ? 1 : 0), FM_MAX_PAGES)
-      // Sequential, not parallel: measured live against production, 8
-      // concurrent FM page requests failed 6/8 with 504s, while the same 8
-      // pages fetched one at a time succeeded 8/8 (145s total). FM's
-      // restaurant-list endpoint has a low concurrency ceiling — parallel
-      // fetching here is not just slower-or-faster, it's unreliable. A
-      // background cache (separate change) is what removes the 145s cost;
-      // until then, correct-but-slow beats fast-but-silently-incomplete.
-      let failedPages = 0
-      for (let i = 1; i < totalPagesFm; i++) {
-        const pg = await fetchPageWithRetry(url(i))
-        if (Array.isArray(pg?.content)) all = all.concat(pg.content)
-        else failedPages++
-      }
+      const data = await fetchPageWithRetry('/api/admin/restaurant-admin-list-cache')
+      if (!data) { setError('Failed to load restaurants'); setRows([]); setTotal(0); setLoading(false); return }
+      const all: unknown[] = Array.isArray(data.content) ? data.content : []
+      const totalElements = Number(data.totalElements ?? 0)
       // Tag every row with a unique local id. FM can repeat `reference` across
       // multi-unit locations, so we suffix with the array index to guarantee
       // uniqueness for React keys + per-row optimistic updates.
-      const content: Restaurant[] = all.map((r, i) => ({ ...r, _rowId: `${r.reference ?? 'noref'}#${i}` }))
+      const content: Restaurant[] = all.map((r, i) => ({ ...(r as Restaurant), _rowId: `${(r as Restaurant).reference ?? 'noref'}#${i}` }))
       setRows(content)
       setTotal(totalElements)
-      // Reconcile against FM's own reported total. A gap here (even after the
-      // retry above) means the list is missing rows — surface it rather than
-      // rendering a partial set as if it were complete.
+      setCacheMeta({ cachedAt: data.cachedAt ?? null, lastError: data.lastError ?? null })
+      // Reconcile against the cache's own last-successful-sync total. This
+      // should always match by construction — the cache only ever swaps in a
+      // fully-reconciled set (see refreshRestaurantAdminListCache) — so a
+      // mismatch here means the cache hasn't been populated yet (fresh
+      // deploy, before the first cron tick) rather than a live-fetch
+      // failure. Same banner either way: never render a partial list as whole.
       if (totalElements > 0 && content.length < totalElements) {
-        setIncomplete({ loaded: content.length, expected: totalElements, failedPages })
+        setIncomplete({ loaded: content.length, expected: totalElements, failedPages: 0 })
       }
     } catch {
       setError('Failed to load restaurants')
@@ -281,7 +272,32 @@ export default function RestaurantsOrderingPage() {
       setTotal(0)
     }
     setLoading(false)
-  }, [statusFilter])
+  }, [])
+
+  // Manual cache refresh — an admin who knows something changed on FM's side
+  // doesn't have to wait for the next 15-min cron tick. Runs the identical
+  // sequential-fetch + reconcile + staging-swap logic as the cron; on
+  // failure the live cache (and this page) are untouched, so `load()` after
+  // still shows the last good data rather than an empty/partial table.
+  const [cacheMeta, setCacheMeta] = useState<{ cachedAt: string | null; lastError: string | null }>({ cachedAt: null, lastError: null })
+  const [refreshingCache, setRefreshingCache] = useState(false)
+  async function refreshCacheNow() {
+    setRefreshingCache(true)
+    try {
+      const res = await fetch('/api/admin/refresh-restaurant-admin-list-cache', { method: 'POST' })
+      const d = await res.json().catch(() => null)
+      if (res.ok && d?.ok) {
+        showToast(`Restaurant list refreshed: ${d.fetched} of ${d.totalElements} restaurants (${Math.round((d.durationMs || 0) / 1000)}s)`)
+      } else {
+        showToast(d?.error || 'Refresh failed — still showing the last good data')
+      }
+    } catch {
+      showToast('Refresh failed — still showing the last good data')
+    } finally {
+      setRefreshingCache(false)
+      load()
+    }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -374,8 +390,19 @@ export default function RestaurantsOrderingPage() {
         res = await fetch(`/api/admin/restaurants/${r.reference}?confirmArchiveWithOrders=${encodeURIComponent(r.reference)}`, { method: 'DELETE' })
       }
     }
-    if (res.ok) { showToast(`${r.businessName} archived`); load() }
-    else {
+    if (res.ok) {
+      showToast(`${r.businessName} archived`)
+      // Optimistic local patch instead of a full load(): the restaurant list
+      // now reads a background-synced cache (up to 15 min stale), so a
+      // reload here wouldn't show the archive the admin just performed.
+      // archivedAt drives the Archived badge + Restore-button swap below —
+      // patching it directly makes the change visible immediately regardless
+      // of cache staleness. Same pattern as toggleNash/toggleShipday/toggleMoneyFlow.
+      setOverrideMap(prev => ({
+        ...prev,
+        [r.reference]: { ...(prev[r.reference] || defaultOverrideMeta(true)), archivedAt: new Date().toISOString() },
+      }))
+    } else {
       const d = await res.json().catch(() => null)
       showToast(d?.error || 'Archive failed')
     }
@@ -384,8 +411,13 @@ export default function RestaurantsOrderingPage() {
   async function restoreRestaurant(r: Restaurant) {
     if (!confirm(`Restore "${r.businessName}"? It reappears on the marketplace, admin lists, and portal login immediately. Its admin will need a fresh invite — the old one was revoked on archive.`)) return
     const res = await fetch(`/api/admin/restaurants/${r.reference}/restore`, { method: 'POST' })
-    if (res.ok) { showToast(`${r.businessName} restored`); load() }
-    else {
+    if (res.ok) {
+      showToast(`${r.businessName} restored`)
+      setOverrideMap(prev => ({
+        ...prev,
+        [r.reference]: { ...(prev[r.reference] || defaultOverrideMeta(true)), archivedAt: null },
+      }))
+    } else {
       const d = await res.json().catch(() => null)
       showToast(d?.error || 'Restore failed')
     }
@@ -486,7 +518,14 @@ export default function RestaurantsOrderingPage() {
     if (!res.ok) { showToast(data?.error || 'Could not resend the invite'); return }
     if (data?.emailed === false) showToast(`New invite issued for ${data.email}, but the email could not be sent`)
     else showToast(`Invite resent to ${data?.email}`)
-    loadStripeMap() // refresh so the expired-invite badge clears
+    // Optimistic patch instead of loadStripeMap()'s full re-fetch: a fresh
+    // invite was just issued, so the "invite expired" badge is stale now
+    // regardless of when the next background refresh happens.
+    setOverrideMap(prev => {
+      const cur = prev[r.reference]
+      if (!cur) return prev
+      return { ...prev, [r.reference]: { ...cur, inviteExpired: false } }
+    })
   }
 
   // Promote the restaurant's Disco account (and its group) to SYSTEM_ADMIN.
@@ -626,7 +665,14 @@ export default function RestaurantsOrderingPage() {
     const orphanRows = discoOrphans
       .filter(o => !fmRefs.has(o.reference))
       .map(o => ({ ...o, _rowId: `disco-only#${o.reference}`, discoOnly: true }))
-    const combined = [...orphanRows, ...rows]
+    // restaurantStatus (ACTIVE/INACTIVE/SUSPENDED/ARCHIVED) is an FM concept —
+    // it never applied to Disco-only orphans even when this filter ran
+    // server-side against FM directly, so it's applied only to the FM-backed
+    // rows here, after computing fmRefs against the FULL unfiltered set (a
+    // status-filtered dedup set could wrongly un-hide an orphan that happens
+    // to share a reference with an FM row of a different status).
+    const fmRowsFiltered = statusFilter ? rows.filter(r => r.restaurantStatus === statusFilter) : rows
+    const combined = [...orphanRows, ...fmRowsFiltered]
 
     const q = search.trim().toLowerCase()
     const filtered = q
@@ -649,7 +695,7 @@ export default function RestaurantsOrderingPage() {
       if (cmp === 0) cmp = (a.businessName || '').localeCompare(b.businessName || '', undefined, { sensitivity: 'base' })
       return cmp * dir
     })
-  }, [rows, discoOrphans, sortKey, sortDir, stripeMap, search, overrideMap])
+  }, [rows, discoOrphans, sortKey, sortDir, stripeMap, search, overrideMap, statusFilter])
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize))
   const pageRows = useMemo(() => visibleRows.slice(page * pageSize, (page + 1) * pageSize), [visibleRows, page, pageSize])
@@ -868,7 +914,15 @@ export default function RestaurantsOrderingPage() {
         .ord-btn:hover .ord-tip { opacity: 1; visibility: visible; }
       `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, gap: 16, flexWrap: 'wrap' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Restaurants — Ordering</h1>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Restaurants — Ordering</h1>
+          {cacheMeta.cachedAt && (
+            <div style={{ fontSize: 11, color: cacheMeta.lastError ? '#B45309' : '#999', marginTop: 2 }}>
+              List last synced {new Date(cacheMeta.cachedAt).toLocaleString()}
+              {cacheMeta.lastError ? ' — a more recent sync attempt failed; still showing this last good data' : ''}
+            </div>
+          )}
+        </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(0) }} style={{ ...selectSt, minWidth: 160 }}>
             <option value="">All statuses</option>
@@ -879,6 +933,12 @@ export default function RestaurantsOrderingPage() {
             onChange={e => setSearchInput(e.target.value)}
             style={{ ...inputSt, width: 240 }}
           />
+          <button className="ord-btn" onClick={refreshCacheNow} disabled={refreshingCache}
+            style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: refreshingCache ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: refreshingCache ? 0.6 : 1 }}>
+            {refreshingCache ? 'Refreshing…' : 'Refresh List'}
+            <i className="ti ti-info-circle" style={{ fontSize: 12, marginLeft: 4, opacity: 0.6 }} />
+            <span className="ord-tip">Pull the latest restaurant list from FamilyMeal now, instead of waiting for the next automatic sync (every 15 min)</span>
+          </button>
           <button className="ord-btn" onClick={syncStripeStatus} disabled={syncBusy}
             style={{ display: 'inline-flex', alignItems: 'center', background: '#fff', color: BLUE, border: `1.5px solid ${BLUE}`, borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: syncBusy ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', opacity: syncBusy ? 0.6 : 1 }}>
             {syncBusy ? (syncProgress || 'Syncing…') : 'Sync Stripe Status'}
