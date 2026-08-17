@@ -402,7 +402,7 @@ export default function OrderSettingsPage() {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input type="email" placeholder="Add email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
+              <input type="email" name="notification-add-email" autoComplete="email" placeholder="Add email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addEmail()}
                 style={{ ...inputStyle, minWidth: 220 }} />
               <button onClick={addEmail} style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: F }}>Add</button>
@@ -422,7 +422,7 @@ export default function OrderSettingsPage() {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input type="tel" placeholder="000-000-0000" value={newPhone} onChange={e => setNewPhone(e.target.value)}
+              <input type="tel" name="notification-add-phone" autoComplete="tel" placeholder="000-000-0000" value={newPhone} onChange={e => setNewPhone(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addPhone()}
                 style={{ ...inputStyle, minWidth: 160 }} />
               <button onClick={addPhone} style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, cursor: 'pointer', fontFamily: F }}>Add</button>

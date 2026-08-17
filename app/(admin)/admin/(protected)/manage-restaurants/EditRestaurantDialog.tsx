@@ -560,8 +560,12 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                 </div>
                 <div style={{ marginBottom: 12 }}><label style={label}>Restaurant name</label><input style={input} value={restaurantName} onChange={e => setRestaurantName(e.target.value)} /></div>
                 <div style={grid2}>
-                  <div><label style={label}>Email</label><input style={input} value={email} onChange={e => setEmail(e.target.value)} /></div>
-                  <div><label style={label}>Phone</label><input style={input} value={phone} onChange={e => setPhone(e.target.value)} /></div>
+                  {/* Explicit type/name/autoComplete on every field — a plain
+                      untyped/unnamed input next to a same-shaped sibling is
+                      exactly what let a browser drop an autofilled email into
+                      this phone field (confirmed live on The Winkin' Rooster). */}
+                  <div><label style={label}>Email</label><input style={input} type="email" name="admin-email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
+                  <div><label style={label}>Phone</label><input style={input} type="tel" name="admin-phone" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} /></div>
                 </div>
               </div>
 

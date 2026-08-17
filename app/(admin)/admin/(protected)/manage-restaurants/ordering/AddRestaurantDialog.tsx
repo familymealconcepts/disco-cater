@@ -179,14 +179,14 @@ export default function AddRestaurantDialog({ onClose, onCreated }: Props) {
             <Field label="State *"><input style={input} value={state} onChange={e => setState(e.target.value.toUpperCase())} maxLength={2} placeholder="NY" /></Field>
             <Field label="Zipcode *"><input style={input} value={zipcode} onChange={e => setZipcode(e.target.value)} maxLength={10} placeholder="10001" /></Field>
           </Grid>
-          <Field label="Phone *"><input style={input} value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="000-000-0000" /></Field>
+          <Field label="Phone *"><input style={input} type="tel" name="new-restaurant-phone" autoComplete="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="000-000-0000" /></Field>
 
           <SectionTitle>Admin contact</SectionTitle>
           <Grid cols={2}>
-            <Field label="First name *"><input style={input} value={firstName} onChange={e => setFirstName(e.target.value)} /></Field>
-            <Field label="Last name *"><input style={input} value={lastName} onChange={e => setLastName(e.target.value)} /></Field>
+            <Field label="First name *"><input style={input} name="new-admin-first-name" autoComplete="given-name" value={firstName} onChange={e => setFirstName(e.target.value)} /></Field>
+            <Field label="Last name *"><input style={input} name="new-admin-last-name" autoComplete="family-name" value={lastName} onChange={e => setLastName(e.target.value)} /></Field>
           </Grid>
-          <Field label="Email *"><input style={input} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@restaurant.com" /></Field>
+          <Field label="Email *"><input style={input} type="email" name="new-admin-email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@restaurant.com" /></Field>
 
           <SectionTitle>Categories *</SectionTitle>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>

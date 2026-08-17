@@ -326,6 +326,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
                 <input
                   className="auth-modal-input"
                   type="text"
+                  name="signup-first-name"
                   value={signupFirst}
                   onChange={e => setSignupFirst(e.target.value)}
                   placeholder="Jane"
@@ -339,6 +340,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
                 <input
                   className="auth-modal-input"
                   type="text"
+                  name="signup-last-name"
                   value={signupLast}
                   onChange={e => setSignupLast(e.target.value)}
                   placeholder="Doe"
@@ -352,6 +354,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               <input
                 className="auth-modal-input"
                 type="email"
+                name="signup-email"
                 value={signupEmail}
                 onChange={e => setSignupEmail(e.target.value)}
                 placeholder="you@company.com"
@@ -364,6 +367,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               <input
                 className="auth-modal-input"
                 type="tel"
+                name="signup-phone"
                 value={signupPhone}
                 onChange={e => setSignupPhone(e.target.value)}
                 placeholder="(555) 123-4567"

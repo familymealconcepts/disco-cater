@@ -92,11 +92,11 @@ export default function ProfilePage() {
         </div>
         <div style={{ marginBottom: 14 }}>
           <label style={labelSt}>Email address</label>
-          <input className="acct-input" type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputSt} />
+          <input className="acct-input" type="email" name="account-email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} style={inputSt} />
         </div>
         <div style={{ marginBottom: 14 }}>
           <label style={labelSt}>Phone number</label>
-          <input className="acct-input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. (555) 555-5555" style={inputSt} />
+          <input className="acct-input" type="tel" name="account-phone" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="e.g. (555) 555-5555" style={inputSt} />
         </div>
         <div style={{ marginBottom: 24 }}>
           <label style={labelSt}>Company name (optional)</label>

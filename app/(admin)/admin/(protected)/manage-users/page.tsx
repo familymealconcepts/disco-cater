@@ -226,12 +226,12 @@ function AddUserDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={lbl}>Email *</label>
-          <input style={fieldInput} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="user@example.com" />
+          <input style={fieldInput} type="email" name="new-user-email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="user@example.com" />
         </div>
         <div style={{ marginBottom: 18 }}>
           <label style={lbl}>Phone *</label>
           {/* phoneNumber state holds digits only; shown formatted, auto-stripped. */}
-          <input style={fieldInput} value={formatPhoneDisplay(phoneNumber)} onChange={e => setPhoneNumber(sanitizePhone(e.target.value))} placeholder="(000) 000-0000" inputMode="tel" maxLength={16} />
+          <input style={fieldInput} type="tel" name="new-user-phone" autoComplete="tel" value={formatPhoneDisplay(phoneNumber)} onChange={e => setPhoneNumber(sanitizePhone(e.target.value))} placeholder="(000) 000-0000" inputMode="tel" maxLength={16} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <button onClick={onClose} disabled={submitting}

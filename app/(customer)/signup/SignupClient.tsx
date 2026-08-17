@@ -16,14 +16,19 @@ const pillInput: React.CSSProperties = {
 }
 const labelSt: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#777', marginBottom: 6, display: 'block' }
 
-function Field({ label, value, onChange, type = 'text', autoComplete, placeholder }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string; autoComplete?: string; placeholder?: string
+// name + autoComplete are REQUIRED, not optional — a plain input with neither
+// is exactly what let a browser drop an autofilled email into a phone field
+// elsewhere in the app (confirmed live), and phone/email sit right next to
+// each other in this same form. Required here means a future field added to
+// this page can't silently omit them.
+function Field({ label, value, onChange, name, autoComplete, type = 'text', placeholder }: {
+  label: string; value: string; onChange: (v: string) => void; name: string; autoComplete: string; type?: string; placeholder?: string
 }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={labelSt}>{label}</label>
       <input
-        type={type} value={value} autoComplete={autoComplete} placeholder={placeholder}
+        type={type} name={name} value={value} autoComplete={autoComplete} placeholder={placeholder}
         onChange={e => onChange(e.target.value)}
         onFocus={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(91,111,232,0.12)' }}
         onBlur={e => { e.currentTarget.style.borderColor = '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
@@ -93,13 +98,13 @@ export default function SignupClient() {
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Field label="First Name" value={firstName} onChange={setFirstName} autoComplete="given-name" />
-            <Field label="Last Name" value={lastName} onChange={setLastName} autoComplete="family-name" />
+            <Field label="First Name" value={firstName} onChange={setFirstName} name="signup-first-name" autoComplete="given-name" />
+            <Field label="Last Name" value={lastName} onChange={setLastName} name="signup-last-name" autoComplete="family-name" />
           </div>
-          <Field label="Phone Number (optional)" value={phone} onChange={setPhone} type="tel" autoComplete="tel" placeholder="e.g. (555) 555-5555" />
-          <Field label="Email" value={email} onChange={setEmail} type="email" autoComplete="email" />
-          <Field label="Confirm Email" value={confirmEmail} onChange={setConfirmEmail} type="email" />
-          <Field label="Password" value={password} onChange={setPassword} type="password" autoComplete="new-password" />
+          <Field label="Phone Number (optional)" value={phone} onChange={setPhone} name="signup-phone" type="tel" autoComplete="tel" placeholder="e.g. (555) 555-5555" />
+          <Field label="Email" value={email} onChange={setEmail} name="signup-email" type="email" autoComplete="email" />
+          <Field label="Confirm Email" value={confirmEmail} onChange={setConfirmEmail} name="signup-confirm-email" type="email" autoComplete="email" />
+          <Field label="Password" value={password} onChange={setPassword} name="signup-password" type="password" autoComplete="new-password" />
 
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', margin: '6px 0 18px' }}>
             <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)}

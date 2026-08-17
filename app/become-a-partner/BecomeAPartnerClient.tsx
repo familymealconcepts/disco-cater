@@ -46,16 +46,21 @@ interface AddressState { street: string; city: string; state: string; zip: strin
 // browser back/forward (and the Stripe redirect round-trip) keep their place.
 const SNAP_KEY = 'partner_onboarding_v2'
 
-// Small field helper — pill input with a label.
-function Field({ label, value, onChange, type = 'text', placeholder, autoComplete }: {
+// Small field helper — pill input with a label. name + autoComplete are
+// REQUIRED, not optional — an unlabeled input is exactly what let a browser
+// misclassify a phone field elsewhere in the app (confirmed live); required
+// here means a future field on this page can't silently omit them, even
+// though email/phone on this particular page are step-gated and never both
+// mounted at once.
+function Field({ label, value, onChange, name, autoComplete, type = 'text', placeholder }: {
   label: string; value: string; onChange: (v: string) => void
-  type?: string; placeholder?: string; autoComplete?: string
+  name: string; autoComplete: string; type?: string; placeholder?: string
 }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={labelStyle}>{label}</label>
       <input
-        type={type} value={value} placeholder={placeholder} autoComplete={autoComplete}
+        type={type} name={name} value={value} placeholder={placeholder} autoComplete={autoComplete}
         onChange={e => onChange(e.target.value)}
         onFocus={e => { e.currentTarget.style.borderColor = BLUE; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(91,111,232,0.12)' }}
         onBlur={e => { e.currentTarget.style.borderColor = '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
@@ -525,11 +530,11 @@ export default function BecomeAPartnerClient() {
               {errorBox}
               <div style={{ marginTop: 18 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <Field label="First name" value={form.firstName} onChange={v => set('firstName', v)} autoComplete="given-name" />
-                  <Field label="Last name" value={form.lastName} onChange={v => set('lastName', v)} autoComplete="family-name" />
+                  <Field label="First name" value={form.firstName} onChange={v => set('firstName', v)} name="partner-first-name" autoComplete="given-name" />
+                  <Field label="Last name" value={form.lastName} onChange={v => set('lastName', v)} name="partner-last-name" autoComplete="family-name" />
                 </div>
-                <Field label="Email" value={form.email} onChange={v => set('email', v)} type="email" autoComplete="email" />
-                <Field label="Create a password" value={form.password} onChange={v => set('password', v)} type="password" autoComplete="new-password" />
+                <Field label="Email" value={form.email} onChange={v => set('email', v)} name="partner-email" type="email" autoComplete="email" />
+                <Field label="Create a password" value={form.password} onChange={v => set('password', v)} name="partner-password" type="password" autoComplete="new-password" />
                 <div style={{ fontSize: 12, color: '#999', margin: '-6px 0 0', paddingLeft: 4 }}>Minimum 8 characters</div>
               </div>
               <button
@@ -552,7 +557,7 @@ export default function BecomeAPartnerClient() {
               <p style={subStyle}>Start with 1 location and our team can help onboard the rest.</p>
               {errorBox}
               <div style={{ marginTop: 18 }}>
-                <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} />
+                <Field label="Restaurant name" value={form.restaurantName} onChange={v => set('restaurantName', v)} name="partner-restaurant-name" autoComplete="organization" />
                 <div style={{ marginBottom: 14 }}>
                   <label style={labelStyle}>Street address</label>
                   <input
@@ -565,9 +570,9 @@ export default function BecomeAPartnerClient() {
                   />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12 }}>
-                  <Field label="City" value={addr.city} onChange={v => setAddr(a => ({ ...a, city: v }))} />
-                  <Field label="State" value={addr.state} onChange={v => setAddr(a => ({ ...a, state: v }))} />
-                  <Field label="Zip" value={addr.zip} onChange={v => setAddr(a => ({ ...a, zip: v }))} />
+                  <Field label="City" value={addr.city} onChange={v => setAddr(a => ({ ...a, city: v }))} name="partner-city" autoComplete="address-level2" />
+                  <Field label="State" value={addr.state} onChange={v => setAddr(a => ({ ...a, state: v }))} name="partner-state" autoComplete="address-level1" />
+                  <Field label="Zip" value={addr.zip} onChange={v => setAddr(a => ({ ...a, zip: v }))} name="partner-zip" autoComplete="postal-code" />
                 </div>
                 {/* Phone — required, must be a 10-digit US number. Chrome autofill can
                     silently inject a malformed / non-10-digit value, so we surface a
@@ -580,7 +585,7 @@ export default function BecomeAPartnerClient() {
                     <div style={{ marginBottom: 14 }}>
                       <label style={labelStyle}>Phone</label>
                       <input
-                        type="tel" inputMode="tel" value={form.phoneNumber} placeholder="(555) 555-5555" autoComplete="tel"
+                        type="tel" inputMode="tel" name="partner-phone" value={form.phoneNumber} placeholder="(555) 555-5555" autoComplete="tel"
                         onChange={e => set('phoneNumber', e.target.value)}
                         onFocus={e => { e.currentTarget.style.borderColor = phoneInvalid ? '#e0a0a0' : BLUE; e.currentTarget.style.boxShadow = phoneInvalid ? '0 0 0 3px rgba(192,57,43,0.10)' : '0 0 0 3px rgba(91,111,232,0.12)' }}
                         onBlur={e => { e.currentTarget.style.borderColor = phoneInvalid ? '#e0a0a0' : '#e6e6ee'; e.currentTarget.style.boxShadow = 'none' }}
