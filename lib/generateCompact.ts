@@ -27,7 +27,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { sql, runMigrations, withDiscoTables } from './db'
+import { getMarketplaceRestaurants } from './marketplace-restaurants'
 
 const DEFAULT_FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const DEFAULT_DELAY_MS = 1000 // ~1 req/sec to FM, per spec
@@ -193,31 +193,14 @@ export async function generateCompact(opts: GenerateOptions = {}): Promise<Gener
   log('[1/3] Fetching live marketplace restaurant list from Neon…')
 
   // Same public-marketplace visibility rule as /api/restaurants (the fullmap
-  // feed) — see disco_restaurant_cache/disco_restaurant_overrides.
-  const rows = (await withDiscoTables(() => sql`
-    SELECT c.name, c.restaurant_reference AS "restaurantReference"
-    FROM disco_restaurant_cache c
-    LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-    LEFT JOIN LATERAL (
-      SELECT a2.stripe_account_id, a2.stripe_onboarding_complete
-      FROM disco_restaurant_accounts a2
-      WHERE (a2.restaurant_reference = c.restaurant_reference OR a2.fm_restaurant_reference = c.restaurant_reference)
-        AND a2.stripe_account_id IS NOT NULL
-      ORDER BY a2.stripe_onboarding_complete DESC NULLS LAST, a2.id ASC
-      LIMIT 1
-    ) a ON true
-    WHERE c.name IS NOT NULL
-      AND (
-        (COALESCE(c.is_disco_native, false) = false
-          AND o.visible = true AND o.stripe_connected = true)
-        OR
-        (c.is_disco_native = true
-          AND o.visible = true
-          AND COALESCE(o.online_ordering_enabled, true) = true
-          AND (o.stripe_connected = true
-               OR (a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true)))
-      )
-  `, runMigrations)) as NeonRestaurant[]
+  // feed), the city pages, the /restaurants directory, and the sitemap —
+  // shared via lib/marketplace-restaurants.ts rather than a 5th copy of the
+  // WHERE clause. This is exactly how this file ended up with a stale,
+  // archived_at-less copy in the first place: the AI assistant kept
+  // describing archived restaurants as orderable until this was fixed.
+  const rows: NeonRestaurant[] = (await getMarketplaceRestaurants())
+    .filter((r) => !!r.name)
+    .map((r) => ({ name: r.name, restaurantReference: r.reference }))
   log(`     ${rows.length} live marketplace restaurants`)
 
   const targets = rows.slice(0, limit)
