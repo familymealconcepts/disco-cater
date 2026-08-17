@@ -93,6 +93,24 @@ function fmtDate(d?: string) {
   } catch { return d }
 }
 
+async function fetchJson(url: string): Promise<any | null> {
+  try {
+    const res = await fetch(url)
+    return res.ok ? await res.json() : null
+  } catch {
+    return null
+  }
+}
+
+// One retry with a short backoff — FM pages occasionally 504 transiently;
+// a single retry recovers those without materially slowing the load.
+async function fetchPageWithRetry(url: string): Promise<any | null> {
+  const first = await fetchJson(url)
+  if (first) return first
+  await new Promise(r => setTimeout(r, 1500))
+  return fetchJson(url)
+}
+
 function adminNameOf(r: Restaurant): string {
   return r.adminName || `${r.admin?.firstName || ''} ${r.admin?.lastName || ''}`.trim()
 }
@@ -163,6 +181,11 @@ export default function RestaurantsOrderingPage() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState('')
   const [error, setError] = useState('')
+  // Set when the assembled row count doesn't reconcile against FM's
+  // totalElements — i.e. one or more pages failed even after retry. The list
+  // still renders (partial data beats none for an admin mid-task) but a
+  // banner makes the gap impossible to miss instead of pretending it's whole.
+  const [incomplete, setIncomplete] = useState<{ loaded: number; expected: number; failedPages: number } | null>(null)
   // "Transfer to System Admin" confirmation (Disco-native role promotion).
   const [promoteConfirm, setPromoteConfirm] = useState<Restaurant | null>(null)
   const [promoteBusy, setPromoteBusy] = useState(false)
@@ -211,6 +234,7 @@ export default function RestaurantsOrderingPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
+    setIncomplete(null)
     const url = (p: number) => {
       const params = new URLSearchParams()
       if (p > 0) params.set('page', String(p))
@@ -219,18 +243,25 @@ export default function RestaurantsOrderingPage() {
       return `/api/admin/restaurants?${params}`
     }
     try {
-      const first = await fetch(url(0)).then(r => (r.ok ? r.json() : null))
+      const first = await fetchPageWithRetry(url(0))
       if (!first) { setError('Failed to load restaurants'); setRows([]); setTotal(0); setLoading(false); return }
       let all: Restaurant[] = Array.isArray(first.content) ? first.content : []
       const totalElements = Number(first.totalElements ?? first.total_elements ?? 0)
       const reportedPages = first.totalPages ?? first.total_pages
       const computedPages = totalElements > 0 ? Math.ceil(totalElements / FM_FETCH_SIZE) : (all.length > 0 ? 1 : 0)
       const totalPagesFm = Math.min(Number(reportedPages ?? computedPages) || (all.length > 0 ? 1 : 0), FM_MAX_PAGES)
-      if (totalPagesFm > 1) {
-        const rest = await Promise.all(
-          Array.from({ length: totalPagesFm - 1 }, (_, i) => fetch(url(i + 1)).then(r => (r.ok ? r.json() : null))),
-        )
-        for (const pg of rest) if (Array.isArray(pg?.content)) all = all.concat(pg.content)
+      // Sequential, not parallel: measured live against production, 8
+      // concurrent FM page requests failed 6/8 with 504s, while the same 8
+      // pages fetched one at a time succeeded 8/8 (145s total). FM's
+      // restaurant-list endpoint has a low concurrency ceiling — parallel
+      // fetching here is not just slower-or-faster, it's unreliable. A
+      // background cache (separate change) is what removes the 145s cost;
+      // until then, correct-but-slow beats fast-but-silently-incomplete.
+      let failedPages = 0
+      for (let i = 1; i < totalPagesFm; i++) {
+        const pg = await fetchPageWithRetry(url(i))
+        if (Array.isArray(pg?.content)) all = all.concat(pg.content)
+        else failedPages++
       }
       // Tag every row with a unique local id. FM can repeat `reference` across
       // multi-unit locations, so we suffix with the array index to guarantee
@@ -238,6 +269,12 @@ export default function RestaurantsOrderingPage() {
       const content: Restaurant[] = all.map((r, i) => ({ ...r, _rowId: `${r.reference ?? 'noref'}#${i}` }))
       setRows(content)
       setTotal(totalElements)
+      // Reconcile against FM's own reported total. A gap here (even after the
+      // retry above) means the list is missing rows — surface it rather than
+      // rendering a partial set as if it were complete.
+      if (totalElements > 0 && content.length < totalElements) {
+        setIncomplete({ loaded: content.length, expected: totalElements, failedPages })
+      }
     } catch {
       setError('Failed to load restaurants')
       setRows([])
@@ -876,6 +913,20 @@ export default function RestaurantsOrderingPage() {
       </div>
 
       {error && <div style={{ background: '#fff3f3', color: '#c00', padding: 12, borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{error}</div>}
+
+      {incomplete && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#FFF4E5', color: '#8A5300', border: '1px solid #FFDDA8', padding: '12px 16px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>
+          <span>
+            <strong>Incomplete results:</strong> showing {incomplete.loaded} of {incomplete.expected} restaurants
+            {incomplete.failedPages > 0 ? ` — ${incomplete.failedPages} page${incomplete.failedPages === 1 ? '' : 's'} failed to load even after retry.` : '.'}
+            {' '}Search, sort, and counts below do not reflect the full list — do not rely on this view being complete.
+          </span>
+          <button onClick={load} disabled={loading}
+            style={{ background: '#8A5300', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: loading ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {loading ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
 
       {/* Grow to fill the remaining viewport height (flex:1) and scroll the rows
           inside this container so the sticky header has a scrolling ancestor to

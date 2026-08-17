@@ -520,6 +520,13 @@ function AdminOrdersContent() {
   const [fromDate, setFromDate] = useState(() => isoDate(daysAgo(10)))
   const [toDate, setToDate] = useState(() => isoDate(daysAgo(-60)))
   const [loading, setLoading] = useState(true)
+  // Set when a foreground load's assembled row count doesn't reconcile
+  // against FM's totalElements — i.e. one or more of the parallel page
+  // fetches below failed. The default date range keeps this dormant (it
+  // fits in one page), but a wide range hits the same fetch-all-pages code
+  // as manage-restaurants/ordering, which is known to silently drop failed
+  // pages under FM load. Not set on background polls (see `load` below).
+  const [incomplete, setIncomplete] = useState<{ loaded: number; expected: number; failedPages: number } | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -587,7 +594,7 @@ function AdminOrdersContent() {
   // full-page loading spinner, and on a genuinely new order it stashes the
   // result into `pending` (see above) rather than replacing `orders` outright.
   const load = useCallback(async (background?: boolean) => {
-    if (!background) setLoading(true)
+    if (!background) { setLoading(true); setIncomplete(null) }
     const url = (p: number) => {
       const params = new URLSearchParams()
       if (p > 0) params.set('page', String(p))
@@ -615,6 +622,7 @@ function AdminOrdersContent() {
         : (all.length > 0 ? 1 : 0)
       const totalPages = Math.min(Number(reportedPages ?? computedPages) || (all.length > 0 ? 1 : 0), MAX_PAGES)
       console.log('[admin/orders] page 0 →', all.length, 'orders', { totalElements, reportedPages, computedPages, totalPages })
+      let failedPages = 0
       if (totalPages > 1) {
         const rest = await Promise.all(
           Array.from({ length: totalPages - 1 }, (_, i) => fetch(url(i + 1)).then(r => (r.ok ? r.json() : null))),
@@ -623,11 +631,19 @@ function AdminOrdersContent() {
           const c = pg?.content?.length || 0
           console.log(`[admin/orders] page ${i + 1} → ${c} orders`)
           if (pg?.content) all = all.concat((pg.content as Order[]).map(withOrderRef))
+          else failedPages++
         })
       }
       console.log(`[admin/orders] loaded ${all.length} orders across ${totalPages} page(s)`, { fromDate, toDate })
       if (all.length === 0) {
         console.error('[admin/orders] FM returned 0 orders', { fromDate, toDate, totalElements })
+      }
+      // Reconcile against FM's own reported total. Only surfaced on a
+      // foreground load — a background poll that comes up short just stays
+      // silent (matching its existing no-new-data behavior) rather than
+      // flashing a banner behind the admin's back.
+      if (!background && totalElements > 0 && all.length < totalElements) {
+        setIncomplete({ loaded: all.length, expected: totalElements, failedPages })
       }
       if (background) {
         const currentRefs = new Set(ordersRef.current.map(o => o.orderReference))
@@ -740,6 +756,19 @@ function AdminOrdersContent() {
           </div>
         )
       })()}
+      {incomplete && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: '#FFF4E5', color: '#8A5300', border: '1px solid #FFDDA8', padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
+          <span>
+            <strong>Incomplete results:</strong> showing {incomplete.loaded} of {incomplete.expected} orders for this date range
+            {incomplete.failedPages > 0 ? ` — ${incomplete.failedPages} page${incomplete.failedPages === 1 ? '' : 's'} failed to load.` : '.'}
+            {' '}Narrow the date range or retry — search, sort, and counts below do not reflect the full result set.
+          </span>
+          <button onClick={() => load()} disabled={loading}
+            style={{ background: '#8A5300', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: loading ? 'wait' : 'pointer', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {loading ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 12, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: 0 }}>Orders</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
