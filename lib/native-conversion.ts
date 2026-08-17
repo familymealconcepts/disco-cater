@@ -30,6 +30,32 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // holder row created before any real admin has ever logged in.
 const SENTINEL_EMAIL_RE = /^stripe-import\+.+@familymeal\.com$/i
 
+// Does this disco_restaurant_accounts row actually work right now? Two real
+// signals, checked directly instead of inferred from the email's shape:
+//   (a) a LIVE (unexpired) invite_token — a second invite would needlessly
+//       invalidate/duplicate an active one.
+//   (b) any disco_restaurant_sessions row ever created for this email —
+//       accept-invite's POST always creates one immediately on success
+//       (app/api/restaurant/accept-invite/route.ts), so its mere existence
+//       proves a real password was set at least once, regardless of what the
+//       CURRENT invite_token/password_hash look like.
+// Replaces inferring viability from SENTINEL_EMAIL_RE: a row created by
+// importRestaurantStripeAccount with a REAL email (exactly what the runbook
+// instructs passing) doesn't match that pattern, so it read as "a working
+// login already exists" while actually having invite_token NULL and an
+// unguessable random password — no invite was ever sent and no one could log
+// in. Confirmed live: The Winkin' Rooster hit exactly this.
+async function hasUsableLogin(
+  email: string,
+  inviteToken: string | null,
+  inviteTokenExpiresAt: string | Date | null,
+): Promise<boolean> {
+  const hasLiveInvite = inviteToken != null && inviteTokenExpiresAt != null && new Date(inviteTokenExpiresAt) > new Date()
+  if (hasLiveInvite) return true
+  const sessions = (await sql`SELECT 1 FROM disco_restaurant_sessions WHERE email = ${email} LIMIT 1`.catch(() => [])) as unknown[]
+  return sessions.length > 0
+}
+
 // Full FM order-history backfill for a restaurant — pulls ALL of FM's order history
 // into disco_orders (source_of_order='FAMILYMEAL') so the native lead-gen fee tier
 // carries over on conversion (countPriorPaidOrders counts these). Deep page cap so a
@@ -200,13 +226,36 @@ export interface InviteResult {
 // used for sub-admins. Best-effort — never blocks or fails the conversion itself.
 export async function ensureRestaurantLoginInvited(ref: string, restaurantName: string | null): Promise<InviteResult> {
   const existing = (await sql`
-    SELECT email FROM disco_restaurant_accounts
+    SELECT email, invite_token, invite_token_expires_at FROM disco_restaurant_accounts
     WHERE restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref}
     ORDER BY created_at ASC LIMIT 1
-  `.catch(() => [])) as { email: string }[]
+  `.catch(() => [])) as { email: string; invite_token: string | null; invite_token_expires_at: string | null }[]
 
-  if (existing.length && !SENTINEL_EMAIL_RE.test(existing[0].email)) {
-    return { invited: false, email: existing[0].email, reason: 'Working login already exists — skipped.' }
+  if (existing.length) {
+    const row = existing[0]
+    if (await hasUsableLogin(row.email, row.invite_token, row.invite_token_expires_at)) {
+      return { invited: false, email: row.email, reason: 'Working login already exists (live invite or prior sign-in) — skipped.' }
+    }
+    // Genuinely stuck: no live invite, never logged in. If the email is
+    // already real (not the auto-generated placeholder), just (re)invite it
+    // directly — this is exactly the importRestaurantStripeAccount gap: a
+    // real email got attached to the row but no invite was ever issued for
+    // it. Don't route this through the FM-lookup/upgrade path below, which
+    // would re-fetch and overwrite an email that's already correct.
+    if (!SENTINEL_EMAIL_RE.test(row.email)) {
+      const token = await setInviteToken(row.email)
+      const sent = await sendTeamMemberInvite({
+        to: row.email,
+        inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
+        restaurantName: restaurantName || undefined,
+      })
+      return {
+        invited: sent.success, email: row.email,
+        reason: sent.success ? 'Invited — a real email was attached to this account but never invited.' : 'Invite email failed to send (account already existed).',
+      }
+    }
+    // else: still the raw sentinel placeholder email — fall through to the
+    // FM lookup + upgrade-in-place path below, unchanged.
   }
 
   let auth: Record<string, string>
@@ -313,15 +362,32 @@ export async function inviteFmSystemAdminsFor(ref: string, restaurantName: strin
     const email = (a.email || '').trim().toLowerCase()
     if (!email) continue
     try {
-      const existing = (await sql`SELECT email FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1`) as { email: string }[]
+      const existing = (await sql`
+        SELECT email, invite_token, invite_token_expires_at FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1
+      `) as { email: string; invite_token: string | null; invite_token_expires_at: string | null }[]
       let invited = false
       let reason: string
 
-      if (existing.length) {
-        // Already has a login — most commonly because ensureRestaurantLoginInvited
+      if (existing.length && await hasUsableLogin(existing[0].email, existing[0].invite_token, existing[0].invite_token_expires_at)) {
+        // Real, working login — most commonly because ensureRestaurantLoginInvited
         // (or this same function, on a sibling location's conversion) already
-        // created it. Never re-invite; just keep their grants in sync below.
-        reason = 'Account already exists — location access synced, no new invite sent.'
+        // created and invited it. Never re-invite; just keep their grants in sync below.
+        reason = 'Account already exists with a usable login (live invite or prior sign-in) — location access synced, no new invite sent.'
+      } else if (existing.length) {
+        // Row exists but is genuinely stuck — no live invite, never logged
+        // in (same gap ensureRestaurantLoginInvited had: a row's mere
+        // existence used to be treated as "already invited"). Send a fresh
+        // invite to the existing email rather than silently treating a
+        // dead/never-invited row as done.
+        const token = await setInviteToken(email)
+        const sent = await sendTeamMemberInvite({
+          to: email,
+          firstName: a.firstName,
+          inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
+          restaurantName: restaurantName || undefined,
+        })
+        invited = sent.success
+        reason = sent.success ? 'Existing account had never been invited — invited now.' : 'Existing account found; invite email failed to send.'
       } else {
         const sentinelHash = bcrypt.hashSync(randomUUID(), 10) // overwritten when the invite is accepted
         await sql`
@@ -804,31 +870,41 @@ export interface ImportResult {
 export async function importRestaurantStripeAccount(
   ref: string,
   accountId: string,
-  opts?: { stripe?: Stripe; email?: string },
+  opts?: { stripe?: Stripe; email?: string; firstName?: string; lastName?: string },
 ): Promise<ImportResult> {
   await runMigrations()
   const check = await verifyAccountReusable(accountId, opts?.stripe)
 
   const existing = (await sql`
-    SELECT id FROM disco_restaurant_accounts
+    SELECT id, first_name, last_name FROM disco_restaurant_accounts
     WHERE restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref} LIMIT 1
-  `.catch(() => [])) as { id: number }[]
+  `.catch(() => [])) as { id: number; first_name: string | null; last_name: string | null }[]
 
   if (existing.length) {
+    // Backfill the name too if the caller supplied one and the row doesn't
+    // have one yet (e.g. a placeholder row created before anyone knew who
+    // the real admin was) — never overwrites a name that's already set.
+    const firstName = opts?.firstName ?? existing[0].first_name
+    const lastName = opts?.lastName ?? existing[0].last_name
     await sql`
       UPDATE disco_restaurant_accounts
-      SET stripe_account_id = ${accountId}, stripe_onboarding_complete = ${check.reusable}, updated_at = NOW()
+      SET stripe_account_id = ${accountId}, stripe_onboarding_complete = ${check.reusable},
+          first_name = COALESCE(first_name, ${firstName}), last_name = COALESCE(last_name, ${lastName}),
+          updated_at = NOW()
       WHERE id = ${existing[0].id}
     `
   } else {
     // No Disco account row yet (pure FM restaurant). Create a login-disabled holder
     // row so native checkout can resolve the connected account. password_hash is a
     // valid bcrypt hash of a random value → login impossible until a real reset.
+    // first_name/last_name are caller-supplied only (never fetched from FM here —
+    // this bulk tool is called with hundreds of mappings at once; an extra FM
+    // round-trip per row belongs to the caller's own choice, not baked in here).
     const sentinel = bcrypt.hashSync(randomUUID(), 10)
     const email = opts?.email || `stripe-import+${ref}@familymeal.com`
     await sql`
-      INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, stripe_account_id, stripe_onboarding_complete, role, is_disco_native)
-      VALUES (${email}, ${sentinel}, ${ref}, ${ref}, ${accountId}, ${check.reusable}, 'ADMIN', false)
+      INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, stripe_account_id, stripe_onboarding_complete, role, is_disco_native, first_name, last_name)
+      VALUES (${email}, ${sentinel}, ${ref}, ${ref}, ${accountId}, ${check.reusable}, 'ADMIN', false, ${opts?.firstName || null}, ${opts?.lastName || null})
     `
   }
 

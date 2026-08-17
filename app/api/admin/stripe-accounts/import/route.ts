@@ -14,20 +14,27 @@ export const maxDuration = 300
 
 const MAX = 500
 
-interface Mapping { restaurantReference?: unknown; stripeAccountId?: unknown; email?: unknown }
+interface Mapping { restaurantReference?: unknown; stripeAccountId?: unknown; email?: unknown; firstName?: unknown; lastName?: unknown }
 
 export async function POST(req: NextRequest) {
   try { await getAdminAuthHeader() } catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
 
-  let body: { mappings?: unknown; restaurantReference?: unknown; stripeAccountId?: unknown; email?: unknown }
+  let body: { mappings?: unknown; restaurantReference?: unknown; stripeAccountId?: unknown; email?: unknown; firstName?: unknown; lastName?: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
 
   const raw: Mapping[] = Array.isArray(body?.mappings)
     ? (body.mappings as Mapping[])
-    : (body?.restaurantReference && body?.stripeAccountId ? [{ restaurantReference: body.restaurantReference, stripeAccountId: body.stripeAccountId, email: body.email }] : [])
+    : (body?.restaurantReference && body?.stripeAccountId
+        ? [{ restaurantReference: body.restaurantReference, stripeAccountId: body.stripeAccountId, email: body.email, firstName: body.firstName, lastName: body.lastName }]
+        : [])
 
   const mappings = raw
-    .map(m => ({ ref: String(m?.restaurantReference || '').trim(), acct: String(m?.stripeAccountId || '').trim(), email: m?.email ? String(m.email).trim() : undefined }))
+    .map(m => ({
+      ref: String(m?.restaurantReference || '').trim(), acct: String(m?.stripeAccountId || '').trim(),
+      email: m?.email ? String(m.email).trim() : undefined,
+      firstName: m?.firstName ? String(m.firstName).trim() : undefined,
+      lastName: m?.lastName ? String(m.lastName).trim() : undefined,
+    }))
     .filter(m => m.ref && m.acct)
 
   if (!mappings.length) return NextResponse.json({ error: 'Provide { mappings: [{ restaurantReference, stripeAccountId }] } or a single { restaurantReference, stripeAccountId }.' }, { status: 400 })
@@ -38,7 +45,7 @@ export async function POST(req: NextRequest) {
   // Sequential so we don't hammer the Stripe API; each does one live retrieve.
   for (const m of mappings) {
     try {
-      results.push(await importRestaurantStripeAccount(m.ref, m.acct, { email: m.email }))
+      results.push(await importRestaurantStripeAccount(m.ref, m.acct, { email: m.email, firstName: m.firstName, lastName: m.lastName }))
     } catch (e) {
       failed.push({ restaurantReference: m.ref, stripeAccountId: m.acct, error: e instanceof Error ? e.message.slice(0, 200) : 'import failed' })
     }
