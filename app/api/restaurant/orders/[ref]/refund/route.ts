@@ -102,9 +102,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
   // Neon is the source of truth — store the cumulative refund and mark the status.
   // A refund that doesn't cover the whole order is PARTIAL_REFUND, so it stays
-  // distinguishable from a full REFUNDED in the list + the badge.
+  // distinguishable from a full REFUND in the list + the badge. 'REFUND', not
+  // 'REFUNDED' — matches FM's real OrderStatus enum spelling and the majority
+  // of real rows; this writer used to produce the minority spelling.
   const totalRefund = Math.round((alreadyRefunded + amount) * 100) / 100
-  const newStatus = orderTotal > 0 && totalRefund < orderTotal - 0.001 ? 'PARTIAL_REFUND' : 'REFUNDED'
+  const newStatus = orderTotal > 0 && totalRefund < orderTotal - 0.001 ? 'PARTIAL_REFUND' : 'REFUND'
   try {
     const rows = (await sql`
       UPDATE disco_orders

@@ -42,7 +42,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
-import { syncAllRestaurantOrders } from '../../../../lib/fm-orders-sync'
+import { syncAllRestaurantOrders, cleanupOrphanedDraftMirrors } from '../../../../lib/fm-orders-sync'
 import { alertOps } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
@@ -103,11 +103,21 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     // Advance the cursor; wrap to 0 when this batch was the tail.
     await writeCursor(restaurants < BATCH ? 0 : offset + BATCH)
 
+    // Global, not scoped to this run's restaurant batch — cheap enough to run
+    // every hour regardless. Best-effort: a failure here must never fail the
+    // main rotating sync above (the cursor write already happened).
+    let orphansDeleted = 0
+    try {
+      orphansDeleted = (await cleanupOrphanedDraftMirrors()).deleted
+    } catch (e) {
+      console.error('[cron/sync-fm-orders] orphaned draft-mirror cleanup failed (non-fatal):', e instanceof Error ? e.message : e)
+    }
+
     const synced = results.reduce((a, r) => a + r.inserted + r.updated, 0)
     const bareRepaired = bareRepairs.reduce((a, r) => a + r.repaired, 0)
     const duration_ms = Date.now() - startedAt
-    console.log(`[cron/sync-fm-orders] offset=${offset} restaurants=${restaurants} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} (${duration_ms}ms)`)
-    return NextResponse.json({ synced, restaurants, offset, mismatches, bareRepairs, duration_ms })
+    console.log(`[cron/sync-fm-orders] offset=${offset} restaurants=${restaurants} synced=${synced} mismatches=${mismatches.length} bareRepaired=${bareRepaired} orphansDeleted=${orphansDeleted} (${duration_ms}ms)`)
+    return NextResponse.json({ synced, restaurants, offset, mismatches, bareRepairs, orphansDeleted, duration_ms })
   } catch (e) {
     console.error('[cron/sync-fm-orders] failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'sync failed', duration_ms: Date.now() - startedAt }, { status: 500 })

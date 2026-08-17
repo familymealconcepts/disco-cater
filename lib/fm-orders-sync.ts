@@ -29,9 +29,11 @@ function isUpcomingIso(iso: string | null | undefined): boolean {
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-// disco_orders.order_status CHECK set (001_disco_orders.sql, widened for sync).
+// Statuses this sync will actually persist (disco_orders.order_status CHECK
+// set minus CART/SELECTED, which normalizeFmOrder skips before this is ever
+// consulted — see that early return for why).
 const ALLOWED_STATUS = new Set([
-  'CART', 'RESERVED', 'DUE', 'COMPLETED', 'CANCELED', 'CANCELLED', 'REFUND', 'REFUNDED',
+  'RESERVED', 'DUE', 'COMPLETED', 'CANCELED', 'CANCELLED', 'REFUND', 'REFUNDED',
   'PARTIAL_REFUND', 'EXPIRED', 'VOID', 'VOIDED', 'UNPAID', 'PAID', 'PAYMENT_FAILED', 'REOPEN',
 ])
 
@@ -96,9 +98,21 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
   const fmRef = s(o.orderReference) || s(o.reference)
   if (!isUuid(fmRef)) return null
 
+  const statusRaw0 = (s(o.orderStatus) || s(o.status)).toUpperCase()
+
+  // Never mirror a draft. FM hard-deletes CART within 20 minutes and SELECTED
+  // within 10 (RemoveExpiredCartOrdersTaskRunnable, confirmed from FM's own
+  // source) — a Neon mirror of either outlives the FM row it copied by
+  // definition, since FM deletes the original before this hourly sync runs
+  // again. Every prior mirror of one is exactly the 6-row orphan cleanup this
+  // skip was added alongside. Returning null here (not falling through to the
+  // ALLOWED_STATUS fallback below) matters: that fallback coerces an
+  // unrecognized status to 'DUE', which would have mislabeled a still-live
+  // draft as paid-and-owed instead of just skipping it.
+  if (statusRaw0 === 'CART' || statusRaw0 === 'SELECTED') return null
+
   // Normalize FM's singular 'VOID' to Disco's canonical 'VOIDED' so Neon uses one
   // value everywhere.
-  const statusRaw0 = (s(o.orderStatus) || s(o.status)).toUpperCase()
   const statusRaw = statusRaw0 === 'VOID' ? 'VOIDED' : statusRaw0
   const status = ALLOWED_STATUS.has(statusRaw) ? statusRaw : 'DUE'
 
@@ -625,6 +639,38 @@ export async function syncOneFmOrder(fmRef: string, withItems = true): Promise<{
 // current BATCH), so a full 4,082-restaurant fleet sweep completes in ~82
 // hourly runs (~3.4 days) — the expensive full pull only fires for the small
 // minority that actually mismatch.
+// One-time-per-run cleanup of FM-mirror drafts synced before normalizeFmOrder
+// started skipping CART/SELECTED (see that function). 90 minutes is
+// comfortably past FM's own 20-minute (CART) / 10-minute (SELECTED)
+// cleanup window (RemoveExpiredCartOrdersTaskRunnable, confirmed from FM's
+// source) plus buffer, so a row this old was certainly already deleted on
+// FM's side — this is defined by absence, not re-verified against FM.
+// Deletes rather than moving to a terminal status: these rows hold no money
+// (confirmed: zero disco_stripe_payments, and any disco_sale_transactions
+// row is a degenerate $0.00/PAID pricing snapshot, not a real charge), no
+// capacity, no promo reservation — a terminal status would misrepresent
+// that something happened when nothing did. Global, not restaurant-scoped
+// (unlike the rest of this file) — cheap enough to run on every hourly
+// invocation regardless of which restaurant batch is active.
+export async function cleanupOrphanedDraftMirrors(): Promise<{ deleted: number }> {
+  const targets = (await sql`
+    SELECT id FROM disco_orders
+    WHERE order_status IN ('CART', 'SELECTED')
+      AND fm_order_reference IS NOT NULL
+      AND created_at < NOW() - INTERVAL '90 minutes'
+  `) as { id: number }[]
+  if (!targets.length) return { deleted: 0 }
+  const ids = targets.map(t => t.id)
+  // Children first (no ON DELETE CASCADE on either FK) — items always,
+  // sale_transactions only for the rows that happen to have one.
+  await sql.transaction([
+    sql`DELETE FROM disco_order_items WHERE order_id = ANY(${ids})`,
+    sql`DELETE FROM disco_sale_transactions WHERE order_id = ANY(${ids})`,
+    sql`DELETE FROM disco_orders WHERE id = ANY(${ids})`,
+  ])
+  return { deleted: ids.length }
+}
+
 export async function syncAllRestaurantOrders(
   opts: { withItems?: boolean; limit?: number; offset?: number; maxPages?: number; stopAtKnownDate?: boolean; reconcile?: boolean } = {},
 ): Promise<{

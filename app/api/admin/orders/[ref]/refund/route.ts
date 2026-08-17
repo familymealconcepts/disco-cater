@@ -79,9 +79,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 
   // Stripe refund succeeded — record the cumulative refund + mark the status. A
   // refund that doesn't cover the whole order is PARTIAL_REFUND (distinguishable
-  // from a full REFUNDED).
+  // from a full REFUND). 'REFUND', not 'REFUNDED' — matches FM's real
+  // OrderStatus enum spelling and the majority of real rows; this writer used
+  // to produce the minority spelling.
   const totalRefund = Math.round((nativeRow.refund + amount) * 100) / 100
-  const newStatus = nativeRow.total > 0 && totalRefund < nativeRow.total - 0.001 ? 'PARTIAL_REFUND' : 'REFUNDED'
+  const newStatus = nativeRow.total > 0 && totalRefund < nativeRow.total - 0.001 ? 'PARTIAL_REFUND' : 'REFUND'
   try {
     const rows = (await sql`
       UPDATE disco_orders

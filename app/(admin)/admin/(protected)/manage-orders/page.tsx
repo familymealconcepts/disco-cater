@@ -180,10 +180,17 @@ function TaxExemptBadge({ order }: { order: Order }) {
 // SELECTED are rarely visible here (FM hard-deletes them within 10-20
 // minutes), but labeled the same way on the off chance one's caught
 // mid-abandonment in a live fetch.
+// VOID/VOIDED and REFUND/REFUNDED are both real, both actively written (see
+// lib/fm-orders-sync.ts's VOID→VOIDED normalization note and the native
+// refund routes) — both spellings of each need a key here or the majority
+// spelling falls through to the raw uppercase string instead of a label, and
+// picks up the wrong pill color. Keep both keys even after the spelling
+// migration converges the data, since a stray write from an unnoticed 4th
+// path would otherwise silently regress to this exact bug.
 const STATUS_LABEL: Record<string, string> = {
   DUE: 'Due', PAID: 'Paid', UNPAID: 'Unpaid', COMPLETED: 'Completed',
-  CANCELED: 'Canceled', REFUND: 'Refunded', PARTIAL_REFUND: 'Partial Refund',
-  VOID: 'Void', EXPIRED: 'Abandoned at checkout', RESERVED: 'At checkout', REOPEN: 'Reopened',
+  CANCELED: 'Canceled', REFUND: 'Refunded', REFUNDED: 'Refunded', PARTIAL_REFUND: 'Partial Refund',
+  VOID: 'Void', VOIDED: 'Void', EXPIRED: 'Abandoned at checkout', RESERVED: 'At checkout', REOPEN: 'Reopened',
   CART: 'Items in cart', SELECTED: 'Date/time picked',
 }
 const statusLabel = (s: string) => STATUS_LABEL[s] || s
@@ -196,8 +203,10 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
   PAID: { bg: '#E3F3E6', fg: '#2E7D43' },       // green
   CANCELED: { bg: '#EEEEEE', fg: '#777' },      // gray
   VOID: { bg: '#EEEEEE', fg: '#777' },          // gray
+  VOIDED: { bg: '#EEEEEE', fg: '#777' },        // gray
   EXPIRED: { bg: '#EEEEEE', fg: '#777' },       // gray
   REFUND: { bg: '#FBEBDD', fg: '#B5651D' },     // orange
+  REFUNDED: { bg: '#FBEBDD', fg: '#B5651D' },   // orange
   PARTIAL_REFUND: { bg: '#FBEBDD', fg: '#B5651D' }, // orange
   UNPAID: { bg: '#FBF3D6', fg: '#9A7B1A' },     // yellow
   RESERVED: { bg: '#FBF3D6', fg: '#9A7B1A' },   // yellow
@@ -387,7 +396,11 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
               style={{ width: '100%', padding: '11px 18px', border: 'none', borderRadius: 8, background: BLUE, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
               Transfer Order
             </button>
-            {order.native && order.orderStatus !== 'REFUNDED' && (
+            {/* Hides once fully refunded — check both spellings (the refund
+                routes now write 'REFUND' to match FM; 'REFUNDED' is legacy
+                data and any writer that hasn't been migrated yet). Missing
+                either would let a fully-refunded order be refunded again. */}
+            {order.native && order.orderStatus !== 'REFUND' && order.orderStatus !== 'REFUNDED' && (
               <button onClick={doRefund} disabled={refunding}
                 style={{ width: '100%', padding: '11px 18px', border: '1px solid #E7B4B6', borderRadius: 8, background: '#fff', color: '#C42A30', fontSize: 14, fontWeight: 700, cursor: refunding ? 'wait' : 'pointer', opacity: refunding ? 0.7 : 1, fontFamily: F }}>
                 {refunding ? 'Refunding…' : 'Refund (Stripe)'}

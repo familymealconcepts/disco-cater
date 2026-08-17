@@ -164,6 +164,12 @@ export async function POST(request: NextRequest) {
       }
 
       // ── payment_intent.payment_failed ──
+      // The only writer of order_status='PAYMENT_FAILED' anywhere in the app.
+      // As of the order-status audit this value has zero rows in disco_orders
+      // — that's sample size (native order volume is small and a payment
+      // *failure* is a rarer subset of an already-small population), not dead
+      // code. Confirm this branch still executes before ever treating
+      // PAYMENT_FAILED as safe to drop from the CHECK constraint.
       case 'payment_intent.payment_failed': {
         const pi = event.data.object as Stripe.PaymentIntent
         console.log('[Webhook] payment_intent.payment_failed:', pi.id)

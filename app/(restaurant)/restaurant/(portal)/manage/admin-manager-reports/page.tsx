@@ -62,7 +62,17 @@ const TIMEZONES = [
 // IN_PROGRESS removed — it isn't part of FM's OrderStatus enum (it's an
 // unrelated CSV-export job's polling state); no real order can ever have it,
 // so offering it as a filter option could only ever match zero rows.
-const ORDER_STATUSES = ['COMPLETED','REFUND','REFUNDED','CANCELED','RESERVED','EXPIRED','DUE','VOID','VOIDED','UNPAID','PAID']
+//
+// VOID/VOIDED and REFUND/REFUNDED are the same concept written with two
+// different spellings (see lib/fm-orders-sync.ts and the order-status audit) —
+// one checkbox per concept, not four, or filtering "Refund" silently misses
+// every REFUNDED row. STATUS_GROUP expands the one displayed option to every
+// real spelling it must match; kept even after the spelling migration
+// converges the data, so an unnoticed future write of the minority spelling
+// still gets filtered correctly instead of silently falling outside the group.
+const ORDER_STATUSES = ['COMPLETED','REFUND','CANCELED','RESERVED','EXPIRED','DUE','VOID','UNPAID','PAID']
+const STATUS_GROUP: Record<string, string[]> = { VOID: ['VOID', 'VOIDED'], REFUND: ['REFUND', 'REFUNDED'] }
+const statusGroupMembers = (s: string) => STATUS_GROUP[s] || [s]
 const FULFILLMENT_TYPES = ['PICKUP','OWN_DELIVERY','DLIVRD_DELIVERY']
 
 function fmtTime12(t?: string) {
@@ -414,6 +424,20 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
     })
   }
 
+  // Order-status checkboxes act on the whole spelling group at once (see
+  // STATUS_GROUP) — checking "Void" adds both VOID and VOIDED so the saved
+  // filter matches every real row regardless of which spelling it was
+  // written with; unchecking removes every member of the group.
+  function toggleStatusGroup(displayed: string) {
+    const members = statusGroupMembers(displayed)
+    setForm(f => {
+      const arr = f.filter.orderStatuses
+      const anyChecked = members.some(m => arr.includes(m))
+      const next = anyChecked ? arr.filter(x => !members.includes(x)) : [...arr, ...members.filter(m => !arr.includes(m))]
+      return { ...f, filter: { ...f.filter, orderStatuses: next } }
+    })
+  }
+
   function toggleColumn(key: string) {
     setForm(f => {
       const arr = f.columns
@@ -585,7 +609,11 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {ORDER_STATUSES.map(s => (
               <label key={s} style={checkLabel}>
-                <input type="checkbox" checked={form.filter.orderStatuses.includes(s)} onChange={() => toggleArr('orderStatuses', s)} />
+                <input
+                  type="checkbox"
+                  checked={statusGroupMembers(s).some(m => form.filter.orderStatuses.includes(m))}
+                  onChange={() => toggleStatusGroup(s)}
+                />
                 {s}
               </label>
             ))}

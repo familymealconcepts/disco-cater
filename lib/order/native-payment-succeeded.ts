@@ -104,7 +104,10 @@ export async function handleNativePaymentIntentSucceeded(pi: Stripe.PaymentInten
       // restaurant's connected-account transfer share is correctly reversed
       // too — same helper every other native refund path uses.
       await refundNativeOrder(stripe, order.reference, refundAmount)
-      await sql`UPDATE disco_orders SET order_status = 'REFUNDED', refund = ${refundAmount}, updated_at = NOW() WHERE id = ${order.id}`
+      // 'REFUND', not 'REFUNDED' — matches FM's real OrderStatus enum spelling
+      // (confirmed by reading FM's source directly) and the majority of real
+      // rows; 'REFUNDED' was the minority spelling this writer used to produce.
+      await sql`UPDATE disco_orders SET order_status = 'REFUND', refund = ${refundAmount}, updated_at = NOW() WHERE id = ${order.id}`
       await recordOrderEvent(order.reference, 'INVENTORY_EXHAUSTED_REFUND', { itemName: inventoryFailedItem, refundAmount }, source)
       waitUntil(dispatchInventoryUnavailableNotification(order.id, inventoryFailedItem))
     } catch (refundErr) {
