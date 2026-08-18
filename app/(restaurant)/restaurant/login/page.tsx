@@ -188,11 +188,13 @@ export default function RestaurantLoginPage() {
                 <input
                   className="r-input"
                   type="email"
+                  name="restaurant-login-email"
+                  id="restaurant-login-email"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="you@restaurant.com"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                 />
               </div>
               <div style={{ marginBottom: 24 }}>
@@ -202,6 +204,8 @@ export default function RestaurantLoginPage() {
                 <input
                   className="r-input"
                   type="password"
+                  name="restaurant-login-password"
+                  id="restaurant-login-password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
