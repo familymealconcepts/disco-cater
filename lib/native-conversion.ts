@@ -23,6 +23,7 @@ import { sendTeamMemberInvite } from './email/notifications'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { sanitizePhone } from './utils/phone'
 import { holidayDates, isHolidayName } from './holidays'
+import { fmImageUrl } from './fm-image'
 
 const SITE_URL = 'https://www.discocater.com'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -207,6 +208,7 @@ export interface ConversionResult {
   notificationSettings?: NotificationCarryOverResult
   closedDays?: ClosedDaysCarryOverResult
   promoCodes?: PromoCodesCarryOverResult
+  profileFields?: ProfileFieldsCarryOverResult
 }
 
 export interface InviteResult {
@@ -751,6 +753,62 @@ export async function carryOverPromoCodes(ref: string): Promise<PromoCodesCarryO
   }
 }
 
+export interface ProfileFieldsCarryOverResult {
+  iconUrlCarried: boolean
+  imageUrlCarried: boolean
+  phoneCarried: boolean
+}
+
+// Logo, marketplace image, and phone — all three sit in the same
+// GET /api/admin/restaurants/{ref} response convertToNative already has to
+// call (via ensureRestaurantLoginInvited), and none are behind the
+// session-scoped wall that blocks notifications/closedDays/coupon — they were
+// simply never read here. Fill-blank-only, same pattern (and same fmImageUrl
+// helper) as lib/menu-import/fm-faithful-import.ts's identical logic for the
+// menu-import step: never overwrites a value that's already set, whatever its
+// source (a restaurant can have a real, independently-uploaded image or a
+// hand-entered phone with nothing to do with FM). Best-effort — a failure
+// here must never affect the conversion itself.
+async function carryOverProfileFields(ref: string): Promise<ProfileFieldsCarryOverResult> {
+  const empty: ProfileFieldsCarryOverResult = { iconUrlCarried: false, imageUrlCarried: false, phoneCarried: false }
+  let auth: Record<string, string>
+  try { auth = await getFmServiceAuthHeader() } catch { return empty }
+
+  let fmRestaurant: { image?: unknown; marketplaceImage?: unknown; address?: { phoneNumber?: string } } | null
+  try {
+    const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, { headers: { ...auth, Accept: 'application/json' } })
+    if (!res.ok) return empty
+    fmRestaurant = await res.json().catch(() => null)
+  } catch {
+    return empty
+  }
+  if (!fmRestaurant) return empty
+
+  const fmIconUrl = fmImageUrl(fmRestaurant.image)
+  const fmImgUrl = fmImageUrl(fmRestaurant.marketplaceImage)
+  const fmPhone = fmRestaurant.address?.phoneNumber?.trim() || null
+
+  const current = (await sql`
+    SELECT icon_url, image_url, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref}
+  `.catch(() => [])) as { icon_url: string | null; image_url: string | null; phone: string | null }[]
+  const row = current[0]
+
+  const setIcon = !!fmIconUrl && !row?.icon_url
+  const setImage = !!fmImgUrl && !row?.image_url
+  const setPhone = !!fmPhone && !row?.phone
+  if (!setIcon && !setImage && !setPhone) return empty
+
+  await sql`
+    UPDATE disco_restaurant_cache
+    SET icon_url = COALESCE(icon_url, ${fmIconUrl}),
+        image_url = COALESCE(image_url, ${fmImgUrl}),
+        phone = COALESCE(phone, ${fmPhone}),
+        cached_at = NOW()
+    WHERE restaurant_reference = ${ref}
+  `
+  return { iconUrlCarried: setIcon, imageUrlCarried: setImage, phoneCarried: setPhone }
+}
+
 // Perform the flip — ONLY when every blocking step passes. Sets BOTH
 // is_disco_native and is_live true: convertToNative's own gates (Stripe reuse
 // LIVE-verified, native menu imported, marketplace-visibility rule) already cover
@@ -782,6 +840,18 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     return { converted: false, reason: `FM order-history backfill failed (${backfill.error || 'unknown'}) — not converting; retry once FM is reachable.`, readiness }
   }
   await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, is_live = true, cached_at = NOW() WHERE restaurant_reference = ${readiness.restaurantReference}`
+
+  // Best-effort, same contract as everything below — logo/marketplace image/
+  // phone are all readable right off the FM restaurant object (unlike
+  // notifications/closedDays/promo codes, no session-scoped wall), so this
+  // actively carries them over instead of flagging for manual entry.
+  let profileFields: ProfileFieldsCarryOverResult
+  try {
+    profileFields = await carryOverProfileFields(readiness.restaurantReference)
+  } catch (e) {
+    console.error(`[convertToNative] profile-fields carry-over threw: ${e instanceof Error ? e.message : e}`)
+    profileFields = { iconUrlCarried: false, imageUrlCarried: false, phoneCarried: false }
+  }
 
   // Best-effort — a failed invite email or notification-carry-over must never
   // undo or fail an already-successful conversion. Restaurant name for the email
@@ -850,7 +920,7 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real promo codes carried over: ${promoCodes.reason}`)
   }
 
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, systemAdminInvites, notificationSettings, closedDays, promoCodes }
+  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, systemAdminInvites, notificationSettings, closedDays, promoCodes, profileFields }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────
