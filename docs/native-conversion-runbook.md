@@ -162,15 +162,15 @@ flags it automatically.
 - **Promo codes**: same wall, `promo_codes_flagged_at` set. Only relevant if
   the restaurant actually has any — check the native promo-code UI.
 - **Bare FM orders** (a `disco_orders` row with no `disco_sale_transactions`
-  detail): not a conversion step at all — background sync hygiene that shows
-  up in conversion clothing because pre-flight looks at order history. Every
-  conversion so far has had some (Winkin' Rooster: 5 of 50).
-  `repairBareOrderDetail(ref)` fixes them (proven: 5/5 on Winkin' Rooster). A
-  fleet-wide check (2026-08-18) found only **57 bare orders across 18
-  restaurants**, out of 24,221 total — small enough that a one-time,
-  non-rotation-limited sweep could plausibly clear it fleet-wide, after which
-  this stops appearing in pre-flights at all. Not run as part of this
-  revision; worth doing separately.
+  detail): background sync hygiene, not a conversion step, and no longer
+  routine either way. Fleet-wide sweep (2026-08-18): **42 of 57 repaired, 15
+  permanently irrecoverable** — 14 got FM `404 Order Not Found` (abandoned
+  `EXPIRED` carts FM no longer has, 13 on "Test Kitchen" alone), 1 got a
+  genuine FM `500`. All FM-side, nothing left to retry — a larger
+  irrecoverable set than previously known (2 fetches + 7 `FM_BACKFILL`
+  artifacts), now the accepted floor. **A bare order in a pre-flight from
+  here is a regression signal**, not expected noise — the hourly sync already
+  self-heals new ones in rotation.
 - **Post-conversion diff**: see below instead of eyeballing two screens.
 
 ### 11. Post-conversion diff — a concrete check, not a screen comparison
