@@ -202,6 +202,19 @@ export default function RestaurantsOrderingPage() {
   // "Transfer to System Admin" confirmation (Disco-native role promotion).
   const [promoteConfirm, setPromoteConfirm] = useState<Restaurant | null>(null)
   const [promoteBusy, setPromoteBusy] = useState(false)
+  // Permanent delete — test restaurants / duplicates only (native, no FM
+  // record). Two-step: fetch a live preview first (never trust a stale one),
+  // show it, only then allow the actual irreversible delete.
+  const [deletePreview, setDeletePreview] = useState<{
+    r: Restaurant
+    eligible: boolean
+    reason: string | null
+    restaurantName: string | null
+    orderCount: number
+    order: { total: number | null; status: string | null; customerEmail: string | null; customerName: string | null; placedAt: string | null } | null
+    rowCounts: Record<string, number>
+  } | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
   // Client-side sort of the loaded page. Default: newest registrations first.
   const [sortKey, setSortKey] = useState<SortKey>('createdDate')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -420,6 +433,42 @@ export default function RestaurantsOrderingPage() {
     } else {
       const d = await res.json().catch(() => null)
       showToast(d?.error || 'Restore failed')
+    }
+  }
+
+  // Permanent delete, step 1: fetch a live preview. Never assume eligibility
+  // client-side — the server re-checks native/no-FM/order-count every time.
+  async function requestPermanentDelete(r: Restaurant) {
+    try {
+      const res = await fetch(`/api/admin/restaurants/${r.reference}/permanent-delete`)
+      const d = await res.json().catch(() => null)
+      if (!res.ok || !d) { showToast('Could not check delete eligibility'); return }
+      setDeletePreview({ r, ...d })
+    } catch {
+      showToast('Could not check delete eligibility')
+    }
+  }
+
+  // Step 2: the actual irreversible delete, only reachable from the preview
+  // modal below. Echoes back the exact rowCounts/orderCount just previewed —
+  // the server refuses if anything changed in between.
+  async function confirmPermanentDelete() {
+    if (!deletePreview || !deletePreview.eligible) return
+    setDeleteBusy(true)
+    try {
+      const res = await fetch(`/api/admin/restaurants/${deletePreview.r.reference}/permanent-delete`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmOrderCount: deletePreview.orderCount, confirmRowCounts: deletePreview.rowCounts }),
+      })
+      const d = await res.json().catch(() => null)
+      if (!res.ok) { showToast(d?.error || 'Delete failed'); return }
+      showToast(`${deletePreview.restaurantName || deletePreview.r.businessName} permanently deleted`)
+      setDiscoOrphans(prev => prev.filter(o => o.reference !== deletePreview.r.reference))
+      setDeletePreview(null)
+    } catch {
+      showToast('Delete failed')
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -1182,13 +1231,24 @@ export default function RestaurantsOrderingPage() {
                       {ov?.archivedAt ? (
                         <button title="Restore" onClick={() => restoreRestaurant(r)} style={{ ...iconBtn, color: '#1D9E75' }}>↺</button>
                       ) : ov?.isDiscoNative ? (
-                        <button title="Archive" onClick={() => archiveRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗄</button>
+                        <button title="Archive (reversible)" onClick={() => archiveRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗄</button>
                       ) : (
                         <button
                           title="Archiving isn't available yet for FamilyMeal-backed restaurants — FM's block endpoint has never been confirmed to actually stop its own checkout, so this is deferred pending verification."
                           disabled
                           style={{ ...iconBtn, color: '#ccc', cursor: 'not-allowed' }}
                         >🗄</button>
+                      )}
+                      {/* Permanent delete — test restaurants/duplicates only.
+                          Deliberately far more visually alarming than Archive
+                          (solid red fill vs. Archive's red-on-white icon) —
+                          the two sit right next to each other and one is
+                          reversible, one is not. Only ever shown for
+                          Disco-native rows with no FM record (discoOnly) —
+                          the only population this can work for durably. */}
+                      {r.discoOnly && (
+                        <button title="Permanently delete (cannot be undone)" onClick={() => requestPermanentDelete(r)}
+                          style={{ ...iconBtn, background: '#E53935', color: '#fff', border: '1px solid #E53935' }}>🗑</button>
                       )}
                       <Kebab
                         menuUrl={overrideMap[r.reference]?.menuUploadUrl || null}
@@ -1318,6 +1378,74 @@ export default function RestaurantsOrderingPage() {
                 style={{ background: '#5B6FE8', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: promoteBusy ? 'wait' : 'pointer', fontFamily: F, opacity: promoteBusy ? 0.7 : 1 }}>
                 {promoteBusy ? 'Promoting…' : 'Promote'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent-delete preview/confirm modal — deliberately styled nothing
+          like the other confirm modals above (solid red header bar, warning
+          icon, an explicit "cannot be undone" line) so it reads as
+          categorically more serious than Archive's plain window.confirm(). */}
+      {deletePreview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(20,15,40,0.55)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>
+          <div style={{ background: '#fff', borderRadius: 14, maxWidth: 520, width: '92%', boxShadow: '0 12px 40px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            <div style={{ background: '#E53935', color: '#fff', padding: '16px 22px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 20 }}>⚠️</span>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>Permanently delete restaurant</span>
+            </div>
+            <div style={{ padding: '20px 22px' }}>
+              {!deletePreview.eligible ? (
+                <>
+                  <p style={{ fontSize: 13.5, color: '#333', lineHeight: 1.55, margin: '0 0 8px' }}>
+                    <strong>{deletePreview.restaurantName || deletePreview.r.businessName}</strong> can&apos;t be permanently deleted:
+                  </p>
+                  <div style={{ background: '#FFF3F3', border: '1px solid #FFCDD2', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#C62828', lineHeight: 1.5 }}>
+                    {deletePreview.reason}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p style={{ fontSize: 13.5, color: '#333', lineHeight: 1.55, margin: '0 0 14px' }}>
+                    This permanently erases <strong>{deletePreview.restaurantName || deletePreview.r.businessName}</strong> from Neon —
+                    every menu item, modifier, override, login, and setting. <strong>This cannot be undone</strong> (unlike Archive).
+                  </p>
+                  {deletePreview.order && (
+                    <div style={{ background: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 8, padding: '12px 14px', marginBottom: 14, fontSize: 13, color: '#7A5C00' }}>
+                      <strong>This restaurant has 1 order — review before deleting:</strong>
+                      <div style={{ marginTop: 6, lineHeight: 1.6 }}>
+                        Total: <strong>${deletePreview.order.total?.toFixed(2) ?? '—'}</strong> · Status: <strong>{deletePreview.order.status || '—'}</strong><br />
+                        Customer: <strong>{deletePreview.order.customerName || deletePreview.order.customerEmail || '—'}</strong><br />
+                        Date: <strong>{deletePreview.order.placedAt ? new Date(deletePreview.order.placedAt).toLocaleString() : '—'}</strong>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#666', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.03em' }}>Rows to be deleted</div>
+                  <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid #eee', borderRadius: 8, padding: '8px 12px', marginBottom: 18 }}>
+                    {Object.entries(deletePreview.rowCounts).filter(([, n]) => n > 0).length === 0 ? (
+                      <div style={{ fontSize: 12.5, color: '#999' }}>No related rows found.</div>
+                    ) : (
+                      Object.entries(deletePreview.rowCounts).filter(([, n]) => n > 0).map(([table, n]) => (
+                        <div key={table} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: '#444', padding: '3px 0' }}>
+                          <span style={{ fontFamily: 'monospace' }}>{table}</span><span>{n}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button onClick={() => setDeletePreview(null)} disabled={deleteBusy}
+                  style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: deleteBusy ? 'default' : 'pointer', fontFamily: F, color: '#555' }}>
+                  {deletePreview.eligible ? 'Cancel' : 'Close'}
+                </button>
+                {deletePreview.eligible && (
+                  <button onClick={confirmPermanentDelete} disabled={deleteBusy}
+                    style={{ background: '#E53935', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: deleteBusy ? 'wait' : 'pointer', fontFamily: F, opacity: deleteBusy ? 0.7 : 1 }}>
+                    {deleteBusy ? 'Deleting…' : 'Permanently Delete'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
