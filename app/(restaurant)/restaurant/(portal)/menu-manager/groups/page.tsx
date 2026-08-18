@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
+import { ModifierMultiPicker, type PickerItem } from '../../_components/ModifierMultiPicker'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -48,7 +49,6 @@ export default function GroupLibraryPage() {
   const [dialog, setDialog] = useState<null | Draft>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [modSearch, setModSearch] = useState('')
   // Captured from the groups GET, once per load — the restaurant this page's
   // data was loaded for. Sent explicitly on create so a stale selection can
   // never misfile a new group under the wrong restaurant.
@@ -77,9 +77,9 @@ export default function GroupLibraryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRestaurantRef])
 
-  function openNew() { setError(''); setModSearch(''); setDialog({ name: '', externalName: '', minSelected: '0', maxSelected: '1', modifierReferences: [] }) }
+  function openNew() { setError(''); setDialog({ name: '', externalName: '', minSelected: '0', maxSelected: '1', modifierReferences: [] }) }
   function openEdit(g: Group) {
-    setError(''); setModSearch('')
+    setError('')
     setDialog({ reference: g.reference, name: g.name, externalName: g.external_name || '', minSelected: String(g.min_selected), maxSelected: String(g.max_selected), modifierReferences: g.modifiers.map(m => m.reference) })
   }
 
@@ -118,9 +118,19 @@ export default function GroupLibraryPage() {
     await load()
   }
 
-  function toggleMod(ref: string) {
-    if (!dialog) return
-    setDialog({ ...dialog, modifierReferences: dialog.modifierReferences.includes(ref) ? dialog.modifierReferences.filter(r => r !== ref) : [...dialog.modifierReferences, ref] })
+  async function createModifierInline(name: string, price: number): Promise<PickerItem | null> {
+    try {
+      const res = await fetch('/api/restaurant/disco-modifiers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ restaurant_reference: restaurantRef, name, price }),
+      })
+      if (!res.ok) return null
+      const data = await res.json().catch(() => ({}))
+      if (!data.reference) return null
+      const created = { reference: data.reference as string, name, price }
+      setLibrary(prev => [...prev, created])
+      return created
+    } catch { return null }
   }
 
   const q = query.trim().toLowerCase()
@@ -217,28 +227,12 @@ export default function GroupLibraryPage() {
               {' '}(from Min selected {draftMin > 0 ? '≥ 1' : '= 0'}).
             </div>
             <label style={lbl}>Options in this group{dialog.modifierReferences.length > 0 ? ` (${dialog.modifierReferences.length} selected)` : ''}</label>
-            {library.length === 0 ? (
-              <div style={{ fontSize: 13, color: '#999', padding: '8px 0' }}>No modifiers yet — create some in the Modifiers tab first.</div>
-            ) : (() => {
-              const mq = modSearch.trim().toLowerCase()
-              const list = mq ? library.filter(m => m.name.toLowerCase().includes(mq)) : library
-              return (
-                <>
-                  <input value={modSearch} onChange={e => setModSearch(e.target.value)} placeholder="Search modifiers…" style={{ ...input, marginBottom: 8 }} />
-                  <div style={{ border: '1px solid #eee', borderRadius: 10, maxHeight: 300, overflowY: 'auto' }}>
-                    {list.length === 0 ? (
-                      <div style={{ fontSize: 13, color: '#999', padding: '12px' }}>No modifiers match “{modSearch}”.</div>
-                    ) : list.map(m => (
-                      <label key={m.reference} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: '1px solid #f4f4f8', cursor: 'pointer', fontSize: 14 }}>
-                        <input type="checkbox" checked={dialog.modifierReferences.includes(m.reference)} onChange={() => toggleMod(m.reference)} />
-                        <span style={{ flex: 1 }}>{m.name}</span>
-                        <span style={{ color: '#999' }}>${Number(m.price).toFixed(2)}</span>
-                      </label>
-                    ))}
-                  </div>
-                </>
-              )
-            })()}
+            <ModifierMultiPicker
+              library={library}
+              selected={dialog.modifierReferences}
+              onChange={refs => setDialog(d => d ? { ...d, modifierReferences: refs } : d)}
+              onCreateNew={createModifierInline}
+            />
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 22 }}>
               <button onClick={() => setDialog(null)} style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '9px 18px', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
               <button onClick={save} disabled={saving} style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: saving ? 0.6 : 1 }}>{saving ? 'Saving…' : 'Save'}</button>

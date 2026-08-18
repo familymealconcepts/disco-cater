@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState, use as usePromise } from 'react'
 import { useRouter } from 'next/navigation'
+import { DiscoGroupFormDialog, type DiscoGroupSummary } from '../../_components/DiscoGroupFormDialog'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -276,6 +277,8 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
   const [libGroups, setLibGroups] = useState<{ reference: string; name: string; external_name: string | null }[]>([])
   const [attached, setAttached] = useState<{ reference: string; enabled: boolean }[]>([])
   const [groupSearch, setGroupSearch] = useState('') // filter the (potentially long) group list
+  const [restaurantRef, setRestaurantRef] = useState('')
+  const [groupForm, setGroupForm] = useState<{ mode: 'create' | 'edit'; group?: DiscoGroupSummary } | null>(null)
   useEffect(() => {
     if (!isEdit || !item?.reference) return
     Promise.all([
@@ -283,12 +286,24 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
       fetch(`/api/restaurant/disco-menu-items/${item.reference}/groups`).then(r => r.ok ? r.json() : { groups: [] }),
     ]).then(([lib, cur]) => {
       setLibGroups(Array.isArray(lib.groups) ? lib.groups : [])
+      if (lib.restaurant_reference) setRestaurantRef(lib.restaurant_reference)
       setAttached((Array.isArray(cur.groups) ? cur.groups : []).map((g: { reference: string; enabled?: boolean }) => ({ reference: g.reference, enabled: g.enabled !== false })))
     }).catch(() => {})
   }, [isEdit, item?.reference])
   const isAttached = (ref: string) => attached.some(a => a.reference === ref)
   const toggleAttach = (ref: string) => setAttached(a => isAttached(ref) ? a.filter(x => x.reference !== ref) : [...a, { reference: ref, enabled: true }])
   const toggleEnabled = (ref: string) => setAttached(a => a.map(x => x.reference === ref ? { ...x, enabled: !x.enabled } : x))
+  // A group created from within this item's dialog: add it to the library so
+  // it shows up immediately, and attach it to the item right away (mirrors
+  // manage-v2's _MealPackageForm upsertGroup — creating a new group from the
+  // item flow attaches it, it doesn't just sit in the library unused).
+  function onGroupCreated(g: DiscoGroupSummary) {
+    setLibGroups(prev => prev.some(x => x.reference === g.reference)
+      ? prev.map(x => x.reference === g.reference ? { reference: g.reference, name: g.name, external_name: g.external_name } : x)
+      : [...prev, { reference: g.reference, name: g.name, external_name: g.external_name }])
+    setAttached(a => a.some(x => x.reference === g.reference) ? a : [...a, { reference: g.reference, enabled: true }])
+    setGroupForm(null)
+  }
 
   async function upload(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]; if (!f) return
@@ -358,11 +373,19 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
           <label style={{ fontSize: 13, color: BLUE, fontWeight: 600, cursor: 'pointer' }}>{uploading ? 'Uploading…' : (imageUrl ? 'Replace' : 'Upload')}<input type="file" accept="image/jpeg,image/png" onChange={upload} style={{ display: 'none' }} /></label>
         </div>
 
-        <label style={dlgLabel}>Modifier Groups</label>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <label style={{ ...dlgLabel, margin: '12px 0 6px' }}>Modifier Groups</label>
+          {isEdit && (
+            <button type="button" onClick={() => setGroupForm({ mode: 'create' })}
+              style={{ background: 'none', border: `1px solid ${BLUE}`, color: BLUE, borderRadius: 7, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+              + Add New Group
+            </button>
+          )}
+        </div>
         {!isEdit ? (
           <div style={{ fontSize: 12.5, color: '#999' }}>Save the item first, then reopen it to attach modifier groups.</div>
         ) : libGroups.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: '#999' }}>No modifier groups yet — create some under Manage Menus → Modifier Groups.</div>
+          <div style={{ fontSize: 12.5, color: '#999' }}>No modifier groups yet — use “+ Add New Group” above, or create one under Manage Menus → Modifier Groups.</div>
         ) : (() => {
           const gq = groupSearch.trim().toLowerCase()
           const shownGroups = gq ? libGroups.filter(g => g.name.toLowerCase().includes(gq) || (g.external_name || '').toLowerCase().includes(gq)) : libGroups
@@ -427,6 +450,15 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
           <button onClick={onCancel} style={{ background: 'none', border: '1px solid #ddd', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, color: '#555', cursor: 'pointer', fontFamily: F }}>Cancel</button>
         </div>
       </div>
+      {groupForm && (
+        <DiscoGroupFormDialog
+          mode={groupForm.mode}
+          initial={groupForm.group}
+          restaurantRef={restaurantRef}
+          onSaved={onGroupCreated}
+          onClose={() => setGroupForm(null)}
+        />
+      )}
     </div>
   )
 }

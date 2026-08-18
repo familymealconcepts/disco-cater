@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { ModifierMultiPicker, type PickerItem } from '../../_components/ModifierMultiPicker'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -78,6 +79,7 @@ export default function GroupsPage() {
   const [form, setForm] = useState<GroupForm>(emptyForm())
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<Partial<GroupForm>>({})
+  const [addOnsError, setAddOnsError] = useState('')
   const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null)
 
   const loadGroups = useCallback(async () => {
@@ -109,6 +111,7 @@ export default function GroupsPage() {
   function openCreate() {
     setForm(emptyForm())
     setErrors({})
+    setAddOnsError('')
     setCreating(true)
     setEditing(null)
   }
@@ -123,6 +126,7 @@ export default function GroupsPage() {
       addOnsReferences: g.addOns?.map(a => a.reference) || [],
     })
     setErrors({})
+    setAddOnsError('')
     setEditing(g)
     setCreating(false)
   }
@@ -142,19 +146,33 @@ export default function GroupsPage() {
     if (!isNaN(mn) && !isNaN(mx) && mn >= mx) e.minSelectedItems = 'Min must be less than max'
     if (!isNaN(mx) && mx > 50) e.maxSelectedItems = 'Max value is 50'
     setErrors(e)
-    return Object.keys(e).length === 0
+    // FM rejects a group with no modifiers outright (confirmed live:
+    // "addOnsReferences must not be empty") — checked separately since
+    // addOnsReferences isn't a per-field text error like the ones above.
+    const addOnsOk = form.addOnsReferences.length > 0
+    setAddOnsError(addOnsOk ? '' : 'Add at least one modifier before saving.')
+    return Object.keys(e).length === 0 && addOnsOk
   }
 
   async function handleSave() {
     if (!validate()) return
     setSaving(true)
+    const minSelectedItems = Number(form.minSelectedItems)
     const body = {
       name: form.name.trim(),
       externalName: form.externalName.trim(),
-      subExternalName: form.subExternalName.trim(),
-      minSelectedItems: Number(form.minSelectedItems),
+      // FM requires 1-255 chars — a blank subtitle 400s. Preserve any custom
+      // text the admin typed; only fall back when they left it blank, using
+      // the same Required/Optional derivation menu-manager/groups/page.tsx
+      // already uses for Disco-native groups.
+      subExternalName: form.subExternalName.trim() || (minSelectedItems > 0 ? 'Required' : 'Optional'),
+      minSelectedItems,
       maxSelectedItems: Number(form.maxSelectedItems),
       addOnsReferences: form.addOnsReferences,
+      // FM's group PUT replaces the whole object — omitting these 500s on
+      // edit (confirmed live). A brand-new group has never been archived.
+      archived: editing ? editing.archived : false,
+      visible: editing ? editing.visible : true,
     }
     try {
       if (editing) {
@@ -215,13 +233,17 @@ export default function GroupsPage() {
     loadGroups()
   }
 
-  function toggleAddOn(ref: string) {
-    setForm(f => ({
-      ...f,
-      addOnsReferences: f.addOnsReferences.includes(ref)
-        ? f.addOnsReferences.filter(r => r !== ref)
-        : [...f.addOnsReferences, ref],
-    }))
+  async function createAddOn(name: string, price: number): Promise<PickerItem | null> {
+    try {
+      const res = await fetch('/api/restaurant/add-ons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, price }) })
+      if (!res.ok) return null
+      const data = await res.json().catch(() => ({}))
+      const reference = data.reference || data.id || ''
+      if (!reference) return null
+      const created: AddOn = { reference, name, price, achived: false, visible: true }
+      setAddOns(prev => [...prev, created])
+      return { reference, name, price }
+    } catch { return null }
   }
 
   const thStyle: React.CSSProperties = { textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#888', padding: '10px 12px', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' }
@@ -303,23 +325,15 @@ export default function GroupsPage() {
             </Field>
           </div>
 
-          {addOns.length > 0 && (
-            <Field label="Add-Ons">
-              <div style={{ border: '1px solid #e0e0e0', borderRadius: 8, maxHeight: 200, overflowY: 'auto', padding: '8px 0' }}>
-                {addOns.map(a => (
-                  <label key={a.reference} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
-                    <input
-                      type="checkbox"
-                      checked={form.addOnsReferences.includes(a.reference)}
-                      onChange={() => toggleAddOn(a.reference)}
-                    />
-                    <span style={{ color: DARK }}>{a.name}</span>
-                    <span style={{ color: '#888', marginLeft: 'auto' }}>${a.price.toFixed(2)}</span>
-                  </label>
-                ))}
-              </div>
-            </Field>
-          )}
+          <Field label={`Add-Ons${form.addOnsReferences.length > 0 ? ` (${form.addOnsReferences.length} selected)` : ''}`} error={addOnsError}>
+            <ModifierMultiPicker
+              library={addOns.map(a => ({ reference: a.reference, name: a.name, price: a.price }))}
+              selected={form.addOnsReferences}
+              onChange={refs => setForm(f => ({ ...f, addOnsReferences: refs }))}
+              onCreateNew={createAddOn}
+              orderPersists={false}
+            />
+          </Field>
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
             <button onClick={closeModal} style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 7, padding: '9px 20px', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>

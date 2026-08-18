@@ -1,5 +1,6 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { ModifierMultiPicker, type PickerItem } from '../../../_components/ModifierMultiPicker'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -17,6 +18,12 @@ export interface LibraryGroup {
   // Preserved verbatim so editing a group's name/min/max doesn't wipe its
   // items (FM's group PUT replaces the whole group).
   addOnsReferences: string[]
+  // Also preserved verbatim for the same reason — FM's PUT replaces the whole
+  // group object, so omitting these on an edit 500s (FM NPEs on a missing
+  // archived/visible rather than keeping the existing value). Optional because
+  // AddExistingGroupDialog's candidates don't need them.
+  archived?: boolean
+  visible?: boolean
 }
 
 // A group attached to the current meal package (library group + per-item toggle).
@@ -123,8 +130,33 @@ export function GroupFormDialog({ mode, initial, onSaved, onClose }: {
   const [externalName, setExternalName] = useState(initial?.externalName || '')
   const [min, setMin] = useState(String(initial?.minSelectedItems ?? 0))
   const [max, setMax] = useState(String(initial?.maxSelectedItems ?? 1))
+  const [addOnsReferences, setAddOnsReferences] = useState<string[]>(initial?.addOnsReferences || [])
+  const [addOns, setAddOns] = useState<PickerItem[]>([])
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+
+  // The restaurant's modifier library — loaded here (rather than passed down
+  // from _MealPackageForm) so this dialog stays self-contained, matching
+  // AddExistingGroupDialog's own independent data needs.
+  useEffect(() => {
+    fetch('/api/restaurant/add-ons?page=0&size=250')
+      .then(r => r.ok ? r.json() : { content: [] })
+      .then(d => setAddOns(Array.isArray(d.content) ? d.content.map((a: { reference: string; name: string; price: number }) => ({ reference: a.reference, name: a.name, price: a.price })) : []))
+      .catch(() => {})
+  }, [])
+
+  async function createAddOn(name: string, price: number): Promise<PickerItem | null> {
+    try {
+      const res = await fetch('/api/restaurant/add-ons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, price }) })
+      if (!res.ok) return null
+      const data = await res.json().catch(() => ({}))
+      const reference = data.reference || data.id || ''
+      if (!reference) return null
+      const created = { reference, name, price }
+      setAddOns(prev => [...prev, created])
+      return created
+    } catch { return null }
+  }
 
   async function save() {
     setErr('')
@@ -135,14 +167,28 @@ export function GroupFormDialog({ mode, initial, onSaved, onClose }: {
     if (isNaN(mx) || mx < 1) { setErr('Max must be at least 1.'); return }
     if (mn > mx) { setErr('Min cannot be greater than max.'); return }
     if (mx > 50) { setErr('Max can be at most 50.'); return }
+    // FM rejects a group with no modifiers outright (confirmed live:
+    // "addOnsReferences must not be empty") — catch it here with a clear
+    // message instead of a generic "could not save" from FM's 400.
+    if (addOnsReferences.length === 0) { setErr('Add at least one modifier before saving.'); return }
 
+    // FM requires subExternalName to be 1-255 chars — a blank string 400s.
+    // There's no free-text input for it in this dialog (that's
+    // manage/groups/page.tsx's job), so fall back to the same Required/
+    // Optional derivation menu-manager/groups/page.tsx already uses for
+    // Disco-native groups, preserving any existing custom value on edit.
+    const subExternalName = (initial?.subExternalName || '').trim() || (mn > 0 ? 'Required' : 'Optional')
     const body = {
       name: name.trim(),
       externalName: externalName.trim(),
-      subExternalName: initial?.subExternalName || '',
+      subExternalName,
       minSelectedItems: mn,
       maxSelectedItems: mx,
-      addOnsReferences: initial?.addOnsReferences || [],
+      addOnsReferences,
+      // FM's group PUT replaces the whole object — omitting these 500s on
+      // edit (confirmed live). Default to a fresh group's natural state.
+      archived: initial?.archived ?? false,
+      visible: initial?.visible ?? true,
     }
     setSaving(true)
     try {
@@ -161,6 +207,8 @@ export function GroupFormDialog({ mode, initial, onSaved, onClose }: {
         maxSelectedItems: mx,
         itemCount: initial?.itemCount ?? 0,
         addOnsReferences: body.addOnsReferences,
+        archived: body.archived,
+        visible: body.visible,
         enabled: initial?.enabled ?? true,
       })
     } catch {
@@ -196,6 +244,10 @@ export function GroupFormDialog({ mode, initial, onSaved, onClose }: {
           <label style={labelStyle}>Max Selected</label>
           <input type="number" min={1} max={50} value={max} onChange={e => setMax(e.target.value)} style={inputStyle} />
         </div>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <label style={labelStyle}>Modifiers in this group{addOnsReferences.length > 0 ? ` (${addOnsReferences.length} selected)` : ''}</label>
+        <ModifierMultiPicker library={addOns} selected={addOnsReferences} onChange={setAddOnsReferences} onCreateNew={createAddOn} orderPersists={false} />
       </div>
     </DialogShell>
   )

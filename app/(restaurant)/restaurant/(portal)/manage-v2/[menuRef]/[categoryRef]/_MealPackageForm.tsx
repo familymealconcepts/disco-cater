@@ -151,6 +151,8 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
             maxSelectedItems: g.maxSelectedItems ?? 1,
             itemCount: Array.isArray(g.addOns) ? g.addOns.length : 0,
             addOnsReferences: Array.isArray(g.addOns) ? g.addOns.map((a: { reference: string }) => a.reference) : [],
+            archived: g.archived ?? false,
+            visible: g.visible !== false,
           })))
         }
       } finally { setLoadingGroups(false) }
@@ -328,8 +330,8 @@ export default function MealPackageForm({ menuRef, categoryRef, pkgRef, mode, on
     setAttached(prev => prev.some(x => x.reference === g.reference) ? prev.map(x => x.reference === g.reference ? g : x) : [...prev, g])
     // Keep the library copy in sync so Add-Existing details stay fresh.
     setLibrary(prev => prev.some(x => x.reference === g.reference)
-      ? prev.map(x => x.reference === g.reference ? { reference: g.reference, name: g.name, externalName: g.externalName, subExternalName: g.subExternalName, minSelectedItems: g.minSelectedItems, maxSelectedItems: g.maxSelectedItems, itemCount: g.itemCount, addOnsReferences: g.addOnsReferences } : x)
-      : [...prev, { reference: g.reference, name: g.name, externalName: g.externalName, subExternalName: g.subExternalName, minSelectedItems: g.minSelectedItems, maxSelectedItems: g.maxSelectedItems, itemCount: g.itemCount, addOnsReferences: g.addOnsReferences }])
+      ? prev.map(x => x.reference === g.reference ? { reference: g.reference, name: g.name, externalName: g.externalName, subExternalName: g.subExternalName, minSelectedItems: g.minSelectedItems, maxSelectedItems: g.maxSelectedItems, itemCount: g.itemCount, addOnsReferences: g.addOnsReferences, archived: g.archived, visible: g.visible } : x)
+      : [...prev, { reference: g.reference, name: g.name, externalName: g.externalName, subExternalName: g.subExternalName, minSelectedItems: g.minSelectedItems, maxSelectedItems: g.maxSelectedItems, itemCount: g.itemCount, addOnsReferences: g.addOnsReferences, archived: g.archived, visible: g.visible }])
     setGroupForm(null)
   }
   function removeGroup(ref: string) { setAttached(prev => prev.filter(g => g.reference !== ref)) }
