@@ -13,10 +13,16 @@ function toFmDate(d: string): string {
   return m ? `${m[3]}.${m[2]}.${m[1]}` : d
 }
 
-// Order Counts for a disco-native restaurant — how many of each item were ordered
-// in the date range, from disco_order_items. { mealPackages, addOns } matches the
-// tab + CSV/PDF export. (Native line items carry no separate modifier rows, so
-// addOns is empty.)
+// Order Counts for a disco-native restaurant — how many of each item (and each
+// add-on) were ordered in the date range. { mealPackages, addOns } matches the
+// tab + CSV/PDF export. This is a date-range AGGREGATE across many orders, not
+// a single order's line items, so it doesn't go through
+// lib/order-items.ts's loadOrderItemsWithAddOns (that's per-order) — it needs
+// its own grouped query, joined the same way. Previously hardcoded
+// `addOns: []` with a comment claiming "native line items carry no separate
+// modifier rows" — stale the moment native-checkout.ts started writing
+// disco_order_item_addons; this undercounted every native restaurant's
+// modifier sales in the export.
 async function discoOrderCounts(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, req: NextRequest) {
   const ref = await resolveDiscoScopeRef(ctx)
   if (!ref) return NextResponse.json({ mealPackages: [], addOns: [] })
@@ -41,7 +47,22 @@ async function discoOrderCounts(ctx: NonNullable<Awaited<ReturnType<typeof getRe
     GROUP BY oi.name
     ORDER BY count DESC, "mealPackageName" ASC
   `) as Record<string, unknown>[]
-  return NextResponse.json({ mealPackages, addOns: [] })
+  const addOns = (await sql`
+    SELECT a.name AS "addOnName", oi.name AS "mealPackageName",
+           SUM(a.quantity)::int AS count,
+           MAX(a.price)::float8 AS price,
+           SUM(a.price * a.quantity)::float8 AS total
+    FROM disco_order_item_addons a
+    JOIN disco_order_items oi ON oi.id = a.order_item_id
+    JOIN disco_orders o ON o.id = oi.order_id
+    WHERE o.restaurant_reference = ${ref}::uuid
+      AND o.order_status = ANY(${statusFilter})
+      AND (${from}::date IS NULL OR o.order_date >= ${from}::date)
+      AND (${to}::date IS NULL OR o.order_date <= ${to}::date)
+    GROUP BY a.name, oi.name
+    ORDER BY count DESC, "addOnName" ASC
+  `.catch(() => [])) as Record<string, unknown>[]
+  return NextResponse.json({ mealPackages, addOns })
 }
 
 export async function GET(req: NextRequest) {

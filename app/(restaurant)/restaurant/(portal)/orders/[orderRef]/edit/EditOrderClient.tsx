@@ -508,7 +508,14 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          activeLines: activeLines.map(l => ({ reference: l.reference, name: l.name, price: l.price, quantity: l.quantity, serves: l.serves ?? null })),
+          // addOns must be included — the server deletes and recreates
+          // disco_order_items on every save, and without this it had no way
+          // to know a line ever had add-ons, silently orphaning that money
+          // (confirmed live: order #900000086's entire subtotal lived on one).
+          activeLines: activeLines.map(l => ({
+            reference: l.reference, name: l.name, price: l.price, quantity: l.quantity, serves: l.serves ?? null,
+            addOns: l.addOns.length ? l.addOns.map(a => ({ name: a.name, price: a.price, quantity: a.count })) : undefined,
+          })),
           orderDate: toIsoDateInput(orderDate),
           orderTime,
           editorEmail,

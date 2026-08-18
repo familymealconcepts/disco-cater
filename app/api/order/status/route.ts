@@ -3,6 +3,7 @@ import { getFmCustomerJwt, getCustomerSession } from '../../../../lib/customer-a
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { getCallerScopeRefs } from '../../../../lib/order/order-scope'
 import { sql } from '../../../../lib/db'
+import { loadOrderItemsWithAddOns } from '../../../../lib/order-items'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -10,7 +11,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 function num(v: unknown): number { const n = parseFloat(String(v ?? '')); return Number.isFinite(n) ? n : 0 }
 
-interface ConfirmationItem { name: string; quantity: number; price: number; lineTotal: number }
+interface ConfirmationItem {
+  name: string; quantity: number; price: number; lineTotal: number
+  addOns?: { name: string; price: number; quantity: number }[]
+}
 
 // Normalize the order's line items into a single { name, quantity, price,
 // lineTotal } shape the confirmation page can render directly. FM nests them
@@ -55,15 +59,12 @@ async function buildNeonStatus(nr: Record<string, unknown>): Promise<Record<stri
     FROM disco_sale_transactions WHERE order_id = ${nr.id as number} ORDER BY id LIMIT 1
   `) as Array<Record<string, unknown>>
   const st = stRows[0] || {}
-  const itemRows = (await sql`
-    SELECT name, quantity, price_per_unit, total_price
-    FROM disco_order_items WHERE order_id = ${nr.id as number} ORDER BY id
-  `) as Array<Record<string, unknown>>
-  const items: ConfirmationItem[] = itemRows.map((r) => {
-    const quantity = Math.max(1, Math.trunc(num(r.quantity) || 1))
-    const price = num(r.price_per_unit)
-    return { name: String(r.name ?? 'Item'), quantity, price, lineTotal: r.total_price != null ? num(r.total_price) : Math.round(price * quantity * 100) / 100 }
-  })
+  const orderItems = await loadOrderItemsWithAddOns(nr.id as number)
+  const items: ConfirmationItem[] = orderItems.map((it) => ({
+    name: it.name, quantity: it.quantity, price: it.pricePerUnit,
+    lineTotal: Math.round(it.pricePerUnit * it.quantity * 100) / 100,
+    addOns: it.addOns.length ? it.addOns.map((a) => ({ name: a.name, price: a.price, quantity: a.quantity })) : undefined,
+  }))
   // Restaurant name: prefer the frozen snapshot on the order, fall back to the live
   // cache (empty for a deleted restaurant → the page just omits the name).
   let restaurantName = String(nr.restaurant_name || '')
@@ -227,18 +228,17 @@ export async function GET(req: NextRequest) {
       let items = itemsFromFm(data as Record<string, unknown>)
       if (items.length === 0 && UUID_RE.test(orderRef)) {
         try {
-          const rows = (await sql`
-            SELECT i.name, i.quantity, i.price_per_unit, i.total_price
-            FROM disco_order_items i
-            JOIN disco_orders o ON o.id = i.order_id
-            WHERE o.fm_order_reference = ${orderRef}::uuid OR o.reference = ${orderRef}::uuid
-            ORDER BY i.id
-          `) as { name: string; quantity: number; price_per_unit: string; total_price: string | null }[]
-          items = rows.map((r) => {
-            const quantity = Math.max(1, Math.trunc(num(r.quantity) || 1))
-            const price = num(r.price_per_unit)
-            return { name: r.name, quantity, price, lineTotal: r.total_price != null ? num(r.total_price) : Math.round(price * quantity * 100) / 100 }
-          })
+          const idRows = (await sql`
+            SELECT id FROM disco_orders WHERE fm_order_reference = ${orderRef}::uuid OR reference = ${orderRef}::uuid LIMIT 1
+          `) as { id: number }[]
+          if (idRows[0]) {
+            const orderItems = await loadOrderItemsWithAddOns(idRows[0].id)
+            items = orderItems.map((it) => ({
+              name: it.name, quantity: it.quantity, price: it.pricePerUnit,
+              lineTotal: Math.round(it.pricePerUnit * it.quantity * 100) / 100,
+              addOns: it.addOns.length ? it.addOns.map((a) => ({ name: a.name, price: a.price, quantity: a.quantity })) : undefined,
+            }))
+          }
         } catch { /* best-effort — confirmation still renders without items */ }
       }
       ;(data as Record<string, unknown>).items = items

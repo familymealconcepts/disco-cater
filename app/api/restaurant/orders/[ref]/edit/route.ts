@@ -27,7 +27,11 @@ export const maxDuration = 60
 
 const FEE_RATE = 0.03 // 3% platform fee on subtotal
 
-interface ActiveLine { reference: string; name: string; price: number; quantity: number; serves?: string | number | null }
+interface ActiveLineAddOn { name: string; price: number; count?: number; quantity?: number }
+interface ActiveLine {
+  reference: string; name: string; price: number; quantity: number; serves?: string | number | null
+  addOns?: ActiveLineAddOn[]
+}
 
 // Live by default. `testMode` (SUPER_ADMIN E2E only — see POST) swaps in the
 // Stripe TEST secret so the harness can settle test charges through this same
@@ -151,7 +155,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // charge/refund below can route it through Connect. Non-native (FM-backed)
   // orders keep the original flat-rate/blended-tax-rate math unchanged — this
   // route's Stripe logic was never wired to FM's own PaymentIntents anyway.
-  const newSubtotal = round2(activeLines.reduce((a, l) => a + (Number(l.price) || 0) * (Number(l.quantity) || 0), 0))
+  // Add-ons count toward the subtotal too — an item whose real price lives
+  // entirely on an add-on (base price $0.00, e.g. #900000086's "jojos") would
+  // otherwise recompute to $0 here, understating the charge/refund delta below
+  // by the exact amount the item-only formula used to miss.
+  const newSubtotal = round2(activeLines.reduce((a, l) => {
+    const lineBase = (Number(l.price) || 0) * (Number(l.quantity) || 0)
+    const lineAddOns = Array.isArray(l.addOns)
+      ? l.addOns.reduce((s, ao) => s + (Number(ao.price) || 0) * Math.max(1, Math.trunc(Number(ao.quantity ?? ao.count) || 1)), 0)
+      : 0
+    return a + lineBase + lineAddOns
+  }, 0))
   let newTaxes: number, newFee: number, newTotal: number, delta: number
   let nativeTransferDelta = 0
   let nativeBreakdown: Breakdown | null = null
@@ -264,8 +278,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // edited items right away, even while the delta invoice is outstanding).
   async function writeNeonItems(): Promise<void> {
     if (!discoOrder) return
+    // disco_order_item_addons has no FK/cascade on order_item_id — deleting
+    // disco_order_items alone (as this used to do) orphans the old add-on rows
+    // permanently disconnected from any current item, silently losing that
+    // money on save (confirmed live: order #900000086's entire $11.00
+    // subtotal lived on one add-on). Clear them explicitly, in the SAME
+    // transaction as the item delete+recreate, so this can't happen again.
+    const oldItemRows = (await sql`SELECT id FROM disco_order_items WHERE order_id = ${discoOrder.id}`.catch(() => [])) as { id: number }[]
+    const oldItemIds = oldItemRows.map(r => r.id)
+
     // Atomic replace so a failed insert can't leave the order with missing items (I4).
     const stmts = [sql`DELETE FROM disco_order_items WHERE order_id = ${discoOrder.id}`]
+    if (oldItemIds.length) stmts.push(sql`DELETE FROM disco_order_item_addons WHERE order_item_id = ANY(${oldItemIds})`)
     for (const l of activeLines) {
       const unit = Number(l.price) || 0
       stmts.push(sql`
@@ -275,6 +299,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       `)
     }
     await sql.transaction(stmts).catch(e => console.error('[orders/edit] items replace failed:', e))
+
+    // Add-ons, attached after: re-read the just-inserted items (same order as
+    // activeLines — both insertion-ordered) to get their new ids, then write
+    // each line's add-ons. Best-effort/logged, same two-phase shape
+    // lib/order/native-checkout.ts already uses at initial placement (item
+    // insert first to get its id, add-ons attached right after) — the I4
+    // guarantee above covers the items themselves; a single add-on failing to
+    // write is logged, not silently dropped, and never blocks the item replace.
+    if (activeLines.some(l => Array.isArray(l.addOns) && l.addOns.length)) {
+      const newItemRows = (await sql`
+        SELECT id FROM disco_order_items WHERE order_id = ${discoOrder.id} ORDER BY id
+      `.catch(() => [])) as { id: number }[]
+      for (let i = 0; i < activeLines.length && i < newItemRows.length; i++) {
+        const line = activeLines[i]
+        if (!Array.isArray(line.addOns) || !line.addOns.length) continue
+        const itemId = newItemRows[i].id
+        for (const a of line.addOns) {
+          await sql`
+            INSERT INTO disco_order_item_addons (order_item_id, name, price, quantity)
+            VALUES (${itemId}, ${a.name || 'Add-on'}, ${round2(Number(a.price) || 0)}, ${Math.max(1, Math.trunc(Number(a.quantity ?? a.count) || 1))})
+          `.catch(e => console.error('[orders/edit] addon insert failed:', e))
+        }
+      }
+    }
   }
 
   // Persist the edited items into disco_order_items (replace) + the recalculated

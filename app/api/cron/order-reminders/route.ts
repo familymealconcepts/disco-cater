@@ -4,6 +4,7 @@ import {
   sendCustomerOrderReminder, sendRestaurantOrderReminder, type OrderMealPackage,
 } from '../../../../lib/email/notifications'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
+import { loadOrderItemsWithAddOns } from '../../../../lib/order-items'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -103,13 +104,13 @@ async function claimAdminReminder(orderId: number): Promise<boolean> {
 
 // Line items for an order's reminder body.
 async function loadPackages(orderId: number): Promise<OrderMealPackage[]> {
-  const items = (await sql`
-    SELECT name, quantity, price_per_unit FROM disco_order_items WHERE order_id = ${orderId} ORDER BY id
-  `) as { name: string; quantity: number; price_per_unit: string }[]
+  const items = await loadOrderItemsWithAddOns(orderId)
   return items.map((it) => ({
-    count: num(it.quantity) || 1,
-    name: String(it.name ?? ''),
-    price: num(it.price_per_unit),
+    count: it.quantity,
+    name: it.name,
+    price: it.pricePerUnit,
+    comment: it.notes ?? undefined,
+    orderAddOns: it.addOns.length ? it.addOns.map((a) => ({ count: a.quantity, name: a.name, price: a.price })) : undefined,
   }))
 }
 

@@ -4,6 +4,7 @@ import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { loadFmOrderDetails, isoToFmDate, isUuid } from '../../../../../../lib/order-edit'
+import { loadOrderItemsWithAddOns, type OrderItemWithAddOns } from '../../../../../../lib/order-items'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,8 +35,6 @@ interface DiscoFull {
   fee: string | null
   delivery_time_window: string | null
 }
-interface DiscoItem { meal_package_reference: string | null; name: string; quantity: number; price_per_unit: string; serves: number | null }
-
 function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
@@ -62,7 +61,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
 
   // Neon order + items.
   let disco: DiscoFull | null = null
-  let items: DiscoItem[] = []
+  let items: OrderItemWithAddOns[] = []
   if (isUuid(ref)) {
     const rows = (await sql`
       SELECT id, reference, fm_order_reference, order_number, order_status, order_type,
@@ -75,10 +74,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     `.catch(() => [])) as DiscoFull[]
     disco = rows[0] ?? null
     if (disco) {
-      items = (await sql`
-        SELECT meal_package_reference, name, quantity, price_per_unit, serves
-        FROM disco_order_items WHERE order_id = ${disco.id} ORDER BY id
-      `.catch(() => [])) as DiscoItem[]
+      // Existing add-ons MUST be fed into the edit form — without this, saving
+      // the order (writeNeonItems) deletes and recreates disco_order_items with
+      // no idea the old items had add-ons, silently orphaning that money (see
+      // lib/order-items.ts's header comment).
+      items = await loadOrderItemsWithAddOns(disco.id)
     }
   }
 
@@ -129,12 +129,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // Items: Neon is the source of truth when present; else keep FM's.
   if (items.length) {
     order.orderMealPackages = items.map(it => ({
-      reference: it.meal_package_reference || undefined,
-      mealPackageReference: it.meal_package_reference || undefined,
+      reference: it.mealPackageReference || undefined,
+      mealPackageReference: it.mealPackageReference || undefined,
       name: it.name,
-      price: num(it.price_per_unit),
+      price: it.pricePerUnit,
       count: it.quantity,
       serves: it.serves ?? null,
+      orderAddOns: it.addOns.length ? it.addOns.map(a => ({ name: a.name, price: a.price, count: a.quantity })) : undefined,
     }))
     order.orderClassics = []
   }

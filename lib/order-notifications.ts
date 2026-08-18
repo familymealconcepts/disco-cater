@@ -11,10 +11,11 @@
 
 import { sql } from './db'
 import {
-  sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage, type OrderAddOn,
+  sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage,
   sendCustomerItemUnavailableRefund, sendRestaurantItemUnavailableAlert,
 } from './email/notifications'
 import { buildOrderPdfByReference } from './order/order-pdf'
+import { loadOrderItemsWithAddOns } from './order-items'
 import { sendSms } from './sms'
 import { formatTimeWindow } from './utils/deliveryTimeWindow'
 import { sanitizePhone } from './utils/phone'
@@ -161,7 +162,7 @@ export async function dispatchOrderConfirmations(
 ): Promise<void> {
   try {
     const orders = (await sql`
-      SELECT reference, order_number, order_type, delivery_type, source_of_order, order_date, order_time, delivery_time_window, note, created_at,
+      SELECT reference, order_number, order_type, delivery_type, source_of_order, is_direct_entry, order_date, order_time, delivery_time_window, note, created_at,
              customer_email, customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
              restaurant_reference, restaurant_name, restaurant_email, tax_exempt_id, tax_exempt_state, tips,
@@ -232,38 +233,14 @@ export async function dispatchOrderConfirmations(
       stripeTotal = num(sp[0]?.total)
     } catch { /* stripe-total fallback is best-effort */ }
 
-    const items = (await sql`
-      SELECT id, name, quantity, price_per_unit, notes FROM disco_order_items
-      WHERE order_id = ${orderId} ORDER BY id
-    `) as Record<string, unknown>[]
-
-    // Per-item add-ons — same join order-pdf.ts and the restaurant portal's
-    // order popout already do. Without this, an item whose real price lives
-    // entirely on its add-ons (base price_per_unit priced at $0.00) showed as
-    // "$0.00" in both the customer receipt and restaurant notification with
-    // no indication the money was on a modifier — third instance of this
-    // exact bug (order-pdf.ts and orders/[ref]/route.ts had it too).
-    const itemIds = items.map((it) => Number(it.id)).filter((n) => Number.isFinite(n))
-    const addonRows = itemIds.length
-      ? ((await sql`
-          SELECT order_item_id, name, price, quantity FROM disco_order_item_addons
-          WHERE order_item_id = ANY(${itemIds}) ORDER BY id
-        `.catch(() => [])) as Record<string, unknown>[])
-      : []
-    const addOnsByItem = new Map<number, OrderAddOn[]>()
-    for (const a of addonRows) {
-      const key = Number(a.order_item_id)
-      const list = addOnsByItem.get(key) ?? []
-      list.push({ count: num(a.quantity) || 1, name: String(a.name ?? 'Add-on'), price: num(a.price) })
-      addOnsByItem.set(key, list)
-    }
+    const items = await loadOrderItemsWithAddOns(orderId)
 
     const orderMealPackages: OrderMealPackage[] = items.map((it) => ({
-      count: num(it.quantity) || 1,
-      name: String(it.name ?? ''),
-      price: num(it.price_per_unit),
-      comment: it.notes ? String(it.notes) : undefined,
-      orderAddOns: addOnsByItem.get(Number(it.id)),
+      count: it.quantity,
+      name: it.name,
+      price: it.pricePerUnit,
+      comment: it.notes ?? undefined,
+      orderAddOns: it.addOns.length ? it.addOns.map((a) => ({ count: a.quantity, name: a.name, price: a.price })) : undefined,
     }))
 
     const isDelivery = String(o.order_type) === 'DELIVERY'
@@ -359,6 +336,7 @@ export async function dispatchOrderConfirmations(
     // Recipients" list (mirrored to disco_restaurant_overrides.notification_emails
     // on save), falling back to the order's single restaurant_email. De-duped.
     const sourceOfOrder = o.source_of_order ? String(o.source_of_order) : ''
+    const isDirectEntry = o.is_direct_entry === true
     const restaurantEmail = o.restaurant_email ? String(o.restaurant_email) : ''
     let notificationEmails: string[] = []
     try {
@@ -411,6 +389,7 @@ export async function dispatchOrderConfirmations(
           restaurantEmail: 'noreply@familymeal.com',
           deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
           sourceOfOrder,
+          isDirectEntry,
           attachments: pdfAttachments,
           ...shared,
         }).catch((err) => console.error('[order-notifications] FM-copy notification failed:', err))
@@ -422,6 +401,7 @@ export async function dispatchOrderConfirmations(
           restaurantBcc: (isNativeCheckout && i === 0) ? 'noreply@familymeal.com' : undefined,
           deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
           sourceOfOrder,
+          isDirectEntry,
           attachments: pdfAttachments,
           ...shared,
         }).catch((err) => console.error('[order-notifications] restaurant notification email failed:', err))

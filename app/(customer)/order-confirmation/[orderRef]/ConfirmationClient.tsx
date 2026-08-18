@@ -213,15 +213,31 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                     const quantity = Number(item.quantity ?? item.count) || 1
                     const price = Number(item.price ?? item.pricePerUnit) || 0
                     const lineTotal = Number(item.lineTotal) || price * quantity
+                    const addOns: any[] = item.addOns || item.orderAddOns || []
                     return (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 10, fontSize: 14, color: DARK }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 600 }}>{name}</div>
-                          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
-                            {quantity} × {fmt$(price)} each
+                      <div key={i} style={{ marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, fontSize: 14, color: DARK }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 600 }}>{name}</div>
+                            <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                              {quantity} × {fmt$(price)} each
+                            </div>
                           </div>
+                          <span style={{ ...amountCol, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt$(lineTotal)}</span>
                         </div>
-                        <span style={{ ...amountCol, fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt$(lineTotal)}</span>
+                        {/* Indented "+" sub-lines — same convention as the PDF/email
+                            receipts, including a $0.00 add-on (the item's real price
+                            can live entirely on the add-on, e.g. order #900000086). */}
+                        {addOns.map((a: any, j: number) => {
+                          const aQty = Number(a.quantity ?? a.count) || 1
+                          const aPrice = Number(a.price) || 0
+                          return (
+                            <div key={j} style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: 16, marginTop: 4, fontSize: 12.5, color: '#888' }}>
+                              <span>+ ({aQty}) {a.name}</span>
+                              <span style={amountCol}>{fmt$(aQty * aPrice)}</span>
+                            </div>
+                          )
+                        })}
                       </div>
                     )
                   })}

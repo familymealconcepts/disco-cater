@@ -8,6 +8,7 @@ import { sql } from '../db'
 import { fulfillmentDateTime } from './fulfillment-time'
 import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
 import { displayEmail } from '../customer-email-guard'
+import { loadOrderItemsWithAddOns } from '../order-items'
 
 function num(v: unknown): number {
   const n = parseFloat(String(v ?? ''))
@@ -123,25 +124,7 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     stripeTotal = num(sp[0]?.total)
   } catch { /* best-effort */ }
 
-  const items = (await sql`
-    SELECT id, name, quantity, price_per_unit, notes FROM disco_order_items WHERE order_id = ${orderId} ORDER BY id
-  `) as Record<string, unknown>[]
-
-  // Per-item add-ons (itemized, name/price/qty) — shown as indented "+" sub-lines.
-  const itemIds = items.map((it) => Number(it.id)).filter((n) => Number.isFinite(n))
-  const addonRows = itemIds.length
-    ? (await sql`
-        SELECT order_item_id, name, price, quantity FROM disco_order_item_addons
-        WHERE order_item_id = ANY(${itemIds}) ORDER BY id
-      `.catch(() => [])) as Record<string, unknown>[]
-    : []
-  const addOnsByItem = new Map<number, { name: string; price: number; quantity: number }[]>()
-  for (const a of addonRows) {
-    const k = Number(a.order_item_id)
-    const l = addOnsByItem.get(k) ?? []
-    l.push({ name: String(a.name ?? ''), price: num(a.price), quantity: num(a.quantity) || 1 })
-    addOnsByItem.set(k, l)
-  }
+  const items = await loadOrderItemsWithAddOns(orderId)
 
   const isDelivery = String(o.order_type) === 'DELIVERY'
   const cityStateZip = [o.delivery_city, [o.delivery_state, o.delivery_zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')
@@ -204,7 +187,7 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     note: o.note ? String(o.note) : undefined,
     deliveryInstructions: o.delivery_instructions ? String(o.delivery_instructions) : undefined,
     taxExemptId: o.tax_exempt_id ? String(o.tax_exempt_id) : undefined,
-    items: items.map((it) => ({ name: String(it.name ?? ''), quantity: num(it.quantity) || 1, price: num(it.price_per_unit), note: it.notes ? String(it.notes) : undefined, addOns: addOnsByItem.get(Number(it.id)) })),
+    items: items.map((it) => ({ name: it.name, quantity: it.quantity, price: it.pricePerUnit, note: it.notes ?? undefined, addOns: it.addOns.length ? it.addOns : undefined })),
     subtotal, serviceCharge, taxes, fees, deliveryFee, tip, promo, refund, total,
   }
 }
