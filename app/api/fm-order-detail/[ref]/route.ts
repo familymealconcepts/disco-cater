@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getToken } from '../../../../lib/auth'
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { sql } from '../../../../lib/db'
+import { loadOrderItemsWithAddOns } from '../../../../lib/order-items'
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -21,9 +22,7 @@ async function buildNeonDetail(nr: Record<string, unknown>): Promise<NextRespons
     FROM disco_sale_transactions WHERE order_id = ${nr.id as number} ORDER BY id LIMIT 1
   `) as Array<Record<string, unknown>>
   const st = stRows[0] || {}
-  const itemRows = (await sql`
-    SELECT name, quantity, price_per_unit FROM disco_order_items WHERE order_id = ${nr.id as number} ORDER BY id
-  `) as Array<Record<string, unknown>>
+  const itemRows = await loadOrderItemsWithAddOns(nr.id as number)
   // Restaurant block: prefer the frozen snapshot on the order, fall back to the
   // live cache (empty for a deleted restaurant → the panel shows just the order).
   const rc = (await sql`
@@ -72,9 +71,10 @@ async function buildNeonDetail(nr: Record<string, unknown>): Promise<NextRespons
     refund: dnum(nr.refund),
     note: nr.note || '',
     orderMealPackages: itemRows.map((it) => ({
-      name: String(it.name ?? 'Item'),
-      count: Math.max(1, Math.trunc(dnum(it.quantity) || 1)),
-      price: dnum(it.price_per_unit),
+      name: it.name,
+      count: it.quantity,
+      price: it.pricePerUnit,
+      orderAddOns: it.addOns.length ? it.addOns.map((a) => ({ name: a.name, price: a.price, count: a.quantity })) : undefined,
     })),
   }
   return NextResponse.json(detail)
