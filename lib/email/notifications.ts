@@ -154,7 +154,14 @@ function renderLineItems(packages: OrderMealPackage[]): string {
       if (pkg.orderAddOns && pkg.orderAddOns.length) {
         for (const a of pkg.orderAddOns) {
           if (a.name != null && a.price != null && a.count != null) {
-            html += `<tr><td ${cellLeft}>&emsp;+ (${escapeHtml(a.count)}) ${escapeHtml(a.name)}</td><td ${cellRight}>${money(pkg.count * (a.count * a.price))}</td></tr>`
+            // a.count already reflects the add-on's own total quantity for this
+            // item line (see native-checkout.ts's INSERT) — NOT per unit of the
+            // parent item, so this must not also multiply by pkg.count. Matches
+            // order-pdf.ts (a.price * a.quantity) and the restaurant portal
+            // popout, which both compute it the same way with no parent
+            // multiplier — this line previously double-counted whenever a
+            // parent item's own quantity was > 1.
+            html += `<tr><td ${cellLeft}>&emsp;+ (${escapeHtml(a.count)}) ${escapeHtml(a.name)}</td><td ${cellRight}>${money(a.count * a.price)}</td></tr>`
           }
         }
       }

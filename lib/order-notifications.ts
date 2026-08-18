@@ -11,7 +11,7 @@
 
 import { sql } from './db'
 import {
-  sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage,
+  sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage, type OrderAddOn,
   sendCustomerItemUnavailableRefund, sendRestaurantItemUnavailableAlert,
 } from './email/notifications'
 import { buildOrderPdfByReference } from './order/order-pdf'
@@ -233,15 +233,37 @@ export async function dispatchOrderConfirmations(
     } catch { /* stripe-total fallback is best-effort */ }
 
     const items = (await sql`
-      SELECT name, quantity, price_per_unit, notes FROM disco_order_items
+      SELECT id, name, quantity, price_per_unit, notes FROM disco_order_items
       WHERE order_id = ${orderId} ORDER BY id
     `) as Record<string, unknown>[]
+
+    // Per-item add-ons — same join order-pdf.ts and the restaurant portal's
+    // order popout already do. Without this, an item whose real price lives
+    // entirely on its add-ons (base price_per_unit priced at $0.00) showed as
+    // "$0.00" in both the customer receipt and restaurant notification with
+    // no indication the money was on a modifier — third instance of this
+    // exact bug (order-pdf.ts and orders/[ref]/route.ts had it too).
+    const itemIds = items.map((it) => Number(it.id)).filter((n) => Number.isFinite(n))
+    const addonRows = itemIds.length
+      ? ((await sql`
+          SELECT order_item_id, name, price, quantity FROM disco_order_item_addons
+          WHERE order_item_id = ANY(${itemIds}) ORDER BY id
+        `.catch(() => [])) as Record<string, unknown>[])
+      : []
+    const addOnsByItem = new Map<number, OrderAddOn[]>()
+    for (const a of addonRows) {
+      const key = Number(a.order_item_id)
+      const list = addOnsByItem.get(key) ?? []
+      list.push({ count: num(a.quantity) || 1, name: String(a.name ?? 'Add-on'), price: num(a.price) })
+      addOnsByItem.set(key, list)
+    }
 
     const orderMealPackages: OrderMealPackage[] = items.map((it) => ({
       count: num(it.quantity) || 1,
       name: String(it.name ?? ''),
       price: num(it.price_per_unit),
       comment: it.notes ? String(it.notes) : undefined,
+      orderAddOns: addOnsByItem.get(Number(it.id)),
     }))
 
     const isDelivery = String(o.order_type) === 'DELIVERY'
