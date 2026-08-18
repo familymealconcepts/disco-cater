@@ -124,6 +124,11 @@ export interface RestaurantOrderNotificationParams extends BaseOrderParams {
   restaurantBcc?: string
   /** FM sourceoforder: "DISCO" → 3P (marketplace), "FAMILYMEAL" → 1P (direct). */
   sourceOfOrder?: string
+  /** disco_orders.is_direct_entry — a restaurant staff member keyed this order
+   *  in on a phone-in/walk-in customer's behalf (portal's own Create Order
+   *  flow), as opposed to the customer's own checkout. A real, separate
+   *  signal from sourceOfOrder — do not infer one from the other. */
+  isDirectEntry?: boolean
   /** Optional file attachments (e.g. the order PDF) forwarded to Mailgun. */
   attachments?: { filename: string; content: string | Uint8Array; contentType?: string }[]
 }
@@ -294,9 +299,14 @@ export async function sendRestaurantOrderNotification(
     const storePhone = formatPhone(p.businessPhone)
 
     // Order timing block — Nash/Dlivrd show pickup + dropoff, otherwise order time.
-    // Order Source helps the restaurant immediately see where the order came from.
+    // Order Source helps the restaurant immediately see where the order came
+    // from. Matches the admin list's own wording (getOrderSourceBadge) —
+    // "Direct Entry" used to be hardcoded onto every non-DISCO order
+    // regardless of is_direct_entry, which is a real, separate flag (a
+    // restaurant staff member keyed the order in, not the customer). Only
+    // append it when that's actually true.
     const sourceLabel =
-      p.sourceOfOrder === 'DISCO' ? '3P — Disco Cater Marketplace' : '1P — Direct Entry'
+      (p.sourceOfOrder === 'DISCO' ? '3P — Disco Cater Marketplace' : '1P') + (p.isDirectEntry ? ' — Direct Entry' : '')
     let timingHtml = ''
     if (p.orderService) timingHtml += `Order Type: <strong>${escapeHtml(orderServiceLabel(p.orderService))}</strong> ${isDelivery ? '(D)' : '(P)'}<br/>`
     timingHtml += `Order Source: <strong>${sourceLabel}</strong><br/>`
