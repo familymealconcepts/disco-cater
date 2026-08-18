@@ -314,14 +314,21 @@ export default function RestaurantsOrderingPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Load Disco-native restaurants that have no FM record, once, so they can be
-  // merged into the FM-sourced list below and never stay invisible.
-  useEffect(() => {
-    fetch('/api/admin/disco-native-orphans')
+  // Disco-native restaurants that have no FM record, so they can be merged
+  // into the FM-sourced list below and never stay invisible. Named (not
+  // inline) so a brand-new one can be picked up right after creation too —
+  // AddRestaurantDialog's onCreated used to only call load() (the FM-cache
+  // read), which can never surface a no-FM-record restaurant at all, so a
+  // freshly created native restaurant stayed invisible until a full page
+  // reload happened to re-run this same fetch on mount.
+  const loadDiscoOrphans = useCallback(() => {
+    return fetch('/api/admin/disco-native-orphans')
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (Array.isArray(d?.orphans)) setDiscoOrphans(d.orphans.map((o: Restaurant) => ({ ...o, discoOnly: true }))) })
       .catch(() => {})
   }, [])
+
+  useEffect(() => { loadDiscoOrphans() }, [loadDiscoOrphans])
 
   function showToast(msg: string) {
     setToast(msg)
@@ -1297,7 +1304,7 @@ export default function RestaurantsOrderingPage() {
       {addOpen && (
         <AddRestaurantDialog
           onClose={() => setAddOpen(false)}
-          onCreated={() => { setAddOpen(false); showToast('Restaurant created'); setPage(0); load() }}
+          onCreated={() => { setAddOpen(false); showToast('Restaurant created'); setPage(0); load(); loadDiscoOrphans() }}
         />
       )}
 
