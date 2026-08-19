@@ -85,6 +85,10 @@
     {
       "path": "/api/cron/check-bare-orders",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-promo-codes",
+      "schedule": "0 10 * * *"
     }
   ]
 }
