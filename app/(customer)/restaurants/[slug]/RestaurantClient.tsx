@@ -852,7 +852,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // Fire-and-forget: postFunnelStage never blocks or throws into the UI.
   useEffect(() => {
     if (isDirectEntry || !funnelSessionId || !fmRef || !selDate || !selTime) return
-    postFunnelStage({ sessionId: funnelSessionId, restaurantReference: fmRef, stage: 'DATE_TIME_SELECTED', fulfillmentType: orderType })
+    postFunnelStage({ sessionId: funnelSessionId, restaurantReference: fmRef, stage: 'DATE_TIME_SELECTED', fulfillmentType: orderType, selectedOrderDate: selDate, selectedOrderTime: selTime })
   }, [isDirectEntry, funnelSessionId, fmRef, selDate, selTime, orderType])
 
   // "Cart modified" collapses into the same ITEM_ADDED stage as "first item

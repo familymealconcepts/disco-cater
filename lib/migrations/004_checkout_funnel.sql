@@ -48,3 +48,13 @@ CREATE INDEX IF NOT EXISTS idx_checkout_funnel_restaurant ON disco_checkout_funn
 -- Drives the 90-day retention cleanup cron.
 CREATE INDEX IF NOT EXISTS idx_checkout_funnel_updated_at ON disco_checkout_funnel_sessions (updated_at);
 CREATE INDEX IF NOT EXISTS idx_checkout_funnel_order_reference ON disco_checkout_funnel_sessions (order_reference) WHERE order_reference IS NOT NULL;
+
+-- Added 2026-08-19: the date/time the customer picked (not when they picked it -- that's
+-- date_time_selected_at above). Still no PII -- a calendar date and a time slot, same as
+-- cart_value_cents/item_count, not anything about the person. Snapshot semantics, not
+-- set-once: refreshed via COALESCE on every upsert (lib/checkout-funnel.ts), same as
+-- cart_value_cents/item_count, so a customer who changes their date after picking one gets
+-- the newer value. Forward-only -- existing rows stay NULL, by design (see noise-machine's
+-- Site Traffic abandoned-session list for why this was added).
+ALTER TABLE disco_checkout_funnel_sessions ADD COLUMN IF NOT EXISTS selected_order_date DATE;
+ALTER TABLE disco_checkout_funnel_sessions ADD COLUMN IF NOT EXISTS selected_order_time TEXT; -- raw 'HH:MM', matching the client's own selTime string

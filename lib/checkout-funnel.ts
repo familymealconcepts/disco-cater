@@ -20,6 +20,11 @@ export interface RecordFunnelStageInput {
   cartValueCents?: number | null
   itemCount?: number | null
   orderReference?: string | null
+  // The date/time the customer picked (not when they picked it) -- see 004_checkout_funnel.sql's
+  // own comment. Only ever sent by RestaurantClient's DATE_TIME_SELECTED effect; every later
+  // stage omits it and relies on the COALESCE below to carry the value forward.
+  selectedOrderDate?: string | null
+  selectedOrderTime?: string | null
 }
 
 // Upserts disco_checkout_funnel_sessions, keyed by session_id. Never an event
@@ -45,8 +50,9 @@ async function writeStage(input: RecordFunnelStageInput): Promise<void> {
   await sql.query(
     `INSERT INTO disco_checkout_funnel_sessions (
        session_id, restaurant_reference, fulfillment_type, furthest_stage, furthest_stage_rank,
-       cart_value_cents, item_count, order_reference, contact_entered, ${stageColumn}, created_at, updated_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
+       cart_value_cents, item_count, order_reference, contact_entered, selected_order_date, selected_order_time,
+       ${stageColumn}, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW(), NOW())
      ON CONFLICT (session_id) DO UPDATE SET
        -- Monotonic: only advance furthest_stage, never regress it.
        furthest_stage = CASE WHEN EXCLUDED.furthest_stage_rank > disco_checkout_funnel_sessions.furthest_stage_rank
@@ -57,6 +63,8 @@ async function writeStage(input: RecordFunnelStageInput): Promise<void> {
        cart_value_cents = COALESCE(EXCLUDED.cart_value_cents, disco_checkout_funnel_sessions.cart_value_cents),
        item_count = COALESCE(EXCLUDED.item_count, disco_checkout_funnel_sessions.item_count),
        order_reference = COALESCE(EXCLUDED.order_reference, disco_checkout_funnel_sessions.order_reference),
+       selected_order_date = COALESCE(EXCLUDED.selected_order_date, disco_checkout_funnel_sessions.selected_order_date),
+       selected_order_time = COALESCE(EXCLUDED.selected_order_time, disco_checkout_funnel_sessions.selected_order_time),
        contact_entered = disco_checkout_funnel_sessions.contact_entered OR EXCLUDED.contact_entered,
        -- This stage's timestamp is set once (first reach) and never overwritten.
        ${stageColumn} = COALESCE(disco_checkout_funnel_sessions.${stageColumn}, EXCLUDED.${stageColumn}),
@@ -71,6 +79,8 @@ async function writeStage(input: RecordFunnelStageInput): Promise<void> {
       input.itemCount ?? null,
       input.orderReference ?? null,
       contactEntered,
+      input.selectedOrderDate ?? null,
+      input.selectedOrderTime ?? null,
     ],
   )
 }

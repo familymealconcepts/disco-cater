@@ -46,6 +46,10 @@ export interface PostFunnelStageInput {
   fulfillmentType?: 'PICKUP' | 'DELIVERY' | null
   cartValueCents?: number | null
   itemCount?: number | null
+  // The date/time the customer picked -- only ever sent alongside DATE_TIME_SELECTED (see
+  // RestaurantClient.tsx's own effect). 'YYYY-MM-DD' / 'HH:MM', matching selDate/selTime as-is.
+  selectedOrderDate?: string | null
+  selectedOrderTime?: string | null
 }
 
 // Fire-and-forget by design: callers must NOT await this in a way that blocks
