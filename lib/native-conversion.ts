@@ -959,7 +959,10 @@ async function computeNativeIsLive(ref: string): Promise<boolean> {
 // Expedite dispatch for 3P-delivery restaurants) — those can't be inferred
 // passively and require an actual recorded action. Skipping them here is a
 // deliberate product decision (this comment exists so it's visible, not silent).
-export async function convertToNative(ref: string, opts?: { stripe?: Stripe; skipInvites?: boolean }): Promise<ConversionResult> {
+export async function convertToNative(
+  ref: string,
+  opts?: { stripe?: Stripe; skipInvites?: boolean; prefetchedWalled?: FmWalledFieldsResult },
+): Promise<ConversionResult> {
   const readiness = await checkConversionReadiness(ref, opts)
   if (!readiness.found) return { converted: false, reason: 'Restaurant not found.', readiness }
   if (readiness.isDiscoNative) return { converted: false, reason: 'Already Disco-native.', readiness }
@@ -1032,12 +1035,20 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe; ski
   // at once (one login, one admin session, restored before this returns) —
   // never three separate logins for the same restaurant. See
   // lib/fm-master-admin-read.ts for the session/switch/restore handling.
-  let walled: FmWalledFieldsResult | undefined
-  try {
-    const walledMap = await readWalledFieldsForRestaurants([readiness.restaurantReference])
-    walled = walledMap.get(readiness.restaurantReference)
-  } catch (e) {
-    console.error(`[convertToNative] master-password walled-field read threw for ${readiness.restaurantReference}:`, e instanceof Error ? e.message : e)
+  //
+  // opts.prefetchedWalled lets a caller converting several restaurants that
+  // share ONE admin (e.g. a batch run) fetch that admin's session ONCE, up
+  // front, across all of them — a real multi-restaurant session, one login,
+  // one restore — rather than this function re-triggering its own separate
+  // login per restaurant.
+  let walled: FmWalledFieldsResult | undefined = opts?.prefetchedWalled
+  if (!walled) {
+    try {
+      const walledMap = await readWalledFieldsForRestaurants([readiness.restaurantReference])
+      walled = walledMap.get(readiness.restaurantReference)
+    } catch (e) {
+      console.error(`[convertToNative] master-password walled-field read threw for ${readiness.restaurantReference}:`, e instanceof Error ? e.message : e)
+    }
   }
 
   let taxRates: TaxRatesCarryOverResult
