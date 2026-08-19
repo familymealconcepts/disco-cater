@@ -55,6 +55,11 @@ function decodeJwt(token: string): Record<string, unknown> | null {
 export interface FmAdminIdentity {
   email: string
   role: 'ADMIN' | 'SYSTEM_ADMIN'
+  // Sourced independently of the post-login JWT — see the note below on why
+  // the JWT alone isn't trusted for this anymore. null only when genuinely
+  // unknown (should be rare); readGroupForOneAdmin refuses to switch at all
+  // for an admin whose home can't be determined this way.
+  homeRestaurant: string | null
 }
 
 // ── SYSTEM_ADMIN coverage map — one bulk call, cached briefly ────────────────
@@ -62,6 +67,15 @@ export interface FmAdminIdentity {
 // lib/restaurant-auth.ts. A stale cache just means a restaurant that gained
 // SYSTEM_ADMIN coverage in the last few minutes gets resolved via the
 // per-restaurant ADMIN path instead this run — never wrong, just a slower path.
+//
+// homeRestaurant is read from THIS list's own `restaurant` field, not from
+// decoding it back out of the JWT after login. Confirmed necessary live
+// (Smyrna's conversion): the same admin's JWT decoded restaurant as null on
+// the actual conversion run despite this list correctly showing a home
+// restaurant, and despite a manual re-login moments later decoding it
+// correctly too — non-deterministic, cause unconfirmed. The bulk list is the
+// independent, pre-login source of truth; readGroupForOneAdmin no longer
+// relies on the JWT for this at all.
 let systemAdminCache: { expiresAt: number; map: Map<string, FmAdminIdentity> } | null = null
 const SYSTEM_ADMIN_CACHE_TTL_MS = 5 * 60_000
 
@@ -76,12 +90,14 @@ async function getSystemAdminCoverageMap(): Promise<Map<string, FmAdminIdentity>
     if (res.ok) {
       const body = await res.json().catch(() => null)
       const users = (Array.isArray(body) ? body : body?.content) as Array<{
-        email?: string; enabled?: boolean; managedRestaurants?: Array<{ reference?: string }>
+        email?: string; enabled?: boolean; restaurant?: { reference?: string } | null
+        managedRestaurants?: Array<{ reference?: string }>
       }> | undefined
       for (const u of users || []) {
         if (u.enabled === false || !u.email || PLATFORM_ADMIN_EMAILS.has(u.email)) continue
+        const homeRestaurant = u.restaurant?.reference || null
         for (const m of u.managedRestaurants || []) {
-          if (m.reference && !map.has(m.reference)) map.set(m.reference, { email: u.email, role: 'SYSTEM_ADMIN' })
+          if (m.reference && !map.has(m.reference)) map.set(m.reference, { email: u.email, role: 'SYSTEM_ADMIN', homeRestaurant })
         }
       }
     }
@@ -112,7 +128,9 @@ export async function resolveFmAdminIdentity(ref: string): Promise<FmAdminIdenti
     if (!admin?.email || admin.enabled === false) return null
     if (admin.role !== 'ADMIN' && admin.role !== 'SYSTEM_ADMIN') return null // SUPER_ADMIN or anything unexpected
     if (PLATFORM_ADMIN_EMAILS.has(admin.email)) return null
-    return { email: admin.email, role: admin.role }
+    // A plain ADMIN belongs to exactly one restaurant — this ref IS home,
+    // known from context, not from any post-login decode.
+    return { email: admin.email, role: admin.role, homeRestaurant: admin.role === 'ADMIN' ? ref : null }
   } catch (e) {
     console.error(`[fm-master-admin-read] admin-identity resolution failed for ${ref}:`, e instanceof Error ? e.message : e)
     return null
@@ -176,7 +194,13 @@ async function auditRead(detail: AuditDetail): Promise<void> {
 // ── FM calls: login, switch, and the three reads ─────────────────────────────
 // Every one of these is a GET, or the /login call needed to obtain a token, or
 // the explicitly-permitted selection switch — never a write to restaurant data.
-async function loginAsFmAdmin(email: string): Promise<{ token: string; homeRestaurant: string | null }> {
+//
+// homeRestaurant is NOT sourced from this login's JWT — see FmAdminIdentity's
+// comment. Decoding it back out here proved unreliable on the one real
+// conversion run so far (came back null on the actual run, non-null on an
+// immediate manual re-login with identical credentials — cause unconfirmed).
+// The JWT's own claim is still logged for cross-checking, never trusted alone.
+async function loginAsFmAdmin(email: string): Promise<{ token: string }> {
   const password = process.env.FM_MASTER_PASSWORD
   if (!password) throw new Error('FM_MASTER_PASSWORD is not configured')
   const res = await fetch(`${FM}/login`, {
@@ -189,7 +213,9 @@ async function loginAsFmAdmin(email: string): Promise<{ token: string; homeResta
   const token = String(body?.authorization || body?.token || '').replace(/^Bearer\s+/i, '').trim()
   if (!token) throw new Error(`FM login for ${email} returned no token`)
   const claims = decodeJwt(token)
-  return { token, homeRestaurant: (claims?.restaurant as string) || null }
+  const jwtRestaurant = (claims?.restaurant as string) || null
+  if (jwtRestaurant) console.log(`[fm-master-admin-read] ${email}: JWT restaurant claim = ${jwtRestaurant} (logged for cross-check only, not used as the restore target)`)
+  return { token }
 }
 
 async function switchSelection(token: string, ref: string): Promise<boolean> {
@@ -236,11 +262,11 @@ export async function readWalledFieldsForRestaurants(refs: string[]): Promise<Ma
 
   // Resolve admin identity for every ref first (cheap: cached bulk map + at
   // most one detail call per ref, which conversion already makes elsewhere).
-  const byAdmin = new Map<string, { role: 'ADMIN' | 'SYSTEM_ADMIN'; refs: string[] }>()
+  const byAdmin = new Map<string, { role: 'ADMIN' | 'SYSTEM_ADMIN'; homeRestaurant: string | null; refs: string[] }>()
   for (const ref of refs) {
     const identity = await resolveFmAdminIdentity(ref)
     if (!identity) { unresolved.push(ref); continue }
-    const group = byAdmin.get(identity.email) ?? { role: identity.role, refs: [] }
+    const group = byAdmin.get(identity.email) ?? { role: identity.role, homeRestaurant: identity.homeRestaurant, refs: [] }
     group.refs.push(ref)
     byAdmin.set(identity.email, group)
   }
@@ -250,7 +276,7 @@ export async function readWalledFieldsForRestaurants(refs: string[]): Promise<Ma
   }
 
   for (const [email, group] of byAdmin) {
-    await readGroupForOneAdmin(email, group.role, group.refs, results)
+    await readGroupForOneAdmin(email, group.role, group.homeRestaurant, group.refs, results)
   }
 
   return results
@@ -259,19 +285,37 @@ export async function readWalledFieldsForRestaurants(refs: string[]): Promise<Ma
 async function readGroupForOneAdmin(
   email: string,
   role: 'ADMIN' | 'SYSTEM_ADMIN',
+  homeRestaurant: string | null,
   refs: string[],
   results: Map<string, FmWalledFieldsResult>,
 ): Promise<void> {
+  // Refuse outright if this admin covers any restaurant OTHER than their
+  // (unknown) home and we don't independently know what that home is — we
+  // will not switch an admin's account with no trustworthy way to restore it.
+  // A single-restaurant admin whose home happens to equal the one ref being
+  // read is always safe regardless (no switch is ever needed), so that case
+  // still proceeds even with homeRestaurant unknown.
+  const needsSwitch = refs.some(ref => ref !== homeRestaurant)
+  if (needsSwitch && !homeRestaurant) {
+    const reason = `${email}'s home restaurant could not be independently confirmed, and reading ${refs.length > 1 ? 'these restaurants' : 'this restaurant'} would require switching this admin's FM selection — refusing rather than switching with no safe way to restore it.`
+    console.error(`[fm-master-admin-read] ${reason}`)
+    for (const ref of refs) results.set(ref, { taxRate: null, notifications: null, closedDays: null, ok: false, reason })
+    await auditRead({
+      adminEmail: email, adminRole: role, homeRestaurant, restaurantsRequested: refs,
+      restaurantsRead: [], switchedTo: [], restoredTo: null, restoreConfirmed: null, ok: false, reason,
+    })
+    return
+  }
+
   let token: string
-  let homeRestaurant: string | null
   try {
-    ({ token, homeRestaurant } = await loginAsFmAdmin(email))
+    ({ token } = await loginAsFmAdmin(email))
   } catch (e) {
     const reason = `FM login as ${email} failed: ${e instanceof Error ? e.message : e}`
     console.error(`[fm-master-admin-read] ${reason}`)
     for (const ref of refs) results.set(ref, { taxRate: null, notifications: null, closedDays: null, ok: false, reason })
     await auditRead({
-      adminEmail: email, adminRole: role, homeRestaurant: null, restaurantsRequested: refs,
+      adminEmail: email, adminRole: role, homeRestaurant, restaurantsRequested: refs,
       restaurantsRead: [], switchedTo: [], restoredTo: null, restoreConfirmed: null, ok: false, reason,
     })
     return
