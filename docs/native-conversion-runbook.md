@@ -5,14 +5,15 @@ access. No hand-holding — FM is the source of truth for a restaurant's real
 settings, and where something looks off after conversion, the fix is manual,
 after the fact.
 
-**The procedure has never been wrong.** Five conversions (Briscola, Pelican,
-Francesca Catering – Glen Rock, Francesca Catering – Elmwood Park, DeCheco's
-×6, The Winkin' Rooster) all ran the same nine steps below. What varied was
-the *state each restaurant arrived in* — FM has ~4,400 records entered by
-different people over four years with no validation, so pre-flight always
-finds something different. This revision's point: the pre-flight output is
-now a **classified work list**, not a pile of facts to interpret. Every
-condition seen so far maps to exactly one of four buckets:
+**The procedure has never been wrong.** Conversions to date (Briscola,
+Pelican, Francesca Catering – Glen Rock, Francesca Catering – Elmwood Park,
+DeCheco's ×6, The Winkin' Rooster, Atlanta Bread ×9) all ran the same eleven
+steps below. What varied was the *state each restaurant arrived in* — FM has
+~4,400 records entered by different people over four years with no
+validation, so pre-flight always finds something different. This revision's
+point: the pre-flight output is now a **classified work list**, not a pile
+of facts to interpret. Every condition seen so far maps to exactly one of
+four buckets:
 
 - **BLOCKER** — cannot convert until resolved.
 - **PETER** — needs Peter specifically (a tax confirmation that's really a
@@ -22,9 +23,12 @@ condition seen so far maps to exactly one of four buckets:
 - **NOTE** — worth knowing, doesn't block anything.
 
 Target state: a routine conversion needs nothing from Peter at all — the
-Stripe id is resolved and verified automatically (step 5). Everything else
-on this page exists to get you there or to handle the restaurant that isn't
-routine.
+Stripe id is resolved and verified automatically (step 5), and as of
+2026-08-19, tax rate, notification recipients, and closed days all carry
+over automatically too (step 6, step 10) for any restaurant with a real
+FM admin identity — roughly 1,058 restaurants fleet-wide, holding 98.9% of
+real order volume. Everything else on this page exists to get you there or
+to handle the restaurant that isn't routine.
 
 **Conversions are one at a time right now.** Everything below assumes that.
 See "Batch" at the end for what changes if that stops being true.
@@ -103,9 +107,11 @@ hypothetical — this has actually happened.
 against "Background → Pre-flight classification" rather than re-deriving it
 per conversion. In practice: BLOCKER is almost always a duplicate record, a
 non-charge-capable Stripe account, or a resolved-but-unverified Stripe id;
-PETER is now just the tax question; AUTO covers Stripe resolution/reuse and
-menu import; NOTE covers closed days, notifications, and bare orders — none
-of them block anything, budget the time anyway.
+PETER is now just a Stripe id that can't be resolved/verified, or a
+restaurant with no real FM admin identity at all; AUTO covers Stripe
+resolution/reuse, menu import, and (as of 2026-08-19) tax/notifications/
+closed-days via the master-password read; NOTE covers promo codes and bare
+orders — neither blocks anything, budget the time anyway.
 
 ### 3. Resolve every BLOCKER
 
@@ -113,9 +119,25 @@ Don't proceed past this until none remain.
 
 ### 4. Get the PETER items
 
-Any tax confirmation the pre-flight flagged (see step 6) — this is the only
-step that needs Peter specifically now that Stripe account resolution is
-automated (step 5).
+As of 2026-08-19, tax/notifications/closed-days are no longer routinely
+PETER items — they carry over automatically via the master-password
+mechanism (step 6, step 10). What's left that genuinely needs Peter:
+
+- **A Stripe account id that can't be resolved or verified** — either the
+  restaurant onboarded after the `fm_backup` snapshot date (so it's missing
+  from `tbl_stripe_connected_accounts` entirely — Alpharetta was this case,
+  registered 2026-08-17 with no snapshot row), or the transfer-metadata
+  verification in step 5 comes back unconfirmed. Get the real id from the
+  Stripe Dashboard directly — this is the one case that still requires it.
+- **Confirming closed-day polarity on a new restaurant type**, if FM's
+  `/api/closedDays` response shape ever changes. The current mapping
+  (`available: true` = closed) was verified once, against Pelican
+  Delicatessen's known real state — see Background. If a restaurant's
+  carried-over closed days look wrong, that's the first thing to check
+  before assuming the carry-over itself is broken.
+- Anything the pre-flight otherwise flags that automation genuinely can't
+  resolve (a duplicate FM record, a restaurant with no admin identity at
+  all).
 
 ### 5. Stripe — resolve, verify, reuse — never re-onboard, never fuzzy-match
 
@@ -164,25 +186,49 @@ This turns Stripe resolution from a PETER item into an AUTO one — the
 account id is looked up, not supplied — gated by a hard verification step
 that refuses a mismatch rather than trusting the lookup blind.
 
+**Stripe is no longer a blocker, fixed 2026-08-19.** `checkConversionReadiness`'s
+`stripe-ready` and `marketplace-ready` steps are advisory now, not blocking —
+only `not-already-native`, `native-menu`, and `settings` (tax) actually gate
+conversion. Most FM restaurants have no Stripe account and will never take an
+order; converting them for accurate data shouldn't wait on payment capability.
+`is_live`/`visible` are computed from `evaluateMarketplaceReadiness` (FM's own
+current visibility/online-ordering state, plus a capability-verified
+`hasCompletedNativeStripeAccount` signal — never the historically-unreliable
+`stripe_connected` column) and never forced — a restaurant with no working
+Stripe account converts correctly non-live, not incorrectly live. Alpharetta
+(no connected account at all) converted this way: native, data intact,
+`is_live: false`, exactly as expected. Resolution failing or coming back
+unverified is still a Stripe-id PETER item (step 4) if the restaurant should
+actually go live — it just no longer blocks the conversion itself.
+
 ### 6. Tax rate
 
-Set `disco_restaurant_overrides.tax_rates.stateSalesTax.percent` via
-`PUT /api/restaurant/tax-rate` (Neon-only, no ongoing FM mirror). `0` is a
-valid, real rate — only `null`/missing blocks the gate. If FM genuinely has
-nothing, that's the PETER conversation from step 4, not a data-recovery
-task.
+**Automatic as of 2026-08-19** — no longer a routine PETER item. FM's
+`taxRate` endpoint is session-scoped to a real restaurant login (the
+service account gets `500 — "Access is denied"`, permanently — see
+Background), but `checkConversionReadiness`'s settings gate now falls
+through to a **master-password read** (`lib/fm-master-admin-read.ts`) when
+Neon has no real `stateSalesTax.percent` yet: it resolves the restaurant's
+real FM admin identity and logs in as them, in place of their real
+password, reading the live value. `0` is a valid, real rate — only
+`null`/missing blocks the gate.
 
-**Confirming the real FM value stays a PETER item — don't re-test this.**
-The page backing it (`/restaurant/tax-rate` in the portal) calls
-`GET/PUT {FM}/api/restaurants/taxRate`. The service account gets
-`500 — "Access is denied"` — the same role-exclusion class as the
-notifications and promo-code walls (see Background). It's genuinely
-readable, just not by automation: it needs a real restaurant/system-admin
-session with that restaurant selected, which is how Peter read Studio City's
-value directly (9.750% state, matching Neon exactly). Getting a session
-yourself by resetting a live business's admin password is not the move —
-that's a different risk class from a disposable test account, and the
-sensible call is to not do it unilaterally.
+This costs one login (a few seconds to ~11s observed) **only** when Neon
+genuinely has nothing yet — a restaurant with an already-real Neon value
+(the common case) triggers no live read at all. The fetched value is reused
+by `convertToNative`'s own carry-over step rather than fetched twice — see
+"The master-password mechanism" in Background for the full design.
+
+**Still a PETER conversation, not a data-recovery task, if:**
+- the restaurant has no real per-restaurant FM admin at all (only a
+  platform `SUPER_ADMIN` account on file — confirmed permanently denied
+  regardless of any restaurant claim), or
+- FM genuinely has nothing configured (the live read comes back with no
+  real value either).
+
+`Set disco_restaurant_overrides.tax_rates.stateSalesTax.percent` directly via
+`PUT /api/restaurant/tax-rate` remains the manual fallback for exactly those
+two cases.
 
 ### 7. Menu — faithful FM import
 
@@ -200,12 +246,23 @@ This same call now also carries over **logo, marketplace image, and phone**
 (commit `34f8278`) after Winkin' Rooster arrived with all three empty and
 needed manual re-entry. No longer a checklist item.
 
+**Announcement banner and delivery order time windows also carry
+automatically** — these are free text/settings the restaurant configures on
+the same FM page as closed days, but unlike closed days they're **not**
+session-walled: they come from `GET /public-api/restaurants/{ref}/feesAndTips`,
+a public endpoint the menu import already calls, no master-password read
+needed. Confirmed live on Smyrna: Neon's `announcement` and
+`delivery_order_time_windows` matched FM's portal exactly
+("Pickup & Delivery | Please allow 12 hours advanced notice | Order minimum:
+$200.00", `exact`) with zero extra work.
+
 ### 8. Confirm readiness, then convert
 
-`checkConversionReadiness(ref)` — all five blocking steps (`not-already-
-native`, `native-menu`, `stripe-ready`, `settings`, `marketplace-ready`)
-should read `done: true`. Then `convertToNative(ref)`. Never
-`goLiveNativeRestaurant` — that's for restaurants starting native from zero.
+`checkConversionReadiness(ref)` — **three** blocking steps as of 2026-08-19
+(`not-already-native`, `native-menu`, `settings`); `stripe-ready` and
+`marketplace-ready` are advisory/reported only, not blocking (see step 5).
+Then `convertToNative(ref)`. Never `goLiveNativeRestaurant` — that's for
+restaurants starting native from zero.
 
 `convertToNative` backfills FM's order history first (aborts, doesn't
 convert, if FM is unreachable). **If this aborts, just retry it** — before
@@ -215,9 +272,19 @@ actually being down. Confirmed live: a single FM order-history page can take
 ~15s, and the full flow (backfill + system-admin list + 3 carry-over
 attempts) needs real headroom.
 
-Then it flips `is_disco_native` **and** `is_live` together, and fires
+It flips `is_disco_native` always, and `is_live` from
+`evaluateMarketplaceReadiness` — never forced true (see step 5) — then fires
 invites + carry-over, best-effort. FM stays untouched — same admin login,
 same order flow, until routing stops sending customers there.
+
+**Order count and revenue are captured structurally, fixed 2026-08-19.**
+`convertToNative` snapshots `disco_orders` count + `SUM(total)` for the
+restaurant immediately before it starts (before the history backfill, so
+it's the true pre-conversion state) and again at the end, returning both as
+`orderStats: { before, after }` on the result. This closes a real gap: eight
+of the nine Atlanta Bread locations converted without this being captured,
+because nothing forced it — the runbook's own diff (step 11) asked for it
+and it was still missed.
 
 ### 9. Confirm the invite landed
 
@@ -243,19 +310,29 @@ flags it automatically.
 
 ### 10. What's left — expected manual work, and why
 
-- **Closed days / holidays**: FM's session-scoped wall returns `200 []` even
-  for a restaurant with real closures behind it — `closed_days_flagged_at`
-  gets set, never lost, but **expect to enter these by hand every single
-  time**, not occasionally. Kealoha did this for Winkin' Rooster after
-  discovering the gap by eye; this note exists so it's expected up front
-  instead.
-- **Notifications**: same wall, `notification_settings_flagged_at` set. Check
+- **Closed days / holidays**: **automatic as of 2026-08-19** via the
+  master-password read (same mechanism as step 6, same session — one login
+  covers tax, notifications, and closed days together). `carryOverClosedDays`
+  was also rewritten this same day to fix a real parsing bug (see
+  Background) and a polarity inversion (`available: true` = closed, not the
+  literal reading) — verified against Pelican Delicatessen's known real
+  state before shipping. Still flagged (`closed_days_flagged_at` set,
+  `PETER` per step 4) only when no real admin identity resolves for the
+  restaurant, or the live read fails.
+- **Notifications**: **automatic as of 2026-08-19**, same mechanism, same
+  session. Only flagged (`notification_settings_flagged_at`) for the same
+  no-real-admin-identity case. Check
   `disco_restaurant_overrides.notification_emails` /
-  `notification_sms_numbers` **first** — the 778-restaurant bulk import means
-  most restaurants already have these populated; don't assume they're
-  missing.
-- **Promo codes**: same wall, `promo_codes_flagged_at` set. Only relevant if
-  the restaurant actually has any — check the native promo-code UI.
+  `notification_sms_numbers` if anything looks wrong — the 778-restaurant
+  bulk import from before this fix means some restaurants already had these
+  populated from an earlier source; the master-password read now overwrites
+  with FM's current live value regardless.
+- **Promo codes**: still a genuine wall, not yet fixed — `FM /api/coupon`
+  is confirmed session-scoped the same way tax/notifications/closed-days
+  were, but no master-password mechanism has been built for it yet, and its
+  own parsing bug (below) is also still unfixed. `promo_codes_flagged_at`
+  set. Only relevant if the restaurant actually has any — check the native
+  promo-code UI.
 - **Bare FM orders** (a `disco_orders` row with no `disco_sale_transactions`
   detail): background sync hygiene, not a conversion step, and no longer
   routine either way. Fleet-wide sweep (2026-08-18): **42 of 57 repaired, 15
@@ -271,9 +348,9 @@ flags it automatically.
 ### 11. Post-conversion diff — a concrete check, not a screen comparison
 
 Kealoha found the logo/image/phone/closed-days gaps by manually comparing
-FM's admin view against Disco's after Winkin' Rooster converted. Three of
-those four are now automated (step 7); closed days is expected manual work
-(step 10). For everything else, run this comparison instead of eyeballing:
+FM's admin view against Disco's after Winkin' Rooster converted. All four
+are now automated (logo/image/phone via step 7, closed days via step 10).
+For everything else, run this comparison instead of eyeballing:
 
 | Compare | FM side | Disco side | Clean result |
 |---|---|---|---|
@@ -281,12 +358,15 @@ those four are now automated (step 7); closed days is expected manual work
 | Logo / image | `image`/`marketplaceImage` references | `disco_restaurant_cache.icon_url` / `.image_url` | Both non-null (step 7 fills them; if FM has one and Neon doesn't, something regressed) |
 | Phone | `address.phoneNumber` | `disco_restaurant_cache.phone` | Match, or both null if FM has none |
 | Menu item count | `GET /api/restaurants/{ref}/mealPackages?page=0&size=1000`, flattened length | `SELECT COUNT(*) FROM disco_menu_items WHERE restaurant_reference = ref` | Neon ≥ FM (never <; cross-menu duplication can only make Neon larger) — this is the exact check `runPreflightCheck` already runs |
-| Tax rate | (session-scoped, can't read live for a spot-check) | `disco_restaurant_overrides.tax_rates.stateSalesTax.percent` | Non-null; cross-reference against the PETER confirmation from step 4 if flagged |
-| Order count | FM's own order list total for this restaurant | `SELECT COUNT(*) FROM disco_orders WHERE restaurant_reference = ref` | Match (native lead-gen tier depends on this) |
+| Tax rate | Readable directly as of 2026-08-19 — re-run the master-password read, or just trust `taxRates.reason` on the conversion result | `disco_restaurant_overrides.tax_rates.stateSalesTax.percent` | Match to 3 decimals — Neon/FM both store full precision, not just 2 |
+| Closed days | Re-run the master-password read; compare `eventName`/`available` per row | `disco_restaurant_closed_days` — `name`/`holiday`/`from_date`/`to_date` | Only holidays with `available: true` in FM's response should have rows |
+| Notifications | Same read | `notification_emails` / `notification_sms_numbers` | Match, verbatim |
+| Announcement / delivery window | `GET /public-api/restaurants/{ref}/feesAndTips` (public, no session needed) | `announcement` / (menu's delivery-window setting) | Match verbatim |
+| Order count + revenue | `orderStats.before`/`.after` on the `convertToNative` result (captured structurally as of 2026-08-19) | Same | `after.count`/`after.revenue` ≥ `before` (backfill only ever adds rows) |
 | Bare orders | — | `LEFT JOIN disco_sale_transactions ... WHERE t.id IS NULL` | Zero |
 | Login | — | `disco_restaurant_accounts` row has `invite_token` live or a real session | At least one usable login exists |
 
-If this gets built later: a script that runs all eight rows for one
+If this gets built later: a script that runs all rows for one
 `restaurant_reference` and prints PASS/FAIL per row is the natural shape —
 same queries as above, not scoped further here.
 
@@ -362,22 +442,24 @@ re-deriving the reasoning each time:
 | Stripe id resolved but verification mismatches | BLOCKER | Refuse the import — this is exactly the failure mode name/email matching would have produced silently |
 | Stripe not charge-capable | BLOCKER | Needs fresh onboarding, can't be done for the restaurant |
 | Stripe charge-capable, id supplied | AUTO | One call, no restaurant action |
-| Tax null on FM | PETER | Conversation with the restaurant |
-| Tax real + directly verifiable | AUTO | Settings step passes on its own |
-| Tax real but only via opportunistic mirror (never independently verified) | PETER | Flag for confirmation — could be stale; FM's own taxRate endpoint is a session-scoped wall, not automatable (see step 6) |
+| Tax null on Neon, restaurant has a real FM admin | AUTO | Fixed 2026-08-19 — master-password read resolves it live, no PETER conversation needed |
+| Tax null on Neon, no real FM admin identity | PETER | The ~321-restaurant population with only a platform `SUPER_ADMIN` link on file, or none at all — genuinely unreachable |
+| Tax real + directly verifiable | AUTO | Settings step passes on its own, no live read triggered |
+| Stripe id can't be resolved/verified (post-snapshot onboarding, or mismatch) | PETER | Get the real id from the Stripe Dashboard — see step 4 |
 | Menu not imported | AUTO | One call |
 | Hidden/inactive menu items | AUTO | Supplementary heuristic pass |
 | Item landed via last-resort fallback placement | NOTE | Hasn't happened yet in 7 conversions |
-| Marketplace visibility unset | NOTE | Already set by normal onboarding |
+| Marketplace visibility unset | NOTE | Already set by normal onboarding; `is_live` computed either way, never forced (fixed 2026-08-19) |
 | Bare FM orders | NOTE | Background hygiene, not conversion-specific |
 | Order-history backfill fails | AUTO (was a false BLOCKER) | Usually the now-fixed timeout, not real FM downtime |
 | Per-restaurant admin never invited | AUTO | Fixed — real login-state check |
 | FM system-admin coverage missed | AUTO | Fixed — same mechanism |
-| Invite issued, uncicked | NOTE | Normal lag |
-| Notifications wall | NOTE | Check Neon first — likely already populated |
-| Closed-days wall | NOTE | Expect manual entry every time |
-| Promo-codes wall | NOTE | Only if the restaurant has any |
+| Invite issued, unclicked | NOTE | Normal lag |
+| Notifications wall | AUTO | Fixed 2026-08-19 — same master-password read as tax; PETER only for the no-real-admin population above |
+| Closed-days wall | AUTO | Fixed 2026-08-19 — same mechanism; also fixed a real field-parsing bug and a polarity inversion the same day (see Background) |
+| Promo-codes wall | NOTE | Not yet fixed — no master-password mechanism built for this endpoint; flag if the restaurant has any |
 | Logo/image/phone missing | AUTO | Fixed, carried over fill-blank-only |
+| Announcement / delivery window missing | AUTO | Fixed 2026-08-19 — public `feesAndTips` endpoint, no session needed |
 | `money_flow` stale | AUTO | Fixed, daily reconciliation |
 | Admin-form autofill misclassification | AUTO | Fixed, unrelated to conversion procedure |
 
@@ -389,21 +471,115 @@ not onboarding, every time so far.
 **Tax rate reality.** FM's own data for DeCheco's 6 locations has
 `stateSalesTax.percent: null` — genuinely nothing to mirror, not an access
 problem. Pelican Delicatessen is a counter-example: `0%` there is a real,
-deliberate rate (state/local/other all explicitly `0`). Winkin' Rooster is a
-third case: a real, non-null 6.88%/0.5%/1% — but it could only have gotten
-into Neon via a past opportunistic mirror (FM's own `taxRate` endpoint is
-scoped to the restaurant's own login, unreadable by the service account), so
-it's a real number of unknown freshness — treat this pattern as a PETER
-confirmation, not an automatic pass. Confirmed directly (Hugo's, 2026-08):
-`GET {FM}/api/restaurants/taxRate` with the service account returns
-`500 — {"description":"Access is denied"}` — a real access-control response
-masked as a generic error, not a flaky endpoint worth retrying. It's the
-exact same role-exclusion class as the notifications/closed-days/promo-code
-walls below, just for tax rather than settings — don't re-test it expecting
-a different result. It IS readable, just only by a real restaurant/system-
-admin session with that restaurant selected (how Peter confirmed Studio
-City's 9.750% matched Neon exactly) — not something worth getting by
-resetting a live business's admin password to check.
+deliberate rate (state/local/other all explicitly `0`). Confirmed directly
+(Hugo's, 2026-08): `GET {FM}/api/restaurants/taxRate` with the service
+account returns `500 — {"description":"Access is denied"}` — a real
+access-control response masked as a generic error, not a flaky endpoint
+worth retrying, and the exact same role-exclusion class as the
+notifications/closed-days/promo-code walls below. As of 2026-08-19 this is
+no longer a dead end — see "The master-password mechanism" below for how
+it's read automatically now.
+
+### The master-password mechanism (2026-08-19)
+
+The wall above is real for the `SUPER_ADMIN` service account specifically —
+confirmed (this session) that FM's own `/login` accepts the master password
+in place of a real restaurant admin's password, for `ADMIN` and
+`SYSTEM_ADMIN` roles. `SUPER_ADMIN` stays denied on these three endpoints
+regardless of credential — the two platform accounts
+(`peter@familymeal.com`, `matthew@familymeal.com`) are hard-blocked by email,
+not just by role, so a future data quirk can't slip past a role-only check.
+
+`lib/fm-master-admin-read.ts` resolves the real admin for a restaurant — a
+cached bulk `SYSTEM_ADMIN` coverage map (`/api/admin/users/system-admin`, one
+call), then the per-restaurant `admin` field off the same
+`/api/admin/restaurants/{ref}` detail call conversion already makes for
+profile-field carry-over, at no extra cost. It logs in once per admin and
+reads `taxRate`, `notifications`, and `closedDays` for every restaurant that
+admin covers in one continuous session — not three logins per restaurant,
+and not one login per restaurant when several share an admin.
+
+**Reach: roughly 1,058 restaurants fleet-wide** (a live `SYSTEM_ADMIN`
+count of 575 plus a June-snapshot `ADMIN`-role count of 616, deduplicated),
+holding **98.9% of all real order volume** (23,988 of 24,265 order rows).
+The remaining ~3,321 restaurants have no real per-restaurant admin at all —
+only a platform `SUPER_ADMIN` link, or nothing — and between all of them
+have 25 orders and 2 real Stripe accounts total. Unreachable and, by every
+measure checked, not worth reading regardless of method.
+
+**Every attempt is audited**, success or failure, to `disco_admin_audit` as
+`action = 'FM_MASTER_PASSWORD_READ'` — the same table `lib/master-login.ts`
+uses for the Disco-side bypass, distinguished by `action`. The `detail`
+JSONB records the admin identity and role used, every restaurant read,
+what was switched to, what it was restored to, and whether that restore was
+independently verified.
+
+**Switching selected restaurant is a persisted, server-side change on a
+real admin's own FM account — not a safe read.** A two-token test proved
+this directly: logging in twice as the same admin and switching selection
+via one login was visible to the *other*, completely separate login as the
+same user. FM resolves "current restaurant" from state keyed to the
+account, not from anything in the session token. Every switch here is
+therefore bookended: read → switch back to that admin's real home
+restaurant, in a `try/finally` so a mid-batch failure still triggers the
+restore → verify the restore actually landed (re-read, don't just trust the
+switch call's `200`) → alert loudly (`alertOps`) if it can't be confirmed.
+
+The home restaurant itself is resolved independently of the post-login
+JWT — a real gap found on the very first live conversion (Smyrna): the
+JWT's own `restaurant` claim decoded as `null` on that run despite an
+immediate manual re-login with identical credentials decoding it correctly,
+cause unconfirmed. `homeRestaurant` now comes from the `SYSTEM_ADMIN` bulk
+list's own `restaurant` field (already fetched for identity resolution) or,
+for a plain `ADMIN`, is simply the restaurant being converted (an `ADMIN`
+belongs to exactly one). If an admin covers restaurants other than a home
+that can't be independently confirmed, the mechanism now refuses to switch
+at all rather than switching with no verified way back. Re-verified on the
+Atlanta Bread batch: `tmc@atlantabread.com` covers eight of the nine
+locations — the first genuine multi-restaurant session — and its audit row
+showed `homeRestaurant` correctly resolved, `restoreConfirmed: true`.
+
+**The polarity mapping — record this, it was wrong for about an hour.**
+FM's `/api/closedDays` response shape is `{eventName, available,
+eventDates: ["DD.MM.YYYY", ...], reference}`. The field name reads like
+"is the restaurant available (open)," and the first implementation read it
+that way (`available: false` = closed) — plausible, and wrong. **`FM:
+available: true` means ordering is unavailable, i.e. closed, i.e. the box
+is checked in FM's Scheduling Override UI.** Verified against Pelican
+Delicatessen's own known real state (Peter): exactly one box checked there
+(Memorial Day) — and Memorial Day was the only entry with `available:
+true`, all eleven others `available: false`. Nothing had been written
+under the wrong polarity to a real restaurant before this was caught
+(Pelican itself was already native and had never had its closed days
+carried over) — but if this shape or mapping is ever in doubt again on a
+new restaurant type, verify against that restaurant's own known state
+before trusting a bulk write, the same way this was settled.
+
+**The tax-gate catch-22, fixed the same day.** A brand-new restaurant
+(Alpharetta, registered 2026-08-17) has no tax rate mirrored to Neon by
+anything — the old opportunistic mirror only fires when a restaurant's own
+admin views the tax page, and the conversion carry-over that would
+otherwise populate it doesn't run until *after* the readiness gate passes.
+`checkConversionReadiness`'s settings gate now falls through to the same
+master-password read when Neon has nothing, so this no longer needs a
+manual pre-seed. Confirmed live both ways: a restaurant with an already-real
+Neon rate triggers no live read at all (`taxSource: "neon"`); one with none
+does, at a real, one-time cost (~11s observed for the login/read round
+trip). The read is fetched at most once per conversion either way — a
+`fetchedWalled` result from the gate is reused by the carry-over step
+rather than triggering a second login.
+
+**The master password is a distinct secret from `MASTER_PASSWORD_HASH`.**
+`FM_MASTER_PASSWORD` (a new env var, plaintext, read only inside
+`lib/fm-master-admin-read.ts` — never reachable from general request
+handling) and `MASTER_PASSWORD_HASH` (Disco's own portal-login bypass,
+SHA-256 only) are two representations of the *same* underlying value —
+confirmed by hashing the working FM password and matching it against the
+stored hash exactly. Rotating the real master password means rotating
+**both** env vars in lockstep, plus whatever holds it on FM's own side
+(presumably the authoritative copy, since this codebase doesn't push
+anything to FM) — a three-way dependency this file can't enforce, only
+document.
 
 **Menu import mechanics.** The primary placement pass is exact, no
 heuristics — it walks FM's public per-menu endpoint, which only ever returns
@@ -447,21 +623,27 @@ token, or any session ever created) instead.
 exactly how several restaurants' first retroactive invites died unused
 before anyone clicked them.
 
-**The carry-over walls — two different mechanisms.** Notifications and
-promo codes are a **hard role exclusion**: `NotificationSettingController`
-and `CouponController` are both annotated
-`@PreAuthorize("hasAnyAuthority('ADMIN', 'SYSTEM_ADMIN')")` — SUPER_ADMIN is
-not in that list, for any credential, ever. Closed days is a different,
-genuine **empty-response wall** — `RestaurantClosedDayController` does allow
-SUPER_ADMIN, but `GET /api/closedDays` still returns `200 []` for a
-restaurant confirmed to have 13 real rows behind that same login.
+**The carry-over walls — two different mechanisms, one now bypassed.**
+Notifications, closed days, and tax are all a **hard role exclusion**:
+their controllers are annotated
+`@PreAuthorize("hasAnyAuthority('ADMIN', 'SYSTEM_ADMIN')")` — `SUPER_ADMIN`
+is not in that list, for any credential, ever, including the service
+account's. That's exactly why the master-password mechanism above works:
+logging in as the restaurant's *real* `ADMIN`/`SYSTEM_ADMIN` identity
+satisfies the same `@PreAuthorize` check a real human's session would.
+Promo codes (`CouponController`) has the identical exclusion but no
+master-password mechanism has been built for it yet — still a genuine wall
+in practice, see below.
 
-**Two carry-over parsing gaps, not yet fixed** (would still bite even if the
-access walls above were ever lifted): `carryOverClosedDays`'s field-name
-guesses don't match FM's real shape (`{ eventName, available, eventDates:
-[...] }`, not `holiday`/`fromDate`/`toDate`). `carryOverPromoCodes`'s field
-names are correct but the shape assumption is wrong — FM's real
-`GET /api/coupon` returns a single object, not a list.
+**One carry-over parsing gap, fixed 2026-08-19; one still open.**
+`carryOverClosedDays`'s field-name guesses didn't match FM's real shape —
+confirmed only once real data was reachable at all (via the master-password
+read): it's `{ eventName, available, eventDates: [...], reference }`, not
+the guessed `holiday`/`fromDate`/`toDate`. Fixed, along with the polarity
+mapping above. `carryOverPromoCodes`'s field names are correct but the shape
+assumption is still wrong — FM's real `GET /api/coupon` returns a single
+object, not a list — and remains unfixed since promo codes still has no
+read mechanism to exercise it against.
 
 **Logo/image/phone, fixed 2026-08-17 (`34f8278`).** All three sit in the same
 `GET /api/admin/restaurants/{ref}` response already fetched elsewhere in the
