@@ -47,6 +47,7 @@ const ALLOWED_DELIVERY_TYPES = new Set([
 
 function n(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
 function s(v: unknown): string { return typeof v === 'string' ? v : (v == null ? '' : String(v)) }
+function round2(x: number): number { return Math.round(x * 100) / 100 }
 
 export interface SyncResult {
   restaurantReference: string
@@ -146,7 +147,20 @@ function normalizeFmOrder(o: Record<string, unknown>): NormalizedFmOrder | null 
     subtotal,
     total,
     fee,
-    tips: n(o.tips),
+    // FM's list-view `tips` is a raw number whose unit depends on tipsType — for
+    // PERCENTAGE it's a percent (e.g. 15), not dollars. The full per-order-detail
+    // path (syncSaleTransactionFromDetails, via resolveTipsInPrice) already
+    // resolves this correctly; this lightweight header-only path was writing the
+    // raw percent straight into disco_orders.tips, so a bare order (no
+    // disco_sale_transactions row) displayed "15" as if it were a $15 tip.
+    // Convert here the same way order-edit.ts's loadOrderBaseline does: percent
+    // × subtotal ÷ 100. tips is always stored in dollars from here on, regardless
+    // of tipsType.
+    tips: (() => {
+      const tipsRaw = n(o.tips)
+      const tipsType = s(o.tipsType) || 'PERCENTAGE'
+      return tipsType === 'PERCENTAGE' ? round2((subtotal ?? 0) * (tipsRaw / 100)) : tipsRaw
+    })(),
     tipsType: s(o.tipsType) || 'PERCENTAGE',
     source,
     restaurantName: s(o.restaurantName) || null,

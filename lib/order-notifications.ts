@@ -261,12 +261,16 @@ export async function dispatchOrderConfirmations(
     const refund = num(o.refund)
     const totalPrice = hasTxn ? num(t.total) : (num(o.total) || stripeTotal)
     // Fees = the platform fee. Taxes are explicit on the sale-transaction
-    // snapshot; native orders don't store a tax column, so derive taxes as the
-    // residual that makes the visible lines reconcile to the total.
+    // snapshot; a bare order (no snapshot at all — not synced yet, regardless
+    // of native/FM-mirrored) has no real per-component tax figure. Previously
+    // derived one as the residual that makes the visible lines reconcile to
+    // the total — a formula that can't fail loudly and silently absorbs any
+    // error in any of the other fields (confirmed live: a stale $0 stored tip
+    // made $40.42 of real tip show up as "tax" on #61848359). null renders as
+    // "Unavailable" in the email (see lib/email/notifications.ts's
+    // renderTotals) — an honest gap, never a guess.
     const fees = hasTxn ? num(t.fee) : num(o.fee)
-    const taxes = hasTxn
-      ? num(t.state_tax) + num(t.local_tax) + num(t.other_tax)
-      : Math.max(0, totalPrice - subtotal - fees - serviceCharge - tip - deliveryFee + promo)
+    const taxes = hasTxn ? num(t.state_tax) + num(t.local_tax) + num(t.other_tax) : null
 
     const shared = {
       firstName: o.customer_first_name ? String(o.customer_first_name) : undefined,

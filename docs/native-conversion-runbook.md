@@ -15,24 +15,69 @@ now a **classified work list**, not a pile of facts to interpret. Every
 condition seen so far maps to exactly one of four buckets:
 
 - **BLOCKER** — cannot convert until resolved.
-- **PETER** — needs Peter specifically (the Stripe `acct_...` id, or a tax
-  confirmation that's really a conversation with the restaurant).
+- **PETER** — needs Peter specifically (a tax confirmation that's really a
+  conversation with the restaurant, or reading a session-scoped FM value no
+  automation can reach).
 - **AUTO** — the conversion itself handles it; take no action.
 - **NOTE** — worth knowing, doesn't block anything.
 
-Target state: a routine conversion needs the Stripe id from Peter and
-nothing else. Everything else on this page exists to get you there or to
-handle the restaurant that isn't routine.
+Target state: a routine conversion needs nothing from Peter at all — the
+Stripe id is resolved and verified automatically (step 5). Everything else
+on this page exists to get you there or to handle the restaurant that isn't
+routine.
 
 **Conversions are one at a time right now.** Everything below assumes that.
 See "Batch" at the end for what changes if that stops being true.
 
-**There is no rollback.** `is_disco_native` is written to `true` in exactly
-two places in the codebase, and neither ever sets it back to `false`. Once a
-restaurant converts, there is no code path to FM-backed again, and re-running
-the menu import doesn't replace a bad import — it duplicates it. If
-something's wrong post-conversion, fix it forward in Neon. Don't convert a
-restaurant you're not ready to fix forward.
+**There is no rollback — and here's exactly what that means, scoped for
+real** (researched 2026-08, after the four-restaurant Hugo's batch — the
+largest single conversion run to date). `is_disco_native` is written to
+`true` in exactly two places in the codebase, and neither ever sets it back
+to `false` — confirmed by grepping the whole repo for `is_disco_native =
+false`, which returns nothing but test fixtures. "Revert" is not a lesser-
+used option; it's hand-run SQL against Neon, outside all application code,
+full stop.
+
+**Revert is only meaningful before the first native order clears.** The
+storefront, checkout routing, and marketplace visibility all re-read
+`is_disco_native` live on every request — flip it back and a restaurant
+behaves FM-backed again on the very next page load, no caching to wait out.
+But a native order is charged as a destination charge straight to the
+restaurant's own connected Stripe account — FM's own order/reporting/payout
+system is never told about it, by any code path, ever. Reverting the flag
+doesn't retroactively inform FM; there's nothing in this codebase that
+could. So the gap isn't a decay curve, it's a hard cutover: fine right up
+until the first real native order settles, permanent the instant it does.
+The honest procedural statement is **revert the flag within the first
+hours, before real orders land — after that, fix forward, because rollback
+no longer has anything meaningful left to undo.**
+
+Even reverted in time, two things don't clean up on their own and need a
+manual pass:
+- **The imported native menu.** No delete/archive path exists for
+  `disco_menus`/`disco_menu_items`/`disco_modifier_groups`/`disco_modifiers`
+  /etc. — the only archive function in the codebase explicitly never deletes
+  rows, by design. Left alone, it just sits inert in Neon, unrendered — but
+  a future re-conversion attempt's readiness check only counts rows, not
+  freshness, so it would read this leftover as "menu already built" and
+  possibly skip re-importing. Archive-clean it by hand before trying again.
+- **The accounts and location-access grants created at conversion.** These
+  need explicit revoking, not just abandoning. Skipping this isn't inert —
+  see the next paragraph.
+
+**The leftover native login is actively misleading, not harmless.** The
+restaurant login page tries Disco-native auth first, FM second. A reverted
+restaurant's Disco account still authenticates — nothing in the login path
+checks `is_disco_native` — so staff get routed straight into
+`/restaurant/menu-manager`, the Neon-native menu editor, editing the exact
+leftover menu above. Their edits appear to save successfully and have zero
+effect on the restaurant's real, live (FM-backed) menu. That's worse than a
+dead end: it's a dead end that looks like it worked. Revoking the
+conversion-created `disco_restaurant_accounts` rows and
+`disco_restaurant_location_access` grants is part of the same cleanup pass
+as the menu, not optional.
+
+Don't convert a restaurant you're not ready to fix forward.
 
 **Two tiers.** Tier 1 is the short checklist you run for every single
 conversion. Tier 2 is a one-time batch-readiness gate — it already ran, once
@@ -56,11 +101,11 @@ hypothetical — this has actually happened.
 
 `runPreflightCheck(ref)` + `checkConversionReadiness(ref)`. Map every finding
 against "Background → Pre-flight classification" rather than re-deriving it
-per conversion. In practice: BLOCKER is almost always a duplicate record or a
-non-charge-capable Stripe account; PETER is the Stripe id and/or a tax
-question; AUTO covers menu import and Stripe reuse once supplied; NOTE
-covers closed days, notifications, and bare orders — none of them block
-anything, budget the time anyway.
+per conversion. In practice: BLOCKER is almost always a duplicate record, a
+non-charge-capable Stripe account, or a resolved-but-unverified Stripe id;
+PETER is now just the tax question; AUTO covers Stripe resolution/reuse and
+menu import; NOTE covers closed days, notifications, and bare orders — none
+of them block anything, budget the time anyway.
 
 ### 3. Resolve every BLOCKER
 
@@ -68,18 +113,56 @@ Don't proceed past this until none remain.
 
 ### 4. Get the PETER items
 
-Stripe `acct_...` id from the Dashboard (never fuzzy-matched by name), and
-any tax confirmation the pre-flight flagged. This is the only step that
-needs Peter specifically, by design.
+Any tax confirmation the pre-flight flagged (see step 6) — this is the only
+step that needs Peter specifically now that Stripe account resolution is
+automated (step 5).
 
-### 5. Stripe — reuse, never re-onboard
+### 5. Stripe — resolve, verify, reuse — never re-onboard, never fuzzy-match
 
-1. `verifyAccountReusable(accountId)` — live Stripe check (`charges_enabled
+Resolving the `acct_...` id no longer requires Peter pulling it from the
+Dashboard by hand. In order of reliability:
+
+1. **Resolve — `familymeal.tbl_stripe_connected_accounts`** (in the local
+   `fm_backup` Postgres mirror): `restaurant_reference` UUID → `stripe_account_id`,
+   one row per restaurant, a DB-level `UNIQUE` constraint on the account id.
+   4,361 rows as of the 2026-06-17 snapshot. This is FM's own operational
+   source of truth — no FM API exposes it directly (confirmed by testing;
+   every plausible endpoint 404s/500s), and Neon doesn't mirror it for any
+   restaurant that hasn't converted yet. **Stale by design** past the
+   snapshot date — a restaurant onboarded or re-keyed after 2026-06-17 won't
+   be in there; if a restaurant is missing, that's a signal to get a fresher
+   scoped dump, not to fall back to name/email matching.
+2. **Verify — required before import, every time:**
+   `stripe.transfers.list({ destination: acctId })` (a documented, exact
+   Stripe filter — no dependency on Neon's own sparse `disco_stripe_payments`
+   mirror). Take a recent transfer, follow its `source_transaction` (a
+   charge) to the charge's `payment_intent`, retrieve that PaymentIntent, and
+   confirm `metadata.restaurantReference` equals the target restaurant's
+   reference exactly. **Refuse the import if it doesn't match.** FM stamps
+   this metadata on every PaymentIntent it creates — it's an exact id match,
+   not an inference. Proven on all four Hugo's accounts: 5 transfers each,
+   20 for 20 matched.
+3. **Never match by name, email, or company name — proven wrong, not just
+   theoretically risky.** `arnav.anju@gmail.com` is the Stripe account email
+   for **four different** Atlanta Bread locations (Decatur, The Collection,
+   Sandy Springs, Peachtree Corners) — `stripe.accounts.list({email})` there
+   returns four unrelated restaurants with no way to disambiguate. Separately,
+   "Pasta Mama Inc" is the shared legal `company.name` across at least two
+   different Hugo's locations' Stripe accounts (Studio City and West
+   Hollywood) — trusting it pointed the Hugo's West Hollywood account at
+   Studio City instead, caught only by the transfer-metadata check in step 2.
+   Company name and account email are corroborating evidence at best, never
+   the resolution method.
+4. `verifyAccountReusable(accountId)` — live Stripe check (`charges_enabled
    && capabilities.transfers === 'active'`; ignore `requirementsDue`, it
    doesn't block reuse).
-2. `importRestaurantStripeAccount(ref, accountId)` — one call, no restaurant
+5. `importRestaurantStripeAccount(ref, accountId)` — one call, no restaurant
    action. `stripeMode: "not-linked"` means the id hasn't been *imported*
    yet — it does not mean the restaurant needs to onboard.
+
+This turns Stripe resolution from a PETER item into an AUTO one — the
+account id is looked up, not supplied — gated by a hard verification step
+that refuses a mismatch rather than trusting the lookup blind.
 
 ### 6. Tax rate
 
@@ -88,6 +171,18 @@ Set `disco_restaurant_overrides.tax_rates.stateSalesTax.percent` via
 valid, real rate — only `null`/missing blocks the gate. If FM genuinely has
 nothing, that's the PETER conversation from step 4, not a data-recovery
 task.
+
+**Confirming the real FM value stays a PETER item — don't re-test this.**
+The page backing it (`/restaurant/tax-rate` in the portal) calls
+`GET/PUT {FM}/api/restaurants/taxRate`. The service account gets
+`500 — "Access is denied"` — the same role-exclusion class as the
+notifications and promo-code walls (see Background). It's genuinely
+readable, just not by automation: it needs a real restaurant/system-admin
+session with that restaurant selected, which is how Peter read Studio City's
+value directly (9.750% state, matching Neon exactly). Getting a session
+yourself by resetting a live business's admin password is not the move —
+that's a different risk class from a disposable test account, and the
+sensible call is to not do it unilaterally.
 
 ### 7. Menu — faithful FM import
 
@@ -263,12 +358,13 @@ re-deriving the reasoning each time:
 | Condition | Class | Why |
 |---|---|---|
 | Duplicate/decoy FM record | BLOCKER | Converting the wrong one is a real failure mode |
-| Stripe id unknown | PETER | Peter pulls it from the Dashboard; never fuzzy-match by name |
+| Stripe id unknown | AUTO | Resolved from `fm_backup`'s `tbl_stripe_connected_accounts`, verified via `stripe.transfers.list` + PaymentIntent `metadata.restaurantReference` — no longer needs Peter or the Dashboard (see step 5) |
+| Stripe id resolved but verification mismatches | BLOCKER | Refuse the import — this is exactly the failure mode name/email matching would have produced silently |
 | Stripe not charge-capable | BLOCKER | Needs fresh onboarding, can't be done for the restaurant |
 | Stripe charge-capable, id supplied | AUTO | One call, no restaurant action |
 | Tax null on FM | PETER | Conversation with the restaurant |
 | Tax real + directly verifiable | AUTO | Settings step passes on its own |
-| Tax real but only via opportunistic mirror (never independently verified) | PETER | Flag for confirmation — could be stale |
+| Tax real but only via opportunistic mirror (never independently verified) | PETER | Flag for confirmation — could be stale; FM's own taxRate endpoint is a session-scoped wall, not automatable (see step 6) |
 | Menu not imported | AUTO | One call |
 | Hidden/inactive menu items | AUTO | Supplementary heuristic pass |
 | Item landed via last-resort fallback placement | NOTE | Hasn't happened yet in 7 conversions |
@@ -298,7 +394,16 @@ third case: a real, non-null 6.88%/0.5%/1% — but it could only have gotten
 into Neon via a past opportunistic mirror (FM's own `taxRate` endpoint is
 scoped to the restaurant's own login, unreadable by the service account), so
 it's a real number of unknown freshness — treat this pattern as a PETER
-confirmation, not an automatic pass.
+confirmation, not an automatic pass. Confirmed directly (Hugo's, 2026-08):
+`GET {FM}/api/restaurants/taxRate` with the service account returns
+`500 — {"description":"Access is denied"}` — a real access-control response
+masked as a generic error, not a flaky endpoint worth retrying. It's the
+exact same role-exclusion class as the notifications/closed-days/promo-code
+walls below, just for tax rather than settings — don't re-test it expecting
+a different result. It IS readable, just only by a real restaurant/system-
+admin session with that restaurant selected (how Peter confirmed Studio
+City's 9.750% matched Neon exactly) — not something worth getting by
+resetting a live business's admin password to check.
 
 **Menu import mechanics.** The primary placement pass is exact, no
 heuristics — it walks FM's public per-menu endpoint, which only ever returns

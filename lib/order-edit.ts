@@ -196,8 +196,6 @@ export interface FmOrderMoney {
   tip: number
   delivery: number
   tax: number
-  taxAndFee: number
-  taxRate: number
   tipsRaw: number
   tipsType: string
   status: string
@@ -252,12 +250,25 @@ export function parseFmOrder(details: Record<string, unknown>): FmOrderMoney {
   const tipsInPrice = n(order.tipsInPrice) + n(order.thirdPartyDeliveryTipsInPrice)
   const tipsRaw = n(order.tips)
   const tipsType = s(order.tipsType)
-  // Dollar tip: priced wins; else derive from type + raw.
+  const discount = n(order.discount)
+  // Dollar tip: priced wins; else derive from type + raw. A PERCENTAGE tip is a
+  // percent of the DISCOUNTED base (subtotal − discount), matching
+  // resolveTipsInPrice/lib/order/fm-sale-transaction.ts — the same base FM itself
+  // prices tips off internally. Using raw subtotal here (undiscounted) was wrong
+  // on any discounted order: confirmed by comparing both formulas against FM's
+  // own stored tips_in_price on 14,689 real orders — the discount-aware formula
+  // matched to the cent every time a discount was present, the raw-subtotal one
+  // didn't.
   let tip = tipsInPrice
-  if (tip <= 0 && tipsRaw > 0) tip = tipsType === 'PERCENTAGE' ? subtotal * (tipsRaw / 100) : tipsRaw
-  // Everything between subtotal and total that isn't tip/delivery → tax + fees.
-  const taxAndFee = total - subtotal - tip - delivery
-  const taxRate = subtotal > 0 ? taxAndFee / subtotal : 0
+  if (tip <= 0 && tipsRaw > 0) tip = tipsType === 'PERCENTAGE' ? (subtotal - discount) * (tipsRaw / 100) : tipsRaw
+  // `tax` above (stateSalesTaxInPrice + localSalesTaxInPrice + otherSalesTaxInPrice)
+  // is a real sum of stored components from FM's live detail response — the only
+  // tax figure this function returns. A `taxAndFee`/`taxRate` residual
+  // (total - subtotal - tip - delivery) used to live here too; removed as dead
+  // code (zero callers anywhere) rather than fixed, since a computed-but-unused
+  // residual is exactly the kind of thing a future caller could pick up thinking
+  // it's safe. If a blended rate is ever genuinely needed again, derive it from
+  // `tax` (real) divided by `subtotal`, never from a subtraction.
 
   // Items live under orderMealPackages (fall back to mealPackages/items), PLUS
   // two more catalogs confirmed by reading FM's actual Java source
@@ -301,7 +312,7 @@ export function parseFmOrder(details: Record<string, unknown>): FmOrderMoney {
   const user = (order.user as Record<string, unknown>) ?? {}
   return {
     order,
-    subtotal, total, tip, delivery, tax, taxAndFee, taxRate, tipsRaw, tipsType,
+    subtotal, total, tip, delivery, tax, tipsRaw, tipsType,
     status: s(order.orderStatus) || s(order.status),
     orderType: s(order.orderType) || (s(order.deliveryType).includes('DELIVERY') ? 'DELIVERY' : 'PICKUP'),
     orderDateIso: fmDateToIso(s(order.orderDate)),
@@ -349,6 +360,13 @@ export interface OrderBaseline {
   delivery: number
   tax: number
   taxRate: number
+  // False when `tax`/`taxRate` are placeholder zeros, not a real rate — no live
+  // FM data was available to derive them from (bare order, FM unreachable).
+  // Callers that RECOMPUTE money from taxRate (not just display it) must check
+  // this and refuse rather than silently pricing off a fabricated rate — this
+  // is exactly what let a stale/zero stored tip get counted as tax on
+  // #61848359 (a residual formula can't fail loudly; a false flag can).
+  taxReliable: boolean
   fee: number
   tipsRaw: number
   tipsType: string
@@ -395,13 +413,21 @@ export async function loadOrderBaseline(ref: string, disco: DiscoOrderRow | null
   const tip = fm?.tip ?? 0
   const delivery = fm?.delivery ?? 0
   const total = neonTotal ?? (fm ? fm.total : subtotal + fee + tip + delivery)
-  let taxRate = fm && fm.subtotal > 0 ? fm.tax / fm.subtotal : 0
-  let tax = fm ? fm.tax : 0
-  if (!fm) { tax = Math.max(0, total - subtotal - fee - tip - delivery); taxRate = subtotal > 0 ? tax / subtotal : 0 }
+  // No live FM data → no real tax rate to recompute from. Previously fell back
+  // to inferring tax as whatever was left over (total - subtotal - fee - tip -
+  // delivery) — a residual that silently absorbs any error in ANY of those
+  // other inputs. On #61848359, a stale/zero stored tip made $40.42 of real
+  // tip look like phantom tax. Leaving tax/taxRate at 0 with taxReliable=false
+  // means a caller that only DISPLAYS this baseline shows nothing misleading,
+  // and a caller that RECOMPUTES money from it (the edit route) is forced to
+  // check taxReliable and refuse instead of silently pricing off a fabrication.
+  const taxRate = fm && fm.subtotal > 0 ? fm.tax / fm.subtotal : 0
+  const tax = fm ? fm.tax : 0
+  const taxReliable = !!fm
 
   return {
     source: neonItems.length && fm ? 'mixed' : (neonItems.length ? 'neon' : 'fm'),
-    items, subtotal, total, tip, delivery, tax, taxRate, fee,
+    items, subtotal, total, tip, delivery, tax, taxRate, taxReliable, fee,
     tipsRaw: fm?.tipsRaw ?? n(disco?.tips), tipsType: fm?.tipsType || disco?.tips_type || 'PERCENTAGE',
     orderType: fm?.orderType || disco?.order_type || 'PICKUP',
     orderDateIso: disco ? toIsoDateStr(disco.order_date) : (fm?.orderDateIso ?? ''),

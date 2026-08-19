@@ -223,6 +223,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     nativeBreakdown = newB
     nativePay = await getRestaurantPayoutConfig(restaurantRef)
   } else {
+    // FM-backed orders recompute at the original blended tax rate — but only
+    // when that rate is real. `base.taxReliable` is false when no live FM data
+    // was available to derive it from (a bare order, FM unreachable); refusing
+    // here is the fix for #61848359 — the old code fell back to inferring the
+    // rate from whatever was left over after subtracting the other fields,
+    // which silently absorbed a stale/zero stored tip as if it were tax.
+    if (!base.taxReliable) {
+      return NextResponse.json({
+        error: "Can't recalculate this order's tax right now — its original breakdown isn't available from FamilyMeal. Try again shortly, or contact support if this persists.",
+      }, { status: 409 })
+    }
     // subtotal from items; fee = 3% of subtotal; taxes at the original tax rate;
     // tip + delivery preserved from the original order.
     const taxRate = base.taxRate

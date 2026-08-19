@@ -73,7 +73,9 @@ export interface OrderPdfData {
   items: { name: string; quantity: number; price: number; note?: string; addOns?: { name: string; price: number; quantity: number }[] }[]
   subtotal: number
   serviceCharge: number
-  taxes: number
+  // null = no real breakdown available (a bare order — no disco_sale_transactions
+  // row) — rendered as "Unavailable", never inferred. See loadOrderPdfData.
+  taxes: number | null
   fees: number
   deliveryFee: number
   tip: number
@@ -140,9 +142,13 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
   const refund = num(o.refund)
   const total = hasTxn ? num(t.total) : (num(o.total) || stripeTotal)
   const fees = hasTxn ? num(t.fee) : num(o.fee)
-  const taxes = hasTxn
-    ? num(t.state_tax) + num(t.local_tax) + num(t.other_tax)
-    : Math.max(0, total - subtotal - fees - serviceCharge - tip - deliveryFee + promo)
+  // No transaction row → no real per-component tax figure exists. Previously
+  // inferred it as whatever was left over after subtracting every other known
+  // field from the total — a residual that can't fail loudly and silently
+  // absorbs any error in any of those other fields (confirmed live: a stale
+  // $0 stored tip made $40.42 of real tip show up as "tax" on #61848359).
+  // null renders as "Unavailable" below — an honest gap, not a guess.
+  const taxes = hasTxn ? num(t.state_tax) + num(t.local_tax) + num(t.other_tax) : null
 
   return {
     orderNumber: String(o.order_number ?? ''),
@@ -343,9 +349,10 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   }
 
   // ── Totals (right half) — Subtotal, Taxes, Fees, Delivery Fee, Tips, Total ──
-  const totals: Array<[string, number, boolean?]> = [['Subtotal', d.subtotal]]
+  const totals: Array<[string, number | 'unavailable', boolean?]> = [['Subtotal', d.subtotal]]
   if (d.serviceCharge) totals.push(['Service charge', d.serviceCharge])
-  if (d.taxes) totals.push(['Taxes', d.taxes])
+  if (d.taxes === null) totals.push(['Taxes', 'unavailable'])
+  else if (d.taxes) totals.push(['Taxes', d.taxes])
   if (d.fees) totals.push(['Fees', d.fees])
   if (d.deliveryFee) totals.push(['Delivery Fee', d.deliveryFee])
   if (d.tip) totals.push(['Tips', d.tip])
@@ -358,7 +365,7 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
     page.drawRectangle({ x: tX, y: y - TROW, width: tW, height: TROW, borderColor: BORDER, borderWidth: 1.2, ...(strong ? { color: FILL } : {}) })
     const f = strong ? bold : font, s = strong ? 11.5 : 10.5
     text(label, tX + PADX, y - 13, s, f, DARK)
-    textR(money(val), RIGHT - PADX, y - 13, s, f, DARK)
+    textR(val === 'unavailable' ? 'Unavailable' : money(val), RIGHT - PADX, y - 13, s, f, DARK)
     y -= TROW
   }
 

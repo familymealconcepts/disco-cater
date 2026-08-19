@@ -83,8 +83,10 @@ interface BaseOrderParams {
   serviceCharge?: number
   serviceChargeDisplayName?: string
   // Separate taxes + fees (FM format). taxesAndFees is the legacy combined value,
-  // still honored as a fallback when the split isn't provided.
-  taxes?: number
+  // still honored as a fallback when the split isn't provided. `null` means no
+  // real breakdown exists (a bare order) — renders as "Unavailable", never a
+  // guess (see renderTotals below and order-notifications.ts's own comment).
+  taxes?: number | null
   fees?: number
   taxesAndFees?: number
   deliveryFee?: number
@@ -190,8 +192,9 @@ function renderTotals(p: BaseOrderParams): string {
     rows.push(row(`${escapeHtml(p.serviceChargeDisplayName || 'Service charge')}:`, money(p.serviceCharge)))
   // Prefer the separate Taxes / Fees split (FM format); fall back to the legacy
   // combined "Taxes & Fees" value when the split isn't supplied.
-  if (p.taxes != null || p.fees != null) {
-    if (p.taxes != null && p.taxes > 0) rows.push(row('Taxes:', money(p.taxes)))
+  if (p.taxes !== undefined || p.fees != null) {
+    if (p.taxes === null) rows.push(row('Taxes:', 'Unavailable'))
+    else if (p.taxes != null && p.taxes > 0) rows.push(row('Taxes:', money(p.taxes)))
     if (p.fees != null && p.fees > 0) rows.push(row('Fees:', money(p.fees)))
   } else if (p.taxesAndFees != null && p.taxesAndFees > 0) {
     rows.push(row('Taxes &amp; Fees:', money(p.taxesAndFees)))
