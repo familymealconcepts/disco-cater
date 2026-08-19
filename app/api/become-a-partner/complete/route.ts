@@ -328,6 +328,11 @@ export async function POST(req: NextRequest) {
         const mg = new FormData()
         mg.append('from', `Disco Cater Onboarding <onboarding@${MAILGUN_DOMAIN}>`)
         mg.append('to', TEAM_EMAIL)
+        // Same platform-wide Kealoha bcc/Reply-To as lib/email/send.ts — this
+        // sender is hand-rolled (bypasses sendEmail), so it needs both applied
+        // directly.
+        mg.append('bcc', 'kealoha@discocater.com')
+        mg.append('h:Reply-To', 'kealoha@discocater.com')
         mg.append('subject', `New Partner Onboarding Complete — ${restaurantName}`)
         mg.append('text', `A restaurant has completed Disco Cater onboarding.\n\n${lines}\n\n— Disco Cater Onboarding`)
         const mgRes = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {

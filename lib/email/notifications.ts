@@ -549,6 +549,9 @@ ${button('Set your password', params.inviteUrl)}
       to: params.to,
       subject: `You've been invited to join ${restaurant} on Disco Cater`,
       html: layout(content),
+      // By design: this is the concierge conversion/invite email, so replies
+      // go to concierge@discocater.com, not the platform-wide Kealoha default.
+      replyTo: 'concierge@discocater.com',
     })
   } catch (err) {
     console.error('[email/notifications] sendTeamMemberInvite failed:', err instanceof Error ? err.message : err)

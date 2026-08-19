@@ -35,6 +35,14 @@ const DEFAULT_FROM = 'Disco Cater <orders@discocater.com>'
 // order emails (which come from FM's own Java backend, mg.familymeal.com, and
 // never call this function at all).
 const ORDERS_BCC = 'noreply@familymeal.com'
+// Kealoha wants a copy of every outbound Disco Cater email, unconditionally —
+// unlike ORDERS_BCC this isn't gated on the From address, so it applies across
+// every template/caller of sendEmail(). She filters on her end.
+const KEALOHA_BCC = 'kealoha@discocater.com'
+// Default Reply-To so any reply lands in Kealoha's inbox. Callers that need a
+// different Reply-To (currently only the concierge conversion invite email,
+// by design) pass their own params.replyTo, which wins over this default.
+const DEFAULT_REPLY_TO = 'kealoha@discocater.com'
 
 export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
   const apiKey = process.env.MAILGUN_API_KEY
@@ -54,14 +62,16 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
     const bccList = Array.from(new Set([
       ...(params.bcc ? [params.bcc] : []),
       ...(from.includes('orders@discocater.com') ? [ORDERS_BCC] : []),
+      KEALOHA_BCC,
     ]))
+    const replyTo = params.replyTo || DEFAULT_REPLY_TO
 
     const form = new FormData()
     form.append('from', from)
     form.append('to', params.to)
     form.append('subject', params.subject)
     form.append('html', params.html)
-    if (params.replyTo) form.append('h:Reply-To', params.replyTo)
+    if (replyTo) form.append('h:Reply-To', replyTo)
     if (bccList.length) form.append('bcc', bccList.join(','))
     for (const a of params.attachments || []) {
       // Blob accepts both a UTF-8 string and raw bytes (Uint8Array), so binary

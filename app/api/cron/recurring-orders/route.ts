@@ -99,6 +99,11 @@ async function sendEmail(to: string, subject: string, html: string, text: string
     const mg = new FormData()
     mg.append('from', FROM)
     mg.append('to', to)
+    // Same platform-wide Kealoha bcc/Reply-To as lib/email/send.ts — this
+    // sender is hand-rolled (bypasses sendEmail), so it needs both applied
+    // directly.
+    mg.append('bcc', 'kealoha@discocater.com')
+    mg.append('h:Reply-To', 'kealoha@discocater.com')
     mg.append('subject', subject)
     mg.append('text', text)
     mg.append('html', html)

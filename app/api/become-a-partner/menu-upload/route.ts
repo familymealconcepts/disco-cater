@@ -45,8 +45,10 @@ async function notifyTeam(subject: string, text: string, attachment?: { buffer: 
     mg.append('to', TEAM_EMAIL)
     // Same orders@discocater.com-wide bcc as lib/email/send.ts — this sender is
     // hand-rolled (not routed through the shared sendEmail), so it needs the
-    // same addition applied directly.
-    mg.append('bcc', 'noreply@familymeal.com')
+    // same addition applied directly. Kealoha's bcc/Reply-To are likewise
+    // platform-wide and applied here for the same reason.
+    mg.append('bcc', 'noreply@familymeal.com,kealoha@discocater.com')
+    mg.append('h:Reply-To', 'kealoha@discocater.com')
     mg.append('subject', subject)
     mg.append('text', text)
     if (attachment) mg.append('attachment', new Blob([new Uint8Array(attachment.buffer)], { type: 'application/pdf' }), attachment.filename)
