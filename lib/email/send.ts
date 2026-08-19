@@ -7,10 +7,17 @@
 // Contract: NEVER throws. Always resolves to a result object so callers can
 // fire-and-forget without risking an unhandled rejection.
 
+import { htmlToText } from './htmlToText'
+
 export interface SendEmailParams {
   to: string
   subject: string
   html: string
+  /** Plain-text part. Omit this — sendEmail derives it from `html` automatically (see
+   *  htmlToText.ts) so every caller gets multipart/alternative for free and there's no
+   *  hand-written text version to drift out of sync with the HTML. Only pass this to
+   *  override the derived text for a specific message. */
+  text?: string
   /** Defaults to "Disco Cater <orders@discocater.com>". */
   from?: string
   replyTo?: string
@@ -70,11 +77,16 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
     ]))
     const replyTo = params.replyTo || DEFAULT_REPLY_TO
 
+    // Providing both html and text makes Mailgun send true multipart/alternative — no
+    // caller needs to opt into this, it's just always both parts now.
+    const text = params.text ?? htmlToText(params.html)
+
     const form = new FormData()
     form.append('from', from)
     form.append('to', params.to)
     form.append('subject', params.subject)
     form.append('html', params.html)
+    form.append('text', text)
     if (replyTo) form.append('h:Reply-To', replyTo)
     if (bccList.length) form.append('bcc', bccList.join(','))
     for (const a of params.attachments || []) {

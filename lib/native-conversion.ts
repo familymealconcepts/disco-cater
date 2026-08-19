@@ -26,9 +26,20 @@ import { getFmServiceAuthHeader } from './fm-service-auth'
 import { sanitizePhone } from './utils/phone'
 import { isHolidayName } from './holidays'
 import { fmImageUrl } from './fm-image'
+import { sleep } from './bulk-invite'
 
 const SITE_URL = 'https://www.discocater.com'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+// Same-restaurant co-admin pacing (inviteFmSystemAdminsFor) -- deliberately short and fixed,
+// not the multi-minute bulk-campaign delay (lib/bulk-invite.ts). This runs synchronously
+// inside a live HTTP request (maxDuration 300s on convert-native), so it just needs to break
+// up a zero-delay burst, not impose a real ramp. Configurable in case a restaurant with many
+// covering admins ever needs a different value, but not meant to be the bulk-sending knob.
+const SAME_RESTAURANT_INVITE_DELAY_MS = (() => {
+  const override = process.env.SAME_RESTAURANT_INVITE_DELAY_MS
+  const parsed = override ? parseInt(override, 10) : NaN
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5000
+})()
 // Same sentinel shape importRestaurantStripeAccount uses for a login-disabled
 // holder row created before any real admin has ever logged in.
 const SENTINEL_EMAIL_RE = /^stripe-import\+.+@familymeal\.com$/i
@@ -491,6 +502,17 @@ export async function inviteFmSystemAdminsFor(ref: string, restaurantName: strin
       }
 
       results.push({ email, invited, grantedRefs, reason })
+
+      // Only pace after an actual send, not the (common) no-op branch where a usable login
+      // already exists -- no reason to slow down what's already fast. This is same-restaurant
+      // pacing (a handful of covering admins, typically), NOT the bulk-campaign case -- this
+      // function runs synchronously inside the live "Convert to Native" admin request
+      // (maxDuration 300s), so it deliberately uses a short, fixed delay rather than
+      // bulk-invite.ts's multi-minute default, which would make an ordinary single-restaurant
+      // conversion time out. A genuine multi-restaurant bulk campaign is a different problem,
+      // solved by lib/bulk-invite.ts's sendPaced() in whatever offline driver runs it -- see
+      // that file's own header comment.
+      if (invited) await sleep(SAME_RESTAURANT_INVITE_DELAY_MS)
     } catch (e) {
       // Most likely a unique-constraint collision (email in use elsewhere) —
       // flag for manual review rather than letting it affect the next admin.
