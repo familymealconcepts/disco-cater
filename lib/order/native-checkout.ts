@@ -496,6 +496,14 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   // never be retried. By the time it runs the suite is cached for this lambda.
   await withDiscoTables(() => sql`SELECT 1 FROM disco_orders LIMIT 1`)
   const b = await priceNativeCheckout(input)
+  // Authoritative guard — this is the pricer whose breakdown actually gets
+  // persisted/charged below, and it's reached by every placement path (the
+  // primary checkout flow, the invoice flow, recurring occurrences), not just
+  // native-place-checkout.ts's own earlier check. No real tax rate → refuse
+  // rather than insert an order priced at a fabricated 0% tax.
+  if (!b.taxReliable) {
+    throw new Error("Can't price this order — no real tax rate is on file for this restaurant yet.")
+  }
   const { orderType, deliveryType } = fulfillmentToTypes(input.fulfillment)
   const orderNumber = await nextNativeOrderNumber()
   const initialStatus = input.orderStatus ?? 'RESERVED'

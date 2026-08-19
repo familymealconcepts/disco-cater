@@ -125,6 +125,13 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   if (!priced.deliveryValid) {
     return { ok: false, status: 400, error: priced.deliveryMessage || 'That delivery address is not serviceable.' }
   }
+  // No real tax rate on file — refuse rather than charge at a fabricated 0%
+  // (loadNativePricingConfig's `?? 0` is the same defect class as the residual
+  // tax formula: a missing value is indistinguishable from a real zero unless
+  // something upstream refuses to use it).
+  if (!priced.breakdown.taxReliable) {
+    return { ok: false, status: 409, error: "This restaurant's tax rate isn't set up yet — orders can't be placed until it is. Contact support if this persists." }
+  }
   const promo = priced.promo
   // A code was submitted but didn't resolve AT PLACEMENT specifically (not just
   // preview) — most likely a race against preview (a use-count cap exhausted, or

@@ -16,6 +16,7 @@ import { sql, runMigrations } from './db'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'crypto'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
+import { evaluateMarketplaceReadiness } from './marketplace-visibility'
 import { verifyAccountReusable } from './stripe-connect'
 import { syncRestaurantOrders } from './fm-orders-sync'
 import { setInviteToken, grantLocationAccess } from './disco-restaurant-auth'
@@ -187,12 +188,25 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
   const steps: ConversionStep[] = [
     { key: 'not-already-native', label: 'Not already Disco-native', done: found && !isDiscoNative, blocking: true, detail: !found ? 'Restaurant not found.' : isDiscoNative ? 'Already Disco-native.' : 'FM-backed — eligible to convert.' },
     { key: 'native-menu', label: 'Native menu built', done: hasMenu, blocking: true, detail: hasMenu ? 'A visible Disco-native menu exists.' : 'No visible native menu — run the menu import (dual-write) first.' },
-    { key: 'stripe-ready', label: 'Stripe account usable', done: stripeReady, blocking: true, detail: stripeDetail },
-    // Blocking (was advisory-only): a native restaurant with no real state tax
-    // percent charges wrong money — $0 tax — on every single order. That must
-    // refuse conversion, not just warn.
+    // Advisory, not blocking (bulk-migration reframe): most FM restaurants have no
+    // Stripe account, will never be marketplace-visible, and will never take an
+    // order — conversion is a data migration, not a go-live, so it must not wait
+    // on payment capability. Still reported so an operator can see it at a glance.
+    { key: 'stripe-ready', label: 'Stripe account usable', done: stripeReady, blocking: false, detail: stripeDetail },
+    // Blocking: a native restaurant with no real state tax percent charges wrong
+    // money — $0 tax — on every single order. Left blocking deliberately (unlike
+    // stripe-ready/marketplace-ready above) — checkout's own taxReliable refusal
+    // (lib/pricing/native-order.ts) is the real guard against a bad CHARGE, but
+    // this gate is what stops a restaurant from converting into a state where a
+    // future order attempt just bounces with a 409 instead of ever being priced.
     { key: 'settings', label: 'Settings populated', done: settingsOk, blocking: true, detail: settingsOk ? 'State tax percent set; online ordering on.' : !hasRealStateTaxPct ? 'No real state tax percent set (tax_rates may exist but stateSalesTax.percent is null) — populate the actual rate before converting.' : 'Enable online ordering.' },
-    { key: 'marketplace-ready', label: 'Won’t drop off marketplace', done: marketplaceReady, blocking: true, detail: marketplaceReady ? 'Passes the native 3-part visibility rule.' : `Would be hidden as native: ${mk.blockers.map(b => b.message).join(' ') || 'check visibility.'}` },
+    // Advisory, not blocking — same bulk-migration reframe as stripe-ready: a
+    // restaurant that would drop off the marketplace under the native 3-part rule
+    // (usually because it has no Stripe) should still convert with its data intact;
+    // it just won't be visible or orderable until Stripe is connected. convertToNative
+    // computes visible/is_live from this same rule rather than forcing true, so a
+    // restaurant that fails this check converts correctly hidden, not incorrectly live.
+    { key: 'marketplace-ready', label: 'Won’t drop off marketplace', done: marketplaceReady, blocking: false, detail: marketplaceReady ? 'Passes the native 3-part visibility rule.' : `Would be hidden as native: ${mk.blockers.map(b => b.message).join(' ') || 'check visibility.'}` },
   ]
 
   const ready = found && steps.filter(s => s.blocking).every(s => s.done)
@@ -809,14 +823,56 @@ async function carryOverProfileFields(ref: string): Promise<ProfileFieldsCarryOv
   return { iconUrlCarried: setIcon, imageUrlCarried: setImage, phoneCarried: setPhone }
 }
 
-// Perform the flip — ONLY when every blocking step passes. Sets BOTH
-// is_disco_native and is_live true: convertToNative's own gates (Stripe reuse
-// LIVE-verified, native menu imported, marketplace-visibility rule) already cover
-// everything goLiveNativeRestaurant's non-manual gates check, so a restaurant
-// converted through this path goes immediately live to customers — no separate
-// go-live step required. Visibility is left as-is otherwise (the marketplace-ready
-// gate guarantees it stays visible if it was). Never flips a restaurant that isn't
-// ready.
+// What `is_live` should become on conversion — computed, never forced. Reads
+// disco_restaurant_overrides' CURRENT visible/online_ordering_enabled (this runs
+// BEFORE is_disco_native flips, so these still reflect FM's own prior state —
+// "preserve what FM had," not "force visible") plus a LIVE, capability-verified
+// Stripe signal, then runs both through the exact same rule the marketplace feed
+// itself uses. A restaurant FM had hidden stays hidden; one FM had live only
+// carries over if it would actually survive the stricter native 3-part rule.
+//
+// Deliberately passes stripeConnected: false — disco_restaurant_overrides
+// .stripe_connected is set true historically for ANY restaurant that ever had ANY
+// FM-side Stripe account, with no capability check (see marketplace-visibility.ts's
+// own "KNOWN GAP" comment), so it can't be trusted as a post-conversion payout
+// signal. hasCompletedNativeStripeAccount (a real disco_restaurant_accounts row
+// with stripe_onboarding_complete = true) is the only signal that's actually
+// meaningful here — which means a restaurant whose Stripe account was only ever
+// LIVE-VERIFIED (checkConversionReadiness's stripeMode === 'reuse') but never
+// actually IMPORTED (importRestaurantStripeAccount) will compute as not-visible
+// here even though it's a perfectly good, reusable account — the import step is
+// what persists the row this check reads. Run it before conversion if the
+// restaurant should go live immediately.
+async function computeNativeIsLive(ref: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT o.visible, o.online_ordering_enabled,
+           EXISTS (
+             SELECT 1 FROM disco_restaurant_accounts a
+             WHERE (a.restaurant_reference = ${ref} OR a.fm_restaurant_reference = ${ref})
+               AND a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true
+           ) AS has_completed_native_stripe
+    FROM disco_restaurant_overrides o
+    WHERE o.restaurant_reference = ${ref}
+    LIMIT 1
+  `.catch(() => [])) as { visible: boolean | null; online_ordering_enabled: boolean | null; has_completed_native_stripe: boolean }[]
+  const row = rows[0]
+  const result = evaluateMarketplaceReadiness({
+    isDiscoNative: true,
+    visible: row?.visible === true,
+    stripeConnected: false,
+    onlineOrderingEnabled: row?.online_ordering_enabled ?? null,
+    hasCompletedNativeStripeAccount: row?.has_completed_native_stripe === true,
+  })
+  return result.wouldBeVisibleAsNative
+}
+
+// Perform the flip — ONLY when every blocking step passes (today: not-already-
+// native, native-menu, settings/tax — stripe-ready and marketplace-ready are
+// advisory, per the bulk-migration reframe: most FM restaurants have no Stripe
+// account and will never take an order, so conversion must not wait on payment
+// capability). `is_live` is computed (computeNativeIsLive above), never forced —
+// a restaurant that can't take a real order converts hidden, not incorrectly
+// live. Never flips a restaurant that isn't ready.
 //
 // NOTE: this intentionally does NOT verify goLiveNativeRestaurant's two
 // real-action gates (a real live-mode $1 charge actually settling; a real signed
@@ -839,7 +895,10 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
   if (!backfill.ok) {
     return { converted: false, reason: `FM order-history backfill failed (${backfill.error || 'unknown'}) — not converting; retry once FM is reachable.`, readiness }
   }
-  await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, is_live = true, cached_at = NOW() WHERE restaurant_reference = ${readiness.restaurantReference}`
+  // Computed BEFORE the flip so it reads FM's still-current visible/online-ordering
+  // state (see computeNativeIsLive's own comment for why this ordering matters).
+  const nativeIsLive = await computeNativeIsLive(readiness.restaurantReference)
+  await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, is_live = ${nativeIsLive}, cached_at = NOW() WHERE restaurant_reference = ${readiness.restaurantReference}`
 
   // Best-effort, same contract as everything below — logo/marketplace image/
   // phone are all readable right off the FM restaurant object (unlike
@@ -920,7 +979,7 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real promo codes carried over: ${promoCodes.reason}`)
   }
 
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: true }, invite, systemAdminInvites, notificationSettings, closedDays, promoCodes, profileFields }
+  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: nativeIsLive }, invite, systemAdminInvites, notificationSettings, closedDays, promoCodes, profileFields }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────

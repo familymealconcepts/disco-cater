@@ -86,7 +86,7 @@ export async function resolveNativeLeadGenPct(
 export async function loadNativePricingConfig(
   restaurantReference: string,
   opts?: { scPct?: number; orderType?: string },
-): Promise<{ cfg: Omit<PricingConfig, 'leadGenPct'>; rates: NativeLeadGenRates }> {
+): Promise<{ cfg: Omit<PricingConfig, 'leadGenPct'>; rates: NativeLeadGenRates; taxReliable: boolean }> {
   let tax: FmTaxRates = {}
   let rates: NativeLeadGenRates = { oneRatePct: DEFAULT_LEAD_GEN_ONE_PCT, twoRatePct: DEFAULT_LEAD_GEN_TWO_PCT }
   try {
@@ -107,6 +107,14 @@ export async function loadNativePricingConfig(
     console.error('[native-order] loadNativePricingConfig failed — using safe defaults:', err instanceof Error ? err.message : err)
   }
 
+  // Same defect class as the residual tax formula (#61848359): `?? 0` below turns
+  // a MISSING rate into an indistinguishable REAL zero. `taxReliable` is the only
+  // thing that lets a caller refuse instead of silently charging 0% tax — true
+  // only when a real, finite state-tax percent was actually read (mirrors
+  // checkConversionReadiness's own `hasRealStateTaxPct` gate, so "ready to
+  // convert" and "safe to price" agree on the same definition of reliable).
+  const taxReliable = typeof tax.stateSalesTax?.percent === 'number' && Number.isFinite(tax.stateSalesTax.percent)
+
   const otherTypes = tax.otherSalesTax?.types ?? []
   const cfg: Omit<PricingConfig, 'leadGenPct'> = {
     scPct: opts?.scPct ?? 0,
@@ -121,7 +129,7 @@ export async function loadNativePricingConfig(
     stripePct: 2.9,
     stripeFlat: 0.30,
   }
-  return { cfg, rates }
+  return { cfg, rates, taxReliable }
 }
 
 // Map fulfillment type → the delivery-fee / tip routing computeBreakdown expects.
@@ -169,6 +177,10 @@ export interface NativePricedOrder extends Breakdown {
   leadGenTier: 1 | 2
   priorOrders: number
   fulfillment: Fulfillment
+  // False when no real tax rate was available to price against (see
+  // loadNativePricingConfig) — callers that CHARGE off this breakdown (not just
+  // display it) must refuse rather than silently charge/refund at a fabricated 0%.
+  taxReliable: boolean
 }
 
 // Full native price of an order: load config + resolve lead-gen from history +
@@ -198,8 +210,8 @@ export async function priceNativeOrderAtSubtotal(
   restaurantReference: string,
   subtotal: number,
   ctx: FrozenEditContext,
-): Promise<Breakdown> {
-  const { cfg } = await loadNativePricingConfig(restaurantReference, { scPct: ctx.scPct, orderType: ctx.orderType })
+): Promise<Breakdown & { taxReliable: boolean }> {
+  const { cfg, taxReliable } = await loadNativePricingConfig(restaurantReference, { scPct: ctx.scPct, orderType: ctx.orderType })
   const deliveryFee = ctx.fulfillment === 'OWN_DELIVERY' ? ctx.ownDeliveryFee
     : ctx.fulfillment === 'THIRD_PARTY_DELIVERY' ? ctx.thirdPartyDeliveryFee : 0
   const order = routeFulfillment({
@@ -209,12 +221,13 @@ export async function priceNativeOrderAtSubtotal(
     thirdPartyDeliverySubsiding: ctx.thirdPartyDeliverySubsiding,
     tip: { custom: true, amount: ctx.tipDollars },
   })
-  return computeBreakdown(order, { ...cfg, leadGenPct: ctx.leadGenPct }, ctx.discountPct)
+  const breakdown = computeBreakdown(order, { ...cfg, leadGenPct: ctx.leadGenPct }, ctx.discountPct)
+  return { ...breakdown, taxReliable }
 }
 
 export async function priceNativeOrder(input: NativeOrderInput): Promise<NativePricedOrder> {
   const orderType = input.fulfillment === 'PICKUP' ? 'PICKUP' : 'DELIVERY'
-  const { cfg, rates } = await loadNativePricingConfig(input.restaurantReference, { scPct: input.scPct, orderType })
+  const { cfg, rates, taxReliable } = await loadNativePricingConfig(input.restaurantReference, { scPct: input.scPct, orderType })
   const { pct: resolvedPct, priorOrders, tier } = await resolveNativeLeadGenPct(input.customerEmail, input.restaurantReference, rates)
   // 1P Direct (FAMILYMEAL-sourced) orders did NOT come through the marketplace, so
   // they incur NO lead-gen fee — matching the FM path. The 3% FamilyMeal fee
@@ -223,5 +236,5 @@ export async function priceNativeOrder(input: NativeOrderInput): Promise<NativeP
   const leadGenPct = input.sourceOfOrder === 'FAMILYMEAL' ? 0 : resolvedPct
   const order = routeFulfillment(input)
   const breakdown = computeBreakdown(order, { ...cfg, leadGenPct }, input.discountPct ?? 0)
-  return { ...breakdown, leadGenPct, leadGenTier: tier, priorOrders, fulfillment: input.fulfillment }
+  return { ...breakdown, leadGenPct, leadGenTier: tier, priorOrders, fulfillment: input.fulfillment, taxReliable }
 }

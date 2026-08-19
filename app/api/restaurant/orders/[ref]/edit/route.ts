@@ -215,6 +215,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     nativeCtx = editCtx
     const oldB = await priceNativeOrderAtSubtotal(restaurantRef, base.subtotal, editCtx)
     const newB = await priceNativeOrderAtSubtotal(restaurantRef, newSubtotal, editCtx)
+    // Same guard as the FM-backed branch below (#61848359's fix, mirrored): a
+    // native restaurant with no real tax rate on file would otherwise recompute
+    // this edit's charge/refund delta at a fabricated 0% tax.
+    if (!newB.taxReliable) {
+      return NextResponse.json({
+        error: "Can't recalculate this order's tax right now — no real tax rate is on file for this restaurant. Contact support if this persists.",
+      }, { status: 409 })
+    }
     newTaxes = round2(newB.stateTax + newB.localTax + newB.otherTax)
     newFee = newB.familyMealFee
     newTotal = newB.total
