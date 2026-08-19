@@ -23,6 +23,10 @@ export interface SendEmailParams {
 export interface SendResult {
   success: boolean
   error?: string
+  /** Mailgun's own message id (the `id` field on a successful send response,
+   *  e.g. "<20260819...@mg.discocater.com>") — lets a caller look up delivery
+   *  status later via Mailgun's Events API instead of just trusting the 200. */
+  id?: string
 }
 
 const DEFAULT_FROM = 'Disco Cater <orders@discocater.com>'
@@ -93,7 +97,8 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
       return { success: false, error }
     }
 
-    return { success: true }
+    const body = await res.json().catch(() => ({} as { id?: string }))
+    return { success: true, id: body?.id }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     console.error(`[email/send] send failed for "${params.subject}":`, error)
