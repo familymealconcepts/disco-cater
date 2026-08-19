@@ -94,6 +94,11 @@ export interface ConversionReadiness {
   steps: ConversionStep[]
   ordersMirrored: number       // advisory: run a final sync/fm-orders before flipping
   ready: boolean               // all BLOCKING steps pass
+  // Set ONLY when the settings gate had to fall through to a live
+  // master-password read (Neon had no real tax rate). convertToNative reuses
+  // this instead of fetching again, so a restaurant with no Neon rate yet
+  // still costs exactly one login per conversion attempt, never two.
+  fetchedWalled?: FmWalledFieldsResult
 }
 
 // The admin restaurant list is a pure FM passthrough (app/api/admin/restaurants),
@@ -127,7 +132,10 @@ async function storedAccountId(ref: string): Promise<string | null> {
   return rows[0]?.stripe_account_id ?? null
 }
 
-export async function checkConversionReadiness(ref: string, opts?: { stripe?: Stripe }): Promise<ConversionReadiness> {
+export async function checkConversionReadiness(
+  ref: string,
+  opts?: { stripe?: Stripe; prefetchedWalled?: FmWalledFieldsResult },
+): Promise<ConversionReadiness> {
   await runMigrations()
 
   const nativeRef = await resolveNativeRef(ref)
@@ -172,8 +180,36 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
     SELECT tax_rates, online_ordering_enabled FROM disco_restaurant_overrides
     WHERE restaurant_reference = ${nativeRef} LIMIT 1
   `.catch(() => [])) as { tax_rates: { stateSalesTax?: { percent?: number | null } } | null; online_ordering_enabled: boolean | null }[]
-  const stateTaxPct = ov[0]?.tax_rates?.stateSalesTax?.percent
-  const hasRealStateTaxPct = typeof stateTaxPct === 'number' && Number.isFinite(stateTaxPct)
+  let stateTaxPct = ov[0]?.tax_rates?.stateSalesTax?.percent
+  let hasRealStateTaxPct = typeof stateTaxPct === 'number' && Number.isFinite(stateTaxPct)
+  let taxSource: 'neon' | 'live-master-password' = 'neon'
+  // Populated only if a live read actually happened below — convertToNative
+  // picks this up so it never fetches a second time for the same conversion.
+  let fetchedWalled: FmWalledFieldsResult | undefined
+
+  // Alpharetta's catch-22, fixed: a brand-new restaurant never has its tax rate
+  // mirrored to Neon by anything until this check runs (the old opportunistic
+  // mirror only fires when a restaurant's OWN admin views the tax page; the
+  // conversion carry-over that would otherwise populate it doesn't run until
+  // AFTER this gate passes). Rather than requiring a manual pre-seed, fall
+  // through to the SAME master-password read convertToNative uses, but only
+  // when Neon genuinely has nothing — a restaurant with an already-real rate
+  // never pays this cost. Prefer a caller-supplied prefetchedWalled (see
+  // convertToNative, which fetches once and threads it through here AND into
+  // the carry-over step, rather than logging in twice for one conversion).
+  if (!hasRealStateTaxPct) {
+    if (opts?.prefetchedWalled) {
+      fetchedWalled = opts.prefetchedWalled
+    } else {
+      fetchedWalled = (await readWalledFieldsForRestaurants([nativeRef])).get(nativeRef)
+    }
+    const livePct = fetchedWalled?.ok ? fetchedWalled.taxRate?.stateSalesTax?.percent : undefined
+    if (typeof livePct === 'number' && Number.isFinite(livePct)) {
+      stateTaxPct = livePct
+      hasRealStateTaxPct = true
+      taxSource = 'live-master-password'
+    }
+  }
   const settingsOk = hasRealStateTaxPct && ov[0]?.online_ordering_enabled !== false
 
   // Orders already mirrored (advisory — a final sync is recommended before flip).
@@ -200,7 +236,7 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
     // (lib/pricing/native-order.ts) is the real guard against a bad CHARGE, but
     // this gate is what stops a restaurant from converting into a state where a
     // future order attempt just bounces with a 409 instead of ever being priced.
-    { key: 'settings', label: 'Settings populated', done: settingsOk, blocking: true, detail: settingsOk ? 'State tax percent set; online ordering on.' : !hasRealStateTaxPct ? 'No real state tax percent set (tax_rates may exist but stateSalesTax.percent is null) — populate the actual rate before converting.' : 'Enable online ordering.' },
+    { key: 'settings', label: 'Settings populated', done: settingsOk, blocking: true, detail: settingsOk ? `State tax percent set (${taxSource === 'live-master-password' ? 'read live via master-password session' : 'Neon'}); online ordering on.` : !hasRealStateTaxPct ? 'No real state tax percent set — Neon has none, and a live master-password read found none either (no real admin identity, login failed, or FM itself has no rate on file) — populate the actual rate before converting.' : 'Enable online ordering.' },
     // Advisory, not blocking — same bulk-migration reframe as stripe-ready: a
     // restaurant that would drop off the marketplace under the native 3-part rule
     // (usually because it has no Stripe) should still convert with its data intact;
@@ -211,7 +247,7 @@ export async function checkConversionReadiness(ref: string, opts?: { stripe?: St
   ]
 
   const ready = found && steps.filter(s => s.blocking).every(s => s.done)
-  return { restaurantReference: nativeRef, found, isDiscoNative, isLive, stripeMode, steps, ordersMirrored, ready }
+  return { restaurantReference: nativeRef, found, isDiscoNative, isLive, stripeMode, steps, ordersMirrored, ready, fetchedWalled }
 }
 
 export interface ConversionResult {
@@ -225,6 +261,25 @@ export interface ConversionResult {
   promoCodes?: PromoCodesCarryOverResult
   profileFields?: ProfileFieldsCarryOverResult
   taxRates?: TaxRatesCarryOverResult
+  // Structural, not optional-to-skip: the runbook's Tier-1 checklist calls for
+  // a before/after order-count-and-revenue comparison, and it was missed on
+  // the first real batch (Atlanta Bread) because nothing forced it to be
+  // captured. Recorded by the conversion itself now, so whoever runs it always
+  // has both numbers in the result rather than needing to remember to check.
+  orderStats?: { before: OrderStatsSnapshot; after: OrderStatsSnapshot }
+}
+
+export interface OrderStatsSnapshot {
+  count: number
+  revenue: number
+}
+
+async function snapshotOrderStats(ref: string): Promise<OrderStatsSnapshot> {
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS n, COALESCE(SUM(total), 0)::float AS revenue
+    FROM disco_orders WHERE restaurant_reference = ${ref}::uuid
+  `.catch(() => [{ n: 0, revenue: 0 }])) as { n: number; revenue: number }[]
+  return { count: rows[0]?.n ?? 0, revenue: rows[0]?.revenue ?? 0 }
 }
 
 export interface TaxRatesCarryOverResult {
@@ -970,6 +1025,11 @@ export async function convertToNative(
     const failing = readiness.steps.filter(s => s.blocking && !s.done).map(s => s.label).join(', ')
     return { converted: false, reason: `Not ready — resolve: ${failing}.`, readiness }
   }
+  // Captured BEFORE the backfill below (which legitimately ADDS rows for any
+  // FM history not yet mirrored) — this is the true pre-conversion state, not
+  // pre-backfill-and-pre-conversion conflated together.
+  const orderStatsBefore = await snapshotOrderStats(readiness.restaurantReference)
+
   // Gated prerequisite: backfill the restaurant's FULL FM order history into Neon
   // BEFORE flipping, so lead-gen fee tiers carry over for returning customers. If FM
   // is unreachable, do NOT convert — better to retry than flip without history (which
@@ -1031,17 +1091,22 @@ export async function convertToNative(
     }
   }
 
-  // ONE master-password read per conversion, covering all three walled fields
-  // at once (one login, one admin session, restored before this returns) —
-  // never three separate logins for the same restaurant. See
-  // lib/fm-master-admin-read.ts for the session/switch/restore handling.
+  // AT MOST ONE master-password login per conversion, covering all three
+  // walled fields at once — never three separate logins for the same
+  // restaurant, and never two logins even when the settings gate above had to
+  // read live (Neon had no tax rate yet, e.g. a brand-new restaurant like
+  // Alpharetta): readiness.fetchedWalled carries that exact read forward, so
+  // it's reused here rather than fetched again. A restaurant whose Neon tax
+  // rate was already real costs zero logins in the gate and exactly one here,
+  // same as before this fix. See lib/fm-master-admin-read.ts for the
+  // session/switch/restore handling.
   //
   // opts.prefetchedWalled lets a caller converting several restaurants that
   // share ONE admin (e.g. a batch run) fetch that admin's session ONCE, up
   // front, across all of them — a real multi-restaurant session, one login,
   // one restore — rather than this function re-triggering its own separate
   // login per restaurant.
-  let walled: FmWalledFieldsResult | undefined = opts?.prefetchedWalled
+  let walled: FmWalledFieldsResult | undefined = opts?.prefetchedWalled ?? readiness.fetchedWalled
   if (!walled) {
     try {
       const walledMap = await readWalledFieldsForRestaurants([readiness.restaurantReference])
@@ -1107,7 +1172,13 @@ export async function convertToNative(
     console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real promo codes carried over: ${promoCodes.reason}`)
   }
 
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: nativeIsLive }, invite, systemAdminInvites, notificationSettings, closedDays, promoCodes, profileFields, taxRates }
+  const orderStatsAfter = await snapshotOrderStats(readiness.restaurantReference)
+
+  return {
+    converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: nativeIsLive },
+    invite, systemAdminInvites, notificationSettings, closedDays, promoCodes, profileFields, taxRates,
+    orderStats: { before: orderStatsBefore, after: orderStatsAfter },
+  }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────
