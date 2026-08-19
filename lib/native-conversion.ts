@@ -17,13 +17,14 @@ import bcrypt from 'bcryptjs'
 import { randomUUID } from 'crypto'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
 import { evaluateMarketplaceReadiness } from './marketplace-visibility'
+import { readWalledFieldsForRestaurants, type FmWalledFieldsResult } from './fm-master-admin-read'
 import { verifyAccountReusable } from './stripe-connect'
 import { syncRestaurantOrders } from './fm-orders-sync'
 import { setInviteToken, grantLocationAccess } from './disco-restaurant-auth'
 import { sendTeamMemberInvite } from './email/notifications'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { sanitizePhone } from './utils/phone'
-import { holidayDates, isHolidayName } from './holidays'
+import { isHolidayName } from './holidays'
 import { fmImageUrl } from './fm-image'
 
 const SITE_URL = 'https://www.discocater.com'
@@ -223,6 +224,12 @@ export interface ConversionResult {
   closedDays?: ClosedDaysCarryOverResult
   promoCodes?: PromoCodesCarryOverResult
   profileFields?: ProfileFieldsCarryOverResult
+  taxRates?: TaxRatesCarryOverResult
+}
+
+export interface TaxRatesCarryOverResult {
+  carried: boolean
+  reason: string
 }
 
 export interface InviteResult {
@@ -470,22 +477,49 @@ async function flagNotificationSettingsNeedReview(ref: string): Promise<void> {
 }
 
 // ── Notification-settings carry-over on conversion ────────────────────────────
-// Confirmed root cause of the Glen Rock gap: FM's real notification_emails /
-// notification_sms_numbers / phoneNotificationType live behind GET /api/notifications,
-// which is SESSION-scoped to the restaurant's own login — empirically confirmed
-// (2026-08-06) to return 500 "Access is denied" for the service account regardless
-// of any restaurantReference param, and no admin-scoped equivalent exists
-// (/api/admin/notifications and /api/admin/restaurants/{ref}/notifications both
-// 404). This is a real access-control wall, not a transient failure — expect this
-// to fail every time until FM exposes an admin-scoped path. Attempted anyway (in
-// case that ever changes); every failure both logs loudly AND persists the
-// needs-review flag above, so the gap is visible somewhere an admin will actually
-// look, not just in the conversion result and function logs.
-export async function carryOverNotificationSettings(ref: string): Promise<NotificationCarryOverResult> {
+// Root cause of the Glen Rock gap: FM's real notification_emails /
+// notification_sms_numbers / phoneNotificationType live behind GET
+// /api/notifications, session-scoped to a real restaurant admin login — the
+// SUPER_ADMIN service account is confirmed permanently denied here regardless
+// of any restaurantReference param, no admin-scoped equivalent exists. The FIX
+// (this session): a master-password login AS the restaurant's own real ADMIN or
+// SYSTEM_ADMIN reads this for real — see lib/fm-master-admin-read.ts, which
+// resolves that identity and handles the session/switch/restore safely.
+// `walled` is that read, already fetched once per conversion (never re-fetched
+// per field — see convertToNative). Falls back to the old service-account
+// attempt only when no real admin identity could be resolved at all (in which
+// case it's expected to fail exactly as before, and stays flagged for review).
+export async function carryOverNotificationSettings(ref: string, walled?: FmWalledFieldsResult): Promise<NotificationCarryOverResult> {
   const fail = async (reason: string): Promise<NotificationCarryOverResult> => {
     console.error(`[convertToNative] notification carry-over FAILED for ${ref}: ${reason}`)
     await flagNotificationSettingsNeedReview(ref)
     return { carried: false, reason }
+  }
+  const succeed = async (data: { email?: string[]; phoneNumber?: string[]; phoneNotificationType?: string }): Promise<NotificationCarryOverResult> => {
+    const emails = Array.from(new Set((data.email || []).map((e) => String(e).trim()).filter(Boolean)))
+    const phones = Array.from(new Set((data.phoneNumber || []).map((p) => sanitizePhone(String(p))).filter(Boolean)))
+    const textNotificationsEnabled = data.phoneNotificationType === 'ALL'
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, notification_emails, notification_sms_numbers, text_notifications_enabled, notification_settings_flagged_at, updated_at)
+      VALUES (${ref}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, NULL, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE
+        SET notification_emails = ${emails.join(',') || null},
+            notification_sms_numbers = ${phones.join(',') || null},
+            text_notifications_enabled = ${textNotificationsEnabled},
+            notification_settings_flagged_at = NULL,
+            updated_at = NOW()
+    `
+    return { carried: true, reason: `Carried over ${emails.length} email(s), ${phones.length} phone(s) via master-password admin session.` }
+  }
+
+  // Master-password path — trust a real 200 at face value (empty is genuinely
+  // empty now that the wall no longer applies; it's the OLD service-account
+  // path below where an empty result specifically meant "still walled").
+  if (walled?.ok && walled.notifications) return succeed(walled.notifications)
+  if (walled && !walled.ok) {
+    // Fell through master-password resolution (no real admin identity, or the
+    // FM login itself failed) — try the old service-account path anyway, in
+    // case FM ever opens this up, then flag if that also fails.
   }
 
   let auth: Record<string, string>
@@ -502,31 +536,15 @@ export async function carryOverNotificationSettings(ref: string): Promise<Notifi
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    return fail(`FM /api/notifications unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall; real recipients must be entered manually post-conversion.`)
+    return fail(`FM /api/notifications unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall${walled ? `; no real per-restaurant admin identity was found either (${walled.reason})` : ''}; real recipients must be entered manually post-conversion.`)
   }
 
-  // Unreachable today (confirmed above), kept for the day FM exposes a real path —
-  // same NotificationsShape as app/api/restaurant/notifications' FM-token GET.
   let data: { email?: string[]; phoneNumber?: string[]; phoneNotificationType?: string } | null = null
   try { data = await res.json() } catch { /* fall through to the reason below */ }
   if (!data) {
     return fail('FM /api/notifications returned a non-JSON or empty body — cannot carry over.')
   }
-
-  const emails = Array.from(new Set((data.email || []).map((e) => String(e).trim()).filter(Boolean)))
-  const phones = Array.from(new Set((data.phoneNumber || []).map((p) => sanitizePhone(String(p))).filter(Boolean)))
-  const textNotificationsEnabled = data.phoneNotificationType === 'ALL'
-
-  await sql`
-    INSERT INTO disco_restaurant_overrides (restaurant_reference, notification_emails, notification_sms_numbers, text_notifications_enabled, updated_at)
-    VALUES (${ref}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, NOW())
-    ON CONFLICT (restaurant_reference) DO UPDATE
-      SET notification_emails = ${emails.join(',') || null},
-          notification_sms_numbers = ${phones.join(',') || null},
-          text_notifications_enabled = ${textNotificationsEnabled},
-          updated_at = NOW()
-  `
-  return { carried: true, reason: `Carried over ${emails.length} email(s), ${phones.length} phone(s).` }
+  return succeed(data)
 }
 
 export interface ClosedDaysCarryOverResult {
@@ -551,37 +569,112 @@ async function flagClosedDaysNeedReview(ref: string): Promise<void> {
   }
 }
 
+// FM's real closed-days entries name a handful of holidays slightly differently
+// than Disco's own canonical list (lib/holidays.ts) — confirmed by reading real
+// FM data (Pelican Delicatessen, via master-password read) this session.
+const FM_HOLIDAY_NAME_ALIASES: Record<string, string> = {
+  "President's Day": "Presidents' Day",
+  'Easter Day': 'Easter',
+}
+
+// FM sends "DD.MM.YYYY"; Postgres date columns need "YYYY-MM-DD".
+function fmDateToIso(d: string): string | null {
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(d.trim())
+  if (!m) return null
+  return `${m[3]}-${m[2]}-${m[1]}`
+}
+
 // ── Closed-days / holiday carry-over on conversion ────────────────────────────
-// Same access-control wall confirmed for notifications (2026-08-11, Francesca
-// Catering - Glen Rock): FM's real closed-days/holiday config lives behind
-// GET /api/closedDays, session-scoped to the restaurant's own login. The
-// service account (getFmServiceAuthHeader) returns HTTP 200 with an EMPTY
-// array for ANY restaurant, including Glen Rock, which we independently
-// confirmed (via screenshots) has 5 real holidays + a custom vacation range
-// configured. Because the failure mode is a "successful" empty array, not an
-// error status, an empty result is treated as the SAME confirmed wall, not as
-// "this restaurant genuinely has zero closures" — trusting an empty array at
-// face value would silently reproduce the exact gap this function exists to
-// close. Attempted anyway (in case FM ever exposes this to service accounts);
-// every failure (including the empty-array case) both logs loudly AND
-// persists the needs-review flag, so the gap is visible to an admin.
+// FM's real closed-days config lives behind GET /api/closedDays, session-scoped
+// to a real restaurant admin login. FIXED (this session): a master-password
+// login as the restaurant's own ADMIN/SYSTEM_ADMIN reads this for real — see
+// lib/fm-master-admin-read.ts. `walled` is that already-fetched read (see
+// convertToNative). Falls back to the old service-account attempt only when no
+// real admin identity could be resolved — that path is confirmed permanently
+// walled (a 200 with an empty array regardless of the restaurant's real
+// config), so an empty result THERE still means "wall," not "no closures." Via
+// the master-password path, trust a real empty array at face value — the wall
+// no longer applies once the read comes from a genuine admin session.
 //
-// FM's response shape for a NON-EMPTY result is UNVERIFIED — we have never
-// actually seen one (every real attempt has returned []). Field names are
-// inferred from disco-closed-days' own shape (holiday/name/fromDate/toDate in
-// FM's camelCase convention, matching every other FM DTO in this codebase) and
-// from the assumption that FM's model splits the same way Disco's does: named
-// holidays (pre-computed recurring dates) vs. one-off custom ranges. If FM's
-// real shape ever becomes reachable and differs, this will need adjusting —
-// the empty-array guard above means it fails safe (flagged, not silently
-// wrong) rather than inserting garbage.
-export async function carryOverClosedDays(ref: string): Promise<ClosedDaysCarryOverResult> {
+// Real FM shape (confirmed via a live master-password read this session, not
+// the earlier guess): `{eventName, available, eventDates: ["DD.MM.YYYY", ...],
+// reference}` — NOT the previously-assumed holiday/name/fromDate/toDate shape,
+// which real data has now confirmed was wrong.
+//
+// FM: available: true = ordering unavailable = closed; checked in FM's
+// Scheduling Override UI. available: false = unchecked = open. Confirmed
+// against Pelican Delicatessen's own real, known state (Peter): exactly one
+// box checked there (Memorial Day) — Memorial Day is the only entry with
+// available: true, all eleven others available: false. The field name reads
+// backwards from its literal sense (`available` is TRUE when the restaurant is
+// NOT available to order) — do not re-derive this from the name alone.
+export async function carryOverClosedDays(ref: string, walled?: FmWalledFieldsResult): Promise<ClosedDaysCarryOverResult> {
   const fail = async (reason: string): Promise<ClosedDaysCarryOverResult> => {
     console.error(`[convertToNative] closed-days carry-over FAILED for ${ref}: ${reason}`)
     await flagClosedDaysNeedReview(ref)
     return { carried: false, reason }
   }
 
+  type FmClosedDay = { eventName?: string; available?: boolean; eventDates?: string[]; reference?: string }
+
+  const parseAndWrite = async (rows: FmClosedDay[]): Promise<ClosedDaysCarryOverResult> => {
+    const inserts: { name: string; holiday: string | null }[] = []
+    let skipped = 0
+    const dated: { name: string; holiday: string | null; from: string; to: string }[] = []
+
+    for (const row of rows) {
+      if (row.available !== true) continue // available: true = closed (see comment above); false = open, nothing to carry over
+      const rawName = (row.eventName || '').trim()
+      if (!rawName) { skipped++; continue }
+      const canonicalName = FM_HOLIDAY_NAME_ALIASES[rawName] || rawName
+      const holiday = isHolidayName(canonicalName) ? canonicalName : null
+      const dates = (row.eventDates || []).map(fmDateToIso).filter((d): d is string => !!d)
+      if (dates.length === 0) { skipped++; continue }
+      for (const d of dates) dated.push({ name: canonicalName, holiday, from: d, to: d })
+      inserts.push({ name: canonicalName, holiday })
+    }
+
+    if (dated.length === 0) {
+      return fail(`FM /api/closedDays returned ${rows.length} row(s) but none were usable/closed (unrecognized shape, or the restaurant is open on every listed date) — cannot carry over.`)
+    }
+
+    // Replace wholesale rather than merge — this only ever runs once, at
+    // conversion, against a restaurant that (per the gate above) has zero rows.
+    await sql`DELETE FROM disco_restaurant_closed_days WHERE restaurant_reference = ${ref}::uuid`
+    const stmts = dated.map(i => sql`
+      INSERT INTO disco_restaurant_closed_days (restaurant_reference, name, holiday, from_date, to_date)
+      VALUES (${ref}::uuid, ${i.name}, ${i.holiday}, ${i.from}::date, ${i.to}::date)
+    `)
+    await sql.transaction(stmts)
+    await sql`
+      UPDATE disco_restaurant_overrides SET closed_days_flagged_at = NULL, updated_at = NOW()
+      WHERE restaurant_reference = ${ref}
+    `
+    const holidayNames = new Set(inserts.filter(i => i.holiday).map(i => i.holiday as string))
+    const customCount = inserts.length - holidayNames.size
+    return {
+      carried: true,
+      reason: `Carried over ${holidayNames.size} named holiday(s) [${[...holidayNames].join(', ')}] + ${customCount} custom closed date(s) from ${rows.length} FM row(s) via master-password admin session${skipped ? ` (${skipped} row(s) skipped — unusable)` : ''}.`,
+    }
+  }
+
+  if (walled?.ok && Array.isArray(walled.closedDays)) {
+    if (walled.closedDays.length === 0) {
+      // Genuinely trusted now — a real admin session returning zero rows means
+      // zero closures, not the wall (the wall only ever applied to the
+      // service-account path below).
+      await sql`
+        UPDATE disco_restaurant_overrides SET closed_days_flagged_at = NULL, updated_at = NOW()
+        WHERE restaurant_reference = ${ref}
+      `
+      return { carried: true, reason: 'FM reports zero closed days for this restaurant (read via master-password admin session — trusted, not the old service-account wall).' }
+    }
+    return parseAndWrite(walled.closedDays as FmClosedDay[])
+  }
+
+  // No real admin identity resolved (or the master-password login itself
+  // failed) — fall back to the old, confirmed-walled service-account attempt,
+  // in case FM ever opens this up. An empty result here still means the wall.
   let auth: Record<string, string>
   try { auth = await getFmServiceAuthHeader() } catch (e) {
     return fail(`FM auth failed — could not even attempt the closed-days fetch: ${e instanceof Error ? e.message : e}`)
@@ -596,7 +689,7 @@ export async function carryOverClosedDays(ref: string): Promise<ClosedDaysCarryO
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    return fail(`FM /api/closedDays unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall; real closed dates must be entered manually post-conversion.`)
+    return fail(`FM /api/closedDays unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall${walled ? `; no real per-restaurant admin identity was found either (${walled.reason})` : ''}; real closed dates must be entered manually post-conversion.`)
   }
 
   let data: unknown = null
@@ -605,49 +698,36 @@ export async function carryOverClosedDays(ref: string): Promise<ClosedDaysCarryO
     return fail('FM /api/closedDays returned a non-array body — cannot carry over.')
   }
   if (data.length === 0) {
-    return fail('FM /api/closedDays returned an empty array — the confirmed access-control wall (a restaurant known to have real closures still returns []), not evidence this restaurant has none. Real closed dates must be entered manually.')
+    return fail('FM /api/closedDays returned an empty array via the service account — the confirmed access-control wall (a restaurant known to have real closures still returns []), not evidence this restaurant has none. Real closed dates must be entered manually.')
   }
+  return parseAndWrite(data as FmClosedDay[])
+}
 
-  type FmClosedDay = { holiday?: string | null; name?: string | null; fromDate?: string | null; toDate?: string | null }
-  const rows = data as FmClosedDay[]
-  const thisYear = new Date().getFullYear()
-  const inserts: { name: string; holiday: string | null; from: string; to: string }[] = []
-  let skipped = 0
-
-  for (const row of rows) {
-    const holiday = row.holiday && isHolidayName(row.holiday) ? row.holiday : null
-    if (holiday) {
-      // Pre-compute the recurring run of dates, same as the manual holiday
-      // toggle (app/api/restaurant/disco-closed-days) — matches Disco's model
-      // regardless of whether FM sent explicit dates for a named holiday.
-      for (const d of holidayDates(holiday, thisYear)) inserts.push({ name: holiday, holiday, from: d, to: d })
-    } else if (row.fromDate && row.toDate) {
-      inserts.push({ name: row.name || 'Closed', holiday: null, from: row.fromDate, to: row.toDate })
-    } else {
-      skipped++
-    }
+// ── Tax-rate carry-over on conversion ─────────────────────────────────────────
+// Previously only ever mirrored opportunistically, whenever a restaurant admin
+// happened to view FM's tax-rate page while still FM-backed (mirrorTaxRates in
+// app/api/restaurant/tax-rate/route.ts) — meaning it was never actually
+// attempted AT conversion time, and checkConversionReadiness's blocking
+// `settings` gate could fail simply because nobody had opened that page yet,
+// not because the rate wasn't real. FIXED (this session): if `walled.taxRate`
+// came back from a real master-password admin session, write it here, at
+// conversion time, the same way the other two carry-overs do — using the same
+// shape mirrorTaxRates already writes (JSON passthrough, no separate flag
+// column; the settings gate already reads this value directly).
+export async function carryOverTaxRates(ref: string, walled?: FmWalledFieldsResult): Promise<TaxRatesCarryOverResult> {
+  if (!walled?.ok || !walled.taxRate) {
+    return { carried: false, reason: walled?.reason || 'No master-password read available for tax rates.' }
   }
-
-  if (inserts.length === 0) {
-    return fail(`FM /api/closedDays returned ${rows.length} row(s) but none were usable (unrecognized holiday name or missing dates) — cannot carry over.`)
+  const statePct = walled.taxRate.stateSalesTax?.percent
+  if (typeof statePct !== 'number' || !Number.isFinite(statePct)) {
+    return { carried: false, reason: 'FM returned a tax-rate object but stateSalesTax.percent is null/missing — not a real rate, not carrying over.' }
   }
-
-  // Replace wholesale rather than merge — this only ever runs once, at
-  // conversion, against a restaurant that (per the gate above) has zero rows.
-  await sql`DELETE FROM disco_restaurant_closed_days WHERE restaurant_reference = ${ref}::uuid`
-  const holidayNames = new Set<string>()
-  const stmts = inserts.map(i => {
-    if (i.holiday) holidayNames.add(i.holiday)
-    return sql`
-      INSERT INTO disco_restaurant_closed_days (restaurant_reference, name, holiday, from_date, to_date)
-      VALUES (${ref}::uuid, ${i.name}, ${i.holiday}, ${i.from}::date, ${i.to}::date)
-    `
-  })
-  await sql.transaction(stmts)
-  return {
-    carried: true,
-    reason: `Carried over ${holidayNames.size} holiday(s) [${[...holidayNames].join(', ')}] + ${inserts.length - [...holidayNames].reduce((n, h) => n + holidayDates(h, thisYear).length, 0)} custom range(s) from ${rows.length} FM row(s)${skipped ? ` (${skipped} skipped — unusable)` : ''}.`,
-  }
+  await sql`
+    INSERT INTO disco_restaurant_overrides (restaurant_reference, tax_rates, updated_at)
+    VALUES (${ref}, ${JSON.stringify(walled.taxRate)}::jsonb, NOW())
+    ON CONFLICT (restaurant_reference) DO UPDATE SET tax_rates = ${JSON.stringify(walled.taxRate)}::jsonb, updated_at = NOW()
+  `
+  return { carried: true, reason: `Carried over real tax rates (state ${statePct}%) via master-password admin session.` }
 }
 
 export interface PromoCodesCarryOverResult {
@@ -879,7 +959,7 @@ async function computeNativeIsLive(ref: string): Promise<boolean> {
 // Expedite dispatch for 3P-delivery restaurants) — those can't be inferred
 // passively and require an actual recorded action. Skipping them here is a
 // deliberate product decision (this comment exists so it's visible, not silent).
-export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): Promise<ConversionResult> {
+export async function convertToNative(ref: string, opts?: { stripe?: Stripe; skipInvites?: boolean }): Promise<ConversionResult> {
   const readiness = await checkConversionReadiness(ref, opts)
   if (!readiness.found) return { converted: false, reason: 'Restaurant not found.', readiness }
   if (readiness.isDiscoNative) return { converted: false, reason: 'Already Disco-native.', readiness }
@@ -915,12 +995,23 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
   // Best-effort — a failed invite email or notification-carry-over must never
   // undo or fail an already-successful conversion. Restaurant name for the email
   // body comes from the cache row already confirmed to exist above.
+  //
+  // skipInvites: for a bulk/batch conversion run where sending real invite
+  // emails isn't wanted yet (e.g. a first pass to validate data before any
+  // restaurant is contacted) — both invite steps are skipped entirely, not just
+  // logged, so NO email is dispatched. Everything else (menu, orders, tax,
+  // notifications/closed-days/promo flags, profile fields, is_live) still runs
+  // exactly as normal.
   let invite: InviteResult | undefined
-  try {
-    const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
-    invite = await ensureRestaurantLoginInvited(readiness.restaurantReference, nameRow[0]?.name ?? null)
-  } catch (e) {
-    invite = { invited: false, email: null, reason: `Invite step threw: ${e instanceof Error ? e.message : e}` }
+  if (opts?.skipInvites) {
+    invite = { invited: false, email: null, reason: 'Skipped — batch conversion run with invites suppressed.' }
+  } else {
+    try {
+      const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
+      invite = await ensureRestaurantLoginInvited(readiness.restaurantReference, nameRow[0]?.name ?? null)
+    } catch (e) {
+      invite = { invited: false, email: null, reason: `Invite step threw: ${e instanceof Error ? e.message : e}` }
+    }
   }
 
   // Best-effort, same contract as `invite` above — covers FM SYSTEM_ADMINs that
@@ -928,16 +1019,42 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
   // inviteFmSystemAdminsFor's header comment). A failure here must never affect
   // `invite` above, the conversion itself, or any other step below.
   let systemAdminInvites: SystemAdminInviteResult[] = []
+  if (!opts?.skipInvites) {
+    try {
+      const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
+      systemAdminInvites = await inviteFmSystemAdminsFor(readiness.restaurantReference, nameRow[0]?.name ?? null)
+    } catch (e) {
+      console.error(`[convertToNative] system-admin invite step threw: ${e instanceof Error ? e.message : e}`)
+    }
+  }
+
+  // ONE master-password read per conversion, covering all three walled fields
+  // at once (one login, one admin session, restored before this returns) —
+  // never three separate logins for the same restaurant. See
+  // lib/fm-master-admin-read.ts for the session/switch/restore handling.
+  let walled: FmWalledFieldsResult | undefined
   try {
-    const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
-    systemAdminInvites = await inviteFmSystemAdminsFor(readiness.restaurantReference, nameRow[0]?.name ?? null)
+    const walledMap = await readWalledFieldsForRestaurants([readiness.restaurantReference])
+    walled = walledMap.get(readiness.restaurantReference)
   } catch (e) {
-    console.error(`[convertToNative] system-admin invite step threw: ${e instanceof Error ? e.message : e}`)
+    console.error(`[convertToNative] master-password walled-field read threw for ${readiness.restaurantReference}:`, e instanceof Error ? e.message : e)
+  }
+
+  let taxRates: TaxRatesCarryOverResult
+  try {
+    taxRates = await carryOverTaxRates(readiness.restaurantReference, walled)
+  } catch (e) {
+    const reason = `Tax-rate carry-over step threw: ${e instanceof Error ? e.message : e}`
+    console.error(`[convertToNative] ${reason}`)
+    taxRates = { carried: false, reason }
+  }
+  if (!taxRates.carried) {
+    console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real tax rates carried over: ${taxRates.reason}`)
   }
 
   let notificationSettings: NotificationCarryOverResult
   try {
-    notificationSettings = await carryOverNotificationSettings(readiness.restaurantReference)
+    notificationSettings = await carryOverNotificationSettings(readiness.restaurantReference, walled)
   } catch (e) {
     const reason = `Notification carry-over step threw: ${e instanceof Error ? e.message : e}`
     console.error(`[convertToNative] ${reason}`)
@@ -951,7 +1068,7 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
 
   let closedDays: ClosedDaysCarryOverResult
   try {
-    closedDays = await carryOverClosedDays(readiness.restaurantReference)
+    closedDays = await carryOverClosedDays(readiness.restaurantReference, walled)
   } catch (e) {
     const reason = `Closed-days carry-over step threw: ${e instanceof Error ? e.message : e}`
     console.error(`[convertToNative] ${reason}`)
@@ -979,7 +1096,7 @@ export async function convertToNative(ref: string, opts?: { stripe?: Stripe }): 
     console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real promo codes carried over: ${promoCodes.reason}`)
   }
 
-  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: nativeIsLive }, invite, systemAdminInvites, notificationSettings, closedDays, promoCodes, profileFields }
+  return { converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: nativeIsLive }, invite, systemAdminInvites, notificationSettings, closedDays, promoCodes, profileFields, taxRates }
 }
 
 // ── Account-id import (M3 bulk-import tool) ──────────────────────────────────

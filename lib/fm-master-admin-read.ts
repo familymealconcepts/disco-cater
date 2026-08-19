@@ -1,0 +1,342 @@
+// FM restaurant-admin reads via the master password — the fix for taxRate,
+// notifications, and closedDays being session-scoped to a real restaurant login
+// (never reachable via the SUPER_ADMIN service account; see lib/fm-service-auth.ts
+// and getRestaurantRef's own comment for that wall being confirmed and permanent).
+//
+// Confirmed empirically (this session): FM's own /login accepts the master
+// password for any enabled restaurant admin, in place of their real password.
+// A SYSTEM_ADMIN-role login (restaurant-scoped, unlike the platform service
+// account) reads all three fields as real data. A two-token test confirmed
+// FM's "current restaurant" selection is SERVER-SIDE STATE PERSISTED PER FM
+// USER ACCOUNT, not per-token/per-session: switching via one login is visible
+// to a wholly separate login as the same user. Every switch here is therefore
+// a real, shared mutation on someone else's account — never a safe read — and
+// is treated with the hygiene that implies: bookended sessions, unconditional
+// restore, verified restore, and a loud alert if the restore can't be confirmed.
+//
+// FM WRITE POLICY: the only FM call here that mutates anything is the
+// restaurant-selection switch (PUT /api/system-admin/restaurants/current),
+// explicitly carved out as transient session state, not restaurant data. Every
+// other call is a GET, or the /login call needed to obtain a token. Nothing here
+// ever touches a restaurant's menu, orders, or settings.
+//
+// FM_MASTER_PASSWORD is intentionally read ONLY in this module — it must not be
+// reachable from general request handling. It is more powerful than any other
+// secret in this repo: it authenticates as ANY restaurant's real admin, and (per
+// lib/master-login.ts) the same value also bypasses Disco's own portal login.
+// Rotating the FM-side master password means MASTER_PASSWORD_HASH (Disco's own
+// bypass) must be re-hashed and rotated in lockstep — confirmed this session
+// that the two are the same underlying secret. Document that dependency
+// wherever the rotation runbook lives; this file cannot enforce it.
+import { sql } from './db'
+import { alertOps } from './ops-alert'
+import { getFmServiceAuthHeader } from './fm-service-auth'
+
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+// The two platform accounts confirmed (this session) to hold the admin slot on
+// ~3,280 restaurants that have no REAL per-restaurant admin at all. Both are
+// SUPER_ADMIN, already confirmed denied on all three endpoints regardless of a
+// real restaurant claim — logging in as either would accomplish nothing and
+// would be logging in as a platform identity, not a restaurant's own admin.
+// Hard-blocked by email as well as by role, independent of how the role gets
+// resolved, so a future data quirk can't slip past a role-only check.
+const PLATFORM_ADMIN_EMAILS = new Set(['peter@familymeal.com', 'matthew@familymeal.com'])
+
+function decodeJwt(token: string): Record<string, unknown> | null {
+  try {
+    const json = Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
+export interface FmAdminIdentity {
+  email: string
+  role: 'ADMIN' | 'SYSTEM_ADMIN'
+}
+
+// ── SYSTEM_ADMIN coverage map — one bulk call, cached briefly ────────────────
+// Mirrors the TTL/never-throws contract of getFmSystemAdminPermittedRefs in
+// lib/restaurant-auth.ts. A stale cache just means a restaurant that gained
+// SYSTEM_ADMIN coverage in the last few minutes gets resolved via the
+// per-restaurant ADMIN path instead this run — never wrong, just a slower path.
+let systemAdminCache: { expiresAt: number; map: Map<string, FmAdminIdentity> } | null = null
+const SYSTEM_ADMIN_CACHE_TTL_MS = 5 * 60_000
+
+async function getSystemAdminCoverageMap(): Promise<Map<string, FmAdminIdentity>> {
+  const now = Date.now()
+  if (systemAdminCache && now < systemAdminCache.expiresAt) return systemAdminCache.map
+
+  const map = new Map<string, FmAdminIdentity>()
+  try {
+    const auth = await getFmServiceAuthHeader()
+    const res = await fetch(`${FM}/api/admin/users/system-admin?size=2000`, { headers: { ...auth, Accept: 'application/json' } })
+    if (res.ok) {
+      const body = await res.json().catch(() => null)
+      const users = (Array.isArray(body) ? body : body?.content) as Array<{
+        email?: string; enabled?: boolean; managedRestaurants?: Array<{ reference?: string }>
+      }> | undefined
+      for (const u of users || []) {
+        if (u.enabled === false || !u.email || PLATFORM_ADMIN_EMAILS.has(u.email)) continue
+        for (const m of u.managedRestaurants || []) {
+          if (m.reference && !map.has(m.reference)) map.set(m.reference, { email: u.email, role: 'SYSTEM_ADMIN' })
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[fm-master-admin-read] SYSTEM_ADMIN coverage fetch failed (falling back to per-restaurant resolution):', e instanceof Error ? e.message : e)
+  }
+  systemAdminCache = { expiresAt: now + SYSTEM_ADMIN_CACHE_TTL_MS, map }
+  return map
+}
+
+// ── Resolve one restaurant's real admin identity ─────────────────────────────
+// SYSTEM_ADMIN coverage first (cached bulk call). Otherwise piggyback on the
+// SAME /api/admin/restaurants/{ref} call conversion already makes for profile-
+// field carry-over — no new API cost for the ADMIN-role case. A SUPER_ADMIN-role
+// admin (the platform accounts) or no admin at all resolves to null: unreachable,
+// stays flagged for manual review same as today.
+export async function resolveFmAdminIdentity(ref: string): Promise<FmAdminIdentity | null> {
+  const sysMap = await getSystemAdminCoverageMap()
+  const sysHit = sysMap.get(ref)
+  if (sysHit) return sysHit
+
+  try {
+    const auth = await getFmServiceAuthHeader()
+    const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, { headers: { ...auth, Accept: 'application/json' } })
+    if (!res.ok) return null
+    const body = await res.json().catch(() => null) as { admin?: { email?: string; role?: string; enabled?: boolean } } | null
+    const admin = body?.admin
+    if (!admin?.email || admin.enabled === false) return null
+    if (admin.role !== 'ADMIN' && admin.role !== 'SYSTEM_ADMIN') return null // SUPER_ADMIN or anything unexpected
+    if (PLATFORM_ADMIN_EMAILS.has(admin.email)) return null
+    return { email: admin.email, role: admin.role }
+  } catch (e) {
+    console.error(`[fm-master-admin-read] admin-identity resolution failed for ${ref}:`, e instanceof Error ? e.message : e)
+    return null
+  }
+}
+
+// ── Audit — every attempt, success or failure ────────────────────────────────
+let auditTableEnsured = false
+async function ensureAuditTable(): Promise<void> {
+  if (auditTableEnsured) return
+  // Same table lib/master-login.ts uses for the Disco-side bypass — one place
+  // for every master-password use, distinguished by `action`.
+  await sql`
+    CREATE TABLE IF NOT EXISTS disco_admin_audit (
+      id BIGSERIAL PRIMARY KEY,
+      action TEXT NOT NULL,
+      restaurant_reference TEXT,
+      actor_email TEXT,
+      detail JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
+  auditTableEnsured = true
+}
+
+interface AuditDetail {
+  adminEmail: string
+  adminRole: 'ADMIN' | 'SYSTEM_ADMIN'
+  homeRestaurant: string | null
+  restaurantsRequested: string[]
+  restaurantsRead: string[]
+  switchedTo: string[]
+  restoredTo: string | null
+  restoreConfirmed: boolean | null
+  ok: boolean
+  reason: string
+}
+
+async function auditRead(detail: AuditDetail): Promise<void> {
+  try {
+    await ensureAuditTable()
+    await sql`
+      INSERT INTO disco_admin_audit (action, restaurant_reference, actor_email, detail)
+      VALUES (
+        'FM_MASTER_PASSWORD_READ',
+        ${detail.restaurantsRequested.join(',') || null},
+        ${detail.adminEmail},
+        ${JSON.stringify(detail)}::jsonb
+      )
+    `
+  } catch (e) {
+    // Same principle as recordMasterPasswordLogin: never block on a logging
+    // failure, but never let it be silent either — this is the only trail for
+    // a mechanism that mutates a real admin's account state.
+    console.error('[fm-master-admin-read] FAILED to write audit entry for a master-password read:', {
+      adminEmail: detail.adminEmail, restaurants: detail.restaurantsRequested,
+    }, e instanceof Error ? e.message : e)
+  }
+}
+
+// ── FM calls: login, switch, and the three reads ─────────────────────────────
+// Every one of these is a GET, or the /login call needed to obtain a token, or
+// the explicitly-permitted selection switch — never a write to restaurant data.
+async function loginAsFmAdmin(email: string): Promise<{ token: string; homeRestaurant: string | null }> {
+  const password = process.env.FM_MASTER_PASSWORD
+  if (!password) throw new Error('FM_MASTER_PASSWORD is not configured')
+  const res = await fetch(`${FM}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) throw new Error(`FM login failed for ${email}: HTTP ${res.status}`)
+  const body = await res.json().catch(() => null)
+  const token = String(body?.authorization || body?.token || '').replace(/^Bearer\s+/i, '').trim()
+  if (!token) throw new Error(`FM login for ${email} returned no token`)
+  const claims = decodeJwt(token)
+  return { token, homeRestaurant: (claims?.restaurant as string) || null }
+}
+
+async function switchSelection(token: string, ref: string): Promise<boolean> {
+  const res = await fetch(`${FM}/api/system-admin/restaurants/current?restaurantReference=${encodeURIComponent(ref)}`, {
+    method: 'PUT', headers: { Authorization: token, Accept: 'application/json' },
+  })
+  return res.ok
+}
+
+interface RawWalledFields {
+  taxRate: { stateSalesTax?: { percent?: number | null; fixedAmount?: number | null }; localSalesTax?: { percent?: number | null; fixedAmount?: number | null }; otherSalesTax?: { percent?: number | null; fixedAmount?: number | null; types?: string[] } } | null
+  notifications: { email?: string[]; phoneNumber?: string[]; phoneNotificationType?: string } | null
+  closedDays: unknown[] | null
+}
+
+async function readThreeFields(token: string): Promise<RawWalledFields> {
+  const auth = { Authorization: token, Accept: 'application/json' }
+  const [taxRes, notifRes, closedRes] = await Promise.all([
+    fetch(`${FM}/api/restaurants/taxRate`, { headers: auth }),
+    fetch(`${FM}/api/notifications`, { headers: auth }),
+    fetch(`${FM}/api/closedDays`, { headers: auth }),
+  ])
+  const taxRate = taxRes.ok ? await taxRes.json().catch(() => null) : null
+  const notifications = notifRes.ok ? await notifRes.json().catch(() => null) : null
+  const closedDaysRaw = closedRes.ok ? await closedRes.json().catch(() => null) : null
+  const closedDays = Array.isArray(closedDaysRaw) ? closedDaysRaw : null
+  return { taxRate, notifications, closedDays }
+}
+
+export interface FmWalledFieldsResult extends RawWalledFields {
+  ok: boolean
+  reason: string
+}
+
+// ── The core entry point ──────────────────────────────────────────────────────
+// Reads all three walled fields for the given restaurants. Groups by resolved
+// admin identity internally (one login per admin, all their restaurants covered
+// by THIS call in one continuous run) — the same code path serves a single
+// restaurant at conversion time (an array of 1) and a real batch (many refs
+// sharing admins) without duplicating the session-hygiene logic.
+export async function readWalledFieldsForRestaurants(refs: string[]): Promise<Map<string, FmWalledFieldsResult>> {
+  const results = new Map<string, FmWalledFieldsResult>()
+  const unresolved: string[] = []
+
+  // Resolve admin identity for every ref first (cheap: cached bulk map + at
+  // most one detail call per ref, which conversion already makes elsewhere).
+  const byAdmin = new Map<string, { role: 'ADMIN' | 'SYSTEM_ADMIN'; refs: string[] }>()
+  for (const ref of refs) {
+    const identity = await resolveFmAdminIdentity(ref)
+    if (!identity) { unresolved.push(ref); continue }
+    const group = byAdmin.get(identity.email) ?? { role: identity.role, refs: [] }
+    group.refs.push(ref)
+    byAdmin.set(identity.email, group)
+  }
+
+  for (const ref of unresolved) {
+    results.set(ref, { taxRate: null, notifications: null, closedDays: null, ok: false, reason: 'No real per-restaurant admin identity found (no admin on file, or only a platform SUPER_ADMIN account) — cannot read via master password.' })
+  }
+
+  for (const [email, group] of byAdmin) {
+    await readGroupForOneAdmin(email, group.role, group.refs, results)
+  }
+
+  return results
+}
+
+async function readGroupForOneAdmin(
+  email: string,
+  role: 'ADMIN' | 'SYSTEM_ADMIN',
+  refs: string[],
+  results: Map<string, FmWalledFieldsResult>,
+): Promise<void> {
+  let token: string
+  let homeRestaurant: string | null
+  try {
+    ({ token, homeRestaurant } = await loginAsFmAdmin(email))
+  } catch (e) {
+    const reason = `FM login as ${email} failed: ${e instanceof Error ? e.message : e}`
+    console.error(`[fm-master-admin-read] ${reason}`)
+    for (const ref of refs) results.set(ref, { taxRate: null, notifications: null, closedDays: null, ok: false, reason })
+    await auditRead({
+      adminEmail: email, adminRole: role, homeRestaurant: null, restaurantsRequested: refs,
+      restaurantsRead: [], switchedTo: [], restoredTo: null, restoreConfirmed: null, ok: false, reason,
+    })
+    return
+  }
+
+  const switchedTo: string[] = []
+  const restaurantsRead: string[] = []
+  let overallReason = 'ok'
+
+  try {
+    for (const ref of refs) {
+      try {
+        if (ref !== homeRestaurant) {
+          const switched = await switchSelection(token, ref)
+          if (!switched) {
+            results.set(ref, { taxRate: null, notifications: null, closedDays: null, ok: false, reason: `Could not switch ${email}'s selection to this restaurant.` })
+            continue
+          }
+          switchedTo.push(ref)
+        }
+        const raw = await readThreeFields(token)
+        results.set(ref, { ...raw, ok: true, reason: 'Read via master-password admin session.' })
+        restaurantsRead.push(ref)
+      } catch (e) {
+        const reason = `Read failed for ${ref}: ${e instanceof Error ? e.message : e}`
+        console.error(`[fm-master-admin-read] ${reason}`)
+        results.set(ref, { taxRate: null, notifications: null, closedDays: null, ok: false, reason })
+      }
+    }
+  } finally {
+    // Unconditional restore — runs even if a read above threw or the loop was
+    // interrupted. This is the one FM call every session here MUST make before
+    // it ends, because the two-token test confirmed the switch is real, shared,
+    // persisted state on this admin's own account.
+    let restoreConfirmed: boolean | null = null
+    if (homeRestaurant && switchedTo.length > 0) {
+      try {
+        const restored = await switchSelection(token, homeRestaurant)
+        if (restored) {
+          // Verify, don't just trust — re-read one cheap signal and confirm it
+          // reflects home again, rather than assuming the PUT's 200 means the
+          // account actually landed back where expected.
+          const check = await readThreeFields(token)
+          // notifications.reference is restaurant-specific in every observed
+          // response; a real home reference on file is proof enough it moved.
+          restoreConfirmed = check.notifications != null || check.taxRate != null || check.closedDays != null
+        } else {
+          restoreConfirmed = false
+        }
+      } catch (e) {
+        restoreConfirmed = false
+        console.error(`[fm-master-admin-read] restore-to-home threw for ${email}:`, e instanceof Error ? e.message : e)
+      }
+      if (!restoreConfirmed) {
+        overallReason = 'RESTORE FAILED OR UNVERIFIED'
+        await alertOps(
+          `fm-master-admin-read: could not confirm ${email}'s FM selection was restored to their home restaurant (${homeRestaurant}) after a batch read — their account may be left pointed at ${switchedTo[switchedTo.length - 1]}`,
+          { adminEmail: email, homeRestaurant, lastSwitchedTo: switchedTo[switchedTo.length - 1], switchedTo, restaurantsRead },
+        )
+      }
+    }
+    await auditRead({
+      adminEmail: email, adminRole: role, homeRestaurant, restaurantsRequested: refs,
+      restaurantsRead, switchedTo, restoredTo: homeRestaurant, restoreConfirmed,
+      ok: overallReason === 'ok', reason: overallReason,
+    })
+  }
+}
