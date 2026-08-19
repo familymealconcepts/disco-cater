@@ -246,10 +246,10 @@ export async function sendCustomerOrderConfirmation(
     const p = params
     const phone = formatPhone(p.businessPhone)
     const customerName = [p.firstName, p.lastName].filter(Boolean).map(escapeHtml).join(' ')
-    // Subject mirrors FM: "Disco Cater Order N ($total) date for Name". Total is
-    // the net (after any refund), matching the body.
-    const subjectTotal = money(p.totalPrice - (p.refund && p.refund > 0 ? p.refund : 0))
-    const subject = `Disco Cater Order ${p.orderNumber} (${subjectTotal})${p.orderDate ? ` ${p.orderDate}` : ''}${p.orderTime ? `, ${p.orderTime}` : ''}${customerName ? ` for ${customerName}` : ''}`
+    // The detailed subject (order number/total/date/time/customer name) belongs
+    // on the RESTAURANT side, matching FM's own convention — see
+    // sendRestaurantOrderNotification below. The diner gets the simpler
+    // "New Disco Cater Order — {business} #{orderNumber}" form instead.
 
     const content = `
 <p style="font-size:15px;font-weight:800;letter-spacing:.05em;margin:0 0 6px;">ORDER RECEIPT</p>
@@ -279,7 +279,7 @@ ${anyQuestions(p)}
 `
     return await sendEmail({
       to: p.to,
-      subject,
+      subject: `New Disco Cater Order — ${p.businessName} #${p.orderNumber}`,
       html: layout(content),
       ...(p.attachments && p.attachments.length ? { attachments: p.attachments } : {}),
     })
@@ -300,6 +300,15 @@ export async function sendRestaurantOrderNotification(
       p.deliveryType === 'NASH_DELIVERY' || p.deliveryType === 'DLIVRD_DELIVERY' || p.deliveryType === 'THIRD_PARTY'
     const isDelivery = String(p.orderService || '').toUpperCase() === 'DELIVERY' || isThirdPartyDelivery
     const storePhone = formatPhone(p.businessPhone)
+    const customerName = [p.firstName, p.lastName].filter(Boolean).join(' ')
+    // Detailed subject (order number/total/date/time/customer name) — the
+    // format the diner used to get, moved here to match FM's own convention.
+    // Location name leads: most clients truncate subjects around ~70 chars,
+    // and this line runs longer than that, so the location — the one thing a
+    // multi-location operator needs at a glance — has to come first or a
+    // truncated inbox view would hide it entirely.
+    const subjectTotal = money(p.totalPrice - (p.refund && p.refund > 0 ? p.refund : 0))
+    const subject = `${p.businessName} — Order ${p.orderNumber} (${subjectTotal})${p.orderDate ? ` ${p.orderDate}` : ''}${p.orderTime ? `, ${p.orderTime}` : ''}${customerName ? ` for ${customerName}` : ''}`
 
     // Order timing block — Nash/Dlivrd show pickup + dropoff, otherwise order time.
     // Order Source helps the restaurant immediately see where the order came
@@ -347,7 +356,7 @@ ${p.deliveryTrackingUrl ? `<p style="margin-top:20px;">You can track this delive
     return await sendEmail({
       to: p.restaurantEmail,
       bcc: p.restaurantBcc,
-      subject: `New Disco Cater Order — ${p.businessName} #${p.orderNumber}`,
+      subject,
       html: layout(content),
       attachments: p.attachments,
     })
