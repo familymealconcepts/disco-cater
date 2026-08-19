@@ -805,34 +805,65 @@ async function flagPromoCodesNeedReview(ref: string): Promise<void> {
 }
 
 // ── Promo-code carry-over on conversion ───────────────────────────────────────
-// Same access-control-wall class as notifications and closed-days, confirmed
-// via a DIFFERENT signature this time: FM's real promo/coupon config lives
-// behind GET /api/coupon (internal name "coupon", not "promoCode" — found by
-// probing plausible endpoint names), session-scoped to the restaurant's own
-// login. The service account gets a hard HTTP 500 "Access is denied" (FM's
-// standard access-control error body), confirmed for Francesca Catering -
-// Glen Rock, which we independently know has a real code (FRAN10, 10%, 1000
-// uses, 1/diner, 5/17/2023–12/30/2027) that this endpoint cannot see. Unlike
-// closedDays/notifications (which "succeed" with an empty array), this fails
-// with a real error status, so !res.ok alone reliably catches it — the
-// empty-array guard below is kept anyway for defense in depth, in case FM's
-// behavior ever changes to match the other two endpoints.
+// Same role-exclusion wall as tax/notifications/closed-days, fixed the same
+// way (2026-08-19): a master-password login as the restaurant's real
+// ADMIN/SYSTEM_ADMIN identity. `walled` is the same already-fetched read
+// convertToNative uses for the other three — one login covers all four
+// fields, never a separate one for this.
 //
-// FM's response shape for a NON-EMPTY result is UNVERIFIED — /api/coupon has
-// never returned anything but this 500 in every attempt made. Field names are
-// guessed from Disco's own promo_codes/restaurant-portal conventions
-// (code/discountPercentage/maxAvailable/maxPerDiner/startDate/endDate) with
-// a few plausible FM-style alternates; if FM's real shape ever becomes
-// reachable and differs, this needs adjusting — the empty-array/unusable-row
-// guards mean it fails safe (flagged, not silently wrong) rather than
-// inserting garbage.
-export async function carryOverPromoCodes(ref: string): Promise<PromoCodesCarryOverResult> {
+// FM's real shape (confirmed via a live read this session, Francesca
+// Catering - Glen Rock's real FRAN10 code) is a SINGLE OBJECT, not a list:
+// {reference, code, maxAvailable, maxPerDiner, discountPercentage,
+// startDate, endDate, remainingDiscountAvailable} — the old code's
+// `Array.isArray` guard meant it could never have parsed a real result even
+// once the wall was bypassed. A restaurant with no coupon configured
+// returns the same 200 shape with everything but remainingDiscountAvailable
+// absent ({"remainingDiscountAvailable":0}, confirmed on Pelican
+// Delicatessen) — lib/fm-master-admin-read.ts's readWalledFields already
+// treats "no `code` field" as null, not as the wall, so an absent code here
+// means genuinely no coupon, not something to flag for manual review.
+export async function carryOverPromoCodes(ref: string, walled?: FmWalledFieldsResult): Promise<PromoCodesCarryOverResult> {
   const fail = async (reason: string): Promise<PromoCodesCarryOverResult> => {
     console.error(`[convertToNative] promo-code carry-over FAILED for ${ref}: ${reason}`)
     await flagPromoCodesNeedReview(ref)
     return { carried: false, reason }
   }
 
+  if (walled?.ok) {
+    const coupon = walled.promoCode
+    if (!coupon) {
+      // Genuinely trusted — a real admin session with no code configured,
+      // not the wall (the wall only ever applied to the service-account path).
+      await sql`
+        UPDATE disco_restaurant_overrides SET promo_codes_flagged_at = NULL, updated_at = NOW()
+        WHERE restaurant_reference = ${ref}
+      `
+      return { carried: true, reason: 'FM reports no promo code configured for this restaurant (read via master-password admin session — trusted, not the old wall).' }
+    }
+    const code = String(coupon.code || '').trim().toUpperCase()
+    const pct = Number(coupon.discountPercentage)
+    if (!code || !Number.isFinite(pct) || pct <= 0 || pct > 100 || !coupon.startDate) {
+      return fail(`FM's coupon response was missing a usable code/discount/date (${JSON.stringify(coupon)}) — cannot carry over.`)
+    }
+    const maxUses = coupon.maxAvailable == null ? null : Number(coupon.maxAvailable)
+    const maxPerDiner = coupon.maxPerDiner == null ? 1 : Number(coupon.maxPerDiner)
+    await sql`DELETE FROM promo_codes WHERE restaurant_ref = ${ref}`
+    await sql`
+      INSERT INTO promo_codes (code, discount_type, discount_value, scope, restaurant_ref, funded_by, max_uses, max_uses_per_user, valid_from, valid_until)
+      VALUES (${code}, 'percent', ${pct}, 'restaurant', ${ref}, 'RESTAURANT',
+              ${Number.isFinite(maxUses as number) ? maxUses : null}, ${Number.isFinite(maxPerDiner) ? maxPerDiner : 1},
+              ${coupon.startDate}::timestamptz, ${coupon.endDate ?? null}::timestamptz)
+    `
+    await sql`
+      UPDATE disco_restaurant_overrides SET promo_codes_flagged_at = NULL, updated_at = NOW()
+      WHERE restaurant_reference = ${ref}
+    `
+    return { carried: true, reason: `Carried over promo code ${code} (${pct}%) via master-password admin session.` }
+  }
+
+  // No real admin identity resolved (or the master-password login itself
+  // failed) — fall back to the old, confirmed-walled service-account
+  // attempt, in case FM ever opens this up.
   let auth: Record<string, string>
   try { auth = await getFmServiceAuthHeader() } catch (e) {
     return fail(`FM auth failed — could not even attempt the promo-code fetch: ${e instanceof Error ? e.message : e}`)
@@ -847,59 +878,25 @@ export async function carryOverPromoCodes(ref: string): Promise<PromoCodesCarryO
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    return fail(`FM /api/coupon unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall; real promo codes must be entered manually post-conversion.`)
+    return fail(`FM /api/coupon unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall${walled ? `; no real per-restaurant admin identity was found either (${walled.reason})` : ''}; real promo codes must be entered manually post-conversion.`)
   }
 
-  let data: unknown = null
-  try { data = await res.json() } catch { /* fall through to the reason below */ }
-  if (!Array.isArray(data)) {
-    return fail('FM /api/coupon returned a non-array body — cannot carry over.')
+  const coupon = (await res.json().catch(() => null)) as { code?: string; discountPercentage?: number; maxAvailable?: number; maxPerDiner?: number; startDate?: string; endDate?: string } | null
+  if (!coupon?.code) {
+    return fail('FM /api/coupon returned no usable code via the service account — this is the known wall, not evidence this restaurant has none. Real promo codes must be entered manually.')
   }
-  if (data.length === 0) {
-    return fail('FM /api/coupon returned an empty array — treated as inconclusive (the same wall confirmed via a 500 elsewhere), not evidence this restaurant has no codes. Real promo codes must be entered manually.')
+  const code = String(coupon.code).trim().toUpperCase()
+  const pct = Number(coupon.discountPercentage)
+  if (!Number.isFinite(pct) || pct <= 0 || pct > 100 || !coupon.startDate) {
+    return fail(`FM /api/coupon returned a code but no usable discount/date (${JSON.stringify(coupon)}) — cannot carry over.`)
   }
-
-  type FmCoupon = {
-    code?: string | null; couponCode?: string | null
-    discountPercentage?: number | string | null; discountValue?: number | string | null; percent?: number | string | null
-    maxAvailable?: number | string | null; maxUses?: number | string | null
-    maxPerDiner?: number | string | null; maxUsesPerUser?: number | string | null; perDinerLimit?: number | string | null
-    startDate?: string | null; validFrom?: string | null; fromDate?: string | null
-    endDate?: string | null; validUntil?: string | null; toDate?: string | null
-  }
-  const rows = data as FmCoupon[]
-  const inserts: { code: string; pct: number; maxUses: number | null; maxPerDiner: number; from: string; to: string | null }[] = []
-  let skipped = 0
-
-  for (const row of rows) {
-    const code = String(row.code ?? row.couponCode ?? '').trim().toUpperCase()
-    const pct = Number(row.discountPercentage ?? row.discountValue ?? row.percent)
-    const from = row.startDate ?? row.validFrom ?? row.fromDate ?? null
-    if (!code || !Number.isFinite(pct) || pct <= 0 || pct > 100 || !from) { skipped++; continue }
-    const maxUsesRaw = row.maxAvailable ?? row.maxUses
-    const maxUses = maxUsesRaw == null ? null : Number(maxUsesRaw)
-    const maxPerDinerRaw = row.maxPerDiner ?? row.maxUsesPerUser ?? row.perDinerLimit
-    const maxPerDiner = maxPerDinerRaw == null ? 1 : Number(maxPerDinerRaw)
-    const to = row.endDate ?? row.validUntil ?? row.toDate ?? null
-    inserts.push({ code, pct, maxUses: Number.isFinite(maxUses as number) ? maxUses : null, maxPerDiner: Number.isFinite(maxPerDiner) ? maxPerDiner : 1, from, to })
-  }
-
-  if (inserts.length === 0) {
-    return fail(`FM /api/coupon returned ${rows.length} row(s) but none were usable (missing code/discount/date) — cannot carry over.`)
-  }
-
-  // Replace wholesale rather than merge — this only ever runs once, at
-  // conversion, against a restaurant that (per the gate above) has zero rows.
   await sql`DELETE FROM promo_codes WHERE restaurant_ref = ${ref}`
-  const stmts = inserts.map(i => sql`
+  await sql`
     INSERT INTO promo_codes (code, discount_type, discount_value, scope, restaurant_ref, funded_by, max_uses, max_uses_per_user, valid_from, valid_until)
-    VALUES (${i.code}, 'percent', ${i.pct}, 'restaurant', ${ref}, 'RESTAURANT', ${i.maxUses}, ${i.maxPerDiner}, ${i.from}::timestamptz, ${i.to}::timestamptz)
-  `)
-  await sql.transaction(stmts)
-  return {
-    carried: true,
-    reason: `Carried over ${inserts.length} promo code(s) [${inserts.map(i => i.code).join(', ')}] from ${rows.length} FM row(s)${skipped ? ` (${skipped} skipped — unusable)` : ''}.`,
-  }
+    VALUES (${code}, 'percent', ${pct}, 'restaurant', ${ref}, 'RESTAURANT',
+            ${coupon.maxAvailable ?? null}, ${coupon.maxPerDiner ?? 1}, ${coupon.startDate}::timestamptz, ${coupon.endDate ?? null}::timestamptz)
+  `
+  return { carried: true, reason: `Carried over promo code ${code} (${pct}%).` }
 }
 
 export interface ProfileFieldsCarryOverResult {
@@ -1159,7 +1156,7 @@ export async function convertToNative(
 
   let promoCodes: PromoCodesCarryOverResult
   try {
-    promoCodes = await carryOverPromoCodes(readiness.restaurantReference)
+    promoCodes = await carryOverPromoCodes(readiness.restaurantReference, walled)
   } catch (e) {
     const reason = `Promo-code carry-over step threw: ${e instanceof Error ? e.message : e}`
     console.error(`[convertToNative] ${reason}`)
