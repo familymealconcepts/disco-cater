@@ -6,6 +6,7 @@ import { sql } from '../../../../lib/db'
 import { createDelivery, buildPayloadFromNeon } from '../../../../lib/expedite'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { alertOps } from '../../../../lib/ops-alert'
+import { loadFmOrderDetails, parseFmOrder } from '../../../../lib/order-edit'
 
 export const runtime = 'nodejs'
 
@@ -20,6 +21,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Idempotent: dispatchOrderConfirmations only sends once per order.
 // Create the Expedite third-party delivery for a DELIVERY order after payment.
 // Best-effort: a failure is logged and never propagates to the payment flow.
+//
+// Gated on FM's own per-order delivery fee breakdown, not just order_type —
+// this route serves FM-backed orders (FM creates the Stripe PI), and self-
+// delivery restaurants must never get a Disco-arranged courier. Confirmed real
+// incidents (Winkin' Rooster, Winfield Street Coffee - Naples South) where this
+// dispatched for a restaurant FM itself charged an ownDeliveryFee for, because
+// this gate used to check order_type alone. FM's order object is the one signal
+// guaranteed present for every order here — some of these restaurants have no
+// disco_menus row (no native menu) to check delivery_settings against instead.
 async function createExpediteDelivery(orderId: number, orderReference: string): Promise<void> {
   try {
     const rows = (await sql`
@@ -27,6 +37,19 @@ async function createExpediteDelivery(orderId: number, orderReference: string): 
     `.catch(() => [])) as { order_type: string; expedite_delivery_id: string | null }[]
     const row = rows[0]
     if (!row || row.order_type !== 'DELIVERY' || row.expedite_delivery_id) return // not delivery, or already created
+
+    const fmDetails = await loadFmOrderDetails(orderReference)
+    if (!fmDetails) {
+      console.warn('[order/confirm-payment] expedite: could not load FM order details — skipping dispatch (never guess)', orderReference)
+      return
+    }
+    const fmOrder = parseFmOrder(fmDetails).order
+    const ownFee = Number(fmOrder?.ownDeliveryFee) || 0
+    const thirdPartyFee = (Number(fmOrder?.thirdPartyDeliveryFee) || 0) + (Number(fmOrder?.doordashDeliveryFee) || 0)
+    if (thirdPartyFee <= 0 || ownFee > 0) {
+      console.log('[order/confirm-payment] expedite: FM says this is not a third-party delivery — skipping dispatch', { orderReference, ownFee, thirdPartyFee })
+      return
+    }
 
     const payload = await buildPayloadFromNeon(orderReference)
     if (!payload) { console.warn('[order/confirm-payment] expedite: could not build payload for', orderReference); return }

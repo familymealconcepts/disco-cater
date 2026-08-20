@@ -62,6 +62,10 @@ interface CheckoutItem {
   price?: number
   comment?: string
   extraItems: CheckoutAddOn[]
+  /** Passthrough of CartLine.menuReference — FM never sees or uses this (FM
+   *  has no such field), but priceNativeFmDto reads it back out of the DTO's
+   *  `items` for Disco-native restaurants. */
+  menuReference?: string
 }
 
 interface CheckoutAddOn {
@@ -111,6 +115,7 @@ function mapItem(line: CheckoutCartLine, restaurantRef: string): CheckoutItem {
     ...(line.name ? { name: line.name } : {}),
     ...(typeof line.price === 'number' ? { price: line.price } : {}),
     ...(line.note ? { comment: line.note } : {}),
+    ...(line.menuReference ? { menuReference: line.menuReference } : {}),
     extraItems: (line.addOns ?? []).map(mapAddOn),
   }
 }

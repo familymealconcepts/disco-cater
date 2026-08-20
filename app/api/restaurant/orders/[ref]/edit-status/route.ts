@@ -110,7 +110,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
 
   // SUPER_ADMIN bypasses the 24-hour pickup-proximity restriction (only). An
   // admin-portal session is treated as SUPER_ADMIN for this purpose.
-  const isSuperAdmin = isAdminEdit || (await getRestaurantRole()) === 'SUPER_ADMIN'
+  // Use the already-resolved ctx for a Disco-native session (getRestaurantRole()
+  // only decodes the FM JWT, so it's always null there — the same gap fixed in
+  // manage/bulk-pricing/page.tsx) and fall back to the FM decode for FM sessions.
+  const isSuperAdmin = isAdminEdit
+    || (ctx?.authType === 'disco' ? ctx.role === 'SUPER_ADMIN' : (await getRestaurantRole()) === 'SUPER_ADMIN')
 
   // Absolute past-date gate — anchored to the restaurant tz, applies to ALL roles
   // (incl. SUPER_ADMIN). Distinct from the hoursUntil<24 future rule below.

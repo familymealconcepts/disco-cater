@@ -156,7 +156,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     deliveryFee: priced.deliveryFee,
     thirdPartyDeliverySubsiding: priced.thirdPartyDeliverySubsiding,
     discountPct: promo?.pct ?? 0,
-    scPct: await loadRestaurantServiceChargePct(ref),
+    scPct: await loadRestaurantServiceChargePct(ref, priced.menuReference),
     orderDate,
     orderTime,
     deliveryAddress: params.deliveryAddress as NativePlaceInput['deliveryAddress'],

@@ -91,7 +91,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // SUPER_ADMIN bypasses the 24-hour pickup-proximity restriction (only). All
   // other eligibility — edit-count cap, order status — applies to every role.
   // An admin-portal session is treated as SUPER_ADMIN for this purpose.
-  const isSuperAdmin = isAdminEdit || (await getRestaurantRole()) === 'SUPER_ADMIN'
+  // Use the already-resolved ctx for a Disco-native session (getRestaurantRole()
+  // only decodes the FM JWT, so it's always null there — the same gap fixed in
+  // manage/bulk-pricing/page.tsx) and fall back to the FM decode for FM sessions.
+  const isSuperAdmin = isAdminEdit
+    || (ctx?.authType === 'disco' ? ctx.role === 'SUPER_ADMIN' : (await getRestaurantRole()) === 'SUPER_ADMIN')
 
   // ── 1. VALIDATION + edit_count gate ─────────────────────────────────────────
   const discoOrder = await getDiscoOrder(ref)
@@ -175,14 +179,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
 
   if (isNative && discoOrder) {
     const [delRows, origRows] = await Promise.all([
-      sql`SELECT delivery_type FROM disco_orders WHERE id = ${discoOrder.id} LIMIT 1`.catch(() => []),
+      sql`SELECT delivery_type, menu_reference FROM disco_orders WHERE id = ${discoOrder.id} LIMIT 1`.catch(() => []),
       sql`
         SELECT subtotal, discount, own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding,
                lead_gen_one_disco_fee, lead_gen_two_disco_fee
         FROM disco_sale_transactions WHERE order_id = ${discoOrder.id} AND transaction_type = 'ORIGINAL' LIMIT 1
       `.catch(() => []),
     ]) as [
-      { delivery_type: string | null }[],
+      { delivery_type: string | null; menu_reference: string | null }[],
       {
         subtotal: string | number | null; discount: string | number | null
         own_delivery_fee: string | number | null; third_party_delivery_fee: string | number | null
@@ -191,6 +195,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       }[],
     ]
     const deliveryType = delRows[0]?.delivery_type || null
+    const orderMenuReference = delRows[0]?.menu_reference || undefined
     const orig = origRows[0]
     const fulfillment: Fulfillment = deliveryType === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : deliveryType === 'THIRD_PARTY_DELIVERY' ? 'THIRD_PARTY_DELIVERY' : 'PICKUP'
     const origSubtotal = Number(orig?.subtotal) || 0
@@ -202,7 +207,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const leadGenAmt = origLeadGenOne + origLeadGenTwo
     const leadGenPct = origBase > 0 ? (leadGenAmt / origBase) * 100 : 0
     nativeLeadGenTier = origLeadGenOne > 0 ? 1 : origLeadGenTwo > 0 ? 2 : 0
-    const scPct = await loadRestaurantServiceChargePct(restaurantRef)
+    // The order's own stored menu_reference (frozen at placement) — the exact
+    // menu this order came from, not a re-derivation from the edited lines.
+    const scPct = await loadRestaurantServiceChargePct(restaurantRef, orderMenuReference)
     const editCtx: FrozenEditContext = {
       fulfillment,
       ownDeliveryFee: Number(orig?.own_delivery_fee) || 0,

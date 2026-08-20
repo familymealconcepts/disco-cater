@@ -15,7 +15,6 @@ import {
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN
 // Prefer a dedicated partner webhook; otherwise reuse the new-order webhook so
 // signups still reach Slack (with a distinct message so they're not mistaken
@@ -301,7 +300,7 @@ export async function POST(req: NextRequest) {
     try {
       const content = `
         <p style="font-size:18px;font-weight:700;margin:0 0 12px;">Welcome to Disco Cater!</p>
-        <p style="margin:0 0 12px;">Congratulations${firstName ? `, ${firstName}` : ''} — <strong>${restaurantName}</strong> is now set up on Disco Cater and ready to receive catering orders.</p>
+        <p style="margin:0 0 12px;">Congratulations${firstName ? `, ${firstName}` : ''} — <strong>${restaurantName}</strong> is now set up on Disco Cater.</p>
         <p style="margin:0 0 12px;">Manage your orders, menu, and settings from your restaurant portal.</p>
         ${button('Go to your dashboard', 'https://www.discocater.com/restaurant/orders')}
       `
@@ -311,8 +310,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Team email notification (best-effort).
-    if (MAILGUN_API_KEY && MAILGUN_DOMAIN) {
-      const lines = [
+    if (MAILGUN_DOMAIN) {
+      const fields = [
         `Restaurant: ${restaurantName}`,
         `Contact email: ${email || 'Not provided'}`,
         `Phone: ${phone || 'Not provided'}`,
@@ -323,27 +322,19 @@ export async function POST(req: NextRequest) {
         `Third-party delivery enabled: ${yn(deliveryEnabled)}`,
         `Stripe connected: ${yn(stripeConnected)}`,
         menuFileName ? `Menu: ${menuFileName}` : '',
-      ].filter(Boolean).join('\n')
+      ].filter(Boolean)
+      const text = `A restaurant has completed Disco Cater onboarding.\n\n${fields.join('\n')}\n\n— Disco Cater Onboarding`
+      const html = `<p style="margin:0 0 12px;">A restaurant has completed Disco Cater onboarding.</p>
+        <p style="margin:0 0 12px;">${fields.map(f => f ? f.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '').join('<br/>')}</p>`
       try {
-        const mg = new FormData()
-        mg.append('from', `Disco Cater Onboarding <onboarding@${MAILGUN_DOMAIN}>`)
-        mg.append('to', TEAM_EMAIL)
-        // Same platform-wide Kealoha bcc/Reply-To as lib/email/send.ts — this
-        // sender is hand-rolled (bypasses sendEmail), so it needs both applied
-        // directly.
-        mg.append('bcc', 'kealoha@discocater.com')
-        mg.append('h:Reply-To', 'kealoha@discocater.com')
-        mg.append('subject', `New Partner Onboarding Complete — ${restaurantName}`)
-        mg.append('text', `A restaurant has completed Disco Cater onboarding.\n\n${lines}\n\n— Disco Cater Onboarding`)
-        const mgRes = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
-          method: 'POST',
-          headers: { Authorization: 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64') },
-          body: mg,
+        const result = await sendEmail({
+          to: TEAM_EMAIL,
+          from: `Disco Cater Onboarding <onboarding@${MAILGUN_DOMAIN}>`,
+          subject: `New Partner Onboarding Complete — ${restaurantName}`,
+          html: layout(html),
+          text,
         })
-        if (!mgRes.ok) {
-          const raw = await mgRes.text().catch(() => '')
-          console.error(`[complete] Mailgun ${mgRes.status}: ${raw.slice(0, 300)}`)
-        }
+        if (!result.success) console.error(`[complete] team email send failed: ${result.error}`)
       } catch (err) {
         console.error('[complete] team email send failed:', err instanceof Error ? err.message : err)
       }

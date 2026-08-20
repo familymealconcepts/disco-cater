@@ -13,6 +13,7 @@
 // onboarding is the fallback ONLY for accounts that genuinely can't be reused.
 import type Stripe from 'stripe'
 import { sql, runMigrations } from './db'
+import { stripeReadySql } from './stripe-readiness'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'crypto'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
@@ -1020,7 +1021,7 @@ async function computeNativeIsLive(ref: string): Promise<boolean> {
            EXISTS (
              SELECT 1 FROM disco_restaurant_accounts a
              WHERE (a.restaurant_reference = ${ref} OR a.fm_restaurant_reference = ${ref})
-               AND a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true
+               AND ${sql.unsafe(stripeReadySql('a'))}
            ) AS has_completed_native_stripe
     FROM disco_restaurant_overrides o
     WHERE o.restaurant_reference = ${ref}

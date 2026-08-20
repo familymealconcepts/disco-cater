@@ -44,6 +44,12 @@ export interface CartLine {
   count?: number
   quantity?: number
   addOns?: CartAddOn[]
+  /** Which disco_menus row (by its UUID `reference`) this line came from —
+   *  Disco-native only, absent for FM-backed carts. Delivery method
+   *  (OWN_DELIVERY vs THIRD_PARTY) is per-menu, so dispatch/fees/checkout
+   *  need to know which menu an order's items actually came from instead of
+   *  guessing "the primary menu". */
+  menuReference?: string
 }
 
 /** Sum of (modifier.price × modifier.count) for one line, BEFORE the

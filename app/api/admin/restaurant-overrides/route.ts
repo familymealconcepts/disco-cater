@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations, runMenuDriftMigrations } from '../../../../lib/db'
+import { stripeReadySql } from '../../../../lib/stripe-readiness'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 
 // Disco-owned per-restaurant overrides (Premium flag + order-URL) stored in Neon.
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
       const discoRows = (await sql`
         SELECT DISTINCT LOWER(email) AS email FROM disco_restaurant_accounts
         WHERE email IS NOT NULL AND email <> ''
-          AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+          AND ${sql.unsafe(stripeReadySql())}
       `) as { email: string }[]
       const discoStripeEmails = discoRows.map((r) => r.email)
 

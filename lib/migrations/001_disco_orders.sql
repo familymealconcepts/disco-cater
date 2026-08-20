@@ -632,3 +632,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS disco_orders_fm_order_reference_uq
 -- to its real FM receipt; NULL everywhere else (order_number already IS the
 -- real value there, nothing to preserve separately).
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS fm_order_number_raw BIGINT;
+
+-- Which disco_menus row (by its UUID `reference`, not the disco_menus.id) this
+-- order's cart was actually priced/placed against — delivery method (OWN_DELIVERY
+-- vs THIRD_PARTY) is a per-MENU setting, not a restaurant-level one, and before
+-- this column existed, dispatch/fees/checkout all guessed at "the primary menu"
+-- (lowest position/id) instead of knowing which menu the cart came from. Real
+-- incidents: Winkin' Rooster and DeCheco's - Munroe Falls both got a courier
+-- dispatched against a self-delivery restaurant because of that guess.
+-- Nullable, no FK (disco_menus rows can be deleted/archived independently; a
+-- dangling reference should never block reading an old order) — NULL for every
+-- order placed before this shipped, and for the confirm-payment (FM-backed,
+-- pre-native) legacy path, which prices off FM's own order-level fee fields
+-- instead and has no native menu to reference at all. See dispatchExpediteForOrder
+-- and loadRestaurantDeliverySettings/validateNativeDelivery for how a NULL value
+-- here falls back to the old "primary menu" guess, explicitly, rather than
+-- silently.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS menu_reference UUID;

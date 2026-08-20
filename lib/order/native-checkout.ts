@@ -21,6 +21,11 @@ export interface NativeCartItem {
   // addOns are stored separately so the PDF/emails can show itemized "+" sub-lines.
   basePrice?: number
   addOns?: { name: string; price: number; quantity: number }[]
+  // Which disco_menus row (by its UUID `reference`) this item's menu tab came
+  // from, tagged client-side. Absent for legacy clients / FM-backed carts —
+  // callers must treat that as "unknown", not "primary menu", and fall back
+  // explicitly (see resolveCartMenuReference).
+  menuReference?: string
 }
 export interface NativeTip { custom: boolean; amount?: number; pct?: number }
 export interface NativeDeliveryAddressInput {
@@ -73,9 +78,26 @@ export async function isDiscoNativeRestaurant(ref: string): Promise<boolean> {
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
-// The service-charge % for a native order — read from the restaurant's primary
-// (lowest-position, visible) menu. Authoritative: the client never dictates it.
-export async function loadRestaurantServiceChargePct(restaurantReference: string): Promise<number> {
+// The service-charge % for a native order. service_charge_pct is a per-MENU
+// setting (_MenuForm.tsx), not restaurant-level — a restaurant can legitimately
+// have menus at different %, same as delivery method below. When menuReference
+// is known, look up that exact menu. FALLBACK ONLY when it's not (no items
+// tagged — an old client, or a cart with zero menu-tagged items): guess the
+// restaurant's "primary" (lowest position/id) visible menu, same as before
+// this fix. Authoritative either way: the client never dictates it.
+export async function loadRestaurantServiceChargePct(restaurantReference: string, menuReference?: string): Promise<number> {
+  if (menuReference) {
+    const exact = (await sql`
+      SELECT service_charge_pct FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
+      LIMIT 1
+    `.catch(() => [])) as { service_charge_pct: string | number | null }[]
+    if (exact.length) {
+      const v = exact[0].service_charge_pct
+      return v != null && Number.isFinite(Number(v)) ? Number(v) : 0
+    }
+    console.warn('[native-checkout] loadRestaurantServiceChargePct: tagged menuReference not found, falling back to primary-menu guess', { restaurantReference, menuReference })
+  }
   const rows = (await sql`
     SELECT service_charge_pct FROM disco_menus
     WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
@@ -85,9 +107,26 @@ export async function loadRestaurantServiceChargePct(restaurantReference: string
   return v != null && Number.isFinite(Number(v)) ? Number(v) : 0
 }
 
-// The primary menu's delivery method (OWN_DELIVERY vs THIRD_PARTY) — decides how
-// a delivery order's fee is computed. Defaults to THIRD_PARTY when unset.
-export async function loadRestaurantDeliverySettings(restaurantReference: string): Promise<DeliverySettings | null> {
+// The delivery method (OWN_DELIVERY vs THIRD_PARTY) for the menu the cart's
+// items actually came from. Delivery method is a per-MENU setting, not
+// restaurant-level — a restaurant can legitimately have one menu on
+// third-party delivery and another self-delivered (see Winkin' Rooster vs
+// DeCheco's - Munroe Falls). When menuReference is known, look up that exact
+// menu. FALLBACK ONLY when it's not (no items tagged — an old client, or a
+// cart with zero delivery-settings-bearing items): guess the restaurant's
+// "primary" (lowest position/id) visible menu, same as before this fix. This
+// fallback is real prior behavior, not a guess this function invented — every
+// call site must know it's degraded when it hits this branch.
+export async function loadRestaurantDeliverySettings(restaurantReference: string, menuReference?: string): Promise<DeliverySettings | null> {
+  if (menuReference) {
+    const exact = (await sql`
+      SELECT delivery_settings FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
+      LIMIT 1
+    `.catch(() => [])) as { delivery_settings: DeliverySettings | null }[]
+    if (exact.length) return exact[0].delivery_settings || null
+    console.warn('[native-checkout] loadRestaurantDeliverySettings: tagged menuReference not found, falling back to primary-menu guess', { restaurantReference, menuReference })
+  }
   const rows = (await sql`
     SELECT delivery_settings FROM disco_menus
     WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
@@ -210,6 +249,23 @@ export function cartSubtotal(items: NativeCartItem[]): number {
   return round2((items || []).reduce((s, it) => s + (Number(it.price) || 0) * Math.max(1, Math.trunc(Number(it.quantity) || 1)), 0))
 }
 
+// Which menu an order's cart actually came from. The checkout UI blocks mixing
+// menus with DIFFERENT delivery methods (see RestaurantClient.tsx's
+// addItemWithConfig), but mixing menus with the SAME method is allowed — so a
+// cart can legitimately carry more than one distinct menuReference. In that
+// case any one of them resolves to the correct delivery_settings (they agree
+// by construction), so the first is as good as any. Returns undefined — never
+// a guess — when items carry no tag at all (old/legacy client) or, as a safety
+// net, when the client-side mixing guard was somehow bypassed and the cart's
+// menus actually disagree on delivery method; callers must treat undefined as
+// "fall back to the old primary-menu behavior, explicitly", not silently
+// substitute one menu for another.
+export function resolveCartMenuReference(items: NativeCartItem[]): string | undefined {
+  const refs = Array.from(new Set((items || []).map(it => it.menuReference).filter((r): r is string => !!r)))
+  if (refs.length === 0) return undefined
+  return refs[0]
+}
+
 export interface PriceNativeCartInput {
   restaurantReference: string
   customerEmail: string
@@ -247,6 +303,10 @@ export interface PriceNativeCartResult {
   // (preview) or orderType is PICKUP.
   deliveryValid: boolean
   deliveryMessage?: string
+  // The menu this cart's items actually came from (see resolveCartMenuReference) —
+  // exposed so callers that need it downstream (e.g. buildNativePlaceInput's own
+  // service-charge lookup) don't have to recompute it from input.items themselves.
+  menuReference?: string
 }
 
 // THE single function that prices a native cart — resolves the restaurant
@@ -274,6 +334,12 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
   const discountPct = promo?.pct ?? 0
   const discountedSubtotal = discountedBase(subtotal, discountPct)
 
+  // The menu this cart's items actually came from — the one signal that
+  // decides delivery method below. undefined (not a guess) when items carry
+  // no tag; both calls below fall back to the old primary-menu guess
+  // explicitly in that case, rather than this function silently picking one.
+  const menuReference = resolveCartMenuReference(input.items)
+
   let fulfillment: Fulfillment = 'PICKUP'
   let deliveryFee = 0
   let thirdPartyDeliverySubsiding = 0
@@ -284,7 +350,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     if (input.deliveryAddress) {
       // Real address known — validateNativeDelivery is the single authority for
       // BOTH own- and third-party fees; feed it the DISCOUNTED subtotal.
-      const dv = await validateNativeDelivery(input.restaurantReference, input.deliveryAddress as NativeDeliveryAddress, discountedSubtotal)
+      const dv = await validateNativeDelivery(input.restaurantReference, input.deliveryAddress as NativeDeliveryAddress, discountedSubtotal, undefined, menuReference)
       fulfillment = dv.fulfillment
       deliveryFee = dv.deliveryFee
       thirdPartyDeliverySubsiding = dv.thirdPartyDeliverySubsiding
@@ -293,7 +359,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     } else {
       // No address yet (initial preview). Third-party needs none; own-delivery
       // stays deferred to the address-known call above (same as before this fix).
-      const del = await loadRestaurantDeliverySettings(input.restaurantReference)
+      const del = await loadRestaurantDeliverySettings(input.restaurantReference, menuReference)
       if (del?.method === 'OWN_DELIVERY') {
         fulfillment = 'OWN_DELIVERY'
       } else {
@@ -305,7 +371,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     }
   }
 
-  const scPct = await loadRestaurantServiceChargePct(input.restaurantReference)
+  const scPct = await loadRestaurantServiceChargePct(input.restaurantReference, menuReference)
   const breakdown = await priceNativeOrder({
     restaurantReference: input.restaurantReference,
     customerEmail: input.customerEmail,
@@ -328,6 +394,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     promoError,
     deliveryValid,
     deliveryMessage,
+    menuReference,
   }
 }
 
@@ -359,7 +426,7 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
 // the restaurant payout), so pricing needs no customer session — safe for previews.
 
 interface FmDtoAddOn { name?: string; price?: number; count?: number; quantity?: number }
-interface FmDtoItem { reference?: string; name?: string; price?: number; count?: number; extraItems?: FmDtoAddOn[]; addOns?: FmDtoAddOn[] }
+interface FmDtoItem { reference?: string; name?: string; price?: number; count?: number; extraItems?: FmDtoAddOn[]; addOns?: FmDtoAddOn[]; menuReference?: string }
 
 // Map FM-shaped checkout items → native cart items, folding each line's add-on
 // prices into the unit price and count→quantity, so cartSubtotal matches FM's
@@ -383,6 +450,7 @@ export function fmItemsToNativeCart(items: FmDtoItem[] | undefined): NativeCartI
       price: base + addOnTotal,
       quantity: Math.max(1, Math.trunc(Number(it.count) || 1)),
       addOns: addOns.length ? addOns : undefined,
+      menuReference: typeof it.menuReference === 'string' && it.menuReference ? it.menuReference : undefined,
     }
   })
 }
@@ -496,6 +564,12 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   // never be retried. By the time it runs the suite is cached for this lambda.
   await withDiscoTables(() => sql`SELECT 1 FROM disco_orders LIMIT 1`)
   const b = await priceNativeCheckout(input)
+  // Which menu this cart actually came from — stored on the order so dispatch
+  // (dispatchExpediteForOrder) and any future read can check the real per-menu
+  // delivery method instead of guessing. undefined (stored as NULL) when items
+  // carry no tag, which dispatchExpediteForOrder must treat as "fall back to
+  // delivery_type alone", not "assume OWN_DELIVERY" or "assume THIRD_PARTY".
+  const menuReference = resolveCartMenuReference(input.items)
   // Authoritative guard — this is the pricer whose breakdown actually gets
   // persisted/charged below, and it's reached by every placement path (the
   // primary checkout flow, the invoice flow, recurring occurrences), not just
@@ -537,14 +611,14 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
       customer_email, customer_first_name, customer_last_name, customer_phone,
       order_date, order_time, delivery_time_window, tips, tips_type,
       delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-      delivery_lat, delivery_lng, subtotal, total, fee, note, delivery_instructions, company_name, persons, created_at, updated_at
+      delivery_lat, delivery_lng, subtotal, total, fee, note, delivery_instructions, company_name, persons, menu_reference, created_at, updated_at
     ) VALUES (
       ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, ${input.sourceOfOrder ?? 'DISCO'},
       ${input.restaurantReference}::uuid, ${rName}, ${rAddr}, ${rPhone},
       ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
       ${input.orderDate}::date, ${input.orderTime}::time, ${deliveryTimeWindow}, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},
       ${da.addressLine1 ?? null}, ${da.addressLine2 ?? null}, ${da.city ?? null}, ${da.state ?? null}, ${daZip},
-      ${daLat}, ${daLng}, ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${input.note ?? null}, ${input.deliveryInstructions ?? null}, ${input.companyName ?? null}, ${input.persons ?? null}, NOW(), NOW()
+      ${daLat}, ${daLng}, ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${input.note ?? null}, ${input.deliveryInstructions ?? null}, ${input.companyName ?? null}, ${input.persons ?? null}, ${menuReference ?? null}::uuid, NOW(), NOW()
     )
     RETURNING id, reference, order_number
   `) as { id: number; reference: string; order_number: string | number }[]

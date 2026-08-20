@@ -20,8 +20,9 @@ import Stripe from 'stripe'
 import { sql } from '../../../../lib/db'
 import { checkMenuAvailability, repriceCart, type CartItem } from '../../../../lib/recurring'
 import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
-import { isDiscoNativeRestaurant, chargeAndPlaceNativeRecurringOrder, type NativePlaceInput } from '../../../../lib/order/native-checkout'
+import { isDiscoNativeRestaurant, chargeAndPlaceNativeRecurringOrder, loadRestaurantServiceChargePct, type NativePlaceInput } from '../../../../lib/order/native-checkout'
 import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
+import { sendEmail as sendEmailShared } from '../../../../lib/email/send'
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -29,8 +30,6 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY
-const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN
 const FROM = 'Disco Cater <concierge@discocater.com>'
 const RESTAURANT_NOTIFY_EMAIL = 'concierge@discocater.com'
 const APP_URL = 'https://www.discocater.com'
@@ -84,44 +83,21 @@ function normDate(v: unknown): string {
   return String(v).slice(0, 10)
 }
 
-// ── Email (Mailgun HTTP API — mirrors become-a-partner/menu-upload) ─────────
-
+// ── Email (routed through the shared sendEmail — was hand-rolled FormData) ──
+// Kept as a thin local wrapper (same to/subject/html/text signature) so none
+// of the ~8 call sites below need to change. html+text are already built by
+// hand for every template below, so this was never missing a plain-text part
+// the way the fully hand-rolled senders were — but it still bypassed the
+// shared sender entirely (own BCC/Reply-To/Mailgun-config duplicated here),
+// which is the actual gap being fixed.
 async function sendEmail(to: string, subject: string, html: string, text: string): Promise<boolean> {
-  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
-    console.warn('[cron/recurring-orders] Mailgun not configured (MAILGUN_API_KEY / MAILGUN_DOMAIN) — skipping email:', subject)
-    return false
-  }
   if (!to) {
     console.warn('[cron/recurring-orders] no recipient for email:', subject)
     return false
   }
-  try {
-    const mg = new FormData()
-    mg.append('from', FROM)
-    mg.append('to', to)
-    // Same platform-wide Kealoha bcc/Reply-To as lib/email/send.ts — this
-    // sender is hand-rolled (bypasses sendEmail), so it needs both applied
-    // directly.
-    mg.append('bcc', 'kealoha@discocater.com')
-    mg.append('h:Reply-To', 'kealoha@discocater.com')
-    mg.append('subject', subject)
-    mg.append('text', text)
-    mg.append('html', html)
-    const res = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
-      method: 'POST',
-      headers: { Authorization: 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64') },
-      body: mg,
-    })
-    if (!res.ok) {
-      const raw = await res.text().catch(() => '')
-      console.error(`[cron/recurring-orders] Mailgun ${res.status} for "${subject}": ${raw.slice(0, 300)}`)
-      return false
-    }
-    return true
-  } catch (err) {
-    console.error(`[cron/recurring-orders] send failed for "${subject}":`, err)
-    return false
-  }
+  const result = await sendEmailShared({ to, subject, html, text, from: FROM })
+  if (!result.success) console.error(`[cron/recurring-orders] send failed for "${subject}":`, result.error)
+  return result.success
 }
 
 // Minimal branded HTML shell.
@@ -557,6 +533,13 @@ export async function GET(req: NextRequest) {
         // double-charge/double-place, and the native charge reuses the same stable
         // idempotency key.
         if (await isDiscoNativeRestaurant(occ.restaurant_reference)) {
+          // Recurring cart snapshots (lib/recurring.ts's CartItem) carry no
+          // menuReference — that tagging system postdates recurring orders — so
+          // this always takes loadRestaurantServiceChargePct's documented
+          // primary-menu-guess fallback, same as any other untagged cart. Still a
+          // real fix: this previously wasn't fetched at all, so every recurring
+          // native charge silently applied 0% service charge regardless of the
+          // restaurant's configured rate.
           const nativeInput: NativePlaceInput = {
             restaurantReference: occ.restaurant_reference,
             customerEmail: occ.customer_email,
@@ -566,6 +549,7 @@ export async function GET(req: NextRequest) {
             orderTime: String(occ.scheduled_time || '').match(/^(\d{2}:\d{2})/)?.[1] || '12:00',
             customerFirstName: occ.customer_first_name ?? undefined,
             customerLastName: occ.customer_last_name ?? undefined,
+            scPct: await loadRestaurantServiceChargePct(occ.restaurant_reference),
           }
           let result
           try {

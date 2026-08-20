@@ -6,6 +6,7 @@ import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { sendCustomerRefundNotification } from '../../../../../../lib/email/notifications'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
+import { cancelDelivery } from '../../../../../../lib/expedite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -113,11 +114,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       SET order_status = ${newStatus}, refund = ${totalRefund}, updated_at = NOW()
       WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
       RETURNING reference, order_number, customer_email, customer_first_name,
-                customer_last_name, restaurant_reference, restaurant_name
+                customer_last_name, restaurant_reference, restaurant_name, expedite_delivery_id
     `) as Array<{
       reference: string; order_number: string | number | null
       customer_email: string | null; customer_first_name: string | null; customer_last_name: string | null
-      restaurant_reference: string | null; restaurant_name: string | null
+      restaurant_reference: string | null; restaurant_name: string | null; expedite_delivery_id: string | null
     }>
 
     if (!rows.length) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
@@ -128,6 +129,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
       VALUES (${reference}::uuid, 'REFUNDED', ${JSON.stringify({ amount, totalRefund, stripeRefundId, status: newStatus })}::jsonb, 'DISCO_REFUND')
     `.catch(e => console.error('[restaurant/orders/refund] event insert:', e))
+
+    // Fully refunded (not a partial/goodwill adjustment) → stand down any booked
+    // courier. See the confirm-payment fix + Winfield Street Coffee incident.
+    if (newStatus === 'REFUND' && o.expedite_delivery_id && o.expedite_delivery_id !== 'PENDING') {
+      const result = await cancelDelivery(o.expedite_delivery_id)
+      console.log('[restaurant/orders/refund] expedite cancel:', result.success ? 'ok' : result.error)
+    }
 
     // Notify the customer of the refund (best-effort — never block the refund).
     if (o.customer_email) {

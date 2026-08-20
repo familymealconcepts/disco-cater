@@ -288,9 +288,11 @@ and it was still missed.
 
 ### 9. Confirm the invite landed
 
-`convertToNative` invites FM's per-restaurant `admin.email` **and** every FM
-SYSTEM_ADMIN covering this restaurant — genuinely separate FM data, not
-redundant. Fixed 2026-08-17 (`e72502d`): both invite functions now check
+`convertToNative` invites FM's per-restaurant `admin.email` **and** every
+person FM's real Authorized Users list confirms for this restaurant (see
+Background: "FM's real access model" — not just `SYSTEM_ADMIN` coverage,
+and never a self-reported multi-restaurant claim). Fixed 2026-08-17
+(`e72502d`): both invite functions now check
 `hasUsableLogin()` (a live, unexpired token, or any prior session) instead
 of pattern-matching the account's email — the old check silently treated an
 already-real-but-never-invited email as "done." Confirmed via a live fleet
@@ -450,6 +452,7 @@ re-deriving the reasoning each time:
 | Hidden/inactive menu items | AUTO | Supplementary heuristic pass |
 | Item landed via last-resort fallback placement | NOTE | Hasn't happened yet in 7 conversions |
 | Marketplace visibility unset | NOTE | Already set by normal onboarding; `is_live` computed either way, never forced (fixed 2026-08-19) |
+| `online_ordering_enabled` on, zero orders so far | NOTE | Never auto-correct or propose flipping this flag — it's set by us intentionally. A restaurant with no orders yet is just a restaurant that hasn't had an order yet, not a misconfiguration. Confirmed with Peter 2026-08-19 re: Aztec Dave's Cantina and Tom Toms Italian (both live, Stripe-connected, zero orders, no FM link) — leave alone. |
 | Bare FM orders | NOTE | Background hygiene, not conversion-specific |
 | Order-history backfill fails | AUTO (was a false BLOCKER) | Usually the now-fixed timeout, not real FM downtime |
 | Per-restaurant admin never invited | AUTO | Fixed — real login-state check |
@@ -495,9 +498,13 @@ cached bulk `SYSTEM_ADMIN` coverage map (`/api/admin/users/system-admin`, one
 call), then the per-restaurant `admin` field off the same
 `/api/admin/restaurants/{ref}` detail call conversion already makes for
 profile-field carry-over, at no extra cost. It logs in once per admin and
-reads `taxRate`, `notifications`, and `closedDays` for every restaurant that
-admin covers in one continuous session — not three logins per restaurant,
-and not one login per restaurant when several share an admin.
+reads **five walled fields** — `taxRate`, `notifications`, `closedDays`,
+`promoCode`, and (added 2026-08-20) `authorizedUsers` — for every restaurant
+that admin covers in one continuous session — not five logins per
+restaurant, and not one login per restaurant when several share an admin.
+See "FM's real access model" below for what `authorizedUsers` is and why it
+exists as a separate field from the per-restaurant `admin`/`SYSTEM_ADMIN`
+data this mechanism already read.
 
 **Reach: roughly 1,058 restaurants fleet-wide** (a live `SYSTEM_ADMIN`
 count of 575 plus a June-snapshot `ADMIN`-role count of 616, deduplicated),
@@ -581,6 +588,20 @@ stored hash exactly. Rotating the real master password means rotating
 anything to FM) — a three-way dependency this file can't enforce, only
 document.
 
+**`FM_MASTER_PASSWORD` must be persisted in BOTH `.env.local` AND Vercel
+production, not just used ad hoc.** Confirmed missing from both as of
+2026-08-20 — it was used once this session (pulled from wherever it was
+available at the time) but never saved anywhere durable. Vercel is not
+optional: `app/api/cron/reconcile-promo-codes/route.ts` already documents it
+as required and runs unattended, and `convertToNative` needs it live in
+production too. Its absence doesn't fail uniformly — `notifications`/
+`closedDays`/`promoCode`/`authorizedUsers` all degrade gracefully (flagged
+for manual review, or a skipped invite step, conversion still completes),
+but the `settings`/tax-rate gate is `blocking: true` and only attempts the
+master-password read when Neon has no rate yet — so a brand-new restaurant
+with no tax rate on file cannot complete conversion at all without this
+credential actually being set.
+
 **Menu import mechanics.** The primary placement pass is exact, no
 heuristics — it walks FM's public per-menu endpoint, which only ever returns
 items on a menu FM currently marks visible/active. The supplementary pass
@@ -597,10 +618,62 @@ created test restaurant, the gate reported two failing blocking steps until
 reason. Once `visible` was set, `marketplace-ready`'s only remaining failure
 reason collapsed to the Stripe one.
 
-**Why `inviteFmSystemAdminsFor` exists.** The single per-restaurant `admin`
-field and FM's system-admin list are genuinely separate data — confirmed
-real on DeCheco's, where one person (Tyron) was SYSTEM_ADMIN across all 6
-locations but was never any single location's `admin.email`.
+**FM's real access model (2026-08-20) — the restaurant object's `admin`
+field is one designated contact, not the set of people with access.** A
+location can have multiple admins running catering there. A business owner
+can hold every location a brand has. A regional manager can hold whatever
+subset the owner grants them. None of that is visible from
+`/api/admin/restaurants/{ref}`'s single `admin` field or even from the
+`SYSTEM_ADMIN` coverage map alone — the real source is
+**`GET /api/system-admin/users`**, the same relationship behind FM's own
+Authorized Users screen. `restaurantReference` on its create shape
+(`{firstName, lastName, email, role, restaurantReference: string[]}`) is an
+**array** — confirmed proof this is a genuine many-to-many join, not a
+single-restaurant field.
+
+This endpoint is session-walled exactly like `taxRate`/`notifications`/
+`closedDays`/`promoCode` — reachable only via the master-password mechanism
+above, now the 5th field (`authorizedUsers`) in `readWalledFields()`.
+**It additionally requires a `SYSTEM_ADMIN`-role session specifically** — a
+plain `ADMIN`-role login (a single-location restaurant's only admin) gets a
+flat `500 Access is denied`. This is correct, not a gap: a single-location
+restaurant has no Authorized Users list to have — FM's whole multi-admin
+concept only exists at the `SYSTEM_ADMIN`/chain level. Confirmed live on 3 of
+the first 24 converted restaurants (Francesca Catering ×2, The Winkin'
+Rooster) — all three resolve to a role=`ADMIN` identity, and
+`authorizedUsers` correctly comes back `null` for all three, not empty.
+
+**Worked example — Atlanta Bread's 9 locations, read live 2026-08-20.** Two
+clean, distinct access clusters, confirming the model rather than looking
+like noise:
+- **Owner cluster, all 9 locations**: `bcouvaras@atlantabread.com`,
+  `kumar.adarsh@gmail.com`, `arnav.anju@gmail.com`,
+  `atlbreadcollections@gmail.com`, `atlbreadsandysprings@gmail.com`,
+  `kjp@atlantabread.com`, `tmc@atlantabread.com` — all `SYSTEM_ADMIN`.
+- **Regional cluster, 8 of 9 — everything except Alpharetta**:
+  `southcobb@atlantabread.com`, `josh@woosindustries.com`,
+  `stacy.freemyer@atlantabreadwoodstock.com`,
+  `atlantabreadasheville@gmail.com`, `davidjenningsfisher@gmail.com`,
+  `abwestside245@gmail.com` (`ADMIN`), plus `anthie@thenccgroup.com` and
+  `tara@thenccgroup.com` (`SYSTEM_ADMIN`). Alpharetta genuinely differing
+  from its 8 siblings is itself the evidence this is a real, working
+  restaurant-scoped read, not a brand-wide list that happens to look
+  restaurant-specific.
+
+**Grant per confirmed restaurant, never from a claimed scope.**
+`inviteFmAuthorizedUsersFor` (replacing the old `inviteFmSystemAdminsFor`)
+grants **only the restaurant currently being read** — deliberately narrower
+than the old mechanism, which mirrored FM's entire self-reported
+`managedRestaurants` array onto every restaurant that admin happened to
+cover. That old pattern is exactly how over-permission would happen: one
+record's claimed scope propagating to locations nobody actually
+re-confirmed. Under the new model, access to a given restaurant accumulates
+only when *that restaurant's own* Authorized Users read confirms the
+person — real, and it self-corrects as each location gets its own
+conversion/read pass, rather than trusting a single upstream claim to cover
+everyone. (Same underlying lesson as the original `grantLocationAccess`
+warning below, one level deeper: even an FM-sourced bulk claim isn't
+grounds to grant a restaurant nobody actually checked.)
 
 **Why hand-granting location access is a mistake.** `grantLocationAccess`
 does no FM cross-check at all. This happened for real on DeCheco's: two
@@ -608,6 +681,18 @@ people were manually granted all 6 locations on the belief they were
 single-location admins, when FM's system-admin list already covered all 6
 correctly through four different real admins. Always re-sync from FM instead
 of hand-editing `disco_restaurant_location_access`.
+
+**The missed-invite gap this closes.** The old two-source model (per-
+restaurant `admin` + `SYSTEM_ADMIN` coverage) silently missed every plain
+`ADMIN`-role authorized user who wasn't the one designated contact —
+confirmed real: `southcobb@atlantabread.com` had genuine, FM-granted access
+to 8 Atlanta Bread locations and a Disco account existed nowhere. A fleet
+audit across all 24 converted restaurants (2026-08-20) found 25 distinct
+FM-authorized people total; 5 had no Disco account at all, and 10 more held
+correct-but-partial grants (as few as 1 of 9 locations) from the old
+`managedRestaurants`-mirror path. Zero cases of the reverse (Disco granting
+*more* than FM confirms) were found anywhere in the 24 — the over-permission
+risk was real in the design, not yet realized in the data.
 
 **The invite-skip bug, fixed 2026-08-17 (`e72502d`).** Both invite functions
 used to infer "does a working login already exist" from the account's email
@@ -695,9 +780,85 @@ regardless of real readiness. The marketplace visibility rule ORs it with
 post-conversion.
 
 **Multi-location brands need nothing special for admin access** —
-`inviteFmSystemAdminsFor` mirrors FM's system-admin structure automatically
-per location as each one converts; nobody has to think about admin access
-location-by-location.
+`inviteFmAuthorizedUsersFor` reads FM's real Authorized Users list per
+restaurant automatically as each location converts; nobody has to think
+about admin access location-by-location. See "FM's real access model"
+above for why this reads a 5th walled field rather than mirroring a
+self-reported multi-restaurant claim.
+
+### Email sending rules (2026-08-20)
+
+**Stagger every invite/announcement send by at least 30 seconds.** A real
+14-email burst went out in 3 seconds and landed in spam — confirmed the
+cause, not a guess. `lib/bulk-invite.ts`'s `sendPaced()` is the one place
+this pacing should live; nothing should write a second bare send-loop.
+
+**Cold-verify each accept-invite token before sending it.** `GET
+/api/restaurant/accept-invite?token=...` validates without consuming —
+confirm `{valid:true, email: "..."}` matches the intended recipient before
+the email goes out, not after. Catches a bad/mismatched token before it
+reaches a real inbox instead of after someone reports a broken link.
+
+**When FM's name field holds a location, not a person, use "Hi there,"
+— don't invent a name.** Real examples from FM's own Authorized Users
+data: `"South Cobb"`, `"ABC Westside"`. That's what FM has on file, not a
+lookup failure to work around — checked the diner-table record, its detail
+endpoint, and the Authorized Users record itself for all three; all three
+agree, and no richer name exists anywhere reachable. Inventing a plausible-
+sounding name would be worse than a generic greeting.
+
+**Current deliverability state, as of 2026-08-20:**
+- `mg.discocater.com` is the Mailgun-verified sending domain (confirmed via
+  Mailgun's own Domains API — the root `discocater.com` isn't registered in
+  Mailgun at all, a 404). Every visible From address still uses
+  `@discocater.com` (root), which works today only because
+  `discocater.com`'s own DMARC record uses relaxed alignment
+  (`adkim=r; aspf=r`) — deliberately not changed to the verified subdomain,
+  since that would expose an uglier address to every recipient for a risk
+  that's contingent on someone else's future DNS change, not a live break.
+  Documented as a dependency in `lib/email/send.ts`, not fixed.
+- Every send now includes a real plain-text part via the shared
+  `sendEmail()` (`lib/email/htmlToText.ts` derives it automatically), fixing
+  the original HTML-only deliverability gap.
+- **All three hand-rolled Mailgun senders found during that work are now
+  fixed**, not still-open — `become-a-partner/menu-upload`,
+  `become-a-partner/complete`'s team notification, and
+  `cron/recurring-orders` all route through the shared `sendEmail()` as of
+  2026-08-20, each verified against a real send as genuine
+  `multipart/alternative`. (If this file is read later and a new hand-rolled
+  sender has appeared, that's a regression to fix the same way — not
+  evidence this list was wrong.)
+
+### The delivery-method bug — open, not yet fixed
+
+**Delivery method is per-MENU, not per-restaurant.** A single restaurant can
+have one menu on third-party delivery and another self-delivered — FM's
+restaurant-level `deliveryType` is a default, the real setting lives on the
+menu. `disco_menus.delivery_settings` already stores this correctly
+per-menu-row (confirmed: one restaurant with 4 menus held 2 distinct
+settings). The bug is entirely downstream: nothing records which menu an
+order's cart actually came from, so dispatch (`dispatchExpediteForOrder`),
+fee computation (`loadRestaurantDeliverySettings`/`validateNativeDelivery`),
+and checkout all fell back to `ORDER BY position, id LIMIT 1` — whichever
+menu happens to sort first, regardless of the cart. `disco_orders.menu_reference`
+(added 2026-08-19) and cart-level menu tagging fix this for **new** orders
+going forward — every call site now takes an explicit `menuReference` and
+only falls back to the `LIMIT 1` guess when one wasn't tagged (logged as a
+fallback, not silent).
+
+**Real incident this caused**: `createExpediteDelivery()`
+(`app/api/order/confirm-payment/route.ts`) dispatched a real Expedite
+courier for The Winkin' Rooster — a restaurant whose menu, and FM's own
+restaurant-level record, both say self-delivery only — because that
+function checked `order_type = 'DELIVERY'` alone, no delivery-method check
+at all. Same root class of bug also fired at DeCheco's - Munroe Falls via
+the (correctly-gated) native dispatch path, off a mismatched imported
+menu-level setting. Both the `confirm-payment` gate and the menu-tagging
+fix shipped 2026-08-20; the underlying question of whether FM's
+restaurant-level or menu-level field should win when they disagree is still
+open for the 11 native restaurants where they don't currently agree (see
+`disco-cater`'s own session history for that specific list — not
+duplicated here since it's restaurant-data-specific, not procedural).
 
 ---
 
@@ -709,9 +870,16 @@ What changes when converting more than one restaurant at a time:
   announcement) needs a real bulk-send path with per-recipient Mailgun
   delivery confirmation — the verification step itself doesn't change, but
   running it N times by hand won't scale.
-- `inviteFmSystemAdminsFor` re-fetches FM's entire ~363-record system-admin
-  list on every single restaurant's conversion — harmless one-at-a-time,
-  wasteful run back-to-back. Worth caching within a batch run.
+- `inviteFmAuthorizedUsersFor` reads via the master-password mechanism
+  (`readWalledFieldsForRestaurants`), which already groups by resolved admin
+  and shares one login across every ref passed to it in the same call — but
+  only if the caller passes all the batch's refs together (or threads
+  `opts.prefetchedWalled` through, same as tax/notifications/closedDays/
+  promoCode). Calling `convertToNative` one restaurant at a time in a loop,
+  each with its own single-ref read, gets none of that sharing — worth
+  batching the walled-field read up front for a real multi-restaurant run,
+  same lesson as the old ~363-record system-admin list re-fetch this note
+  used to describe.
 - Nothing about Stripe/tax/menu parallelizes today — independent per
   restaurant, so batching them is a scripting question, not a design change.
 - The Tier 2 gate does **not** re-run per restaurant — it's the reason

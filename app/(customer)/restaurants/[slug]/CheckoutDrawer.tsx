@@ -46,6 +46,9 @@ interface CartItem {
   note?: string
   addOns: CartAddOn[]
   unitPrice: number
+  // Which menu tab this item was added from — see the matching field on
+  // RestaurantClient.tsx's CartItem for the full explanation.
+  menuReference: string
 }
 interface FmDeliveryAddr { addressLine1: string; addressLine2?: string; city: string; state: string; zipcode: string; latitude?: number; longitude?: number; deliveryInstructions?: string }
 
@@ -498,7 +501,7 @@ export default function CheckoutDrawer({
       : (appliedPromo?.type === 'restaurant' ? appliedPromo.code : null)
     const base = buildCheckoutPayload({
       restaurantRef: fmRef,
-      cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
+      cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note, menuReference: i.menuReference })),
       // FM requires orderType as "PICKUP" or "DELIVERY" — empty string causes 500
       orderType: (orderType || 'PICKUP') as 'DELIVERY' | 'PICKUP',
       orderDate: selDate, orderTime: selTime,
@@ -564,7 +567,12 @@ export default function CheckoutDrawer({
       if (initData.data?.checkoutPublicResponseDto || initData.data) setFmTotals(initData)
       applyRestaurantPromoError(initData)
       if (orderType === 'DELIVERY') {
-        fetch('/api/order/validate-address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantReference: fmRef, deliveryAddress: fmAddr, menuReference }) }).catch(() => {})
+        // Prefer the cart's own tagged menu over the drawer-open-time prop —
+        // they're the same value today (native restaurants only ever load one
+        // menu), but the cart's items are the actually-correct source once a
+        // restaurant's second menu becomes orderable.
+        const cartMenuReference = cart[0]?.menuReference ?? menuReference
+        fetch('/api/order/validate-address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurantReference: fmRef, deliveryAddress: fmAddr, menuReference: cartMenuReference }) }).catch(() => {})
       }
       // NOTE: FM's /orders/slotselected (slot reservation) is intentionally not
       // called — init already creates the draft order, and the call 400'd from a
@@ -994,7 +1002,7 @@ export default function CheckoutDrawer({
           deliveryAddress: orderType === 'DELIVERY'
             ? { addressLine1: fmAddr.addressLine1, addressLine2: fmAddr.addressLine2, city: fmAddr.city, state: fmAddr.state, zip: fmAddr.zipcode, latitude: fmAddr.latitude, longitude: fmAddr.longitude }
             : null,
-          items: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, count: i.quantity, price: i.unitPrice })),
+          items: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, count: i.quantity, price: i.unitPrice, menuReference: i.menuReference })),
         }
         // Saved-card confirm (customer flow): FM's "confirm with default source" path
         // charges the Stripe Customer's legacy `default_source`, which Disco never sets

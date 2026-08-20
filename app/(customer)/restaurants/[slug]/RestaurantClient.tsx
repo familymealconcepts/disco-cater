@@ -107,6 +107,14 @@ interface CartItem {
   // many FM packages have a $0 base whose real price lives in a
   // mandatory modifier group.
   unitPrice: number
+  // Which menu tab this item was added from (menuData[i].menu.reference).
+  // Delivery method (OWN_DELIVERY vs THIRD_PARTY) is per-menu, not
+  // restaurant-level — this is what lets checkout/dispatch/fees know which
+  // menu an order actually came from instead of guessing. Native restaurants
+  // only ever load one menu today (see loadDiscoNativeRestaurant), so this is
+  // always the same value in practice right now — but it's real plumbing, not
+  // dead code, the moment a restaurant's second menu becomes orderable.
+  menuReference: string
 }
 interface AddrDetails { addressLine1: string; city: string; state: string; zipcode: string; latitude: number; longitude: number }
 
@@ -315,6 +323,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // Reorder: transient feedback toast + one-time guard so the stash is
   // reconstructed into the cart exactly once after mount.
   const [reorderToast, setReorderToast] = useState('')
+  // Shown when addItemWithConfig blocks adding an item whose menu delivers
+  // differently than what's already in the cart.
+  const [cartBlockMessage, setCartBlockMessage] = useState('')
   const reorderRef = useRef(false)
   const [tipPct, setTipPct] = useState<number | null>(null)
   // "Other" tip mode: a blank custom input means $0 (NOT the menu default).
@@ -904,7 +915,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     const dto = {
       ...buildCheckoutPayload({
         restaurantRef: fmRef!,
-        cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note })),
+        cart: cart.map(i => ({ reference: i.pkg.reference, name: i.pkg.name, price: i.pkg.price, count: i.quantity, addOns: i.addOns, note: i.note, menuReference: i.menuReference })),
         orderType,
         orderDate: selDate,
         orderTime: selTime,
@@ -1103,16 +1114,44 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     return `${sig}::${note || ''}`
   }
 
+  // A menu's delivery method — OWN_DELIVERY (restaurant self-delivers) vs
+  // THIRD_PARTY (Disco dispatches a courier). Mirrors menuRowToSettings'
+  // deliveryType field (menu-settings.ts): 'OWN_DELIVERY' stays as-is,
+  // anything else ('NASH_DELIVERY', the default) is THIRD_PARTY.
+  function menuDeliveryMethod(menuRef: string): 'OWN_DELIVERY' | 'THIRD_PARTY' {
+    const m = menuData.find(s => s.menu.reference === menuRef)
+    return m?.menu?.settings?.deliveryType === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY'
+  }
+
+  const MIXED_DELIVERY_METHOD_MESSAGE =
+    "Items from this menu are delivered differently than what's already in your cart. Start a new order, or remove the existing items to add this one."
+
   function addItemWithConfig(pkg: FmPackage, addQty: number, addOns: CartAddOn[], note: string | undefined, unitPrice: number) {
+    const menuReference = activeMenu?.reference || 'disco-catering'
+    const sig = configSig(addOns, note)
+    const isNewLine = cart.findIndex(x => x.pkg.reference === pkg.reference && configSig(x.addOns, x.note) === sig) < 0
+    // Mixing menus with the SAME delivery method is fine (not a problem, and
+    // blocking it would break existing behavior for no reason) — only block
+    // when this item's menu delivers differently than what's already in the
+    // cart. Checked against the first existing line: every line already in
+    // the cart is guaranteed to already agree with it (this same guard
+    // enforced that when each of them was added). Checked here, before
+    // dispatching setCart, rather than inside its updater — that updater must
+    // stay a pure function of prev state, not fire a second setState as a
+    // side effect.
+    if (isNewLine && cart.length > 0 && menuDeliveryMethod(menuReference) !== menuDeliveryMethod(cart[0].menuReference)) {
+      setCartBlockMessage(MIXED_DELIVERY_METHOD_MESSAGE)
+      setTimeout(() => setCartBlockMessage(''), 8000)
+      return
+    }
     setCart(prev => {
-      const sig = configSig(addOns, note)
       const i = prev.findIndex(x => x.pkg.reference === pkg.reference && configSig(x.addOns, x.note) === sig)
       if (i >= 0) {
         const n = [...prev]
         n[i] = { ...n[i], quantity: n[i].quantity + addQty }
         return n
       }
-      return [...prev, { lineId: genLineId(), pkg, quantity: addQty, note, addOns, unitPrice }]
+      return [...prev, { lineId: genLineId(), pkg, quantity: addQty, note, addOns, unitPrice, menuReference }]
     })
   }
 
@@ -2256,6 +2295,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       {reorderToast && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: DARK, color: '#fff', padding: '12px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, fontFamily: F, zIndex: 900, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', maxWidth: 'calc(100vw - 32px)', textAlign: 'center' }}>
           {reorderToast}
+        </div>
+      )}
+
+      {/* Mixed-delivery-method cart block toast */}
+      {cartBlockMessage && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#B42318', color: '#fff', padding: '12px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, fontFamily: F, zIndex: 900, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', maxWidth: 380, textAlign: 'center' }}>
+          {cartBlockMessage}
         </div>
       )}
 

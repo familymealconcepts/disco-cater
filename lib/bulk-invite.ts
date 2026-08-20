@@ -7,7 +7,7 @@
 // This is the ONE place that pacing should be implemented -- any future batch-invite driver
 // (a real bulk-conversion feature, or another one-off script) should call sendPaced() rather
 // than writing its own loop, specifically so the delay isn't something that has to be
-// remembered and re-added by hand each time. See inviteFmSystemAdminsFor in
+// remembered and re-added by hand each time. See inviteFmAuthorizedUsersFor in
 // native-conversion.ts for the one place this is wired in today.
 //
 // NOTE: there is currently no standing multi-restaurant bulk-conversion driver in this

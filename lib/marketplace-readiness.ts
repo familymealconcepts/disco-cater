@@ -4,6 +4,7 @@
 // off the marketplace if switched to Disco-native?" before flipping. Never mutates.
 import { sql, runMigrations } from './db'
 import { evaluateMarketplaceReadiness, type MarketplaceReadiness } from './marketplace-visibility'
+import { stripeReadySql } from './stripe-readiness'
 
 export interface MarketplaceReadinessResult extends MarketplaceReadiness {
   restaurantReference: string
@@ -21,7 +22,7 @@ export async function checkMarketplaceReadiness(ref: string): Promise<Marketplac
            EXISTS (
              SELECT 1 FROM disco_restaurant_accounts a
              WHERE (a.restaurant_reference = c.restaurant_reference OR a.fm_restaurant_reference = c.restaurant_reference)
-               AND a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true
+               AND ${sql.unsafe(stripeReadySql('a'))}
            ) AS has_completed_native_stripe
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference

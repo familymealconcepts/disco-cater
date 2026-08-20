@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../../lib/db'
 import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
 import { getFmServiceAuthHeader } from '../../../../../lib/fm-service-auth'
+import { stripeReadySql } from '../../../../../lib/stripe-readiness'
 
 // FULL Stripe Connect sync across EVERY FM restaurant (not just visible ones with
 // an existing override row). Paginates the entire FM admin restaurant list, then
@@ -26,10 +27,10 @@ async function loadDiscoConnectedRefs(refs: string[]): Promise<Set<string>> {
   if (!refs.length) return new Set()
   const rows = (await sql`
     SELECT restaurant_reference AS ref FROM disco_restaurant_accounts
-    WHERE restaurant_reference = ANY(${refs}) AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+    WHERE restaurant_reference = ANY(${refs}) AND ${sql.unsafe(stripeReadySql())}
     UNION
     SELECT fm_restaurant_reference AS ref FROM disco_restaurant_accounts
-    WHERE fm_restaurant_reference = ANY(${refs}) AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+    WHERE fm_restaurant_reference = ANY(${refs}) AND ${sql.unsafe(stripeReadySql())}
   `.catch(() => [])) as { ref: string }[]
   return new Set(rows.map(r => r.ref))
 }

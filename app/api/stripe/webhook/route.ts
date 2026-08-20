@@ -6,6 +6,7 @@ import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
 import { handleNativePaymentIntentSucceeded } from '../../../../lib/order/native-payment-succeeded'
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { alertOps } from '../../../../lib/ops-alert'
+import { cancelDelivery } from '../../../../lib/expedite'
 import { waitUntil } from '@vercel/functions'
 
 export const runtime = 'nodejs'
@@ -231,6 +232,27 @@ export async function POST(request: NextRequest) {
         }
 
         await recordEvent(payments[0].order_reference, 'CHARGE_REFUNDED', event, 'STRIPE_WEBHOOK')
+
+        // A fully-refunded order needs its courier stood down — regardless of
+        // which path issued the refund (Disco's own refund routes, FM's own
+        // backend, or a manual Stripe-dashboard refund). This is the one place
+        // that catches ALL of those, since every refund eventually fires this
+        // webhook. Gated on charge.refunded (the whole charge, not a partial/
+        // goodwill adjustment) — a courier already en route for a $10 goodwill
+        // partial refund should not be canceled. Real incident: Winfield Street
+        // Coffee - Naples South was refunded the day after a courier was
+        // dispatched, and nothing stood the driver down (#31204982).
+        if (charge.refunded) {
+          const orders = (await sql`
+            SELECT expedite_delivery_id FROM disco_orders
+            WHERE reference = ${payments[0].order_reference}::uuid AND expedite_delivery_id IS NOT NULL AND expedite_delivery_id != 'PENDING'
+            LIMIT 1
+          `.catch(() => [])) as { expedite_delivery_id: string }[]
+          if (orders[0]?.expedite_delivery_id) {
+            const result = await cancelDelivery(orders[0].expedite_delivery_id)
+            console.log('[Webhook] charge.refunded — expedite cancel:', result.success ? 'ok' : result.error)
+          }
+        }
         break
       }
 

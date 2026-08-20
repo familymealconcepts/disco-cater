@@ -305,6 +305,16 @@ export function nativeDispatchEnabled(): boolean {
 // Stripe-webhook retries via an atomic claim on expedite_delivery_id: exactly one
 // caller flips NULL → 'PENDING', dispatches, then writes the real id (or resets to
 // NULL on failure so a retry can try again). Best-effort — never throws.
+//
+// menu_reference cross-check: delivery_type is set once at placement from
+// whichever menu the cart actually came from (see priceNativeCart in
+// native-checkout.ts) — by the time this runs it SHOULD already agree with
+// that menu's real delivery_settings.method. This re-checks it directly
+// anyway, since delivery_type is exactly the field that was wrong in both real
+// incidents (Winkin' Rooster, DeCheco's - Munroe Falls) before menu_reference
+// existed to check against. When menu_reference is NULL (an order placed
+// before this shipped), there's nothing to cross-check — trust delivery_type
+// alone, same as before.
 export async function dispatchExpediteForOrder(orderId: number): Promise<void> {
   try {
     if (!configured()) return // no Expedite creds → no-op
@@ -314,10 +324,29 @@ export async function dispatchExpediteForOrder(orderId: number): Promise<void> {
         AND expedite_delivery_id IS NULL
         AND order_type = 'DELIVERY'
         AND delivery_type = 'THIRD_PARTY_DELIVERY'
-      RETURNING reference
-    `.catch(() => [])) as { reference: string }[]
+      RETURNING reference, restaurant_reference, menu_reference
+    `.catch(() => [])) as { reference: string; restaurant_reference: string; menu_reference: string | null }[]
     if (!claim.length) return // not eligible (pickup/own-delivery) or already dispatched
-    const reference = claim[0].reference
+    const { reference, restaurant_reference: restaurantReference, menu_reference: menuReference } = claim[0]
+
+    if (menuReference) {
+      const menuRows = (await sql`
+        SELECT delivery_settings FROM disco_menus
+        WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
+        LIMIT 1
+      `.catch(() => [])) as { delivery_settings: { method?: string } | null }[]
+      const menuMethod = menuRows[0]?.delivery_settings?.method
+      if (menuMethod && menuMethod !== 'THIRD_PARTY') {
+        // delivery_type said THIRD_PARTY_DELIVERY but the order's own menu says
+        // otherwise — refuse to dispatch and surface it loudly, this is exactly
+        // the disagreement that caused both real incidents.
+        await sql`UPDATE disco_orders SET expedite_delivery_id = NULL WHERE id = ${orderId} AND expedite_delivery_id = 'PENDING'`.catch(() => {})
+        await alertOps('expedite: refused to dispatch — order.delivery_type says THIRD_PARTY but its own menu says otherwise', {
+          orderId, reference, menuReference, menuMethod,
+        })
+        return
+      }
+    }
 
     const payload = await buildPayloadFromNeon(reference)
     if (!payload) {

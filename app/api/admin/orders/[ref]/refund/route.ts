@@ -4,6 +4,7 @@ import { sql } from '../../../../../../lib/db'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
 import { sendCustomerRefundNotification } from '../../../../../../lib/email/notifications'
+import { cancelDelivery } from '../../../../../../lib/expedite'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -52,6 +53,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         body: JSON.stringify({ amount }),
       })
       if (!res.ok) return NextResponse.json({ error: 'Failed to refund' }, { status: res.status })
+
+      // Fully refunded FM-backed order → stand down any booked courier. The
+      // Stripe webhook's charge.refunded handler also catches this, but doing
+      // it here too avoids waiting on the webhook round-trip. See the
+      // confirm-payment fix + Winfield Street Coffee incident.
+      const orderTotalRows = (await sql`
+        SELECT COALESCE(NULLIF(total, 0), (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = disco_orders.reference AND sp.total > 0)) AS total,
+               expedite_delivery_id
+        FROM disco_orders WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid LIMIT 1
+      `.catch(() => [])) as { total: string | null; expedite_delivery_id: string | null }[]
+      const row = orderTotalRows[0]
+      if (row?.expedite_delivery_id && row.expedite_delivery_id !== 'PENDING' && amount >= (Number(row.total) || 0) - 0.001) {
+        const result = await cancelDelivery(row.expedite_delivery_id)
+        console.log('[admin/orders/refund] FM-order expedite cancel:', result.success ? 'ok' : result.error)
+      }
       return NextResponse.json({ ok: true })
     } catch {
       return NextResponse.json({ error: 'Unable to refund' }, { status: 500 })
@@ -90,11 +106,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       SET order_status = ${newStatus}, refund = ${totalRefund}, updated_at = NOW()
       WHERE reference = ${nativeRow.discoReference}::uuid
       RETURNING reference, order_number, customer_email, customer_first_name,
-                customer_last_name, restaurant_reference, restaurant_name
+                customer_last_name, restaurant_reference, restaurant_name, expedite_delivery_id
     `) as Array<{
       reference: string; order_number: string | number | null
       customer_email: string | null; customer_first_name: string | null; customer_last_name: string | null
-      restaurant_reference: string | null; restaurant_name: string | null
+      restaurant_reference: string | null; restaurant_name: string | null; expedite_delivery_id: string | null
     }>
     const o = rows[0]
     if (o) {
@@ -102,6 +118,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
         VALUES (${o.reference}::uuid, 'REFUNDED', ${JSON.stringify({ amount, totalRefund, stripeRefundId, status: newStatus })}::jsonb, 'ADMIN_REFUND')
       `.catch(e => console.error('[admin/orders/refund] event insert:', e instanceof Error ? e.message : e))
+
+      // Fully refunded (not a partial/goodwill adjustment) → stand down any
+      // booked courier.
+      if (newStatus === 'REFUND' && o.expedite_delivery_id && o.expedite_delivery_id !== 'PENDING') {
+        const result = await cancelDelivery(o.expedite_delivery_id)
+        console.log('[admin/orders/refund] expedite cancel:', result.success ? 'ok' : result.error)
+      }
 
       if (o.customer_email) {
         try {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
 import { sql, runMigrations } from '../../../../../lib/db'
+import { stripeReadySql } from '../../../../../lib/stripe-readiness'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,7 +30,7 @@ export async function GET() {
         OR EXISTS (
           SELECT 1 FROM disco_restaurant_accounts a
           WHERE (a.restaurant_reference = o.restaurant_reference OR a.fm_restaurant_reference = o.restaurant_reference)
-            AND a.stripe_account_id IS NOT NULL AND a.stripe_onboarding_complete = true
+            AND ${sql.unsafe(stripeReadySql('a'))}
         )
       )
     `) as { c: number }[]

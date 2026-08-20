@@ -22,7 +22,11 @@ export async function POST(req: NextRequest) {
 
     // ── Disco-native path: geocode + distance + fee in Neon, zero FM. ──
     if (await isDiscoNative(ref)) {
-      const result = await validateNativeDelivery(ref, body?.deliveryAddress || {}, Number(body?.subtotal) || 0)
+      // menuReference was already being sent here (for FM's own activity-tracker
+      // use on the FM path below) — now also used to resolve the RIGHT menu's
+      // delivery method instead of guessing the restaurant's "primary" menu.
+      const menuReference = typeof body?.menuReference === 'string' ? body.menuReference : undefined
+      const result = await validateNativeDelivery(ref, body?.deliveryAddress || {}, Number(body?.subtotal) || 0, undefined, menuReference)
       return NextResponse.json(result)
     }
 

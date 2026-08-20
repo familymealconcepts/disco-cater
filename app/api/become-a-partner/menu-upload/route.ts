@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { put } from '@vercel/blob'
 import { sql } from '../../../../lib/db'
+import { sendEmail } from '../../../../lib/email/send'
+import { layout } from '../../../../lib/email/layout'
 
 // Menu intake for the become-a-partner onboarding (Step 7).
 //
@@ -21,8 +23,6 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY
-const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN
 const TEAM_EMAIL = 'concierge@discocater.com'
 const ADMIN_MENU_TOOL = 'https://www.discocater.com/admin/manage-restaurants/menu-import'
 
@@ -30,43 +30,30 @@ const MAX_PDF_BYTES = 10 * 1024 * 1024 // 10MB
 
 // ── Mailgun ───────────────────────────────────────────────────────────────────
 
+// Escape + linkify a plain-text notification body into simple HTML: blank
+// lines become paragraph breaks, single newlines become <br/>, bare http(s)
+// URLs become clickable links. Callers here already write clean "Key: value"
+// text, so a generic reversible converter is unnecessary — this only needs to
+// make that same text readable as HTML too, so sendEmail() has a real html
+// part (previously this route sent text-only, no html at all).
+function textToHtml(text: string): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const linked = esc(text).replace(/(https?:\/\/\S+)/g, '<a href="$1">$1</a>')
+  return linked.split('\n\n').map(p => `<p style="margin:0 0 12px;">${p.replace(/\n/g, '<br/>')}</p>`).join('\n')
+}
+
 // Email the Disco team. `attachment` (a PDF buffer) is optional. Returns false
 // on any send failure — callers treat the email as best-effort.
 async function notifyTeam(subject: string, text: string, attachment?: { buffer: Buffer; filename: string }): Promise<boolean> {
-  if (!MAILGUN_API_KEY || !MAILGUN_DOMAIN) {
-    console.error('[menu-upload] Mailgun is not configured (MAILGUN_API_KEY / MAILGUN_DOMAIN).')
-    return false
-  }
-  try {
-    const mg = new FormData()
-    // Verified envelope sender (same as lib/email/send.ts) — deriving it from
-    // MAILGUN_DOMAIN can be rejected as an unauthorized sender.
-    mg.append('from', 'Disco Cater <orders@discocater.com>')
-    mg.append('to', TEAM_EMAIL)
-    // Same orders@discocater.com-wide bcc as lib/email/send.ts — this sender is
-    // hand-rolled (not routed through the shared sendEmail), so it needs the
-    // same addition applied directly. Kealoha's bcc/Reply-To are likewise
-    // platform-wide and applied here for the same reason.
-    mg.append('bcc', 'noreply@familymeal.com,kealoha@discocater.com')
-    mg.append('h:Reply-To', 'kealoha@discocater.com')
-    mg.append('subject', subject)
-    mg.append('text', text)
-    if (attachment) mg.append('attachment', new Blob([new Uint8Array(attachment.buffer)], { type: 'application/pdf' }), attachment.filename)
-    const res = await fetch(`https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages`, {
-      method: 'POST',
-      headers: { Authorization: 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64') },
-      body: mg,
-    })
-    if (!res.ok) {
-      const raw = await res.text().catch(() => '')
-      console.error(`[menu-upload] Mailgun ${res.status}: ${raw.slice(0, 300)}`)
-      return false
-    }
-    return true
-  } catch (err) {
-    console.error('[menu-upload] Mailgun send failed:', err)
-    return false
-  }
+  const result = await sendEmail({
+    to: TEAM_EMAIL,
+    subject,
+    html: layout(textToHtml(text)),
+    text, // already clean plain text — use it verbatim instead of re-deriving from the html above.
+    attachments: attachment ? [{ filename: attachment.filename, content: attachment.buffer, contentType: 'application/pdf' }] : undefined,
+  })
+  if (!result.success) console.error(`[menu-upload] send failed for "${subject}":`, result.error)
+  return result.success
 }
 
 // ── Route ──────────────────────────────────────────────────────────────────────

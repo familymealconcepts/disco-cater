@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 import { getFmServiceAuthHeader } from '../../../../lib/fm-service-auth'
+import { stripeReadySql } from '../../../../lib/stripe-readiness'
 
 // Check FM Stripe Connect status for VISIBLE restaurants and store it on
 // disco_restaurant_overrides. FM has no bulk endpoint, so we probe
@@ -29,10 +30,10 @@ async function loadDiscoConnectedRefs(refs: string[]): Promise<Set<string>> {
   // disco-connected restaurant whose Stripe lives under a different Disco reference.
   const rows = (await sql`
     SELECT restaurant_reference AS ref FROM disco_restaurant_accounts
-    WHERE restaurant_reference = ANY(${refs}) AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+    WHERE restaurant_reference = ANY(${refs}) AND ${sql.unsafe(stripeReadySql())}
     UNION
     SELECT fm_restaurant_reference AS ref FROM disco_restaurant_accounts
-    WHERE fm_restaurant_reference = ANY(${refs}) AND stripe_account_id IS NOT NULL AND stripe_onboarding_complete = true
+    WHERE fm_restaurant_reference = ANY(${refs}) AND ${sql.unsafe(stripeReadySql())}
   `.catch(() => [])) as { ref: string }[]
   return new Set(rows.map(r => r.ref))
 }

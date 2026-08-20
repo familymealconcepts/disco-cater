@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminRole } from '../../../../../lib/admin-auth'
 import { getRestaurantRole } from '../../../../../lib/restaurant-auth'
+import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { runDiscoOrderMigrations } from '../../../../../lib/db'
 import { syncRestaurantOrders, syncAllRestaurantOrders } from '../../../../../lib/fm-orders-sync'
 
@@ -22,11 +23,16 @@ export async function POST(req: NextRequest) {
   const isCron = !!cronSecret && bearer === cronSecret
 
   if (!isCron) {
-    const [adminRole, restaurantRole] = await Promise.all([
+    // getRestaurantRole() only decodes the FM JWT — always null for a Disco-native
+    // session, so a native SUPER_ADMIN needs getRestaurantAuthContext()'s ctx.role
+    // checked too (same gap fixed in manage/bulk-pricing/page.tsx).
+    const [adminRole, ctx, restaurantRole] = await Promise.all([
       getAdminRole().catch(() => ''),
+      getRestaurantAuthContext().catch(() => null),
       getRestaurantRole().catch(() => ''),
     ])
-    if (adminRole !== 'SUPER_ADMIN' && restaurantRole !== 'SUPER_ADMIN') {
+    const discoRole = ctx?.authType === 'disco' ? ctx.role : null
+    if (adminRole !== 'SUPER_ADMIN' && restaurantRole !== 'SUPER_ADMIN' && discoRole !== 'SUPER_ADMIN') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
   }

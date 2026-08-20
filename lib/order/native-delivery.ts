@@ -37,25 +37,45 @@ function fullAddress(a: NativeDeliveryAddress): string {
 }
 
 // Validate a delivery address for a Disco-native restaurant. `geocoder` is
-// injectable for testing; production uses the Google geocoder.
+// injectable for testing; production uses the Google geocoder. `menuReference`
+// is the menu the cart's items actually came from (see resolveCartMenuReference
+// in native-checkout.ts) — delivery method is per-menu, not restaurant-level.
+// When absent (old client, or an untagged cart), FALLS BACK explicitly to the
+// restaurant's "primary" (lowest position/id) visible menu — real prior
+// behavior, not a new guess.
 export async function validateNativeDelivery(
   restaurantReference: string,
   address: NativeDeliveryAddress,
   subtotal = 0,
   geocoder: (addr: string) => Promise<LatLng> = geocodeAddress,
+  menuReference?: string,
 ): Promise<NativeDeliveryResult> {
-  // Restaurant coordinates + the primary menu's delivery settings, from Neon (no FM).
+  // Restaurant coordinates, from Neon (no FM).
   const rows = (await sql`
     SELECT lat, lng FROM disco_restaurant_cache WHERE restaurant_reference = ${restaurantReference} LIMIT 1
   `.catch(() => [])) as { lat: number | string | null; lng: number | string | null }[]
   const rLat = rows[0]?.lat != null ? Number(rows[0].lat) : null
   const rLng = rows[0]?.lng != null ? Number(rows[0].lng) : null
-  const menuRows = (await sql`
-    SELECT delivery_settings FROM disco_menus
-    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
-    ORDER BY position, id LIMIT 1
-  `.catch(() => [])) as { delivery_settings: DeliverySettings | null }[]
-  const del = menuRows[0]?.delivery_settings || null
+
+  let del: DeliverySettings | null = null
+  let resolvedExactly = false
+  if (menuReference) {
+    const exact = (await sql`
+      SELECT delivery_settings FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
+      LIMIT 1
+    `.catch(() => [])) as { delivery_settings: DeliverySettings | null }[]
+    if (exact.length) { del = exact[0].delivery_settings || null; resolvedExactly = true }
+    else console.warn('[native-delivery] tagged menuReference not found, falling back to primary-menu guess', { restaurantReference, menuReference })
+  }
+  if (!resolvedExactly) {
+    const menuRows = (await sql`
+      SELECT delivery_settings FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+      ORDER BY position, id LIMIT 1
+    `.catch(() => [])) as { delivery_settings: DeliverySettings | null }[]
+    del = menuRows[0]?.delivery_settings || null
+  }
   const method: 'OWN_DELIVERY' | 'THIRD_PARTY' = del?.method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY'
   const fulfillment: Fulfillment = method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY_DELIVERY'
 

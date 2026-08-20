@@ -36,6 +36,20 @@ export interface SendResult {
   id?: string
 }
 
+// Every sender in this app uses @discocater.com (root) in the visible From,
+// not @mg.discocater.com (the actual Mailgun-verified domain — the root domain
+// isn't even registered in Mailgun, confirmed via its Domains API: 404).
+// This works ONLY because discocater.com's own DMARC record uses RELAXED
+// alignment (adkim=r; aspf=r) — mg.discocater.com shares discocater.com's
+// organizational domain, so SPF/DKIM alignment passes under relaxed mode even
+// though the visible From domain doesn't literally match the signing domain.
+// If discocater.com's DMARC is ever tightened to strict (adkim=s; aspf=s),
+// EVERY email this app sends fails alignment at once. Deliberately NOT
+// switching to @mg.discocater.com to fix this — that would expose the ugly
+// subdomain to every recipient, a real cost, against a risk that's contingent
+// on someone else's future DNS change. Documenting the dependency instead:
+// if DMARC on the root domain ever needs tightening, whoever does that must
+// know Mailgun sending depends on it staying relaxed.
 const DEFAULT_FROM = 'Disco Cater <orders@discocater.com>'
 // Every Disco-native email sent from orders@discocater.com is also bcc'd to
 // FM, across all restaurants — not conditional on restaurant, template, or
