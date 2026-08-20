@@ -381,6 +381,21 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const activeMenu = menuData[activeMenuIdx]?.menu
   const sched = activeMenu?.scheduleOption
   const settings = activeMenu?.settings
+  // The menu the CART's items actually came from — distinct from `activeMenu`
+  // (whichever tab is currently being BROWSED). Once there's a cart, checkout-
+  // facing numbers (service charge, minimum order, the menuReference handed to
+  // CheckoutDrawer) must price off what's actually in the cart, not whatever
+  // tab the customer happens to be looking at when the summary re-renders —
+  // otherwise switching tabs after adding items silently reprices the order
+  // summary against the wrong menu's settings. With the one-menu-per-order
+  // guard in addItemWithConfig below, cart[0].menuReference IS every line's
+  // menu (not just a representative first pick), so this is unambiguous by
+  // construction. Falls back to activeMenu when the cart is empty (nothing to
+  // derive from yet) or the tagged menu no longer matches any loaded menu
+  // (stale/deleted) — explicit fallback, not a silent guess.
+  const cartMenuIdx = cart.length > 0 ? menuData.findIndex(s => s.menu.reference === cart[0].menuReference) : -1
+  const checkoutMenu = cartMenuIdx >= 0 ? menuData[cartMenuIdx].menu : activeMenu
+  const checkoutSettings = checkoutMenu?.settings
   // Menu search — only shown when the restaurant enabled it. This is a
   // RESTAURANT-level FM setting (restaurantSettings), NOT a menu-level one; FM
   // never populates it on menu.settings, so reading it there left the bar hidden.
@@ -466,8 +481,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // default. Otherwise fall back to the menu's default tip.
   const activeTip = tipOther ? (tipPct ?? 0) : (tipPct ?? defaultTip)
   const minOrder = orderType === 'DELIVERY'
-    ? (settings?.deliveryOrderMinimum ?? settings?.pickupOrderMinimum ?? 0)
-    : (settings?.pickupOrderMinimum ?? 0)
+    ? (checkoutSettings?.deliveryOrderMinimum ?? checkoutSettings?.pickupOrderMinimum ?? 0)
+    : (checkoutSettings?.pickupOrderMinimum ?? 0)
 
   const availDates = useMemo(() => sched ? computeDates(sched) : [], [sched])
   const availSet = useMemo(() => new Set(availDates), [availDates])
@@ -815,7 +830,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // double-scaled it (15 → 1500 → $15 tip on a $1 subtotal, the 100× bug). The
   // tip amount itself is never discounted — only its % base is.
   const tipAmt = computeTip({ base: discountedSubtotal, pct: activeTip })
-  const svcPct = settings?.serviceCharge ?? 0
+  const svcPct = checkoutSettings?.serviceCharge ?? 0
   const svcAmt = computeServiceCharge(discountedSubtotal, svcPct)
   const clientTotal = computeGrandTotal({ subtotal: discountedSubtotal, serviceCharge: svcAmt, tip: tipAmt })
   const belowMin = minOrder > 0 && subtotal < minOrder && cart.length > 0
@@ -1114,33 +1129,39 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     return `${sig}::${note || ''}`
   }
 
-  // A menu's delivery method — OWN_DELIVERY (restaurant self-delivers) vs
-  // THIRD_PARTY (Disco dispatches a courier). Mirrors menuRowToSettings'
-  // deliveryType field (menu-settings.ts): 'OWN_DELIVERY' stays as-is,
-  // anything else ('NASH_DELIVERY', the default) is THIRD_PARTY.
-  function menuDeliveryMethod(menuRef: string): 'OWN_DELIVERY' | 'THIRD_PARTY' {
-    const m = menuData.find(s => s.menu.reference === menuRef)
-    return m?.menu?.settings?.deliveryType === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY'
-  }
-
-  const MIXED_DELIVERY_METHOD_MESSAGE =
-    "Items from this menu are delivered differently than what's already in your cart. Start a new order, or remove the existing items to add this one."
+  const SEPARATE_MENU_MESSAGE =
+    "This item is on a different menu than what's already in your cart — orders can only include items from one menu at a time. Start a new order, or remove the existing items to add this one."
 
   function addItemWithConfig(pkg: FmPackage, addQty: number, addOns: CartAddOn[], note: string | undefined, unitPrice: number) {
     const menuReference = activeMenu?.reference || 'disco-catering'
     const sig = configSig(addOns, note)
     const isNewLine = cart.findIndex(x => x.pkg.reference === pkg.reference && configSig(x.addOns, x.note) === sig) < 0
-    // Mixing menus with the SAME delivery method is fine (not a problem, and
-    // blocking it would break existing behavior for no reason) — only block
-    // when this item's menu delivers differently than what's already in the
-    // cart. Checked against the first existing line: every line already in
-    // the cart is guaranteed to already agree with it (this same guard
-    // enforced that when each of them was added). Checked here, before
-    // dispatching setCart, rather than inside its updater — that updater must
-    // stay a pure function of prev state, not fire a second setState as a
-    // side effect.
-    if (isNewLine && cart.length > 0 && menuDeliveryMethod(menuReference) !== menuDeliveryMethod(cart[0].menuReference)) {
-      setCartBlockMessage(MIXED_DELIVERY_METHOD_MESSAGE)
+    // One menu per order — cross-menu ordering isn't supported yet (planned
+    // eventually, too risky to allow now). Block adding from a menu that
+    // differs from whatever's already in the cart, regardless of whether
+    // delivery methods happen to agree — this makes the cart's menu
+    // unambiguous BY CONSTRUCTION (every line ties back to the exact same
+    // menu reference), not by a "first item wins" collapse that a second,
+    // differently-configured same-method menu could still slip past (e.g.
+    // one pickup+delivery, one pickup-only). Checked before dispatching
+    // setCart, rather than inside its updater — that updater must stay a
+    // pure function of prev state, not fire a second setState as a side
+    // effect.
+    if (isNewLine && cart.length > 0 && menuReference !== cart[0].menuReference) {
+      // Telemetry: this rule is stricter than the delivery-method-mismatch rule
+      // it replaced, so it's expected to fire more often on FM-backed multi-menu
+      // restaurants. The block is pure client state otherwise (no server call at
+      // all) — without this there'd be no way to tell whether it's protecting
+      // against a real mistake or just generating friction. GA4 (trackEvent),
+      // same path checkout_opened/checkout_completed already use — no new
+      // analytics plumbing.
+      trackEvent('menu_block_shown', {
+        restaurant_name: restaurant.name,
+        restaurant_slug: slug,
+        cart_menu_name: menuData.find(s => s.menu.reference === cart[0].menuReference)?.menu?.name || cart[0].menuReference,
+        attempted_menu_name: activeMenu?.name || menuReference,
+      })
+      setCartBlockMessage(SEPARATE_MENU_MESSAGE)
       setTimeout(() => setCartBlockMessage(''), 8000)
       return
     }
@@ -1437,7 +1458,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               {/* Service Charge */}
               {svcAmt > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-                  <span style={{ color: '#555' }}>{settings?.serviceChargeName || 'Service Charge'}</span>
+                  <span style={{ color: '#555' }}>{checkoutSettings?.serviceChargeName || 'Service Charge'}</span>
                   <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(svcAmt)}</span>
                 </div>
               )}
@@ -2129,7 +2150,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
           includeUtensils={includeUtensils}
           addr={addr} subtotal={subtotal} tipAmt={tipAmt} svcAmt={svcAmt} serviceChargePct={svcPct} minOrder={minOrder}
           headcount={headcount} onHeadcount={setHeadcount} hideHeadcount={hideHeadcount}
-          menuReference={menuData[activeMenuIdx]?.menu?.reference ?? null}
+          menuReference={checkoutMenu?.reference ?? null}
           isFirstParty={isFirstParty}
           isDirectEntry={isDirectEntry}
           directEntryMethod={directEntryMethod}
@@ -2298,7 +2319,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         </div>
       )}
 
-      {/* Mixed-delivery-method cart block toast */}
+      {/* Separate-menu cart block toast (one menu per order) */}
       {cartBlockMessage && (
         <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#B42318', color: '#fff', padding: '12px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, fontFamily: F, zIndex: 900, boxShadow: '0 8px 24px rgba(0,0,0,0.2)', maxWidth: 380, textAlign: 'center' }}>
           {cartBlockMessage}

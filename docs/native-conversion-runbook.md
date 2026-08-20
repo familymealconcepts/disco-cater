@@ -829,24 +829,73 @@ sounding name would be worse than a generic greeting.
   sender has appeared, that's a regression to fix the same way — not
   evidence this list was wrong.)
 
-### The delivery-method bug — open, not yet fixed
+### Menu tagging + one menu per order (2026-08-20) — product rule, not just a bug fix
 
-**Delivery method is per-MENU, not per-restaurant.** A single restaurant can
-have one menu on third-party delivery and another self-delivered — FM's
-restaurant-level `deliveryType` is a default, the real setting lives on the
-menu. `disco_menus.delivery_settings` already stores this correctly
-per-menu-row (confirmed: one restaurant with 4 menus held 2 distinct
-settings). The bug is entirely downstream: nothing records which menu an
-order's cart actually came from, so dispatch (`dispatchExpediteForOrder`),
-fee computation (`loadRestaurantDeliverySettings`/`validateNativeDelivery`),
-and checkout all fell back to `ORDER BY position, id LIMIT 1` — whichever
-menu happens to sort first, regardless of the cart. `disco_orders.menu_reference`
-(added 2026-08-19) and cart-level menu tagging fix this for **new** orders
-going forward — every call site now takes an explicit `menuReference` and
-only falls back to the `LIMIT 1` guess when one wasn't tagged (logged as a
-fallback, not silent).
+**Delivery method, service charge, and fulfillment availability (pickup vs
+delivery) are all per-MENU settings, not per-restaurant.** A single
+restaurant can have one menu on third-party delivery and another
+self-delivered, different service-charge percentages per menu, and a
+holiday-only menu that's pickup-only while the regular menu offers both.
+FM's restaurant-level fields (`deliveryType` etc.) are only a default — the
+real setting lives on `disco_menus`. This used to be a bug (nothing recorded
+which menu an order's cart came from, so dispatch/fees/checkout all guessed
+the primary menu via `ORDER BY position, id LIMIT 1`); it's now a closed,
+fully-wired system, plus a deliberate product constraint on top of it:
 
-**Real incident this caused**: `createExpediteDelivery()`
+- `disco_orders.menu_reference` (added 2026-08-19) is populated at
+  placement from the cart's tagged items (`resolveCartMenuReference`).
+  Every consumer — `loadRestaurantServiceChargePct`,
+  `loadRestaurantDeliverySettings`/`validateNativeDelivery`,
+  `dispatchExpediteForOrder`'s dispatch cross-check, and (2026-08-20)
+  `loadMenuFulfillmentAvailability` at placement time — takes an explicit
+  `menuReference`, resolves the exact menu, and only falls back to the
+  `LIMIT 1` guess when an order has no tag (logged as a fallback, never
+  silent). As of 2026-08-20: 0 of 24,291 orders have `menu_reference`
+  populated — every existing order takes the fallback path, which is
+  correct for all of them today (47 of 48 native restaurants have exactly
+  one menu; the fallback and the real tag agree by construction). This will
+  start diverging as multi-menu native restaurants place real orders.
+- **One menu per order is an enforced rule, not a limitation to work
+  around.** `RestaurantClient.tsx`'s cart guard blocks adding an item from a
+  menu that differs from whatever's already in the cart — regardless of
+  whether the two menus happen to share a delivery method. (An earlier
+  version of this guard only blocked a delivery-method *mismatch*; that was
+  tightened to "any different menu" because same-method menus can still
+  disagree on fulfillment availability — see next point — which the
+  method-only comparison didn't catch.) Cross-menu ordering is a deliberate
+  future feature, not an omission — see the sizing note below before
+  scoping it as quick.
+- **Per-menu fulfillment availability is real and enforced**
+  (`disco_menus.offers_pickup`/`offers_delivery`, both default true). The
+  picker UI already disabled an unavailable toggle; `buildNativePlaceInput`
+  now also refuses server-side (`loadMenuFulfillmentAvailability`) so a
+  direct API call can't place a delivery order against a pickup-only menu
+  or vice versa.
+- **Telemetry**: the cart guard fires `trackEvent('menu_block_shown', {
+  restaurant_name, restaurant_slug, cart_menu_name, attempted_menu_name })`
+  via GA4 (same `trackEvent` path as `checkout_opened`/`checkout_completed`
+  — no new analytics plumbing). Check GA4 → Reports → Engagement → Events →
+  `menu_block_shown` for volume/restaurant breakdown. This rule is stricter
+  than the delivery-method-mismatch rule it replaced, so it's expected to
+  fire more on FM-backed multi-menu restaurants (native restaurants can't
+  trigger it today — see below); if it's firing constantly, one-menu-per-
+  order is friction rather than protection.
+
+**Multi-menu native customer browsing does not exist yet — sizing note.**
+`loadDiscoNativeRestaurant` (`shared.tsx`) hard-limits a native restaurant's
+customer page to its one primary menu (`ORDER BY position, id LIMIT 1`,
+returns exactly one `menuData` entry). This is why the one-menu-per-order
+guard above can't currently be exercised by a native customer — there's
+only ever one menu to add from. Building real multi-menu native browsing
+means: (1) the data loader returning every visible menu instead of `LIMIT
+1`; (2) the category/item query, which today pulls **all** of a
+restaurant's items with no menu filter at all — silently relying on "only
+one menu exists" — would need real per-menu scoping; (3) cart-management UX
+decisions (what happens to an in-progress cart when switching tabs, what
+"start a new order" actually does). This is a multi-day feature, not a
+quick follow-up — don't scope it as one.
+
+**Real incident this caused** (historical, now fixed): `createExpediteDelivery()`
 (`app/api/order/confirm-payment/route.ts`) dispatched a real Expedite
 courier for The Winkin' Rooster — a restaurant whose menu, and FM's own
 restaurant-level record, both say self-delivery only — because that

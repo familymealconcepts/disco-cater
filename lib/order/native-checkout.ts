@@ -135,6 +135,35 @@ export async function loadRestaurantDeliverySettings(restaurantReference: string
   return rows[0]?.delivery_settings || null
 }
 
+export interface MenuFulfillmentAvailability { offersPickup: boolean; offersDelivery: boolean }
+
+// Which order types a menu accepts (disco_menus.offers_pickup / offers_delivery,
+// both default true — see menuRowToSettings/menuAvailability, which the client
+// already reads to disable an unavailable toggle). A restaurant can legitimately
+// run normal catering as pickup+delivery and a holiday menu as pickup-only; this
+// is the server-side half of that — the client-side disabled button doesn't stop
+// a direct API call. Same exact-match-then-explicit-fallback shape as
+// loadRestaurantDeliverySettings/loadRestaurantServiceChargePct.
+export async function loadMenuFulfillmentAvailability(restaurantReference: string, menuReference?: string): Promise<MenuFulfillmentAvailability> {
+  if (menuReference) {
+    const exact = (await sql`
+      SELECT offers_pickup, offers_delivery FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
+      LIMIT 1
+    `.catch(() => [])) as { offers_pickup: boolean | null; offers_delivery: boolean | null }[]
+    if (exact.length) {
+      return { offersPickup: exact[0].offers_pickup !== false, offersDelivery: exact[0].offers_delivery !== false }
+    }
+    console.warn('[native-checkout] loadMenuFulfillmentAvailability: tagged menuReference not found, falling back to primary-menu guess', { restaurantReference, menuReference })
+  }
+  const rows = (await sql`
+    SELECT offers_pickup, offers_delivery FROM disco_menus
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+    ORDER BY position, id LIMIT 1
+  `.catch(() => [])) as { offers_pickup: boolean | null; offers_delivery: boolean | null }[]
+  return { offersPickup: rows[0]?.offers_pickup !== false, offersDelivery: rows[0]?.offers_delivery !== false }
+}
+
 // The delivery time-window granularity ('exact' | '30_min' | '1_hour') the
 // restaurant configured (disco_restaurant_overrides.delivery_order_time_windows).
 // Snapshotted onto a delivery order so emails/PDF/confirmation show the RANGE

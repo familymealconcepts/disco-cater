@@ -1,7 +1,7 @@
 import type Stripe from 'stripe'
 import {
   fmItemsToNativeCart, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
-  isNativeDateTimeValid, loadRestaurantServiceChargePct, placeAndPayNativeOrder, placeNativeInvoiceOrder,
+  isNativeDateTimeValid, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, placeAndPayNativeOrder, placeNativeInvoiceOrder,
   priceNativeCart, type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
   type NativeDeliveryAddressInput,
 } from './native-checkout'
@@ -131,6 +131,20 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // something upstream refuses to use it).
   if (!priced.breakdown.taxReliable) {
     return { ok: false, status: 409, error: "This restaurant's tax rate isn't set up yet — orders can't be placed until it is. Contact support if this persists." }
+  }
+  // Server-side half of the per-menu fulfillment-availability toggle
+  // (disco_menus.offers_pickup/offers_delivery) — the picker UI already
+  // disables an unavailable option, but that's a client-side button, not an
+  // enforcement. A restaurant can legitimately run one menu as pickup+delivery
+  // and another (e.g. a holiday menu) as pickup-only; refuse here rather than
+  // let a direct API call place the order type the menu doesn't offer.
+  const requestedOrderType = orderTypeRaw === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
+  const avail = await loadMenuFulfillmentAvailability(ref, priced.menuReference)
+  if (requestedOrderType === 'DELIVERY' && !avail.offersDelivery) {
+    return { ok: false, status: 400, error: 'This menu is pickup only — delivery isn\'t available for these items.' }
+  }
+  if (requestedOrderType === 'PICKUP' && !avail.offersPickup) {
+    return { ok: false, status: 400, error: 'This menu is delivery only — pickup isn\'t available for these items.' }
   }
   const promo = priced.promo
   // A code was submitted but didn't resolve AT PLACEMENT specifically (not just
