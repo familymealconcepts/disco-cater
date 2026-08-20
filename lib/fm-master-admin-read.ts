@@ -7,7 +7,7 @@
 // Confirmed empirically (this session): FM's own /login accepts the master
 // password for any enabled restaurant admin, in place of their real password.
 // A SYSTEM_ADMIN-role login (restaurant-scoped, unlike the platform service
-// account) reads all four fields as real data. A two-token test confirmed
+// account) reads all five fields as real data. A two-token test confirmed
 // FM's "current restaurant" selection is SERVER-SIDE STATE PERSISTED PER FM
 // USER ACCOUNT, not per-token/per-session: switching via one login is visible
 // to a wholly separate login as the same user. Every switch here is therefore
@@ -264,20 +264,69 @@ interface FmCoupon {
   remainingDiscountAvailable?: number
 }
 
+// FM's real Authorized Users list for a restaurant — the ADMIN/SYSTEM_ADMIN
+// join GET /api/system-admin/users exposes, confirmed via disco-cater's own
+// existing session-scoped proxy (app/api/restaurant/authorized-users/route.ts,
+// which already calls this exact endpoint for a real logged-in restaurant
+// admin) and its POST body shape (app/api/restaurant/authorized-users/route.ts's
+// own comment: {firstName, lastName, email, role, restaurantReference: string[]}
+// — restaurantReference is ALWAYS an array on the wire, confirming this is a
+// genuine many-to-many join, not the single embedded `admin` field on
+// /api/admin/restaurants/{ref}). Session-scoped exactly like the other four
+// fields (confirmed empirically: the SUPER_ADMIN service account gets a 500
+// "Access is denied" calling it directly) — reachable only via this
+// master-password mechanism for anything without a live restaurant session.
+//
+// Response shape CONFIRMED live 2026-08-20 across all 24 converted
+// restaurants: `{content: [{email, firstName, lastName, role}]}`, `role` is
+// exactly 'ADMIN' | 'SYSTEM_ADMIN' as expected — the defensive parse below
+// (content-array fallback, every field optional) was correct.
+//
+// Two things NOT in the parse below that real data revealed:
+//   1. There is NO `enabled` field on this response at all (unlike the
+//      SYSTEM_ADMIN list, which has one) — every real record came back with
+//      it simply absent, not false. `enabled?: boolean` stays optional/
+//      unused for filtering (never treat its absence as "disabled").
+//   2. The endpoint itself requires a SYSTEM_ADMIN-role FM session — a plain
+//      ADMIN-role login (single-location restaurant) gets a flat `500 Access
+//      is denied`, confirmed live on 3 of the 24 (Francesca Catering x2, The
+//      Winkin' Rooster — all three resolve to a role=ADMIN identity). This
+//      isn't a bug or a restaurant-specific gap: FM's Authorized Users
+//      concept only exists for SYSTEM_ADMIN/chain-level accounts; a
+//      single-location ADMIN has no such list to have. authorizedUsers comes
+//      back null for these, not empty — see inviteFmAuthorizedUsersFor's
+//      handling in lib/native-conversion.ts for why that's expected.
+export interface FmAuthorizedUser {
+  email: string
+  firstName?: string
+  lastName?: string
+  role?: 'ADMIN' | 'SYSTEM_ADMIN'
+  enabled?: boolean
+}
+
 interface RawWalledFields {
   taxRate: { stateSalesTax?: { percent?: number | null; fixedAmount?: number | null }; localSalesTax?: { percent?: number | null; fixedAmount?: number | null }; otherSalesTax?: { percent?: number | null; fixedAmount?: number | null; types?: string[] } } | null
   notifications: { email?: string[]; phoneNumber?: string[]; phoneNotificationType?: string } | null
   closedDays: unknown[] | null
   promoCode: FmCoupon | null
+  // null = the fetch failed/threw; [] = fetched fine, genuinely nobody listed
+  // (distinct from null the same way promoCode/closedDays distinguish "wall or
+  // error" from "real empty" elsewhere in this file).
+  authorizedUsers: FmAuthorizedUser[] | null
 }
 
 async function readWalledFields(token: string): Promise<RawWalledFields> {
   const auth = { Authorization: token, Accept: 'application/json' }
-  const [taxRes, notifRes, closedRes, couponRes] = await Promise.all([
+  const [taxRes, notifRes, closedRes, couponRes, usersRes] = await Promise.all([
     fetch(`${FM}/api/restaurants/taxRate`, { headers: auth }),
     fetch(`${FM}/api/notifications`, { headers: auth }),
     fetch(`${FM}/api/closedDays`, { headers: auth }),
     fetch(`${FM}/api/coupon`, { headers: auth }),
+    // Large page size, same reasoning as the SYSTEM_ADMIN list (no confirmed
+    // working server-side restaurant filter on FM's paginated list endpoints
+    // in general) — one call, not a paging loop, for what should be a handful
+    // of people per restaurant.
+    fetch(`${FM}/api/system-admin/users?page=0&size=200`, { headers: auth }),
   ])
   const taxRate = taxRes.ok ? await taxRes.json().catch(() => null) : null
   const notifications = notifRes.ok ? await notifRes.json().catch(() => null) : null
@@ -285,7 +334,25 @@ async function readWalledFields(token: string): Promise<RawWalledFields> {
   const closedDays = Array.isArray(closedDaysRaw) ? closedDaysRaw : null
   const couponRaw = couponRes.ok ? await couponRes.json().catch(() => null) as FmCoupon | null : null
   const promoCode = couponRaw?.code ? couponRaw : null
-  return { taxRate, notifications, closedDays, promoCode }
+  let authorizedUsers: FmAuthorizedUser[] | null = null
+  if (usersRes.ok) {
+    const body = await usersRes.json().catch(() => null) as { content?: unknown[] } | unknown[] | null
+    const raw = Array.isArray(body) ? body : (body as { content?: unknown[] })?.content
+    if (Array.isArray(raw)) {
+      authorizedUsers = raw.map((u) => {
+        const r = u as Record<string, unknown>
+        const role = r.role
+        return {
+          email: String(r.email || '').trim().toLowerCase(),
+          firstName: typeof r.firstName === 'string' ? r.firstName : undefined,
+          lastName: typeof r.lastName === 'string' ? r.lastName : undefined,
+          role: (role === 'ADMIN' || role === 'SYSTEM_ADMIN' ? role : undefined) as ('ADMIN' | 'SYSTEM_ADMIN' | undefined),
+          enabled: typeof r.enabled === 'boolean' ? r.enabled : undefined,
+        }
+      }).filter(u => !!u.email)
+    }
+  }
+  return { taxRate, notifications, closedDays, promoCode, authorizedUsers }
 }
 
 export interface FmWalledFieldsResult extends RawWalledFields {
@@ -294,7 +361,7 @@ export interface FmWalledFieldsResult extends RawWalledFields {
 }
 
 // ── The core entry point ──────────────────────────────────────────────────────
-// Reads all three walled fields for the given restaurants. Groups by resolved
+// Reads all five walled fields for the given restaurants. Groups by resolved
 // admin identity internally (one login per admin, all their restaurants covered
 // by THIS call in one continuous run) — the same code path serves a single
 // restaurant at conversion time (an array of 1) and a real batch (many refs
@@ -315,7 +382,7 @@ export async function readWalledFieldsForRestaurants(refs: string[]): Promise<Ma
   }
 
   for (const ref of unresolved) {
-    results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, ok: false, reason: 'No real per-restaurant admin identity found (no admin on file, or only a platform SUPER_ADMIN account) — cannot read via master password.' })
+    results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, authorizedUsers: null, ok: false, reason: 'No real per-restaurant admin identity found (no admin on file, or only a platform SUPER_ADMIN account) — cannot read via master password.' })
   }
 
   for (const [email, group] of byAdmin) {
@@ -342,7 +409,7 @@ async function readGroupForOneAdmin(
   if (needsSwitch && !homeRestaurant) {
     const reason = `${email}'s home restaurant could not be independently confirmed, and reading ${refs.length > 1 ? 'these restaurants' : 'this restaurant'} would require switching this admin's FM selection — refusing rather than switching with no safe way to restore it.`
     console.error(`[fm-master-admin-read] ${reason}`)
-    for (const ref of refs) results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, ok: false, reason })
+    for (const ref of refs) results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, authorizedUsers: null, ok: false, reason })
     await auditRead({
       adminEmail: email, adminRole: role, homeRestaurant, restaurantsRequested: refs,
       restaurantsRead: [], switchedTo: [], restoredTo: null, restoreConfirmed: null, ok: false, reason,
@@ -356,7 +423,7 @@ async function readGroupForOneAdmin(
   } catch (e) {
     const reason = `FM login as ${email} failed: ${e instanceof Error ? e.message : e}`
     console.error(`[fm-master-admin-read] ${reason}`)
-    for (const ref of refs) results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, ok: false, reason })
+    for (const ref of refs) results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, authorizedUsers: null, ok: false, reason })
     await auditRead({
       adminEmail: email, adminRole: role, homeRestaurant, restaurantsRequested: refs,
       restaurantsRead: [], switchedTo: [], restoredTo: null, restoreConfirmed: null, ok: false, reason,
@@ -374,7 +441,7 @@ async function readGroupForOneAdmin(
         if (ref !== homeRestaurant) {
           const switched = await switchSelection(token, ref)
           if (!switched) {
-            results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, ok: false, reason: `Could not switch ${email}'s selection to this restaurant.` })
+            results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, authorizedUsers: null, ok: false, reason: `Could not switch ${email}'s selection to this restaurant.` })
             continue
           }
           switchedTo.push(ref)
@@ -385,7 +452,7 @@ async function readGroupForOneAdmin(
       } catch (e) {
         const reason = `Read failed for ${ref}: ${e instanceof Error ? e.message : e}`
         console.error(`[fm-master-admin-read] ${reason}`)
-        results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, ok: false, reason })
+        results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, authorizedUsers: null, ok: false, reason })
       }
     }
   } finally {
@@ -404,7 +471,7 @@ async function readGroupForOneAdmin(
           const check = await readWalledFields(token)
           // notifications.reference is restaurant-specific in every observed
           // response; a real home reference on file is proof enough it moved.
-          restoreConfirmed = check.notifications != null || check.taxRate != null || check.closedDays != null
+          restoreConfirmed = check.notifications != null || check.taxRate != null || check.closedDays != null || check.authorizedUsers != null
         } else {
           restoreConfirmed = false
         }

@@ -30,7 +30,7 @@ import { sleep } from './bulk-invite'
 
 const SITE_URL = 'https://www.discocater.com'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
-// Same-restaurant co-admin pacing (inviteFmSystemAdminsFor) -- deliberately short and fixed,
+// Same-restaurant co-admin pacing (inviteFmAuthorizedUsersFor) -- deliberately short and fixed,
 // not the multi-minute bulk-campaign delay (lib/bulk-invite.ts). This runs synchronously
 // inside a live HTTP request (maxDuration 300s on convert-native), so it just needs to break
 // up a zero-delay burst, not impose a real ramp. Configurable in case a restaurant with many
@@ -266,7 +266,7 @@ export interface ConversionResult {
   reason?: string
   readiness: ConversionReadiness
   invite?: InviteResult
-  systemAdminInvites?: SystemAdminInviteResult[]
+  authorizedUserInvites?: AuthorizedUserInviteResult[]
   notificationSettings?: NotificationCarryOverResult
   closedDays?: ClosedDaysCarryOverResult
   promoCodes?: PromoCodesCarryOverResult
@@ -394,66 +394,85 @@ export async function ensureRestaurantLoginInvited(ref: string, restaurantName: 
   return { invited: sent.success, email, reason: sent.success ? 'Invited — no prior working login existed.' : 'Invite email failed to send (login was still created/upgraded).' }
 }
 
-export interface SystemAdminInviteResult {
+export interface AuthorizedUserInviteResult {
   email: string
   invited: boolean       // a NEW account+invite was created this call (false if one already existed)
   grantedRefs: string[]  // restaurant_reference values granted/synced this call (idempotent)
   reason: string
 }
 
-// FM's SYSTEM_ADMIN structure is a SEPARATE list from the single per-restaurant
-// admin field ensureRestaurantLoginInvited reads — a multi-location brand can
-// have several SYSTEM_ADMINs covering the same restaurant with none of them
-// being that restaurant's own admin field (confirmed real at DeCheco's: Tyron
-// User is SYSTEM_ADMIN across all 6 locations but was never any single
-// location's per-restaurant admin, so the old conversion path silently never
-// invited him). Invite every FM SYSTEM_ADMIN whose managedRestaurants include
-// this restaurant, and mirror FM's FULL managedRestaurants set into
-// disco_restaurant_location_access for each — not just this one restaurant, so
-// a converting brand's grants match FM immediately rather than location-by-
-// location as each one happens to convert. Idempotent (ON CONFLICT DO NOTHING)
-// and safe to re-run on every conversion in a multi-location batch.
+// Replaces the old SYSTEM_ADMIN-only invite loop. Reads FM's REAL Authorized
+// Users list for this restaurant — walled.authorizedUsers, the 5th walled
+// field in lib/fm-master-admin-read.ts (GET /api/system-admin/users, the same
+// relationship behind FM's own Authorized Users screen) — not the single
+// restaurant-object `admin` field, and not just SYSTEM_ADMIN-role coverage.
+// Confirmed real gap this fixes: southcobb@atlantabread.com is a genuine
+// ADMIN-role authorized user on Atlanta Bread - Smyrna who was invisible to
+// BOTH old mechanisms (not the restaurant's designated `admin`, not a
+// SYSTEM_ADMIN — confirmed absent from all 363 SYSTEM_ADMIN records).
 //
-// Best-effort, per person: one system admin's failure (FM lookup miss, email
-// collision, etc.) must never affect another's, or the conversion itself —
-// same non-blocking contract as ensureRestaurantLoginInvited and the
-// notification/closed-days/promo-code carry-over steps.
-export async function inviteFmSystemAdminsFor(ref: string, restaurantName: string | null): Promise<SystemAdminInviteResult[]> {
-  let auth: Record<string, string>
-  try { auth = await getFmServiceAuthHeader() } catch (e) {
-    return [{ email: '', invited: false, grantedRefs: [], reason: `FM auth failed: ${e instanceof Error ? e.message : e}` }]
+// Deliberately grants ONLY the restaurant currently being read, not a
+// self-reported multi-restaurant claim the way the old managedRestaurants
+// mirror did. A person's full multi-restaurant access accumulates naturally
+// as each of their restaurants gets its own conversion/read pass — each one
+// independently confirmed by THAT restaurant's own Authorized Users list,
+// never by trusting one restaurant's read to grant access to restaurants it
+// didn't actually check. This is the direct fix for over-permission risk: a
+// stale or wrong self-reported scope can no longer grant access nobody
+// currently confirms.
+//
+// Best-effort, per person: one person's failure (email collision, etc.) must
+// never affect another's, or the conversion itself — same non-blocking
+// contract as ensureRestaurantLoginInvited and the notification/closed-days/
+// promo-code carry-over steps.
+export async function inviteFmAuthorizedUsersFor(
+  ref: string,
+  restaurantName: string | null,
+  walled?: FmWalledFieldsResult,
+): Promise<AuthorizedUserInviteResult[]> {
+  if (!walled?.ok) {
+    return [{ email: '', invited: false, grantedRefs: [], reason: walled?.reason || 'No master-password read available — cannot read FM’s Authorized Users list for this restaurant.' }]
+  }
+  if (!walled.authorizedUsers) {
+    // Confirmed real (2026-08-20, Francesca Catering x2, The Winkin' Rooster):
+    // GET /api/system-admin/users itself 500s "Access is denied" for a plain
+    // ADMIN-role FM session — it requires SYSTEM_ADMIN. A single-location
+    // restaurant whose only admin is role=ADMIN has no Authorized Users
+    // concept in FM at all (their one ensureRestaurantLoginInvited invite is
+    // already everyone), so this is expected, not a failure to chase.
+    return [{ email: '', invited: false, grantedRefs: [], reason: 'FM returned no Authorized Users for this restaurant — expected when the resolved admin is role=ADMIN (single-location; the endpoint requires SYSTEM_ADMIN), not necessarily a failure.' }]
   }
 
-  type FmSystemAdmin = {
-    firstName?: string; lastName?: string; email?: string; enabled?: boolean
-    managedRestaurants?: { reference?: string }[]
-  }
-  let admins: FmSystemAdmin[]
-  try {
-    // FM's system-admin list has no working server-side filter (confirmed
-    // empirically — see app/api/admin/system-admins/route.ts) but returns its
-    // full ~363-record list in one page at this size, so fetch once and match
-    // managedRestaurants client-side.
-    const res = await fetch(`${FM}/api/admin/users/system-admin?size=2000`, { headers: { ...auth, Accept: 'application/json' } })
-    if (!res.ok) return [{ email: '', invited: false, grantedRefs: [], reason: `FM system-admin list failed (${res.status}).` }]
-    const j = await res.json().catch(() => null) as { content?: FmSystemAdmin[] } | null
-    admins = j?.content || []
-  } catch (e) {
-    return [{ email: '', invited: false, grantedRefs: [], reason: `FM system-admin list threw: ${e instanceof Error ? e.message : e}` }]
-  }
+  const covering = walled.authorizedUsers.filter(a => a.enabled !== false && !!a.email)
 
-  const covering = admins.filter(a =>
-    a.enabled !== false && (a.managedRestaurants || []).some(r => r.reference === ref),
-  )
-
-  const results: SystemAdminInviteResult[] = []
+  const results: AuthorizedUserInviteResult[] = []
   for (const a of covering) {
-    const email = (a.email || '').trim().toLowerCase()
-    if (!email) continue
+    const email = a.email
     try {
       const existing = (await sql`
-        SELECT email, invite_token, invite_token_expires_at FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1
-      `) as { email: string; invite_token: string | null; invite_token_expires_at: string | null }[]
+        SELECT email, role, invite_token, invite_token_expires_at FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1
+      `) as { email: string; role: string | null; invite_token: string | null; invite_token_expires_at: string | null }[]
+
+      // Reconcile a stale role on ANY existing row before deciding what to
+      // do about the invite itself. Real gap this closes: ensureRestaurantLoginInvited
+      // hardcodes 'ADMIN' when it creates the account for FM's single
+      // designated-admin field, with no way to know that person is also a
+      // real SYSTEM_ADMIN elsewhere in FM's Authorized Users data — this
+      // function DOES know that (it's reading that exact list), so it's the
+      // one place that can correct it. Confirmed real 2026-08-20: 6 accounts
+      // (cory/nathan/dominic@dechecos.com, contact@hugosrestaurant.com,
+      // chef@familymeal.com, briscolabrooklyn@gmail.com) were stuck at
+      // 'ADMIN' despite FM confirming SYSTEM_ADMIN — each silently failing
+      // any SYSTEM_ADMIN-gated feature (e.g. Bulk Menu Editor) with no
+      // visible reason. Mirrors FM exactly, in either direction, not just an
+      // upgrade — same "no more, no less" principle grantLocationAccess
+      // already follows for location scope.
+      const realRole = a.role || 'ADMIN'
+      if (existing.length && existing[0].role !== realRole) {
+        await sql`UPDATE disco_restaurant_accounts SET role = ${realRole}, updated_at = NOW() WHERE email = ${email}`
+        existing[0].role = realRole
+      }
+
       let invited = false
       let reason: string
 
@@ -481,7 +500,7 @@ export async function inviteFmSystemAdminsFor(ref: string, restaurantName: strin
         const sentinelHash = bcrypt.hashSync(randomUUID(), 10) // overwritten when the invite is accepted
         await sql`
           INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, first_name, last_name, restaurant_name, role)
-          VALUES (${email}, ${sentinelHash}, ${ref}, ${ref}, ${a.firstName || null}, ${a.lastName || null}, ${restaurantName}, 'SYSTEM_ADMIN')
+          VALUES (${email}, ${sentinelHash}, ${ref}, ${ref}, ${a.firstName || null}, ${a.lastName || null}, ${restaurantName}, ${a.role || 'ADMIN'})
         `
         const token = await setInviteToken(email)
         const sent = await sendTeamMemberInvite({
@@ -491,15 +510,13 @@ export async function inviteFmSystemAdminsFor(ref: string, restaurantName: strin
           restaurantName: restaurantName || undefined,
         })
         invited = sent.success
-        reason = sent.success ? 'Invited — FM SYSTEM_ADMIN covering this restaurant.' : 'Account created; invite email failed to send.'
+        reason = sent.success ? `Invited — FM Authorized User (${a.role || 'ADMIN'}) on this restaurant.` : 'Account created; invite email failed to send.'
       }
 
-      const grantedRefs: string[] = []
-      for (const mr of a.managedRestaurants || []) {
-        if (!mr.reference) continue
-        await grantLocationAccess(email, mr.reference, 'fm-system-admin-sync')
-        grantedRefs.push(mr.reference)
-      }
+      // Only THIS restaurant — see the function header comment for why that's
+      // deliberate, not a missed opportunity to grant more from one read.
+      await grantLocationAccess(email, ref, 'fm-authorized-users-sync')
+      const grantedRefs = [ref]
 
       results.push({ email, invited, grantedRefs, reason })
 
@@ -1096,22 +1113,8 @@ export async function convertToNative(
     }
   }
 
-  // Best-effort, same contract as `invite` above — covers FM SYSTEM_ADMINs that
-  // the single per-restaurant admin field never surfaces (see
-  // inviteFmSystemAdminsFor's header comment). A failure here must never affect
-  // `invite` above, the conversion itself, or any other step below.
-  let systemAdminInvites: SystemAdminInviteResult[] = []
-  if (!opts?.skipInvites) {
-    try {
-      const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
-      systemAdminInvites = await inviteFmSystemAdminsFor(readiness.restaurantReference, nameRow[0]?.name ?? null)
-    } catch (e) {
-      console.error(`[convertToNative] system-admin invite step threw: ${e instanceof Error ? e.message : e}`)
-    }
-  }
-
-  // AT MOST ONE master-password login per conversion, covering all three
-  // walled fields at once — never three separate logins for the same
+  // AT MOST ONE master-password login per conversion, covering all five
+  // walled fields at once — never five separate logins for the same
   // restaurant, and never two logins even when the settings gate above had to
   // read live (Neon had no tax rate yet, e.g. a brand-new restaurant like
   // Alpharetta): readiness.fetchedWalled carries that exact read forward, so
@@ -1119,6 +1122,10 @@ export async function convertToNative(
   // rate was already real costs zero logins in the gate and exactly one here,
   // same as before this fix. See lib/fm-master-admin-read.ts for the
   // session/switch/restore handling.
+  //
+  // Moved ABOVE the authorized-user invite step below (it used to run after) —
+  // that step now reads walled.authorizedUsers instead of making its own FM
+  // call, so it needs this resolved first.
   //
   // opts.prefetchedWalled lets a caller converting several restaurants that
   // share ONE admin (e.g. a batch run) fetch that admin's session ONCE, up
@@ -1132,6 +1139,22 @@ export async function convertToNative(
       walled = walledMap.get(readiness.restaurantReference)
     } catch (e) {
       console.error(`[convertToNative] master-password walled-field read threw for ${readiness.restaurantReference}:`, e instanceof Error ? e.message : e)
+    }
+  }
+
+  // Best-effort, same contract as `invite` above — covers everyone FM's real
+  // Authorized Users list shows for this restaurant (see
+  // inviteFmAuthorizedUsersFor's header comment), not just the single
+  // per-restaurant admin field or SYSTEM_ADMIN-role coverage. A failure here
+  // must never affect `invite` above, the conversion itself, or any other
+  // step below.
+  let authorizedUserInvites: AuthorizedUserInviteResult[] = []
+  if (!opts?.skipInvites) {
+    try {
+      const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
+      authorizedUserInvites = await inviteFmAuthorizedUsersFor(readiness.restaurantReference, nameRow[0]?.name ?? null, walled)
+    } catch (e) {
+      console.error(`[convertToNative] authorized-users invite step threw: ${e instanceof Error ? e.message : e}`)
     }
   }
 
@@ -1195,7 +1218,7 @@ export async function convertToNative(
 
   return {
     converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: nativeIsLive },
-    invite, systemAdminInvites, notificationSettings, closedDays, promoCodes, profileFields, taxRates,
+    invite, authorizedUserInvites, notificationSettings, closedDays, promoCodes, profileFields, taxRates,
     orderStats: { before: orderStatsBefore, after: orderStatsAfter },
   }
 }
