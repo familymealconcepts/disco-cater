@@ -54,16 +54,36 @@ export async function PUT(req: NextRequest) {
   if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
   const ref = check.ref
 
-  let onlineOrdering = body?.onlineOrderingEnabled === true
-  // RM2: online ordering requires a connected + onboarding-complete Stripe account
-  // (mirrors the FM-backed settings gate). Enforced server-side so a direct API call
-  // can't enable it without a payout path — force it off when Stripe isn't ready.
-  if (onlineOrdering) {
-    const ovr = (await sql`
-      SELECT stripe_account_id, stripe_onboarding_complete
-      FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
-    `.catch(() => [])) as { stripe_account_id: string | null; stripe_onboarding_complete: boolean | null }[]
-    if (!isStripeReady(ovr[0])) onlineOrdering = false
+  // The settings page has one Save button for the whole form, so every save
+  // resubmits onlineOrderingEnabled at whatever it currently is — not just
+  // when the user actually touches that toggle. Standing rule:
+  // online_ordering_enabled is never auto-corrected. Comparing against the
+  // stored value (not just gating on the requested one) is what makes that
+  // hold: if the request doesn't actually change the toggle, this never
+  // re-runs the Stripe check at all, so an unrelated save (say, a
+  // notification email) can't silently flip an already-live restaurant off
+  // because the check happened to read wrong at that moment.
+  const existingRows = (await sql`
+    SELECT online_ordering_enabled, stripe_account_id, stripe_onboarding_complete
+    FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
+  `.catch(() => [])) as { online_ordering_enabled: boolean | null; stripe_account_id: string | null; stripe_onboarding_complete: boolean | null }[]
+  const existing = existingRows[0]
+  const requestedOnlineOrdering = body?.onlineOrderingEnabled === true
+
+  let onlineOrdering: boolean
+  if (existing && requestedOnlineOrdering === (existing.online_ordering_enabled !== false)) {
+    // Unchanged from what's already stored (same COALESCE(...,true) convention
+    // every reader uses) — leave it exactly as-is, no Stripe check at all.
+    onlineOrdering = existing.online_ordering_enabled !== false
+  } else if (requestedOnlineOrdering) {
+    // A genuine attempt to turn it ON (either no row yet, or actually flipping
+    // off→on) — RM2: requires a connected + onboarding-complete Stripe account
+    // (mirrors the FM-backed settings gate), enforced server-side so a direct
+    // API call can't enable it without a payout path.
+    onlineOrdering = isStripeReady(existing)
+  } else {
+    // A genuine attempt to turn it OFF — always allowed, no gate needed.
+    onlineOrdering = false
   }
   const window = WINDOWS.has(String(body?.deliveryOrderTimeWindows)) ? String(body.deliveryOrderTimeWindows) : 'exact'
   const taxRates = body?.taxRates != null ? JSON.stringify(body.taxRates) : null
