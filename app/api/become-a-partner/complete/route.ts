@@ -133,15 +133,12 @@ export async function POST(req: NextRequest) {
     const existing = await getDiscoRestaurantAccount(email)
     let ref = (existing?.restaurant_reference as string | undefined) || String(body?.restaurantReference || '').trim() || randomUUID()
 
+    // Name/phone/address live on disco_restaurant_cache (upserted below), not here.
     if (existing) {
       await sql`
         UPDATE disco_restaurant_accounts
         SET first_name = COALESCE(NULLIF(${firstName}, ''), first_name),
             last_name = COALESCE(NULLIF(${lastName}, ''), last_name),
-            phone = COALESCE(NULLIF(${phone}, ''), phone),
-            restaurant_name = ${restaurantName},
-            business_name = ${restaurantName},
-            address = ${address || null},
             is_disco_native = true,
             onboarding_step = GREATEST(COALESCE(onboarding_step, 0), 4),
             updated_at = NOW()
@@ -155,11 +152,10 @@ export async function POST(req: NextRequest) {
       const passwordHash = await hashPassword(password)
       await sql`
         INSERT INTO disco_restaurant_accounts (
-          email, password_hash, restaurant_reference, first_name, last_name, phone,
-          restaurant_name, business_name, address, role, is_disco_native, onboarding_step
+          email, password_hash, restaurant_reference, first_name, last_name, role, is_disco_native, onboarding_step
         ) VALUES (
           ${email}, ${passwordHash}, ${ref}, ${firstName || null}, ${lastName || null},
-          ${phone || null}, ${restaurantName}, ${restaurantName}, ${address || null}, 'ADMIN', true, 4
+          'ADMIN', true, 4
         )
         ON CONFLICT (email) DO NOTHING
       `

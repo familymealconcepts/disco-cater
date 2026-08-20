@@ -19,10 +19,11 @@ export async function checkMarketplaceReadiness(ref: string): Promise<Marketplac
   // (no ::uuid cast — matches app/api/restaurants/route.ts).
   const rows = (await sql`
     SELECT c.name, c.is_disco_native, o.visible, o.stripe_connected, o.online_ordering_enabled,
-           EXISTS (
+           (${sql.unsafe(stripeReadySql('o'))}) OR EXISTS (
              SELECT 1 FROM disco_restaurant_accounts a
-             WHERE (a.restaurant_reference = c.restaurant_reference OR a.fm_restaurant_reference = c.restaurant_reference)
-               AND ${sql.unsafe(stripeReadySql('a'))}
+             JOIN disco_restaurant_overrides o2 ON o2.restaurant_reference = a.restaurant_reference
+             WHERE a.fm_restaurant_reference = c.restaurant_reference
+               AND ${sql.unsafe(stripeReadySql('o2'))}
            ) AS has_completed_native_stripe
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference

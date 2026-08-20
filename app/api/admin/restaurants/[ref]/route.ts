@@ -75,17 +75,21 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // lat/lng/cuisine/description/image load separately from the restaurant-cache GET.
   if (await isDiscoNativeNoFm(ref)) {
     try {
-      const acc = (await sql`SELECT first_name, last_name, email, phone, restaurant_name, business_name, address FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
+      const acc = (await sql`SELECT first_name, last_name, email FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const cache = (await sql`SELECT name, slug, address, address_line2, city, state, zipcode, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const ov = (await sql`SELECT lead_gen_one_pct, lead_gen_two_pct FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const a = acc[0] || {}, c = cache[0] || {}, o = ov[0] || {}
       return NextResponse.json({
-        businessName: c.name || a.restaurant_name || '',
+        businessName: c.name || '',
         businessNameWithoutSpaces: c.slug || '',
-        admin: { firstName: a.first_name || '', lastName: a.last_name || '', email: a.email || '', phoneNumber: a.phone || '' },
+        // admin.phoneNumber has always actually held the RESTAURANT's phone (the
+        // write side only ever set it from addr.phoneNumber, never a genuinely
+        // separate admin-personal number) — same source as address.phoneNumber,
+        // now both read from the cache instead of the retired account column.
+        admin: { firstName: a.first_name || '', lastName: a.last_name || '', email: a.email || '', phoneNumber: c.phone || '' },
         address: {
-          addressLine1: c.address || a.address || '', addressLine2: c.address_line2 || '',
-          city: c.city || '', state: c.state || '', zipcode: c.zipcode || '', phoneNumber: c.phone || a.phone || '',
+          addressLine1: c.address || '', addressLine2: c.address_line2 || '',
+          city: c.city || '', state: c.state || '', zipcode: c.zipcode || '', phoneNumber: c.phone || '',
         },
         leadGenOne: o.lead_gen_one_pct ?? 15,
         leadGenTwo: o.lead_gen_two_pct ?? 5,
@@ -203,12 +207,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       const leadOne = incoming.leadGenOne != null ? Number(incoming.leadGenOne) : null
       const leadTwo = incoming.leadGenTwo != null ? Number(incoming.leadGenTwo) : null
       try {
+        // Name/phone/address go to disco_restaurant_cache below, not here.
         await sql`
           UPDATE disco_restaurant_accounts SET
             first_name = ${s(admin.firstName)}, last_name = ${s(admin.lastName)},
-            email = COALESCE(${s(admin.email)}, email), phone = ${s(addr.phoneNumber)},
-            restaurant_name = COALESCE(${name}, restaurant_name), business_name = COALESCE(${name}, business_name),
-            address = ${s(addr.addressLine1)}
+            email = COALESCE(${s(admin.email)}, email)
           WHERE restaurant_reference = ${ref}
         `
       } catch (e) {

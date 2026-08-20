@@ -29,7 +29,7 @@ export async function DELETE(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
     await runMigrations()
-    await sql`UPDATE disco_restaurant_accounts SET stripe_account_id = NULL WHERE restaurant_reference = ${ref}`
+    await sql`UPDATE disco_restaurant_overrides SET stripe_account_id = NULL, updated_at = NOW() WHERE restaurant_reference = ${ref}`
     return NextResponse.json({ ok: true })
   }
 

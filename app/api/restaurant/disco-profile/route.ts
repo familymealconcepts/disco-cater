@@ -42,21 +42,16 @@ export async function GET() {
   if (!ref) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   try {
     await runMigrations()
-    const acct = (await sql`
-      SELECT restaurant_name, business_name, phone, address
-      FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
-    `) as { restaurant_name: string | null; business_name: string | null; phone: string | null; address: string | null }[]
     const cache = (await sql`
       SELECT name, phone, address, image_url, icon_url
       FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
     `) as { name: string | null; phone: string | null; address: string | null; image_url: string | null; icon_url: string | null }[]
-    const a = acct[0] || {}
     const c = cache[0] || {}
     return NextResponse.json({
       restaurant_reference: ref,
-      restaurantName: a.restaurant_name || a.business_name || c.name || '',
-      phone: a.phone || c.phone || '',
-      address: a.address || c.address || '',
+      restaurantName: c.name || '',
+      phone: c.phone || '',
+      address: c.address || '',
       logoUrl: c.image_url || '', // Marketplace Image
       iconUrl: c.icon_url || '',  // Logo
     })
@@ -87,18 +82,6 @@ export async function PUT(req: NextRequest) {
     const iconUrl = body?.iconUrl != null ? String(body.iconUrl).trim() : undefined
 
     await runMigrations()
-
-    // disco_restaurant_accounts (Disco-native). Best-effort: a 0-row update just
-    // means this restaurant is FM-only with no Disco account row.
-    await sql`
-      UPDATE disco_restaurant_accounts SET
-        restaurant_name = COALESCE(NULLIF(${restaurantName}, ''), restaurant_name),
-        business_name = COALESCE(NULLIF(${restaurantName}, ''), business_name),
-        phone = ${phone || null},
-        address = ${address || null},
-        updated_at = NOW()
-      WHERE restaurant_reference = ${ref}
-    `
 
     // disco_restaurant_cache (drives the marketplace listing). Re-geocode when the
     // address is present so the map pin stays accurate.

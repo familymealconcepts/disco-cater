@@ -17,8 +17,8 @@ export async function GET(req: NextRequest) {
     await runMigrations()
     const rows = (await sql`
       SELECT stripe_account_id, stripe_onboarding_complete
-      FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref}
-      ORDER BY id ASC LIMIT 1
+      FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref}
+      LIMIT 1
     `) as { stripe_account_id: string | null; stripe_onboarding_complete: boolean | null }[]
     const acct = rows[0]
     if (!acct?.stripe_account_id) return NextResponse.json({ connected: false, complete: false })
@@ -29,10 +29,13 @@ export async function GET(req: NextRequest) {
     const enabled = await isChargesEnabled(acct.stripe_account_id)
     if (enabled) {
       await sql`
+        UPDATE disco_restaurant_overrides
+        SET stripe_onboarding_complete = true, updated_at = NOW()
+        WHERE restaurant_reference = ${ref}
+      `
+      await sql`
         UPDATE disco_restaurant_accounts
-        SET stripe_onboarding_complete = true,
-            onboarding_step = GREATEST(COALESCE(onboarding_step, 0), 2),
-            updated_at = NOW()
+        SET onboarding_step = GREATEST(COALESCE(onboarding_step, 0), 2), updated_at = NOW()
         WHERE restaurant_reference = ${ref}
       `
     }

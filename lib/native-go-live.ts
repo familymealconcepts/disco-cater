@@ -64,12 +64,17 @@ async function verificationPassed(ref: string, key: string): Promise<{ passed: b
 }
 
 async function storedAccountId(ref: string): Promise<string | null> {
-  const rows = (await sql`
-    SELECT stripe_account_id FROM disco_restaurant_accounts
-    WHERE (restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref}) AND stripe_account_id IS NOT NULL
-    ORDER BY stripe_onboarding_complete DESC NULLS LAST, id ASC LIMIT 1
+  const direct = (await sql`
+    SELECT stripe_account_id FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} AND stripe_account_id IS NOT NULL LIMIT 1
   `.catch(() => [])) as { stripe_account_id: string | null }[]
-  return rows[0]?.stripe_account_id ?? null
+  if (direct.length) return direct[0].stripe_account_id
+  // Translate an FM reference to its Disco restaurant_reference, then check that.
+  const viaFm = (await sql`
+    SELECT o.stripe_account_id FROM disco_restaurant_accounts a
+    JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference
+    WHERE a.fm_restaurant_reference = ${ref} AND o.stripe_account_id IS NOT NULL LIMIT 1
+  `.catch(() => [])) as { stripe_account_id: string | null }[]
+  return viaFm[0]?.stripe_account_id ?? null
 }
 
 export async function checkNativeGoLiveReadiness(ref: string, opts?: { stripe?: Stripe }): Promise<GoLiveReadiness> {

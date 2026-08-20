@@ -38,16 +38,11 @@ export interface RestaurantPayoutConfig {
 // called for new orders; it stays untouched for the same reason existing
 // orders' refunds still work after Stripe is disconnected.)
 export async function getRestaurantPayoutConfig(restaurantReference: string): Promise<RestaurantPayoutConfig> {
-  const acctRows = (await sql`
-    SELECT stripe_account_id FROM disco_restaurant_accounts
-    WHERE restaurant_reference = ${restaurantReference} AND stripe_account_id IS NOT NULL
-    ORDER BY id ASC LIMIT 1
-  `.catch(() => [])) as { stripe_account_id: string | null }[]
   const ovrRows = (await sql`
-    SELECT withhold_payouts FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantReference} LIMIT 1
-  `.catch(() => [])) as { withhold_payouts: boolean | null }[]
+    SELECT stripe_account_id, withhold_payouts FROM disco_restaurant_overrides WHERE restaurant_reference = ${restaurantReference} LIMIT 1
+  `.catch(() => [])) as { stripe_account_id: string | null; withhold_payouts: boolean | null }[]
   return {
-    connectedAccountId: acctRows[0]?.stripe_account_id ?? null,
+    connectedAccountId: ovrRows[0]?.stripe_account_id ?? null,
     withholdPayouts: ovrRows[0]?.withhold_payouts === true,
   }
 }

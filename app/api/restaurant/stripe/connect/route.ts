@@ -27,14 +27,19 @@ export async function POST(req: NextRequest) {
     try {
       await runMigrations()
       const rows = (await sql`
-        SELECT email, business_name, restaurant_name, stripe_account_id
-        FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
-      `) as { email: string; business_name: string | null; restaurant_name: string | null; stripe_account_id: string | null }[]
+        SELECT email FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
+      `) as { email: string }[]
       if (!rows.length) return NextResponse.json({ error: 'Account not found' }, { status: 404 })
-      let accountId = rows[0].stripe_account_id || ''
+      const cacheRows = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { name: string | null }[]
+      const ovrRows = (await sql`SELECT stripe_account_id FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { stripe_account_id: string | null }[]
+      let accountId = ovrRows[0]?.stripe_account_id || ''
       if (!accountId) {
-        accountId = await createConnectAccount(rows[0].email, rows[0].business_name || rows[0].restaurant_name || 'Disco Restaurant')
-        await sql`UPDATE disco_restaurant_accounts SET stripe_account_id = ${accountId} WHERE restaurant_reference = ${ref}`
+        accountId = await createConnectAccount(rows[0].email, cacheRows[0]?.name || 'Disco Restaurant')
+        await sql`
+          INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_account_id, updated_at)
+          VALUES (${ref}, ${accountId}, NOW())
+          ON CONFLICT (restaurant_reference) DO UPDATE SET stripe_account_id = EXCLUDED.stripe_account_id, updated_at = NOW()
+        `
       }
       const returnUrl = `${BASE_URL}/restaurant/account/banking`
       const stripeConnectUrl = await createAccountLink(accountId, returnUrl, returnUrl)

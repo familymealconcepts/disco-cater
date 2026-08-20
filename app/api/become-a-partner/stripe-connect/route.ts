@@ -51,12 +51,15 @@ export async function POST(req: NextRequest) {
     await runMigrations()
 
     const rows = (await sql`
-      SELECT restaurant_reference, stripe_account_id, business_name, restaurant_name
-      FROM disco_restaurant_accounts WHERE email = ${email} ORDER BY id ASC LIMIT 1
-    `) as { restaurant_reference: string; stripe_account_id: string | null; business_name: string | null; restaurant_name: string | null }[]
+      SELECT restaurant_reference FROM disco_restaurant_accounts WHERE email = ${email} ORDER BY id ASC LIMIT 1
+    `) as { restaurant_reference: string }[]
     const acct = rows[0]
     let ref = acct?.restaurant_reference || ''
-    let existingAccountId = acct?.stripe_account_id || ''
+    let existingAccountId = ''
+    if (ref) {
+      const ovr = (await sql`SELECT stripe_account_id FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { stripe_account_id: string | null }[]
+      existingAccountId = ovr[0]?.stripe_account_id || ''
+    }
 
     if (acct) {
       // Already fully connected → let the client skip this step.
@@ -74,35 +77,48 @@ export async function POST(req: NextRequest) {
       await sql`
         INSERT INTO disco_restaurant_accounts (
           email, password_hash, restaurant_reference, first_name, last_name, phone,
-          restaurant_name, business_name, address, role, is_disco_native, onboarding_step
+          role, is_disco_native, onboarding_step
         ) VALUES (
           ${email}, ${passwordHash}, ${ref}, ${firstName || null}, ${lastName || null},
-          ${phone || null}, ${restaurantName || null}, ${restaurantName || null},
-          ${address || null}, 'ADMIN', true, 2
+          ${phone || null}, 'ADMIN', true, 2
         )
         ON CONFLICT (email) DO NOTHING
       `
+      // Restaurant identity now lives on the cache, not the account row — upsert it
+      // here defensively (the normal flow already does this in become-a-partner/
+      // profile, step 1, but stripe-connect can be hit directly on a resumed session).
+      await sql`
+        INSERT INTO disco_restaurant_cache (restaurant_reference, name, phone, address, is_disco_native, is_live, cached_at)
+        VALUES (${ref}, ${restaurantName || 'Disco Restaurant'}, ${phone || null}, ${address || null}, true, false, NOW())
+        ON CONFLICT (restaurant_reference) DO UPDATE SET
+          name = COALESCE(NULLIF(EXCLUDED.name, ''), disco_restaurant_cache.name),
+          phone = COALESCE(EXCLUDED.phone, disco_restaurant_cache.phone),
+          address = COALESCE(EXCLUDED.address, disco_restaurant_cache.address),
+          cached_at = NOW()
+      `
       // Re-read in case a concurrent attempt won the INSERT (ON CONFLICT DO NOTHING).
       const re = (await sql`
-        SELECT restaurant_reference, stripe_account_id FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1
-      `) as { restaurant_reference: string; stripe_account_id: string | null }[]
+        SELECT restaurant_reference FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1
+      `) as { restaurant_reference: string }[]
       if (re[0]) {
         ref = re[0].restaurant_reference
-        existingAccountId = re[0].stripe_account_id || ''
+        const ovr2 = (await sql`SELECT stripe_account_id FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { stripe_account_id: string | null }[]
+        existingAccountId = ovr2[0]?.stripe_account_id || ''
         if (existingAccountId) return NextResponse.json({ alreadyConnected: true, restaurantReference: ref })
       }
     }
 
     // Create the Express connected account and persist its id.
-    const accountId = await createConnectAccount(
-      email,
-      restaurantName || acct?.business_name || acct?.restaurant_name || '',
-    )
+    const cacheRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { name: string | null }[]
+    const accountId = await createConnectAccount(email, restaurantName || cacheRow[0]?.name || '')
+    await sql`
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_account_id, updated_at)
+      VALUES (${ref}, ${accountId}, NOW())
+      ON CONFLICT (restaurant_reference) DO UPDATE SET stripe_account_id = EXCLUDED.stripe_account_id, updated_at = NOW()
+    `
     await sql`
       UPDATE disco_restaurant_accounts
-      SET stripe_account_id = ${accountId},
-          onboarding_step = GREATEST(COALESCE(onboarding_step, 0), 2),
-          updated_at = NOW()
+      SET onboarding_step = GREATEST(COALESCE(onboarding_step, 0), 2), updated_at = NOW()
       WHERE restaurant_reference = ${ref}
     `
 

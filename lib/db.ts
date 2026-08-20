@@ -198,6 +198,23 @@ export async function runMigrations(): Promise<void> {
     // committed migration record so a fresh clone reproduces it.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS archived_by TEXT`,
+    // Native Stripe Connect account + onboarding status, moved here from
+    // disco_restaurant_accounts (2026-08-20) — restaurant-scoped, not per-admin.
+    // A restaurant can have several admin rows (multi-admin conversion), and
+    // ~10 read sites were resolving "the" value via ORDER BY id ASC LIMIT 1 on
+    // the account table, which only worked by luck (the account rows never
+    // actually disagreed in practice — confirmed empirically before this
+    // migration: 0 conflicts across 44 restaurants). This is now the single
+    // restaurant-scoped home. disco_restaurant_accounts.stripe_account_id /
+    // stripe_onboarding_complete are left in place (stop writing, don't drop —
+    // dropping is irreversible and nothing forces the timing).
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_account_id TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_onboarding_complete BOOLEAN DEFAULT false`,
+    // Moved alongside stripe_account_id, same reason: the "Stripe Connected" Slack
+    // dedup guard (notifyStripeConnectedIfNewlyFullyConnected) is inherently
+    // restaurant-scoped, not per-admin — a restaurant with several admin rows
+    // must fire the notification once, not once per row.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_connected_notified_at TIMESTAMPTZ`,
     // Snapshot of FM restaurants for fast public map loads — refreshed by
     // /api/admin/refresh-restaurant-cache (and the daily sync cron) so the public
     // /api/restaurants reads Neon only, never FM.

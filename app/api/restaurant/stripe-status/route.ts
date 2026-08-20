@@ -31,9 +31,9 @@ export async function GET(req: NextRequest) {
       if (ref) {
         const rows = (await sql`
           SELECT stripe_account_id, stripe_onboarding_complete
-          FROM disco_restaurant_accounts
+          FROM disco_restaurant_overrides
           WHERE restaurant_reference = ${ref}
-          ORDER BY id ASC LIMIT 1
+          LIMIT 1
         `) as { stripe_account_id: string | null; stripe_onboarding_complete: boolean | null }[]
         const acct = rows[0]
         if (!acct?.stripe_account_id) return NextResponse.json({ connected: false, restaurant_reference: ref })
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
         const enabled = await isChargesEnabled(acct.stripe_account_id).catch(() => false)
         if (enabled) {
           await sql`
-            UPDATE disco_restaurant_accounts
+            UPDATE disco_restaurant_overrides
             SET stripe_onboarding_complete = true, updated_at = NOW()
             WHERE restaurant_reference = ${ref}
           `.catch((e) => console.error('[restaurant/stripe-status] complete persist failed:', e instanceof Error ? e.message : e))

@@ -146,19 +146,28 @@ export async function createDiscoRestaurantSession(restaurantReference: string, 
   return token
 }
 
-// Validate a session token — returns session data or null
+// Validate a session token — returns session data or null.
+// restaurantName/businessName now come from disco_restaurant_cache.name (the
+// restaurant-scoped, always-populated source), not the per-account row —
+// accounts.restaurant_name/business_name disagree across a restaurant's
+// multiple admins in practice (confirmed empty query, see the migration this
+// closes), cache.name doesn't. Verified separately: zero SYSTEM_ADMIN accounts
+// today have no disco_restaurant_location_access rows, so nothing is still
+// depending on the legacy business_name-match grouping fallback
+// (getDiscoGroupAccounts) that businessName used to feed.
 export async function validateDiscoRestaurantSession(token: string): Promise<DiscoRestaurantSession | null> {
   const rows = (await sql`
-    SELECT s.restaurant_reference, s.email, a.first_name, a.last_name, a.restaurant_name,
-           a.role, a.business_name
+    SELECT s.restaurant_reference, s.email, a.first_name, a.last_name, a.role,
+           c.name AS restaurant_name
     FROM disco_restaurant_sessions s
     JOIN disco_restaurant_accounts a ON a.email = s.email
+    LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = s.restaurant_reference
     WHERE s.token = ${token} AND s.expires_at > NOW()
     LIMIT 1
   `) as Array<{
     restaurant_reference: string; email: string
     first_name: string | null; last_name: string | null; restaurant_name: string | null
-    role: string | null; business_name: string | null
+    role: string | null
   }>
   if (!rows.length) return null
   return {
@@ -168,7 +177,7 @@ export async function validateDiscoRestaurantSession(token: string): Promise<Dis
     lastName: rows[0].last_name,
     restaurantName: rows[0].restaurant_name,
     role: rows[0].role || 'ADMIN',
-    businessName: rows[0].business_name,
+    businessName: rows[0].restaurant_name,
   }
 }
 

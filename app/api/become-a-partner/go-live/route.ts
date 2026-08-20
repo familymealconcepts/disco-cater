@@ -22,9 +22,8 @@ export async function POST(req: NextRequest) {
     await runMigrations()
 
     const acctRows = (await sql`
-      SELECT email, first_name, business_name, restaurant_name, stripe_onboarding_complete
-      FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
-    `) as { email: string | null; first_name: string | null; business_name: string | null; restaurant_name: string | null; stripe_onboarding_complete: boolean | null }[]
+      SELECT email, first_name FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
+    `) as { email: string | null; first_name: string | null }[]
     const acct = acctRows[0]
 
     const cacheRows = (await sql`
@@ -32,12 +31,17 @@ export async function POST(req: NextRequest) {
     `) as { name: string | null; location: string | null; lat: string | null; lng: string | null }[]
     const cache = cacheRows[0]
 
+    const ovrRows = (await sql`
+      SELECT stripe_onboarding_complete FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
+    `) as { stripe_onboarding_complete: boolean | null }[]
+    const ovr = ovrRows[0]
+
     // Gate: account + profile + Stripe must be complete. Menu is OPTIONAL —
     // restaurants can add menu items after going live.
     const missing: string[] = []
     if (!acct) missing.push('account')
     if (!cache || cache.lat == null || cache.lng == null) missing.push('profile')
-    if (!acct?.stripe_onboarding_complete) missing.push('stripe')
+    if (!ovr?.stripe_onboarding_complete) missing.push('stripe')
     if (missing.length) {
       return NextResponse.json({ error: 'Onboarding incomplete', missing }, { status: 400 })
     }
@@ -53,7 +57,7 @@ export async function POST(req: NextRequest) {
       ON CONFLICT (restaurant_reference) DO UPDATE SET online_ordering_enabled = COALESCE(disco_restaurant_overrides.online_ordering_enabled, true), updated_at = NOW()
     `.catch(() => {})
 
-    const name = cache?.name || acct?.business_name || acct?.restaurant_name || 'New restaurant'
+    const name = cache?.name || 'New restaurant'
 
     // Welcome email (best-effort; sendEmail never throws).
     if (acct?.email) {

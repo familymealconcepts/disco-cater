@@ -33,7 +33,7 @@ export async function GET() {
                -- (which always carry a name), not just a missing-data gap.
                NULLIF(TRIM(CONCAT(a.first_name, ' ', a.last_name)), '') AS "adminName",
                a.created_at AS "createdAtRaw",
-               (${sql.unsafe(stripeReadySql('a'))}) AS "stripeConnected",
+               (${sql.unsafe(stripeReadySql('o'))}) AS "stripeConnected",
                COALESCE(a.fm_creation_failed, false) AS "fmCreationFailed",
                a.fm_creation_error AS "fmCreationError",
                COALESCE(c.is_live, false) AS "isLive",

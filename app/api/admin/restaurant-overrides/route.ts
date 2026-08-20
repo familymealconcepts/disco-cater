@@ -69,9 +69,11 @@ export async function GET(req: NextRequest) {
       // expose every Disco account email that IS Stripe-connected. The table matches
       // FM rows by adminEmail against this list.
       const discoRows = (await sql`
-        SELECT DISTINCT LOWER(email) AS email FROM disco_restaurant_accounts
-        WHERE email IS NOT NULL AND email <> ''
-          AND ${sql.unsafe(stripeReadySql())}
+        SELECT DISTINCT LOWER(a.email) AS email
+        FROM disco_restaurant_accounts a
+        JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference
+        WHERE a.email IS NOT NULL AND a.email <> ''
+          AND ${sql.unsafe(stripeReadySql('o'))}
       `) as { email: string }[]
       const discoStripeEmails = discoRows.map((r) => r.email)
 

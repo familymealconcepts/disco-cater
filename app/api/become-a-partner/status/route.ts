@@ -17,10 +17,15 @@ export async function GET(req: NextRequest) {
     await runMigrations()
 
     const acctRows = (await sql`
-      SELECT business_name, stripe_onboarding_complete, onboarding_step
+      SELECT onboarding_step
       FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
-    `) as { business_name: string | null; stripe_onboarding_complete: boolean | null; onboarding_step: number | null }[]
+    `) as { onboarding_step: number | null }[]
     const acct = acctRows[0]
+
+    const ovrRows = (await sql`
+      SELECT stripe_onboarding_complete FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
+    `) as { stripe_onboarding_complete: boolean | null }[]
+    const ovr = ovrRows[0]
 
     const cacheRows = (await sql`
       SELECT lat, lng, is_live FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
@@ -39,7 +44,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       accountCreated: !!acct,
       profileComplete: !!cache && cache.lat != null && cache.lng != null,
-      stripeConnected: !!acct?.stripe_onboarding_complete,
+      stripeConnected: !!ovr?.stripe_onboarding_complete,
       menuUploaded: menuCount > 0,
       isLive: !!cache?.is_live,
     })

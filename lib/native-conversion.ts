@@ -1018,10 +1018,11 @@ async function carryOverProfileFields(ref: string): Promise<ProfileFieldsCarryOv
 async function computeNativeIsLive(ref: string): Promise<boolean> {
   const rows = (await sql`
     SELECT o.visible, o.online_ordering_enabled,
-           EXISTS (
+           (${sql.unsafe(stripeReadySql('o'))}) OR EXISTS (
              SELECT 1 FROM disco_restaurant_accounts a
-             WHERE (a.restaurant_reference = ${ref} OR a.fm_restaurant_reference = ${ref})
-               AND ${sql.unsafe(stripeReadySql('a'))}
+             JOIN disco_restaurant_overrides o2 ON o2.restaurant_reference = a.restaurant_reference
+             WHERE a.fm_restaurant_reference = ${ref}
+               AND ${sql.unsafe(stripeReadySql('o2'))}
            ) AS has_completed_native_stripe
     FROM disco_restaurant_overrides o
     WHERE o.restaurant_reference = ${ref}
@@ -1259,27 +1260,43 @@ export async function importRestaurantStripeAccount(
     const lastName = opts?.lastName ?? existing[0].last_name
     await sql`
       UPDATE disco_restaurant_accounts
-      SET stripe_account_id = ${accountId}, stripe_onboarding_complete = ${check.reusable},
-          first_name = COALESCE(first_name, ${firstName}), last_name = COALESCE(last_name, ${lastName}),
+      SET first_name = COALESCE(first_name, ${firstName}), last_name = COALESCE(last_name, ${lastName}),
           updated_at = NOW()
       WHERE id = ${existing[0].id}
     `
   } else {
     // No Disco account row yet (pure FM restaurant). Create a login-disabled holder
-    // row so native checkout can resolve the connected account. password_hash is a
-    // valid bcrypt hash of a random value → login impossible until a real reset.
-    // first_name/last_name are caller-supplied only (never fetched from FM here —
-    // this bulk tool is called with hundreds of mappings at once; an extra FM
-    // round-trip per row belongs to the caller's own choice, not baked in here).
+    // row so a future real admin has somewhere to accept an invite onto. Stripe
+    // fields no longer live here (moved to disco_restaurant_overrides below) —
+    // native checkout resolves the connected account there now, restaurant-scoped,
+    // not through this stub. password_hash is a valid bcrypt hash of a random
+    // value → login impossible until a real reset. first_name/last_name are
+    // caller-supplied only (never fetched from FM here — this bulk tool is called
+    // with hundreds of mappings at once; an extra FM round-trip per row belongs to
+    // the caller's own choice, not baked in here).
     const sentinel = bcrypt.hashSync(randomUUID(), 10)
     const email = opts?.email || `stripe-import+${ref}@familymeal.com`
     await sql`
-      INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, stripe_account_id, stripe_onboarding_complete, role, is_disco_native, first_name, last_name)
-      VALUES (${email}, ${sentinel}, ${ref}, ${ref}, ${accountId}, ${check.reusable}, 'ADMIN', false, ${opts?.firstName || null}, ${opts?.lastName || null})
+      INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, role, is_disco_native, first_name, last_name)
+      VALUES (${email}, ${sentinel}, ${ref}, ${ref}, 'ADMIN', false, ${opts?.firstName || null}, ${opts?.lastName || null})
     `
   }
 
-  // Reusable → mark connected so the marketplace feed + conversion gate see it.
+  // Restaurant-scoped Stripe state — one write here instead of splitting
+  // stripe_account_id/stripe_onboarding_complete onto the account row and
+  // stripe_connected onto overrides separately, as before this migration.
+  await sql`
+    INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_account_id, stripe_onboarding_complete, updated_at)
+    VALUES (${ref}, ${accountId}, ${check.reusable}, NOW())
+    ON CONFLICT (restaurant_reference) DO UPDATE SET
+      stripe_account_id = EXCLUDED.stripe_account_id,
+      stripe_onboarding_complete = EXCLUDED.stripe_onboarding_complete,
+      updated_at = NOW()
+  `
+
+  // Reusable → ALSO mark connected (the older, separate flag the marketplace feed
+  // + conversion gate check) so it sees it. Never downgraded when not reusable —
+  // same as before this migration.
   if (check.reusable) {
     await sql`
       INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_connected, updated_at)

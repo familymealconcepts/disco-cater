@@ -3,6 +3,7 @@ import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/
 import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
+import { isStripeReady } from '../../../../lib/stripe-readiness'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -58,12 +59,11 @@ export async function PUT(req: NextRequest) {
   // (mirrors the FM-backed settings gate). Enforced server-side so a direct API call
   // can't enable it without a payout path — force it off when Stripe isn't ready.
   if (onlineOrdering) {
-    const acct = (await sql`
+    const ovr = (await sql`
       SELECT stripe_account_id, stripe_onboarding_complete
-      FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1
+      FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1
     `.catch(() => [])) as { stripe_account_id: string | null; stripe_onboarding_complete: boolean | null }[]
-    const stripeReady = !!acct[0]?.stripe_account_id && acct[0]?.stripe_onboarding_complete === true
-    if (!stripeReady) onlineOrdering = false
+    if (!isStripeReady(ovr[0])) onlineOrdering = false
   }
   const window = WINDOWS.has(String(body?.deliveryOrderTimeWindows)) ? String(body.deliveryOrderTimeWindows) : 'exact'
   const taxRates = body?.taxRates != null ? JSON.stringify(body.taxRates) : null

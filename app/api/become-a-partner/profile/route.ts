@@ -57,13 +57,10 @@ export async function POST(req: NextRequest) {
 
     // Enrich the Disco-native account (created by the register step). Best-effort:
     // a 0-row update just means the account isn't created yet in this path.
+    // Name/phone/address live on disco_restaurant_cache below, not here.
     await sql`
       UPDATE disco_restaurant_accounts
-      SET business_name = ${businessName},
-          restaurant_name = COALESCE(restaurant_name, ${businessName}),
-          phone = COALESCE(NULLIF(${phone}, ''), phone),
-          address = ${address || null},
-          cuisine = ${cuisine},
+      SET cuisine = ${cuisine},
           is_disco_native = true,
           onboarding_step = GREATEST(COALESCE(onboarding_step, 0), 1),
           updated_at = NOW()

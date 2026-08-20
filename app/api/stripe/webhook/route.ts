@@ -60,20 +60,22 @@ export async function notifyStripeConnectedIfNewlyFullyConnected(account: Stripe
   if (!fullyConnected) return
 
   const claimed = (await sql`
-    UPDATE disco_restaurant_accounts
+    UPDATE disco_restaurant_overrides
     SET stripe_connected_notified_at = NOW()
     WHERE stripe_account_id = ${account.id} AND stripe_connected_notified_at IS NULL
-    RETURNING restaurant_reference, restaurant_name, business_name, email
-  `) as { restaurant_reference: string | null; restaurant_name: string | null; business_name: string | null; email: string | null }[]
-  if (claimed.length === 0) return // no matching account row, or already notified
+    RETURNING restaurant_reference
+  `) as { restaurant_reference: string | null }[]
+  if (claimed.length === 0) return // no matching restaurant, or already notified
 
   const url = process.env.SLACK_STRIPE_CONNECTED_WEBHOOK_URL
   if (!url) {
     console.warn('[Webhook] Stripe fully connected but SLACK_STRIPE_CONNECTED_WEBHOOK_URL is not configured — notification skipped:', account.id)
     return
   }
-  const r = claimed[0]
-  const name = r.restaurant_name || r.business_name || r.email || account.id
+  const ref = claimed[0].restaurant_reference
+  const cacheRows = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`.catch(() => [])) as { name: string | null }[]
+  const acctRows = (await sql`SELECT email FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} ORDER BY id ASC LIMIT 1`.catch(() => [])) as { email: string | null }[]
+  const name = cacheRows[0]?.name || acctRows[0]?.email || account.id
   const text = `💳 *Stripe Connected* — ${name} has completed Stripe onboarding and can now accept payments. (${account.id})`
   try {
     await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })

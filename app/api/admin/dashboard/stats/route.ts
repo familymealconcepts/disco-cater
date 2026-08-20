@@ -27,10 +27,12 @@ export async function GET() {
       FROM disco_restaurant_overrides o
       WHERE o.visible = true AND (
         o.stripe_connected = true
+        OR ${sql.unsafe(stripeReadySql('o'))}
         OR EXISTS (
           SELECT 1 FROM disco_restaurant_accounts a
-          WHERE (a.restaurant_reference = o.restaurant_reference OR a.fm_restaurant_reference = o.restaurant_reference)
-            AND ${sql.unsafe(stripeReadySql('a'))}
+          JOIN disco_restaurant_overrides o2 ON o2.restaurant_reference = a.restaurant_reference
+          WHERE a.fm_restaurant_reference = o.restaurant_reference
+            AND ${sql.unsafe(stripeReadySql('o2'))}
         )
       )
     `) as { c: number }[]

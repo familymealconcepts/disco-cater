@@ -26,11 +26,13 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 async function loadDiscoConnectedRefs(refs: string[]): Promise<Set<string>> {
   if (!refs.length) return new Set()
   const rows = (await sql`
-    SELECT restaurant_reference AS ref FROM disco_restaurant_accounts
+    SELECT restaurant_reference AS ref FROM disco_restaurant_overrides
     WHERE restaurant_reference = ANY(${refs}) AND ${sql.unsafe(stripeReadySql())}
     UNION
-    SELECT fm_restaurant_reference AS ref FROM disco_restaurant_accounts
-    WHERE fm_restaurant_reference = ANY(${refs}) AND ${sql.unsafe(stripeReadySql())}
+    SELECT a.fm_restaurant_reference AS ref
+    FROM disco_restaurant_accounts a
+    JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference
+    WHERE a.fm_restaurant_reference = ANY(${refs}) AND ${sql.unsafe(stripeReadySql('o'))}
   `.catch(() => [])) as { ref: string }[]
   return new Set(rows.map(r => r.ref))
 }
