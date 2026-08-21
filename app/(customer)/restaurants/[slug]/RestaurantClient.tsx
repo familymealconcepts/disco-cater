@@ -5,6 +5,7 @@ import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
 import UserMenu from '../../../components/UserMenu'
 import AuthModal from '../../../components/AuthModal'
+import { ModifierGroupBadge } from '../../../components/ModifierGroupBadge'
 import { useAuthContext } from '../../../context/AuthContext'
 import CheckoutDrawer from './CheckoutDrawer'
 import MenuAdvisor, { type DiscoIntake } from './MenuAdvisor'
@@ -2247,13 +2248,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
                       <div>
                         <span style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{group.externalName || group.name}</span>
-                        {/* Matches the restaurant-admin menu-manager groups scheme
-                            (amber/attention = required, muted indigo = optional) —
-                            was coral-red vs. green, which read as "required = bad,
-                            optional = go/success" rather than a required/neutral pair. */}
-                        {isRequired
-                          ? <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '2px 8px', background: '#FEF3E2', color: '#B45309', letterSpacing: '0.04em' }}>REQUIRED</span>
-                          : <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '2px 8px', background: '#EEF0FD', color: '#4046B8', letterSpacing: '0.04em' }}>OPTIONAL</span>}
+                        <ModifierGroupBadge isRequired={isRequired} isValid={isValid} />
                       </div>
                       <span style={{ fontSize: 12, color: isValid ? '#22C55E' : '#aaa', fontWeight: 600 }}>{total} of {group.maxSelectedItems} selected</span>
                     </div>

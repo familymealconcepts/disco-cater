@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, 
 import { useRouter } from 'next/navigation'
 import { cartSubtotal, lineUnitPrice } from '../../../../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../../../../lib/pricing/lineItem'
+import { ModifierGroupBadge } from '../../../../../../components/ModifierGroupBadge'
 
 // ─── Brand ─────────────────────────────────────────────────────────────────
 const F = "'DM Sans', sans-serif"
@@ -907,13 +908,23 @@ function ModifierModal({ pkg, onClose, onAdd }: { pkg: FmPackage; onClose: () =>
         {groups.map(g => {
           const min = g.minSelectedItems ?? (g.subExternalName === 'Required' ? 1 : 0)
           const max = g.maxSelectedItems ?? 0
+          const total = groupTotal(g)
+          const isRequired = min > 0
+          // Matches requiredOk's own per-group check above (max defaults to
+          // Infinity there, not the 0 used just below for the "X of Y" gate) --
+          // this is the button-disable condition, not just a display value.
+          const isValid = total >= min && total <= (g.maxSelectedItems ?? Infinity)
           return (
             <div key={g.reference} style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: DARK }}>
                 {g.externalName || g.name}
-                {min > 0 && <span style={{ color: RED, marginLeft: 6, fontSize: 11 }}>Required</span>}
+                {/* This modal never showed an OPTIONAL badge, only omitted it
+                    for non-required groups -- calling ModifierGroupBadge only
+                    when isRequired preserves that instead of introducing a
+                    badge that wasn't there before. */}
+                {isRequired && <ModifierGroupBadge isRequired={isRequired} isValid={isValid} />}
               </div>
-              {max > 0 && <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>{groupTotal(g)} of {max} selected</div>}
+              {max > 0 && <div style={{ fontSize: 11, color: isValid ? '#22C55E' : '#999', fontWeight: isValid ? 600 : 400, marginBottom: 6 }}>{total} of {max} selected</div>}
               <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
                 {(g.addOns || []).filter(a => a.visible !== false).map(a => (
                   <div key={a.reference} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, color: '#444' }}>
