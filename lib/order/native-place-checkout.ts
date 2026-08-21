@@ -2,7 +2,7 @@ import type Stripe from 'stripe'
 import {
   fmItemsToNativeCart, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
   isNativeDateTimeValid, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, placeAndPayNativeOrder, placeNativeInvoiceOrder,
-  priceNativeCart, type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
+  priceNativeCart, resolveCartMenuReference, type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
   type NativeDeliveryAddressInput,
 } from './native-checkout'
 import { checkItemInventoryAvailability } from './native-inventory'
@@ -62,9 +62,17 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   if (await isNativeDateClosed(ref, orderDate)) {
     return { ok: false, status: 403, error: 'This restaurant is closed on the selected date.' }
   }
+
+  // Items (and the menu they're tagged to) are resolved BEFORE the cap/date-time
+  // gates below, not after, so those gates validate against the menu the order
+  // actually claims — a direct API call could otherwise name a wide-open menu's
+  // reference while its items are really from one with a tighter cutoff.
+  const items = fmItemsToNativeCart(cd.items as Parameters<typeof fmItemsToNativeCart>[0])
+  const menuReference = resolveCartMenuReference(items)
+
   // Daily order-capacity gate (max_orders_per_day) — checked right after the
   // date-level gates, before any pricing/promo/delivery work happens.
-  if (await isNativeDailyCapReached(ref, orderDate)) {
+  if (await isNativeDailyCapReached(ref, orderDate, menuReference)) {
     return { ok: false, status: 409, error: 'This restaurant has reached its maximum number of orders for the selected date. Please choose a different date.' }
   }
   // Re-validate the requested date+time against the SAME scheduling rules the
@@ -72,7 +80,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // availability, skipped days) — the picker only hides invalid options, it
   // doesn't stop a direct API call from requesting one.
   const orderTime = String(cd.orderTime ?? '')
-  if (!(await isNativeDateTimeValid(ref, orderDate, orderTime))) {
+  if (!(await isNativeDateTimeValid(ref, orderDate, orderTime, menuReference))) {
     return { ok: false, status: 400, error: 'The selected date/time is no longer available for this menu. Please choose a different date or time.' }
   }
 
@@ -88,7 +96,6 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   const orderTypeRaw = String(cd.orderType ?? (params.deliveryAddress ? 'DELIVERY' : 'PICKUP'))
   const tips = Number(cd.tips) || 0
   const tipsType = String(cd.tipsType ?? 'PERCENTAGE')
-  const items = fmItemsToNativeCart(cd.items as Parameters<typeof fmItemsToNativeCart>[0])
 
   // Per-item daily inventory cap (Max Inventory Per Day) — a best-effort
   // pre-payment check so an obviously-oversold cart is blocked before the
@@ -139,7 +146,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // and another (e.g. a holiday menu) as pickup-only; refuse here rather than
   // let a direct API call place the order type the menu doesn't offer.
   const requestedOrderType = orderTypeRaw === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
-  const avail = await loadMenuFulfillmentAvailability(ref, priced.menuReference)
+  const avail = await loadMenuFulfillmentAvailability(ref, menuReference)
   if (requestedOrderType === 'DELIVERY' && !avail.offersDelivery) {
     return { ok: false, status: 400, error: 'This menu is pickup only — delivery isn\'t available for these items.' }
   }
@@ -170,7 +177,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     deliveryFee: priced.deliveryFee,
     thirdPartyDeliverySubsiding: priced.thirdPartyDeliverySubsiding,
     discountPct: promo?.pct ?? 0,
-    scPct: await loadRestaurantServiceChargePct(ref, priced.menuReference),
+    scPct: await loadRestaurantServiceChargePct(ref, menuReference),
     orderDate,
     orderTime,
     deliveryAddress: params.deliveryAddress as NativePlaceInput['deliveryAddress'],

@@ -207,24 +207,42 @@ export async function isNativeDateClosed(restaurantReference: string, orderDate:
   return rows.length > 0
 }
 
-// Daily order-capacity gate: the restaurant's primary visible menu may set
-// max_orders_per_day (NULL = no cap — the default, and the only behavior
-// before this existed since nothing read the column). When set, a new order
-// is blocked once that many still-active orders already exist for the same
-// restaurant + date. "Still-active" excludes CART (never placed),
+// Daily order-capacity gate: a menu may set max_orders_per_day (NULL = no
+// cap — the default, and the only behavior before this existed since nothing
+// read the column). When set, a new order is blocked once that many
+// still-active orders already exist for the same restaurant + date.
+// "Still-active" excludes CART (never placed),
 // CANCELED/CANCELLED/REFUND/REFUNDED/EXPIRED/VOID/VOIDED/PAYMENT_FAILED (no
 // longer real orders occupying capacity) — everything else (RESERVED/DUE/
 // UNPAID/PAID/COMPLETED/PARTIAL_REFUND/REOPEN) counts, including pre-payment
 // RESERVED/UNPAID rows, so two concurrent checkouts can't both slip in under
-// the cap while waiting on payment confirmation.
-export async function isNativeDailyCapReached(restaurantReference: string, orderDate: string): Promise<boolean> {
+// the cap while waiting on payment confirmation. Which menu's own cap
+// applies takes an explicit menuReference (exact match, logged fallback to
+// the primary-menu guess when untagged) — same pattern as
+// loadRestaurantServiceChargePct/loadRestaurantDeliverySettings. The
+// order-count itself stays restaurant+date-scoped, unchanged: the cap VALUE
+// is per-menu, the capacity it's measured against is the whole restaurant's
+// day.
+export async function isNativeDailyCapReached(restaurantReference: string, orderDate: string, menuReference?: string): Promise<boolean> {
   if (!orderDate) return false
-  const capRows = (await sql`
-    SELECT max_orders_per_day FROM disco_menus
-    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
-    ORDER BY position, id LIMIT 1
-  `.catch(() => [])) as { max_orders_per_day: number | null }[]
-  const cap = capRows[0]?.max_orders_per_day
+  let cap: number | null | undefined
+  if (menuReference) {
+    const exact = (await sql`
+      SELECT max_orders_per_day FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
+      LIMIT 1
+    `.catch(() => [])) as { max_orders_per_day: number | null }[]
+    if (exact.length) cap = exact[0].max_orders_per_day
+    else console.warn('[native-checkout] isNativeDailyCapReached: tagged menuReference not found, falling back to primary-menu guess', { restaurantReference, menuReference })
+  }
+  if (cap === undefined) {
+    const capRows = (await sql`
+      SELECT max_orders_per_day FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+      ORDER BY position, id LIMIT 1
+    `.catch(() => [])) as { max_orders_per_day: number | null }[]
+    cap = capRows[0]?.max_orders_per_day
+  }
   if (cap == null) return false
   const countRows = (await sql`
     SELECT COUNT(*)::int AS n FROM disco_orders
@@ -235,41 +253,59 @@ export async function isNativeDailyCapReached(restaurantReference: string, order
   return (countRows[0]?.n ?? 0) >= cap
 }
 
+type ScheduleMenuRow = MenuSettingsRow & {
+  schedule_config: NativeScheduleConfig | null; availability_mode: string | null
+  start_date: string | null; end_date: string | null
+  skipped_days: { fromDate: string; toDate: string }[] | null
+}
+const SCHEDULE_MENU_COLUMNS = `
+  schedule_config, availability_mode,
+  to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date,
+  lead_time_hours, rolling_availability_days, max_orders_per_day,
+  to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
+  to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
+  skipped_days
+`
+
 // Server-side re-validation of the SAME scheduling rules the checkout UI
 // already enforces client-side (lib/scheduling/cutoffs.ts) — lead time, daily/
 // hard cutoff, day-of-week pickup window, Custom [startDate, endDate]
-// availability, and per-menu skipped days. Built from the restaurant's primary
-// (lowest-position, visible) menu, exactly like the customer render path
-// (app/(customer)/restaurants/[slug]/shared.tsx) builds its scheduleOption —
-// same source data, same cutoffs.ts logic — so client and server can never
-// disagree about what's bookable. This is the backstop for a request that
-// bypasses the picker entirely (a direct API call): the UI hides invalid
-// dates/times, this actually blocks them. Restaurant-wide closed days are
-// checked separately by isNativeDateClosed; a missing menu row (nothing to
-// validate against) passes, matching the client's ungated default.
-export async function isNativeDateTimeValid(restaurantReference: string, orderDate: string, orderTime: string): Promise<boolean> {
+// availability, and per-menu skipped days. This is the backstop for a request
+// that bypasses the picker entirely (a direct API call): the UI hides invalid
+// dates/times, this actually blocks them — so it must validate against the
+// exact menu the order claims (menuReference), not a primary-menu guess; a
+// direct call could otherwise claim a menu with a wide-open schedule while
+// actually booking against one with a tighter lead time or cutoff. Exact
+// match first, logged fallback to the primary (lowest-position, visible)
+// menu when untagged — same pattern as loadRestaurantServiceChargePct/
+// loadRestaurantDeliverySettings. Restaurant-wide closed days are checked
+// separately by isNativeDateClosed; no menu row at all (nothing to validate
+// against) passes, matching the client's ungated default.
+export async function isNativeDateTimeValid(restaurantReference: string, orderDate: string, orderTime: string, menuReference?: string): Promise<boolean> {
   if (!orderDate || !orderTime) return false
-  const rows = (await sql`
-    SELECT schedule_config, availability_mode,
-           to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date,
-           lead_time_hours, rolling_availability_days, max_orders_per_day,
-           to_char(daily_cutoff_time, 'HH24:MI') AS daily_cutoff_time,
-           to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
-           skipped_days
-    FROM disco_menus
-    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
-    ORDER BY position, id LIMIT 1
-  `.catch(() => [])) as (MenuSettingsRow & {
-    schedule_config: NativeScheduleConfig | null; availability_mode: string | null
-    start_date: string | null; end_date: string | null
-    skipped_days: { fromDate: string; toDate: string }[] | null
-  })[]
-  const primary = rows[0]
-  if (!primary) return true
+  let menu: ScheduleMenuRow | undefined
+  if (menuReference) {
+    const exact = (await sql`
+      SELECT ${sql.unsafe(SCHEDULE_MENU_COLUMNS)} FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
+      LIMIT 1
+    `.catch(() => [])) as ScheduleMenuRow[]
+    if (exact.length) menu = exact[0]
+    else console.warn('[native-checkout] isNativeDateTimeValid: tagged menuReference not found, falling back to primary-menu guess', { restaurantReference, menuReference })
+  }
+  if (!menu) {
+    const rows = (await sql`
+      SELECT ${sql.unsafe(SCHEDULE_MENU_COLUMNS)} FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+      ORDER BY position, id LIMIT 1
+    `.catch(() => [])) as ScheduleMenuRow[]
+    menu = rows[0]
+  }
+  if (!menu) return true
   const scheduleOption = {
-    ...buildNativeScheduleOption(primary.schedule_config, primary.availability_mode, primary.start_date, primary.end_date),
-    ...menuRowToScheduleExtras(primary),
-    ...(Array.isArray(primary.skipped_days) && primary.skipped_days.length ? { skippedDays: primary.skipped_days } : {}),
+    ...buildNativeScheduleOption(menu.schedule_config, menu.availability_mode, menu.start_date, menu.end_date),
+    ...menuRowToScheduleExtras(menu),
+    ...(Array.isArray(menu.skipped_days) && menu.skipped_days.length ? { skippedDays: menu.skipped_days } : {}),
   }
   return isDateTimeBookable(scheduleOption, orderDate, orderTime)
 }

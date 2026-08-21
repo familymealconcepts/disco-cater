@@ -346,6 +346,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const [menusOpen, setMenusOpen] = useState(false)
   const [tempHeadcount, setTempHeadcount] = useState<string>('')
   const [tempMenuIdx, setTempMenuIdx] = useState(0)
+  // Set instead of switching immediately when picking a menu that differs
+  // from what's already in the cart — see selectMenuInModal. Holds the menu
+  // index awaiting the warn-and-clear confirmation; null when nothing's pending.
+  const [pendingMenuSwitchIdx, setPendingMenuSwitchIdx] = useState<number | null>(null)
   const [tempDate, setTempDate] = useState('')
   const [tempTime, setTempTime] = useState('')
   const [tempType, setTempType] = useState<'PICKUP' | 'DELIVERY'>('PICKUP')
@@ -694,7 +698,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     return `${fmtDateShort(dates[0])} (next available)`
   }
 
-  function selectMenuInModal(idx: number) {
+  function applyMenuSelection(idx: number) {
     setTempMenuIdx(idx)
     const sch = menuData[idx]?.menu?.scheduleOption
     const types = menuData[idx]?.menu?.settings?.menuAvailability ?? ['PICKUP', 'DELIVERY']
@@ -710,6 +714,30 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setTempType(types.includes('PICKUP') ? 'PICKUP' : 'DELIVERY')
     setAddrValidated(false); setAddrError(''); setAddrFee(null)
     setCalOpen(false)
+  }
+
+  // Selecting a menu that differs from what's already in the cart would
+  // orphan those items (one menu per order — see addItemWithConfig's guard).
+  // Warn and let the customer choose, rather than silently leaving the cart
+  // pointed at a menu they're no longer looking at, or silently discarding it.
+  function selectMenuInModal(idx: number) {
+    const targetRef = menuData[idx]?.menu?.reference
+    if (cart.length > 0 && targetRef !== cart[0].menuReference) {
+      setPendingMenuSwitchIdx(idx)
+      return
+    }
+    applyMenuSelection(idx)
+  }
+
+  function confirmMenuSwitch() {
+    if (pendingMenuSwitchIdx == null) return
+    setCart([])
+    applyMenuSelection(pendingMenuSwitchIdx)
+    setPendingMenuSwitchIdx(null)
+  }
+
+  function cancelMenuSwitch() {
+    setPendingMenuSwitchIdx(null)
   }
 
   function openMenus() {
@@ -733,7 +761,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setMenusOpen(true)
   }
 
-  function closeMenus() { setMenusOpen(false); setCalOpen(false); pendingItemRef.current = null }
+  function closeMenus() { setMenusOpen(false); setCalOpen(false); pendingItemRef.current = null; setPendingMenuSwitchIdx(null) }
 
   function openCalendar() {
     if (!dateButtonRef.current) return
@@ -1981,6 +2009,25 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               <div style={{ fontSize: 17, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>Menus</div>
               <button onClick={closeMenus} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>×</button>
             </div>
+
+            {/* Warn-and-clear — a different menu than what's in the cart was picked */}
+            {pendingMenuSwitchIdx != null && (
+              <div style={{ padding: '14px 20px', background: '#FFF7ED', borderBottom: '1px solid #f0f0f0' }}>
+                <div style={{ fontSize: 13, color: '#7C2D12', marginBottom: 10, lineHeight: 1.5 }}>
+                  Switching menus will clear the {cartCount} item{cartCount === 1 ? '' : 's'} already in your cart — orders can only include items from one menu at a time.
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={cancelMenuSwitch}
+                    style={{ flex: 1, height: 36, borderRadius: 8, border: '1.5px solid #e0e0e0', background: '#fff', color: DARK, fontFamily: F, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button onClick={confirmMenuSwitch}
+                    style={{ flex: 1, height: 36, borderRadius: 8, border: 'none', background: '#B42318', color: '#fff', fontFamily: F, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                    Clear cart &amp; switch
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Menu list — scrollable, capped height */}
             <div style={{ overflowY: 'auto', maxHeight: 270, borderBottom: '1px solid #f0f0f0' }}>

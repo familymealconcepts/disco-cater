@@ -382,10 +382,10 @@ async function loadDiscoNativeRestaurant(slug: string) {
     // was already off the FM-backed path — but it still cost 46 statements on
     // every cold native render.
     const cats = (await withDiscoTables(() => sql`
-      SELECT reference, name, description FROM disco_menu_categories
+      SELECT reference, name, description, menu_reference FROM disco_menu_categories
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
       ORDER BY position, id
-    `, runDiscoMenuMigrations)) as { reference: string; name: string; description: string | null }[]
+    `, runDiscoMenuMigrations)) as { reference: string; name: string; description: string | null; menu_reference: string | null }[]
     const items = (await sql`
       SELECT reference, category_reference, name, description, price, serves,
              display_price, min_quantity, allow_special_instructions,
@@ -455,16 +455,11 @@ async function loadDiscoNativeRestaurant(slug: string) {
       maxInventoryPerDay: it.max_inventory_per_day ?? null,
       extraItemsGroups: groupsByItem.get(it.reference) ?? [],
     })
-    const categories = cats.map(c => ({
-      reference: c.reference, name: c.name, description: c.description,
-      mealPackages: items.filter(it => it.category_reference === c.reference).map(toPkg),
-    }))
-    const orphans = items.filter(it => !cats.some(c => c.reference === it.category_reference))
-    if (orphans.length) {
-      categories.push({ reference: 'uncategorized', name: 'Menu', description: null, mealPackages: orphans.map(toPkg) })
-    }
 
-    // Primary menu container — carries the pickup schedule + money/timing settings.
+    // Every visible menu, not just the primary — restaurants build several
+    // (Catering, Gift Cards, Grocery, ...) and the customer page used to show
+    // only one. Same query as before, minus LIMIT 1: still one round-trip,
+    // returning N rows instead of 1.
     const menuRows = (await sql`
       SELECT reference, name, schedule_config, availability_mode,
              to_char(start_date, 'YYYY-MM-DD') AS start_date, to_char(end_date, 'YYYY-MM-DD') AS end_date,
@@ -476,28 +471,63 @@ async function loadDiscoNativeRestaurant(slug: string) {
              delivery_settings, skipped_days, include_utensils
       FROM disco_menus
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true AND archived = false
-      ORDER BY position, id LIMIT 1
+      ORDER BY position, id
     `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; start_date: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string }[] | null })[]
+    // The "primary" reference is only used now as the NULL-menu_reference
+    // fallback target below (categories/items predating the multi-menu model,
+    // or the zero-visible-menus edge case) — never a guess about which menu
+    // the customer is ordering from.
     const primary = menuRows[0]
-    // Skipped/blackout days: per-menu skipped days + restaurant-wide Closed Days,
-    // merged into scheduleOption.skippedDays (the availability engine excludes them).
+
+    // Restaurant-wide Closed Days apply to every menu; each menu ALSO has its
+    // own skipped_days. Merged per-menu below, not once for "the" menu.
     const closedRows = (await sql`
       SELECT to_char(from_date, 'YYYY-MM-DD') AS from_date, to_char(to_date, 'YYYY-MM-DD') AS to_date
       FROM disco_restaurant_closed_days WHERE restaurant_reference = ${r.restaurant_reference}::uuid
     `.catch(() => [])) as { from_date: string; to_date: string }[]
-    const menuSkipped = Array.isArray(primary?.skipped_days) ? (primary!.skipped_days as { fromDate: string; toDate: string }[]) : []
-    const skippedDays = [
-      ...menuSkipped.map(s => ({ fromDate: s.fromDate, toDate: s.toDate })),
-      ...closedRows.map(c => ({ fromDate: c.from_date, toDate: c.to_date })),
-    ]
-    // Schedule = pickup windows (schedule_config) + timing settings (lead time,
-    // cutoffs, rolling window, max/day) + skipped days. Settings = money + fulfillment.
-    const scheduleOption = {
-      ...buildNativeScheduleOption(primary?.schedule_config ?? null, primary?.availability_mode ?? null, primary?.start_date ?? null, primary?.end_date ?? null),
-      ...(primary ? menuRowToScheduleExtras(primary) : {}),
-      ...(skippedDays.length ? { skippedDays } : {}),
-    }
-    const settings = primary ? menuRowToSettings(primary) : { menuAvailability: ['PICKUP', 'DELIVERY'], menuAvailabilityExplicit: false }
+
+    // Categories/items were already loaded restaurant-wide above (unchanged —
+    // still one query each, no N+1). What's new is grouping them per menu
+    // instead of flattening into one list. category.menu_reference is
+    // nullable — pre-multi-menu categories, or a restaurant with categories
+    // never explicitly re-linked — and NULL never equals a real menu
+    // reference, so an exact match alone would make those categories vanish
+    // from the customer page. Confirmed live: 1 category on "Test 34"
+    // (bf5c5b70-f065-4f58-a165-e484ce89a707) has menu_reference = NULL today.
+    // Falls back to the primary (lowest-position) visible menu — the same
+    // menu everything implicitly belonged to before this change, so a
+    // single-menu restaurant's categories land exactly where they always did.
+    const menuData = (menuRows.length ? menuRows : [undefined]).map(m => {
+      const menuCats = cats.filter(c => c.menu_reference === (m?.reference ?? null) || (c.menu_reference == null && m?.reference === primary?.reference))
+      const categories = menuCats.map(c => ({
+        reference: c.reference, name: c.name, description: c.description,
+        mealPackages: items.filter(it => it.category_reference === c.reference).map(toPkg),
+      }))
+      // Orphan items (no category at all) get the same primary-menu fallback.
+      if (!m || m.reference === primary?.reference) {
+        const orphans = items.filter(it => !cats.some(c => c.reference === it.category_reference))
+        if (orphans.length) {
+          categories.push({ reference: 'uncategorized', name: 'Menu', description: null, mealPackages: orphans.map(toPkg) })
+        }
+      }
+
+      const menuSkipped = Array.isArray(m?.skipped_days) ? (m!.skipped_days as { fromDate: string; toDate: string }[]) : []
+      const skippedDays = [
+        ...menuSkipped.map(s => ({ fromDate: s.fromDate, toDate: s.toDate })),
+        ...closedRows.map(c => ({ fromDate: c.from_date, toDate: c.to_date })),
+      ]
+      const scheduleOption = {
+        ...buildNativeScheduleOption(m?.schedule_config ?? null, m?.availability_mode ?? null, m?.start_date ?? null, m?.end_date ?? null),
+        ...(m ? menuRowToScheduleExtras(m) : {}),
+        ...(skippedDays.length ? { skippedDays } : {}),
+      }
+      const settings = m ? menuRowToSettings(m) : { menuAvailability: ['PICKUP', 'DELIVERY'], menuAvailabilityExplicit: false }
+
+      return {
+        menu: { reference: m?.reference || 'disco-catering', name: m?.name || 'Catering Menu', scheduleOption, settings, includeUtensils: (m as { include_utensils?: boolean } | undefined)?.include_utensils === true },
+        categories,
+      }
+    })
 
     return {
       restaurant: {
@@ -509,10 +539,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
         iconUrl: r.icon_url || null, imageUrl: r.image_url || null,
         isDisco: true, location: r.location || undefined,
       },
-      menuData: [{
-        menu: { reference: primary?.reference || 'disco-catering', name: primary?.name || 'Catering Menu', scheduleOption, settings, includeUtensils: (primary as { include_utensils?: boolean })?.include_utensils === true },
-        categories,
-      }],
+      menuData,
       reference: r.restaurant_reference,
       acceptingOrders: r.online_ordering_enabled !== false,
       enableMenuSearch: r.enable_menu_search === true,
