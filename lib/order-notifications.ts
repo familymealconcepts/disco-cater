@@ -15,6 +15,7 @@ import {
   sendCustomerItemUnavailableRefund, sendRestaurantItemUnavailableAlert,
 } from './email/notifications'
 import { buildOrderPdfByReference } from './order/order-pdf'
+import { orderPdfFilename } from './download-filename'
 import { loadOrderItemsWithAddOns } from './order-items'
 import { sendSms } from './sms'
 import { formatTimeWindow } from './utils/deliveryTimeWindow'
@@ -319,7 +320,16 @@ export async function dispatchOrderConfirmations(
     if (reference) {
       try {
         const pdf = await buildOrderPdfByReference(reference)
-        if (pdf) pdfAttachments = [{ filename: `disco-cater-order-${shared.orderNumber}.pdf`, content: pdf, contentType: 'application/pdf' }]
+        // Same helper the PDF route uses, so the attachment and a
+        // browser-saved copy are named identically. Previously
+        // `disco-cater-order-<number>.pdf`, which omitted the restaurant name —
+        // and order_number is unique per restaurant, not globally, so two
+        // restaurants' PDFs for the same number collided in a downloads folder.
+        if (pdf) pdfAttachments = [{
+          filename: orderPdfFilename(shared.businessName, shared.orderNumber, reference),
+          content: pdf,
+          contentType: 'application/pdf',
+        }]
       } catch (err) {
         console.error('[order-notifications] order PDF build failed (sending email without it):', err instanceof Error ? err.message : err)
       }

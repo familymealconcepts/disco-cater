@@ -3,6 +3,7 @@ import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../l
 import { getRestaurantRef } from '../../../../../lib/restaurant-auth'
 import { sql } from '../../../../../lib/db'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
+import { contentDisposition } from '../../../../../lib/download-filename'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -139,13 +140,13 @@ export async function GET(req: NextRequest) {
     const fnbase = `orders-report_${dateField}_${from}_${to}`
 
     if (format === 'csv') {
-      return new NextResponse(toCsv(rows), { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${fnbase}.csv"` } })
+      return new NextResponse(toCsv(rows), { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': contentDisposition('attachment', `${fnbase}.csv`) } })
     }
     if (format === 'xls') {
-      return new NextResponse(toXls(rows, title), { headers: { 'Content-Type': 'application/vnd.ms-excel; charset=utf-8', 'Content-Disposition': `attachment; filename="${fnbase}.xls"` } })
+      return new NextResponse(toXls(rows, title), { headers: { 'Content-Type': 'application/vnd.ms-excel; charset=utf-8', 'Content-Disposition': contentDisposition('attachment', `${fnbase}.xls`) } })
     }
     const pdf = await toPdf(rows, title, sub)
-    return new NextResponse(Buffer.from(pdf), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${fnbase}.pdf"` } })
+    return new NextResponse(Buffer.from(pdf), { headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': contentDisposition('attachment', `${fnbase}.pdf`) } })
   } catch (e) {
     console.error('[reports/export] failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to generate report' }, { status: 500 })

@@ -15,6 +15,7 @@ import {
   sendOrderEditPaymentRequired, sendOrderEditPendingRestaurant, type EditItem,
 } from '../../../../../../lib/email/notifications'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
+import { orderPdfFilename } from '../../../../../../lib/download-filename'
 import { isDiscoNativeRestaurant, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, type RestaurantPayoutConfig } from '../../../../../../lib/order/native-payment'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
@@ -447,7 +448,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       if (discoOrder?.reference) {
         try {
           const pdf = await buildOrderPdfByReference(discoOrder.reference)
-          if (pdf) attachments = [{ filename: `disco-cater-order-${orderNumber}.pdf`, content: pdf, contentType: 'application/pdf' }]
+          // Shared naming helper — same filename the PDF route and the
+          // confirmation email produce, so an edited order's attachment does
+          // not arrive under a different scheme from the original.
+          if (pdf) attachments = [{ filename: orderPdfFilename(businessName, orderNumber, discoOrder.reference), content: pdf, contentType: 'application/pdf' }]
         } catch (e) { console.error('[orders/edit] order PDF build failed:', e instanceof Error ? e.message : e) }
       }
       sendOrderUpdatedRestaurant({ to: restaurantEmail, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, items: newItems, newTotal, delta, attachments }).catch(() => {})

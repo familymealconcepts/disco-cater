@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoOrderMigrations } from '../../../../../../../lib/db'
 import { buildReport, reportPeriod, type ScheduledReportConfig } from '../../../../../../../lib/reports/native-reports'
+import { sanitizeFilenameSegment, contentDisposition } from '../../../../../../../lib/download-filename'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -44,14 +45,18 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
 
   try {
     const gen = await buildReport(cfg, period, r.file_type)
-    const slug = r.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()
+    // Shared sanitiser rather than a local regex — same rules as the order
+    // PDF's filename, so there is one definition of "safe as a filename".
+    // (The old inline version could leave a leading/trailing hyphen and had no
+    // length cap; a report name is admin-supplied free text.)
+    const slug = sanitizeFilenameSegment(r.name).toLowerCase() || 'report'
     const filename = `${slug}_${period.from}_${period.to}.${gen.ext}`
     const body = typeof gen.body === 'string' ? gen.body : Buffer.from(gen.body)
     return new NextResponse(body, {
       status: 200,
       headers: {
         'Content-Type': gen.contentType,
-        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Disposition': contentDisposition('attachment', filename),
         'Cache-Control': 'no-store',
       },
     })

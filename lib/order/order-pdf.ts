@@ -376,7 +376,25 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
 
 // Convenience: load + render by reference. Returns null when the order isn't found.
 export async function buildOrderPdfByReference(orderRef: string): Promise<Uint8Array | null> {
+  const built = await buildOrderPdfWithNamingByReference(orderRef)
+  return built ? built.pdf : null
+}
+
+// Same work as buildOrderPdfByReference, but also hands back the three fields a
+// caller needs to name the file (see lib/download-filename.ts). Exists so the
+// PDF route can set a real Content-Disposition filename without a second
+// round-trip for the restaurant name and order number — loadOrderPdfData has
+// already read both. buildOrderPdfByReference stays as the byte-only entry
+// point so its other callers are untouched.
+export async function buildOrderPdfWithNamingByReference(orderRef: string): Promise<
+  { pdf: Uint8Array; restaurantName: string; orderNumber: string; reference: string } | null
+> {
   const data = await loadOrderPdfData(orderRef)
   if (!data) return null
-  return renderOrderPdf(data)
+  return {
+    pdf: await renderOrderPdf(data),
+    restaurantName: data.restaurantName,
+    orderNumber: data.orderNumber,
+    reference: data.reference,
+  }
 }
