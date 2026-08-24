@@ -1103,6 +1103,7 @@ export default function RestaurantsOrderingPage() {
                 stripeConnected: isStripeConnected(r),
                 onlineOrderingEnabled: ov.onlineOrderingEnabled,
                 hasCompletedNativeStripeAccount: false,
+                isArchived: ov.archivedAt != null,
               }) : null
               const dropOff = readiness?.wouldDropOff ? readiness : null
               const drift = ov?.isDiscoNative && ov.menuDriftDetected ? ov.menuDriftDetails : null
@@ -1235,16 +1236,24 @@ export default function RestaurantsOrderingPage() {
                     <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                       <button title="Refresh" onClick={() => load()} style={iconBtn}>⟳</button>
                       <button title="Edit restaurant" onClick={() => setEditRef(r.reference)} style={{ ...iconBtn, color: '#6B6EF9', fontWeight: 700 }}>Edit</button>
+                      {/* TEXT labels, not bare glyphs. These were a 🗄 / ↺ emoji
+                          pair with the action only in the title attribute, sitting
+                          immediately beside the text-labelled "Edit" button — the
+                          archive action was effectively undiscoverable (reported as
+                          "there is no way to archive a restaurant" by someone who
+                          had already used it once). Matching Edit's existing
+                          treatment rather than inventing a new control: same
+                          iconBtn chrome, same weight, colour carrying the meaning. */}
                       {ov?.archivedAt ? (
-                        <button title="Restore" onClick={() => restoreRestaurant(r)} style={{ ...iconBtn, color: '#1D9E75' }}>↺</button>
+                        <button title="Restore this restaurant — it reappears on the marketplace, admin lists, and portal login." onClick={() => restoreRestaurant(r)} style={{ ...iconBtn, color: '#1D9E75', fontWeight: 700 }}>Restore</button>
                       ) : ov?.isDiscoNative ? (
-                        <button title="Archive (reversible)" onClick={() => archiveRestaurant(r)} style={{ ...iconBtn, color: '#E53935' }}>🗄</button>
+                        <button title="Archive (reversible) — hides it from the marketplace, admin lists, and portal login, and stops it accepting online orders." onClick={() => archiveRestaurant(r)} style={{ ...iconBtn, color: '#E53935', fontWeight: 700 }}>Archive</button>
                       ) : (
                         <button
                           title="Archiving isn't available yet for FamilyMeal-backed restaurants — FM's block endpoint has never been confirmed to actually stop its own checkout, so this is deferred pending verification."
                           disabled
                           style={{ ...iconBtn, color: '#ccc', cursor: 'not-allowed' }}
-                        >🗄</button>
+                        >Archive</button>
                       )}
                       {/* Permanent delete — test restaurants/duplicates only.
                           Deliberately far more visually alarming than Archive

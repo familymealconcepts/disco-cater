@@ -7,6 +7,7 @@ import { createDelivery, buildPayloadFromNeon } from '../../../../lib/expedite'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { alertOps } from '../../../../lib/ops-alert'
 import { loadFmOrderDetails, parseFmOrder } from '../../../../lib/order-edit'
+import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
 
 export const runtime = 'nodejs'
 
@@ -191,6 +192,19 @@ export async function POST(req: NextRequest) {
     if (!token) return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })
 
     const body = await req.json()
+
+    // Reachable independently of /place (this is the FM-charge confirmation
+    // step), so it carries its own gate rather than trusting that /place ran
+    // one. restaurantRef is optional on this body — when absent there is
+    // nothing to check and the FM call decides, as before.
+    if (body?.restaurantRef) {
+      const orderable = await assertRestaurantOrderable(String(body.restaurantRef))
+      if (!orderable.orderable) {
+        const { body: errBody, status } = orderableErrorBody(orderable)
+        return NextResponse.json(errBody, { status })
+      }
+    }
+
     const res = await fmFetch(`${FM}/api/userOrder/confirmPayment`, {
       method: 'POST',
       headers: {

@@ -8,6 +8,7 @@ import { getCallerScopeRefs } from '../../../../../lib/order/order-scope'
 import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 import { placeNativeCheckout, placeNativeInvoiceCheckout } from '../../../../../lib/order/native-place-checkout'
 import { sanitizePhoneFields } from '../../../../../lib/utils/phone'
+import { assertRestaurantAcceptsDirectEntry, orderableErrorBody } from '../../../../../lib/restaurant-orderable'
 import { sql } from '../../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -179,6 +180,16 @@ export async function POST(req: NextRequest) {
   }
   if (!restaurantRef || !orderRef) {
     return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
+  }
+
+  // Staff direct entry: archive blocks, online_ordering_enabled deliberately
+  // does NOT — switching off online ordering closes the public checkout, not
+  // the phone/walk-in workflow this route exists for. See
+  // assertRestaurantAcceptsDirectEntry for the full reasoning.
+  const directEntryOk = await assertRestaurantAcceptsDirectEntry(String(restaurantRef))
+  if (!directEntryOk.orderable) {
+    const { body: errBody, status } = orderableErrorBody(directEntryOk)
+    return NextResponse.json(errBody, { status })
   }
 
   // ── Disco-native Direct Entry: place in Neon/Stripe (zero FM) — RM4. The FM

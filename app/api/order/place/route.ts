@@ -10,6 +10,7 @@ import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib
 import { geocodeAddress } from '../../../../lib/geocode'
 import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
 import { placeNativeCheckout } from '../../../../lib/order/native-place-checkout'
+import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { alertOps } from '../../../../lib/ops-alert'
 import { recordFunnelStage } from '../../../../lib/checkout-funnel'
@@ -288,6 +289,18 @@ async function mirrorOrderToNeon(args: {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
+
+    // The gate, before EITHER branch below (native and FM-backed both pass
+    // through here), and before any Stripe object is created — refusing after
+    // a PaymentIntent exists would leave a charge intent for an order that
+    // will never be placed. Read-only; see lib/restaurant-orderable.ts.
+    if (body?.restaurantRef) {
+      const orderable = await assertRestaurantOrderable(String(body.restaurantRef))
+      if (!orderable.orderable) {
+        const { body: errBody, status } = orderableErrorBody(orderable)
+        return NextResponse.json(errBody, { status })
+      }
+    }
 
     // ── Disco-native path: place the order + create the Stripe destination charge
     // entirely in Neon/Stripe (zero FM). Native customers authenticate via the

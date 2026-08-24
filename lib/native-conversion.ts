@@ -1018,6 +1018,7 @@ async function carryOverProfileFields(ref: string): Promise<ProfileFieldsCarryOv
 async function computeNativeIsLive(ref: string): Promise<boolean> {
   const rows = (await sql`
     SELECT o.visible, o.online_ordering_enabled,
+           (o.archived_at IS NOT NULL) AS is_archived,
            (${sql.unsafe(stripeReadySql('o'))}) OR EXISTS (
              SELECT 1 FROM disco_restaurant_accounts a
              JOIN disco_restaurant_overrides o2 ON o2.restaurant_reference = a.restaurant_reference
@@ -1027,7 +1028,7 @@ async function computeNativeIsLive(ref: string): Promise<boolean> {
     FROM disco_restaurant_overrides o
     WHERE o.restaurant_reference = ${ref}
     LIMIT 1
-  `.catch(() => [])) as { visible: boolean | null; online_ordering_enabled: boolean | null; has_completed_native_stripe: boolean }[]
+  `.catch(() => [])) as { visible: boolean | null; online_ordering_enabled: boolean | null; is_archived: boolean; has_completed_native_stripe: boolean }[]
   const row = rows[0]
   const result = evaluateMarketplaceReadiness({
     isDiscoNative: true,
@@ -1035,6 +1036,8 @@ async function computeNativeIsLive(ref: string): Promise<boolean> {
     stripeConnected: false,
     onlineOrderingEnabled: row?.online_ordering_enabled ?? null,
     hasCompletedNativeStripeAccount: row?.has_completed_native_stripe === true,
+    // An archived restaurant must never compute is_live = true on conversion.
+    isArchived: row?.is_archived === true,
   })
   return result.wouldBeVisibleAsNative
 }

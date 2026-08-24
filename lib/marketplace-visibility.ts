@@ -1,11 +1,12 @@
 // M4 — marketplace drop-off guard (report-only).
 //
-// Single place that encodes the marketplace VISIBILITY rule as an evaluation,
-// mirroring the live public feed in app/api/restaurants/route.ts. Kept PURE (no
-// DB, no server-only imports) so it runs both server-side (the admin readiness
-// endpoint) and client-side (the admin ordering table's per-row warning).
+// Single place that encodes the marketplace VISIBILITY rule as an evaluation.
+// Kept PURE (no DB, no server-only imports) so it runs both server-side (the
+// admin readiness endpoint) and client-side (the admin ordering table's
+// per-row warning).
 //
-// The rule it mirrors (see app/api/restaurants/route.ts:41-49):
+// The rule it mirrors:
+//   • archived:     hidden outright, under BOTH rules (checked first)
 //   • FM-backed:    visible AND stripe_connected                       (2-part)
 //   • Disco-native: visible AND COALESCE(online_ordering_enabled,true) (3-part)
 //                   AND (stripe_connected OR a completed native Stripe account)
@@ -13,7 +14,20 @@
 // The drop-off risk: an FM-backed restaurant that is currently visible under the
 // 2-part rule can SILENTLY disappear the moment is_disco_native flips true, because
 // the stricter 3-part rule then applies. This module reports that risk; it never
-// changes state. If either rule changes in route.ts, update it here too.
+// changes state.
+//
+// THE AUTHORITATIVE RULE IS SQL, IN lib/marketplace-restaurants.ts
+// (getMarketplaceRestaurants) — the feed, /restaurants, the city pages, the
+// sitemap and the AI compact all read it from there. This file is a hand-
+// maintained JS MIRROR of that predicate, needed only because a pure function
+// can run in the browser and a SQL query cannot. That makes it a second
+// encoding of one rule, which is the shape that produced the original 5-copy
+// visibility bug: `archived_at` was added to the SQL side and this mirror kept
+// reporting archived restaurants as visible until it was added here too.
+// If the rule changes, change marketplace-restaurants.ts FIRST and then mirror
+// it here. (The previous version of this comment pointed at
+// app/api/restaurants/route.ts, which no longer holds the rule — it delegates
+// to the shared helper.)
 
 export interface MarketplaceVisibilityInput {
   isDiscoNative: boolean
@@ -26,9 +40,16 @@ export interface MarketplaceVisibilityInput {
   // A disco_restaurant_accounts row with a stripe_account_id AND
   // stripe_onboarding_complete = true (native Stripe branch of the feed).
   hasCompletedNativeStripeAccount: boolean
+  // disco_restaurant_overrides.archived_at IS NOT NULL. The fourth, STRONGEST
+  // gate — short-circuits every other check below, exactly as the SQL feed's
+  // `o.archived_at IS NULL` short-circuits there. Optional so existing callers
+  // that genuinely have no archive information keep compiling, but every
+  // in-repo caller passes it; treat omission as "not archived" only because
+  // FM-backed rows never carry archived_at at all.
+  isArchived?: boolean
 }
 
-export type MarketplaceBlockerCode = 'not-visible' | 'online-ordering-off' | 'stripe-not-connected'
+export type MarketplaceBlockerCode = 'archived' | 'not-visible' | 'online-ordering-off' | 'stripe-not-connected'
 
 export interface MarketplaceBlocker {
   code: MarketplaceBlockerCode
@@ -64,6 +85,23 @@ export function evaluateMarketplaceReadiness(i: MarketplaceVisibilityInput): Mar
   // deliberately: fixing it (e.g. an AND for native, or a separate native-only
   // check) needs its own decision, not a silent behavior change bundled into
   // an unrelated fix.
+  // ARCHIVE SHORT-CIRCUITS EVERYTHING. An archived restaurant is not visible
+  // under either rule and cannot become visible by fixing any of the three
+  // flags below, so it reports as hidden with archive as the ONLY blocker —
+  // listing "turn on marketplace visibility" next to it would be advice that
+  // does nothing until it is restored. This mirrors the SQL feed, where
+  // `o.archived_at IS NULL` is evaluated first and gates both branches.
+  if (i.isArchived === true) {
+    return {
+      currentlyVisibleAsFm: false,
+      wouldBeVisibleAsNative: false,
+      // Not a drop-off risk: it is already hidden, so flipping to native
+      // changes nothing about its visibility.
+      wouldDropOff: false,
+      blockers: [{ code: 'archived', message: 'This restaurant is archived — it is hidden from the marketplace regardless of these settings. Restore it to make it eligible again.' }],
+    }
+  }
+
   const stripeOkNative = i.stripeConnected === true || i.hasCompletedNativeStripeAccount === true
   // COALESCE(online_ordering_enabled, true): null/unset defaults ON; only false gates.
   const onlineOk = i.onlineOrderingEnabled !== false

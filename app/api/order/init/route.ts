@@ -5,6 +5,7 @@ import { fmFetch } from '../../../../lib/fm-fetch'
 import { isDiscoNativeRestaurant, priceNativeFmDto, isNativeOrderingOpen } from '../../../../lib/order/native-checkout'
 import { previewRestaurantFundedDiscount, dinerMessageForRestaurantPromoReason } from '../../../../lib/promo-apply'
 import { recordFunnelStage, isTrackableInitStage } from '../../../../lib/checkout-funnel'
+import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -64,6 +65,16 @@ export async function POST(req: NextRequest) {
       ...orderBody
     } = body
     if (!restaurantRef) return NextResponse.json({ error: 'restaurantRef required' }, { status: 400 })
+
+    // Earliest cheap refusal for an archived / ordering-disabled restaurant.
+    // The page-level gate (shared.tsx) used to be the ONLY thing stopping this,
+    // which a direct API call or an already-open tab walks straight around.
+    // Read-only — see lib/restaurant-orderable.ts.
+    const orderable = await assertRestaurantOrderable(restaurantRef)
+    if (!orderable.orderable) {
+      const { body: errBody, status } = orderableErrorBody(orderable)
+      return NextResponse.json(errBody, { status })
+    }
 
     // Fire-and-forget: this route is hit by BOTH RestaurantClient's display-only
     // pricing preview (funnelStage CHECKOUT_READY — earliest signal of a

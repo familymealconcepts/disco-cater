@@ -3,6 +3,7 @@ import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { fmFetch } from '../../../../lib/fm-fetch'
 import { isDiscoNativeRestaurant, priceNativeFmDto } from '../../../../lib/order/native-checkout'
 import { previewRestaurantFundedDiscount, dinerMessageForRestaurantPromoReason } from '../../../../lib/promo-apply'
+import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -88,6 +89,14 @@ export async function PUT(req: NextRequest) {
     const { restaurantRef, orderRef } = body
     if (!restaurantRef || !orderRef) {
       return NextResponse.json({ error: 'restaurantRef and orderRef required' }, { status: 400 })
+    }
+
+    // Before the native re-price branch below, so both paths are covered.
+    // Read-only; see lib/restaurant-orderable.ts.
+    const orderable = await assertRestaurantOrderable(String(restaurantRef))
+    if (!orderable.orderable) {
+      const { body: errBody, status } = orderableErrorBody(orderable)
+      return NextResponse.json(errBody, { status })
     }
 
     // ── Disco-native path: re-price the FM-shaped DTO in Neon (zero FM). ──
