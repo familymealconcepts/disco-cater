@@ -22,11 +22,53 @@ import { layout } from '../email/layout'
 //     domain override, with its own credential (see resolveKeyFor in send.ts:
 //     production's MAILGUN_API_KEY returns 401 Forbidden on that domain).
 //   • Kealoha not copied 709 times — skipStandingBcc.
+//   • DMARC-aligned, which is the whole point of the From/domain pairing below.
+//
+// THE FROM ADDRESS AND THE SENDING DOMAIN MUST NOT BE CHANGED INDEPENDENTLY.
+// They are one decision, and getting it wrong silently lands the whole send in
+// spam rather than failing.
+//
+//   From:  FamilyMeal <noreply@mg.familymeal.com>   -> From domain mg.familymeal.com
+//   DKIM:  krs._domainkey.mg.familymeal.com         -> d=mg.familymeal.com
+//   SPF:   envelope noreply@mg.familymeal.com, and mg.familymeal.com publishes
+//          "v=spf1 include:mailgun.org ~all"
+//
+// All three are the SAME domain, so DKIM and SPF both align under strict as
+// well as relaxed. mg.familymeal.com publishes no DMARC record of its own, so
+// the policy is inherited from familymeal.com by tree-walk:
+// "v=DMARC1; p=quarantine" — no adkim/aspf, i.e. relaxed by default. Aligned
+// either way.
+//
+// This mirrors the diner announcement blast of 2026-08-05..07 exactly (3,026
+// Mailgun events under tags fm-to-disco-batch2-* / fm-to-disco-batch3-1000-*,
+// 2,939 delivered / 66 bounced / 16 failed / 3 complained). Same subject line,
+// same From, same domain, same api-key-id (1e0f599c-0cc41c0b). Its
+// configuration is recoverable from mailgun_events.raw_payload in
+// noise-machine's Neon DB; nothing in either repo sends it, it was an ad-hoc
+// script.
+//
+// WHAT THIS REPLACED, so it is not reintroduced: the From was
+// "Disco Cater Concierge <concierge@discocater.com>" while DKIM signed
+// mg.familymeal.com. discocater.com and familymeal.com are different
+// organizational domains, so neither identifier aligned, DMARC failed, and
+// _dmarc.discocater.com's own p=quarantine sent it to the spam folder. A From
+// on @discocater.com is only safe over a discocater.com signing domain.
 
 export const REBRAND_CAMPAIGN = 'rebrand-sept-30'
 export const CAMPAIGN_DOMAIN = 'mg.familymeal.com'
-export const CAMPAIGN_FROM = 'Disco Cater Concierge <concierge@discocater.com>'
+export const CAMPAIGN_FROM = 'FamilyMeal <noreply@mg.familymeal.com>'
 export const CAMPAIGN_SUBJECT = 'FamilyMeal is becoming Disco Cater'
+
+// The diner blast set NO Reply-To (verified: reply-to is null on all 3,024
+// stored payloads). This send does, because the audiences differ — a diner
+// announcement expects no reply, whereas 709 restaurant partners being told
+// their platform is rebranding will reply, and a bare noreply@ From sends every
+// one of those into a mailbox nobody reads.
+//
+// Safe to point at another domain: Reply-To is not an authenticated identifier
+// and DMARC does not evaluate it, so this cannot reintroduce the alignment
+// failure above. It matches the one contact address the body copy shows.
+export const CAMPAIGN_REPLY_TO = 'kealoha@discocater.com'
 
 // Floor, not a target. 30s is the minimum; the jitter only ever adds.
 const MIN_GAP_MS = 30_000
@@ -47,15 +89,27 @@ export type SendOutcome =
 // APPROVED COPY. The only substitution is the greeting. Do not reword: this
 // text was signed off as-is.
 //
-// showFooter:false because the copy carries its own sign-off ending in
-// concierge@discocater.com, and layout()'s boilerplate footer ends in the same
+// showFooter:false because layout()'s boilerplate footer ends in "Questions?
+// Contact us at concierge@discocater.com", which duplicated the sign-off's own
 // address — rendered together they read as a templating bug.
+//
+// EXACTLY ONE contact address appears in this body: kealoha@discocater.com, in
+// the walkthrough paragraph. That is deliberate and it is now the only one, so
+// check both places before adding another — the footer is suppressed, so the
+// body is the only thing standing between a noreply@ From and a recipient with
+// no way to reach a human.
+//
+// The sign-off used to repeat concierge@discocater.com underneath "Disco Cater
+// Concierge". Dropped: it was the second copy of an address that had already
+// been shown, and it is the wrong address to lead with now that the From is
+// noreply@mg.familymeal.com — Kealoha is a person who answers, which is what
+// the copy is asking them to do.
 export function renderCampaignHtml(greetingName: string): string {
   const body = `<p>Hi ${greetingName},</p>
 <p>FamilyMeal is rebranding to Disco Cater! The official change happens September 30th.</p>
 <p>What this means for you on that date: nothing. Same menus, same orders, same pricing, same payouts. Your customers won't see a change either.</p>
 <p>What's worth your time: we've added features since you came on board, and there's more coming with the rebrand. Kealoha is setting up short walkthroughs — email her at kealoha@discocater.com and she'll find a time that works.</p>
-<p>Disco Cater Concierge<br/>concierge@discocater.com</p>`
+<p>Disco Cater Concierge</p>`
   return layout(body, { showFooter: false })
 }
 
@@ -154,7 +208,7 @@ export async function runCampaign(
       subject: CAMPAIGN_SUBJECT,
       html,
       from: CAMPAIGN_FROM,
-      replyTo: 'concierge@discocater.com',
+      replyTo: CAMPAIGN_REPLY_TO,
       domain: CAMPAIGN_DOMAIN,
       skipStandingBcc: true,
     })

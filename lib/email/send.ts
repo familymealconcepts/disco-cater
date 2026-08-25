@@ -98,7 +98,16 @@ const DEFAULT_REPLY_TO = 'kealoha@discocater.com'
 // that domain returns **401 Forbidden**. Management access is not send
 // authorisation, and the only way to tell them apart is to attempt a send.
 //
-// So a domain override needs its own credential. MAILGUN_CAMPAIGN_API_KEY holds
+// So a domain override needs its own credential, and WHICH key that is has been
+// identified rather than guessed: every event of the August diner-announcement
+// blast from mg.familymeal.com carries api-key-id 1e0f599c-0cc41c0b (readable in
+// mailgun_events.raw_payload, noise-machine's Neon DB), which is the id half of
+// the MAILGUN_API_KEY in this repo's .env.local. That local key is therefore
+// known-authorised for mg.familymeal.com; production's is a DIFFERENT key and is
+// the one that 401s. MAILGUN_CAMPAIGN_API_KEY in Vercel must be set to the local
+// key's value, not to production's MAILGUN_API_KEY.
+//
+// MAILGUN_CAMPAIGN_API_KEY holds
 // the key authorised for the announcement domain; it is consulted ONLY when a
 // caller overrides the domain, so transactional mail keeps using
 // MAILGUN_API_KEY untouched and cannot be affected by this variable's presence

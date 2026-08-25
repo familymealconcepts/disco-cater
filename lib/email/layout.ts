@@ -31,13 +31,20 @@ function escapeHtml(value: unknown): string {
  *
  * `showFooter` (default true) controls the "Questions? Contact us at
  * concierge@discocater.com" line. Every transactional template wants it and is
- * unaffected. It exists for templates whose approved copy carries its OWN
- * sign-off ending in the same address — the rebrand announcement signs off
- * "Disco Cater Concierge / concierge@discocater.com", so with the footer on,
- * that address renders twice in consecutive lines, which reads like a
- * templating bug rather than a signature. Suppressing the generic footer and
- * keeping the human sign-off is the right way round: the sign-off is part of
- * the message's voice, the footer is boilerplate.
+ * unaffected.
+ *
+ * It exists for the rebrand announcement, whose approved copy already names a
+ * contact address in its own voice ("email her at kealoha@discocater.com").
+ * With the footer on, the message shows two different contact addresses for the
+ * same company — and the whole point of that paragraph is that ONE named person
+ * is expecting the reply. Suppressing the boilerplate and keeping the copy's own
+ * address is the right way round: the copy is the message's voice, the footer is
+ * a fallback for templates that have none.
+ *
+ * If you pass showFooter:false on a NEW template, check that its copy actually
+ * contains a contact address. This function is the only other thing that
+ * provides one, so turning it off on a template without its own leaves the
+ * recipient no way to reach anyone.
  */
 export function layout(content: string, opts?: { showFooter?: boolean }): string {
   const showFooter = opts?.showFooter !== false
