@@ -4,6 +4,7 @@
 // its Disco reference from Neon (mirrors the fields the email/notifications use).
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import { pdfSafe } from '../pdf-text'
 import { sql } from '../db'
 import { fulfillmentDateTime } from './fulfillment-time'
 import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
@@ -236,9 +237,24 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
 
   const PADX = 7, PADY = 6, LH = 4
   const brk = (need: number) => { if (y - need < M) { page = doc.addPage([W, H]); y = H - M } }
-  const text = (t: string, x: number, atY: number, size: number, f: PDFFont = font, color = DARK) => page.drawText(t, { x, y: atY, size, font: f, color })
-  const textR = (t: string, xr: number, atY: number, size: number, f: PDFFont = font, color = DARK) => page.drawText(t, { x: xr - f.widthOfTextAtSize(t, size), y: atY, size, font: f, color })
-  const trunc = (t: string, f: PDFFont, size: number, maxW: number) => {
+  // EVERY string reaching pdf-lib goes through pdfSafe() first, in all three of
+  // these and nowhere else — `text`, `textR` and `trunc` are the only callers of
+  // drawText/widthOfTextAtSize in this file (the wordmark on the logo-fallback
+  // line measures the literal 'disco'). pdf-lib THROWS on a character WinAnsi
+  // cannot encode rather than substituting one, so without this a single
+  // invisible codepoint in any order field fails the whole document with a 500.
+  // See lib/pdf-text.ts for the incident this came from. A fourth drawing
+  // primitive added later must call pdfSafe() too.
+  const text = (t: string, x: number, atY: number, size: number, f: PDFFont = font, color = DARK) => page.drawText(pdfSafe(t), { x, y: atY, size, font: f, color })
+  const textR = (t: string, xr: number, atY: number, size: number, f: PDFFont = font, color = DARK) => {
+    const s = pdfSafe(t)
+    return page.drawText(s, { x: xr - f.widthOfTextAtSize(s, size), y: atY, size, font: f, color })
+  }
+  const trunc = (raw: string, f: PDFFont, size: number, maxW: number) => {
+    // Sanitised BEFORE measuring, not after: widthOfTextAtSize throws on an
+    // unencodable character just as drawText does, so measuring the raw string
+    // would crash here instead.
+    const t = pdfSafe(raw)
     if (maxW <= 0 || f.widthOfTextAtSize(t, size) <= maxW) return t
     let s = t; while (s.length > 1 && f.widthOfTextAtSize(s + '…', size) > maxW) s = s.slice(0, -1); return s + '…'
   }

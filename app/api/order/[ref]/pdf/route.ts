@@ -27,12 +27,24 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ ref:
     const built = await buildOrderPdfWithNamingByReference(ref)
     if (!built) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     const dl = req.nextUrl.searchParams.get('dl') === '1'
-    const filename = orderPdfFilename(built.restaurantName, built.orderNumber, built.reference || ref)
+    // NAMING MUST NEVER COST US THE PDF. The filename is cosmetic; the bytes are
+    // what a restaurant needs to work a service. So the naming call gets its own
+    // try/catch and its own fallback rather than sharing the outer one — under
+    // the outer catch alone, any throw in here turns a PDF we have ALREADY
+    // successfully rendered into a 500 with no document at all.
+    let disposition: string
+    try {
+      const filename = orderPdfFilename(built.restaurantName, built.orderNumber, built.reference || ref)
+      disposition = contentDisposition(dl ? 'attachment' : 'inline', filename)
+    } catch (e) {
+      console.error('[order/pdf] filename build failed, serving with a fallback name:', e instanceof Error ? e.message : e)
+      disposition = `${dl ? 'attachment' : 'inline'}; filename="disco-cater-order-${ref}.pdf"`
+    }
     return new NextResponse(Buffer.from(built.pdf), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': contentDisposition(dl ? 'attachment' : 'inline', filename),
+        'Content-Disposition': disposition,
         'Cache-Control': 'private, max-age=300',
       },
     })
