@@ -293,6 +293,46 @@ export async function runMigrations(): Promise<void> {
       opted_out_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       source TEXT
     )`,
+    // ── Marketing campaign send-log ────────────────────────────────────────────
+    // ONE ROW PER ADDRESS PER CAMPAIGN, and email is the PRIMARY KEY of that
+    // pair, which is the entire idempotency mechanism: the driver INSERTs the
+    // claim BEFORE it calls Mailgun, so a crash between claim and send leaves a
+    // row marked 'claimed' that a re-run skips rather than re-sending. A
+    // re-run therefore cannot double-send, and that guarantee comes from the
+    // constraint rather than from application care.
+    //
+    // Deliberately keyed (campaign, email) rather than email alone: the same
+    // address will legitimately receive a DIFFERENT campaign later, and a
+    // global unique-on-email would silently suppress it.
+    //
+    // Lives here rather than in noise-machine because the send itself runs
+    // through this repo's sendEmail(), and the recipient data comes from this
+    // repo's disco_restaurant_admin_list_cache — putting the log beside the
+    // sender keeps the claim and the send in one database round-trip, with no
+    // cross-repo coupling to get out of step.
+    `CREATE TABLE IF NOT EXISTS marketing_send_log (
+      campaign TEXT NOT NULL,
+      email TEXT NOT NULL,
+      restaurant_name TEXT,
+      greeting_name TEXT,
+      message_id TEXT,
+      outcome TEXT NOT NULL DEFAULT 'claimed',
+      error TEXT,
+      claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      sent_at TIMESTAMPTZ,
+      PRIMARY KEY (campaign, email)
+    )`,
+    // Kill flag, read between EVERY send rather than once at start-up — the
+    // point is to stop a campaign that is already running without killing the
+    // process (which would lose the pacing state and make the resume ambiguous).
+    // One row per campaign; halted_at NULL means running.
+    `CREATE TABLE IF NOT EXISTS marketing_campaign_control (
+      campaign TEXT PRIMARY KEY,
+      halted_at TIMESTAMPTZ,
+      halted_by TEXT,
+      note TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
     // Read-only mirror of FM's platform-wide customer list, kept current by a
     // daily cron (lib/fm-customer-sync.ts) so /api/export/customers stops
     // paging FM's live list (16,846 records, ~32s) on every call. These people
