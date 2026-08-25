@@ -16,6 +16,7 @@ import { createHmac } from 'crypto'
 import { sql } from './db'
 import { sanitizePhone } from './utils/phone'
 import { alertOps } from './ops-alert'
+import { fulfillmentDateTime } from './order/fulfillment-time'
 
 export const BASE_URL = 'https://api.dlivrd.app/batch/deliveries'
 
@@ -63,7 +64,12 @@ export interface DiscoOrder {
   reference: string
   fm_order_reference: string | null
   order_date: string // 'YYYY-MM-DD'
-  order_time: string // 'HH:MM[:SS]'
+  order_time: string // 'HH:MM[:SS]' — the customer's requested DROP-OFF time
+  // Needed so the pickup time comes from the shared ready-by authority rather
+  // than being assumed. dispatchExpediteForOrder only ever claims
+  // THIRD_PARTY_DELIVERY rows, but passing the real value keeps this honest if
+  // buildDeliveryPayload is ever reached another way.
+  delivery_type: string | null
   customer_first_name: string | null
   customer_last_name: string | null
   customer_phone: string | null
@@ -176,8 +182,20 @@ export function buildDeliveryPayload(order: DiscoOrder, restaurantCache: Restaur
   // Use the restaurant's actual configured IANA timezone; fall back to Eastern only
   // when it isn't set (legacy rows not yet refreshed).
   const tz = (restaurantCache.timezone && String(restaurantCache.timezone).trim()) || DEFAULT_TZ
-  const pickupIso = wallTimeToUtcIso(order.order_date, order.order_time, tz)
-  const dropoffIso = new Date(new Date(pickupIso).getTime() + 30 * 60 * 1000).toISOString()
+  // order_time is the customer's requested DROP-OFF time. It used to be fed in
+  // as the PICKUP time and drop-off derived as pickup + 30, which booked the
+  // courier 30 minutes late at both ends (order 900000093: collect 12:45,
+  // deliver 1:15, for a 12:45 request). Drop-off is now the requested time
+  // itself, and pickup is the shared ready-by value — the same number the
+  // restaurant sees in its "Ready By" block, so the kitchen deadline and the
+  // courier's collection time cannot drift apart again.
+  //
+  // wallTimeToUtcIso is untouched: it derives the real UTC offset from the
+  // restaurant's IANA zone and the payload still carries timezone_identifier.
+  // The defect was offset semantics, not timezone handling.
+  const readyBy = fulfillmentDateTime(order.delivery_type, order.order_date, order.order_time)
+  const pickupIso = wallTimeToUtcIso(readyBy?.date ?? order.order_date, readyBy?.time ?? order.order_time, tz)
+  const dropoffIso = wallTimeToUtcIso(order.order_date, order.order_time, tz)
 
   const taskItems = (items || []).map(it => ({
     name: it.name || 'Item',
@@ -423,7 +441,7 @@ export async function buildPayloadFromNeon(orderRef: string): Promise<ExpediteOr
   try {
     const orderRows = (await sql`
       SELECT reference, fm_order_reference, restaurant_reference,
-             to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
+             to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, delivery_type,
              customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
              delivery_lat, delivery_lng, subtotal, tips, id

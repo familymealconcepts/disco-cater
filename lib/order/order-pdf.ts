@@ -56,12 +56,15 @@ export interface OrderPdfData {
   // KITCHEN-READINESS deadline, not a fulfillment/arrival time — when the food
   // must be ready so a driver can get it there by orderTime. Same as
   // orderDate/orderTime for pickup (the customer is their own driver, ready AT
-  // order time) and for third-party delivery (no fixed offset — the real
-  // readiness moment is the courier's own ETA, which Disco doesn't yet capture
-  // reliably enough to show here; see fulfillment-time.ts). Only self-delivery
-  // (OWN_DELIVERY) actually offsets this, by minus 30 minutes (FM's own
-  // convention). This is what the "{SERVICE} TIME" box shows — never
-  // ORDER DETAILS, which always shows the raw orderDate/orderTime above.
+  // order time). Offset by minus 30 minutes for BOTH self-delivery
+  // (OWN_DELIVERY — FM's own convention) and third-party delivery (a default
+  // standing in for a real courier pickup time we don't yet receive back from
+  // Expedite). Third-party previously showed no offset at all, which is why a
+  // 3P order's Ready By read identically to its requested time. The same value
+  // is now what the Expedite payload sends as the courier pickup time — see
+  // lib/order/fulfillment-time.ts, the single authority. This is what the
+  // "READY BY" box shows — never ORDER DETAILS, which always shows the raw
+  // orderDate/orderTime above.
   readinessDate: string
   readinessTime: string
   orderReceived: string
@@ -168,8 +171,7 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     ...(() => {
       const rawOrderDate = toIsoDate(o.order_date)
       const rawOrderTime = String(o.order_time ?? '')
-      const courierDropOffTime = o.order_drop_off_time ? String(o.order_drop_off_time) : null
-      const ft = fulfillmentDateTime(o.delivery_type as string | null, rawOrderDate, rawOrderTime, courierDropOffTime)
+      const ft = fulfillmentDateTime(o.delivery_type as string | null, rawOrderDate, rawOrderTime)
       return { readinessDate: fmtDate(ft?.date ?? rawOrderDate), readinessTime: fmtTime(ft?.time ?? rawOrderTime) }
     })(),
     // "Received on …" in the restaurant's local timezone (was UTC, which read

@@ -842,13 +842,12 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                 nobody's picking anything up; matches lib/order/order-pdf.ts). */}
             <SectionHeader>Ready By</SectionHeader>
             {(() => {
-              // Self-delivery: order time minus 30 (FM's OWN_DELIVERY
-              // convention). Third-party: the courier's own drop-off time
-              // once dispatched (order.orderDropOffTime — a bare time-of-day,
-              // no writer populates it in production yet, so this currently
-              // always falls through). Pickup: no offset, order time IS ready
-              // time. Shared computation with the PDF generator.
-              const ft = fulfillmentDateTime(order.deliveryType, order.orderDate, order.orderTime, order.orderDropOffTime)
+              // Self-delivery AND third-party: order time minus 30. Pickup: no
+              // offset — order time IS ready time. Shared computation with the
+              // PDF generator and, now, the Expedite pickup time, so the
+              // kitchen deadline shown here is the same value the courier is
+              // told to collect at. See lib/order/fulfillment-time.ts.
+              const ft = fulfillmentDateTime(order.deliveryType, order.orderDate, order.orderTime)
               return (
                 <>
                   <DetailRow label="Date" value={fmtDate(ft?.date ?? order.orderDate)} />
