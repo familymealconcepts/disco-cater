@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, use } from 'react'
+import { fulfillmentLabel } from '../../../../../../lib/order/fulfillment-label'
 import { useRouter } from 'next/navigation'
 
 const F = "'DM Sans', sans-serif"
@@ -51,11 +52,7 @@ const STATUS_LABEL: Record<string, string> = {
   RESERVED: 'Reserved', VOID: 'Voided', PAID: 'Paid', UNPAID: 'Unpaid',
 }
 
-const DELIVERY_LABEL: Record<string, string> = {
-  OWN_DELIVERY: 'Self-Delivery', NASH_DELIVERY: 'Third-Party Delivery',
-  DOOR_DASH_DELIVERY: 'DoorDash', DLIVRD_DELIVERY: 'Expedite',
-  PICK_UP: 'Pickup',
-}
+// Fulfillment labels: lib/order/fulfillment-label.ts (one definition, shared).
 
 export default function CustomerDetailPage({ params }: { params: Promise<{ customerRef: string }> }) {
   const { customerRef } = use(params)
@@ -142,7 +139,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ custo
                     <td style={{ ...cell, fontWeight: 600 }}>#{order.orderNumber}</td>
                     <td style={cell}>{fmtDate(order.orderDate)}</td>
                     <td style={cell}>{fmtTime(order.orderTime)}</td>
-                    <td style={cell}>{DELIVERY_LABEL[order.deliveryType] || order.orderType || '—'}</td>
+                    <td style={cell}>{fulfillmentLabel(order.deliveryType, order.orderType)}</td>
                     <td style={{ ...cell, textAlign: 'right', fontWeight: 600 }}>{fmtCurrency(order.transactionsTotal)}</td>
                     <td style={cell}>
                       <span style={{

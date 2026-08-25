@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import { fulfillmentLabel } from '../../../../../lib/order/fulfillment-label'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 
@@ -386,7 +387,7 @@ function OrderDetailsPanel({ order, isSuperAdmin, onClose, onTransferred }: { or
           {detailRow('Customer', `${order.firstName || ''} ${order.lastName || ''}`.trim() || '—')}
           {order.email && detailRow('Email', order.email)}
           {detailRow('Order date', `${fmtDate(order.orderDate)} ${fmtTime(order.orderTime)}`)}
-          {detailRow('Type', order.orderType || '—')}
+          {detailRow('Type', fulfillmentLabel(order.deliveryType, order.orderType))}
           {detailRow('Status', order.orderStatus || '—')}
           {detailRow('Total', fmtCurrency(order.total ?? order.transactionsTotal ?? 0))}
         </div>

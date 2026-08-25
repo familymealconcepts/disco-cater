@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import { fulfillmentLabel } from '../../../../../lib/order/fulfillment-label'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import GenerateReportButton from '../_components/GenerateReportButton'
 import {
@@ -224,10 +225,8 @@ function isPastPickup(order: Order): boolean {
 
 // FM's fm-types pipe maps both NASH_DELIVERY and DLIVRD_DELIVERY to
 // "Third-Party Delivery" — it never surfaces the provider name (Nash/Dlivrd).
-const DELIVERY_LABEL: Record<string, string> = {
-  OWN_DELIVERY: 'Self-Delivery', NASH_DELIVERY: 'Third-Party Delivery',
-  DOOR_DASH_DELIVERY: 'DoorDash Delivery', DLIVRD_DELIVERY: 'Third-Party Delivery',
-}
+// Fulfillment labels come from lib/order/fulfillment-label.ts — see that file for
+// why the local DELIVERY_LABEL map that used to live here was removed.
 
 function fmt(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
@@ -1682,15 +1681,28 @@ function OrdersContent() {
                       <td style={{ padding: '12px 14px' }}>
                         <SourcePill source={order.sourceoforder || ''} />
                       </td>
+                      {/* ORDER TIME is the operational number — when the food is
+                          needed — so it carries the visual weight: 16px/700 against
+                          the table's 13px/600 body, which makes it the largest text
+                          in the row. timeColor is UNCHANGED and load-bearing:
+                          statusColor() returns #77AE70 when the order is due within
+                          the hour and #E76F51 once its time has passed, so this cell
+                          doubles as the urgency signal. Do not fold it into a plain
+                          color, and do not let a font change here override it. */}
                       <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: timeColor || DARK }}>{fmtTime(order.orderTime)}</div>
-                        <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>{fmtDate(order.orderDate)}</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: timeColor || DARK, letterSpacing: '-0.01em', lineHeight: 1.25 }}>{fmtTime(order.orderTime)}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: timeColor || '#666', marginTop: 1 }}>{fmtDate(order.orderDate)}</div>
                       </td>
-                      <td style={{ padding: '12px 14px', fontSize: 12, color: '#666', whiteSpace: 'nowrap' }}>
+                      {/* CREATED is reference information, demoted to the muted
+                          treatment the portal already uses for secondary metadata
+                          (11px/#aaa — the same as the order-number sub-line in the
+                          first column), so the two date columns can no longer be
+                          confused for each other at a glance. */}
+                      <td style={{ padding: '12px 14px', fontSize: 11, color: '#aaa', whiteSpace: 'nowrap' }}>
                         {fmtCreatedAt(order.orderCreatedDate, order.restaurantTimezone || undefined) || '—'}
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: 13, color: '#666' }}>
-                        {DELIVERY_LABEL[order.deliveryType] || order.orderType || '—'}
+                        {fulfillmentLabel(order.deliveryType, order.orderType)}
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: 12, color: '#888' }}>
                         {order.nashDeliveryStatus || '—'}
