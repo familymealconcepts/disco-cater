@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { fulfillmentLabel } from '../../../../lib/order/fulfillment-label'
 import { sql, runMigrations } from '../../../../lib/db'
 import {
   sendCustomerOrderReminder, sendRestaurantOrderReminder, type OrderMealPackage,
@@ -55,7 +56,7 @@ const splitCsv = (v: string | null | undefined): string[] =>
 
 // Shape returned by both reminder selection queries.
 interface ReminderRow {
-  id: number; reference: string; order_number: string | number; order_type: string
+  id: number; reference: string; order_number: string | number; order_type: string; delivery_type: string | null
   order_date: string; order_time: string
   customer_email: string | null; customer_first_name: string | null
   customer_last_name: string | null; customer_phone: string | null
@@ -134,7 +135,7 @@ export async function GET(req: NextRequest) {
     // Orders whose pickup instant is 23.5h–24.5h from now (restaurant tz), placed
     // ≥24h before pickup, status DUE, ALL order types, reminder toggle ON.
     const custOrders = (await sql`
-      SELECT o.id, o.reference, o.order_number, o.order_type,
+      SELECT o.id, o.reference, o.order_number, o.order_type, o.delivery_type,
              to_char(o.order_date,'YYYY-MM-DD') AS order_date, o.order_time::text AS order_time,
              o.customer_email, o.customer_first_name, o.customer_last_name, o.customer_phone,
              o.delivery_address_line1, o.delivery_address_line2, o.delivery_city, o.delivery_state, o.delivery_zip,
@@ -171,7 +172,8 @@ export async function GET(req: NextRequest) {
         to: o.customer_email as string,
         firstName: o.customer_first_name || undefined,
         lastName: o.customer_last_name || undefined,
-        orderService: String(o.order_type || ''),
+        orderService: fulfillmentLabel(o.delivery_type, o.order_type),
+        orderType: String(o.order_type || ''),
         orderDate: fmtDate(o.order_date),
         orderTime: formatTimeWindow(o.order_time, o.delivery_time_window, String(o.order_type || '').toUpperCase() === 'DELIVERY'),
         orderReceived: '',
@@ -193,7 +195,7 @@ export async function GET(req: NextRequest) {
     // Same 24h window + placement skip; gated on admin_order_reminder_emails_enabled
     // and admin_reminder_sent; ALL order types; sent to the restaurant email list.
     const adminOrders = (await sql`
-      SELECT o.id, o.reference, o.order_number, o.order_type,
+      SELECT o.id, o.reference, o.order_number, o.order_type, o.delivery_type,
              to_char(o.order_date,'YYYY-MM-DD') AS order_date, o.order_time::text AS order_time,
              o.customer_email, o.customer_first_name, o.customer_last_name, o.customer_phone,
              o.delivery_address_line1, o.delivery_address_line2, o.delivery_city, o.delivery_state, o.delivery_zip,
@@ -238,7 +240,8 @@ export async function GET(req: NextRequest) {
           userEmail: o.customer_email || undefined,
           userPhoneNumber: o.customer_phone || undefined,
           dinerAddress: addr || undefined,
-          orderService: String(o.order_type || ''),
+          orderService: fulfillmentLabel(o.delivery_type, o.order_type),
+        orderType: String(o.order_type || ''),
           orderDate: fmtDate(o.order_date),
           orderTime: formatTimeWindow(o.order_time, o.delivery_time_window, String(o.order_type || '').toUpperCase() === 'DELIVERY'),
           orderReceived: '',

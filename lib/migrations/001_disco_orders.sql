@@ -649,3 +649,51 @@ ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS fm_order_number_raw BIGINT;
 -- here falls back to the old "primary menu" guess, explicitly, rather than
 -- silently.
 ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS menu_reference UUID;
+
+-- Expedite's OWN delivery id, e.g. 'D6EP4-CEJA3' — deliberately a SEPARATE
+-- column from expedite_delivery_id, which is NOT theirs: that one holds the
+-- external_delivery_id WE send (fm_order_reference || reference) and is the
+-- lookup key the webhook matches on (WHERE expedite_delivery_id = $payload
+-- external_delivery_id). Repurposing it for Expedite's id would break that
+-- lookup, which is a worse failure than the one being fixed. Nullable: we only
+-- learn their id if the create response carries it, which is exactly what
+-- disco_expedite_deliveries (below) exists to establish.
+ALTER TABLE disco_orders ADD COLUMN IF NOT EXISTS expedite_provider_delivery_id TEXT;
+
+-- Full request/response capture for every Expedite dispatch attempt.
+--
+-- WHY A TABLE AND NOT COLUMNS. createDelivery previously parsed the response for
+-- delivery_fee and threw the rest away, and a SUCCESSFUL body was never logged
+-- (only failures logged body.slice(0,300)). The consequence was concrete: for
+-- order 900000093 there was a real Expedite booking (their dashboard shows
+-- D6EP4-CEJA3, status Unassigned) while expedite_status and
+-- expedite_delivery_fee were both NULL, and it was impossible to say what we had
+-- sent or what came back. Storing the outbound payload matters as much as the
+-- response — without it there is no way to answer "what did we ask for".
+--
+-- request_payload/response_body are stored verbatim rather than parsed into
+-- columns because the whole point is that we do not yet know the response shape:
+-- BASE_URL is https://api.dlivrd.app/batch/deliveries, a BATCH endpoint we POST
+-- a single order to, and a batch endpoint plausibly returns an acknowledgement
+-- rather than a delivery object. Capture first, model later.
+--
+-- One row per attempt, not per order: a failed dispatch resets the claim so a
+-- retry can re-dispatch, and losing the failed attempt would hide exactly the
+-- case worth reading.
+CREATE TABLE IF NOT EXISTS disco_expedite_deliveries (
+  id                    SERIAL PRIMARY KEY,
+  order_reference       UUID NOT NULL,
+  order_id              INTEGER,
+  event                 TEXT NOT NULL,
+  external_delivery_id  TEXT,
+  provider_delivery_id  TEXT,
+  http_status           INTEGER,
+  ok                    BOOLEAN NOT NULL DEFAULT false,
+  request_payload       JSONB,
+  response_body         TEXT,
+  response_json         JSONB,
+  parsed_status         TEXT,
+  parsed_fee            NUMERIC(10,2),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS disco_expedite_deliveries_order_idx ON disco_expedite_deliveries (order_reference, created_at DESC);

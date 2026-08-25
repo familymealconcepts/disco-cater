@@ -78,10 +78,7 @@ interface ListOrder {
   orderType?: string
   deliveryType?: string
   sourceoforder?: string
-  nashDeliveryStatus?: string
-  nashDeliveryPickupEta?: string
-  nashDeliveryDropoffEta?: string
-  nashDeliveryPublicTrackingUrl?: string
+  deliveryStatus?: string
   // Recurring-order indicators (any truthy → recurring; key varies by FM deploy).
   orderSubscription?: unknown
   isRecurring?: boolean

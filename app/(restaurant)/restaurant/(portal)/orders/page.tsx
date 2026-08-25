@@ -63,10 +63,9 @@ interface Order {
   orderStatus: string
   orderSeenByAdmin: boolean
   orderStatusesToChange: string[]
-  nashDeliveryStatus?: string
-  nashDeliveryPickupEta?: string
-  nashDeliveryDropoffEta?: string
-  nashDeliveryPublicTrackingUrl?: string
+  // Resolved server-side (see /api/restaurant/orders). Replaces the phantom
+  // nashDeliveryStatus/nashDeliveryPickupEta pair, which nothing ever set.
+  deliveryStatus?: string
   maxAllowedRefundAmount?: number
   note?: string
   // FM wire attribution: "DISCO" (3P, marketplace, lead-gen fee) or
@@ -865,16 +864,6 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               <DetailRow label="Instructions" value={order.deliveryAddress.deliveryInstructions} />
             )}
             {/* Live courier tracking — present once the 3rd-party delivery dispatches. */}
-            {order.nashDeliveryPublicTrackingUrl && (
-              <a
-                href={order.nashDeliveryPublicTrackingUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: '#5B6FE8', textDecoration: 'none', margin: '8px 0 4px' }}
-              >
-                🚗 Track your delivery →
-              </a>
-            )}
 
             {/* Line items */}
             {((order.orderMealPackages?.length || 0) + (order.orderClassics?.length || 0)) > 0 && (
@@ -1705,8 +1694,7 @@ function OrdersContent() {
                         {fulfillmentLabel(order.deliveryType, order.orderType)}
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: 12, color: '#888' }}>
-                        {order.nashDeliveryStatus || '—'}
-                        {order.nashDeliveryPickupEta && <div style={{ fontSize: 11 }}>Pickup: {order.nashDeliveryPickupEta}</div>}
+                        {order.deliveryStatus || '—'}
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 600, color: DARK }}>
                         {/* Net of any refund (RULE 3) — the refund detail shows below. */}

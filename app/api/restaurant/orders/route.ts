@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { deliveryStatusLabel } from '../../../../lib/order/fulfillment-label'
 import { getRestaurantRole, getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { getLocationAccessRefs } from '../../../../lib/disco-restaurant-auth'
@@ -36,6 +37,8 @@ interface OrderRow {
   order_status: string
   order_type: string
   delivery_type: string | null
+  expedite_status: string | null
+  expedite_delivery_id: string | null
   source_of_order: string
   restaurant_name: string | null
   customer_first_name: string | null
@@ -89,6 +92,16 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     restaurantTimezone: r.timezone || 'America/New_York',
     orderType: r.order_type,
     deliveryType: r.delivery_type || '',
+    // What the portal's "Delivery Status" column shows. Resolved server-side by
+    // the shared helper so the two courier populations are distinguished once,
+    // rather than every client re-deriving it: Disco-dispatched orders get their
+    // real Expedite status, FM-booked ones say so explicitly, and pickup /
+    // self-delivery get a dash because no courier exists.
+    //
+    // REPLACES `nashDeliveryStatus`, which was read by the orders table and set
+    // by NOTHING — no such column on disco_orders, no route ever returned it —
+    // so that column rendered a dash for all 24,326 orders since it was built.
+    deliveryStatus: deliveryStatusLabel(r.delivery_type, r.expedite_status, r.expedite_delivery_id),
     transactionsTotal: total,
     total,
     subtotal: r.subtotal != null ? num(r.subtotal) : undefined,
@@ -277,6 +290,7 @@ export async function GET(req: NextRequest) {
     // (NULLIF so a stored 0 also falls through, not just NULL).
     const rows = (await sql.query(
       `SELECT disco_orders.reference, fm_order_reference, order_number, order_status, order_type, delivery_type,
+              expedite_status, expedite_delivery_id,
               source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name,
               to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
               to_char(${byCreated ? "(COALESCE(placed_at, created_at) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))" : 'order_date'}, 'YYYY-MM-DD') AS bucket_date,

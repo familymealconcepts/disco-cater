@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import { isThirdPartyFulfillment } from '../../../../../lib/order/fulfillment-label'
 import { fulfillmentLabel } from '../../../../../lib/order/fulfillment-label'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
@@ -35,8 +36,6 @@ interface Order {
   firstName?: string
   lastName?: string
   email?: string
-  nashDeliveryPickupEta?: string
-  nashDeliveryDropoffEta?: string
   orderNumber?: number
   // FM wire attribution: "DISCO" (3P, marketplace, lead-gen fee) or
   // "FAMILYMEAL" (1P, restaurant's own direct link). Rendered as a "3P"/"1P"
@@ -53,8 +52,10 @@ interface Order {
   // origin orders, which have no equivalent field on FM's side at all today.
   isDirectEntry?: boolean
   // Third-party-delivery signals. FM doesn't always type these on the list
-  // shape, so they're optional; we also fall back to the Nash courier ETAs
-  // (nashDelivery*Eta) which only exist on third-party (dispatched) deliveries.
+  // shape, so they're optional. The Nash courier-ETA fallback that used to be
+  // described here was removed: no server route has ever emitted those fields,
+  // so it was an arm that could not fire. isThirdPartyFulfillment() reads
+  // deliveryType, which is the real discriminator.
   deliveryType?: string
   thirdPartyDelivery?: boolean
   // Tax-exempt flag. FM's checkout-preview model uses `taxExempt`; the admin
@@ -249,9 +250,13 @@ function typeBadgeLabels(o: Order): string[] {
   const labels: string[] = []
   const t = (o.orderType || '').toUpperCase()
   if (t === 'DELIVERY') {
-    const thirdParty = o.thirdPartyDelivery === true
-      || (o.deliveryType || '').toUpperCase().includes('THIRD')
-      || !!(o.nashDeliveryPickupEta || o.nashDeliveryDropoffEta)
+    // Third-party detection via the shared module. The previous version had
+    // three arms, two of them broken: a substring test for 'THIRD' that missed
+    // DLIVRD_DELIVERY, NASH_DELIVERY and DOOR_DASH_DELIVERY entirely, and a
+    // nashDelivery*Eta check that could never fire because no server route has
+    // ever emitted those fields. thirdPartyDelivery is kept as an explicit
+    // override when a caller sets it.
+    const thirdParty = o.thirdPartyDelivery === true || isThirdPartyFulfillment(o.deliveryType)
     labels.push(thirdParty ? '3D' : 'D')
   } else if (t === 'PICKUP') {
     labels.push('P')

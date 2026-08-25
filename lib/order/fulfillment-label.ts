@@ -47,7 +47,12 @@
  * produced the bare "DELIVERY" in the first place.
  */
 
-export type FulfillmentLabel = 'PICKUP' | 'SELF-DELIVERY' | 'THIRD-PARTY DELIVERY'
+// TITLE CASE, not caps. These strings land in an email subject ("Your
+// Third-Party Delivery Order will be ready on:"), in PDF body copy, in an SMS
+// sentence, and in table cells — so caps would shout in most of the places they
+// appear. The PDF's own pre-existing fallback was already 'Pickup', so title
+// case is the house style here rather than a new convention.
+export type FulfillmentLabel = 'Pickup' | 'Self-Delivery' | 'Third-Party Delivery'
 
 // Every third-party courier value seen in production, plus the provider names
 // most likely to arrive next (Shipday is already mirrored in
@@ -68,13 +73,13 @@ export function fulfillmentLabel(
   const dt = String(deliveryType ?? '').trim().toUpperCase()
   const ot = String(orderType ?? '').trim().toUpperCase()
 
-  if (dt === 'PICKUP') return 'PICKUP'
-  if (dt === 'OWN_DELIVERY' || dt === 'SELF_DELIVERY') return 'SELF-DELIVERY'
-  if (dt && THIRD_PARTY_RE.test(dt)) return 'THIRD-PARTY DELIVERY'
+  if (dt === 'PICKUP') return 'Pickup'
+  if (dt === 'OWN_DELIVERY' || dt === 'SELF_DELIVERY') return 'Self-Delivery'
+  if (dt && THIRD_PARTY_RE.test(dt)) return 'Third-Party Delivery'
 
   // No usable delivery_type: fall back to order_type. This is the path all
   // 19,634 historical rows take, and every one of them is a PICKUP.
-  if (ot === 'PICKUP') return 'PICKUP'
+  if (ot === 'PICKUP') return 'Pickup'
 
   // A delivery with no recorded delivery_type. UNREACHABLE in production today
   // (zero such rows) — this exists so a future row cannot render blank. Defaults
@@ -84,5 +89,86 @@ export function fulfillmentLabel(
   // restaurant ran itself. If this branch ever starts matching real rows, that
   // is a signal delivery_type stopped being written, not that the default is
   // wrong.
-  return 'SELF-DELIVERY'
+  return 'Self-Delivery'
+}
+
+/**
+ * Is this order fulfilled by a third-party courier network?
+ *
+ * A PREDICATE, NOT A LABEL, and the distinction is the point. Restaurant email
+ * templates branch on this to decide whether to render courier-specific copy,
+ * and they previously hand-maintained their own list:
+ *
+ *     const isThirdPartyDelivery =
+ *       p.deliveryType === 'NASH_DELIVERY' || p.deliveryType === 'DLIVRD_DELIVERY'
+ *       || p.deliveryType === 'THIRD_PARTY'
+ *
+ * which omits BOTH real values it most needed — 'THIRD_PARTY_DELIVERY' (the
+ * value Disco's own native dispatch writes, and the only one where we booked the
+ * courier) and 'DOOR_DASH_DELIVERY' — while including 'THIRD_PARTY', which no
+ * row has ever held. Exactly the defect the Service column had, in a second
+ * file, found while fixing the first.
+ */
+export function isThirdPartyFulfillment(deliveryType: string | null | undefined): boolean {
+  const dt = String(deliveryType ?? '').trim().toUpperCase()
+  return !!dt && THIRD_PARTY_RE.test(dt)
+}
+
+/**
+ * Is food going TO the customer (any delivery flavour) rather than being
+ * collected?
+ *
+ * MUST NOT be derived from the display label, which is why it exists. The
+ * restaurant email computed it as
+ * `String(p.orderService).toUpperCase() === 'DELIVERY' || isThirdPartyDelivery`,
+ * where orderService was the raw order_type enum. Feeding a human label into
+ * that comparison silently breaks it: 'Self-Delivery'.toUpperCase() is not
+ * 'DELIVERY', so every self-delivery order would have stopped rendering its
+ * delivery address. Read the data fields, never the string shown to a person.
+ */
+export function isDeliveryFulfillment(
+  deliveryType: string | null | undefined,
+  orderType?: string | null | undefined,
+): boolean {
+  return fulfillmentLabel(deliveryType, orderType) !== 'Pickup'
+}
+
+/**
+ * What the restaurant portal's "Delivery Status" column should show.
+ *
+ * Two populations, and they are NOT the same "no status" — showing one dash for
+ * both is what made this column look broken rather than empty:
+ *
+ *   NATIVE (delivery_type = THIRD_PARTY_DELIVERY, 3 orders) — Disco dispatched
+ *     the courier through Expedite, so a status is ours to know. Real status if
+ *     we have one; otherwise it says the dispatch happened but no update has
+ *     come back, which is true and actionable.
+ *
+ *   FM-BOOKED (DLIVRD / NASH / DOOR_DASH, 1,969 orders) — FamilyMeal booked the
+ *     courier. Disco has no relationship with that delivery, never dispatched
+ *     it, and will never receive a status for it. "Booked by FamilyMeal" says
+ *     that plainly instead of implying we are waiting on something.
+ *
+ * Self-delivery and pickup get a dash because no courier exists — there is
+ * genuinely nothing to report, which is different again from both cases above.
+ */
+export function deliveryStatusLabel(
+  deliveryType: string | null | undefined,
+  expediteStatus: string | null | undefined,
+  expediteDeliveryId: string | null | undefined,
+): string {
+  const dt = String(deliveryType ?? '').trim().toUpperCase()
+  if (!isThirdPartyFulfillment(dt)) return '—'
+
+  // Native dispatch is the only third-party value Disco itself books.
+  const isNativeDispatch = dt === 'THIRD_PARTY_DELIVERY' || dt === 'THIRDPARTY_DELIVERY'
+  if (!isNativeDispatch) return 'Booked by FamilyMeal'
+
+  const status = String(expediteStatus ?? '').trim()
+  if (status) return status
+  const id = String(expediteDeliveryId ?? '').trim()
+  // 'PENDING' is dispatchExpediteForOrder's in-flight claim, not a courier state.
+  if (id === 'PENDING') return 'Dispatching…'
+  if (id) return 'Awaiting courier update'
+  return '—'
 }

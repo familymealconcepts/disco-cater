@@ -286,26 +286,104 @@ async function post(event: string, payload: object): Promise<{ ok: boolean; stat
   return { ok: res.ok, status: res.status, body }
 }
 
-export async function createDelivery(payload: ExpediteOrder): Promise<{ success: boolean; delivery_fee?: number; error?: string }> {
+// Every field a caller might want out of a dispatch attempt, INCLUDING the raw
+// body. The old signature returned only { success, delivery_fee }, which is why
+// order 900000093 has a real Expedite booking (D6EP4-CEJA3) and NULL status and
+// fee on our side — the response was parsed for one number and discarded.
+export interface ExpediteCreateResult {
+  success: boolean
+  error?: string
+  httpStatus?: number
+  /** Verbatim response body — stored, because we do not yet know its shape. */
+  body?: string
+  /** Parsed body when it is JSON at all. */
+  json?: Record<string, unknown>
+  /** Expedite's own delivery id if the response carries one under any known key. */
+  providerDeliveryId?: string
+  /** A courier status if the response carries one. */
+  status?: string
+  delivery_fee?: number
+}
+
+// Keys checked for Expedite's own delivery id and status. A batch endpoint may
+// nest per-item results, so the top level AND the first element of a plausible
+// array wrapper are both probed. Deliberately broad: the cost of an extra key is
+// nothing, and the cost of missing the one they actually use is another release
+// of NULL columns.
+function pick(o: Record<string, unknown> | undefined, keys: string[]): string | undefined {
+  if (!o) return undefined
+  for (const k of keys) {
+    const v = o[k]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+    if (typeof v === 'number') return String(v)
+  }
+  return undefined
+}
+const ID_KEYS = ['delivery_id', 'deliveryId', 'id', 'reference', 'order_id', 'orderId', 'order_number', 'orderNumber', 'tracking_id', 'external_id']
+const STATUS_KEYS = ['status', 'delivery_status', 'deliveryStatus', 'state']
+
+export async function createDelivery(payload: ExpediteOrder): Promise<ExpediteCreateResult> {
   if (!configured()) { console.log('[expedite] not configured — skipping createDelivery'); return { success: false, error: 'not configured' } }
   try {
     const { ok, status, body } = await post('delivery_created', payload)
+    let json: Record<string, unknown> | undefined
+    try { json = body ? JSON.parse(body) as Record<string, unknown> : undefined } catch { /* non-JSON is fine and is itself worth recording */ }
+
     if (!ok) {
       console.error(`[expedite] createDelivery failed ${status}: ${body.slice(0, 300)}`)
-      return { success: false, error: `expedite ${status}` }
+      return { success: false, error: `expedite ${status}`, httpStatus: status, body, json }
     }
+
+    // A batch endpoint may wrap per-item results; probe the first element of any
+    // array-ish container as well as the top level.
+    const containers: (Record<string, unknown> | undefined)[] = [json]
+    for (const key of ['deliveries', 'data', 'results', 'items', 'orders']) {
+      const v = json?.[key]
+      if (Array.isArray(v) && v.length && typeof v[0] === 'object') containers.push(v[0] as Record<string, unknown>)
+      else if (v && typeof v === 'object') containers.push(v as Record<string, unknown>)
+    }
+    let providerDeliveryId: string | undefined
+    let courierStatus: string | undefined
     let delivery_fee: number | undefined
-    try {
-      const data = body ? JSON.parse(body) : {}
-      const fee = data?.delivery_fee ?? data?.deliveryFee ?? data?.fee
-      if (fee != null) delivery_fee = num(fee)
-    } catch { /* non-JSON ok */ }
-    console.log(`[expedite] createDelivery ok for ${payload.external_delivery_id} (fee=${delivery_fee ?? 'n/a'})`)
-    return { success: true, delivery_fee }
+    for (const c of containers) {
+      providerDeliveryId ??= pick(c, ID_KEYS)
+      courierStatus ??= pick(c, STATUS_KEYS)
+      if (delivery_fee == null) {
+        const fee = c?.delivery_fee ?? c?.deliveryFee ?? c?.fee
+        if (fee != null) delivery_fee = num(fee)
+      }
+    }
+    // Never mistake OUR OWN reference echoed back for Expedite's id.
+    if (providerDeliveryId && providerDeliveryId === payload.external_delivery_id) providerDeliveryId = undefined
+
+    console.log(`[expedite] createDelivery ok for ${payload.external_delivery_id} (status=${courierStatus ?? 'n/a'} providerId=${providerDeliveryId ?? 'n/a'} fee=${delivery_fee ?? 'n/a'}) body=${body.slice(0, 400)}`)
+    return { success: true, httpStatus: status, body, json, providerDeliveryId, status: courierStatus, delivery_fee }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     console.error('[expedite] createDelivery error:', error)
     return { success: false, error }
+  }
+}
+
+// Persist one dispatch attempt. Best-effort: a bookkeeping failure must never
+// undo a courier that has actually been booked.
+async function recordExpediteAttempt(row: {
+  orderReference: string; orderId: number; event: string; externalDeliveryId: string
+  result: ExpediteCreateResult; requestPayload: ExpediteOrder
+}): Promise<void> {
+  try {
+    await sql`
+      INSERT INTO disco_expedite_deliveries
+        (order_reference, order_id, event, external_delivery_id, provider_delivery_id,
+         http_status, ok, request_payload, response_body, response_json, parsed_status, parsed_fee)
+      VALUES (${row.orderReference}::uuid, ${row.orderId}, ${row.event}, ${row.externalDeliveryId},
+              ${row.result.providerDeliveryId ?? null}, ${row.result.httpStatus ?? null}, ${row.result.success},
+              ${JSON.stringify(row.requestPayload)}::jsonb, ${row.result.body ?? null},
+              ${row.result.json ? JSON.stringify(row.result.json) : null}::jsonb,
+              ${row.result.status ?? null}, ${row.result.delivery_fee ?? null})
+    `
+  } catch (e) {
+    console.error('[expedite] could not record dispatch attempt:', e instanceof Error ? e.message : e)
   }
 }
 
@@ -373,10 +451,16 @@ export async function dispatchExpediteForOrder(orderId: number): Promise<void> {
       return
     }
     const result = await createDelivery(payload)
+    // Recorded for BOTH outcomes, before the branch — a failed attempt is the one
+    // most worth being able to read afterwards.
+    await recordExpediteAttempt({ orderReference: reference, orderId, event: 'delivery_created',
+      externalDeliveryId: payload.external_delivery_id, result, requestPayload: payload })
     if (result.success) {
       await sql`
         UPDATE disco_orders
         SET expedite_delivery_id = ${payload.external_delivery_id},
+            expedite_provider_delivery_id = ${result.providerDeliveryId ?? null},
+            expedite_status = COALESCE(${result.status ?? null}, expedite_status),
             expedite_delivery_fee = ${result.delivery_fee ?? null}, updated_at = NOW()
         WHERE id = ${orderId}
       `.catch(e => console.error('[expedite] native row update failed:', e instanceof Error ? e.message : e))

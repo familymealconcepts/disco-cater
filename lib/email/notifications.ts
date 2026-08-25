@@ -13,6 +13,7 @@
 
 import { layout, button } from './layout'
 import { sendEmail, type SendResult } from './send'
+import { isThirdPartyFulfillment, isDeliveryFulfillment } from '../order/fulfillment-label'
 
 // ── small helpers ────────────────────────────────────────────────────────────
 
@@ -42,13 +43,11 @@ function formatPhone(phone?: string): string {
   return phone
 }
 
-// Human-facing service label for email subjects: PICKUP / DELIVERY /
-// "THIRD-PARTY DELIVERY" (FM renders the underscore form with a hyphen + space).
-function orderServiceLabel(service?: string): string {
-  const u = String(service || '').toUpperCase().replace(/[_\s]+/g, '_')
-  if (u === 'THIRD_PARTY_DELIVERY' || u === 'THIRD_PARTY') return 'THIRD-PARTY DELIVERY'
-  return u.replace(/_/g, ' ')
-}
+// orderServiceLabel() was DELETED here — it was a third hand-rolled copy of the
+// fulfillment-label rule, alongside the two DELIVERY_LABEL maps in the portal.
+// `orderService` now arrives already labelled by lib/order/fulfillment-label.ts,
+// so every template interpolates it directly. Do not reintroduce a local
+// formatter: the whole point is that one module decides how this reads.
 
 // ── shared param shapes ──────────────────────────────────────────────────────
 
@@ -74,7 +73,15 @@ interface BaseOrderParams {
   dinerAddress?: string
   dinerAddress2?: string
   dinerDeliveryInstructions?: string
-  orderService: string // 'PICKUP' | 'DELIVERY'
+  // DISPLAY ONLY — already a human label ('Pickup' | 'Self-Delivery' |
+  // 'Third-Party Delivery') from fulfillmentLabel(). Never branch on it; see
+  // orderType below.
+  orderService: string
+  // The RAW order_type enum ('PICKUP' | 'DELIVERY'), carried alongside the label
+  // purely so templates can branch on data instead of on presentation. Optional
+  // because a couple of callers predate it; the predicates degrade to
+  // deliveryType alone, which is the better discriminator anyway.
+  orderType?: string
   orderDate: string
   orderTime: string
   orderReceived: string
@@ -263,7 +270,7 @@ export async function sendCustomerOrderConfirmation(
 ${p.orderEditNotice ? `<p style="font-size:15px;line-height:1.5;margin-bottom:12px;">${escapeHtml(p.orderEditNotice)}</p>` : ''}
 ${p.additionalInvoiceDue != null ? `<p style="margin-bottom:12px;"><strong>Additional amount due (invoice):</strong> ${money(p.additionalInvoiceDue)}</p>` : ''}
 <p style="margin:0;">
-<strong>${escapeHtml(orderServiceLabel(p.orderService))}</strong>: ${p.orderDate ? escapeHtml(p.orderDate) : ''}${p.orderTime ? ` at ${escapeHtml(p.orderTime)}` : ''}
+<strong>${escapeHtml(p.orderService)}</strong>: ${p.orderDate ? escapeHtml(p.orderDate) : ''}${p.orderTime ? ` at ${escapeHtml(p.orderTime)}` : ''}
 ${p.persons != null && p.persons > 0 ? `<br/>Headcount: <strong>${escapeHtml(p.persons)}</strong>` : ''}
 </p>
 ${HR}
@@ -302,9 +309,17 @@ export async function sendRestaurantOrderNotification(
 ): Promise<SendResult> {
   try {
     const p = params
-    const isThirdPartyDelivery =
-      p.deliveryType === 'NASH_DELIVERY' || p.deliveryType === 'DLIVRD_DELIVERY' || p.deliveryType === 'THIRD_PARTY'
-    const isDelivery = String(p.orderService || '').toUpperCase() === 'DELIVERY' || isThirdPartyDelivery
+    // Both predicates come from the shared module now. The hand-maintained
+    // version here was wrong twice over: it omitted 'THIRD_PARTY_DELIVERY' (the
+    // value Disco's own native dispatch writes — the ONLY case where we booked
+    // the courier) and 'DOOR_DASH_DELIVERY', while including 'THIRD_PARTY',
+    // which no row in production has ever held. And isDelivery was derived from
+    // the orderService STRING, which now carries a human label — so left alone
+    // it would have compared 'SELF-DELIVERY' against 'DELIVERY', silently
+    // stopped matching, and dropped the delivery address off every
+    // self-delivery restaurant email.
+    const isThirdPartyDelivery = isThirdPartyFulfillment(p.deliveryType)
+    const isDelivery = isDeliveryFulfillment(p.deliveryType, p.orderType)
     const storePhone = formatPhone(p.businessPhone)
     const customerName = [p.firstName, p.lastName].filter(Boolean).join(' ')
     // Detailed subject (order number/total/date/time/customer name) — the
@@ -326,7 +341,7 @@ export async function sendRestaurantOrderNotification(
     const sourceLabel =
       (p.sourceOfOrder === 'DISCO' ? '3P — Disco Cater Marketplace' : '1P') + (p.isDirectEntry ? ' — Direct Entry' : '')
     let timingHtml = ''
-    if (p.orderService) timingHtml += `Order Type: <strong>${escapeHtml(orderServiceLabel(p.orderService))}</strong> ${isDelivery ? '(D)' : '(P)'}<br/>`
+    if (p.orderService) timingHtml += `Order Type: <strong>${escapeHtml(p.orderService)}</strong> ${isDelivery ? '(D)' : '(P)'}<br/>`
     timingHtml += `Order Source: <strong>${sourceLabel}</strong><br/>`
     if (p.orderDate) timingHtml += `Order Date: <strong>${escapeHtml(p.orderDate)}</strong><br/>`
     if (isThirdPartyDelivery) {
@@ -405,7 +420,7 @@ ${anyQuestions(p)}
       to: p.to,
       // FM format: "REMINDER: Your {PICKUP/DELIVERY/THIRD-PARTY DELIVERY} Order
       // will be ready on: {MM/DD/YYYY} at {H:MM AM/PM} for {First} {Last}".
-      subject: `REMINDER: Your ${orderServiceLabel(p.orderService)} Order will be ready on: ${p.orderDate} at ${p.orderTime} for ${[p.firstName, p.lastName].filter(Boolean).join(' ')}`.trim(),
+      subject: `REMINDER: Your ${p.orderService} Order will be ready on: ${p.orderDate} at ${p.orderTime} for ${[p.firstName, p.lastName].filter(Boolean).join(' ')}`.trim(),
       html: layout(content),
     })
   } catch (err) {
@@ -433,7 +448,7 @@ export async function sendRestaurantOrderReminder(
 ${HR}
 <p style="margin:0;">
 Order ${escapeHtml(p.orderNumber)}<br/>
-${p.orderService ? `Order type: ${escapeHtml(orderServiceLabel(p.orderService))}<br/>` : ''}
+${p.orderService ? `Order type: ${escapeHtml(p.orderService)}<br/>` : ''}
 ${p.orderDate ? `Order date: ${escapeHtml(p.orderDate)}<br/>` : ''}
 ${p.orderTime ? `Order time: ${escapeHtml(p.orderTime)}` : ''}
 </p>

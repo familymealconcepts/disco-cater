@@ -10,6 +10,7 @@
 // disco_order_events guarantees the confirmations fire at most once per order.
 
 import { sql } from './db'
+import { fulfillmentLabel } from './order/fulfillment-label'
 import {
   sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage,
   sendCustomerItemUnavailableRefund, sendRestaurantItemUnavailableAlert,
@@ -367,7 +368,10 @@ export async function dispatchOrderConfirmations(
       userPhoneNumber: o.customer_phone ? String(o.customer_phone) : undefined,
       dinerAddress,
       dinerAddress2,
-      orderService: String(o.order_type ?? ''),
+      // The human label, from the one shared definition. orderType below keeps
+      // the raw enum available so email templates branch on data, not on this.
+      orderService: fulfillmentLabel(o.delivery_type as string | null, o.order_type as string | null),
+      orderType: String(o.order_type ?? ''),
       orderDate: fmtDate(o.order_date),
       // Delivery orders with a non-'exact' window snapshot show a time range;
       // pickup / null / 'exact' → exact time (formatTimeWindow handles the gating).

@@ -5,6 +5,7 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 import { pdfSafe } from '../pdf-text'
+import { fulfillmentLabel } from './fulfillment-label'
 import { sql } from '../db'
 import { fulfillmentDateTime } from './fulfillment-time'
 import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
@@ -166,7 +167,10 @@ export async function loadOrderPdfData(orderRef: string): Promise<OrderPdfData |
     customerEmail: displayEmail(o.customer_email as string | null) || undefined,
     customerPhone: o.customer_phone ? String(o.customer_phone) : undefined,
     companyName: o.company_name ? String(o.company_name) : undefined,
-    orderService: String(o.order_type ?? ''),
+    // Title-case label from the shared module. It renders as a standalone value
+    // under "ORDER DETAILS:" (the time label is the unconditional 'READY BY:'),
+    // so it is never concatenated into prose and title case reads correctly.
+    orderService: fulfillmentLabel(o.delivery_type as string | null, o.order_type as string | null),
     orderDate: fmtDate(o.order_date),
     orderTime: fmtTime(String(o.order_time ?? '')),
     ...(() => {
