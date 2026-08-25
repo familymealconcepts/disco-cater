@@ -12,7 +12,7 @@
 // untouched.
 
 import { layout, button } from './layout'
-import { sendEmail } from './send'
+import { sendEmail, type SendResult } from './send'
 
 // ── small helpers ────────────────────────────────────────────────────────────
 
@@ -239,9 +239,15 @@ function renderNote(p: BaseOrderParams): string {
 
 // ── 1. Customer order confirmation (user-order-confirm.ftl) ──────────────────
 
+// Returns sendEmail's full SendResult, not just {success}: these two are the
+// only sends whose outcome gets written to disco_order_events, and a recorded
+// outcome without Mailgun's message id cannot be checked against Mailgun later
+// — which is exactly the gap that made order 900000094's missing confirmations
+// so hard to establish. Both already `return await sendEmail(...)`, so the id
+// was present at runtime the whole time and only the type was hiding it.
 export async function sendCustomerOrderConfirmation(
   params: CustomerOrderConfirmationParams,
-): Promise<{ success: boolean }> {
+): Promise<SendResult> {
   try {
     const p = params
     const phone = formatPhone(p.businessPhone)
@@ -293,7 +299,7 @@ ${anyQuestions(p)}
 
 export async function sendRestaurantOrderNotification(
   params: RestaurantOrderNotificationParams,
-): Promise<{ success: boolean }> {
+): Promise<SendResult> {
   try {
     const p = params
     const isThirdPartyDelivery =

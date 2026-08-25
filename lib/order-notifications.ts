@@ -150,9 +150,89 @@ async function claimSlackNotified(orderReference: string): Promise<boolean> {
   }
 }
 
-// Dispatch all confirmations for a paid order. Fire-and-forget at the call site
-// (waitUntil). Does its own fetching; never throws. Sends at most once per order
-// thanks to claimConfirmationSend.
+// One recipient's outcome, collected so the caller can await every send AND so
+// the outcome can be written to disco_order_events.
+type DispatchOutcome = {
+  kind: 'customer' | 'restaurant' | 'fm-copy' | 'sms'
+  to: string
+  ok: boolean
+  id?: string
+  error?: string
+}
+
+/**
+ * Record what ACTUALLY happened, onto the ORDER_CONFIRMATIONS_SENT row.
+ *
+ * claimConfirmationSend() writes that row BEFORE anything is attempted, because
+ * it is an idempotency claim — it has to be taken first or it cannot prevent a
+ * double send. The cost is that the row asserted a send that might never have
+ * happened, and for order 900000094 that is precisely what it did: the event
+ * said confirmations were sent while Mailgun had no record of any of the six.
+ * The claim is unchanged and still comes first; this fills in the truth after.
+ *
+ * event_data rather than a new event type or a new column: the column is jsonb,
+ * has always been written as `{}` here, and the partial unique index
+ * disco_order_events_once_uq already guarantees exactly one such row per order
+ * — so there is a single obvious place for this and it needs no migration. The
+ * INSERT ... ON CONFLICT DO UPDATE shape (rather than a bare UPDATE) covers the
+ * force-resend path, where no claim was taken on this pass.
+ */
+async function recordConfirmationOutcome(
+  orderReference: string, source: string, results: DispatchOutcome[],
+): Promise<void> {
+  if (!orderReference || !results.length) return
+  try {
+    const payload = JSON.stringify({
+      completedAt: new Date().toISOString(),
+      sent: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      recipients: results,
+    })
+    await sql`
+      INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+      VALUES (${orderReference}::uuid, 'ORDER_CONFIRMATIONS_SENT', ${payload}::jsonb, ${source})
+      ON CONFLICT (order_reference, event_type)
+        WHERE event_type IN ('ORDER_CONFIRMATIONS_SENT', 'SLACK_NOTIFIED')
+        DO UPDATE SET event_data = EXCLUDED.event_data
+    `
+  } catch (err) {
+    // Never let bookkeeping fail a dispatch whose sends already succeeded.
+    console.error('[order-notifications] could not record confirmation outcome:', err instanceof Error ? err.message : err)
+  }
+}
+
+// Wrap one send so a rejection can never escape and the result is uniform.
+function track(kind: DispatchOutcome['kind'], to: string, p: Promise<{ success: boolean; id?: string; error?: string }>): Promise<DispatchOutcome> {
+  return p.then(
+    (r) => ({ kind, to, ok: r.success, id: r.id, error: r.error }),
+    (err) => {
+      console.error(`[order-notifications] ${kind} send threw for ${to}:`, err instanceof Error ? err.message : err)
+      return { kind, to, ok: false, error: err instanceof Error ? err.message : String(err) }
+    },
+  )
+}
+
+// Dispatch all confirmations for a paid order. Does its own fetching; never
+// throws. Sends at most once per order thanks to claimConfirmationSend.
+//
+// AWAITS EVERY SEND BEFORE RETURNING, and that is load-bearing rather than
+// tidiness. Call sites hand this to waitUntil(), which keeps the serverless
+// instance alive only for the promise it is given — this function's own. The
+// sends used to be fire-and-forget (`send(...).catch(...)`, never awaited), so
+// this promise resolved as soon as the body finished and waitUntil's obligation
+// ended with in-flight Mailgun POSTs still open. The runtime then froze the
+// instance and killed them.
+//
+// That is not theoretical: order 900000094's body completed in 274ms
+// (ORDER_CONFIRMATIONS_SENT 05:27:52.533 -> SLACK_NOTIFIED 05:27:52.807) and
+// none of its six emails reached Mailgun, while DeCheco's orders on the same
+// code path sent fine because their PDF build kept the body alive longer. A
+// race whose outcome depended on how slow an unrelated step happened to be.
+//
+// Collected and awaited with Promise.allSettled, NOT awaited individually: the
+// sends must stay concurrent (six sequential Mailgun round-trips would make
+// every checkout slower), and allSettled cannot reject, so one bad recipient
+// still leaves the rest sent and the order untouched.
 // opts.force skips the once-only claim (for a deliberate admin resend);
 // opts.customerOnly sends just the customer confirmation email (no restaurant
 // email / SMS / Slack) and awaits it. Both default off — normal dispatch unchanged.
@@ -161,6 +241,12 @@ export async function dispatchOrderConfirmations(
   source: string = 'STRIPE_WEBHOOK',
   opts?: { force?: boolean; customerOnly?: boolean },
 ): Promise<void> {
+  // Declared OUTSIDE the try so the finally below can always drain it. If the
+  // body throws after a send has been started, that send is still in flight and
+  // still needs awaiting — orphaning it is the exact bug being fixed here, and
+  // an error path is where it would be least likely to be noticed.
+  const pending: Promise<DispatchOutcome>[] = []
+  let outcomeRef = ''
   try {
     const orders = (await sql`
       SELECT reference, order_number, order_type, delivery_type, source_of_order, is_direct_entry, order_date, order_time, delivery_time_window, note, created_at,
@@ -176,6 +262,7 @@ export async function dispatchOrderConfirmations(
     // One-time guard — skip if confirmations were already sent for this order.
     // A forced resend (admin) deliberately bypasses the guard.
     const reference = o.reference ? String(o.reference) : ''
+    outcomeRef = reference
     if (reference && !opts?.force) {
       const won = await claimConfirmationSend(reference, source)
       if (!won) {
@@ -337,13 +424,14 @@ export async function dispatchOrderConfirmations(
 
     // Customer confirmation — needs a recipient.
     if (shared.userEmail) {
-      const sendP = sendCustomerOrderConfirmation({ to: shared.userEmail, attachments: pdfAttachments, ...shared }).catch((err) => {
-        console.error('[order-notifications] customer confirmation email failed:', err)
-        return { success: false }
-      })
+      const to = shared.userEmail
+      const sendP = track('customer', to, sendCustomerOrderConfirmation({ to, attachments: pdfAttachments, ...shared }))
+      pending.push(sendP)
       // Admin resend: send ONLY the customer email (await it so the caller knows it
       // went) and skip the restaurant email / SMS / Slack below.
-      if (opts?.customerOnly) { await sendP; return }
+      // Resend path: only the customer email. `return` is safe — the finally
+      // still awaits sendP and records its outcome.
+      if (opts?.customerOnly) return
     }
 
     // Restaurant notification — sent to EVERY address in the FM "Email Notification
@@ -399,18 +487,18 @@ export async function dispatchOrderConfirmations(
     // isn't being notified either).
     if (uniqueRecipients.length === 0) {
       if (isNativeCheckout) {
-        sendRestaurantOrderNotification({
+        pending.push(track('fm-copy', 'noreply@familymeal.com', sendRestaurantOrderNotification({
           restaurantEmail: 'noreply@familymeal.com',
           deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
           sourceOfOrder,
           isDirectEntry,
           attachments: pdfAttachments,
           ...shared,
-        }).catch((err) => console.error('[order-notifications] FM-copy notification failed:', err))
+        })))
       }
     } else {
       uniqueRecipients.forEach((to, i) => {
-        sendRestaurantOrderNotification({
+        pending.push(track('restaurant', to, sendRestaurantOrderNotification({
           restaurantEmail: to,
           restaurantBcc: (isNativeCheckout && i === 0) ? 'noreply@familymeal.com' : undefined,
           deliveryType: o.delivery_type ? String(o.delivery_type) : undefined,
@@ -418,7 +506,7 @@ export async function dispatchOrderConfirmations(
           isDirectEntry,
           attachments: pdfAttachments,
           ...shared,
-        }).catch((err) => console.error('[order-notifications] restaurant notification email failed:', err))
+        })))
       })
     }
 
@@ -462,7 +550,9 @@ export async function dispatchOrderConfirmations(
           const to = toE164(num)
           if (!to || sent.has(to)) continue
           sent.add(to)
-          sendSms({ to, body: smsBody }).catch((err) => console.error('[order-notifications] restaurant SMS failed:', err))
+          // Awaited with the emails for the same reason — an SMS killed by the
+          // instance freezing is as silently lost as an email was.
+          pending.push(track('sms', to, sendSms({ to, body: smsBody })))
         }
       }
     } catch (err) {
@@ -504,16 +594,40 @@ export async function dispatchOrderConfirmations(
     }
   } catch (err) {
     console.error('[order-notifications] dispatchOrderConfirmations failed:', err instanceof Error ? err.message : err)
+  } finally {
+    // THE POINT OF THE WHOLE FUNCTION SIGNATURE: this promise must not resolve
+    // until every send has finished, because waitUntil() at the call site keeps
+    // the instance alive for exactly as long as this promise is pending.
+    // allSettled never rejects, and each entry is already .then/.catch-wrapped
+    // by track(), so nothing here can throw and nothing can fail the order.
+    if (pending.length) {
+      const results = await Promise.allSettled(pending)
+      const outcomes = results.map((r, i) => r.status === 'fulfilled'
+        ? r.value
+        : { kind: 'restaurant' as const, to: `unknown#${i}`, ok: false, error: String(r.reason) })
+      const failed = outcomes.filter((o) => !o.ok)
+      console.log(`[order-notifications] dispatch complete for ${outcomeRef || 'order ' + orderId}: ${outcomes.length - failed.length}/${outcomes.length} sent`)
+      if (failed.length) console.error('[order-notifications] failed recipients:', JSON.stringify(failed))
+      await recordConfirmationOutcome(outcomeRef, source, outcomes)
+    }
   }
 }
 
 // Max Inventory Per Day — an item's atomic decrement lost the race to a
 // concurrent order right after this order's payment succeeded (see
 // lib/order/native-inventory.ts). The order has already been refunded and
-// marked REFUNDED by the caller; this just notifies both sides. Fire-and-forget,
-// never throws. Simpler than dispatchOrderConfirmations — no PDF, no SMS, no
-// Slack — this is an exception path, not the happy path.
+// marked REFUNDED by the caller; this just notifies both sides. Never throws.
+// Simpler than dispatchOrderConfirmations — no PDF, no SMS, no Slack — this is
+// an exception path, not the happy path.
+//
+// AWAITS ITS SENDS for the same reason dispatchOrderConfirmations does: the one
+// caller is waitUntil(dispatchInventoryUnavailableNotification(...)) in
+// lib/order/native-payment-succeeded.ts, so unawaited sends are killed when the
+// instance freezes. This path is WORSE to lose than the happy path — it is the
+// only thing that tells a customer their order was refunded because an item ran
+// out. Silence here reads to them as a charge with no order.
 export async function dispatchInventoryUnavailableNotification(orderId: number, itemName: string): Promise<void> {
+  const pending: Promise<unknown>[] = []
   try {
     const orders = (await sql`
       SELECT reference, order_number, order_date, restaurant_reference, restaurant_name, restaurant_email,
@@ -533,12 +647,12 @@ export async function dispatchInventoryUnavailableNotification(orderId: number, 
     const refundAmount = num(o.total)
 
     if (o.customer_email) {
-      sendCustomerItemUnavailableRefund({
+      pending.push(sendCustomerItemUnavailableRefund({
         to: String(o.customer_email),
         firstName: o.customer_first_name ? String(o.customer_first_name) : undefined,
         orderNumber: o.order_number as number,
         businessName, itemName, refundAmount,
-      }).catch((err) => console.error('[order-notifications] item-unavailable customer email failed:', err))
+      }).catch((err) => console.error('[order-notifications] item-unavailable customer email failed:', err)))
     }
 
     // Same restaurant-recipient resolution as dispatchOrderConfirmations:
@@ -561,12 +675,16 @@ export async function dispatchInventoryUnavailableNotification(orderId: number, 
     }
     const uniqueRecipients = Array.from(new Set(recipientList.map((e) => e.toLowerCase())))
     for (const to of uniqueRecipients) {
-      sendRestaurantItemUnavailableAlert({
+      pending.push(sendRestaurantItemUnavailableAlert({
         to, orderNumber: o.order_number as number, itemName,
         orderDate: o.order_date ? fmtDate(o.order_date) : undefined,
-      }).catch((err) => console.error('[order-notifications] item-unavailable restaurant email failed:', err))
+      }).catch((err) => console.error('[order-notifications] item-unavailable restaurant email failed:', err)))
     }
   } catch (err) {
     console.error('[order-notifications] dispatchInventoryUnavailableNotification failed:', err instanceof Error ? err.message : err)
+  } finally {
+    // Drain in a finally, not at the end of the try: a throw after a send has
+    // started must still await that send.
+    if (pending.length) await Promise.allSettled(pending)
   }
 }
