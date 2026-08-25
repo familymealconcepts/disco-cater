@@ -71,7 +71,6 @@ export interface FmOrderDetail {
   orderSubscription?: OrderSubscription | null
   note?: string
   // Nash (3rd-party courier) public tracking page — present once a delivery is dispatched.
-  nashDeliveryPublicTrackingUrl?: string | null
 }
 
 interface Props {
@@ -371,17 +370,14 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                 </>
               )}
 
-              {/* Live courier tracking — only once the 3rd-party delivery is dispatched. */}
-              {detail.nashDeliveryPublicTrackingUrl && (
-                <a
-                  href={detail.nashDeliveryPublicTrackingUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: BLUE, textDecoration: 'none', marginBottom: 18 }}
-                >
-                  🚗 Track your delivery →
-                </a>
-              )}
+              {/* A "Track your delivery" link used to sit here, gated on
+                  detail.nashDeliveryPublicTrackingUrl. That field was PHANTOM —
+                  no route has ever emitted it — so the link could never render
+                  and the promise it implies was never kept. Removed as dead
+                  code rather than left looking like a working feature. It was
+                  the last surviving nashDelivery* reference in the codebase.
+                  Customer-facing courier tracking would need a real field fed
+                  from Expedite's response (see disco_expedite_deliveries). */}
 
               {detail.note && (
                 <>
