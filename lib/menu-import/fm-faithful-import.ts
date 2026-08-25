@@ -109,8 +109,15 @@ function fmMenuToDiscoSettings(settings: Record<string, unknown>, schedule: Reco
     pickupOrderMinimum: num(s.pickupOrderMinimum),
     deliveryOrderMinimum: num(s.deliveryOrderMinimum),
     maxOrdersPerDay: null, // MANUAL — never auto-convert FM's per-15-min maxOrder
-    leadTimeHours: num(sc.prepTime) || 24,
-    rollingAvailabilityDays: num(sc.rollingAvailability) || 90,
+    // NULL CHECKS, NOT FALSY CHECKS. These were `num(...) || <default>`, which
+    // cannot tell "FM said 0" from "FM said nothing" — so a restaurant that
+    // accepts same-day orders (prepTime 0) was silently given a 24-HOUR lead
+    // time. All five Beach Buns seasonal menus are in that state today.
+    // The rollingAvailability default is 30, matching MenuScheduleOption's own
+    // field initialiser (`private Integer rollingAvailability = 30`); the old 90
+    // was three times FM's window, invented here.
+    leadTimeHours: sc.prepTime != null ? num(sc.prepTime) : 24,
+    rollingAvailabilityDays: sc.rollingAvailability != null ? num(sc.rollingAvailability) : 30,
     dailyCutoffTime: cutType === 'DAILY' ? (str(sc.cutOff) || null) : null,
     hardCutoffDate: cutType === 'BY_DATE' ? (str(sc.cutOffDate) || null) : null,
   }
@@ -146,6 +153,59 @@ function normalizeTime(t: unknown): string {
   const s = str(t)
   const m = /^(\d{1,2}):(\d{2})/.exec(s)
   return m ? `${m[1].padStart(2, '0')}:${m[2]}` : s
+}
+
+/**
+ * FM's scheduleOption.skippedDays → Disco's disco_menus.skipped_days.
+ *
+ * NOT A STRAIGHT COPY, because the two shapes are NOT equivalent and copying
+ * naively makes Disco refuse orders FM accepts.
+ *
+ * FM's SkippedDay is { name, intervals: TimeInterval[], fromDate, toDate }.
+ * Disco's is { name?, fromDate, toDate } — there is NO intervals concept, so a
+ * Disco skip always blocks the whole day.
+ *
+ * FM only blocks a DATE when the skip has NO intervals. From
+ * MealPackageServiceImpl.getMenuSkippedDates, verbatim:
+ *
+ *     .filter(sd -> nonNull(sd.getFromDate()) && nonNull(sd.getToDate())
+ *                   && CollectionUtils.isEmpty(sd.getIntervals()))
+ *     .flatMap(sd -> sd.getFromDate().datesUntil(sd.getToDate().plusDays(1)))
+ *
+ * So an interval-bearing skip ("Christmas Eve, closed 15:00–22:00") narrows the
+ * ordering WINDOW in FM and leaves the date orderable. Importing it as a Disco
+ * skip would black out the whole day instead. Across the converted restaurants
+ * that is not a corner case: 47 of 71 FM entries carry intervals, so a naive
+ * copy would have blocked 47 dates FM allows.
+ *
+ * This therefore applies FM's filter exactly — both dates present AND intervals
+ * empty — and returns the count it dropped so the caller can REPORT it. Dropping
+ * quietly is the defect this whole change exists to fix; the partial-day
+ * restriction is genuinely not representable in Disco's current shape, and
+ * saying so is the honest outcome.
+ *
+ * Range semantics DO match: FM's datesUntil(toDate.plusDays(1)) is inclusive of
+ * both endpoints, and Disco's skippedDateSet() walks `cur <= end`. No off-by-one.
+ */
+export function fmSkippedDaysToDisco(schedule: Record<string, unknown>): {
+  skippedDays: { name?: string; fromDate: string; toDate: string }[]
+  droppedWithIntervals: { name: string; fromDate: string; toDate: string; intervals: number }[]
+} {
+  const raw = arrOf(schedule?.skippedDays) as Record<string, unknown>[]
+  const skippedDays: { name?: string; fromDate: string; toDate: string }[] = []
+  const droppedWithIntervals: { name: string; fromDate: string; toDate: string; intervals: number }[] = []
+  for (const sd of raw) {
+    const fromDate = str(sd.fromDate), toDate = str(sd.toDate)
+    if (!fromDate || !toDate) continue // FM ignores a half-specified range too
+    const intervals = arrOf(sd.intervals)
+    if (intervals.length) {
+      droppedWithIntervals.push({ name: str(sd.name), fromDate, toDate, intervals: intervals.length })
+      continue
+    }
+    const name = str(sd.name)
+    skippedDays.push({ ...(name ? { name } : {}), fromDate, toDate })
+  }
+  return { skippedDays, droppedWithIntervals }
 }
 
 // FM's scheduleOption.repeatWeekDays (real per-day pickup/delivery windows) →
@@ -194,6 +254,14 @@ export interface FaithfulImportSummary {
   // the first visible menu as a last resort so nothing is ever silently dropped, but
   // worth a human glance since placement wasn't confidently determined.
   unplacedFallbackCount: number
+  // Blackout ranges carried across from FM's scheduleOption.skippedDays.
+  skippedDayRangesImported: number
+  // FM skips that carry TIME INTERVALS. FM uses these to narrow the ordering
+  // window, NOT to block the date, and Disco's skipped_days has no intervals
+  // concept — so importing them would black out a whole day FM leaves orderable.
+  // Counted and surfaced rather than dropped quietly; a partial-day restriction
+  // is genuinely not representable in Disco today.
+  skippedDayIntervalsDropped: number
   error?: string
 }
 
@@ -206,6 +274,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     announcementImported: false, deliveryWindowImported: false,
     iconUrlImported: false, imageUrlImported: false,
     supplementaryItemsPlaced: 0, duplicatedAcrossMenus: 0, unplacedFallbackCount: 0,
+    skippedDayRangesImported: 0, skippedDayIntervalsDropped: 0,
   }
   await runDiscoMenuMigrations()
   let auth: Record<string, string>
@@ -277,7 +346,10 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
   for (const g of fmGroups) {
     const gRef = str(g.reference); if (!gRef) continue
     const min = Math.max(0, Math.trunc(num(g.minSelectedItems)))
-    const max = Math.max(1, Math.trunc(num(g.maxSelectedItems) || 1))
+    // Same null-vs-falsy fix as prepTime above: `|| 1` turned an explicit FM 0
+    // into 1. Math.max(1, …) still floors it, so a 0 becomes 1 either way — but
+    // now that is the clamp doing it visibly rather than a coercion hiding it.
+    const max = Math.max(1, Math.trunc(g.maxSelectedItems != null ? num(g.maxSelectedItems) : 1))
     const gi = (await sql`
       INSERT INTO disco_modifier_groups (restaurant_reference, name, external_name, sub_external_name, min_selected, max_selected, position)
       VALUES (${targetRef}::uuid, ${str(g.name) || 'Group'}, ${str(g.externalName) || str(g.name) || null}, ${str(g.subExternalName) || null}, ${min}, ${max}, ${gpos++})
@@ -304,6 +376,14 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     const scheduleObj = (m.scheduleOption || {}) as Record<string, unknown>
     const { menu: ms, delivery } = fmMenuToDiscoSettings((m.settings || {}) as Record<string, unknown>, scheduleObj)
     const scheduleConfig = fmScheduleToDiscoConfig(scheduleObj)
+    const skipped = fmSkippedDaysToDisco(scheduleObj)
+    summary.skippedDayRangesImported += skipped.skippedDays.length
+    summary.skippedDayIntervalsDropped += skipped.droppedWithIntervals.length
+    if (skipped.droppedWithIntervals.length) {
+      // Loud on purpose — this is the one thing the mapping cannot carry.
+      console.warn(`[fm-import] "${str(m.name)}": ${skipped.droppedWithIntervals.length} FM skip(s) carry time intervals and were NOT imported as blackout dates (FM does not block the date either):`,
+        skipped.droppedWithIntervals.map(d => `${d.name || '(unnamed)'} ${d.fromDate}..${d.toDate} (${d.intervals} interval(s))`).join('; '))
+    }
     const nm = str(m.name) || 'Menu'
     const mi = (await sql`
       INSERT INTO disco_menus (
@@ -311,13 +391,14 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
         offers_pickup, offers_delivery, service_charge_pct, service_charge_name,
         tip_default_type, tip_default_value, pickup_order_minimum, delivery_order_minimum,
         max_orders_per_day, lead_time_hours, rolling_availability_days, daily_cutoff_time, hard_cutoff_date,
-        delivery_settings, schedule_config, position)
+        delivery_settings, schedule_config, skipped_days, position)
       VALUES (
         ${targetRef}::uuid, ${nm}, ${(slugify(nm) || 'menu') + '-' + menuPos}, ${str(m.type) || 'GENERAL_CATERING'}, ${str(m.description) || null}, ${m.visible !== false},
         ${ms.offersPickup}, ${ms.offersDelivery}, ${ms.serviceChargePct}, ${ms.serviceChargeName},
         ${ms.tipDefaultType}, ${ms.tipDefaultValue}, ${ms.pickupOrderMinimum}, ${ms.deliveryOrderMinimum},
         ${ms.maxOrdersPerDay}, ${ms.leadTimeHours}, ${ms.rollingAvailabilityDays}, ${ms.dailyCutoffTime}::time, ${ms.hardCutoffDate}::date,
-        ${delivery ? JSON.stringify(delivery) : null}::jsonb, ${scheduleConfig ? JSON.stringify(scheduleConfig) : null}::jsonb, ${menuPos++})
+        ${delivery ? JSON.stringify(delivery) : null}::jsonb, ${scheduleConfig ? JSON.stringify(scheduleConfig) : null}::jsonb,
+        ${skipped.skippedDays.length ? JSON.stringify(skipped.skippedDays) : null}::jsonb, ${menuPos++})
       RETURNING reference
     `) as { reference: string }[]
     menuMap.set(mRef, mi[0].reference)
