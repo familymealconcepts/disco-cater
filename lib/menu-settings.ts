@@ -86,8 +86,34 @@ export function parseSkippedDays(body: Record<string, unknown>): SkippedDay[] {
 }
 
 // ── Delivery settings (Stage 6) ──────────────────────────────────────────────
+// LEGACY. Retained only so stored rows written before the two-component change
+// can still be READ (see parseTier's migrate-on-read). Nothing writes it any more.
 export type DeliveryFeeType = 'FIXED' | 'PERCENT'
-export interface DeliveryTier { radiusMiles: number; feeType: DeliveryFeeType; feeValue: number }
+
+/**
+ * One self-delivery zone: a radius, and TWO INDEPENDENT fee components that ADD.
+ *
+ * This replaces a single `feeType: 'FIXED' | 'PERCENT'` + `feeValue` pair, which
+ * could represent only one component and therefore could not represent FM's
+ * model at all. FM stores six nullable BigDecimals per menu —
+ * ownDeliveryFee/ownDeliveryFeePercent/ownDeliveryRadius and the secondary
+ * triplet — and PriceCalculateService.calculateOwnDeliveryFee ADDS them:
+ *
+ *     getBigDecimalOrZero(ownDeliveryFee)
+ *       .add(subtotal.multiply(ONE_PERCENT).multiply(getBigDecimalOrZero(ownDeliveryFeePercent)))
+ *
+ * with ONE_PERCENT = 0.01, applied to SUBTOTAL, then setScale(2, HALF_UP).
+ *
+ * The cost of not being able to represent it was real and measured: all four
+ * Hugo's locations run "$20 + 10%"-style zones in FM, the faithful importer's
+ * percent-wins precedence kept only the percentage, and order 900000094
+ * collected $7.70 where FM would have collected $37.70.
+ *
+ * BOTH DEFAULT TO 0, deliberately: "neither set" then means free delivery, which
+ * is exactly what FM's getBigDecimalOrZero does with two NULLs. A zone with a
+ * radius and no fees is a real, valid configuration.
+ */
+export interface DeliveryTier { radiusMiles: number; feeFixed: number; feePercent: number }
 // method OWN_DELIVERY: restaurant delivers with its own configurable radius/fee.
 // method THIRD_PARTY: Disco dispatches a courier. The TOTAL fee is a fixed platform
 // rule (15% of subtotal, capped at $85) that Disco always collects to pay the courier.
@@ -101,11 +127,31 @@ export interface DeliverySettings {
   thirdPartySubsidyPct: number // 0–15 percentage points out of the 15% fee
 }
 
+/**
+ * Read a zone, MIGRATING ON READ from the legacy single-component shape.
+ *
+ * delivery_settings is a JSONB blob with 45 live rows across 18 restaurants and
+ * no migration runner touches its interior. A hard cutover to the new field
+ * names would therefore read `feeFixed`/`feePercent` as undefined on every
+ * existing row and zero every configured delivery fee the moment it deployed.
+ * So legacy `feeType`/`feeValue` stays readable for one release: new fields win
+ * when present, legacy is translated when they are not.
+ *
+ * Translation is lossless in the only direction that exists — a legacy row held
+ * exactly one component, so it maps to that component plus a zero.
+ */
 function parseTier(t: unknown): DeliveryTier | undefined {
   const o = t as Record<string, unknown> | null
   if (!o || o.radiusMiles == null) return undefined
-  const feeType = String(o.feeType || 'FIXED').toUpperCase() === 'PERCENT' ? 'PERCENT' : 'FIXED'
-  return { radiusMiles: Math.max(0, n(o.radiusMiles)), feeType, feeValue: Math.max(0, n(o.feeValue)) }
+  const radiusMiles = Math.max(0, n(o.radiusMiles))
+
+  if (o.feeFixed != null || o.feePercent != null) {
+    return { radiusMiles, feeFixed: Math.max(0, n(o.feeFixed)), feePercent: Math.max(0, n(o.feePercent)) }
+  }
+  // Legacy shape.
+  const isPercent = String(o.feeType || 'FIXED').toUpperCase() === 'PERCENT'
+  const v = Math.max(0, n(o.feeValue))
+  return { radiusMiles, feeFixed: isPercent ? 0 : v, feePercent: isPercent ? v : 0 }
 }
 
 // Normalize the admin form's delivery settings for storage. Null when absent.
@@ -124,8 +170,11 @@ export function parseDeliverySettings(body: Record<string, unknown>): DeliverySe
 }
 
 const round2d = (x: number) => Math.round(x * 100) / 100
+// FM's calculateOwnDeliveryFee, arithmetic for arithmetic: fixed + percent-of-
+// subtotal, rounded once at the end (FM does setScale(2, HALF_UP) on the sum,
+// not on the parts — rounding each component separately can differ by a cent).
 function tierFee(t: DeliveryTier, subtotal: number): number {
-  return t.feeType === 'PERCENT' ? round2d(subtotal * t.feeValue / 100) : round2d(t.feeValue)
+  return round2d(t.feeFixed + subtotal * t.feePercent / 100)
 }
 
 // THIRD_PARTY delivery — the platform fee is a flat 15% of subtotal capped at $85.
@@ -154,6 +203,21 @@ export function computeThirdPartyDelivery(subtotal: number, subsidyPct = 0): Thi
 
 // OWN_DELIVERY serviceability + fee for a distance: primary ring first, then the
 // (optional) secondary ring, else out of range.
+/**
+ * OWN_DELIVERY serviceability + fee for a distance.
+ *
+ * DELIBERATELY STRICTER THAN FM, and this is a choice rather than an oversight.
+ * FM's calculateOwnDeliveryFee applies the secondary zone's fee to ANY distance
+ * past the primary radius — there is no upper bound in that function, so an
+ * address 40 miles out is quoted the secondary fee and accepted. Disco returns
+ * serviceable:false beyond the secondary radius instead.
+ *
+ * Kept because the radius is the restaurant's statement of how far it will
+ * drive, and quoting a fee for a delivery nobody intends to make is worse than
+ * refusing it: the customer pays, the restaurant discovers it cannot deliver,
+ * and someone has to unwind a paid order. If FM parity is ever wanted here it
+ * should be an explicit setting, not a silent widening.
+ */
 export function computeOwnDeliveryFee(own: DeliverySettings['own'], distanceMiles: number, subtotal: number): { serviceable: boolean; fee: number } {
   if (own?.primary && distanceMiles <= own.primary.radiusMiles) return { serviceable: true, fee: tierFee(own.primary, subtotal) }
   if (own?.secondary && distanceMiles <= own.secondary.radiusMiles) return { serviceable: true, fee: tierFee(own.secondary, subtotal) }
@@ -187,8 +251,10 @@ export function menuRowToSettings(row: MenuSettingsRow) {
   const del = row.delivery_settings || undefined
   const primary = del?.own?.primary
   const secondary = del?.own?.secondary
-  const feeCurrency = (t?: DeliveryTier) => t && t.feeType === 'FIXED' ? t.feeValue : null
-  const feePercent = (t?: DeliveryTier) => t && t.feeType === 'PERCENT' ? t.feeValue : null
+  // Both components surface independently now; a zero reads as "not set" for
+  // display purposes, matching how FM renders an empty box rather than a 0.
+  const feeCurrency = (t?: DeliveryTier) => t && t.feeFixed > 0 ? t.feeFixed : null
+  const feePercent = (t?: DeliveryTier) => t && t.feePercent > 0 ? t.feePercent : null
   return {
     menuAvailability: menuAvailability.length ? menuAvailability : ['PICKUP', 'DELIVERY'],
     // Whether fulfillment is worth surfacing in the customer notices bar. The menu

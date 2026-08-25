@@ -114,8 +114,19 @@ function fmMenuToDiscoSettings(settings: Record<string, unknown>, schedule: Reco
     dailyCutoffTime: cutType === 'DAILY' ? (str(sc.cutOff) || null) : null,
     hardCutoffDate: cutType === 'BY_DATE' ? (str(sc.cutOffDate) || null) : null,
   }
+  // BOTH components, added — never one or the other.
+  //
+  // This previously read `feeType: pct != null ? 'PERCENT' : 'FIXED'` with
+  // `feeValue: pct != null ? pct : fee`, i.e. percent-wins precedence that
+  // silently DISCARDED FM's fixed component. It read both fields and threw one
+  // away. All four Hugo's locations run "$20 + 10%" style zones in FM, so every
+  // one of them imported as percent-only; order 900000094 collected $7.70 where
+  // FM would have collected $37.70.
+  //
+  // Leaving this unfixed would reintroduce the bug on the next import, which is
+  // why it ships with the schema change rather than after it.
   const tier = (fee: unknown, pct: unknown, radius: unknown) =>
-    radius == null ? undefined : { radiusMiles: num(radius), feeType: pct != null ? 'PERCENT' : 'FIXED', feeValue: num(pct != null ? pct : fee) }
+    radius == null ? undefined : { radiusMiles: num(radius), feeFixed: num(fee), feePercent: num(pct) }
   const method = str(s.deliveryType).toUpperCase() === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY'
   const deliveryBody = {
     deliverySettings: {

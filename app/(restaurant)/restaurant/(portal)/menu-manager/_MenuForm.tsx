@@ -29,6 +29,18 @@ type Win = { from: string; to: string }
 const DEFAULT_PERDAY = (): Record<string, Win> =>
   Object.fromEntries(DAYS.map(d => [d.key, { from: '11:00', to: '19:00' }]))
 
+// Plain-English echo of what the two boxes add up to, so a restaurant can see
+// that they COMBINE rather than compete — the misunderstanding the old dropdown
+// actively encouraged. Mirrors tierFee(): fixed + percent-of-subtotal.
+function feePreview(fixed: string, pct: string): string {
+  const f = parseFloat(fixed) || 0
+  const p = parseFloat(pct) || 0
+  if (!f && !p) return 'No delivery fee inside this radius.'
+  if (f && p) return `Charges $${f.toFixed(2)} plus ${p}% of the order subtotal.`
+  if (f) return `Charges $${f.toFixed(2)} per delivery.`
+  return `Charges ${p}% of the order subtotal.`
+}
+
 export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const router = useRouter()
   const isEdit = !!menuRef
@@ -85,12 +97,16 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
 
   // Delivery settings (Stage 6)
   const [deliveryMethod, setDeliveryMethod] = useState<'OWN_DELIVERY' | 'THIRD_PARTY'>('THIRD_PARTY')
+  // TWO INDEPENDENT amounts per zone, not a type + a value. FM's own screen has
+  // a $ box and a % box side by side and adds them; a dropdown here forced a
+  // choice FM never asked the restaurant to make, and silently dropped whichever
+  // component lost. Empty means 0, which means "not charged" — same as FM.
   const [ownPrimaryRadius, setOwnPrimaryRadius] = useState('')
-  const [ownPrimaryFeeType, setOwnPrimaryFeeType] = useState<'FIXED' | 'PERCENT'>('FIXED')
-  const [ownPrimaryFeeValue, setOwnPrimaryFeeValue] = useState('')
+  const [ownPrimaryFeeFixed, setOwnPrimaryFeeFixed] = useState('')
+  const [ownPrimaryFeePercent, setOwnPrimaryFeePercent] = useState('')
   const [ownSecondaryRadius, setOwnSecondaryRadius] = useState('')
-  const [ownSecondaryFeeType, setOwnSecondaryFeeType] = useState<'FIXED' | 'PERCENT'>('FIXED')
-  const [ownSecondaryFeeValue, setOwnSecondaryFeeValue] = useState('')
+  const [ownSecondaryFeeFixed, setOwnSecondaryFeeFixed] = useState('')
+  const [ownSecondaryFeePercent, setOwnSecondaryFeePercent] = useState('')
   const [thirdPartySubsidyPct, setThirdPartySubsidyPct] = useState('0')
 
   // Skipped / blackout days (Stage 7)
@@ -164,8 +180,19 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         setDeliveryMethod(del.method === 'OWN_DELIVERY' ? 'OWN_DELIVERY' : 'THIRD_PARTY')
         setThirdPartySubsidyPct(String(del.thirdPartySubsidyPct ?? 0))
         const p = del.own?.primary, sec = del.own?.secondary
-        if (p) { setOwnPrimaryRadius(String(p.radiusMiles ?? '')); setOwnPrimaryFeeType(p.feeType === 'PERCENT' ? 'PERCENT' : 'FIXED'); setOwnPrimaryFeeValue(String(p.feeValue ?? '')) }
-        if (sec) { setOwnSecondaryRadius(String(sec.radiusMiles ?? '')); setOwnSecondaryFeeType(sec.feeType === 'PERCENT' ? 'PERCENT' : 'FIXED'); setOwnSecondaryFeeValue(String(sec.feeValue ?? '')) }
+        // Mirrors parseTier's migrate-on-read: prefer the two-component fields,
+        // fall back to translating a legacy feeType/feeValue row. A stored 0 shows
+        // as an empty box rather than "0", matching FM.
+        const zone = (t: typeof p) => {
+          if (!t) return null
+          const hasNew = t.feeFixed != null || t.feePercent != null
+          const fixed = hasNew ? Number(t.feeFixed ?? 0) : (t.feeType === 'PERCENT' ? 0 : Number(t.feeValue ?? 0))
+          const pct = hasNew ? Number(t.feePercent ?? 0) : (t.feeType === 'PERCENT' ? Number(t.feeValue ?? 0) : 0)
+          return { radius: String(t.radiusMiles ?? ''), fixed: fixed ? String(fixed) : '', pct: pct ? String(pct) : '' }
+        }
+        const zp = zone(p), zs = zone(sec)
+        if (zp) { setOwnPrimaryRadius(zp.radius); setOwnPrimaryFeeFixed(zp.fixed); setOwnPrimaryFeePercent(zp.pct) }
+        if (zs) { setOwnSecondaryRadius(zs.radius); setOwnSecondaryFeeFixed(zs.fixed); setOwnSecondaryFeePercent(zs.pct) }
         if (Array.isArray(d.skipped_days)) setSkippedDays(d.skipped_days.map((s: { name?: string; fromDate?: string; toDate?: string }) => ({ name: s.name || '', fromDate: s.fromDate || '', toDate: s.toDate || s.fromDate || '' })))
       } finally { setLoading(false) }
     })()
@@ -240,8 +267,8 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         method: deliveryMethod,
         thirdPartySubsidyPct: Math.max(0, Math.min(15, parseFloat(thirdPartySubsidyPct) || 0)),
         own: deliveryMethod === 'OWN_DELIVERY' ? {
-          ...(ownPrimaryRadius.trim() ? { primary: { radiusMiles: parseFloat(ownPrimaryRadius) || 0, feeType: ownPrimaryFeeType, feeValue: parseFloat(ownPrimaryFeeValue) || 0 } } : {}),
-          ...(ownSecondaryRadius.trim() ? { secondary: { radiusMiles: parseFloat(ownSecondaryRadius) || 0, feeType: ownSecondaryFeeType, feeValue: parseFloat(ownSecondaryFeeValue) || 0 } } : {}),
+          ...(ownPrimaryRadius.trim() ? { primary: { radiusMiles: parseFloat(ownPrimaryRadius) || 0, feeFixed: parseFloat(ownPrimaryFeeFixed) || 0, feePercent: parseFloat(ownPrimaryFeePercent) || 0 } } : {}),
+          ...(ownSecondaryRadius.trim() ? { secondary: { radiusMiles: parseFloat(ownSecondaryRadius) || 0, feeFixed: parseFloat(ownSecondaryFeeFixed) || 0, feePercent: parseFloat(ownSecondaryFeePercent) || 0 } } : {}),
         } : undefined,
       },
       skippedDays: skippedDays.filter(s => s.fromDate).map(s => ({ name: s.name || undefined, fromDate: s.fromDate, toDate: s.toDate || s.fromDate })),
@@ -452,18 +479,24 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
 
           {deliveryMethod === 'OWN_DELIVERY' ? (
             <>
+              {/* $ AND % side by side, both optional, added together — matching
+                  FM's own screen so a restaurant comparing the two sees the same
+                  two boxes. Leave one blank to charge only the other; leave both
+                  blank for free delivery inside the radius. */}
               <label style={label}>Primary zone</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 6 }}>
                 <div><input value={ownPrimaryRadius} onChange={e => setOwnPrimaryRadius(e.target.value)} inputMode="decimal" placeholder="Radius (mi)" style={inputStyle} /></div>
-                <select value={ownPrimaryFeeType} onChange={e => setOwnPrimaryFeeType(e.target.value as 'FIXED' | 'PERCENT')} style={inputStyle}><option value="FIXED">$ fixed</option><option value="PERCENT">% of order</option></select>
-                <div><input value={ownPrimaryFeeValue} onChange={e => setOwnPrimaryFeeValue(e.target.value)} inputMode="decimal" placeholder={ownPrimaryFeeType === 'PERCENT' ? 'Fee %' : 'Fee $'} style={inputStyle} /></div>
+                <div><input value={ownPrimaryFeeFixed} onChange={e => setOwnPrimaryFeeFixed(e.target.value)} inputMode="decimal" placeholder="Fixed fee $" style={inputStyle} /></div>
+                <div><input value={ownPrimaryFeePercent} onChange={e => setOwnPrimaryFeePercent(e.target.value)} inputMode="decimal" placeholder="Fee % of order" style={inputStyle} /></div>
               </div>
+              <div style={{ fontSize: 11.5, color: '#999', marginBottom: 14 }}>{feePreview(ownPrimaryFeeFixed, ownPrimaryFeePercent)}</div>
               <label style={label}>Secondary zone (optional)</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 6 }}>
                 <div><input value={ownSecondaryRadius} onChange={e => setOwnSecondaryRadius(e.target.value)} inputMode="decimal" placeholder="Radius (mi)" style={inputStyle} /></div>
-                <select value={ownSecondaryFeeType} onChange={e => setOwnSecondaryFeeType(e.target.value as 'FIXED' | 'PERCENT')} style={inputStyle}><option value="FIXED">$ fixed</option><option value="PERCENT">% of order</option></select>
-                <div><input value={ownSecondaryFeeValue} onChange={e => setOwnSecondaryFeeValue(e.target.value)} inputMode="decimal" placeholder={ownSecondaryFeeType === 'PERCENT' ? 'Fee %' : 'Fee $'} style={inputStyle} /></div>
+                <div><input value={ownSecondaryFeeFixed} onChange={e => setOwnSecondaryFeeFixed(e.target.value)} inputMode="decimal" placeholder="Fixed fee $" style={inputStyle} /></div>
+                <div><input value={ownSecondaryFeePercent} onChange={e => setOwnSecondaryFeePercent(e.target.value)} inputMode="decimal" placeholder="Fee % of order" style={inputStyle} /></div>
               </div>
+              <div style={{ fontSize: 11.5, color: '#999' }}>{feePreview(ownSecondaryFeeFixed, ownSecondaryFeePercent)}</div>
             </>
           ) : (
             <div>
