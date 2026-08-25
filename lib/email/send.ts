@@ -92,10 +92,36 @@ const KEALOHA_BCC = 'kealoha@discocater.com'
 // by design) pass their own params.replyTo, which wins over this default.
 const DEFAULT_REPLY_TO = 'kealoha@discocater.com'
 
+// Mailgun keys are authorised PER DOMAIN, not per account. Confirmed the hard
+// way: disco-cater's production MAILGUN_API_KEY can READ mg.familymeal.com via
+// the management API (HTTP 200 on /domains/mg.familymeal.com) but a send from
+// that domain returns **401 Forbidden**. Management access is not send
+// authorisation, and the only way to tell them apart is to attempt a send.
+//
+// So a domain override needs its own credential. MAILGUN_CAMPAIGN_API_KEY holds
+// the key authorised for the announcement domain; it is consulted ONLY when a
+// caller overrides the domain, so transactional mail keeps using
+// MAILGUN_API_KEY untouched and cannot be affected by this variable's presence
+// or absence. If the override is used and the campaign key is unset, this warns
+// and falls back rather than failing silently — a 401 from Mailgun is the
+// symptom that is otherwise hard to trace back to a credential mismatch.
+function resolveKeyFor(domain: string | undefined): string | undefined {
+  const base = process.env.MAILGUN_API_KEY
+  const isOverride = !!domain && domain !== process.env.MAILGUN_DOMAIN
+  if (!isOverride) return base
+  const campaign = process.env.MAILGUN_CAMPAIGN_API_KEY
+  if (campaign) return campaign
+  console.warn(
+    `[email/send] domain override "${domain}" requested but MAILGUN_CAMPAIGN_API_KEY is unset — ` +
+    'falling back to MAILGUN_API_KEY, which may not be authorised for that domain (Mailgun returns 401 Forbidden).'
+  )
+  return base
+}
+
 export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
-  const apiKey = process.env.MAILGUN_API_KEY
   // Per-send override wins over the env default. See SendEmailParams.domain.
   const domain = params.domain || process.env.MAILGUN_DOMAIN
+  const apiKey = resolveKeyFor(params.domain)
 
   if (!apiKey || !domain) {
     console.warn('[email/send] Mailgun not configured (MAILGUN_API_KEY / MAILGUN_DOMAIN) — skipping email:', params.subject)
