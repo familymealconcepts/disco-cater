@@ -28,8 +28,19 @@ function escapeHtml(value: unknown): string {
  * Wraps inner HTML content in the branded Disco Cater email shell:
  * white background, 600px centered card, DM Sans, #1A1028 body text, and a
  * concierge contact footer.
+ *
+ * `showFooter` (default true) controls the "Questions? Contact us at
+ * concierge@discocater.com" line. Every transactional template wants it and is
+ * unaffected. It exists for templates whose approved copy carries its OWN
+ * sign-off ending in the same address — the rebrand announcement signs off
+ * "Disco Cater Concierge / concierge@discocater.com", so with the footer on,
+ * that address renders twice in consecutive lines, which reads like a
+ * templating bug rather than a signature. Suppressing the generic footer and
+ * keeping the human sign-off is the right way round: the sign-off is part of
+ * the message's voice, the footer is boilerplate.
  */
-export function layout(content: string): string {
+export function layout(content: string, opts?: { showFooter?: boolean }): string {
+  const showFooter = opts?.showFooter !== false
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -42,9 +53,9 @@ export function layout(content: string): string {
     <div style="text-align:center;margin-bottom:20px;">
       <img src="https://www.discocater.com/disco-cater-logo-white-bg.png" alt="Disco Cater" width="180" style="width:180px;max-width:180px;height:auto;margin:0 auto;border:0;outline:none;background:#ffffff;"/>
     </div>
-    ${content}
+    ${content}${showFooter ? `
     <hr style="border:none;border-top:1px solid #eee;margin:24px 0 16px 0;"/>
-    <p style="color:#999999;font-size:13px;margin:0;">Questions? Contact us at <a href="mailto:concierge@discocater.com" style="color:#999999;">concierge@discocater.com</a></p>
+    <p style="color:#999999;font-size:13px;margin:0;">Questions? Contact us at <a href="mailto:concierge@discocater.com" style="color:#999999;">concierge@discocater.com</a></p>` : ''}
   </div>
 </body>
 </html>`

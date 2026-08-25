@@ -25,6 +25,29 @@ export interface SendEmailParams {
   /** Optional file attachments (e.g. a scheduled-report CSV or the order PDF).
    *  content may be a string (text/CSV) or binary bytes (PDF). */
   attachments?: { filename: string; content: string | Uint8Array; contentType?: string }[]
+  /** Mailgun sending domain, overriding MAILGUN_DOMAIN for THIS send only.
+   *
+   *  Exists for the rebrand announcement, which must go from mg.familymeal.com
+   *  rather than this app's default mg.discocater.com. That is a deliberate
+   *  reputation choice, not a config slip: mg.familymeal.com carried ~8,300
+   *  emails over four days in August at 2-3% hard bounce, while
+   *  mg.discocater.com has 358 accepted in 90 days and a 45-email peak day. It
+   *  is also the coherent domain for a message telling people who know us as
+   *  FamilyMeal that FamilyMeal is becoming Disco Cater.
+   *
+   *  The API key must be authorised for whichever domain is passed — Mailgun
+   *  keys are per-account but sending is per-domain, so an unauthorised pair
+   *  fails at the API, not silently. */
+  domain?: string
+  /** Skip the standing BCC to kealoha@discocater.com for THIS send only.
+   *
+   *  She is copied on every transactional email by design (see KEALOHA_BCC).
+   *  A bulk announcement is the one case where that is actively wrong: 709
+   *  recipients would put 709 copies in her inbox. Deliberately opt-IN per
+   *  send rather than a global switch, so no transactional path can lose her
+   *  copy by accident. Does NOT affect params.bcc, which a caller sets
+   *  explicitly and presumably means. */
+  skipStandingBcc?: boolean
 }
 
 export interface SendResult {
@@ -71,7 +94,8 @@ const DEFAULT_REPLY_TO = 'kealoha@discocater.com'
 
 export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
   const apiKey = process.env.MAILGUN_API_KEY
-  const domain = process.env.MAILGUN_DOMAIN
+  // Per-send override wins over the env default. See SendEmailParams.domain.
+  const domain = params.domain || process.env.MAILGUN_DOMAIN
 
   if (!apiKey || !domain) {
     console.warn('[email/send] Mailgun not configured (MAILGUN_API_KEY / MAILGUN_DOMAIN) — skipping email:', params.subject)
@@ -87,7 +111,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
     const bccList = Array.from(new Set([
       ...(params.bcc ? [params.bcc] : []),
       ...(from.includes('orders@discocater.com') ? [ORDERS_BCC] : []),
-      KEALOHA_BCC,
+      ...(params.skipStandingBcc ? [] : [KEALOHA_BCC]),
     ]))
     const replyTo = params.replyTo || DEFAULT_REPLY_TO
 
