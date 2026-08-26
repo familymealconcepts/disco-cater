@@ -84,6 +84,26 @@ const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-'
 // name ("Gluten-Free Bread (+ $1.00)"), stripping it from the display name. Many FM
 // add-ons are genuinely free (substitutions/choices) → price 0.
 const NAME_PRICE = /\s*\(\s*\+?\s*\$?\s*([0-9]+(?:\.[0-9]{1,2})?)\s*\)\s*$/
+// FM's ItemCategory.visible, off the flat admin catalog's embedded
+// itemCategory object (verified live: it carries reference/name/description/
+// position/visible/createdDate).
+//
+// The PRIMARY import path never needs this — it reads the public per-menu
+// endpoint, and FM filters categories server-side there
+// (ItemCategoryRepository.findAllVisibleByMenuReference: `ic.visible = true`),
+// so a hidden category's items never arrive. The FALLBACK and SUPPLEMENTARY
+// paths read the flat ADMIN catalog, which is NOT category-filtered — so an
+// item in a category the restaurant hid in FM could be imported and sold.
+// Never observed in production; closed because the primary path's protection is
+// FM's, not ours, and nothing here was enforcing it.
+//
+// `!== false` so an absent flag reads as visible, matching FM's own
+// `Boolean visible = Boolean.TRUE` default on ItemCategory.
+function fmCategoryVisible(it: Record<string, unknown>): boolean {
+  const c = typeof it.itemCategory === 'object' && it.itemCategory ? (it.itemCategory as Record<string, unknown>) : null
+  return !c || c.visible !== false
+}
+
 function addOnNamePrice(rawName: unknown, structuredPrice: unknown): { name: string; price: number } {
   const name = str(rawName) || 'Add-on'
   if (num(structuredPrice) > 0) return { name, price: num(structuredPrice) }
@@ -254,6 +274,10 @@ export interface FaithfulImportSummary {
   // the first visible menu as a last resort so nothing is ever silently dropped, but
   // worth a human glance since placement wasn't confidently determined.
   unplacedFallbackCount: number
+  // Items skipped because FM's ItemCategory.visible was false. Only ever
+  // non-zero on the fallback/supplementary paths, which read the unfiltered
+  // flat admin catalog; the primary path inherits FM's own server-side filter.
+  hiddenCategorySkipped: number
   // Blackout ranges carried across from FM's scheduleOption.skippedDays.
   skippedDayRangesImported: number
   // FM skips that carry TIME INTERVALS. FM uses these to narrow the ordering
@@ -274,7 +298,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     announcementImported: false, deliveryWindowImported: false,
     iconUrlImported: false, imageUrlImported: false,
     supplementaryItemsPlaced: 0, duplicatedAcrossMenus: 0, unplacedFallbackCount: 0,
-    skippedDayRangesImported: 0, skippedDayIntervalsDropped: 0,
+    skippedDayRangesImported: 0, skippedDayIntervalsDropped: 0, hiddenCategorySkipped: 0,
   }
   await runDiscoMenuMigrations()
   let auth: Record<string, string>
@@ -350,9 +374,15 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     // into 1. Math.max(1, …) still floors it, so a 0 becomes 1 either way — but
     // now that is the clamp doing it visibly rather than a coercion hiding it.
     const max = Math.max(1, Math.trunc(g.maxSelectedItems != null ? num(g.maxSelectedItems) : 1))
+    // visible + archived were NOT imported before, so an FM-hidden group became
+    // permanently visible in Disco: disco_modifier_groups.visible defaults true
+    // and the customer read filtered only on archived. Latent rather than live
+    // when found (the affected groups had zero item attachments), but live the
+    // moment one is attached to an item. `!== false` keeps an absent flag as
+    // visible, matching the column default and FM's own Boolean handling.
     const gi = (await sql`
-      INSERT INTO disco_modifier_groups (restaurant_reference, name, external_name, sub_external_name, min_selected, max_selected, position)
-      VALUES (${targetRef}::uuid, ${str(g.name) || 'Group'}, ${str(g.externalName) || str(g.name) || null}, ${str(g.subExternalName) || null}, ${min}, ${max}, ${gpos++})
+      INSERT INTO disco_modifier_groups (restaurant_reference, name, external_name, sub_external_name, min_selected, max_selected, visible, archived, position)
+      VALUES (${targetRef}::uuid, ${str(g.name) || 'Group'}, ${str(g.externalName) || str(g.name) || null}, ${str(g.subExternalName) || null}, ${min}, ${max}, ${g.visible !== false}, ${g.archived === true}, ${gpos++})
       RETURNING reference
     `) as { reference: string }[]
     const discoGroup = gi[0].reference
@@ -361,7 +391,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     let mpos = 0
     for (const a of arrOf(g.addOns)) {
       const { name, price } = addOnNamePrice(a.name, a.price)
-      const mi = (await sql`INSERT INTO disco_modifiers (restaurant_reference, name, price, position) VALUES (${targetRef}::uuid, ${name}, ${price}, ${mpos}) RETURNING reference`) as { reference: string }[]
+      const mi = (await sql`INSERT INTO disco_modifiers (restaurant_reference, name, price, visible, archived, position) VALUES (${targetRef}::uuid, ${name}, ${price}, ${a.visible !== false}, ${a.archived === true}, ${mpos}) RETURNING reference`) as { reference: string }[]
       await sql`INSERT INTO disco_modifier_group_members (group_reference, modifier_reference, position) VALUES (${discoGroup}::uuid, ${mi[0].reference}::uuid, ${mpos})`
       summary.modifiers++; if (price > 0) summary.pricedModifiers++
       mpos++
@@ -491,6 +521,9 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     const defaultMenu = (visRef ? menuMap.get(str(visRef)) : undefined) || (menuMap.values().next().value as string | undefined)
     if (defaultMenu) {
       for (const it of fmItems) {
+        // Hidden-category items are skipped, matching what the primary path
+        // inherits from FM's own server-side filter.
+        if (!fmCategoryVisible(it)) { summary.hiddenCategorySkipped++; continue }
         const discoMenu = menuMap.get(str((it.menu as Record<string, unknown> | undefined)?.reference)) || defaultMenu
         const catObj = typeof it.itemCategory === 'object' && it.itemCategory ? (it.itemCategory as Record<string, unknown>) : null
         const catName = (catObj ? str(catObj.name) : str(it.itemCategory)) || 'Menu'
@@ -572,6 +605,9 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
   const categoryToMenus = new Map<string, Set<string>>()
   const unresolvedAfterA: Record<string, unknown>[] = []
   for (const it of fmItems) {
+      // Same category-visibility gate as the fallback path above: this pass also
+      // reads the unfiltered flat admin catalog.
+      if (!fmCategoryVisible(it)) { summary.hiddenCategorySkipped++; continue }
     const ref = str(it.reference)
     if (!ref || placedRefs.has(ref)) continue
     const sched = (it.scheduleOption || {}) as Record<string, unknown>

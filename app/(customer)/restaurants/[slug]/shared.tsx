@@ -404,7 +404,9 @@ async function loadDiscoNativeRestaurant(slug: string) {
     // Attached modifier groups per item (Stage 4 consumption). Shaped into the
     // FM `extraItemsGroups` structure RestaurantClient already renders + prices, so
     // native modifiers appear + charge with zero FM. Only ENABLED attachments,
-    // non-archived groups/modifiers.
+    // and groups/modifiers that are both non-archived AND visible — `visible`
+    // was previously unfiltered here while the importer never wrote it, so an
+    // FM-hidden option would have been sellable in Disco.
     const groupsByItem = new Map<string, NativeExtraItemsGroup[]>()
     try {
       const attach = (await sql`
@@ -412,7 +414,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
                g.reference, g.name, g.external_name, g.sub_external_name, g.min_selected, g.max_selected
         FROM disco_item_groups ig
         JOIN disco_menu_items mi ON mi.reference = ig.item_reference AND mi.restaurant_reference = ${r.restaurant_reference}::uuid
-        JOIN disco_modifier_groups g ON g.reference = ig.group_reference AND g.archived = false
+        JOIN disco_modifier_groups g ON g.reference = ig.group_reference AND g.archived = false AND g.visible = true
         WHERE ig.enabled = true
         ORDER BY ig.position, g.name
       `) as { item_reference: string; position: number; reference: string; name: string; external_name: string | null; sub_external_name: string | null; min_selected: number; max_selected: number }[]
@@ -420,7 +422,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       const members = groupRefs.length ? (await sql`
         SELECT gm.group_reference, gm.position, m.reference, m.name, m.price
         FROM disco_modifier_group_members gm
-        JOIN disco_modifiers m ON m.reference = gm.modifier_reference AND m.archived = false
+        JOIN disco_modifiers m ON m.reference = gm.modifier_reference AND m.archived = false AND m.visible = true
         WHERE gm.group_reference = ANY(${groupRefs})
         ORDER BY gm.position, m.name
       `) as { group_reference: string; position: number; reference: string; name: string; price: string | number }[] : []

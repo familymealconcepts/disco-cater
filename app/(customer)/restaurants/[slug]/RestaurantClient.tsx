@@ -1,5 +1,6 @@
 'use client'
 import { useState, useMemo, useEffect, useRef } from 'react'
+import { DietaryBadges, DietaryLegend, hasDietaryInfo } from './DietaryBadges'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
@@ -72,6 +73,14 @@ interface FmPackage {
   // Disco-native "Max Inventory Per Day" cap. null/undefined = unlimited —
   // no live-cap logic below ever runs for it. See lib/order/native-inventory.ts.
   maxInventoryPerDay?: number | null
+  // Restaurant-declared dietary + allergen labels. Populated only on the
+  // Disco-native path (shared.tsx's toPkg); FM's own item endpoints expose none
+  // of these, so they are always undefined for an FM-backed restaurant.
+  // Rendered by DietaryBadges — see that file for why nuts is treated apart.
+  vegetarian?: boolean
+  vegan?: boolean
+  glutenFree?: boolean
+  containsNuts?: boolean
 }
 interface FmCategory { reference: string; name: string; description?: string | null; mealPackages: FmPackage[] }
 interface MenuSection { menu: FmMenu; categories: FmCategory[] }
@@ -422,6 +431,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       }))
       .filter(x => x.visiblePkgs.length > 0)
   }, [activeSection, menuQuery])
+  // Whether ANY item currently on screen carries a restaurant-provided label.
+  // Drives the one-time legend: shown when there is something to attribute, and
+  // absent entirely on a menu with no labels, so it never introduces the idea
+  // that items were assessed. Computed from the same visibleCategories the grid
+  // renders, so the legend and the badges can never disagree.
+  const anyDietaryLabels = useMemo(
+    () => visibleCategories.some(({ visiblePkgs }) => visiblePkgs.some(p => hasDietaryInfo(p))),
+    [visibleCategories],
+  )
   // Total height of the sticky bars stacked above the mobile category nav on
   // mobile — the page header intentionally scrolls away there (see
   // .header-scroll-mobile below), so only the date/time bar (~46 when present)
@@ -1847,6 +1865,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 />
               </div>
             )}
+            <DietaryLegend show={anyDietaryLabels} />
             {visibleCategories.map(({ cat, visiblePkgs }) => {
               return (
               <div key={cat.reference} id={`cat-${cat.reference}`} style={{ marginBottom: 40, scrollMarginTop: mobileStickyOffset + 12 }}>
@@ -1896,6 +1915,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                             <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{packagePriceLabel(pkg)}</span>
                             {pkg.serves && <><span style={{ color: '#ddd', fontSize: 14 }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {pkg.serves}</span></>}
                           </div>
+                          {/* Renders nothing at all when the restaurant has set no
+                              flags — no empty container, which would imply the
+                              question had been asked. */}
+                          <DietaryBadges pkg={pkg} />
                           {remainingCap != null && remainingCap > 0 && (
                             <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 600, marginTop: 3 }}>Only {remainingCap} left for this date</div>
                           )}
@@ -2237,6 +2260,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{packagePriceLabel(addOnsPkg)}</span>
                   {addOnsPkg.serves && <><span style={{ color: '#ddd' }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {addOnsPkg.serves}</span></>}
                 </div>
+                <DietaryBadges pkg={addOnsPkg} size="modal" />
+                {hasDietaryInfo(addOnsPkg) && (
+                  <div style={{ fontSize: 11.5, color: '#8a89a8', marginTop: 8, lineHeight: 1.5 }}>
+                    Provided by {restaurant.name}.
+                  </div>
+                )}
               </div>
               {(addOnsPkg.extraItemsGroups ?? []).map(group => {
                 const total = groupTotal(group)
