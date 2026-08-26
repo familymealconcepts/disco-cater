@@ -63,6 +63,30 @@ const ORG_SCHEMA = {
   ],
 };
 
+/**
+ * Anchored path test for the surfaces where identification and marketing
+ * pixels must not fire at all: the admin tools and the authenticated
+ * partner portal. Interpolated into the inline pixel scripts below.
+ *
+ * THE ANCHOR IS LOAD-BEARING. `/restaurants` (plural) is the PUBLIC
+ * listings surface and must keep firing; `/restaurant` (singular) is the
+ * partner portal. A naive prefix match on "/restaurant" would swallow
+ * ordinary public browsing of the listings pages, which is the traffic
+ * these pixels exist to capture. Requiring the next character to be `/`
+ * or end-of-path is what separates the two.
+ *
+ * Applies to RB2B, Meta Pixel, LinkedIn Insight and Apollo only.
+ *
+ * NOT applied to Google Analytics: GA stays firing everywhere and labels
+ * internal traffic via traffic_type rather than suppressing it, so it
+ * remains a complete measurement baseline.
+ *
+ * NOT applied to Microsoft Clarity: session replay on partner-portal bugs
+ * has diagnostic value worth keeping.
+ */
+const IS_SUPPRESSED_PIXEL_PATH =
+  '/^\\/(admin|restaurant)(\\/|$)/.test(window.location.pathname)';
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -101,17 +125,19 @@ export default function RootLayout({
         {/* Microsoft Clarity */}
         <Script id="microsoft-clarity" strategy="afterInteractive">
           {`
-            (function(c,l,a,r,i,t,y){
-              c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-              t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-              y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-            })(window, document, "clarity", "script", "vv8ibgkwby");
+            if (!document.cookie.includes('disco_internal=true')) {
+              (function(c,l,a,r,i,t,y){
+                c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+                t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+                y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+              })(window, document, "clarity", "script", "vv8ibgkwby");
+            }
           `}
         </Script>
 
         {/* RB2B */}
         <Script id="reb2b-tracking" strategy="afterInteractive">{`
-          if (!document.cookie.includes('disco_internal=true')) {
+          if (!document.cookie.includes('disco_internal=true') && !${IS_SUPPRESSED_PIXEL_PATH}) {
             !function(key) {
               if (window.reb2b) return;
               window.reb2b = {loaded: true};
@@ -125,7 +151,7 @@ export default function RootLayout({
 
         {/* LinkedIn Insight Tag */}
         <Script id="linkedin-insight" strategy="afterInteractive">{`
-          if (!document.cookie.includes('disco_internal=true')) {
+          if (!document.cookie.includes('disco_internal=true') && !${IS_SUPPRESSED_PIXEL_PATH}) {
             _linkedin_partner_id = "539930009";
             window._linkedin_data_partner_ids = window._linkedin_data_partner_ids || [];
             window._linkedin_data_partner_ids.push(_linkedin_partner_id);
@@ -143,7 +169,7 @@ export default function RootLayout({
 
         {/* Meta Pixel */}
         <Script id="meta-pixel" strategy="afterInteractive">{`
-          if (!document.cookie.includes('disco_internal=true')) {
+          if (!document.cookie.includes('disco_internal=true') && !${IS_SUPPRESSED_PIXEL_PATH}) {
             !function(f,b,e,v,n,t,s)
             {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
             n.callMethod.apply(n,arguments):n.queue.push(arguments)};
@@ -160,14 +186,16 @@ export default function RootLayout({
         {/* Apollo Pixel */}
         <Script id="apollo-pixel" strategy="afterInteractive">
           {`
-            function initApollo(){
-              var n=Math.random().toString(36).substring(7),o=document.createElement("script");
-              o.src="https://assets.apollo.io/micro/website-tracker/tracker.iife.js?nocache="+n;
-              o.async=!0;o.defer=!0;
-              o.onload=function(){window.trackingFunctions.onLoad({appId:"698b7a4f08b116001d87b092"})};
-              document.head.appendChild(o);
+            if (!document.cookie.includes('disco_internal=true') && !${IS_SUPPRESSED_PIXEL_PATH}) {
+              function initApollo(){
+                var n=Math.random().toString(36).substring(7),o=document.createElement("script");
+                o.src="https://assets.apollo.io/micro/website-tracker/tracker.iife.js?nocache="+n;
+                o.async=!0;o.defer=!0;
+                o.onload=function(){window.trackingFunctions.onLoad({appId:"698b7a4f08b116001d87b092"})};
+                document.head.appendChild(o);
+              }
+              initApollo();
             }
-            initApollo();
           `}
         </Script>
       </head>
