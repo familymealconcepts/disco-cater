@@ -19,6 +19,7 @@
 //                           conversion with zero rows is unreviewed
 //   9 flip               goLiveNativeRestaurant — only when 1–8 pass
 import type Stripe from 'stripe'
+import { MENU_ACTIVE_SQL } from './menu-state'
 import { sql, runDiscoMenuMigrations } from './db'
 import { verifyAccountReusable } from './stripe-connect'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
@@ -96,7 +97,7 @@ export async function checkNativeGoLiveReadiness(ref: string, opts?: { stripe?: 
   // Does any visible menu offer THIRD_PARTY delivery? (drives whether gate 4 applies)
   const tp = (await sql`
     SELECT COUNT(*)::int AS n FROM disco_menus
-    WHERE restaurant_reference = ${ref}::uuid AND visible = true AND archived = false
+    WHERE restaurant_reference = ${ref}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
       AND (delivery_settings->>'method') = 'THIRD_PARTY'
   `.catch(() => [{ n: 0 }])) as { n: number }[]
   const offersThirdPartyDelivery = (tp[0]?.n ?? 0) > 0

@@ -1,4 +1,5 @@
 import { cache } from 'react'
+import { MENU_ACTIVE_SQL } from '../../../../lib/menu-state'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
@@ -470,7 +471,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
              to_char(hard_cutoff_date, 'YYYY-MM-DD') AS hard_cutoff_date,
              delivery_settings, skipped_days, include_utensils
       FROM disco_menus
-      WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true AND archived = false
+      WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
       ORDER BY position, id
     `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; start_date: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string }[] | null })[]
     // The "primary" reference is only used now as the NULL-menu_reference

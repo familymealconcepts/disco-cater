@@ -437,7 +437,7 @@ export default function CategoryDetailPage() {
                         <td style={tdStyle}>
                           <div style={{ fontWeight: 600, color: DARK }}>
                             {pkg.name}
-                            {pkg.visible === false && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px', verticalAlign: 'middle' }}>HIDDEN</span>}
+                            {pkg.visible === false && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px', verticalAlign: 'middle' }}>Inactive</span>}
                           </div>
                           {pkg.description && (
                             <div style={{ fontSize: 12, color: '#888', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>

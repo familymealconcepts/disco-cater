@@ -12,6 +12,7 @@
 // capability check (verifyAccountReusable), never a money_flow/proxy. Fresh
 // onboarding is the fallback ONLY for accounts that genuinely can't be reused.
 import type Stripe from 'stripe'
+import { MENU_ACTIVE_SQL } from './menu-state'
 import { logAdminAction } from './admin-audit'
 import { sql, runMigrations } from './db'
 import { stripeReadySql } from './stripe-readiness'
@@ -234,7 +235,7 @@ export async function checkConversionReadiness(
   // primary visible menu). restaurant_reference is UUID on disco_menus.
   const menu = (await sql`
     SELECT COUNT(*)::int AS n FROM disco_menus
-    WHERE restaurant_reference = ${nativeRef}::uuid AND visible = true AND archived = false
+    WHERE restaurant_reference = ${nativeRef}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
   `.catch(() => [{ n: 0 }])) as { n: number }[]
   const hasMenu = (menu[0]?.n ?? 0) > 0
 

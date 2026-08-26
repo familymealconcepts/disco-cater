@@ -184,7 +184,7 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                     <td style={{ padding: '10px 8px', color: '#ccc', cursor: 'grab' }}>⠿</td>
                     <td style={{ padding: '10px 8px', fontWeight: 600, color: DARK }}>
                       {it.name}
-                      {!it.visible && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px', verticalAlign: 'middle' }}>HIDDEN</span>}
+                      {!it.visible && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px', verticalAlign: 'middle' }}>Inactive</span>}
                     </td>
                     <td style={{ padding: '10px 8px', color: '#888', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.description || '—'}</td>
                     <td style={{ padding: '10px 8px', color: DARK }}>{money(it.price)}</td>

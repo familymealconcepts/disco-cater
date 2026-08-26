@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { MENU_ACTIVE_SQL, MENU_INACTIVE_SQL, MENU_ARCHIVED_SQL, menuStateSql, menuTabOrderSql, type MenuState } from '../../../../lib/menu-state'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { parseMenuSettingsInput, parseDeliverySettings, parseSkippedDays } from '../../../../lib/menu-settings'
@@ -30,8 +31,19 @@ export async function GET(req: NextRequest) {
   // resolveDiscoScopeRef — fail-safe to home.
   const ref = await resolveDiscoScopeRef(ctx)
   if (!ref) return NextResponse.json({ error: 'No restaurant in context' }, { status: 400 })
-  // ?includeArchived=1 → also return archived menus (for the "Show archived" view).
+  // ?tab=active|inactive|archived — the three states FM derives from the same two
+  // booleans (see lib/menu-state.ts). Defaults to active, so a caller that sends
+  // nothing gets the customer-facing set, which is the safe default.
+  //
+  // ?includeArchived=1 is still honoured for backwards compatibility: it maps to
+  // "everything", which is what the old checkbox meant. Nothing in this repo
+  // sends it any more, but a stale open tab might.
+  const tabParam = String(req.nextUrl.searchParams.get('tab') || '').toLowerCase()
   const includeArchived = req.nextUrl.searchParams.get('includeArchived') === '1'
+  const tab: MenuState | 'all' = tabParam === 'inactive' ? 'inactive'
+    : tabParam === 'archived' ? 'archived'
+    : tabParam === 'active' ? 'active'
+    : includeArchived ? 'all' : 'active'
   try {
     await runDiscoMenuMigrations()
     // item_count: items belong to a category, categories belong to a menu — no
@@ -50,10 +62,28 @@ export async function GET(req: NextRequest) {
         JOIN disco_menu_items i ON i.category_reference = c.reference
         GROUP BY c.menu_reference
       ) ic ON ic.menu_reference = m.reference
-      WHERE m.restaurant_reference = ${ref}::uuid AND (${includeArchived} OR m.archived = false)
-      ORDER BY m.position, m.name
+      WHERE m.restaurant_reference = ${ref}::uuid
+        AND ${sql.unsafe(tab === 'all' ? 'TRUE' : menuStateSql(tab, 'm'))}
+      ORDER BY ${sql.unsafe(tab === 'all' ? 'm.position, m.name' : menuTabOrderSql(tab, 'm'))}
     `) as Record<string, unknown>[]
-    return NextResponse.json({ restaurant_reference: ref, menus })
+
+    // Counts for ALL THREE tabs on every request, so an empty tab renders as a
+    // real zero rather than looking broken. One extra round-trip, computed with
+    // the same predicates the tabs filter on — deriving them from the returned
+    // rows would only ever describe the tab you are already looking at.
+    const countRows = (await sql`
+      SELECT
+        COUNT(*) FILTER (WHERE ${sql.unsafe(MENU_ACTIVE_SQL)})   AS active,
+        COUNT(*) FILTER (WHERE ${sql.unsafe(MENU_INACTIVE_SQL)}) AS inactive,
+        COUNT(*) FILTER (WHERE ${sql.unsafe(MENU_ARCHIVED_SQL)}) AS archived
+      FROM disco_menus WHERE restaurant_reference = ${ref}::uuid
+    `) as { active: string; inactive: string; archived: string }[]
+    const counts = {
+      active: Number(countRows[0]?.active ?? 0),
+      inactive: Number(countRows[0]?.inactive ?? 0),
+      archived: Number(countRows[0]?.archived ?? 0),
+    }
+    return NextResponse.json({ restaurant_reference: ref, tab, counts, menus })
   } catch (e) {
     console.error('[restaurant/disco-menus] GET failed:', e instanceof Error ? e.message : e)
     return NextResponse.json({ error: 'Unable to load menus' }, { status: 500 })

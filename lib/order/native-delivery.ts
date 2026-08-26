@@ -5,6 +5,7 @@
 // computed server-side by lib/pricing/native-order at place time regardless.
 
 import { sql } from '../db'
+import { MENU_ACTIVE_SQL } from '../menu-state'
 import { geocodeAddress, haversineMiles, type LatLng } from '../geocode'
 import { computeOwnDeliveryFee, computeThirdPartyDelivery, type DeliverySettings } from '../menu-settings'
 import type { Fulfillment } from '../pricing/native-order'
@@ -71,7 +72,7 @@ export async function validateNativeDelivery(
   if (!resolvedExactly) {
     const menuRows = (await sql`
       SELECT delivery_settings FROM disco_menus
-      WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
       ORDER BY position, id LIMIT 1
     `.catch(() => [])) as { delivery_settings: DeliverySettings | null }[]
     del = menuRows[0]?.delivery_settings || null

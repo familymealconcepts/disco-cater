@@ -4,6 +4,7 @@
 // flips RESERVED→DUE on payment_intent.succeeded.
 
 import type Stripe from 'stripe'
+import { MENU_ACTIVE_SQL } from '../menu-state'
 import { sql, withDiscoTables } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
@@ -100,7 +101,7 @@ export async function loadRestaurantServiceChargePct(restaurantReference: string
   }
   const rows = (await sql`
     SELECT service_charge_pct FROM disco_menus
-    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
     ORDER BY position, id LIMIT 1
   `.catch(() => [])) as { service_charge_pct: string | number | null }[]
   const v = rows[0]?.service_charge_pct
@@ -129,7 +130,7 @@ export async function loadRestaurantDeliverySettings(restaurantReference: string
   }
   const rows = (await sql`
     SELECT delivery_settings FROM disco_menus
-    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
     ORDER BY position, id LIMIT 1
   `.catch(() => [])) as { delivery_settings: DeliverySettings | null }[]
   return rows[0]?.delivery_settings || null
@@ -158,7 +159,7 @@ export async function loadMenuFulfillmentAvailability(restaurantReference: strin
   }
   const rows = (await sql`
     SELECT offers_pickup, offers_delivery FROM disco_menus
-    WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
     ORDER BY position, id LIMIT 1
   `.catch(() => [])) as { offers_pickup: boolean | null; offers_delivery: boolean | null }[]
   return { offersPickup: rows[0]?.offers_pickup !== false, offersDelivery: rows[0]?.offers_delivery !== false }
@@ -238,7 +239,7 @@ export async function isNativeDailyCapReached(restaurantReference: string, order
   if (cap === undefined) {
     const capRows = (await sql`
       SELECT max_orders_per_day FROM disco_menus
-      WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
       ORDER BY position, id LIMIT 1
     `.catch(() => [])) as { max_orders_per_day: number | null }[]
     cap = capRows[0]?.max_orders_per_day
@@ -296,7 +297,7 @@ export async function isNativeDateTimeValid(restaurantReference: string, orderDa
   if (!menu) {
     const rows = (await sql`
       SELECT ${sql.unsafe(SCHEDULE_MENU_COLUMNS)} FROM disco_menus
-      WHERE restaurant_reference = ${restaurantReference}::uuid AND visible = true AND archived = false
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
       ORDER BY position, id LIMIT 1
     `.catch(() => [])) as ScheduleMenuRow[]
     menu = rows[0]
