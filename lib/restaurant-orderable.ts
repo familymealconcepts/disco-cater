@@ -42,9 +42,22 @@ import { sql, runMigrations, withDiscoTables } from './db'
 // is_live — unmaintained for FM-backed rows. 133 FM-backed restaurants have
 //   taken real orders while is_live = false. Same conclusion the marketplace
 //   feed reached for the same reason.
-// stripe_connected — a payment problem, not an eligibility problem. It fails
-//   at the charge with a message about payment, which is more useful to a
-//   customer than a generic "cannot order" up front.
+// stripe_connected — NOT gated, and that is still right, but the reasoning
+//   below it used to be wrong in a way that mattered. It said a Stripe problem
+//   "fails at the charge with a message about payment". That is true on the FM
+//   path, where FM's backend returns 401 when the connected account cannot take
+//   a charge. It is FALSE on the native path: createNativeOrderPaymentIntent
+//   computes `routeToRestaurant = !withholdPayouts && !!connectedAccountId` and,
+//   when false, simply OMITS transfer_data — so the charge SUCCEEDS and the
+//   whole amount settles into Disco's platform account with the restaurant
+//   unpaid. Nothing fails and nobody is told.
+//
+//   stripe_connected itself stays ungated because it is a stale readiness flag,
+//   not a statement about the account: Test 50 has stripe_connected = false and
+//   a real, verified linked account (its native orders' PaymentIntents settle to
+//   acct_1Tx5EOKZCiY7GPJW). Gating on it would refuse a restaurant that is
+//   correctly configured. What IS gated, for native only, is the absence of
+//   stripe_account_id — see 'payment-not-configured'.
 //
 // Archive is Disco-native only (lib/disco-restaurant-archive.ts): FM-backed
 // rows never get archived_at set, so the archive branch is a harmless no-op
@@ -59,6 +72,23 @@ export type OrderableReason =
   | 'archived'
   // Disco-native with online ordering explicitly switched off.
   | 'ordering-disabled'
+  // Disco-native with NO Stripe connected account on file.
+  //
+  // A MISCONFIGURATION, not a policy choice, and the distinction is the whole
+  // reason this reason exists. The payment layer collapses two very different
+  // situations into one behaviour — omit transfer_data — and only one of them
+  // is deliberate:
+  //   withhold_payouts = true  → an admin decided the platform holds the money.
+  //   connectedAccountId null  → nobody decided anything; it is simply missing.
+  // The second must refuse rather than charge. The first is untouched here.
+  //
+  // Measured before writing this: across every native order that has ever
+  // reached Stripe (29 PaymentIntents, 25 succeeded, live mode), ALL 25 carried
+  // transfer_data. The platform-only branch has never once fired in production,
+  // for either reason — so this gate changes no behaviour that has ever
+  // actually happened, and the withhold branch remains unexercised and
+  // deliberately unmodified.
+  | 'payment-not-configured'
   // No cache row for this reference at all. Treated as NOT orderable: an
   // unknown restaurant is not a restaurant we can take money on behalf of.
   | 'unknown-restaurant'
@@ -74,6 +104,7 @@ const MESSAGES: Record<OrderableReason, string> = {
   ok: '',
   archived: 'This restaurant is no longer available on Disco Cater.',
   'ordering-disabled': 'This restaurant is not accepting online orders right now.',
+  'payment-not-configured': 'This restaurant is not set up to take online payments yet. Please contact them directly to place an order.',
   'unknown-restaurant': 'We could not find this restaurant.',
 }
 
@@ -85,6 +116,10 @@ interface OrderableState {
   isDiscoNative: boolean
   archived: boolean
   onlineOrderingEnabled: boolean | null
+  /** disco_restaurant_overrides.stripe_account_id — the connected account the
+   *  native payment path routes funds to. NOT stripe_connected, which is a
+   *  stale readiness flag; see the header. */
+  stripeAccountId: string | null
 }
 
 // ONE read, shared by both policies below, so there is a single place that
@@ -93,7 +128,8 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
   const rows = (await withDiscoTables(() => sql`
     SELECT COALESCE(c.is_disco_native, false) AS is_disco_native,
            (o.archived_at IS NOT NULL) AS archived,
-           o.online_ordering_enabled
+           o.online_ordering_enabled,
+           o.stripe_account_id
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
     WHERE c.restaurant_reference = ${ref}
@@ -102,6 +138,7 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
     is_disco_native: boolean
     archived: boolean
     online_ordering_enabled: boolean | null
+    stripe_account_id: string | null
   }[]
 
   const r = rows[0]
@@ -110,7 +147,17 @@ async function readOrderableState(ref: string): Promise<OrderableState | null> {
     isDiscoNative: r.is_disco_native,
     archived: r.archived,
     onlineOrderingEnabled: r.online_ordering_enabled,
+    stripeAccountId: r.stripe_account_id,
   }
+}
+
+// Shared by both policies. NATIVE ONLY: an FM-backed restaurant's money runs
+// through FM's own Stripe integration and never touches
+// createNativeOrderPaymentIntent, so this must not refuse the ~4,000 FM rows —
+// most of which have no stripe_account_id in Neon and are ordering perfectly
+// well today.
+function nativePaymentUnconfigured(s: OrderableState): boolean {
+  return s.isDiscoNative && !s.stripeAccountId
 }
 
 /**
@@ -133,6 +180,10 @@ export async function assertRestaurantOrderable(ref: string): Promise<OrderableR
     return result('ordering-disabled')
   }
 
+  // Native with no connected account: refuse BEFORE the customer reaches
+  // payment. Without this the charge succeeds platform-only and silently.
+  if (nativePaymentUnconfigured(s)) return result('payment-not-configured')
+
   return result('ok')
 }
 
@@ -154,6 +205,13 @@ export async function assertRestaurantAcceptsDirectEntry(ref: string): Promise<O
   const s = await readOrderableState(ref)
   if (!s) return result('unknown-restaurant')
   if (s.archived) return result('archived')
+  // Gated here TOO, unlike online_ordering_enabled. That flag is about which
+  // channel is open; this one is about whether the money can reach the
+  // restaurant at all, and a direct-entry order charges a real card exactly the
+  // same way a web order does. This path uses its own policy function rather
+  // than the customer gate, so it would otherwise be an unguarded route to the
+  // same PaymentIntent.
+  if (nativePaymentUnconfigured(s)) return result('payment-not-configured')
   return result('ok')
 }
 

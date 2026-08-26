@@ -697,3 +697,56 @@ CREATE TABLE IF NOT EXISTS disco_expedite_deliveries (
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS disco_expedite_deliveries_order_idx ON disco_expedite_deliveries (order_reference, created_at DESC);
+
+-- One row per convertToNative run that actually flipped is_disco_native.
+--
+-- WHY THIS EXISTS. Before it, a conversion left no record at all:
+-- disco_go_live_verifications is empty fleet-wide, disco_admin_audit had no
+-- conversion action, and 23 of 48 native restaurants carried no side-effect
+-- stamp of any kind. Reconstructing when a single restaurant became native, by
+-- what path, and who did it took FM API calls, Stripe searches and timestamp
+-- archaeology across four tables — and the answer was still partly inferential.
+-- That does not scale to a bulk run over ~4,000 restaurants.
+--
+-- readiness_snapshot IS THE POINT, not the timestamp. It stores every step with
+-- its done/blocking flags AT THE MOMENT OF THE FLIP, advisory ones included.
+-- convertToNative gates only on BLOCKING steps, and Stripe is deliberately
+-- advisory ("conversion is a data migration, not a go-live"), so a restaurant
+-- can convert with no payment capability and nothing records that it did.
+-- Atlanta Bread - Alpharetta is the worked example: is_disco_native = true, no
+-- stripe_account_id, no login accounts, a live orderable page — and no way to
+-- tell from the data that Stripe had failed at conversion time. With this row
+-- that state is visible immediately, and queryable across the whole bulk run:
+--   SELECT * FROM disco_conversions
+--   WHERE readiness_snapshot @> '{"advisoryFailed":["stripe-ready"]}';
+--
+-- Insert-only. Never updated, never deleted — a conversion is a historical
+-- event, and a restaurant CAN legitimately appear more than once if it is ever
+-- reverted and re-converted, so there is no unique constraint on the reference.
+-- restaurant_reference is TEXT, not UUID, and that is deliberate. This database
+-- is split: disco_restaurant_cache / _overrides / _accounts store the reference
+-- as TEXT while disco_menus / disco_orders use UUID, so every cross-table join
+-- already needs an explicit ::text cast. This table is joined almost exclusively
+-- against the cache and overrides, so TEXT is the side that avoids adding a cast
+-- to every future query against it.
+CREATE TABLE IF NOT EXISTS disco_conversions (
+  id                  SERIAL PRIMARY KEY,
+  restaurant_reference TEXT NOT NULL,
+  restaurant_name     TEXT,
+  actor_email         TEXT,
+  converted_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- What the flip itself wrote.
+  native_is_live      BOOLEAN,
+  -- Full ConversionReadiness at flip time: every step, done + blocking, plus
+  -- convenience arrays of which advisory steps failed and which blocking passed.
+  readiness_snapshot  JSONB,
+  -- Per-step outcome of everything convertToNative did AFTER the flip
+  -- (backfill, invites, notification/closed-days/promo/profile/tax carry-overs).
+  outcome             JSONB
+);
+-- Idempotent repair for the first cut of this table, which was created with a
+-- UUID column before the split above was noticed. Safe on an empty table and a
+-- no-op once it is already TEXT.
+ALTER TABLE disco_conversions ALTER COLUMN restaurant_reference TYPE TEXT;
+CREATE INDEX IF NOT EXISTS disco_conversions_ref_idx ON disco_conversions (restaurant_reference, converted_at DESC);
+CREATE INDEX IF NOT EXISTS disco_conversions_at_idx ON disco_conversions (converted_at DESC);

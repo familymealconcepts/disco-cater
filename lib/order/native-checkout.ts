@@ -744,13 +744,53 @@ export interface NativePlaceAndPayResult extends NativePlaceResult {
 // created UNCONFIRMED (client_secret returned) for the browser to confirm with
 // Stripe.js; the existing Stripe webhook flips the order RESERVED→DUE on
 // payment_intent.succeeded (it looks the order up via disco_stripe_payments).
+/**
+ * BACKSTOP for the money path: refuse a native charge when there is no
+ * connected account to route it to.
+ *
+ * The gate that should normally catch this is assertRestaurantOrderable /
+ * assertRestaurantAcceptsDirectEntry ('payment-not-configured'). This exists
+ * anyway because the gate and the charge are different layers: the gate lives
+ * in the HTTP routes, and any future caller reaching placement without passing
+ * through one of them would otherwise create a real PaymentIntent. A money path
+ * should refuse on its own terms rather than trust every caller.
+ *
+ * DELIBERATELY NARROW — it fires ONLY on a missing connected account, never on
+ * withholdPayouts. createNativeOrderPaymentIntent collapses both into "omit
+ * transfer_data", but they are different in kind: withhold is an admin decision
+ * that the platform holds the funds, and it has never once run in production
+ * (verified in Stripe live mode: of 29 native PaymentIntents, all 25 that
+ * succeeded carried transfer_data). Blocking a branch nobody has ever exercised
+ * would be changing behaviour we cannot characterise, so it is left exactly as
+ * it was.
+ *
+ * Throws rather than returning a result: every caller is already inside a
+ * try/catch that surfaces a 500, and there is no partial success worth
+ * modelling — the alternative is a silent platform-only charge.
+ */
+export class NativePaymentNotConfiguredError extends Error {
+  readonly reason = 'payment-not-configured'
+  constructor(restaurantReference: string) {
+    super(`Native restaurant ${restaurantReference} has no Stripe connected account — refusing to charge, which would settle the full amount into the platform account with the restaurant unpaid.`)
+    this.name = 'NativePaymentNotConfiguredError'
+  }
+}
+
+function assertNativePaymentConfigured(pay: { connectedAccountId: string | null; withholdPayouts: boolean }, restaurantReference: string): void {
+  if (!pay.connectedAccountId && !pay.withholdPayouts) throw new NativePaymentNotConfiguredError(restaurantReference)
+}
+
 export async function placeAndPayNativeOrder(
   input: NativePlaceInput,
   stripe: Stripe,
   opts?: { customerId?: string; onBehalfOf?: boolean },
 ): Promise<NativePlaceAndPayResult> {
-  const placed = await placeNativeOrder(input)
+  // Resolved and asserted BEFORE placeNativeOrder writes anything: throwing
+  // after placement would leave an orphaned RESERVED order for an order that
+  // can never be paid.
   const pay = await getRestaurantPayoutConfig(input.restaurantReference)
+  assertNativePaymentConfigured(pay, input.restaurantReference)
+  const placed = await placeNativeOrder(input)
   // Attach the diner to the charge: prefer an explicit test-supplied customerId,
   // otherwise resolve/create a real Stripe Customer from the diner's email so the
   // charge is never customer-less in the Stripe dashboard.
@@ -792,8 +832,9 @@ export interface NativeInvoiceResult extends NativePlaceResult {
 // the payout the webhook must move, so it never re-prices. Gated by the caller
 // behind NATIVE_INVOICE_ENABLED until live-verified in Stripe test mode.
 export async function placeNativeInvoiceOrder(input: NativePlaceInput, stripe: Stripe): Promise<NativeInvoiceResult> {
-  const placed = await placeNativeOrder({ ...input, orderStatus: 'UNPAID' })
   const pay = await getRestaurantPayoutConfig(input.restaurantReference)
+  assertNativePaymentConfigured(pay, input.restaurantReference)
+  const placed = await placeNativeOrder({ ...input, orderStatus: 'UNPAID' })
   const total = placed.breakdown.total
   const transfer = placed.breakdown.transfer
 
@@ -869,6 +910,7 @@ export async function chargeAndPlaceNativeRecurringOrder(
   }
 
   const pay = await getRestaurantPayoutConfig(input.restaurantReference)
+  assertNativePaymentConfigured(pay, input.restaurantReference)
   let pi: Stripe.PaymentIntent
   try {
     pi = await createNativeOrderPaymentIntent(stripe, {

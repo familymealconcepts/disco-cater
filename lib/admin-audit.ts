@@ -6,7 +6,7 @@ import { sql } from './db'
 // schema, declared again here IF NOT EXISTS rather than exported from there,
 // so this file has no dependency on the master-login module). Answers "who
 // archived/restored which restaurant, and when."
-export type AdminAuditAction = 'restaurant_archive' | 'restaurant_restore' | 'restaurant_permanent_delete'
+export type AdminAuditAction = 'restaurant_archive' | 'restaurant_restore' | 'restaurant_permanent_delete' | 'CONVERTED_TO_NATIVE'
 
 let auditTableEnsured = false
 async function ensureAuditTable(): Promise<void> {

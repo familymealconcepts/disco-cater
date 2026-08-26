@@ -12,6 +12,7 @@
 // capability check (verifyAccountReusable), never a money_flow/proxy. Fresh
 // onboarding is the fallback ONLY for accounts that genuinely can't be reused.
 import type Stripe from 'stripe'
+import { logAdminAction } from './admin-audit'
 import { sql, runMigrations } from './db'
 import { stripeReadySql } from './stripe-readiness'
 import bcrypt from 'bcryptjs'
@@ -142,6 +143,76 @@ async function storedAccountId(ref: string): Promise<string | null> {
     LIMIT 1
   `.catch(() => [])) as { stripe_account_id: string | null }[]
   return rows[0]?.stripe_account_id ?? null
+}
+
+/**
+ * Insert the durable record of a conversion, and mirror it into
+ * disco_admin_audit for the human-readable trail.
+ *
+ * Best-effort by design: a bookkeeping failure must never undo or fail a
+ * conversion that has already flipped the flag. Returns the new row id so the
+ * caller can fill in `outcome` once the carry-overs finish, or null if the
+ * insert failed.
+ *
+ * The advisoryFailed / blockingPassed arrays are derived here rather than left
+ * for a reader to compute from `steps`, because the whole reason this record
+ * exists is to answer "did this convert without Stripe" without anyone having to
+ * know which steps are advisory.
+ */
+async function recordConversion(p: {
+  restaurantReference: string
+  actorEmail: string | null
+  nativeIsLive: boolean
+  readiness: ConversionReadiness
+}): Promise<number | null> {
+  const advisoryFailed = p.readiness.steps.filter(s => !s.blocking && !s.done).map(s => s.key)
+  const blockingPassed = p.readiness.steps.filter(s => s.blocking && s.done).map(s => s.key)
+  const snapshot = {
+    stripeMode: p.readiness.stripeMode,
+    ready: p.readiness.ready,
+    ordersMirrored: p.readiness.ordersMirrored,
+    wasLiveBefore: p.readiness.isLive,
+    advisoryFailed,
+    blockingPassed,
+    steps: p.readiness.steps.map(s => ({ key: s.key, done: s.done, blocking: s.blocking, detail: s.detail })),
+  }
+  // Name is read here rather than threaded in: ConversionReadiness does not
+  // carry it, and denormalising it onto the row keeps the audit readable years
+  // later even if the restaurant is renamed or the cache row is gone.
+  let restaurantName: string | null = null
+  try {
+    const n = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${p.restaurantReference} LIMIT 1`) as { name: string | null }[]
+    restaurantName = n[0]?.name ?? null
+  } catch { /* best-effort */ }
+  let id: number | null = null
+  try {
+    const rows = (await sql`
+      INSERT INTO disco_conversions (restaurant_reference, restaurant_name, actor_email, native_is_live, readiness_snapshot)
+      VALUES (${p.restaurantReference}, ${restaurantName}, ${p.actorEmail},
+              ${p.nativeIsLive}, ${JSON.stringify(snapshot)}::jsonb)
+      RETURNING id
+    `) as { id: number }[]
+    id = rows[0]?.id ?? null
+  } catch (e) {
+    console.error('[convertToNative] could not write disco_conversions row:', e instanceof Error ? e.message : e)
+  }
+  await logAdminAction({
+    action: 'CONVERTED_TO_NATIVE',
+    restaurantReference: p.restaurantReference,
+    actorEmail: p.actorEmail,
+    detail: { conversionId: id, nativeIsLive: p.nativeIsLive, stripeMode: p.readiness.stripeMode, advisoryFailed },
+  })
+  return id
+}
+
+/** Fill in the per-step outcome once the carry-overs have run. Best-effort. */
+async function recordConversionOutcome(id: number | null, outcome: Record<string, unknown>): Promise<void> {
+  if (id == null) return
+  try {
+    await sql`UPDATE disco_conversions SET outcome = ${JSON.stringify(outcome)}::jsonb WHERE id = ${id}`
+  } catch (e) {
+    console.error('[convertToNative] could not write conversion outcome:', e instanceof Error ? e.message : e)
+  }
 }
 
 export async function checkConversionReadiness(
@@ -1057,7 +1128,7 @@ async function computeNativeIsLive(ref: string): Promise<boolean> {
 // deliberate product decision (this comment exists so it's visible, not silent).
 export async function convertToNative(
   ref: string,
-  opts?: { stripe?: Stripe; skipInvites?: boolean; prefetchedWalled?: FmWalledFieldsResult },
+  opts?: { stripe?: Stripe; skipInvites?: boolean; prefetchedWalled?: FmWalledFieldsResult; actorEmail?: string | null },
 ): Promise<ConversionResult> {
   const readiness = await checkConversionReadiness(ref, opts)
   if (!readiness.found) return { converted: false, reason: 'Restaurant not found.', readiness }
@@ -1083,6 +1154,19 @@ export async function convertToNative(
   // state (see computeNativeIsLive's own comment for why this ordering matters).
   const nativeIsLive = await computeNativeIsLive(readiness.restaurantReference)
   await sql`UPDATE disco_restaurant_cache SET is_disco_native = true, is_live = ${nativeIsLive}, cached_at = NOW() WHERE restaurant_reference = ${readiness.restaurantReference}`
+
+  // Record the flip IMMEDIATELY, before the carry-overs below. Those are all
+  // best-effort and several can fail without failing the conversion, so waiting
+  // until the end would risk the one durable record of "this became native"
+  // being the thing that goes missing. The outcome column is filled in at the
+  // end; a row with a NULL outcome therefore means the flip happened and the
+  // carry-overs did not complete, which is itself worth being able to see.
+  const conversionId = await recordConversion({
+    restaurantReference: readiness.restaurantReference,
+    actorEmail: opts?.actorEmail ?? null,
+    nativeIsLive,
+    readiness,
+  })
 
   // Best-effort, same contract as everything below — logo/marketplace image/
   // phone are all readable right off the FM restaurant object (unlike
@@ -1220,6 +1304,22 @@ export async function convertToNative(
   }
 
   const orderStatsAfter = await snapshotOrderStats(readiness.restaurantReference)
+
+  // Fill in the outcome on the row written at the flip. Each carry-over already
+  // records its own carried/reason, so this stores what they reported rather
+  // than re-deriving it — the point is that a later reader can see WHICH parts
+  // of a conversion silently did not happen, which today is only visible as a
+  // console.error nobody kept.
+  await recordConversionOutcome(conversionId, {
+    backfill: { ok: backfill.ok, error: backfill.error ?? null },
+    taxRates: { carried: taxRates.carried, reason: taxRates.reason ?? null },
+    notificationSettings: { carried: notificationSettings.carried, reason: notificationSettings.reason ?? null },
+    closedDays: { carried: closedDays.carried, reason: closedDays.reason ?? null },
+    promoCodes: { carried: promoCodes.carried, reason: promoCodes.reason ?? null },
+    profileFields: { iconUrl: profileFields.iconUrlCarried, imageUrl: profileFields.imageUrlCarried, phone: profileFields.phoneCarried },
+    invite: invite ? { sent: (invite as { sent?: boolean }).sent ?? null } : null,
+    orderStats: { before: orderStatsBefore, after: orderStatsAfter },
+  })
 
   return {
     converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: nativeIsLive },

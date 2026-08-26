@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAdminEmail } from '../../../../../../lib/admin-auth'
 import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { checkConversionReadiness, convertToNative } from '../../../../../../lib/native-conversion'
 
@@ -36,8 +37,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   if (body?.confirm !== true) {
     return NextResponse.json({ error: 'Pass { confirm: true } to convert. Review the readiness checklist first.' }, { status: 400 })
   }
+  // WHO ran it. Recorded on disco_conversions + disco_admin_audit — before this
+  // there was no actor on a conversion anywhere, so "who made this restaurant
+  // native" was unanswerable. Best-effort: a missing email must not block a
+  // conversion, it just records null.
+  let actorEmail: string | null = null
+  try { actorEmail = await getAdminEmail() } catch { /* leave null */ }
   try {
-    const result = await convertToNative(ref)
+    const result = await convertToNative(ref, { actorEmail })
     return NextResponse.json(result, { status: result.converted ? 200 : 409 })
   } catch (e) {
     console.error('[convert-native] POST failed:', e instanceof Error ? e.message : e)
