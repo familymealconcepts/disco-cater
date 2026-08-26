@@ -1,12 +1,16 @@
 # Restaurant-side email filtering
 
 Why order confirmations reach a restaurant's Junk folder while Mailgun reports
-success, which filter sits in front of each restaurant we send to, and what a
-restaurant has to do to allowlist us.
+success, which restaurants are most exposed to it, and what a restaurant has to
+do to allowlist us.
 
 Written up after the order-900000093 confirmation to `cory@dechecos.com`
-(2026-08-23) was found in Junk. This is reference material — it exists so the
-investigation does not have to be repeated.
+(2026-08-23) was found in Junk. **Confirmed 2026-08-26: he received it, it was
+filed as Junk by Proofpoint. Delivered, authenticated, filtered. Nothing was
+broken on our side.** That case is closed; this document exists so the
+investigation does not get repeated.
+
+**Section 6 is the part to send to a restaurant.** Everything else is internal.
 
 ---
 
@@ -16,338 +20,434 @@ Mailgun's `delivered` event means **one thing only**: the recipient's perimeter
 mail server returned a `250 OK` at SMTP time. It says nothing about where the
 message went afterwards.
 
-Every commercial filter in the table below is an **accept-then-filter**
-architecture. The perimeter MTA accepts the message, then scores it, then files
-it — inbox, Junk, or quarantine. All of that happens *after* the `250`, inside
-infrastructure we have no visibility into.
+Every filter named in this document is an **accept-then-filter** architecture.
+The perimeter server accepts the message, then scores it, then files it — inbox,
+Junk, or quarantine. All of that happens *after* the `250`, inside
+infrastructure we cannot see.
 
-So for the DeCheco's message, both of these are simultaneously true:
+Both of these were true at once for the DeCheco's message:
 
 - Mailgun logged `delivered` to `cory@dechecos.com` at 2026-08-23T16:26:56Z.
-- The message was in the Junk folder.
+- The message was in his Junk folder.
 
 **There is no API, webhook, or event that reports Junk placement.** Not from
-Mailgun, not from the filter vendors. The only reason we learned about this one
-is that a human at DeCheco's mentioned it.
+Mailgun, not from the filter vendors. What we checked on that message, across
+both sending domains:
 
-That is the monitoring gap, and it cannot be closed with the tooling we have.
-Treat any report of "we never got the order email" as plausible even when
-Mailgun shows `delivered` — check Junk before checking our logs.
+```
+mg.discocater.com  accepted 9, delivered 9 (code 250), failed 0, rejected 0, complained 0
+mg.familymeal.com  accepted 6, delivered 6 (code 250), failed 0, rejected 0, complained 0
+suppression lists  no dechecos.com address in bounces, complaints or unsubscribes — ever
+```
+
+No delayed bounce, no deferral, no complaint. The empty suppression list is the
+durable evidence: events age out in a few days, suppression entries never do.
+
+**The symptom of this failure is silence.** A restaurant does not get an error;
+it just does not see the order. Treat "we never got the order email" as
+plausible even when Mailgun says `delivered`, and check Junk before checking our
+logs.
+
+### What will not tell us either
+
+- **DMARC aggregate reports** (now flowing to Cloudflare, see
+  `_dmarc.discocater.com`). They cover mail claiming to be From our domain,
+  which does include our mail to restaurants — but the only placement-ish field
+  is `disposition`, and that is the DMARC *policy* action (`none` / `quarantine`
+  / `reject`). Our mail passes DMARC, so it reads `none`, and spam-score
+  filtering appears nowhere. Reports are also aggregate: daily counts per source
+  IP, no per-message detail, no recipient addresses. Many small gateways do not
+  emit them at all. Useful for spoofing and alignment breaks; useless for Junk.
+- **Open tracking.** See section 5.
 
 ---
 
-## 2. Which filter sits in front of each restaurant
+## 2. How exposed the estate is — fleet-wide census (2026-08-26)
 
-Determined from the MX records of every recipient domain that received mail on
-`mg.discocater.com` in the retained event window (2026-08-26).
+Every `disco_restaurant_overrides.notification_emails` recipient, classified by
+the MX record of its domain.
 
-| Recipient domain | Filter in front | Lowest-priority MX |
+```
+restaurants with notification_emails set : 782
+distinct recipient addresses             : 980
+distinct recipient domains               : 308
+```
+
+Domains by tier:
+
+| Tier | Domains | What it means |
 |---|---|---|
-| `dechecos.com` | **Proofpoint Essentials** | `mx1-usg1.ppe-hosted.com` |
-| `elmwoodparkpizza.com` | **Microsoft 365** | `elmwoodparkpizza-com.mail.protection.outlook.com` |
-| `franpizzanj.com` | **Microsoft 365** | `franpizzanj-com.mail.protection.outlook.com` |
-| `cenavegan.com` | **Google Workspace** | `aspmx.l.google.com` |
-| `winkinrooster.com` | **Google Workspace** | `aspmx.l.google.com` |
-| `firstcomm.com` | **Barracuda** (ESS) | `d104236a.ess.barracudanetworks.com` |
-| `grantinc.com` | **AppRiver / SecureTide** (now OpenText) | `grantinc.com.1.0001.arsmtp.com` |
-| `glenrockpizza.com` | **SiteGround spam protection** | `mx10.antispam.mailspamprotection.com` |
-| `hugostacos.com` | self-hosted | `mail.hugostacos.com` |
-| `hugosrestaurant.com` | self-hosted | `mail.hugosrestaurant.com` |
+| mainstream (Google, Microsoft, Yahoo, iCloud, Zoho, hosts) | 261 | filters, but mostly visibly |
+| **dedicated security gateway** | **14** | **accept-then-filter, silent** |
+| no MX at all | 18 | cannot receive mail — see 2.2 |
+| self-hosted / unknown | 14 | no vendor guidance possible |
 
-Recipient domains that are ours or FM's — `discocater.com`, `familymeal.com` —
-are Google Workspace and are not restaurant-side risk.
+Gateway vendors present:
 
-**The headline: nearly every restaurant recipient sits behind a commercial
-filter, and eight distinct vendors are represented in a list of ten
-restaurants.** There is no single allowlist that covers the estate. This is
-inherently per-restaurant work.
+```
+8  Proofpoint          3  mailspamprotection      1  Mimecast
+1  AppRiver/SecureTide 1  Hornetsecurity
+```
 
-To re-derive this for a new restaurant:
+### 2.1 The 28 restaurants behind a gateway
+
+14 gateway domains map to **28 restaurants**, and **19 of those have no
+non-gateway co-recipient** — meaning if the gateway files it away, nobody at the
+restaurant sees the order at all.
+
+The concentration matters more than the count. Two contacts cover most of it:
+
+| Domain | Vendor | Restaurants |
+|---|---|---|
+| `webeggtodiffer.com` | Hornetsecurity | **7** — Eggstasy ×6 (Scottsdale, Queen Creek, The Colony, Norterra, Mesa, Chandler) + Morning Squeeze |
+| `dechecos.com` | Proofpoint | **6** — DeCheco's ×6 (all locations) |
+| `freshfinpoke.com` | Proofpoint | FreshFin - East Side MKE |
+| `brandedgoodsonline.com` | Proofpoint | Mr. M's Sandwich Shop |
+| `glenrockpizza.com` | mailspamprotection | Francesca Catering - Glen Rock (×2 records) |
+| `sandyhookseafood.com` | mailspamprotection | Sandy Hook Seafood |
+| `aygueynyc.com` | mailspamprotection | Ay Guey NYC |
+| `bludsosbbq.com` | Mimecast | Bludso's BBQ - La Brea |
+| `bestlobster.com` | Proofpoint | The Lusty Lobster |
+| `rooted-cafe.com` | Proofpoint | Rooted Cafe & Catering |
+| `shoregoodeats.com` | Proofpoint | Shore Good Eats |
+| `lorenzofoodgroup.com` | AppRiver | Yella's |
+| `southern.edu` | Proofpoint | Colette's Creations |
+| `bagelpoint.com` | Proofpoint | (orphaned override rows, no cache row) |
+
+**This is a handful, not dozens.** 28 of 782 restaurants, and one conversation
+with Eggstasy's IT plus one with DeCheco's covers 13 of the 28. Worth Kealoha
+getting ahead of manually; not worth building tooling for.
+
+The six DeCheco's locations and Francesca Glen Rock **do** have a co-recipient
+on Gmail, which is a free diagnostic — if the Gmail recipient has the message
+and the gateway one does not, the problem is definitively the gateway. That is
+how the DeCheco's case was closed.
+
+### 2.2 Separate and more urgent: domains that cannot receive mail at all
+
+18 notification domains have **no MX record**. A domain with no MX cannot
+receive mail; senders will not fall back to an A record. These addresses are
+unreachable, permanently, and silently.
+
+**17 of the 18 belong to restaurants that are not live**, so the practical
+impact today is one restaurant:
+
+```
+sipandcoev.co    managers@sipandcoev.co    Sip + Co East Village    LIVE
+                 domain does not resolve at all (ENOTFOUND, no A record)
+```
+
+**Action: get a working notification address for Sip + Co East Village.** It
+cannot currently receive an order notification by any route.
+
+The other 17 (`ztejas.com` with 10 addresses, `eatbeatnic.com`, `dalla.ca`,
+`cocu.nyc`, `tacosdm.com`, `thecalimexcafe.com`, `eatojaiburger.com`,
+`coppolasnj.pizza`, `mariosnj.pizza`, `hungryhouse.com`, `goodfantzye.com`,
+`stockyardphily.com`, `shine-provisions.com`, `thefoodguys.net`,
+`robbyjay.com`, `redrocksog.com`, `fairlawnpizza.com`) are all non-live and
+should be cleaned up if any is ever reactivated. Several also hard-bounced
+during the rebrand campaign, which is consistent.
+
+Also noted: **142 `disco_restaurant_overrides` rows carry `notification_emails`
+but have no matching `disco_restaurant_cache` row.** A data-integrity issue
+rather than a deliverability one, but it means the census above slightly
+under-counts named restaurants.
+
+To classify a new restaurant:
 
 ```sh
 dig +short MX <restaurant-domain>
 ```
 
-and match the hostname against the table above (`ppe-hosted.com` = Proofpoint,
-`mail.protection.outlook.com` = Microsoft, `aspmx.l.google.com` = Google,
-`ess.barracudanetworks.com` = Barracuda, `arsmtp.com` = AppRiver,
-`antispam.mailspamprotection.com` = SiteGround).
+`ppe-hosted.com`/`pphosted.com` = Proofpoint · `mimecast` = Mimecast ·
+`ess.barracudanetworks.com` = Barracuda · `arsmtp.com` = AppRiver ·
+`antispameurope`/`hornetsecurity` = Hornetsecurity ·
+`antispam.mailspamprotection.com` = SiteGround · `iphmx.com` = Cisco ·
+`mail.protection.outlook.com` = Microsoft · `aspmx.l.google.com` = Google ·
+**no output at all = the domain cannot receive mail.**
 
 ---
 
-## 3. What we send, and why authentication is not the problem
+## 3. The two sender pairs — which mail comes from where
 
-As of 2026-08-26, on `mg.discocater.com`:
+**This is the thing most easily got wrong.** Restaurants receive order mail from
+two different systems on two different domains, and allowlisting one does not
+help the other.
+
+| Mail | Sending domain | From address | Sent by |
+|---|---|---|---|
+| **Disco Cater** order confirmations, restaurant notifications, 24h reminders, password resets | `mg.discocater.com` | `orders@discocater.com` | disco-cater (`lib/email/send.ts`) |
+| **FamilyMeal** order confirmations, cancellations, refunds, reminders | `mg.familymeal.com` | `noreply@mg.familymeal.com` | FM's Java backend |
+
+Which one a restaurant gets depends on the order, not on the restaurant:
+`disco_orders.source_of_order = 'DISCO'` → our mail; `'FAMILYMEAL'` → FM's mail.
+A restaurant that takes orders through both channels receives both, so
+**always give a restaurant both pairs.**
+
+This was the live trap in the DeCheco's case: the messages Cory was missing that
+week were FM's (all three orders since Aug 23 were `source_of_order =
+FAMILYMEAL`), while the investigation and the original version of this document
+were both about `mg.discocater.com`.
+
+### Authentication (both domains pass — this is never the cause)
 
 ```
-From        : Disco Cater <orders@discocater.com>
-Sender      : orders@discocater.com          <- set explicitly; see below
-Reply-To    : kealoha@discocater.com
-envelope    : postmaster@mg.discocater.com
-DKIM        : d=mg.discocater.com, selector krs
-```
-
-DNS:
-
-```
-discocater.com       SPF   v=spf1 include:_spf.google.com ~all      (no Mailgun)
-                     DMARC v=DMARC1; p=quarantine; adkim=r; aspf=r
+discocater.com       SPF   v=spf1 include:_spf.google.com ~all
+                     DMARC p=quarantine; adkim=r; aspf=r;
+                           rua=Cloudflare + GoDaddy processors
 mg.discocater.com    SPF   v=spf1 include:mailgun.org ~all
                      DKIM  krs._domainkey.mg.discocater.com
-                     DMARC (none — inherits discocater.com by tree-walk)
+mg.familymeal.com    SPF   v=spf1 include:mailgun.org ~all
+                     DMARC inherits familymeal.com p=quarantine (relaxed)
 ```
 
-Because `discocater.com` publishes **relaxed** alignment on both axes
-(`adkim=r; aspf=r`), `mg.discocater.com` aligns organizationally and **DMARC
-passes**. SPF passes on the envelope domain. DKIM passes.
-
-**Authentication is not why these land in Junk.** This is the important
-difference from the September rebrand campaign, where From `@discocater.com`
-signed by `mg.familymeal.com` was a genuine cross-organizational DMARC failure.
-Transactional mail has never had that defect.
+Relaxed alignment on both axes means the `mg.` subdomains align
+organizationally, so **SPF, DKIM and DMARC all pass.** When a restaurant's IT
+asks whether the mail is authenticated, the answer is yes, verifiably.
 
 ### The `Sender:` header (fixed 2026-08-26)
 
-Mailgun adds its own `Sender:` header whenever the From domain differs from the
+Mailgun adds its own `Sender:` header when the From domain differs from the
 sending domain, in VERP form — `orders=discocater.com@mg.discocater.com`.
-Outlook renders that as **"orders=discocater.com@mg.discocater.com — On behalf
-of Disco Cater"**, which reads to restaurant staff like a spoof of their own
-order mail.
+Outlook rendered that as *"orders=discocater.com@mg.discocater.com — On behalf
+of Disco Cater"*, which reads like a spoof of the restaurant's own order mail.
 
-`lib/email/send.ts` now sets `h:Sender` to the From address, so `Sender` equals
-`From` and there is nothing for the "on behalf of" rendering to trigger on. It
-is set **only when the From domain differs from the sending domain**, so paths
-that already align (the rebrand campaign, which sends From
-`noreply@mg.familymeal.com` over `mg.familymeal.com`) are untouched.
+`lib/email/send.ts` now sets `h:Sender` to the From address so `Sender` equals
+`From`, and sets it **only when the domains differ** — so the FM campaign path
+(From `noreply@mg.familymeal.com` over `mg.familymeal.com`) is untouched and
+byte-identical.
 
-**This did not fix Junk placement and was not expected to.** The envelope still
-differs from From, which is what every ESP does and is not a meaningful spam
-signal on its own. The fix removes an anomalous header, not a receiver's
-verdict.
-
-### What actually drives the Junk placement
-
-Most likely **sending reputation, not headers**. `mg.discocater.com` is a very
-low-volume domain: roughly 78 events in the retained window, the majority of
-them internal (`familymeal.com` and `discocater.com` recipients), against a
-documented 358 accepted in 90 days with a 45-email peak day. A domain that
-quiet has essentially no reputation for a filter to lean on, and these messages
-carry a PDF attachment.
-
-Low volume is not a thing we can fix by configuration. It improves as real
-order volume grows, and it is helped in the meantime by recipient-side
-allowlisting (section 5).
+**This did not fix Junk placement and was not expected to.** It removed an
+anomalous header. Do not present it as a deliverability fix.
 
 ---
 
-## 4. Open and click tracking are deliberately OFF — leave them off
+## 4. What actually drives the Junk placement
 
-Current state on `mg.discocater.com`:
+**Sending reputation, not configuration.** `mg.discocater.com` is very
+low-volume: ~88 accepted events in the retained window, mostly internal, against
+a documented 358 accepted in 90 days with a 45-email peak day. That is roughly
+four messages a day, **split across two shared Mailgun IPs**
+(`204.220.184.35`, `69.72.42.241`), so each IP sees about two of our messages a
+day among other customers' traffic. There is no meaningful IP or domain
+reputation to lean on, and every order message carries a 24KB PDF.
+
+Things that were investigated and are **not** worth doing:
+
+- **A dedicated IP** would be worse. Warming needs thousands of messages over
+  weeks; a dedicated IP at four a day looks worse to receivers than shared.
+- **Moving transactional to a new subdomain** resets what little reputation
+  exists. `mg.discocater.com` already carries only transactional mail — the
+  separation is real (86 of 88 messages From `orders@discocater.com`, all
+  order/reminder/password). Do not move it.
+- **Dropping the PDF for a link.** The attachment is 24KB, identical min and
+  max, on 65% of messages — not a size trigger. A rewritten link is a *stronger*
+  filter signal than a small PDF, and restaurants want the printable ticket.
+- **BIMI.** Needs a Verified Mark Certificate, which needs a registered
+  trademark, at four figures a year, to show a logo in Gmail and Yahoo. Not a
+  placement signal.
+- **An explicit `Return-Path`.** Tested: the header is set and then receiving
+  MTAs rewrite it from the real envelope. You cannot change the envelope without
+  changing the sending domain.
+
+**The real lever is volume and time**, to engaged recipients. It improves as
+native order volume grows. There is no shortcut, and the honest position is that
+recipient-side allowlisting (section 6) is the only thing that fixes a *named*
+restaurant now.
+
+---
+
+## 5. Open and click tracking are deliberately OFF — leave them off
 
 ```json
 {"open":{"active":false},"click":{"active":false},"unsubscribe":{"active":true}}
 ```
 
-This means **"0 opens" in Mailgun is not evidence of anything.** The signal does
-not exist. Any question of the form "has a restaurant stopped opening our
-confirmations?" cannot be answered from Mailgun today, and reading `opened: 0`
-as engagement data would be a mistake.
+So **"0 opens" in Mailgun is not evidence of anything** — the signal does not
+exist. Any question of the form "has this restaurant stopped opening our
+confirmations?" cannot be answered from Mailgun today.
 
-**Do not turn these on to find out.** The reasons, in order of weight:
+**Do not enable them to find out.** The reasoning that says "an open proves the
+message reached an inbox" does not hold, in either direction:
 
-1. **Open tracking injects a tracking pixel** and **click tracking rewrites
-   every link** to a Mailgun redirect domain. On transactional mail going to
-   filtered business mailboxes, both are recognised spam heuristics — link
-   rewriting in particular makes the visible URL differ from its target, which
-   is exactly what phishing does. We would be degrading deliverability in order
-   to measure deliverability.
-2. Link rewriting on an order confirmation puts a third-party redirect between
-   a restaurant and its own order. If the redirect fails, the order link fails.
-3. `web_scheme` on this domain is `http`, so rewritten links would downgrade to
-   plaintext HTTP.
-4. It would not answer the question anyway. Open tracking cannot see Junk
-   placement — a message sitting unread in Junk and a message sitting unread in
-   the inbox produce the identical signal (none).
+1. **A Junk message can be opened.** People check Junk — that is exactly how the
+   DeCheco's message was found. An open does not prove inbox placement.
+2. **No open does not prove Junk.** Outlook and most corporate clients block
+   remote images by default, so a message that was read often produces no event.
+3. **Gateways generate false opens.** Proofpoint and Microsoft pre-fetch and
+   scan embedded images, producing opens with no human involved. At exactly the
+   recipients we care about, the signal is closest to noise.
+4. **It would make the problem worse.** Open tracking injects a pixel; click
+   tracking rewrites every link to a redirect domain, so the visible URL differs
+   from its target — which is what phishing does. On transactional mail to
+   filtered business mailboxes both are recognised spam heuristics. We would be
+   degrading placement in order to measure it. `web_scheme` on this domain is
+   also `http`, so rewritten links would downgrade to plaintext.
+5. Link rewriting on an order confirmation puts a third-party redirect between a
+   restaurant and its own order.
 
-If engagement data is ever genuinely needed, the correct route is a per-send
-opt-in on marketing sends only, never a domain-wide default that catches
-transactional mail.
-
-`unsubscribe` tracking is active but has empty footers, and does not inject
-anything into transactional messages.
-
----
-
-## 5. Getting a restaurant to allowlist us
-
-### 5.1 What to give them
-
-The values to allowlist, in descending order of usefulness:
-
-| Value | What it is |
-|---|---|
-| `mg.discocater.com` | the **sending domain** — DKIM `d=`, envelope domain. Best single value. |
-| `orders@discocater.com` | the visible **From** address |
-| `discocater.com` | the From domain |
-| `kealoha@discocater.com` | the **Reply-To** — where replies actually go |
-
-Prefer allowlisting **`mg.discocater.com`**, because it is the domain that is
-cryptographically authenticated (DKIM) and appears in the envelope, so it is
-the value a filter can verify rather than merely read. Allowlisting only the
-visible From address is weaker — it is a header, and headers can be claimed by
-anyone.
-
-**Do not ask a restaurant to allowlist by IP.** Mailgun sends from shared IP
-pools; the IP changes and is not exclusively ours, so an IP allowlist is both
-fragile and over-broad.
-
-### 5.2 Proofpoint Essentials — DeCheco's
-
-This is the one we need first. Proofpoint Essentials calls the feature
-**Sender Lists** (the allow half is the **Safe Senders List**), and it exists at
-two levels:
-
-- **Organization level** — set by whoever administers the account. This is
-  usually the restaurant's IT provider or reseller, *not* the restaurant
-  itself, because Proofpoint Essentials is sold through partners. Expect to be
-  routed to a third party.
-- **Per-user level** — on the individual user's profile, and also reachable by
-  the end user from the **quarantine digest** email Proofpoint sends them, which
-  carries "Safe list this sender" style links per message.
-
-The fastest path for DeCheco's is almost always the per-user route: Cory finds
-the confirmation in Junk or in a Proofpoint quarantine digest and safe-lists the
-sender from there. That requires no admin access and no ticket.
-
-Add **`mg.discocater.com`** and **`orders@discocater.com`**.
-
-> Confidence note: the feature names above (Sender Lists / Safe Senders List,
-> org-level and per-user, digest-driven safe-listing) are stable Proofpoint
-> Essentials concepts. The exact menu path moves between interface versions, so
-> search the admin UI for "Sender Lists" rather than following a fixed
-> click-path from this document. If a specific path is needed, get it from
-> Proofpoint's current documentation at the time of asking.
-
-### 5.3 Microsoft 365 — `elmwoodparkpizza.com`, `franpizzanj.com`
-
-The supported tenant-wide mechanism is the **Tenant Allow/Block List** in the
-Microsoft Defender portal, under Threat policies, where a domain or address is
-added as an **Allow** entry. An alternative used by many admins is an **Exchange
-mail flow rule** that sets the spam confidence level to `-1` for mail from the
-sender.
-
-Note two Microsoft-specific traps worth telling an admin about:
-
-- Adding a sender to an **anti-spam policy's allowed senders/domains** list is
-  the obvious-looking option and Microsoft explicitly discourages it, because it
-  bypasses filtering more broadly than intended.
-- A user adding us to their **personal Safe Senders** in Outlook often does not
-  override tenant-level filtering. Per-user action is frequently not enough
-  here, unlike Proofpoint.
-
-> Confidence note: Tenant Allow/Block List and the SCL `-1` mail flow rule are
-> both well-established. Microsoft renames portal sections often — treat the
-> mechanism as reliable and the navigation as needing verification.
-
-### 5.4 Google Workspace — `cenavegan.com`, `winkinrooster.com`
-
-Admin console, Gmail settings, spam/phishing/malware section. The useful control
-is the setting that **bypasses spam filtering for messages from senders or
-domains in a selected address list**, pointed at an address list containing our
-domain. There is also an **Email allowlist**, but it is **IP-based** — per 5.1,
-do not use it for Mailgun.
-
-Google is the least likely of the filters here to junk us given DMARC passes, so
-this is lower priority.
-
-> Confidence note: mechanism is reliable; exact labels shift.
-
-### 5.5 Barracuda — `firstcomm.com`
-
-Barracuda Email Security Service uses **Sender Policies**, set at domain or user
-level, where a domain/address is given an explicit `allow`. Per-user quarantine
-notifications also allow end users to allow-list a sender.
-
-> Confidence note: "Sender Policies" is the right concept; verify the path.
-
-### 5.6 AppRiver / SecureTide — `grantinc.com`
-
-AppRiver (SecureTide, now part of OpenText) has an allow-list in its
-administrative console, typically managed by the reseller rather than the
-customer.
-
-> Confidence note: **lower than the others.** The product has changed ownership
-> and branding, and the current console differs from historical documentation.
-> Establish the actual path with the customer's provider rather than relying on
-> this entry.
-
-### 5.7 SiteGround spam protection — `glenrockpizza.com`
-
-`antispam.mailspamprotection.com` is SiteGround's hosted mail filtering. The
-allow-list lives in the SiteGround hosting control panel's email/spam section
-and is managed by whoever owns the hosting account.
-
-> Confidence note: **lower.** This is a hosting-provider feature rather than a
-> standalone security product; confirm with the account owner.
-
-### 5.8 Self-hosted — `hugostacos.com`, `hugosrestaurant.com`
-
-No vendor. Whoever runs the mail server sets the rule, and there is no general
-guidance to give. Ask what they run.
+If engagement data is ever genuinely needed, it should be a per-send opt-in on
+marketing sends only, never a domain-wide default that catches transactional
+mail.
 
 ---
 
-## 6. Message Kealoha can send to a restaurant
+## 6. Send this to the restaurant
 
-Reusable as-is. Substitute the restaurant name; drop the last paragraph if the
-contact is not technical.
+Self-contained. Substitute the restaurant name and send — no editing needed.
+Covers both sender pairs and both the release and allowlist steps.
 
-> Subject: Making sure our order emails reach your inbox
+---
+
+> **Subject: Making sure your order emails reach your inbox**
 >
 > Hi <name>,
 >
-> Order confirmations from us are being filed as junk by your mail provider's
-> spam filter rather than landing in your inbox. The emails are being accepted
-> and delivered — they are just being put in the wrong folder, so it is easy to
-> miss an order.
+> Your catering order emails from us are being delivered to your mail system but
+> filed into Junk or quarantine by your spam filter instead of your inbox. The
+> emails are arriving — they are just going to the wrong folder, which makes it
+> easy to miss an order.
 >
-> Two things that fix it:
+> There are two parts to fixing this. The first part you can do yourself in a
+> couple of minutes, and it matters more than it sounds: spam filters learn from
+> it.
 >
-> 1. Find one of our order emails in your Junk or Spam folder and mark it "Not
->    junk" / "Not spam". If your provider sends you a daily quarantine summary,
->    you can also allow the sender directly from that email.
-> 2. Ask whoever looks after your email to add these to your safe-sender or
->    allow list:
+> **Part 1 — rescue the messages you already have (please do this first)**
 >
->    - `mg.discocater.com`
->    - `orders@discocater.com`
+> If the emails are in your **Junk or Spam folder**: open one, and click **"Not
+> Junk"** / **"Not Spam"** / **"Report as not junk"**. Do this for two or three
+> of them if you can find them. Simply moving the message to your inbox by
+> dragging it does *not* teach the filter anything — you have to use the Not
+> Junk button.
 >
-> Our mail is fully authenticated (SPF, DKIM and DMARC all pass), so there is no
-> security reason for it to be filtered — allowing it does not weaken your spam
-> protection.
+> If instead you get a **daily or weekly "quarantine summary" email** from your
+> security provider listing blocked messages: find our messages in that list and
+> click **Release** (sometimes labelled "Deliver" or "Allow"). Releasing a
+> message is the single most useful thing you can do, because most filters treat
+> a release as a strong signal that mail from that sender is wanted. If the
+> summary also offers **"Allow sender"** or **"Safe list sender"**, use that too.
+>
+> **Part 2 — ask your IT or email provider to allow our senders**
+>
+> Forward the section below to whoever looks after your email. If that is an
+> outside IT company or your web host, they will know what to do with it.
+>
+> ---
+>
+> *For the IT contact:*
+>
+> Please add the following to the organisation's safe-sender / allow list. There
+> are **two separate systems** that send this restaurant's order email, and both
+> need allowing — allowing only one will leave the other still filtered:
+>
+> **Disco Cater order emails**
+> - Sending domain: `mg.discocater.com`
+> - From address: `orders@discocater.com`
+>
+> **FamilyMeal order emails**
+> - Sending domain: `mg.familymeal.com`
+> - From address: `noreply@mg.familymeal.com`
+>
+> Where the system offers a choice, **allow-list by sending domain**
+> (`mg.discocater.com`, `mg.familymeal.com`) rather than only by From address.
+> The sending domain is the one that is cryptographically signed with DKIM and
+> appears in the SMTP envelope, so it is a value you can verify; a From address
+> is only a header.
+>
+> **Please do not allow-list by IP address.** These messages are sent via
+> Mailgun, which uses shared IP pools — the addresses change and are not
+> exclusive to us, so an IP rule is both fragile and far broader than intended.
+>
+> Both domains are fully authenticated — SPF, DKIM and DMARC all pass, with
+> DMARC published at `p=quarantine`. You can verify this on any received message
+> by checking the `Authentication-Results` header. Allowing these senders does
+> not weaken your spam protection or create a spoofing route: mail that fails
+> authentication for these domains will still be rejected.
+>
+> Product notes that may be useful depending on what you run:
+> - **Proofpoint Essentials** — Sender Lists / Safe Senders List, available at
+>   organisation level and per-user. End users can also safe-list from the
+>   quarantine digest.
+> - **Microsoft 365** — the supported route is an **Allow** entry in the Tenant
+>   Allow/Block List, or an Exchange mail flow rule setting SCL to `-1`. Note
+>   that a user's personal Outlook Safe Senders list often does *not* override
+>   tenant-level filtering, and Microsoft discourages using anti-spam policy
+>   allowed-sender lists.
+> - **Google Workspace** — Gmail spam settings, the option to bypass spam
+>   filtering for senders in a selected address list. Do not use the "Email
+>   allowlist" setting, which is IP-based.
+> - **Mimecast** — a Permitted Sender policy, or Managed Sender set to Permit.
+> - **Barracuda** — Sender Policies, at domain or user level, set to allow.
+> - **Hornetsecurity** — the Allow/Deny list under spam and malware protection.
+> - **SiteGround / mailspamprotection.com** — the spam filter allow-list in the
+>   hosting control panel.
+> - **AppRiver / SecureTide** — the allow list in the admin console; this is
+>   usually managed by the reseller rather than the account holder.
+>
+> Menu paths move between product versions, so search the admin interface for
+> "sender list", "permitted sender" or "allow list" rather than following a fixed
+> click-path.
+>
+> ---
+>
+> Once both parts are done, new order emails should land in the inbox. If any
+> still go to Junk after that, reply and let us know — we can confirm from our
+> side exactly when each message was delivered and to which server.
 >
 > Thanks,
 > Kealoha
 
 ---
 
-## 7. Deliberately not done
+## 7. `mg.familymeal.com` carries the campaign AND fleet transactional mail
 
-- **Not verifying `discocater.com` as a Mailgun sending domain.** It would need
-  `include:mailgun.org` added to a root SPF that currently authorises only
-  Google Workspace, plus a new DKIM key, and it would couple the Google
-  Workspace domain carrying human mail to Mailgun bulk-sending reputation —
-  which is the entire reason to send from a subdomain. A brand-new sending
-  identity also starts with *zero* reputation, worse than the little
-  `mg.discocater.com` has. Real risk on the domain staff email depends on, for
-  no deliverability gain.
-- **Not switching From to `@mg.discocater.com`.** It aligns everything
-  (including strict alignment) and would also remove the "on behalf of", but it
-  shows a subdomain address to customers and restaurant staff permanently. The
-  usual argument for accepting that — "staff need to be able to reply" — does
-  not apply: `DEFAULT_REPLY_TO` is already `kealoha@discocater.com` on every
-  send, so replies never go to the From address anyway. The cost is purely
-  cosmetic and the benefit over `h:Sender` is negligible.
-- **Not enabling open or click tracking.** See section 4.
-- **Not asking restaurants to allowlist by IP.** See section 5.1.
-</content>
+Flagged 2026-08-26. **This is the more consequential version of the
+domain-separation question**, and it cuts the other way from section 4.
+
+`mg.discocater.com` is cleanly separated — transactional only.
+`mg.familymeal.com` is not. In the retained window it carried **1428 accepted
+messages**:
+
+```
+ 499  rebrand campaign            (35% of the domain's traffic)
+ 434  FM order confirmations
+ 133  FM reminders
+ 106  FM welcome emails
+  30  FM cancellations
+   6  FM refunds
+ ~220 other FM transactional (ORDER CONFIRMED / CHANGE / payment / password)
+```
+
+So a bulk marketing campaign and **the entire FM fleet's order mail** share one
+domain reputation. Every restaurant that takes FamilyMeal orders — DeCheco's,
+Apollo Bagels, Colonial, Wax Paper, Hugo's and the rest — depends on it.
+
+The campaign's own bounce history on that shared domain:
+
+| | Sent | Hard bounces | Rate | Complaints |
+|---|---|---|---|---|
+| Day one | 60 | 15 | 25% (12 were known-risky domains) | 0 |
+| Day two | 325 | 17 | 5.2% | 0 |
+| Day three (post-validation) | 301 | see run report | ~1% | 0 |
+
+Two things keep this from being urgent: **zero complaints across the whole
+campaign** — and complaints weigh far more heavily than bounces — and day
+three's rate is back near 1% after pre-send validation, so the campaign is now
+better behaved than the domain's own historical 2–3%.
+
+It also did **not** cause the DeCheco's case: five of Cory's six FM emails
+predate day one of the campaign entirely.
+
+**Recommendations**
+
+1. **Do not move the campaign mid-flight.** Changing sending domain partway
+   through is worse than finishing on the one already warmed.
+2. **Validate before any future bulk send.** Day two bounced 5.2% unvalidated;
+   day three ~1% validated. That delta is the whole argument.
+3. **Future bulk sends should not share a domain with fleet transactional mail.**
+   A dedicated marketing subdomain is the correct shape — accepting that a new
+   subdomain starts at zero reputation and needs warming.
+   `hello.discocater.com` already exists, is verified, and has zero traffic if a
+   Disco-side marketing lane is ever wanted.
+4. **Never send bulk mail from `mg.discocater.com`.** It carries the native
+   order confirmations and has almost no reputation buffer to absorb it.
