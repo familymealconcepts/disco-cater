@@ -92,6 +92,80 @@ const KEALOHA_BCC = 'kealoha@discocater.com'
 // by design) pass their own params.replyTo, which wins over this default.
 const DEFAULT_REPLY_TO = 'kealoha@discocater.com'
 
+// ── THE `Sender:` HEADER ────────────────────────────────────────────────────
+//
+// Mailgun adds its OWN `Sender:` header whenever the visible From domain
+// differs from the Mailgun sending domain, in VERP form:
+//
+//     From   : Disco Cater <orders@discocater.com>
+//     Sender : orders=discocater.com@mg.discocater.com     <- Mailgun's, not ours
+//
+// RFC 5322 gives `Sender:` a specific meaning — "this mailbox transmitted the
+// message on behalf of the From mailbox" — and Outlook renders exactly that:
+// "orders=discocater.com@mg.discocater.com — On behalf of Disco Cater". It was
+// on the order-900000093 confirmation that landed in Junk at DeCheco's, and it
+// reads to restaurant staff like a spoof of their own order mail.
+//
+// Setting `h:Sender` to the From address suppresses it. Mailgun HONOURS the
+// override — verified by sending four variants and reading the stored headers
+// back off delivered messages, not inferred from documentation:
+//
+//     From @discocater.com, no override -> Sender: orders=discocater.com@mg...
+//     From @discocater.com, h:Sender    -> Sender: orders@discocater.com  (== From)
+//     From @mg.discocater.com           -> Sender: noreply@mg.discocater.com (== From)
+//     h:Return-Path                     -> ignored in practice; receiving MTAs
+//                                          rewrite Return-Path from the real
+//                                          envelope, so it is cosmetic only.
+//
+// ONLY SET WHEN THE DOMAINS ACTUALLY DIFFER. When From already matches the
+// sending domain, Mailgun emits `Sender:` equal to From by itself and there is
+// nothing to correct — so this omits the parameter rather than re-asserting a
+// value Mailgun would produce anyway. That is deliberate and load-bearing: it
+// keeps the rebrand-campaign path (noreply@mg.familymeal.com over
+// mg.familymeal.com) byte-for-byte identical to the messages already sent under
+// it, so a header change cannot perturb a campaign that is mid-flight.
+//
+// WHAT THIS IS NOT. It does not fix spam placement and must not be sold as
+// though it does. The ENVELOPE sender is unchanged (postmaster@mg.discocater.com)
+// — confirmed unchanged in the override variant, which is also why Mailgun's
+// bounce and complaint handling is unaffected, since that routes on the envelope
+// and never on this header. DMARC passed before and after (discocater.com
+// publishes adkim=r; aspf=r, so mg.discocater.com aligns organizationally).
+// Envelope-vs-From divergence is what every ESP does and is not itself a
+// meaningful spam signal. This removes the one genuinely anomalous header —
+// most ESPs never emit `Sender:` at all — not a receiver's verdict. Junk
+// placement behind Proofpoint et al. is a reputation and recipient-policy
+// matter; see docs/restaurant-email-filtering.md.
+
+/**
+ * The bare address out of `Display Name <addr@host>`, or a plain `addr@host`.
+ * Returns null on anything it cannot confidently parse, and the caller then
+ * omits the header — an unparseable From must leave today's behaviour intact
+ * rather than assert a wrong Sender.
+ */
+function bareAddress(from: string): string | null {
+  const angled = from.match(/<([^>]+)>/)
+  const addr = (angled ? angled[1] : from).trim()
+  return /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(addr) ? addr : null
+}
+
+/** Domain half of a bare address, lowercased. Uses the LAST @ so a quoted
+ *  local-part containing one cannot shift the domain. */
+function domainOf(addr: string): string {
+  return addr.slice(addr.lastIndexOf('@') + 1).toLowerCase()
+}
+
+/**
+ * The `Sender:` value to send, or null to omit the parameter entirely.
+ * Exported for the header test — the whole point of this change is a header on
+ * the wire, so the decision has to be checkable without sending mail.
+ */
+export function senderHeaderFor(from: string, sendingDomain: string): string | null {
+  const addr = bareAddress(from)
+  if (!addr) return null
+  return domainOf(addr) === String(sendingDomain).trim().toLowerCase() ? null : addr
+}
+
 // Mailgun keys are authorised PER DOMAIN, not per account. Confirmed the hard
 // way: disco-cater's production MAILGUN_API_KEY can READ mg.familymeal.com via
 // the management API (HTTP 200 on /domains/mg.familymeal.com) but a send from
@@ -161,6 +235,10 @@ export async function sendEmail(params: SendEmailParams): Promise<SendResult> {
     form.append('html', params.html)
     form.append('text', text)
     if (replyTo) form.append('h:Reply-To', replyTo)
+    // See "THE `Sender:` HEADER" above. Null for an already-aligned From (the
+    // campaign path), in which case the parameter is not sent at all.
+    const senderHeader = senderHeaderFor(from, domain)
+    if (senderHeader) form.append('h:Sender', senderHeader)
     if (bccList.length) form.append('bcc', bccList.join(','))
     for (const a of params.attachments || []) {
       // Blob accepts both a UTF-8 string and raw bytes (Uint8Array), so binary
