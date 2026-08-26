@@ -123,30 +123,100 @@ on Gmail, which is a free diagnostic — if the Gmail recipient has the message
 and the gateway one does not, the problem is definitively the gateway. That is
 how the DeCheco's case was closed.
 
-### 2.2 Separate and more urgent: domains that cannot receive mail at all
+**Outreach list — the 19 with no non-gateway email, by 90-day order volume.**
+Most also have SMS enabled, which is a genuine (if lossy) fallback and was
+omitted from the first version of this section.
+
+| 90d orders | Restaurant | Gateway | SMS fallback | FM admin email usable as a 2nd recipient? |
+|---|---|---|---|---|
+| **420** | Sandy Hook Seafood | mailspamprotection | **none** | no — same address |
+| **84** | Morning Squeeze | Hornetsecurity | yes | no — same gateway domain |
+| **78** | Bagel Point - Manhattan | Proofpoint | yes | **YES — `bagelogycorp@gmail.com`** |
+| 20 | Mr. M's Sandwich Shop | Proofpoint | yes | no — same address |
+| 19 | Eggstasy - Scottsdale | Hornetsecurity | yes | none exposed |
+| 10 | Eggstasy - Norterra Ctr. | Hornetsecurity | yes | no — same gateway domain |
+| 7 | Rooted Cafe & Catering | Proofpoint | yes | no — same address |
+| 6 | Eggstasy - Chandler | Hornetsecurity | yes | none exposed |
+| 6 | Eggstasy - Queen Creek | Hornetsecurity | yes | none exposed |
+| 3 | Eggstasy - The Colony | Hornetsecurity | yes | none exposed |
+| 3 | Shore Good Eats | Proofpoint | yes | no — same address |
+| 1 | Eggstasy - Mesa | Hornetsecurity | yes | none exposed |
+| 1 | Ay Guey NYC | mailspamprotection | yes | no — same address |
+| 0 | Yella's | AppRiver | none | **YES — `yellas@familymeal.com`** |
+| 0 | The Lusty Lobster | Proofpoint | none | no — same address |
+| 0 | Bludso's BBQ - La Brea | Mimecast | none | no — same address |
+| 0 | FreshFin - East Side MKE | Proofpoint | none | no — same gateway domain |
+| 0 | Coastal Steam Pots - Ship Ahoy | mailspamprotection | yes | none exposed |
+| 0 | Bagel Point (2nd override row) | Proofpoint | none | as above |
+
+**`Sandy Hook Seafood` is the priority by a wide margin** — 420 orders in 90
+days, a single recipient behind a filtering gateway, and no SMS fallback. A
+single point of failure carrying real volume.
+
+**FM's admin record is almost never a useful fallback.** Checked all 19 via
+`GET /api/admin/restaurants/{ref}` → `admin.email`: it is the *same* gateway
+address already on the notification list in 10 cases, on the same gateway domain
+in 2, absent in 6, and genuinely useful in only **2** (Bagel Point, Yella's).
+The FM account owner and the notification recipient are usually one person.
+
+Note `FreshFin`'s FM admin is `catering1@freshfinpoke.com` — the same address
+that deferred twice with Proofpoint `4.1.1 unverified address` during the
+rebrand campaign.
+
+### 2.2 Domains that cannot receive mail at all
 
 18 notification domains have **no MX record**. A domain with no MX cannot
-receive mail; senders will not fall back to an A record. These addresses are
-unreachable, permanently, and silently.
+receive mail; senders will not fall back to an A record. Those addresses are
+unreachable, permanently and silently.
 
-**17 of the 18 belong to restaurants that are not live**, so the practical
-impact today is one restaurant:
+**Judge this per RESTAURANT, not per domain.** A dead domain only matters if the
+restaurant has no other way of being told, and there are two other ways: a
+second email address on a different domain, and SMS
+(`notification_sms_numbers` + `text_notifications_enabled`). Counting dead
+domains overstates the problem badly — the first version of this section did
+exactly that.
+
+Re-run at restaurant level: **6 restaurants have no working recipient of any
+kind, and none of them are live.**
 
 ```
-sipandcoev.co    managers@sipandcoev.co    Sip + Co East Village    LIVE
-                 domain does not resolve at all (ENOTFOUND, no A record)
+Hungry House            not live   1 order    catering@hungryhouse.com
+Beatnic - Williamsburg  not live   2 orders   toddb@ + williamsburg@eatbeatnic.com
+The Calimex Cafe        not live   0 orders   christopher.craig@thecalimexcafe.com
+Stockyard Sandwich Co.  not live   0 orders   accounts@stockyardphily.com
+dalla.ca                not live   3 orders   reservation@ + catering@dalla.ca
+eatojaiburger.com       not live   1 order    patrick@ + kasper@eatojaiburger.com
 ```
 
-**Action: get a working notification address for Sip + Co East Village.** It
-cannot currently receive an order notification by any route.
+Every other dead-domain restaurant has a working fallback. The two worth
+knowing about:
 
-The other 17 (`ztejas.com` with 10 addresses, `eatbeatnic.com`, `dalla.ca`,
-`cocu.nyc`, `tacosdm.com`, `thecalimexcafe.com`, `eatojaiburger.com`,
-`coppolasnj.pizza`, `mariosnj.pizza`, `hungryhouse.com`, `goodfantzye.com`,
-`stockyardphily.com`, `shine-provisions.com`, `thefoodguys.net`,
-`robbyjay.com`, `redrocksog.com`, `fairlawnpizza.com`) are all non-live and
-should be cleaned up if any is ever reactivated. Several also hard-bounced
-during the rebrand campaign, which is consistent.
+```
+Sip + Co East Village   LIVE, 0 orders ever, online ordering OFF
+  DEAD   managers@sipandcoev.co   (ENOTFOUND — domain does not resolve)
+  works  info@sipandco.co         [Google Workspace]
+  SMS    917-736-2831 (enabled)
+  -> NOT broken. Tidy up the dead address when convenient; nothing is at risk.
+
+Shine Provisions        not live, 140 orders in 90 days
+  DEAD   chefshine@shine-provisions.com
+  SMS    720-688-6359 (enabled)
+  -> highest-volume dead-email case; SMS is the only channel. Worth a real
+     address, but no email is being lost that SMS is not covering.
+```
+
+`ztejas.com` (10 addresses across 6 override rows), `coppolasnj.pizza`,
+`mariosnj.pizza`, `tacosdm.com`, `goodfantzye.com`, `thefoodguys.net`,
+`robbyjay.com`, `redrocksog.com`, `cocu.nyc`, `famsfav.com` and
+`fairlawnpizza.com` all have SMS enabled or a working co-recipient. Clean them
+up if any restaurant is reactivated. Several also hard-bounced during the
+rebrand campaign, which is consistent.
+
+**`is_live` is not a reliable filter here.** Sandy Hook Seafood shows
+`is_live = false` with **420 orders in the last 90 days**. For FM-backed
+restaurants the mirrored liveness flag does not track reality — **order volume
+is the better signal of whether a restaurant is actually operating**, and it is
+what the outreach ordering in 2.1 uses.
 
 Also noted: **142 `disco_restaurant_overrides` rows carry `notification_emails`
 but have no matching `disco_restaurant_cache` row.** A data-integrity issue
@@ -451,3 +521,61 @@ predate day one of the campaign entirely.
    Disco-side marketing lane is ever wanted.
 4. **Never send bulk mail from `mg.discocater.com`.** It carries the native
    order confirmations and has almost no reputation buffer to absorb it.
+
+---
+
+## 8. Proposed standing check: notification reachability (SCOPED, NOT BUILT)
+
+Both problems in section 2 were found by running a census because someone asked
+— not by anything watching. **A restaurant with a dead notification domain, or
+with only gateway-fronted recipients, fails silently: no bounce, no error, just
+an order nobody sees.** Nothing in the system notices.
+
+### What it would check
+
+Nightly, for every restaurant with order activity in the last 90 days — **not
+`is_live`**, which is unreliable for FM-backed restaurants (see 2.2):
+
+1. Split `disco_restaurant_overrides.notification_emails` on `,` and `;`.
+2. Resolve MX for each distinct domain (~308 domains today, DNS only).
+3. Classify each recipient: `nomx` / `gateway` / `mainstream` / `self-hosted`.
+4. Read `notification_sms_numbers` + `text_notifications_enabled` as a fallback
+   channel.
+
+### Alert conditions
+
+| Severity | Condition | Why |
+|---|---|---|
+| **CRITICAL** | no recipient resolves **and** no SMS fallback | orders arrive, nobody is told by any channel |
+| **WARNING** | no recipient resolves, SMS enabled | email channel dead, degraded but covered |
+| **WARNING** | every usable recipient is behind a gateway | silent-Junk risk with no fallback (the 19) |
+| **INFO** | a domain's MX vendor **changed** since the last run | a previously-safe restaurant just moved onto Proofpoint/Mimecast — the only way to catch new exposure |
+| **INFO** | an individual recipient domain stopped resolving | partial loss while others still work |
+
+The vendor-change alert is the one with ongoing value. The rest is a one-off
+sweep that mostly stays quiet after the current backlog is cleared.
+
+### Shape
+
+- **Where**: a nightly Vercel cron, alongside the existing map-cache (04:00) and
+  Sanity-mirror (05:00) jobs. **Do not add a cursor to `sync_state`** — that
+  pattern has silently stalled two crons already.
+- **State**: one small table, e.g.
+  `notification_reachability(restaurant_reference, email, domain, mx_host,
+  vendor, tier, checked_at)`, upserted per run. Needed only for the
+  vendor-change diff; everything else is computable from a single run.
+- **Output**: Slack to the ops channel, CRITICAL and WARNING only, with INFO
+  rolled into a weekly digest so it does not become noise.
+- **Cost**: DNS lookups only. ~308 domains, a few seconds, no API spend.
+- **Effort**: small — half a day, most of it the alert-routing and the diff
+  table.
+
+### What it will NOT catch — state this when proposing it
+
+**It would not have caught the DeCheco's case.** `dechecos.com` resolves fine,
+Proofpoint accepted the message, and Cory's mailbox exists. A working mailbox
+behind a working gateway that files our mail as Junk is invisible to this check,
+as it is to every other signal available (see sections 1 and 5).
+
+This closes the *dead-address* and *no-fallback* gaps. The *Junk-placement* gap
+stays open, and the only detector for it remains a human telling us.
