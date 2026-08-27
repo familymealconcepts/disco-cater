@@ -6,6 +6,7 @@ import {
   type NativeDeliveryAddressInput,
 } from './native-checkout'
 import { checkItemInventoryAvailability } from './native-inventory'
+import { checkCartMinimums } from './native-minimums'
 import {
   reserveNativeRestaurantPromoUse, finalizeNativeRestaurantPromoUse, releaseNativeRestaurantPromoUse,
   type NativePromoResolution,
@@ -108,6 +109,29 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
       ? `Only ${capCheck.remaining} left of "${capCheck.itemName}" for ${orderDate} — please reduce the quantity.`
       : `"${capCheck.itemName}" is no longer available for ${orderDate}.`
     return { ok: false, status: 409, error: msg }
+  }
+
+  // Item minimum quantity (min_quantity) + required modifier-group minimums
+  // (min_selected) — the FIRST server-side gate either has ever had. The item
+  // minimum previously had no gate at ANY layer: it imported correctly, was sent
+  // to the browser, and was then read by nothing, so a customer could order 2 of a
+  // min-4 Side and reach payment with a cart the kitchen doesn't make (orders
+  // 900000099-101, 2026-08-27). The group minimum was enforced only by
+  // RestaurantClient's isGroupValid, which a Direct Entry or direct API call never
+  // executes. Placed alongside the cap/date-time gates so both placement paths that
+  // route through here — customer checkout and Direct Entry, card and invoice — are
+  // covered.
+  //
+  // NOT covered: the recurring-orders cron, which builds its NativePlaceInput
+  // itself and calls chargeAndPlaceNativeRecurringOrder directly. Adding the call
+  // there would be inert anyway — its cart items carry no `reference` at all, only
+  // names (see app/api/cron/recurring-orders/route.ts), so there is nothing to look
+  // a minimum up by. Closing that properly means carrying item references into the
+  // recurring snapshot; until then the cart editor's client-side floor (via
+  // /api/order/item-minimums) is what keeps those carts valid.
+  const minCheck = await checkCartMinimums(items)
+  if (!minCheck.ok) {
+    return { ok: false, status: 400, error: minCheck.message }
   }
 
   const tip = tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips }

@@ -19,17 +19,48 @@ export interface DiscoWriteSummary { menuReference: string | null; items: number
 // Parse the AI-extracted modifier string into structured groups. The parser prompt
 // emits "Group name: opt1, opt2, opt3", optionally several groups separated by ';'
 // or newlines (e.g. "Choose protein: Chicken, Beef; Choose side: Rice, Beans").
-export function parseModifierGroups(raw: string): { name: string; options: string[] }[] {
-  const groups: { name: string; options: string[] }[] = []
+export function parseModifierGroups(raw: string): { name: string; options: string[]; minSelected?: number; maxSelected?: number }[] {
+  const groups: { name: string; options: string[]; minSelected?: number; maxSelected?: number }[] = []
   for (const seg of raw.split(/[\n;]+/).map(s => s.trim()).filter(Boolean)) {
     const ci = seg.indexOf(':')
     let name = 'Choose an option'
     let optsStr = seg
     if (ci >= 0) { name = seg.slice(0, ci).trim() || 'Choose an option'; optsStr = seg.slice(ci + 1) }
     const options = optsStr.split(',').map(o => o.trim()).filter(Boolean)
-    if (options.length) groups.push({ name, options })
+    if (options.length) groups.push({ name, options, ...parseSelectionCount(name) })
   }
   return groups
+}
+
+/**
+ * Pull an explicit selection count out of a group NAME, when the source states one.
+ *
+ * Menu documents (and FM's own external names, which is where the convention comes
+ * from) write the requirement into the label: "Select 2 Salads", "Select 4+
+ * Sandwiches", "Select 1-2 Breads", "Choose up to 3". That is real information the
+ * previous hardcoded 0/1 discarded. Returns {} when the name says nothing, so the
+ * caller keeps its conservative default rather than guessing a requirement.
+ */
+function parseSelectionCount(name: string): { minSelected?: number; maxSelected?: number } {
+  const s = name.toLowerCase()
+  // "up to 3" / "at most 3" — a maximum with no minimum.
+  const upTo = /\b(?:up to|at most|max(?:imum)? of)\s+(\d{1,2})\b/.exec(s)
+  if (upTo) return { minSelected: 0, maxSelected: Number(upTo[1]) }
+  // "select 1-2", "choose 2 to 4" — an explicit range.
+  const range = /\b(?:select|choose|pick)\s+(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\b/.exec(s)
+  if (range) return { minSelected: Number(range[1]), maxSelected: Number(range[2]) }
+  // "select 4+" / "4 or more" — a minimum with no stated ceiling. Left open by
+  // returning no maxSelected; the caller clamps to the option count.
+  // NOTE no trailing \b: after a literal "+" the next char is a space, and both are
+  // non-word, so \b cannot match there — with it, "Select 4+ Sandwiches" fell
+  // through to the exact-count branch below and became min 4 / MAX 4, silently
+  // capping a deliberately uncapped group. Caught by verify-item-minimums.ts.
+  const orMore = /\b(?:select|choose|pick)\s+(\d{1,2})\s*(?:\+|or more\b)/.exec(s)
+  if (orMore) return { minSelected: Number(orMore[1]) }
+  // "select 2 salads", "choose exactly 3" — an exact count.
+  const exact = /\b(?:select|choose|pick)\s+(?:exactly\s+)?(\d{1,2})\b/.exec(s)
+  if (exact) return { minSelected: Number(exact[1]), maxSelected: Number(exact[1]) }
+  return {}
 }
 
 // #6 dual-write: mirror the imported packages into the Disco-native menu tables so
@@ -88,11 +119,28 @@ export async function writeDiscoNativeMenu(ref: string, packages: ImportPackage[
     summary.items++
 
     // Structured modifier groups from the parsed string.
+    //
+    // min/max SELECTION COUNTS ARE NOT IN THIS SOURCE. Unlike fm-faithful-import,
+    // which reads FM's real minSelectedItems/maxSelectedItems, the input here is a
+    // free-text `modifiers` string an LLM extracted from an uploaded menu document
+    // ("Choose protein: Chicken, Beef"). A menu PDF rarely states a selection count
+    // in machine-readable form, so there is usually nothing to carry — these are
+    // DEFAULTS, not dropped data.
+    //
+    // The previous hardcoded 0/1 was still a poor default: it silently made every
+    // extracted group optional AND single-select, so a group the source clearly
+    // described as "Select 2 Salads" became "pick at most one, or none". Where the
+    // group name does state a count — which is exactly how FM's own external names
+    // read ("Select 2 Salads", "Select 4+ Sandwiches") — parseModifierGroups now
+    // reads it and we honour it; otherwise we keep 0/1, because inventing a
+    // requirement from a guess would block checkout on an item nobody can complete.
     let gpos = 0
     for (const g of parseModifierGroups(String(p?.modifiers ?? '').trim())) {
+      const minSel = Math.max(0, Math.min(g.minSelected ?? 0, g.options.length))
+      const maxSel = Math.max(1, Math.min(g.maxSelected ?? 1, g.options.length))
       const gIns = (await sql`
-        INSERT INTO disco_modifier_groups (restaurant_reference, name, external_name, min_selected, max_selected, position)
-        VALUES (${ref}::uuid, ${g.name}, ${g.name}, 0, 1, ${gpos})
+        INSERT INTO disco_modifier_groups (restaurant_reference, name, external_name, sub_external_name, min_selected, max_selected, position)
+        VALUES (${ref}::uuid, ${g.name}, ${g.name}, ${minSel > 0 ? 'Required' : 'Optional'}, ${minSel}, ${Math.max(minSel, maxSel)}, ${gpos})
         RETURNING reference
       `) as { reference: string }[]
       const groupRef = gIns[0].reference

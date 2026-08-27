@@ -35,18 +35,46 @@ function fmtLong(s?: string): string {
 }
 function fmtMoney(n: number): string { return `$${n.toFixed(2)}` }
 
-export default function RecurringOrderCartEditor({ isOpen, onClose, occurrence, restaurantName, restaurantSlug }: Props) {
+export default function RecurringOrderCartEditor({ isOpen, onClose, occurrence, restaurantName, restaurantReference, restaurantSlug }: Props) {
   const [items, setItems] = useState<CartItem[]>([])
   const [saving, setSaving] = useState<'one' | 'all' | null>(null)
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
+  // Item minimums for this restaurant, keyed by lowercased name. This editor's
+  // cart snapshot carries names only (no item reference survives
+  // subscriptions/page.tsx), so a name is the only join available — hence the
+  // name-keyed endpoint. Empty until loaded, and an absent key means "no minimum",
+  // so the stepper behaves exactly as before for unminimum'd items.
+  const [minimums, setMinimums] = useState<Record<string, number>>({})
 
-  // Re-seed the editable copy each time the modal opens.
+  const minFor = (name: string) => {
+    const m = minimums[String(name || '').trim().toLowerCase()]
+    return Number.isFinite(m) && m > 1 ? Math.trunc(m) : 1
+  }
+
+  useEffect(() => {
+    if (!isOpen || !restaurantReference) return
+    let cancelled = false
+    fetch(`/api/order/item-minimums?restaurantReference=${encodeURIComponent(restaurantReference)}`)
+      .then(r => r.ok ? r.json() : { minimums: {} })
+      .then(d => { if (!cancelled) setMinimums(d?.minimums || {}) })
+      .catch(() => {})   // no minimums loaded → stepper floors at 1, as before
+    return () => { cancelled = true }
+  }, [isOpen, restaurantReference])
+
+  // Re-seed the editable copy each time the modal opens. Runs AFTER minimums land
+  // too (they're in the deps) so a snapshot quantity below a minimum the restaurant
+  // has since raised is lifted rather than displayed as an invalid figure the
+  // customer can't decrease OR save.
   useEffect(() => {
     if (!isOpen) return
-    setItems((occurrence.cartSnapshot || []).map(i => ({ name: i.name, quantity: i.quantity || 1, price: i.price })))
+    setItems((occurrence.cartSnapshot || []).map(i => {
+      const floor = minFor(i.name)
+      return { name: i.name, quantity: Math.max(floor, i.quantity || 1), price: i.price }
+    }))
     setSaving(null); setSuccess(''); setError('')
-  }, [isOpen, occurrence])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, occurrence, minimums])
 
   const total = useMemo(() => items.reduce((s, i) => s + (i.price || 0) * (i.quantity || 1), 0), [items])
   const hasPrices = useMemo(() => items.some(i => typeof i.price === 'number'), [items])
@@ -74,7 +102,10 @@ export default function RecurringOrderCartEditor({ isOpen, onClose, occurrence, 
   if (!isOpen) return null
 
   function setQty(idx: number, q: number) {
-    setItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, q) } : it))
+    // Floor at the item's own minimum, not at 1. Removing the item entirely is
+    // still available via the × control next to the stepper, so stopping here
+    // costs the customer nothing.
+    setItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Math.max(minFor(it.name), q) } : it))
   }
   function removeItem(idx: number) {
     setItems(prev => prev.filter((_, i) => i !== idx))
@@ -139,10 +170,15 @@ export default function RecurringOrderCartEditor({ isOpen, onClose, occurrence, 
                     {typeof it.price === 'number' && (
                       <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{fmtMoney(it.price)} each</div>
                     )}
+                    {/* Same phrasing the ordering page and the add-on group picker
+                        use, so a minimum reads identically wherever it appears. */}
+                    {minFor(it.name) > 1 && (
+                      <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>Select {minFor(it.name)}+</div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => setQty(idx, it.quantity - 1)} disabled={it.quantity <= 1} aria-label="Decrease quantity"
-                      style={{ ...qtyBtn, opacity: it.quantity <= 1 ? 0.4 : 1, cursor: it.quantity <= 1 ? 'not-allowed' : 'pointer' }}>−</button>
+                    <button onClick={() => setQty(idx, it.quantity - 1)} disabled={it.quantity <= minFor(it.name)} aria-label="Decrease quantity"
+                      style={{ ...qtyBtn, opacity: it.quantity <= minFor(it.name) ? 0.4 : 1, cursor: it.quantity <= minFor(it.name) ? 'not-allowed' : 'pointer' }}>−</button>
                     <span style={{ minWidth: 22, textAlign: 'center', fontSize: 14, fontWeight: 700, color: DARK }}>{it.quantity}</span>
                     <button onClick={() => setQty(idx, it.quantity + 1)} aria-label="Increase quantity" style={qtyBtn}>+</button>
                   </div>

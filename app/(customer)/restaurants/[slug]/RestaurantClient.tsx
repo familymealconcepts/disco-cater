@@ -73,6 +73,13 @@ interface FmPackage {
   // Disco-native "Max Inventory Per Day" cap. null/undefined = unlimited —
   // no live-cap logic below ever runs for it. See lib/order/native-inventory.ts.
   maxInventoryPerDay?: number | null
+  // FM `mealPackage.minQuantity` — the fewest units the restaurant will make
+  // ("Minimum 4 people" on a Side, 10 on a breakfast tray, 30 on a holiday
+  // package). Present on BOTH paths: FM sends it, and shared.tsx's toPkg maps
+  // disco_menu_items.min_quantity onto it for native restaurants. It was surfaced
+  // here and read by nothing, so the stepper floored at 1 and a customer could
+  // order 2 of a min-4 item. null/undefined = no minimum.
+  minQuantity?: number | null
   // Restaurant-declared dietary + allergen labels. Populated only on the
   // Disco-native path (shared.tsx's toPkg); FM's own item endpoints expose none
   // of these, so they are always undefined for an FM-backed restaurant.
@@ -1225,7 +1232,20 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
   function incrementLine(lineId: string, delta: number) {
     setCart(prev => prev
-      .map(i => i.lineId === lineId ? { ...i, quantity: i.quantity + delta } : i)
+      .map(i => {
+        if (i.lineId !== lineId) return i
+        const next = i.quantity + delta
+        // Respect the item's minimum quantity here too, or the cart stepper would
+        // undo the modal's floor — a min-4 Side could be walked down to 1 after
+        // being added correctly. "−" is also the only remove affordance on a cart
+        // line (there is no separate trash control), so from the minimum it must
+        // REMOVE the line rather than stop at it; what it must never do is leave an
+        // invalid quantity between 1 and min-1.
+        const min = Number(i.pkg.minQuantity)
+        const floor = Number.isFinite(min) && min > 1 ? Math.trunc(min) : 1
+        if (delta < 0 && next < floor) return { ...i, quantity: 0 }
+        return { ...i, quantity: next }
+      })
       .filter(i => i.quantity > 0))
   }
 
@@ -1273,7 +1293,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         addOns.push({ reference: hit.a.reference, name: hit.a.name, price: hit.a.price, count, extraItemsGroupReference: hit.groupRef })
         extra += hit.a.price * count
       }
-      const qty = item.count && item.count > 0 ? item.count : 1
+      // Reorder rebuilds a cart from a PAST order and skips the add modal, so the
+      // stashed count can predate a minimum the restaurant has since raised. Lift
+      // it to the current minimum rather than re-adding a quantity that can no
+      // longer be fulfilled (and that the server would now refuse at placement).
+      const stashedQty = item.count && item.count > 0 ? item.count : 1
+      const pkgMin = Number(pkg.minQuantity)
+      const qty = Number.isFinite(pkgMin) && pkgMin > 1 ? Math.max(Math.trunc(pkgMin), stashedQty) : stashedQty
       addItemWithConfig(pkg, qty, addOns, item.comment || undefined, pkg.price + extra)
     }
 
@@ -1294,7 +1320,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     const groups = pkg.extraItemsGroups ?? []
     const init: Record<string, Record<string, number>> = {}
     groups.forEach(g => { const m: Record<string, number> = {}; g.addOns.forEach(a => { m[a.reference] = 0 }); init[g.reference] = m })
-    setSelAddOns(init); setAddOnsNote(''); setAddOnsQty(1)
+    // Open AT the item's minimum, not at 1 — the customer should never have to
+    // discover the floor by being refused. Mirrors how the group picker opens with
+    // its requirement already stated rather than surfacing it on submit.
+    const min = Number(pkg.minQuantity)
+    setSelAddOns(init); setAddOnsNote('')
+    setAddOnsQty(Number.isFinite(min) && min > 1 ? Math.trunc(min) : 1)
   }
   function handleAddClick(pkg: FmPackage) {
     if (!hasSelection) {
@@ -1312,10 +1343,27 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     if (!addOnsPkg) return null
     return remainingToAdd(addOnsPkg)
   }
+  // Floor for the same stepper — the item's own minimum quantity. 1 when unset,
+  // so an item with no minimum behaves exactly as before.
+  function minAddOnsQty(): number {
+    const m = Number(addOnsPkg?.minQuantity)
+    return Number.isFinite(m) && m > 1 ? Math.trunc(m) : 1
+  }
+  // The minimum can't be met from what's left for the selected date — the item is
+  // genuinely unorderable today rather than just capped, so say so instead of
+  // leaving a modal whose Add button never enables.
+  function minExceedsRemaining(): boolean {
+    const max = maxAddOnsQty()
+    return max != null && max < minAddOnsQty()
+  }
   function groupTotal(g: FmExtraItemsGroup) { return Object.values(selAddOns[g.reference] ?? {}).reduce((s, q) => s + q, 0) }
   function isGroupValid(g: FmExtraItemsGroup) { const t = groupTotal(g); return t >= g.minSelectedItems && t <= g.maxSelectedItems }
   function canConfirmAddOns() {
     if (!addOnsPkg) return false
+    // The item's own minimum quantity, checked the same way a required group is:
+    // it blocks "Add to Order" rather than being discovered at checkout.
+    if (addOnsQty < minAddOnsQty()) return false
+    if (minExceedsRemaining()) return false
     // A group is REQUIRED iff minSelectedItems > 0. Optional groups
     // (minSelectedItems === 0) never block "Add to Order", regardless of
     // selection.
@@ -2317,7 +2365,14 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>Quantity</span>
-                <button onClick={() => setAddOnsQty(q => Math.max(1, q - 1))} style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 16, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
+                {(() => {
+                  const minQty = minAddOnsQty()
+                  const atMin = addOnsQty <= minQty
+                  return (
+                    <button onClick={() => { if (!atMin) setAddOnsQty(q => Math.max(minQty, q - 1)) }} disabled={atMin}
+                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMin ? '#f0f0f0' : '#fff', cursor: atMin ? 'default' : 'pointer', fontSize: 16, color: atMin ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
+                  )
+                })()}
                 <span style={{ fontSize: 15, fontWeight: 700, color: DARK, minWidth: 24, textAlign: 'center' }}>{addOnsQty}</span>
                 {(() => {
                   const maxQty = maxAddOnsQty()
@@ -2331,6 +2386,18 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   <span style={{ fontSize: 12, color: '#EF4444', fontWeight: 600 }}>{maxAddOnsQty()} left for this date</span>
                 )}
               </div>
+              {/* The item's minimum, phrased like the group picker's own
+                  requirement line ("Select exactly 2" / "Select 2–8") so both
+                  minimums read as the same kind of rule. Taken from minQuantity
+                  directly — NOT from `serves`, which is descriptive free text and
+                  need not match the real minimum. */}
+              {minAddOnsQty() > 1 && (
+                <div style={{ fontSize: 12, color: minExceedsRemaining() ? '#EF4444' : '#aaa', marginTop: 6 }}>
+                  {minExceedsRemaining()
+                    ? `Only ${maxAddOnsQty()} left for this date — this item needs at least ${minAddOnsQty()}.`
+                    : `Select ${minAddOnsQty()}+`}
+                </div>
+              )}
             </div>
             <div style={{ padding: '14px 22px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
               <button onClick={confirmAddOns} disabled={!canConfirmAddOns()}

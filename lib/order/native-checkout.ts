@@ -21,7 +21,10 @@ export interface NativeCartItem {
   // FOLDED unit price (base + add-ons) so the money math is unchanged; basePrice +
   // addOns are stored separately so the PDF/emails can show itemized "+" sub-lines.
   basePrice?: number
-  addOns?: { name: string; price: number; quantity: number }[]
+  // reference/groupReference are identity-only passthrough (see fmItemsToNativeCart)
+  // so the minimums gate can tie a selection to its modifier group exactly. Absent
+  // on legacy clients, which fall back to name matching.
+  addOns?: { name: string; price: number; quantity: number; reference?: string; groupReference?: string }[]
   // Which disco_menus row (by its UUID `reference`) this item's menu tab came
   // from, tagged client-side. Absent for legacy clients / FM-backed carts —
   // callers must treat that as "unknown", not "primary menu", and fall back
@@ -491,7 +494,13 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
 // NOTE: the customer-facing TOTAL does not depend on lead-gen (that's withheld from
 // the restaurant payout), so pricing needs no customer session — safe for previews.
 
-interface FmDtoAddOn { name?: string; price?: number; count?: number; quantity?: number }
+// `reference` (the modifier) and `extraItemsGroupReference` (its group) are both
+// already sent by CheckoutDrawer/RestaurantClient — lib/pricing/checkout.ts's
+// mapAddOn puts them on the wire. They were simply not declared here, so
+// fmItemsToNativeCart dropped them and the server could only identify a selection
+// by name. Carried through now so checkCartMinimums can match a selection to its
+// group EXACTLY rather than by name.
+interface FmDtoAddOn { name?: string; price?: number; count?: number; quantity?: number; reference?: string; extraItemsGroupReference?: string }
 interface FmDtoItem { reference?: string; name?: string; price?: number; count?: number; extraItems?: FmDtoAddOn[]; addOns?: FmDtoAddOn[]; menuReference?: string }
 
 // Map FM-shaped checkout items → native cart items, folding each line's add-on
@@ -505,6 +514,11 @@ export function fmItemsToNativeCart(items: FmDtoItem[] | undefined): NativeCartI
       name: String(e.name || 'Add-on'),
       price: Number(e.price) || 0,
       quantity: Math.max(1, Math.trunc(Number(e.count ?? e.quantity) || 1)),
+      // Identity passthrough for the minimums gate only — never used in the money
+      // math, and the disco_order_item_addons INSERT names its columns explicitly,
+      // so these are inert everywhere else.
+      ...(e.reference ? { reference: String(e.reference) } : {}),
+      ...(e.extraItemsGroupReference ? { groupReference: String(e.extraItemsGroupReference) } : {}),
     }))
     const addOnTotal = addOns.reduce((a, e) => a + e.price * e.quantity, 0)
     const base = Number(it.price) || 0
