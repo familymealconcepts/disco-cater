@@ -67,6 +67,11 @@ interface FmPackage {
   // the checkout total still uses the numeric `price` (+ modifiers).
   displayPrice?: string | number | null
   image?: { reference: string; availableResolutions?: number[] } | null
+  // Disco-native: a ready-made image URL (Vercel Blob, re-hosted from FM at import).
+  // Takes precedence over `image.reference`, which is FM's shape and only resolvable
+  // through pkgImg()/FM's download endpoint. A native item has one or the other,
+  // never both.
+  imageUrl?: string | null
   available?: boolean; allowedSpecialInstructions?: boolean
   extraItemsGroups?: FmExtraItemsGroup[]
   inventoryBalanceCountperTime?: number | null
@@ -1942,7 +1947,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 <div className="pkg-grid">
                   {visiblePkgs.map(pkg => {
                     const qty = cartQty(pkg.reference)
-                    const imgUrl = pkg.image?.reference ? pkgImg(pkg.image.reference, 300) : null
+                    const imgUrl = pkg.imageUrl || (pkg.image?.reference ? pkgImg(pkg.image.reference, 300) : null)
                     const inventory = pkg.inventoryBalanceCountperTime
                     const hasModifiers = (pkg.extraItemsGroups?.length ?? 0) > 0
                     // Live daily cap (Max Inventory Per Day) — remainingCap is null when
@@ -2304,9 +2309,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             </div>
             <div style={{ overflowY: 'auto', padding: '16px 22px', flex: 1 }}>
               {/* Image + description + price — scroll away normally (not pinned). */}
-              {addOnsPkg.image?.reference && (
+              {(addOnsPkg.imageUrl || addOnsPkg.image?.reference) && (
                 <div style={{ height: 140, background: 'linear-gradient(135deg,#f4f4fb,#eaeaf6)', overflow: 'hidden', borderRadius: 12, marginBottom: 14 }}>
-                  <img src={pkgImg(addOnsPkg.image.reference, 550)} alt={addOnsPkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                  <img src={addOnsPkg.imageUrl || pkgImg(addOnsPkg.image!.reference, 550)} alt={addOnsPkg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                 </div>
               )}
               <div style={{ marginBottom: 18 }}>

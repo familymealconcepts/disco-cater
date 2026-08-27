@@ -390,7 +390,8 @@ async function loadDiscoNativeRestaurant(slug: string) {
     const items = (await sql`
       SELECT reference, category_reference, name, description, price, serves,
              display_price, min_quantity, allow_special_instructions,
-             vegetarian, contains_nuts, gluten_free, vegan, max_inventory_per_day
+             vegetarian, contains_nuts, gluten_free, vegan, max_inventory_per_day,
+             image_url
       FROM disco_menu_items
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
       ORDER BY position, id
@@ -398,6 +399,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       reference: string; category_reference: string | null; name: string; description: string | null
       price: string | number; serves: string | null; display_price: string | null; min_quantity: number | null
       allow_special_instructions: boolean; vegetarian: boolean; contains_nuts: boolean; gluten_free: boolean; vegan: boolean
+      image_url: string | null
       max_inventory_per_day: number | null
     }[]
 
@@ -452,6 +454,12 @@ async function loadDiscoNativeRestaurant(slug: string) {
       price: Number(it.price) || 0, serves: it.serves,
       displayPrice: it.display_price || undefined,
       minQuantity: it.min_quantity ?? undefined,
+      // A READY-MADE URL, not FM's {image:{reference}} shape. Native item images are
+      // re-hosted in Vercel Blob at import (lib/menu-import/fm-item-images), so there
+      // is no FM reference to resolve and pkgImg() must not be applied to it.
+      // RestaurantClient prefers imageUrl and falls back to image.reference, which is
+      // what an FM-backed restaurant still supplies.
+      imageUrl: it.image_url || undefined,
       allowedSpecialInstructions: it.allow_special_instructions === true,
       vegetarian: it.vegetarian === true, containsNuts: it.contains_nuts === true,
       glutenFree: it.gluten_free === true, vegan: it.vegan === true,
