@@ -450,7 +450,7 @@ re-deriving the reasoning each time:
 | Stripe id can't be resolved/verified (post-snapshot onboarding, or mismatch) | PETER | Get the real id from the Stripe Dashboard — see step 4 |
 | Menu not imported | AUTO | One call |
 | Hidden/inactive menu items | AUTO | Supplementary heuristic pass |
-| Item landed via last-resort fallback placement | NOTE | Hasn't happened yet in 7 conversions |
+| Item landed via last-resort fallback placement | NOTE | First fired on conversion 8 (Bird & Co., 2026-08-26) after 7 clean ones — see "The last-resort fallback has now fired" in Background |
 | Marketplace visibility unset | NOTE | Already set by normal onboarding; `is_live` computed either way, never forced (fixed 2026-08-19) |
 | `online_ordering_enabled` on, zero orders so far | NOTE | Never auto-correct or propose flipping this flag — it's set by us intentionally. A restaurant with no orders yet is just a restaurant that hasn't had an order yet, not a misconfiguration. Confirmed with Peter 2026-08-19 re: Aztec Dave's Cantina and Tom Toms Italian (both live, Stripe-connected, zero orders, no FM link) — leave alone. |
 | Bare FM orders | NOTE | Background hygiene, not conversion-specific |
@@ -470,6 +470,31 @@ re-deriving the reasoning each time:
 (`charges_enabled` + `transfers: active`), plus Glen Rock, Elmwood Park,
 Briscola, Pelican's, and Winkin' Rooster's already-imported accounts — reuse,
 not onboarding, every time so far.
+
+**`stripe-ready` under-reports since 2026-08-20 — believe the import, not the
+step.** `storedAccountId()` (`lib/native-conversion.ts`, and a byte-identical
+copy in `lib/conversion-preflight.ts`) reads
+`disco_restaurant_accounts.stripe_account_id`. On 2026-08-20 the Stripe columns
+moved to `disco_restaurant_overrides` (restaurant-scoped, one row per
+restaurant, no `ORDER BY id LIMIT 1` ambiguity) and
+`importRestaurantStripeAccount` stopped writing the accounts row. Nothing
+updated these two readers, so a successful, verified, charge-capable import
+still leaves them returning null.
+
+Consequence: `checkConversionReadiness` reports `stripeMode: "not-linked"` and
+`stripe-ready: false` for **every restaurant imported since that date**, and
+`runPreflightCheck`'s Stripe section has the same blind spot. Observed live on
+Bird & Co. (2026-08-26): `stripe-ready: false` on the very run that converted
+it, minutes after `acct_1MemZkGvdNsY0SZV` imported cleanly.
+
+**It is reporting-only — `is_live` is not affected.** `computeNativeIsLive` and
+`checkMarketplaceReadiness` both go through `stripeReadySql()` against
+`disco_restaurant_overrides`, which is correct; Bird & Co. converted
+`is_live: true` as it should have. The real cost is that the next pre-flight
+will read "no Stripe account" for a restaurant that has one, and someone will
+either re-import needlessly or treat a converted restaurant as un-live. Fix is
+to point both readers at `disco_restaurant_overrides` — `stripeReadySql()`
+already encodes the definition — rather than adding a third read path.
 
 **Tax rate reality.** FM's own data for DeCheco's 6 locations has
 `stateSalesTax.percent: null` — genuinely nothing to mirror, not an access
@@ -611,6 +636,28 @@ first-visible-menu as a last resort. Proven clean on all 6 DeCheco's
 locations and Winkin' Rooster's hidden "[Copy] Sandwich Tray" (both via
 learned category placement, not the fallback).
 
+**The last-resort fallback has now fired — conversion 8, Bird & Co.,
+2026-08-26.** Seven conversions ran without it; this one returned
+`supplementaryItemsPlaced: 1` **and** `unplacedFallbackCount: 1`, meaning the
+item exhausted schedule-window match, learned category placement, name overlap
+and the party-size regex, and landed via first-visible-menu.
+
+**The placement was still correct, and understanding why matters more than the
+count.** Bird & Co. has exactly one menu, so "first visible menu" and "the right
+menu" are the same answer — the fallback cannot be wrong on a single-menu
+restaurant. Read this as the fallback being *exercised*, not as a placement to
+distrust. On a multi-menu restaurant the same code path would be a genuine
+coin-flip, and that is the case to watch for.
+
+**What actually triggered it was duplicate FM data, not a placement failure.**
+FM holds two `tbl_meal_packages` records with the identical name
+`Build-Your-Own Taco Bar (10-person minimum)` in the same category — one live at
+$26.00, one `visible: false` at $0.00. The hidden one is what fell through: name
+overlap can't disambiguate against its own twin. Both imported; the $0 copy is
+`visible: false` in Neon so it cannot be ordered, and is a cleanup candidate
+rather than a live risk. **If the fallback fires again, check for a duplicate
+name in FM before assuming the heuristic chain is at fault.**
+
 **Marketplace visibility, confirmed independent of Stripe.** On a freshly
 created test restaurant, the gate reported two failing blocking steps until
 `disco_restaurant_overrides.visible` was set — `stripe-ready` (expected) and
@@ -729,6 +776,64 @@ mapping above. `carryOverPromoCodes`'s field names are correct but the shape
 assumption is still wrong — FM's real `GET /api/coupon` returns a single
 object, not a list — and remains unfixed since promo codes still has no
 read mechanism to exercise it against.
+
+**The two order-reminder toggles were dropped by the notification carry-over,
+fixed 2026-08-26 (`cd15df0`).** `carryOverNotificationSettings` wrote the
+recipient lists and silently discarded `orderReminderEmailsEnabled` and
+`adminOrderReminderEmailsEnabled`, both sitting on the same
+`GET /api/notifications` response it already reads. Restaurants therefore
+converted onto `disco_restaurant_overrides.order_reminder_emails_enabled`'s
+`DEFAULT false` regardless of what FM said. A read of all 32 real native
+restaurants' live FM values (2026-08-26) found **18** in the FM-true/Neon-false
+state — Atlanta Bread ×9, DeCheco's ×6, Francesca ×2, Briscola, i.e. exactly
+the set that converted and never had a portal Save afterwards — plus two with
+the admin toggle null against FM true. All 20 were reconciled by hand. The fix
+now COALESCEs: a non-boolean from FM means "FM didn't say" and leaves Neon's
+value alone, so it can never write a fabricated `false`.
+
+**The reminder cron is asymmetric between its two passes — this is the
+non-obvious part, and it is what makes the restaurant-facing toggle the riskier
+of the two.** `app/api/cron/order-reminders` runs hourly at `:00` and selects a
+23.5h–24.5h window before pickup, with a placement skip, in the restaurant's own
+timezone:
+
+- **PASS 1 (customer reminder)** additionally filters
+  `source_of_order = 'DISCO'`. FM's own Java backend already emails the diner
+  for FAMILYMEAL-sourced orders, and that filter is precisely what stops Disco
+  double-emailing the same person from `orders@discocater.com`.
+- **PASS 2 (restaurant/admin reminder)** has **no source filter at all**. It
+  fires on FM-mirrored orders too, and sends one email *per recipient* on
+  `notification_emails` — 5 and 6 addresses respectively at the two Hugo's
+  locations.
+
+Two practical consequences. First, flipping the customer toggle on for a
+freshly-converted restaurant changes nothing until it takes its first genuinely
+native order — every one of the 18 above has 100% FAMILYMEAL-sourced history, so
+no diner had ever actually missed a reminder; the setting was wrong, the outcome
+was not. Do not describe that backfill as restoring lost mail. Second, the admin
+toggle is live from the next FM-mirrored order onward, which is why it deserves
+a conversation with the restaurant before being changed rather than a silent
+reconcile. There is no retroactive catch-up in either pass — an order whose 24h
+mark passed while a toggle was off is missed permanently. Fleet totals are tiny
+(4 customer, 8 admin reminders ever sent as of 2026-08-26), so an unexpected
+spike is worth a look rather than a shrug.
+
+**A newer Neon value can be the restaurant's own deliberate choice — check
+before "reconciling" it to FM.** Hugo's Studio City and West Hollywood both read
+FM `adminOrderReminderEmailsEnabled: false` against Neon `true`, which looks like
+Disco being over-permissive. It wasn't. All four Hugo's locations were written in
+sequence at 16:41:52, 16:44:07, 16:46:08 and 16:48:39 on 2026-08-25 — ~2½ minutes
+apart, human pace, not a cron's same-second burst — from a real
+`contact@hugosrestaurant.com` portal session (`disco_restaurant_sessions` id 207,
+created 16:44:04). Not a master-password login: the `MASTER_PASSWORD_LOGIN` audit
+rows that day start at 16:59, after the last write. The location-specific
+recipient lists they saved (`weho@hugos.us`, `stucity@hugos.us`) are restaurant
+knowledge no script would produce. So Disco holds the *more recent, deliberate*
+value and FM holds the stale one — the direction of the fix is the opposite of
+what the diff suggests. Note also that `disco_admin_audit` has **no action for a
+notifications save**, so attribution here came from session and `updated_at`
+forensics; if that becomes a recurring question, an audit row on that route is
+the cheap fix.
 
 **Logo/image/phone, fixed 2026-08-17 (`34f8278`).** All three sit in the same
 `GET /api/admin/restaurants/{ref}` response already fetched elsewhere in the
