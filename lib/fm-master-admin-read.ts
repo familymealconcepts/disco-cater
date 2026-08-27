@@ -306,7 +306,18 @@ export interface FmAuthorizedUser {
 
 interface RawWalledFields {
   taxRate: { stateSalesTax?: { percent?: number | null; fixedAmount?: number | null }; localSalesTax?: { percent?: number | null; fixedAmount?: number | null }; otherSalesTax?: { percent?: number | null; fixedAmount?: number | null; types?: string[] } } | null
-  notifications: { email?: string[]; phoneNumber?: string[]; phoneNotificationType?: string } | null
+  // orderReminderEmailsEnabled / adminOrderReminderEmailsEnabled are on this
+  // same response and were simply never read here — the carry-over wrote the
+  // recipients and dropped both toggles, so a restaurant with FM reminders ON
+  // converted into Neon's `DEFAULT false` and its customer reminder emails
+  // silently stopped (caught on Bird & Co's pre-flight, 2026-08-26).
+  notifications: {
+    email?: string[]
+    phoneNumber?: string[]
+    phoneNotificationType?: string
+    orderReminderEmailsEnabled?: boolean
+    adminOrderReminderEmailsEnabled?: boolean
+  } | null
   closedDays: unknown[] | null
   promoCode: FmCoupon | null
   // null = the fetch failed/threw; [] = fetched fine, genuinely nobody listed

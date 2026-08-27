@@ -617,6 +617,17 @@ export interface NotificationCarryOverResult {
   reason: string
 }
 
+// FM's GET /api/notifications shape, as far as the carry-over reads it. Shared
+// by the master-password path and the legacy service-account fallback so the
+// two can't drift on which fields they know about.
+interface NotificationSettingsPayload {
+  email?: string[]
+  phoneNumber?: string[]
+  phoneNotificationType?: string
+  orderReminderEmailsEnabled?: boolean
+  adminOrderReminderEmailsEnabled?: boolean
+}
+
 // Persisted audit marker — set whenever a conversion's automatic notification
 // carry-over fails, so there's a durable record of WHEN/WHY, alongside the console
 // log. The admin-visible "needs review" badge does NOT gate on this column though
@@ -662,21 +673,32 @@ export async function carryOverNotificationSettings(ref: string, walled?: FmWall
     await flagNotificationSettingsNeedReview(ref)
     return { carried: false, reason }
   }
-  const succeed = async (data: { email?: string[]; phoneNumber?: string[]; phoneNotificationType?: string }): Promise<NotificationCarryOverResult> => {
+  const succeed = async (data: NotificationSettingsPayload): Promise<NotificationCarryOverResult> => {
     const emails = Array.from(new Set((data.email || []).map((e) => String(e).trim()).filter(Boolean)))
     const phones = Array.from(new Set((data.phoneNumber || []).map((p) => sanitizePhone(String(p))).filter(Boolean)))
     const textNotificationsEnabled = data.phoneNotificationType === 'ALL'
+    // The two reminder toggles live on this same FM response and used to be
+    // dropped on the floor here — recipients carried, toggles didn't, so a
+    // restaurant with FM's customer reminders ON landed on Neon's
+    // `DEFAULT false` and its reminder emails silently stopped at conversion
+    // (app/api/cron/order-reminders gates on exactly these two columns).
+    // Absent (not a real boolean) means "FM didn't say" — leave whatever Neon
+    // already has rather than writing a fabricated false.
+    const orderReminders = typeof data.orderReminderEmailsEnabled === 'boolean' ? data.orderReminderEmailsEnabled : null
+    const adminReminders = typeof data.adminOrderReminderEmailsEnabled === 'boolean' ? data.adminOrderReminderEmailsEnabled : null
     await sql`
-      INSERT INTO disco_restaurant_overrides (restaurant_reference, notification_emails, notification_sms_numbers, text_notifications_enabled, notification_settings_flagged_at, updated_at)
-      VALUES (${ref}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, NULL, NOW())
+      INSERT INTO disco_restaurant_overrides (restaurant_reference, notification_emails, notification_sms_numbers, text_notifications_enabled, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_settings_flagged_at, updated_at)
+      VALUES (${ref}, ${emails.join(',') || null}, ${phones.join(',') || null}, ${textNotificationsEnabled}, ${orderReminders}, ${adminReminders}, NULL, NOW())
       ON CONFLICT (restaurant_reference) DO UPDATE
         SET notification_emails = ${emails.join(',') || null},
             notification_sms_numbers = ${phones.join(',') || null},
             text_notifications_enabled = ${textNotificationsEnabled},
+            order_reminder_emails_enabled = COALESCE(${orderReminders}, disco_restaurant_overrides.order_reminder_emails_enabled),
+            admin_order_reminder_emails_enabled = COALESCE(${adminReminders}, disco_restaurant_overrides.admin_order_reminder_emails_enabled),
             notification_settings_flagged_at = NULL,
             updated_at = NOW()
     `
-    return { carried: true, reason: `Carried over ${emails.length} email(s), ${phones.length} phone(s) via master-password admin session.` }
+    return { carried: true, reason: `Carried over ${emails.length} email(s), ${phones.length} phone(s), customer reminders ${orderReminders === null ? 'unchanged (FM did not report)' : orderReminders}, restaurant reminders ${adminReminders === null ? 'unchanged (FM did not report)' : adminReminders} via master-password admin session.` }
   }
 
   // Master-password path — trust a real 200 at face value (empty is genuinely
@@ -706,7 +728,7 @@ export async function carryOverNotificationSettings(ref: string, walled?: FmWall
     return fail(`FM /api/notifications unreachable via service account (HTTP ${res.status}): ${body.slice(0, 200)} — this is the known session-scoped access-control wall${walled ? `; no real per-restaurant admin identity was found either (${walled.reason})` : ''}; real recipients must be entered manually post-conversion.`)
   }
 
-  let data: { email?: string[]; phoneNumber?: string[]; phoneNotificationType?: string } | null = null
+  let data: NotificationSettingsPayload | null = null
   try { data = await res.json() } catch { /* fall through to the reason below */ }
   if (!data) {
     return fail('FM /api/notifications returned a non-JSON or empty body — cannot carry over.')
