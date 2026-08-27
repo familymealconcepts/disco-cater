@@ -195,4 +195,49 @@ export function deriveLeadGenPct(args: {
   return pct >= 0 && pct <= 100 ? pct : 0
 }
 
-export const cents = (dollars: number): number => Math.round(dollars * 100)
+/**
+ * Dollars → integer cents, and the last gate before a money value reaches Stripe.
+ *
+ * REFUSES a non-finite amount rather than converting it. Math.round(NaN * 100) is
+ * NaN, and NaN sails through every downstream layer silently: the Stripe SDK
+ * form-encodes it and Stripe answers `parameter_invalid_integer — Invalid integer:
+ * NaN`, an error that names the parameter but not the cause, thousands of lines from
+ * whatever produced it. That is exactly how a broken own-delivery fee lookup
+ * (menu-settings.computeOwnDeliveryFee, legacy JSONB shape) turned into five failed
+ * checkouts and two lost orders on 2026-08-27 — the arithmetic bug was one line, the
+ * time to find it was not.
+ *
+ * Throwing here converts a silent mispriced/failed charge into a loud, attributable
+ * failure at the moment the bad number appears. Every caller is a money path (Stripe
+ * amounts, transfer amounts, refund amounts, pricing self-checks), so there is no
+ * display path this can break — a page must never render a total this would reject.
+ */
+export const cents = (dollars: number): number => {
+  if (!Number.isFinite(dollars)) {
+    throw new Error(`cents(): refusing a non-finite money value (${String(dollars)}) — upstream pricing produced no usable amount`)
+  }
+  return Math.round(dollars * 100)
+}
+
+/**
+ * Refuse a set of money values before they are PERSISTED. The companion to cents():
+ * cents() guards the charge, this guards the row.
+ *
+ * Postgres `numeric` accepts the literal 'NaN', so a broken total does not fail the
+ * INSERT — it lands in disco_orders and stays there. Orders 900000097-900000101 each
+ * hold `total = NaN` for exactly this reason: the row was written before the charge
+ * was attempted, so the Stripe rejection stranded five orders in RESERVED carrying a
+ * total no code can ever reconcile, and the reserved-expiry sweep (correctly) refuses
+ * to guess at them. A money value that isn't a real number must abort placement, not
+ * be recorded.
+ *
+ * @param values field name → value, so the thrown message names the culprit.
+ */
+export function assertFiniteMoney(values: Record<string, number | null | undefined>, context: string): void {
+  const bad = Object.entries(values)
+    .filter(([, v]) => v != null && !Number.isFinite(v))
+    .map(([k, v]) => `${k}=${String(v)}`)
+  if (bad.length) {
+    throw new Error(`${context}: refusing to persist a non-finite money value (${bad.join(', ')}) — pricing produced no usable amount`)
+  }
+}

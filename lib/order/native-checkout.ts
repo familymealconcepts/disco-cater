@@ -9,7 +9,7 @@ import { sql, withDiscoTables } from '../db'
 import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../pricing/native-order'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
 import { computeThirdPartyDelivery, menuRowToScheduleExtras, type DeliverySettings, type MenuSettingsRow } from '../menu-settings'
-import { cents, discountedBase } from '../promo-pricing'
+import { cents, discountedBase, assertFiniteMoney } from '../promo-pricing'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../scheduling/native-schedule'
 import { isDateTimeBookable } from '../scheduling/cutoffs'
 import { validateNativeDelivery, type NativeDeliveryAddress } from './native-delivery'
@@ -644,6 +644,21 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
   if (!b.taxReliable) {
     throw new Error("Can't price this order — no real tax rate is on file for this restaurant yet.")
   }
+  // Every money value about to be written to disco_orders + disco_sale_transactions.
+  // Placed HERE, above nextNativeOrderNumber(), deliberately: this must refuse before
+  // the placement consumes an order number, opens a Stripe invoice, or writes a row,
+  // so a bad price leaves nothing behind to reconcile. Postgres numeric accepts 'NaN'
+  // silently — orders 900000097-900000101 are the proof — so nothing below this line
+  // would have caught it. input.deliveryFee is included because it is the component
+  // that actually went bad, and it reaches the row via ownDeliveryFee /
+  // thirdPartyDeliveryFee without passing through the breakdown.
+  assertFiniteMoney({
+    subtotal: b.subtotal, total: b.total, fee: b.familyMealFee, serviceCharge: b.serviceCharge,
+    stripeFee: b.stripeFee, stateTax: b.stateTax, localTax: b.localTax, otherTax: b.otherTax,
+    tipsInPrice: b.tipsInPrice, thirdPartyDeliveryTips: b.thirdPartyDeliveryTips,
+    discount: b.discount, leadGen: b.leadGen, transfer: b.transfer,
+    deliveryFee: input.deliveryFee, thirdPartyDeliverySubsiding: input.thirdPartyDeliverySubsiding,
+  }, `placeNativeOrder(restaurant=${input.restaurantReference})`)
   const { orderType, deliveryType } = fulfillmentToTypes(input.fulfillment)
   const orderNumber = await nextNativeOrderNumber()
   const initialStatus = input.orderStatus ?? 'RESERVED'

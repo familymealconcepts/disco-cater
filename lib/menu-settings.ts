@@ -219,8 +219,20 @@ export function computeThirdPartyDelivery(subtotal: number, subsidyPct = 0): Thi
  * should be an explicit setting, not a silent widening.
  */
 export function computeOwnDeliveryFee(own: DeliverySettings['own'], distanceMiles: number, subtotal: number): { serviceable: boolean; fee: number } {
-  if (own?.primary && distanceMiles <= own.primary.radiusMiles) return { serviceable: true, fee: tierFee(own.primary, subtotal) }
-  if (own?.secondary && distanceMiles <= own.secondary.radiusMiles) return { serviceable: true, fee: tierFee(own.secondary, subtotal) }
+  // parseTier, NOT the raw tiers. `own` arrives straight off disco_menus.delivery_settings
+  // — a JSONB blob no migration runner rewrites — so a row written before the
+  // two-component change still carries feeType/feeValue and has no feeFixed/feePercent
+  // at all. Reading those raw made tierFee compute `undefined + subtotal * undefined/100`
+  // = NaN, which propagated to the order total, serialized to JSON as null (hiding the
+  // delivery-fee line and undercounting the customer's total), and reached Stripe as
+  // `amount: NaN` → "Invalid integer: NaN". Every own-delivery checkout at the 13
+  // restaurants still on the legacy shape failed this way, 5 attempts / 2 lost orders
+  // between the 2026-08-25 deploy and 2026-08-27. parseTier is the same migrate-on-read
+  // the write path has always used; it belongs on BOTH sides of the blob.
+  const primary = parseTier(own?.primary)
+  const secondary = parseTier(own?.secondary)
+  if (primary && distanceMiles <= primary.radiusMiles) return { serviceable: true, fee: tierFee(primary, subtotal) }
+  if (secondary && distanceMiles <= secondary.radiusMiles) return { serviceable: true, fee: tierFee(secondary, subtotal) }
   return { serviceable: false, fee: 0 }
 }
 
@@ -249,8 +261,12 @@ export function menuRowToSettings(row: MenuSettingsRow) {
   if (row.offers_delivery !== false) menuAvailability.push('DELIVERY')
   const tipType = String(row.tip_default_type || 'PERCENTAGE').toUpperCase()
   const del = row.delivery_settings || undefined
-  const primary = del?.own?.primary
-  const secondary = del?.own?.secondary
+  // parseTier for the same reason computeOwnDeliveryFee needs it: this row came out
+  // of the JSONB blob unnormalized. Reading `primary.feeFixed` raw off a legacy row
+  // yielded undefined, so feeCurrency() returned null and every surface fed by these
+  // FM-shaped settings showed a configured $25 fee as "not set".
+  const primary = parseTier(del?.own?.primary)
+  const secondary = parseTier(del?.own?.secondary)
   // Both components surface independently now; a zero reads as "not set" for
   // display purposes, matching how FM renders an empty box rather than a 0.
   const feeCurrency = (t?: DeliveryTier) => t && t.feeFixed > 0 ? t.feeFixed : null
