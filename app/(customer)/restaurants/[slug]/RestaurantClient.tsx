@@ -510,6 +510,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // In "Other" mode a blank input means $0 (tipPct null → 0), never the menu
   // default. Otherwise fall back to the menu's default tip.
   const activeTip = tipOther ? (tipPct ?? 0) : (tipPct ?? defaultTip)
+  // The `?? pickupOrderMinimum` step CANNOT FIRE on the Disco-native path, and is
+  // kept only for FM-backed restaurants. disco_menus.pickup_order_minimum and
+  // delivery_order_minimum are both NOT NULL DEFAULT 0, so menuRowToSettings always
+  // returns a number (n(...)), never null — a native menu with no delivery minimum
+  // reads 0, not undefined, and 0 correctly means "no minimum" rather than
+  // "inherit pickup's". Only FM can leave the field genuinely absent. The server
+  // gate (lib/order/native-checkout.ts loadMenuOrderMinimums, enforced in
+  // buildNativePlaceInput) is written against the real semantics and deliberately
+  // does NOT reproduce this chain — don't "align" the two by adding it there.
   const minOrder = orderType === 'DELIVERY'
     ? (checkoutSettings?.deliveryOrderMinimum ?? checkoutSettings?.pickupOrderMinimum ?? 0)
     : (checkoutSettings?.pickupOrderMinimum ?? 0)

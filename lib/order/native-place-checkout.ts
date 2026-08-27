@@ -1,7 +1,8 @@
 import type Stripe from 'stripe'
 import {
   fmItemsToNativeCart, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
-  isNativeDateTimeValid, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, placeAndPayNativeOrder, placeNativeInvoiceOrder,
+  isNativeDateTimeValid, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, loadMenuOrderMinimums,
+  cartSubtotal, placeAndPayNativeOrder, placeNativeInvoiceOrder,
   priceNativeCart, resolveCartMenuReference, type NativePlaceAndPayResult, type NativeInvoiceResult, type NativePlaceInput,
   type NativeDeliveryAddressInput,
 } from './native-checkout'
@@ -95,6 +96,9 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     String(cd.sourceoforder ?? '').toUpperCase() === 'FAMILYMEAL' ? 'FAMILYMEAL' : 'DISCO'
 
   const orderTypeRaw = String(cd.orderType ?? (params.deliveryAddress ? 'DELIVERY' : 'PICKUP'))
+  // Normalized once here rather than re-derived per gate — the order-minimum gate
+  // below and the fulfillment-availability gate further down both need it.
+  const requestedOrderType: 'DELIVERY' | 'PICKUP' = orderTypeRaw === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
   const tips = Number(cd.tips) || 0
   const tipsType = String(cd.tipsType ?? 'PERCENTAGE')
 
@@ -117,9 +121,13 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // to the browser, and was then read by nothing, so a customer could order 2 of a
   // min-4 Side and reach payment with a cart the kitchen doesn't make (orders
   // 900000099-101, 2026-08-27). The group minimum was enforced only by
-  // RestaurantClient's isGroupValid, which a Direct Entry or direct API call never
-  // executes. Placed alongside the cap/date-time gates so both placement paths that
-  // route through here — customer checkout and Direct Entry, card and invoice — are
+  // RestaurantClient's isGroupValid — a button, not an enforcement. NOTE Direct
+  // Entry is NOT the bypass: it routes to /order/{slug}?mode=direct-entry, which
+  // renders the same RestaurantView -> RestaurantClient and therefore runs the same
+  // client-side checks. The bypass is a direct POST to /api/order/place or
+  // /api/restaurant/orders/place, which reaches placement without any UI at all.
+  // Placed alongside the cap/date-time gates so both placement paths that route
+  // through here — customer checkout and Direct Entry, card and invoice — are
   // covered.
   //
   // NOT covered: the recurring-orders cron, which builds its NativePlaceInput
@@ -132,6 +140,42 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   const minCheck = await checkCartMinimums(items)
   if (!minCheck.ok) {
     return { ok: false, status: 400, error: minCheck.message }
+  }
+
+  // Order-VALUE minimum (disco_menus.pickup_order_minimum / delivery_order_minimum)
+  // — the third minimum, and the last one that was client-only. RestaurantClient's
+  // `belowMin` disables the checkout button; that's a button, not an enforcement, so
+  // a direct POST to /api/order/place or /api/restaurant/orders/place could place a
+  // $10 order against a $200 minimum.
+  //
+  // SEMANTICS ARE COPIED FROM THE CLIENT DELIBERATELY (RestaurantClient.tsx:513-515
+  // and :890), because a server gate that disagrees with the button is worse than
+  // none — it would let a customer pass checkout and fail at placement:
+  //   • RAW subtotal, NOT the discounted one. `belowMin` compares `subtotal`, not
+  //     `discountedSubtotal`, so a promo can't drop a cart under the minimum. Same
+  //     precedent as the promo's own minimum (lib/promo-native.ts, evaluated
+  //     pre-discount).
+  //   • ADD-ONS COUNT. cartSubtotal folds add-on prices into the unit price, as does
+  //     the client's own cartSubtotal.
+  //   • PER FULFILLMENT TYPE and PER MENU — resolved from the cart's tagged menu via
+  //     menuReference, matching the client's `checkoutMenu`, not a restaurant-level
+  //     setting.
+  //   • 0 MEANS NO MINIMUM. See loadMenuOrderMinimums for why the client's nullish
+  //     fallback chain is not reproduced.
+  //
+  // Checked before priceNativeCart because the raw subtotal needs no pricing pass,
+  // so an under-minimum cart is refused before any promo/delivery/tax work happens.
+  const orderMinimums = await loadMenuOrderMinimums(ref, menuReference)
+  const minForType = requestedOrderType === 'DELIVERY' ? orderMinimums.delivery : orderMinimums.pickup
+  if (minForType > 0) {
+    const rawSubtotal = cartSubtotal(items)
+    if (rawSubtotal < minForType) {
+      const short = Math.round((minForType - rawSubtotal) * 100) / 100
+      return {
+        ok: false, status: 400,
+        error: `This menu has a $${minForType.toFixed(2)} minimum for ${requestedOrderType === 'DELIVERY' ? 'delivery' : 'pickup'} orders — your subtotal is $${rawSubtotal.toFixed(2)}. Please add $${short.toFixed(2)} more.`,
+      }
+    }
   }
 
   const tip = tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips }
@@ -169,7 +213,6 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // enforcement. A restaurant can legitimately run one menu as pickup+delivery
   // and another (e.g. a holiday menu) as pickup-only; refuse here rather than
   // let a direct API call place the order type the menu doesn't offer.
-  const requestedOrderType = orderTypeRaw === 'DELIVERY' ? 'DELIVERY' : 'PICKUP'
   const avail = await loadMenuFulfillmentAvailability(ref, menuReference)
   if (requestedOrderType === 'DELIVERY' && !avail.offersDelivery) {
     return { ok: false, status: 400, error: 'This menu is pickup only — delivery isn\'t available for these items.' }

@@ -1078,3 +1078,80 @@ What unblocks it, whenever someone picks this up:
    spec, so there's nothing safe to ship until FM's own behavior changes or
    the restaurant converts to native (see the rest of this runbook — most
    restaurants get there within weeks anyway, which may make this moot).
+
+---
+
+## Recurring orders — two things that don't work, logged not fixed (2026-08-27)
+
+Found while sizing "carry item references into the recurring snapshot" (gap 1,
+still on hold). Neither is urgent: exactly ONE recurring order exists in the
+system, it's a test fixture, and per the second finding below its native branch
+has never executed. Logging so nobody re-derives this.
+
+### 1. `repriceCart` and `checkMenuAvailability` are inert — the catch swallows a 500
+
+`lib/recurring.ts` reads the menu through
+`GET {FM}/public-api/restaurants/{ref}/mealPackages` — with **no
+`menuReference` query param**. FM requires it, and answers:
+
+```
+HTTP 500
+{"code":"500-001","description":"Unforeseen and unhandled error :
+  Required UUID parameter 'menuReference' is not present", ...}
+```
+
+(verified live 2026-08-27 against a real UUID.) So:
+
+- `fetchMenuItemPrices` throws → `repriceCart`'s `catch { return cart }` returns
+  the snapshot unchanged. **The re-price has never happened.** The comment at
+  `app/api/cron/recurring-orders/route.ts:493-495` — "Re-price the cart against
+  the CURRENT menu before charging (I5), so a menu price change since setup is
+  reflected" — describes behaviour that does not occur. A recurring order charges
+  the price frozen at setup, indefinitely.
+- `checkMenuAvailability` throws on the same call. Its caller correctly treats a
+  throw as "couldn't determine" rather than "everything is gone" (deliberate, so a
+  transient FM hiccup can't falsely pause a subscription) — which means it never
+  pauses anything either. A removed item is never detected.
+
+Both failures are silent by construction: the swallow is the *right* behaviour for
+a transient error, it just also hides a permanent one.
+
+Same root cause as the `/order/[slug]` zero-packages bug: FM's `mealPackages`
+requires `menuReference`. Note the correct fix for a Disco-native restaurant is
+**not** to add the param — it's to read Neon (`disco_menu_items`), since FM's copy
+of a converted restaurant's menu is stale by definition. Wire the native branch to
+Neon and keep the FM call only for FM-backed restaurants.
+
+### 2. A recurring order cannot be created from a native order at all
+
+Both producers build the payload as:
+
+```ts
+restaurantReference: detail.restaurant?.businessNameWithoutSpaces || ''
+```
+
+- `app/(customer)/account/components/OrderDetailPanel.tsx:424`
+- `app/(customer)/account/subscriptions/page.tsx:296`
+
+`buildNeonDetail` — the **native** branch of `app/api/fm-order-detail/[ref]/
+route.ts` — never sets `businessNameWithoutSpaces` on its `restaurant` object
+(it returns `businessName`, `phoneNumber`, `timezone`, `address`). So for a native
+order the expression resolves to `''`, and `POST /api/recurring-orders:114`
+rejects it:
+
+```
+400  {"error":"restaurantReference, restaurantName and sourceOrderReference are required"}
+```
+
+For an FM-backed order it resolves to a **slug**, not a reference. That is why the
+one existing recurring order carries `restaurant_reference = 'testkitchen'` while
+that restaurant's real reference is `c8322ff4-32dd-47bc-8515-3f0cffc34bbf`.
+Consequence: `isDiscoNativeRestaurant('testkitchen')` returns false, so the cron
+takes the **FM branch** — the native recurring path
+(`chargeAndPlaceNativeRecurringOrder`) has never run once in production.
+
+The fix is small and is the prerequisite for all of gap 1: `buildNeonDetail`
+already SELECTs `o.restaurant_reference`, it just isn't surfaced. Expose it and
+use it in both producers. Until then, nothing reference-based in the recurring
+pipeline can resolve, and `subscriptions/page.tsx:282`'s comment ("Pulls the full
+order detail so we have the restaurant reference") is not true.

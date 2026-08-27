@@ -168,6 +168,51 @@ export async function loadMenuFulfillmentAvailability(restaurantReference: strin
   return { offersPickup: rows[0]?.offers_pickup !== false, offersDelivery: rows[0]?.offers_delivery !== false }
 }
 
+export interface MenuOrderMinimums { pickup: number; delivery: number }
+
+/**
+ * A menu's order-VALUE minimums (disco_menus.pickup_order_minimum /
+ * delivery_order_minimum) — the third minimum concept FM carries, alongside
+ * per-item min_quantity and per-group min_selected.
+ *
+ * 0 MEANS NO MINIMUM, per fulfillment type independently. That is FM's own
+ * semantic and it is a real configuration, not a missing value: Atlanta Bread —
+ * Asheville runs pickupOrderMinimum 0 with deliveryOrderMinimum 200, i.e. pickup
+ * genuinely has no floor there.
+ *
+ * DELIBERATELY NOT mirroring the client's `deliveryOrderMinimum ??
+ * pickupOrderMinimum ?? 0` fallback chain (RestaurantClient.tsx). Both columns are
+ * NOT NULL DEFAULT 0, so menuRowToSettings always yields a number and that nullish
+ * chain can never fire on the native path — it only ever meant anything on FM's,
+ * where the field can be genuinely absent. Reproducing it here would add a branch
+ * that cannot execute and would imply a delivery minimum falls back to the pickup
+ * one, which is not what the stored data means.
+ *
+ * Same exact-match-then-explicit-fallback shape as loadMenuFulfillmentAvailability.
+ */
+export async function loadMenuOrderMinimums(restaurantReference: string, menuReference?: string): Promise<MenuOrderMinimums> {
+  const read = (r: { pickup_order_minimum: unknown; delivery_order_minimum: unknown } | undefined): MenuOrderMinimums => ({
+    pickup: Math.max(0, Number(r?.pickup_order_minimum) || 0),
+    delivery: Math.max(0, Number(r?.delivery_order_minimum) || 0),
+  })
+  type Row = { pickup_order_minimum: unknown; delivery_order_minimum: unknown }
+  if (menuReference) {
+    const exact = (await sql`
+      SELECT pickup_order_minimum, delivery_order_minimum FROM disco_menus
+      WHERE restaurant_reference = ${restaurantReference}::uuid AND reference = ${menuReference}::uuid
+      LIMIT 1
+    `.catch(() => [])) as Row[]
+    if (exact.length) return read(exact[0])
+    console.warn('[native-checkout] loadMenuOrderMinimums: tagged menuReference not found, falling back to primary-menu guess', { restaurantReference, menuReference })
+  }
+  const rows = (await sql`
+    SELECT pickup_order_minimum, delivery_order_minimum FROM disco_menus
+    WHERE restaurant_reference = ${restaurantReference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
+    ORDER BY position, id LIMIT 1
+  `.catch(() => [])) as Row[]
+  return read(rows[0])
+}
+
 // The delivery time-window granularity ('exact' | '30_min' | '1_hour') the
 // restaurant configured (disco_restaurant_overrides.delivery_order_time_windows).
 // Snapshotted onto a delivery order so emails/PDF/confirmation show the RANGE

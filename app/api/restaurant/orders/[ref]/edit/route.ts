@@ -1,3 +1,22 @@
+// ORDER EDIT — DELIBERATELY EXEMPT FROM THE CUSTOMER-FACING ORDER GATES.
+//
+// This route does NOT run, and must not be "fixed" to run:
+//   • checkCartMinimums          (item min_quantity + required group min_selected)
+//   • the order-value minimum    (pickup/delivery_order_minimum)
+//   • checkItemInventoryAvailability (max_inventory_per_day)
+//   • anything else in buildNativePlaceInput
+//
+// Those rules exist to stop a CUSTOMER self-serving an order the kitchen can't
+// fill. This route is the restaurant adjusting an order on a customer's behalf —
+// usually because the customer phoned to change something, and usually with the
+// kitchen already looking at it. A restaurant must be able to drop a tray, split a
+// Side below its own stated minimum, or take an order past its own daily cap,
+// because the restaurant is the authority those minimums were protecting in the
+// first place. Blocking it would mean telling a restaurant it isn't allowed to do
+// what it just agreed to do on the phone.
+//
+// So the asymmetry is the design, not an oversight. Confirmed intentional
+// 2026-08-27 when the minimum gates were added to the placement path.
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
