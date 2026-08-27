@@ -34,11 +34,20 @@
 //                                                          marketplace-image admin upload route uses),
 //                                                          never re-hosted into Disco's own storage.
 //
-// Images are written ONLY when the target's icon_url/image_url are currently
-// null — never overwritten. A restaurant can already have a real, independently-
-// sourced image in Neon (e.g. uploaded directly through Disco's own portal,
-// predating any conversion) that has nothing to do with FM's version; this import
-// must never silently replace it.
+// Restaurant-level images are written ONLY when the target's icon_url/image_url are
+// currently null — never overwritten. A restaurant can already have a real,
+// independently-sourced image in Neon (e.g. uploaded directly through Disco's own
+// portal, predating any conversion) that has nothing to do with FM's version; this
+// import must never silently replace it.
+//
+// PER-ITEM images ARE re-hosted, unlike the two restaurant-level ones above. They
+// come from each mealPackage's `image.reference` and are downloaded once and stored
+// in Vercel Blob (./fm-item-images), so ~600 item rows don't end up resolving through
+// api.familymeal.com at render time on a system being sunset. Best-effort per item: a
+// failure leaves image_url NULL and is picked up by re-running
+// scripts/backfill-item-images-from-fm.ts. The restaurant-level pair keeping FM URLs
+// is the same latent dependency at restaurant scale and wants the same treatment —
+// not changed here, flagged in ./fm-item-images.
 //
 // maxOrder is NOT auto-imported: FM's scheduleOption.maxOrder is per-15-minute-window
 // while Disco's max_orders_per_day is per-day (~96x different). It's left null
@@ -64,6 +73,7 @@ import { sql, runDiscoMenuMigrations } from '../db'
 import { getFmServiceAuthHeader } from '../fm-service-auth'
 import { parseMenuSettingsInput, parseDeliverySettings } from '../menu-settings'
 import { fmImageUrl } from '../fm-image'
+import { resolveFmItemImage, fmItemImageReference, fmItemImageStorageKey, newItemImageCache } from './fm-item-images'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const arrOf = (d: unknown): Record<string, unknown>[] => {
@@ -286,6 +296,14 @@ export interface FaithfulImportSummary {
   // Counted and surfaced rather than dropped quietly; a partial-day restriction
   // is genuinely not representable in Disco today.
   skippedDayIntervalsDropped: number
+  // Per-item images pulled from FM and re-hosted in Vercel Blob (see
+  // ./fm-item-images). itemImagesMissing counts items FM has no image for at all —
+  // a real state, not a failure. itemImagesFailed counts images FM claims to have
+  // but that could not be fetched/re-hosted; those leave image_url NULL and are
+  // picked up by re-running scripts/backfill-item-images-from-fm.ts.
+  itemImagesImported: number
+  itemImagesMissing: number
+  itemImagesFailed: number
   error?: string
 }
 
@@ -297,6 +315,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     fmRef, targetRef, menus: 0, categories: 0, items: 0, groups: 0, modifiers: 0, itemGroupLinks: 0, pricedModifiers: 0,
     announcementImported: false, deliveryWindowImported: false,
     iconUrlImported: false, imageUrlImported: false,
+    itemImagesImported: 0, itemImagesMissing: 0, itemImagesFailed: 0,
     supplementaryItemsPlaced: 0, duplicatedAcrossMenus: 0, unplacedFallbackCount: 0,
     skippedDayRangesImported: 0, skippedDayIntervalsDropped: 0, hiddenCategorySkipped: 0,
   }
@@ -463,13 +482,31 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     return catRef
   }
 
+  // One cache for the whole import: FM clones its image rows per restaurant, but an
+  // item list can repeat a reference, and content-addressed blob paths dedupe
+  // identical bytes across restaurants at the storage layer regardless.
+  const itemImageCache = newItemImageCache()
   const insertItem = async (it: Record<string, unknown>, catRef: string): Promise<void> => {
     const serves = str(it.serves).trim() || null
     const displayPrice = str(it.displayPrice).trim().slice(0, 120) || null
     const minQty = num(it.minQuantity) > 0 ? Math.round(num(it.minQuantity)) : null
+    // Item image. image_url was missing from this column list entirely, which is why
+    // every native restaurant had zero item images while FM had ~55 per Atlanta Bread
+    // location. Best-effort by design: resolveFmItemImage never throws, and a failure
+    // leaves image_url NULL rather than failing the import — an image is decoration,
+    // and scripts/backfill-item-images-from-fm.ts fills blanks on a later run.
+    const imgRef = fmItemImageReference(it)
+    let imageUrl: string | null = null
+    if (!imgRef) {
+      summary.itemImagesMissing++
+    } else {
+      const img = await resolveFmItemImage(imgRef, itemImageCache, fmItemImageStorageKey(it))
+      if (img.ok) { imageUrl = img.url; summary.itemImagesImported++ }
+      else { summary.itemImagesFailed++; console.warn(`[fm-faithful-import] item image failed (${str(it.name)}): ${img.reason}`) }
+    }
     const ii = (await sql`
-      INSERT INTO disco_menu_items (restaurant_reference, category_reference, name, description, price, serves, display_price, min_quantity, allow_special_instructions, visible, position)
-      VALUES (${targetRef}::uuid, ${catRef}::uuid, ${str(it.name) || 'Item'}, ${str(it.description) || null}, ${num(it.price)}, ${serves}, ${displayPrice}, ${minQty}, ${it.allowedSpecialInstructions === true}, ${it.visible !== false}, ${itemPos++})
+      INSERT INTO disco_menu_items (restaurant_reference, category_reference, name, description, price, serves, display_price, min_quantity, allow_special_instructions, visible, position, image_url)
+      VALUES (${targetRef}::uuid, ${catRef}::uuid, ${str(it.name) || 'Item'}, ${str(it.description) || null}, ${num(it.price)}, ${serves}, ${displayPrice}, ${minQty}, ${it.allowedSpecialInstructions === true}, ${it.visible !== false}, ${itemPos++}, ${imageUrl})
       RETURNING reference
     `) as { reference: string }[]
     const itemRef = ii[0].reference
