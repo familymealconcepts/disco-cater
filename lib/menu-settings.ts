@@ -76,12 +76,64 @@ export function parseItemFields(body: Record<string, unknown>): ItemFields {
 }
 
 // ── Skipped / blackout days (Stage 7) ────────────────────────────────────────
-export interface SkippedDay { name?: string; fromDate: string; toDate: string }
+/**
+ * A menu blackout. `intervals` EMPTY or absent = the whole date is blocked;
+ * `intervals` present = only those hours are, and the rest of the day stays
+ * orderable. Mirrors FM's own shape and its own rule (getMenuSkippedDates blocks
+ * a DATE only when the skip has no intervals).
+ *
+ * The intervals field is ADDITIVE on a JSONB column, which is why this needed no
+ * migration: every row written before it existed has no intervals, and "no
+ * intervals" already meant "whole day" — so old rows carry their exact previous
+ * meaning with no translation step. Unlike the delivery-fee split there is no
+ * legacy shape to migrate on read.
+ */
+export interface SkippedInterval { fromTime: string; toTime: string }
+export interface SkippedDay { name?: string; fromDate: string; toDate: string; intervals?: SkippedInterval[] }
 const ISO = /^\d{4}-\d{2}-\d{2}$/
+const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/
+// Bounded so a malformed/hostile payload can't store an unbounded array in JSONB.
+// FM's own data tops out at one interval per entry; 12 is generous headroom.
+const MAX_INTERVALS = 12
+
+/** Normalize a time to "HH:mm". Accepts FM's LocalTime "H:mm:ss" — note the
+ *  SINGLE-DIGIT hour ("9:00:00", "0:45:00"), which a naive slice(0,5) turns into
+ *  "0:45" and then fails HHMM validation. */
+export function toHHMM(v: unknown): string | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(v ?? '').trim())
+  if (!m) return null
+  const h = Number(m[1])
+  if (!Number.isFinite(h) || h > 23) return null
+  const out = `${String(h).padStart(2, '0')}:${m[2]}`
+  return HHMM.test(out) ? out : null
+}
+
+function parseIntervals(raw: unknown): SkippedInterval[] {
+  if (!Array.isArray(raw)) return []
+  const out: SkippedInterval[] = []
+  for (const iv of raw.slice(0, MAX_INTERVALS)) {
+    const o = iv as Record<string, unknown> | null
+    const fromTime = toHHMM(o?.fromTime), toTime = toHHMM(o?.toTime)
+    // A zero-width or inverted range would block nothing (or everything, depending
+    // on the reader) — refuse it rather than store an ambiguous rule.
+    if (!fromTime || !toTime || fromTime >= toTime) continue
+    out.push({ fromTime, toTime })
+  }
+  return out
+}
+
 export function parseSkippedDays(body: Record<string, unknown>): SkippedDay[] {
   const raw = Array.isArray(body?.skippedDays) ? (body.skippedDays as Record<string, unknown>[]) : []
   return raw
-    .map(d => ({ name: (String(d?.name || '').trim().slice(0, 255)) || undefined, fromDate: String(d?.fromDate || ''), toDate: String(d?.toDate || d?.fromDate || '') }))
+    .map(d => {
+      const intervals = parseIntervals(d?.intervals)
+      return {
+        name: (String(d?.name || '').trim().slice(0, 255)) || undefined,
+        fromDate: String(d?.fromDate || ''),
+        toDate: String(d?.toDate || d?.fromDate || ''),
+        ...(intervals.length ? { intervals } : {}),
+      }
+    })
     .filter(d => ISO.test(d.fromDate) && ISO.test(d.toDate))
 }
 

@@ -1155,3 +1155,62 @@ already SELECTs `o.restaurant_reference`, it just isn't surfaced. Expose it and
 use it in both producers. Until then, nothing reference-based in the recurring
 pipeline can resolve, and `subscriptions/page.tsx:282`'s comment ("Pulls the full
 order detail so we have the restaurant reference") is not true.
+
+---
+
+## Two scheduling divergences with FM, logged not fixed (2026-08-28)
+
+Found while fixing partial-day menu blackouts. Neither is caused by that change.
+
+### 1. `localDate` is sent as ISO where FM requires DD.MM.YYYY
+
+FM's `GET /public-api/mealPackages/{ref}/availablePickUp` takes `localDate` as a
+Java `LocalDate` bound to **DD.MM.YYYY**. Verified live:
+
+```
+?localDate=2026-09-06   400  "Failed to convert value of type 'java.lang.String'
+                              to required type 'java.time.LocalDate'"
+?localDate=06.09.2026   200  [{"localTime":"10:00:00",...}, ...]
+```
+
+Three routes send ISO and therefore **always** 400:
+
+- `app/api/order/times/route.ts`
+- `app/api/fm-times/route.ts`
+- `app/api/fm-dates/route.ts` (same shape, `availableDates`)
+
+For Disco-NATIVE restaurants these are no-ops anyway — the native flow computes
+availability from `disco_menus` via `lib/scheduling/cutoffs.ts` and never calls
+them (see the note in `app/(customer)/restaurants/[slug]/shared.tsx`). For
+**FM-backed** restaurants they are the date/time picker's data source, so that
+picker is running on a dead endpoint.
+
+Same class as the inert `repriceCart`/`checkMenuAvailability` above: a request
+that has never once succeeded, hidden because the caller treats failure as empty
+rather than as an error.
+
+### 2. Slot granularity and the closing slot disagree
+
+For the same Bird & Co. menu (window 10:00–19:00, no blackout, 2026-09-10):
+
+| | slots | grid | first | last |
+|---|---|---|---|---|
+| FM   | 37 | 15 min | 10:00 | **19:00** |
+| Disco | 18 | 30 min | 10:00 | **18:30** |
+
+Two separate causes, both in `lib/scheduling/cutoffs.ts`:
+
+- `SLOT_MINUTES = 30`, so Disco never offers FM's `:15`/`:45` times.
+- `windowSlotMinutes` requires `m + SLOT_MINUTES <= to`, so a window ending 19:00
+  stops at 18:30. FM treats `to` as an inclusive PICKUP TIME, not an exclusive
+  bound, and offers 19:00.
+
+Consequence: Disco's times are a strict subset of FM's, so a customer looking at
+the two systems for the same restaurant sees different pickup times, and the
+19:00 closing slot is unbookable on Disco for every restaurant whose window ends
+on the half hour. Not a safety problem (Disco offers fewer slots, never more),
+which is why it is logged rather than fixed here.
+
+`scripts/verify-partial-blackouts.ts` excludes both from its parity diff by name
+so the blackout parity result stays readable — remove those exclusions when this
+is fixed and the diff should still come out clean.

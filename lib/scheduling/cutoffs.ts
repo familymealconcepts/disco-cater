@@ -117,7 +117,20 @@ export interface FmScheduleLike {
   endDate?: string | null
   skippedDays?: (SkippedDay | string)[] | null
 }
-interface SkippedDay { fromDate?: string; toDate?: string }
+/**
+ * A menu blackout, in FM's own shape.
+ *
+ * `intervals` EMPTY (or absent) blocks the WHOLE DATE. `intervals` present blocks
+ * only those hours and leaves the rest of the day orderable — FM's
+ * MealPackageServiceImpl.getMenuSkippedDates only treats a skip as a date-level
+ * block when `CollectionUtils.isEmpty(sd.getIntervals())`.
+ *
+ * Times are "HH:mm" here. FM sends LocalTime as "H:mm:ss" with a SINGLE-DIGIT hour
+ * ("9:00:00", "0:45:00"), which the importer normalizes on the way in — never
+ * slice(0,5) an FM time, it yields "0:45" for 00:45.
+ */
+interface SkippedInterval { fromTime?: string; toTime?: string }
+interface SkippedDay { fromDate?: string; toDate?: string; intervals?: SkippedInterval[] | null }
 
 const DAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY']
 const SLOT_MINUTES = 30
@@ -152,10 +165,16 @@ function windowForDay(s: FmScheduleLike, dayName: string): { from: string; to: s
   return null
 }
 
+/** Dates blocked for the WHOLE day. An entry carrying intervals is deliberately
+ *  excluded here — it blocks hours, not the date, and is applied per-slot in
+ *  buildAvailableTimes instead. Treating it as a date-level block is exactly the
+ *  over-blocking the faithful importer used to avoid by dropping such entries
+ *  outright (it blocked 47 dates FM leaves open, across the converted estate). */
 function skippedDateSet(s: FmScheduleLike): Set<string> {
   const out = new Set<string>()
   for (const sd of s.skippedDays ?? []) {
     if (typeof sd === 'string') { out.add(sd); continue }
+    if (Array.isArray(sd.intervals) && sd.intervals.length) continue
     const from = sd.fromDate, to = sd.toDate || sd.fromDate
     if (!from) continue
     const cur = new Date(`${from}T00:00:00`)
@@ -190,6 +209,47 @@ function windowSlotMinutes(win: { from: string; to: string }): number[] {
   return out
 }
 
+/**
+ * The blocked hour-ranges (minutes since midnight) that apply to one date.
+ *
+ * A date can carry more than one — FM stores multiple intervals per entry AND
+ * multiple entries per date. Bird & Co's 2026-08-26 is two separate entries
+ * ("8/26am" 00:45–12:00 and "8/26pm" 14:30–17:00), so both shapes are flattened
+ * here rather than assuming one window per date.
+ */
+function skippedIntervalsFor(s: FmScheduleLike, dateStr: string): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = []
+  for (const sd of s.skippedDays ?? []) {
+    if (typeof sd === 'string') continue
+    const ivs = Array.isArray(sd.intervals) ? sd.intervals : []
+    if (!ivs.length) continue                       // whole-day, handled by skippedDateSet
+    const from = sd.fromDate, to = sd.toDate || sd.fromDate
+    if (!from || dateStr < from || dateStr > (to as string)) continue
+    for (const iv of ivs) {
+      if (!iv?.fromTime || !iv?.toTime) continue
+      const a = hhmmToMinutes(iv.fromTime), b = hhmmToMinutes(iv.toTime)
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue
+      out.push({ from: Math.min(a, b), to: Math.max(a, b) })
+    }
+  }
+  return out
+}
+
+/**
+ * INCLUSIVE ON BOTH ENDS, matching FM exactly. Measured against FM's own
+ * availablePickUp for Bird & Co (2026-09-05, menu window 10:00–19:00):
+ *
+ *   blackout 15:00–16:30  →  FM offers … 14:45, then 16:45 …
+ *
+ * so both 15:00 and 16:30 are blocked, and 16:45 is not. Same on 2026-09-06
+ * (blocked 16:00–19:00 → last slot 15:45) and 2026-09-08 (blocked 09:00–12:30 →
+ * first slot 12:45). A half-open [from, to) rule would wrongly leave the closing
+ * slot bookable.
+ */
+function inBlockedInterval(minute: number, blocked: { from: number; to: number }[]): boolean {
+  return blocked.some(b => minute >= b.from && minute <= b.to)
+}
+
 /** Calendar dates within the horizon, each flagged disabled when it has no
  *  bookable slot (past earliest pickup, after hard cutoff, skipped, or no
  *  window that day). A Custom-availability menu's startDate is a hard lower
@@ -212,9 +272,21 @@ export function buildAvailableDates(
     const iso = localISODate(cur)
     const win = windowForDay(s, DAY_NAMES[cur.getDay()])
     if (win && !skipped.has(iso)) {
-      // The day is bookable if its LAST window slot is still enabled.
-      const slots = windowSlotMinutes(win)
-      const enabled = slots.length > 0 && isSlotEnabled(now, cfg, atTime(cur, slots[slots.length - 1]))
+      // The day is bookable if ANY window slot is still enabled AND not inside a
+      // partial-day blackout.
+      //
+      // This used to test only the LAST slot, on the sound reasoning that lead
+      // time/cutoffs expire slots in order, so the last one is the most permissive
+      // — "last enabled" and "any enabled" are equivalent under those rules alone.
+      // Partial-day blackouts break that equivalence: a blackout covering the end
+      // of the day (Bird & Co's 2026-09-26, 15:30–21:00 against a 10:00–19:00
+      // window) leaves the last slot blocked while the morning is genuinely
+      // bookable, and one covering the WHOLE window must disable the date outright.
+      // Testing existence handles both and is identical to the old behaviour when
+      // no intervals are present.
+      const blockedIvs = skippedIntervalsFor(s, iso)
+      const enabled = windowSlotMinutes(win).some(m =>
+        isSlotEnabled(now, cfg, atTime(cur, m)) && !inBlockedInterval(m, blockedIvs))
       out.push({ date: iso, disabled: !enabled })
     }
     cur.setDate(cur.getDate() + 1)
@@ -234,15 +306,24 @@ export function buildAvailableTimes(
   if (!dateStr) return []
   if (s.startDate && dateStr < s.startDate) return []
   if (s.endDate && dateStr > s.endDate) return []
+  // A WHOLE-DAY blackout yields no slots at all. This function never consulted
+  // skippedDateSet before — only buildAvailableDates did — so it happily returned a
+  // full slot list for a blacked-out date. isDateTimeBookable composes both and so
+  // still refused correctly, and the picker only asks for times on a date
+  // buildAvailableDates already emitted, which is why nothing broke. But the two
+  // functions disagreed about the same date, and this one is exported: any caller
+  // reading it directly would have seen a closed day as fully open.
+  if (skippedDateSet(s).has(dateStr)) return []
   const cfg = toCutoffConfig(s)
   const day = new Date(`${dateStr}T12:00:00`)
   const win = windowForDay(s, DAY_NAMES[day.getDay()])
   if (!win) return []
+  const blocked = skippedIntervalsFor(s, dateStr)
   const out: { time: string; disabled: boolean }[] = []
   for (const m of windowSlotMinutes(win)) {
     const slot = atTime(new Date(`${dateStr}T00:00:00`), m)
     const time = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`
-    out.push({ time, disabled: !isSlotEnabled(now, cfg, slot) })
+    out.push({ time, disabled: !isSlotEnabled(now, cfg, slot) || inBlockedInterval(m, blocked) })
   }
   return out
 }

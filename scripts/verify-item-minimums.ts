@@ -119,14 +119,17 @@ async function main() {
     JOIN disco_menu_categories cat ON cat.reference = mi.category_reference
     JOIN disco_menus m ON m.reference = cat.menu_reference AND NOT m.archived
     JOIN disco_restaurant_cache c ON c.restaurant_reference = m.restaurant_reference::text
-    WHERE c.name ILIKE ${smyrna} AND mi.min_quantity IS NULL AND mi.visible LIMIT 3
+    WHERE c.name ILIKE ${smyrna} AND mi.min_quantity IS NULL AND mi.visible
+    ORDER BY mi.name LIMIT 3
   `) as unknown as { reference: string; name: string }[]
 
   if (pasta && fruit) {
     const fixed = await checkCartMinimums([
       { reference: pasta.reference, name: pasta.name, quantity: 4, addOns: await validAddOns(pasta.reference) },
       { reference: fruit.reference, name: fruit.name, quantity: 4, addOns: await validAddOns(fruit.reference) },
-      ...noMin.map(n => ({ reference: n.reference, name: n.name, quantity: 1 })),
+      ...(await Promise.all(noMin.map(async n => ({
+        reference: n.reference, name: n.name, quantity: 1, addOns: await validAddOns(n.reference),
+      })))),
     ])
     check(`corrected 2026-08-27 cart (4+4 + ${noMin.length} unminimum'd items) allowed`, fixed.ok, true)
     if (!fixed.ok) console.log(`          → "${fixed.message}"`)
@@ -140,7 +143,13 @@ async function main() {
   } else { console.log('   FAIL  could not rebuild the 08-27 cart'); failures++ }
 
   // Items with NO minimum, at quantity 1 — must never be touched.
-  const onlyNoMin = await checkCartMinimums(noMin.map(n => ({ reference: n.reference, name: n.name, quantity: 1 })))
+  // These filler items have no minimum QUANTITY, but several carry a required
+  // modifier group — so a valid cart still has to supply its selections. Without
+  // them this asserted the wrong thing and passed only by luck of which rows the
+  // unordered LIMIT happened to draw.
+  const onlyNoMin = await checkCartMinimums(await Promise.all(noMin.map(async n => ({
+    reference: n.reference, name: n.name, quantity: 1, addOns: await validAddOns(n.reference),
+  }))))
   check(`${noMin.length} unminimum'd items at qty 1 allowed`, onlyNoMin.ok, true)
   check('empty cart allowed', (await checkCartMinimums([])).ok, true)
   check('cart with no references allowed (FM-backed / legacy)',

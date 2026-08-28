@@ -71,7 +71,7 @@
 // is not a partial import, it's the complete, correct scope.
 import { sql, runDiscoMenuMigrations } from '../db'
 import { getFmServiceAuthHeader } from '../fm-service-auth'
-import { parseMenuSettingsInput, parseDeliverySettings } from '../menu-settings'
+import { parseMenuSettingsInput, parseDeliverySettings, toHHMM, type SkippedDay } from '../menu-settings'
 import { fmImageUrl } from '../fm-image'
 import { resolveFmItemImage, fmItemImageReference, fmItemImageStorageKey, newItemImageCache } from './fm-item-images'
 
@@ -191,9 +191,13 @@ function normalizeTime(t: unknown): string {
  * NOT A STRAIGHT COPY, because the two shapes are NOT equivalent and copying
  * naively makes Disco refuse orders FM accepts.
  *
- * FM's SkippedDay is { name, intervals: TimeInterval[], fromDate, toDate }.
- * Disco's is { name?, fromDate, toDate } — there is NO intervals concept, so a
- * Disco skip always blocks the whole day.
+ * FM's SkippedDay is { name, intervals: TimeInterval[], fromDate, toDate }, and
+ * Disco's now matches it field for field — { name?, fromDate, toDate, intervals? }.
+ * It did NOT used to: Disco had no intervals concept, so every skip blocked the
+ * whole day, and this function DROPPED interval-bearing entries rather than
+ * over-block. That was the right call against the alternative but it under-blocked
+ * instead: at Bird & Co. it discarded 11 partial windows, 8 of which were still
+ * bookable in Disco when this was fixed (2026-08-28), while FM refused them.
  *
  * FM only blocks a DATE when the skip has NO intervals. From
  * MealPackageServiceImpl.getMenuSkippedDates, verbatim:
@@ -208,34 +212,53 @@ function normalizeTime(t: unknown): string {
  * that is not a corner case: 47 of 71 FM entries carry intervals, so a naive
  * copy would have blocked 47 dates FM allows.
  *
- * This therefore applies FM's filter exactly — both dates present AND intervals
- * empty — and returns the count it dropped so the caller can REPORT it. Dropping
- * quietly is the defect this whole change exists to fix; the partial-day
- * restriction is genuinely not representable in Disco's current shape, and
- * saying so is the honest outcome.
+ * Both shapes are now carried. FM's times arrive as LocalTime "H:mm:ss" with a
+ * SINGLE-DIGIT hour ("9:00:00", "0:45:00") and are normalized to "HH:mm" via
+ * toHHMM — a naive slice(0,5) yields "0:45" and silently fails validation.
+ *
+ * Enforcement is inclusive on BOTH ends, matching FM exactly; see
+ * lib/scheduling/cutoffs.ts's inBlockedInterval for the measurement that
+ * established it against FM's own availablePickUp.
+ *
+ * droppedWithIntervals survives for one narrow case only: FM sent intervals but
+ * none survived normalization. Storing such an entry with no intervals would turn
+ * a partial block into a whole-day one, so it is reported rather than guessed at.
  *
  * Range semantics DO match: FM's datesUntil(toDate.plusDays(1)) is inclusive of
  * both endpoints, and Disco's skippedDateSet() walks `cur <= end`. No off-by-one.
  */
 export function fmSkippedDaysToDisco(schedule: Record<string, unknown>): {
-  skippedDays: { name?: string; fromDate: string; toDate: string }[]
+  skippedDays: SkippedDay[]
   droppedWithIntervals: { name: string; fromDate: string; toDate: string; intervals: number }[]
+  partialImported: number
 } {
   const raw = arrOf(schedule?.skippedDays) as Record<string, unknown>[]
-  const skippedDays: { name?: string; fromDate: string; toDate: string }[] = []
+  const skippedDays: SkippedDay[] = []
   const droppedWithIntervals: { name: string; fromDate: string; toDate: string; intervals: number }[] = []
+  let partialImported = 0
   for (const sd of raw) {
     const fromDate = str(sd.fromDate), toDate = str(sd.toDate)
     if (!fromDate || !toDate) continue // FM ignores a half-specified range too
-    const intervals = arrOf(sd.intervals)
-    if (intervals.length) {
-      droppedWithIntervals.push({ name: str(sd.name), fromDate, toDate, intervals: intervals.length })
+    const name = str(sd.name)
+    const rawIntervals = arrOf(sd.intervals)
+    const intervals: { fromTime: string; toTime: string }[] = []
+    for (const iv of rawIntervals) {
+      const fromTime = toHHMM(iv?.fromTime), toTime = toHHMM(iv?.toTime)
+      if (!fromTime || !toTime || fromTime >= toTime) continue
+      intervals.push({ fromTime, toTime })
+    }
+    // FM sent intervals but none survived normalization (malformed times, or a
+    // zero-width range). Importing the entry as a WHOLE-DAY block would over-block
+    // a date FM leaves open, so report it instead of guessing — this is the only
+    // remaining path to droppedWithIntervals.
+    if (rawIntervals.length && !intervals.length) {
+      droppedWithIntervals.push({ name, fromDate, toDate, intervals: rawIntervals.length })
       continue
     }
-    const name = str(sd.name)
-    skippedDays.push({ ...(name ? { name } : {}), fromDate, toDate })
+    if (intervals.length) partialImported++
+    skippedDays.push({ ...(name ? { name } : {}), fromDate, toDate, ...(intervals.length ? { intervals } : {}) })
   }
-  return { skippedDays, droppedWithIntervals }
+  return { skippedDays, droppedWithIntervals, partialImported }
 }
 
 // FM's scheduleOption.repeatWeekDays (real per-day pickup/delivery windows) →
@@ -290,11 +313,13 @@ export interface FaithfulImportSummary {
   hiddenCategorySkipped: number
   // Blackout ranges carried across from FM's scheduleOption.skippedDays.
   skippedDayRangesImported: number
-  // FM skips that carry TIME INTERVALS. FM uses these to narrow the ordering
-  // window, NOT to block the date, and Disco's skipped_days has no intervals
-  // concept — so importing them would black out a whole day FM leaves orderable.
-  // Counted and surfaced rather than dropped quietly; a partial-day restriction
-  // is genuinely not representable in Disco today.
+  // Of skippedDayRangesImported, how many are PARTIAL-day (carry time intervals)
+  // rather than whole-day blocks. Disco carries these faithfully now; it used to
+  // drop them, which let customers book into hours the restaurant had closed.
+  skippedDayPartialsImported: number
+  // FM sent intervals but none survived normalization (malformed or zero-width
+  // times). Storing the entry without them would turn a partial block into a
+  // whole-day one, so it is reported instead. Should normally be 0.
   skippedDayIntervalsDropped: number
   // Per-item images pulled from FM and re-hosted in Vercel Blob (see
   // ./fm-item-images). itemImagesMissing counts items FM has no image for at all —
@@ -315,6 +340,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     fmRef, targetRef, menus: 0, categories: 0, items: 0, groups: 0, modifiers: 0, itemGroupLinks: 0, pricedModifiers: 0,
     announcementImported: false, deliveryWindowImported: false,
     iconUrlImported: false, imageUrlImported: false,
+    skippedDayPartialsImported: 0,
     itemImagesImported: 0, itemImagesMissing: 0, itemImagesFailed: 0,
     supplementaryItemsPlaced: 0, duplicatedAcrossMenus: 0, unplacedFallbackCount: 0,
     skippedDayRangesImported: 0, skippedDayIntervalsDropped: 0, hiddenCategorySkipped: 0,
@@ -427,10 +453,14 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     const scheduleConfig = fmScheduleToDiscoConfig(scheduleObj)
     const skipped = fmSkippedDaysToDisco(scheduleObj)
     summary.skippedDayRangesImported += skipped.skippedDays.length
+    summary.skippedDayPartialsImported += skipped.partialImported
     summary.skippedDayIntervalsDropped += skipped.droppedWithIntervals.length
     if (skipped.droppedWithIntervals.length) {
-      // Loud on purpose — this is the one thing the mapping cannot carry.
-      console.warn(`[fm-import] "${str(m.name)}": ${skipped.droppedWithIntervals.length} FM skip(s) carry time intervals and were NOT imported as blackout dates (FM does not block the date either):`,
+      // Loud on purpose — an entry FM marked partial that we could not represent
+      // as partial. Left OUT rather than stored as a whole-day block, so the
+      // failure mode is "FM blocks hours we don't" and never "we block a day FM
+      // leaves open".
+      console.warn(`[fm-import] "${str(m.name)}": ${skipped.droppedWithIntervals.length} FM skip(s) carry unparseable time intervals and were NOT imported:`,
         skipped.droppedWithIntervals.map(d => `${d.name || '(unnamed)'} ${d.fromDate}..${d.toDate} (${d.intervals} interval(s))`).join('; '))
     }
     const nm = str(m.name) || 'Menu'

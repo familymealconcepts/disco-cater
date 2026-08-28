@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { TimeSelect, normalizeTime, toFmTime } from '../../_components/TimeSelect'
+import { SkippedDaysEditor } from '../../_components/SkippedDaysEditor'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -9,7 +10,11 @@ const INDIGO = '#6B6EF9'
 
 // Mirrors FM's IRepeatWeekDays / ISkippedDay / IScheduleOption shapes.
 interface RepeatWeekDay { days: string; fromPickUpTime: string; toPickUpTime: string }
-interface SkippedDay { name: string; fromDate: string; toDate: string; intervals: { fromTime: string; toTime: string }[] }
+// Re-exported from the shared editor so both menu screens hold one definition.
+// manage-v2 always sends FM a name and an intervals array (FM's own shape, and
+// toFmTime is applied on save), so it narrows the shared optional type back down
+// where it builds the payload.
+import type { SkippedDay } from '../../_components/SkippedDaysEditor'
 interface ScheduleOption {
   rollingAvailability: number
   repeatWeekDays: RepeatWeekDay[]
@@ -890,77 +895,3 @@ function FeeInput({ mode, onMode, amount, onAmount, percent, onPercent, inputSty
 // ({ name, fromDate, toDate, intervals: [{ fromTime, toTime }] }):
 // intervals is empty for a full-day closure, or one entry for a custom window
 // (skipped-days-modal.component.ts:89-108).
-function SkippedDaysEditor({ value, onChange, inputStyle, labelStyle }: {
-  value: SkippedDay[]; onChange: (v: SkippedDay[]) => void
-  inputStyle: React.CSSProperties; labelStyle: React.CSSProperties
-}) {
-  const [adding, setAdding] = useState(false)
-  const [name, setName] = useState('')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [custom, setCustom] = useState(false)
-  const [fromTime, setFromTime] = useState('09:00')
-  const [toTime, setToTime] = useState('17:00')
-
-  function reset() { setName(''); setFrom(''); setTo(''); setCustom(false); setFromTime('09:00'); setToTime('17:00'); setAdding(false) }
-  function add() {
-    if (!name.trim() || !from || !to) return
-    const entry: SkippedDay = {
-      name: name.trim(), fromDate: from, toDate: to,
-      intervals: custom ? [{ fromTime, toTime }] : [],
-    }
-    onChange([...value, entry])
-    reset()
-  }
-
-  return (
-    <div>
-      {value.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          {value.map((d, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', border: '1px solid #eee', borderRadius: 8, marginBottom: 6, background: '#fafafe' }}>
-              <div style={{ fontSize: 13, color: DARK }}>
-                <span style={{ fontWeight: 600 }}>{d.name}</span>
-                <span style={{ color: '#888' }}> · {d.fromDate}{d.toDate !== d.fromDate ? ` → ${d.toDate}` : ''} · {d.intervals.length ? `${normalizeTime(d.intervals[0].fromTime)}–${normalizeTime(d.intervals[0].toTime)}` : 'Closed all day'}</span>
-              </div>
-              <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E24B4A', fontSize: 18, lineHeight: 1 }}>×</button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {adding ? (
-        <div style={{ border: '1px dashed #d8d8e4', borderRadius: 10, padding: 14 }}>
-          <div style={{ marginBottom: 12 }}>
-            <label style={labelStyle}>Name</label>
-            <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Thanksgiving" />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div><label style={labelStyle}>From date</label><input type="date" style={inputStyle} value={from} onChange={e => setFrom(e.target.value)} /></div>
-            <div><label style={labelStyle}>To date</label><input type="date" style={inputStyle} value={to} onChange={e => setTo(e.target.value)} /></div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: custom ? 12 : 0 }}>
-            <ModeBtn active={!custom} onClick={() => setCustom(false)}>Closed all day</ModeBtn>
-            <ModeBtn active={custom} onClick={() => setCustom(true)}>Custom hours</ModeBtn>
-          </div>
-          {custom && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div><label style={labelStyle}>From</label><TimeSelect style={inputStyle} value={fromTime} onChange={setFromTime} /></div>
-              <div><label style={labelStyle}>To</label><TimeSelect style={inputStyle} value={toTime} onChange={setToTime} /></div>
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-            <button type="button" onClick={add} disabled={!name.trim() || !from || !to}
-              style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: (!name.trim() || !from || !to) ? 0.5 : 1 }}>Add</button>
-            <button type="button" onClick={reset}
-              style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, color: '#555' }}>Cancel</button>
-          </div>
-        </div>
-      ) : (
-        <button type="button" onClick={() => setAdding(true)}
-          style={{ background: 'transparent', border: '1.5px solid ' + INDIGO, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, color: INDIGO }}>+ Add override</button>
-      )}
-    </div>
-  )
-}

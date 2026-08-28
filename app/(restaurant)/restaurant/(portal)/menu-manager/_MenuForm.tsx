@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { TimeSelect, normalizeTime } from '../_components/TimeSelect'
+import { SkippedDaysEditor, type SkippedDay } from '../_components/SkippedDaysEditor'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
@@ -110,7 +111,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
   const [thirdPartySubsidyPct, setThirdPartySubsidyPct] = useState('0')
 
   // Skipped / blackout days (Stage 7)
-  const [skippedDays, setSkippedDays] = useState<{ name: string; fromDate: string; toDate: string }[]>([])
+  const [skippedDays, setSkippedDays] = useState<SkippedDay[]>([])
 
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
@@ -193,7 +194,12 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         const zp = zone(p), zs = zone(sec)
         if (zp) { setOwnPrimaryRadius(zp.radius); setOwnPrimaryFeeFixed(zp.fixed); setOwnPrimaryFeePercent(zp.pct) }
         if (zs) { setOwnSecondaryRadius(zs.radius); setOwnSecondaryFeeFixed(zs.fixed); setOwnSecondaryFeePercent(zs.pct) }
-        if (Array.isArray(d.skipped_days)) setSkippedDays(d.skipped_days.map((s: { name?: string; fromDate?: string; toDate?: string }) => ({ name: s.name || '', fromDate: s.fromDate || '', toDate: s.toDate || s.fromDate || '' })))
+        if (Array.isArray(d.skipped_days)) setSkippedDays(d.skipped_days.map((s: SkippedDay) => ({
+          name: s.name || '',
+          fromDate: s.fromDate || '',
+          toDate: s.toDate || s.fromDate || '',
+          ...(s.intervals?.length ? { intervals: s.intervals } : {}),
+        })))
       } finally { setLoading(false) }
     })()
   }, [menuRef])
@@ -271,7 +277,14 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
           ...(ownSecondaryRadius.trim() ? { secondary: { radiusMiles: parseFloat(ownSecondaryRadius) || 0, feeFixed: parseFloat(ownSecondaryFeeFixed) || 0, feePercent: parseFloat(ownSecondaryFeePercent) || 0 } } : {}),
         } : undefined,
       },
-      skippedDays: skippedDays.filter(s => s.fromDate).map(s => ({ name: s.name || undefined, fromDate: s.fromDate, toDate: s.toDate || s.fromDate })),
+      // intervals carried through — omitting them here is what silently turned a
+      // partial-day blackout back into a whole-day one on every portal save.
+      skippedDays: skippedDays.filter(s => s.fromDate).map(s => ({
+        name: s.name || undefined,
+        fromDate: s.fromDate,
+        toDate: s.toDate || s.fromDate,
+        ...(s.intervals?.length ? { intervals: s.intervals } : {}),
+      })),
     }
     setSaving(true)
     try {
@@ -515,16 +528,8 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         {/* Blackout dates (Stage 7) */}
         <div style={card}>
           <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 4 }}>Blackout Dates</div>
-          <div style={{ fontSize: 12, color: '#999', marginBottom: 14 }}>Dates this menu is unavailable (holidays, closures). For restaurant-wide closures, use Closed Days.</div>
-          {skippedDays.map((s, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1.4fr 1.4fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-              <input value={s.name} onChange={e => setSkippedDays(a => a.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder="Name (e.g. Thanksgiving)" style={inputStyle} />
-              <input type="date" value={s.fromDate} onChange={e => setSkippedDays(a => a.map((x, j) => j === i ? { ...x, fromDate: e.target.value, toDate: x.toDate || e.target.value } : x))} style={inputStyle} />
-              <input type="date" value={s.toDate} onChange={e => setSkippedDays(a => a.map((x, j) => j === i ? { ...x, toDate: e.target.value } : x))} style={inputStyle} />
-              <button type="button" onClick={() => setSkippedDays(a => a.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: RED, fontSize: 18, cursor: 'pointer', lineHeight: 1 }}>×</button>
-            </div>
-          ))}
-          <button type="button" onClick={() => setSkippedDays(a => [...a, { name: '', fromDate: '', toDate: '' }])} style={{ background: 'none', border: '1px dashed #ccc', borderRadius: 8, padding: '8px 14px', fontSize: 13, color: BLUE, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>+ Add blackout date</button>
+          <div style={{ fontSize: 12, color: '#999', marginBottom: 14 }}>Dates this menu is unavailable (holidays, closures). Block the whole day, or just a range of hours — the rest of that day stays orderable. For restaurant-wide closures, use Closed Days.</div>
+          <SkippedDaysEditor value={skippedDays} onChange={setSkippedDays} inputStyle={inputStyle} labelStyle={label} requireName={false} />
         </div>
 
         {/* Visible */}
