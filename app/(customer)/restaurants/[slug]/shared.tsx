@@ -483,7 +483,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       FROM disco_menus
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
       ORDER BY position, id
-    `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; start_date: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string }[] | null })[]
+    `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; start_date: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string; intervals?: { fromTime: string; toTime: string }[] }[] | null })[]
     // The "primary" reference is only used now as the NULL-menu_reference
     // fallback target below (categories/items predating the multi-menu model,
     // or the zero-visible-menus edge case) — never a guess about which menu
@@ -522,9 +522,20 @@ async function loadDiscoNativeRestaurant(slug: string) {
         }
       }
 
-      const menuSkipped = Array.isArray(m?.skipped_days) ? (m!.skipped_days as { fromDate: string; toDate: string }[]) : []
+      // `intervals` must survive this mapping — a menu blackout can block only part
+      // of a day, and picking just {fromDate, toDate} here would tell the customer's
+      // time picker the whole day is fine while the server refuses the blocked
+      // hours at placement. Restaurant-level Closed Days have no hours concept and
+      // are genuinely whole-day, so they map across unchanged.
+      const menuSkipped = Array.isArray(m?.skipped_days)
+        ? (m!.skipped_days as { fromDate: string; toDate: string; intervals?: { fromTime: string; toTime: string }[] }[])
+        : []
       const skippedDays = [
-        ...menuSkipped.map(s => ({ fromDate: s.fromDate, toDate: s.toDate })),
+        ...menuSkipped.map(s => ({
+          fromDate: s.fromDate,
+          toDate: s.toDate,
+          ...(s.intervals?.length ? { intervals: s.intervals } : {}),
+        })),
         ...closedRows.map(c => ({ fromDate: c.from_date, toDate: c.to_date })),
       ]
       const scheduleOption = {

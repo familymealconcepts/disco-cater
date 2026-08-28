@@ -34,7 +34,8 @@ interface FmSchedule {
   prepTime?: number; startDate?: string; endDate?: string
   rollingAvailability?: number; cutOff?: string; cutOffDate?: string; cutOffType?: string
   repeatWeekDays?: RepeatWeekDay[]
-  skippedDays?: (string | { fromDate?: string; toDate?: string })[]
+  // intervals present = only those hours are blocked, not the whole date.
+  skippedDays?: (string | { fromDate?: string; toDate?: string; intervals?: { fromTime: string; toTime: string }[] })[]
   // Native path: true only when a lead time was actually set (vs the 24h default).
   // Undefined on the FM path (treated as explicit → shown, unchanged).
   prepTimeExplicit?: boolean
