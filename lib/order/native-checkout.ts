@@ -417,6 +417,14 @@ export interface PriceNativeCartResult {
   // (preview) or orderType is PICKUP.
   deliveryValid: boolean
   deliveryMessage?: string
+  // FALSE only in one case: an OWN_DELIVERY order previewed with no address yet.
+  // The fee then depends on a distance nobody has measured, so `deliveryFee` is 0
+  // as a placeholder, NOT because delivery is free. Callers that DISPLAY the figure
+  // must show "not yet known" rather than "$0.00"/"Free" — the Order Summary panel
+  // showed "Free" against a configured $25 fee for exactly this reason. Always true
+  // for PICKUP, for THIRD_PARTY (its fee is a subtotal formula, no distance needed),
+  // and whenever an address was supplied.
+  deliveryFeeResolved: boolean
   // The menu this cart's items actually came from (see resolveCartMenuReference) —
   // exposed so callers that need it downstream (e.g. buildNativePlaceInput's own
   // service-charge lookup) don't have to recompute it from input.items themselves.
@@ -458,6 +466,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
   let deliveryFee = 0
   let thirdPartyDeliverySubsiding = 0
   let deliveryValid = true
+  let deliveryFeeResolved = true
   let deliveryMessage: string | undefined
 
   if (input.orderType === 'DELIVERY') {
@@ -476,6 +485,10 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
       const del = await loadRestaurantDeliverySettings(input.restaurantReference, menuReference)
       if (del?.method === 'OWN_DELIVERY') {
         fulfillment = 'OWN_DELIVERY'
+        // deliveryFee stays 0, but that 0 means "unknown", not "free" — the fee is
+        // distance-based and no address has been supplied. Flagged so a display
+        // caller can't render it as Free.
+        deliveryFeeResolved = false
       } else {
         fulfillment = 'THIRD_PARTY_DELIVERY'
         const tp = computeThirdPartyDelivery(discountedSubtotal, del?.thirdPartySubsidyPct ?? 0)
@@ -507,6 +520,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     promo,
     promoError,
     deliveryValid,
+    deliveryFeeResolved,
     deliveryMessage,
     menuReference,
   }
@@ -621,13 +635,23 @@ export async function priceNativeFmDto(body: Record<string, unknown>): Promise<R
 
   // Same priceNativeCart() the real placement path calls (native-place-checkout.ts) —
   // resolves the promo, prices delivery off the DISCOUNTED subtotal, then prices the
-  // whole order. No address here (the preview has never geocoded anything); own-
-  // delivery's distance-based fee stays deferred to /validate-address, unchanged.
+  // whole order.
+  //
+  // THE ADDRESS IS NOW FORWARDED. It was deliberately withheld ("the preview has
+  // never geocoded anything"), which left own-delivery's distance-based fee at 0 —
+  // and the Order Summary panel renders 0 as "Free", so a configured $25 fee read as
+  // free while the customer built the cart, against a date picker and a checkout that
+  // both said $25. The client only previews once the address is VALIDATED and
+  // carries lat/lng (see RestaurantClient's canPreview), and validateNativeDelivery
+  // trusts supplied coordinates rather than geocoding, so forwarding costs no
+  // geocode — the original reason for withholding it does not apply.
+  const deliveryAddress = (body?.deliveryAddress ?? undefined) as NativeDeliveryAddressInput | undefined
   const priced = await priceNativeCart({
     restaurantReference: restaurantRef,
     customerEmail: '', // total is lead-gen-independent; place() resolves the real customer
     items,
     orderType,
+    ...(orderType === 'DELIVERY' && deliveryAddress ? { deliveryAddress } : {}),
     tip: tipsType === 'CUSTOM' ? { custom: true, amount: tips } : { custom: false, pct: tips },
     restaurantPromoCode,
   })
@@ -644,7 +668,11 @@ export async function priceNativeFmDto(body: Record<string, unknown>): Promise<R
         stateSalesTaxInPrice: b.stateTax,
         localSalesTaxInPrice: b.localTax,
         otherSalesTaxInPrice: b.otherTax,
-        deliveryFee: priced.deliveryFee,
+        // null, never 0, when the fee genuinely isn't known yet — the summary panel
+        // hides the row on null and says "Free" on 0. A real $0 fee (a zone
+        // configured free within its radius) still comes through as 0 and correctly
+        // reads "Free".
+        deliveryFee: priced.deliveryFeeResolved ? priced.deliveryFee : null,
         tipsInPrice,
         discount: b.discount,
         total: b.total,
