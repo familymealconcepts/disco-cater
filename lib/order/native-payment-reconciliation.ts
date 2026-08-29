@@ -125,8 +125,9 @@ async function checkStripeSucceededAgainstOrders(stripe: Stripe, sinceEpochSecon
         continue
       }
       const orders = (await sql`
-        SELECT order_number, order_status FROM disco_orders WHERE reference = ${orderReference}::uuid LIMIT 1
-      `) as { order_number: string | number; order_status: string }[]
+        SELECT order_number, order_status, COALESCE(total, 0) AS total, COALESCE(refund, 0) AS refund
+        FROM disco_orders WHERE reference = ${orderReference}::uuid LIMIT 1
+      `) as { order_number: string | number; order_status: string; total: string | number; refund: string | number }[]
       if (orders.length === 0) {
         mismatches.push({
           direction: 'stripe_succeeded_not_paid', paymentIntentId: pi.id, orderReference, orderNumber, orderStatus: null,
@@ -137,6 +138,16 @@ async function checkStripeSucceededAgainstOrders(stripe: Stripe, sinceEpochSecon
       }
       const order = orders[0]
       if (HUMAN_DECIDED_STATES.has(order.order_status)) {
+        // Fully refunded already → the money is settled and there is nothing for a
+        // person to decide. Skip silently rather than flagging, or a cancelled-and-
+        // refunded order alerts on EVERY hourly run forever: refunding does not move
+        // a PaymentIntent off "succeeded", so Stripe keeps returning it and the
+        // status keeps not being a paid state. Alert fatigue on the one case we just
+        // fixed would be the fastest way to make this sweep ignorable.
+        const total = Number(order.total) || 0
+        const refunded = Number(order.refund) || 0
+        if (total > 0 && refunded >= total - 0.001) { continue }
+
         // Deliberate human state — report, never revert. A charge still standing
         // against it may be perfectly correct (VOID) or may need refunding
         // (CANCELED before cancel-refunds shipped); either way it is a person's

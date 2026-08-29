@@ -1358,6 +1358,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     if (!addOnsPkg) return null
     return remainingToAdd(addOnsPkg)
   }
+  // Card-side counterpart of minAddOnsQty, for the "Select N+" line on the tile.
+  // Takes the package rather than reading addOnsPkg, because the card renders for
+  // every item while the modal is open for at most one.
+  function minCardQty(pkg: FmPackage): number {
+    const m = Number(pkg?.minQuantity)
+    return Number.isFinite(m) && m > 1 ? Math.trunc(m) : 1
+  }
   // Floor for the same stepper — the item's own minimum quantity. 1 when unset,
   // so an item with no minimum behaves exactly as before.
   function minAddOnsQty(): number {
@@ -1988,12 +1995,43 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                           {soldOutToday && (
                             <div style={{ fontSize: 11, color: '#EF4444', fontWeight: 700, marginTop: 3 }}>Sold out for this date</div>
                           )}
-                          {qty > 0 && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6 }}>
-                              <div style={{ width: 18, height: 18, borderRadius: '50%', background: BLUE, color: '#fff', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qty}</div>
-                              <span style={{ fontSize: 11, color: BLUE, fontWeight: 600 }}>in order</span>
+                          {/* The item's MINIMUM, before the modal is opened. Same
+                              "Select 4+" phrasing the modal and the add-on group
+                              picker use, so one rule reads the same everywhere. From
+                              minQuantity — never from `serves`, which is descriptive
+                              free text and need not match the real minimum. */}
+                          {minCardQty(pkg) > 1 && (
+                            <div style={{ fontSize: 11, color: '#8a89a8', fontWeight: 600, marginTop: 3 }}>
+                              Select {minCardQty(pkg)}+
                             </div>
                           )}
+                          {/* ADD AFFORDANCE. The card was clickable with nothing to
+                              say so — no button, no cue — and the only quantity
+                              signal ("N in order") appeared AFTER adding, which is a
+                              readout, not a control. This gives every card a visible
+                              action and, once something is in the order, states the
+                              count next to it so ordering several reads as normal.
+                              Deliberately NOT a bare +/− stepper: 48 of 67 Atlanta
+                              Bread items carry a required modifier group (every Boxed
+                              Lunch has 1-2), so incrementing on the card would
+                              silently duplicate the previous unit's sandwich and
+                              salad choices. */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                            <span aria-hidden style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 5,
+                              padding: '5px 11px', borderRadius: 8,
+                              border: `1.5px solid ${qty > 0 ? BLUE : '#e2e2ee'}`,
+                              background: qty > 0 ? BLUE : '#fff',
+                              color: qty > 0 ? '#fff' : BLUE,
+                              fontSize: 12, fontWeight: 700, fontFamily: F, lineHeight: 1,
+                            }}>
+                              <span style={{ fontSize: 13, lineHeight: 1 }}>+</span>
+                              {qty > 0 ? 'Add another' : 'Add'}
+                            </span>
+                            {qty > 0 && (
+                              <span style={{ fontSize: 11, color: BLUE, fontWeight: 700 }}>{qty} in order</span>
+                            )}
+                          </div>
                         </div>
                         {/* RIGHT: image — only rendered if image exists */}
                         {imgUrl && (
@@ -2323,6 +2361,49 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{packagePriceLabel(addOnsPkg)}</span>
                   {addOnsPkg.serves && <><span style={{ color: '#ddd' }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {addOnsPkg.serves}</span></>}
                 </div>
+                {/* QUANTITY FIRST, above the modifier groups. It used to sit
+                    second-to-last, below Special Instructions — so the one control
+                    that says "you can order several of these" was the last thing a
+                    customer met, and for Boxed Lunches (where the whole point is
+                    ordering a dozen) it was routinely missed. Deciding how many
+                    comes before deciding what goes in them. */}
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f0f0f0' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>Quantity</span>
+                {(() => {
+                  const minQty = minAddOnsQty()
+                  const atMin = addOnsQty <= minQty
+                  return (
+                    <button onClick={() => { if (!atMin) setAddOnsQty(q => Math.max(minQty, q - 1)) }} disabled={atMin}
+                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMin ? '#f0f0f0' : '#fff', cursor: atMin ? 'default' : 'pointer', fontSize: 16, color: atMin ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
+                  )
+                })()}
+                <span style={{ fontSize: 15, fontWeight: 700, color: DARK, minWidth: 24, textAlign: 'center' }}>{addOnsQty}</span>
+                {(() => {
+                  const maxQty = maxAddOnsQty()
+                  const atMax = maxQty != null && addOnsQty >= maxQty
+                  return (
+                    <button onClick={() => { if (!atMax) setAddOnsQty(q => q + 1) }} disabled={atMax}
+                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMax ? '#f0f0f0' : '#fff', cursor: atMax ? 'default' : 'pointer', fontSize: 16, color: atMax ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                  )
+                })()}
+                {maxAddOnsQty() != null && (
+                  <span style={{ fontSize: 12, color: '#EF4444', fontWeight: 600 }}>{maxAddOnsQty()} left for this date</span>
+                )}
+              </div>
+              {/* The item's minimum, phrased like the group picker's own
+                  requirement line ("Select exactly 2" / "Select 2–8") so both
+                  minimums read as the same kind of rule. Taken from minQuantity
+                  directly — NOT from `serves`, which is descriptive free text and
+                  need not match the real minimum. */}
+              {minAddOnsQty() > 1 && (
+                <div style={{ fontSize: 12, color: minExceedsRemaining() ? '#EF4444' : '#aaa', marginTop: 6 }}>
+                  {minExceedsRemaining()
+                    ? `Only ${maxAddOnsQty()} left for this date — this item needs at least ${minAddOnsQty()}.`
+                    : `Select ${minAddOnsQty()}+`}
+                </div>
+              )}
+                </div>
                 <DietaryBadges pkg={addOnsPkg} size="modal" />
                 {hasDietaryInfo(addOnsPkg) && (
                   <div style={{ fontSize: 11.5, color: '#8a89a8', marginTop: 8, lineHeight: 1.5 }}>
@@ -2378,41 +2459,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #e8e8e8', borderRadius: 10, fontSize: 13, fontFamily: F, color: DARK, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
                 </div>
               )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: DARK }}>Quantity</span>
-                {(() => {
-                  const minQty = minAddOnsQty()
-                  const atMin = addOnsQty <= minQty
-                  return (
-                    <button onClick={() => { if (!atMin) setAddOnsQty(q => Math.max(minQty, q - 1)) }} disabled={atMin}
-                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMin ? '#f0f0f0' : '#fff', cursor: atMin ? 'default' : 'pointer', fontSize: 16, color: atMin ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
-                  )
-                })()}
-                <span style={{ fontSize: 15, fontWeight: 700, color: DARK, minWidth: 24, textAlign: 'center' }}>{addOnsQty}</span>
-                {(() => {
-                  const maxQty = maxAddOnsQty()
-                  const atMax = maxQty != null && addOnsQty >= maxQty
-                  return (
-                    <button onClick={() => { if (!atMax) setAddOnsQty(q => q + 1) }} disabled={atMax}
-                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMax ? '#f0f0f0' : '#fff', cursor: atMax ? 'default' : 'pointer', fontSize: 16, color: atMax ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
-                  )
-                })()}
-                {maxAddOnsQty() != null && (
-                  <span style={{ fontSize: 12, color: '#EF4444', fontWeight: 600 }}>{maxAddOnsQty()} left for this date</span>
-                )}
-              </div>
-              {/* The item's minimum, phrased like the group picker's own
-                  requirement line ("Select exactly 2" / "Select 2–8") so both
-                  minimums read as the same kind of rule. Taken from minQuantity
-                  directly — NOT from `serves`, which is descriptive free text and
-                  need not match the real minimum. */}
-              {minAddOnsQty() > 1 && (
-                <div style={{ fontSize: 12, color: minExceedsRemaining() ? '#EF4444' : '#aaa', marginTop: 6 }}>
-                  {minExceedsRemaining()
-                    ? `Only ${maxAddOnsQty()} left for this date — this item needs at least ${minAddOnsQty()}.`
-                    : `Select ${minAddOnsQty()}+`}
-                </div>
-              )}
+
             </div>
             <div style={{ padding: '14px 22px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
               <button onClick={confirmAddOns} disabled={!canConfirmAddOns()}
