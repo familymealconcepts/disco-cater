@@ -1214,3 +1214,58 @@ which is why it is logged rather than fixed here.
 `scripts/verify-partial-blackouts.ts` excludes both from its parity diff by name
 so the blackout parity result stays readable — remove those exclusions when this
 is fixed and the diff should still come out clean.
+
+---
+
+## Migration candidate: two refund routes still duplicate the post-refund block (2026-08-29)
+
+`lib/order/native-refund.ts` gained `refundNativeOrderAndRecord` when the cancel path
+needed it — refund in Stripe, then status + `refund` total + audit event + courier
+stand-down + customer notification, with the Stripe call FIRST so a failure writes
+nothing. It was extracted specifically to avoid writing a THIRD copy.
+
+Two copies remain, both on the money path:
+
+- `app/api/admin/orders/[ref]/refund/route.ts`
+- `app/api/restaurant/orders/[ref]/refund/route.ts`
+
+They were deliberately NOT refactored at the time — they work, and rewriting live
+refund code under time pressure is a worse risk than the duplication. That trade
+expires the moment someone edits one of them.
+
+**They have already drifted, and one difference is a real defect.** Diffed
+2026-08-29:
+
+1. **Stripe-refunded-but-Neon-write-failed is handled oppositely.** The admin route
+   returns `ok: true` with a warning, and says why in a comment: *"The refund already
+   moved in Stripe — never report it as a failure. Surface the record-update problem
+   for manual reconciliation instead."* The restaurant route returns **500 "Unable to
+   process refund"** in the same situation — telling a restaurant the refund failed
+   when the customer's money has already gone back. The obvious next action is to
+   retry, which is a **double refund**. The admin copy states the correct principle;
+   the restaurant copy does not follow it.
+2. **Different UPDATE scope.** Admin targets `reference = <resolved native ref>`;
+   restaurant targets `reference = ${ref} OR fm_order_reference = ${ref}`, so it can
+   stamp REFUND status onto an FM-mirrored row that FM actually owns.
+3. **Different missing-row handling.** Restaurant 404s when the UPDATE matches
+   nothing; admin silently no-ops.
+4. **Stale comment.** The restaurant route's header says `order_status → REFUNDED`
+   while the code writes `'REFUND'` — the spelling distinction the code comments
+   elsewhere call out explicitly.
+5. Cosmetic: differing event `source` ('ADMIN_REFUND' vs 'DISCO_REFUND', intentional
+   and preserved by the helper's `source` parameter), and the restaurant route omits
+   `stripeRefundId` from its response.
+
+This estate has a documented history of exactly this failure mode — parallel
+implementations that agree on the day they are written and diverge silently
+afterwards. Prior instances in this runbook and the fix log: the delivery-fee
+migrate-on-read wired into the write path but not either read path; `parseTier`
+duplicated in `_MenuForm` and `backfill-delivery-fees`; the blackout editor existing
+in `manage-v2` but not `menu-manager`; `menuRowToSettings` vs `computeOwnDeliveryFee`
+disagreeing about the same JSONB. Each cost real money or real orders.
+
+**When picked up:** migrate both routes onto `refundNativeOrderAndRecord`, keeping
+the admin route's error semantics as the shared behaviour (never report a completed
+Stripe refund as a failure) and passing `source` per caller. Confirm the FM-mirrored
+UPDATE scope is genuinely wanted before carrying it over — it may itself be the bug.
+Not urgent; do it the next time either file is opened, not as its own project.
