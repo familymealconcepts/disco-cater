@@ -1,9 +1,13 @@
 /**
  * Verification for the cancel/refund/sweep defects (2026-08-28).
  *
- * Places a REAL native order on a test restaurant using a Stripe TEST-mode card,
- * cancels it through the real status route, and asserts the money actually moved.
- * Uses test mode throughout — no live charge is created.
+ * Asserts the three fixes hold: the Refund button survives a cancellation, the
+ * reconciliation sweep no longer reverts a deliberate human state, and the cancel
+ * path refuses rather than half-working when a refund cannot be made.
+ *
+ * READ-ONLY against production rows. The sweep is run with the TEST-mode Stripe key
+ * so nothing production-facing is written; the guard under test is database-side and
+ * runs before any Stripe call.
  *
  *   npx tsx scripts/verify-cancel-refunds.ts
  */
@@ -50,11 +54,11 @@ async function main() {
   `) as unknown as { order_number: string; order_status: string; refund: string }[]
   before.forEach(o => console.log(`   before sweep: #${o.order_number} status=${o.order_status} refund=${o.refund}`))
 
-  // Run the LIVE-key sweep read-only? No — reconcile against test mode so nothing
-  // production-facing is touched. The states under test are database-side, and the
-  // guard runs before any Stripe write, so a test-mode client exercises it safely.
+  // Test-mode key on purpose: the HUMAN_DECIDED_STATES guard is evaluated from the
+  // database row before any Stripe write, so this exercises it without touching
+  // production money.
   const summary = await reconcileNativePayments(stripeTest, 24)
-  console.log(`   sweep checked ${summary.checked}, ${summary.mismatches.length} mismatch(es)`)
+  console.log(`   sweep checked ${summary.checkedStripeSucceeded} Stripe-side + ${summary.checkedLocalPaid} local, ${summary.mismatches.length} mismatch(es)`)
   const reverted = summary.mismatches.filter(m => m.autoReconciled && ['CANCELED', 'CANCELLED', 'VOID', 'VOIDED'].includes(m.orderStatus || ''))
   check('no human-decided state was auto-reconciled', reverted.length, 0)
 
