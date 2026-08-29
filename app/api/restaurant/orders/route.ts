@@ -28,7 +28,14 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   REFUND: ['COMPLETED'],
   PARTIAL_REFUND: ['COMPLETED'],
 }
-const REFUNDABLE = new Set(['DUE', 'PAID', 'COMPLETED'])
+// Refundable states. CANCELED/CANCELLED and VOID/VOIDED are INCLUDED deliberately:
+// a cancelled or voided order can still be holding a real charge, and gating the
+// portal's Refund button on this set meant the button vanished at exactly the moment
+// it was needed — cancel an order and the only UI for giving the money back
+// disappears with it (order 900000104, $293.40 cancelled and still captured).
+// Cancelling now refunds automatically (see the status route), so this is the
+// backstop for anything cancelled before that shipped, or refunded manually.
+const REFUNDABLE = new Set(['DUE', 'PAID', 'COMPLETED', 'CANCELED', 'CANCELLED', 'VOID', 'VOIDED'])
 
 interface OrderRow {
   reference: string
@@ -112,7 +119,9 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     orderStatusesToChange: STATUS_TRANSITIONS[status] || [],
     sourceoforder: r.source_of_order,
     note: r.note || undefined,
-    maxAllowedRefundAmount: REFUNDABLE.has(status) ? total : 0,
+    // Net of anything already refunded, so a fully-refunded order correctly offers
+    // nothing and the button hides again on its own.
+    maxAllowedRefundAmount: REFUNDABLE.has(status) ? Math.max(0, total - (r.refund != null ? num(r.refund) : 0)) : 0,
     // Disco edit state (used by the edit-history icon rule / edit gate).
     editCount: r.edit_count,
     editStatus: r.edit_status,

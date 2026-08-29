@@ -29,6 +29,35 @@ import { alertOps } from '../ops-alert'
 export const DEFAULT_RECONCILIATION_LOOKBACK_HOURS = 26 // > the hourly cadence, so a missed run can't create a gap
 
 const PAID_STATES = new Set(['DUE', 'COMPLETED', 'PAID', 'PARTIAL_REFUND', 'PARTIALLY_PAID', 'REOPEN', 'REFUND', 'REFUNDED'])
+
+/**
+ * States a HUMAN deliberately chose, which this sweep must never silently undo.
+ *
+ * The sweep exists for lost webhooks: a succeeded PaymentIntent against an order
+ * still sitting in RESERVED means the webhook never landed, and flipping it to DUE
+ * is a repair. But the same "not in PAID_STATES" test also caught states that are
+ * decisions, not data errors — and a succeeded charge against them is EXPECTED, not
+ * a discrepancy:
+ *
+ *   CANCELED / CANCELLED — the restaurant cancelled a real, paid order. Order
+ *     900000104 was cancelled three times and this sweep reverted it to DUE three
+ *     times (hourly cron), so Atlanta Bread kept a live Sunday order on their books
+ *     that Basil believed was cancelled.
+ *   VOID / VOIDED — "food prepared, not fulfilled", offered only after the pickup
+ *     time has passed. The charge is SUPPOSED to stand. Reverting it to DUE would
+ *     have reopened an order the restaurant had already closed out, and nobody had
+ *     hit it yet only because Void is rarer than Cancel.
+ *
+ * The remaining non-paid states are genuine repair targets and stay auto-reconciled:
+ * RESERVED and CART (the lost-webhook case this was built for), UNPAID (invoice
+ * placed, then paid), PAYMENT_FAILED (a retry that actually succeeded), and EXPIRED
+ * (the reserved-expiry sweep verifies Stripe before expiring, so a later success is
+ * a real repair).
+ *
+ * These are FLAGGED rather than reverted — a mismatch a human should look at, not
+ * one this job should resolve on its own.
+ */
+const HUMAN_DECIDED_STATES = new Set(['CANCELED', 'CANCELLED', 'VOID', 'VOIDED'])
 const NATIVE_ORDER_KINDS = ['native_order', 'native_recurring_order']
 
 export interface ReconciliationMismatch {
@@ -107,6 +136,19 @@ async function checkStripeSucceededAgainstOrders(stripe: Stripe, sinceEpochSecon
         continue
       }
       const order = orders[0]
+      if (HUMAN_DECIDED_STATES.has(order.order_status)) {
+        // Deliberate human state — report, never revert. A charge still standing
+        // against it may be perfectly correct (VOID) or may need refunding
+        // (CANCELED before cancel-refunds shipped); either way it is a person's
+        // call, not this job's.
+        mismatches.push({
+          direction: 'stripe_succeeded_not_paid', paymentIntentId: pi.id, orderReference, orderNumber,
+          orderStatus: order.order_status, amount: pi.amount,
+          detail: `succeeded PaymentIntent against a deliberately "${order.order_status}" order — NOT auto-reconciled (a person set this state). If the charge should be given back, refund it; if it should stand (voided/fulfilled), no action is needed.`,
+          autoReconciled: false,
+        })
+        continue
+      }
       if (!PAID_STATES.has(order.order_status)) {
         let autoReconciled = false
         let detail = `succeeded PaymentIntent but order is "${order.order_status}", not a paid state`

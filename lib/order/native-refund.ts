@@ -80,3 +80,100 @@ export async function refundNativeOrder(
 
   return { refundId: refund.id, status: refund.status || 'unknown', paymentIntentId }
 }
+
+/**
+ * Refund a native order AND record every consequence: status, refund total, the
+ * audit event, standing down a booked courier, and telling the customer.
+ *
+ * Extracted because a THIRD copy of this block was about to be written. The two
+ * refund routes (app/api/admin/orders/[ref]/refund and
+ * app/api/restaurant/orders/[ref]/refund) each carry their own near-identical
+ * version; the cancel path now uses this one instead of adding another. Those two
+ * should migrate here — they work today and were left alone deliberately rather
+ * than refactored on a money path under time pressure.
+ *
+ * THROWS IF THE STRIPE REFUND FAILS, before anything is written. That ordering is
+ * the whole point for the cancel path: a cancel that changes status without moving
+ * money is exactly the defect this exists to prevent, so the caller must let the
+ * throw propagate and refuse the cancel rather than proceeding.
+ *
+ * @param statusOverride  what to set instead of REFUND/PARTIAL_REFUND. The cancel
+ *   path passes 'CANCELED' so the order lands in the state the restaurant chose,
+ *   with `refund` recording that the money went back.
+ */
+export async function refundNativeOrderAndRecord(args: {
+  stripe: Stripe
+  orderReference: string
+  amount: number
+  alreadyRefunded: number
+  orderTotal: number
+  source: string
+  statusOverride?: string
+}): Promise<{ refundId: string; newStatus: string; totalRefund: number }> {
+  const { stripe, orderReference, amount, alreadyRefunded, orderTotal, source, statusOverride } = args
+
+  // Stripe FIRST. Nothing below runs if this throws.
+  const r = await refundNativeOrder(stripe, orderReference, amount)
+
+  const totalRefund = Math.round((alreadyRefunded + amount) * 100) / 100
+  // 'REFUND', not 'REFUNDED' — matches FM's real OrderStatus enum spelling and the
+  // majority of stored rows.
+  const derived = orderTotal > 0 && totalRefund < orderTotal - 0.001 ? 'PARTIAL_REFUND' : 'REFUND'
+  const newStatus = statusOverride || derived
+
+  const rows = (await sql`
+    UPDATE disco_orders
+    SET order_status = ${newStatus}, refund = ${totalRefund}, updated_at = NOW()
+    WHERE reference = ${orderReference}::uuid
+    RETURNING reference, order_number, customer_email, customer_first_name, customer_last_name,
+              restaurant_reference, restaurant_name, expedite_delivery_id
+  `) as Array<{
+    reference: string; order_number: string | number | null
+    customer_email: string | null; customer_first_name: string | null; customer_last_name: string | null
+    restaurant_reference: string | null; restaurant_name: string | null; expedite_delivery_id: string | null
+  }>
+  const o = rows[0]
+
+  if (o) {
+    await sql`
+      INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+      VALUES (${o.reference}::uuid, 'REFUNDED',
+              ${JSON.stringify({ amount, totalRefund, stripeRefundId: r.refundId, status: newStatus })}::jsonb,
+              ${source})
+    `.catch(e => console.error('[native-refund] event insert:', e instanceof Error ? e.message : e))
+
+    // Whole order refunded (not a partial/goodwill adjustment) → stand down any
+    // booked courier. A cancel is always a full stand-down.
+    const fullyRefunded = derived === 'REFUND'
+    if (fullyRefunded && o.expedite_delivery_id && o.expedite_delivery_id !== 'PENDING') {
+      try {
+        const { cancelDelivery } = await import('../expedite')
+        const result = await cancelDelivery(o.expedite_delivery_id)
+        console.log('[native-refund] expedite cancel:', result.success ? 'ok' : result.error)
+      } catch (e) {
+        console.error('[native-refund] expedite cancel failed:', e instanceof Error ? e.message : e)
+      }
+    }
+
+    // Best-effort, AFTER the money and the row are settled — an email failure must
+    // never make a completed refund look failed.
+    if (o.customer_email) {
+      try {
+        const { sendCustomerRefundNotification } = await import('../email/notifications')
+        const rc = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${o.restaurant_reference} LIMIT 1`) as { name: string | null }[]
+        await sendCustomerRefundNotification({
+          to: o.customer_email,
+          firstName: o.customer_first_name || '',
+          lastName: o.customer_last_name || undefined,
+          orderNumber: o.order_number ?? o.reference,
+          refundAmount: amount,
+          businessName: rc[0]?.name || o.restaurant_name || 'the restaurant',
+        })
+      } catch (e) {
+        console.error('[native-refund] customer refund notification failed:', e instanceof Error ? e.message : e)
+      }
+    }
+  }
+
+  return { refundId: r.refundId, newStatus, totalRefund }
+}

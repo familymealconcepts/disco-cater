@@ -20,7 +20,14 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   REFUND: ['COMPLETED'],
   PARTIAL_REFUND: ['COMPLETED'],
 }
-const REFUNDABLE = new Set(['DUE', 'PAID', 'COMPLETED'])
+// Refundable states. CANCELED/CANCELLED and VOID/VOIDED are INCLUDED deliberately:
+// a cancelled or voided order can still be holding a real charge, and gating the
+// portal's Refund button on this set meant the button vanished at exactly the moment
+// it was needed — cancel an order and the only UI for giving the money back
+// disappears with it (order 900000104, $293.40 cancelled and still captured).
+// Cancelling now refunds automatically (see the status route), so this is the
+// backstop for anything cancelled before that shipped, or refunded manually.
+const REFUNDABLE = new Set(['DUE', 'PAID', 'COMPLETED', 'CANCELED', 'CANCELLED', 'VOID', 'VOIDED'])
 
 interface DiscoFull {
   id: number
@@ -268,7 +275,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
 
   base.orderStatusesToChange = STATUS_TRANSITIONS[d.order_status] || []
   if (base.maxAllowedRefundAmount == null) {
-    base.maxAllowedRefundAmount = REFUNDABLE.has(d.order_status) ? num(d.total) : 0
+    base.maxAllowedRefundAmount = REFUNDABLE.has(d.order_status) ? Math.max(0, num(d.total) - num(d.refund)) : 0
   }
 
   return NextResponse.json(base)
