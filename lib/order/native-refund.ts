@@ -85,21 +85,22 @@ export async function refundNativeOrder(
  * Refund a native order AND record every consequence: status, refund total, the
  * audit event, standing down a booked courier, and telling the customer.
  *
- * Extracted because a THIRD copy of this block was about to be written. The two
- * refund routes (app/api/admin/orders/[ref]/refund and
- * app/api/restaurant/orders/[ref]/refund) each carry their own near-identical
- * version; the cancel path now uses this one instead of adding another. Those two
- * should migrate here — they work today and were left alone deliberately rather
- * than refactored on a money path under time pressure.
+ * CURRENTLY UNCALLED, and kept deliberately. It was written for a refund-on-cancel
+ * coupling that was then reverted — cancelling is status-only again, by design (see
+ * app/api/restaurant/orders/[ref]/status/route.ts). It survives as the migration
+ * target for the two refund routes (app/api/admin/orders/[ref]/refund and
+ * app/api/restaurant/orders/[ref]/refund), which each carry their own
+ * near-identical copy of this block and have already drifted apart — see the
+ * migration-candidate entry in docs/native-conversion-runbook.md. Delete it only if
+ * that migration is abandoned, not merely because nothing calls it today.
  *
- * THROWS IF THE STRIPE REFUND FAILS, before anything is written. That ordering is
- * the whole point for the cancel path: a cancel that changes status without moving
- * money is exactly the defect this exists to prevent, so the caller must let the
- * throw propagate and refuse the cancel rather than proceeding.
+ * THROWS IF THE STRIPE REFUND FAILS, before anything is written — so a caller can
+ * never end up with a status change that says money moved when it did not. Callers
+ * must let the throw propagate rather than recording anything.
  *
- * @param statusOverride  what to set instead of REFUND/PARTIAL_REFUND. The cancel
- *   path passes 'CANCELED' so the order lands in the state the restaurant chose,
- *   with `refund` recording that the money went back.
+ * @param statusOverride  what to set instead of REFUND/PARTIAL_REFUND, for a caller
+ *   that needs the order to land in a different state while `refund` still records
+ *   that the money went back.
  */
 export async function refundNativeOrderAndRecord(args: {
   stripe: Stripe

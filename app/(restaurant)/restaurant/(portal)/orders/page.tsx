@@ -67,6 +67,10 @@ interface Order {
   // nashDeliveryStatus/nashDeliveryPickupEta pair, which nothing ever set.
   deliveryStatus?: string
   maxAllowedRefundAmount?: number
+  // True only when a SUCCEEDED PaymentIntent exists for this order — see the orders
+  // API. Distinguishes "cancelled and the customer is still holding a charge" from
+  // "cancelled and nothing was ever taken".
+  wasCharged?: boolean
   note?: string
   // FM wire attribution: "DISCO" (3P, marketplace, lead-gen fee) or
   // "FAMILYMEAL" (1P, restaurant's own direct link). It's already on the FM
@@ -972,6 +976,29 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                   style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
                   Reopen
                 </button>
+              )}
+              {/* CANCELLING DOES NOT REFUND — say so, rather than leaving someone
+                  to assume it did. Cancel and refund are two deliberate actions
+                  (see the status route), so a cancelled order can sit with the
+                  customer's money still taken. Shown only when a SUCCEEDED
+                  PaymentIntent actually exists and something is still outstanding,
+                  so it never appears on a cancellation that was never paid or one
+                  that has already been refunded. */}
+              {order.wasCharged && (order.maxAllowedRefundAmount ?? 0) > 0
+                && ['CANCELED', 'CANCELLED', 'VOID', 'VOIDED'].includes(order.orderStatus) && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 8,
+                  padding: '8px 12px', fontSize: 12.5, color: '#92400E', fontFamily: F,
+                }}>
+                  <span aria-hidden style={{ fontSize: 14 }}>⚠</span>
+                  <span>
+                    <strong>The customer has still been charged {fmt(order.maxAllowedRefundAmount ?? 0)}.</strong>{' '}
+                    {order.orderStatus === 'VOID' || order.orderStatus === 'VOIDED'
+                      ? 'Voiding records that the food was prepared but not collected — it does not return the money. Use Refund if it should go back.'
+                      : 'Cancelling an order does not refund it. Use Refund to return the money.'}
+                  </span>
+                </div>
               )}
               {(order.maxAllowedRefundAmount ?? 0) > 0 && order.orderStatus !== 'REOPEN' && (
                 <button onClick={() => setModal('refund')}

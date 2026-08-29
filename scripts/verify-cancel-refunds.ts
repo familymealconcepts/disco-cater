@@ -71,20 +71,38 @@ async function main() {
     check(`#${before[i].order_number} status unchanged by the sweep`, after[i].order_status, before[i].order_status)
   }
 
-  // ── 3. Cancel refuses rather than half-working ────────────────────────────
-  console.log('\n=== (a) a cancel that cannot refund must not change status ===')
+  // ── 3. Cancel is status-only — it must NOT touch Stripe ───────────────────
+  console.log('\n=== (a, reverted) cancel changes status only ===')
   const srcStatus = await import('node:fs').then(fs =>
     fs.readFileSync('app/api/restaurant/orders/[ref]/status/route.ts', 'utf8'))
-  check('cancel path calls the refund helper', /refundNativeOrderAndRecord\(/.test(srcStatus), true)
-  check('refund failure returns 502 and does not fall through',
-    /cancel refund failed — status NOT changed[\s\S]{0,400}status: 502/.test(srcStatus), true)
-  check('no-Stripe-client case refuses with 503',
-    /cannot be cancelled until refunds are available[\s\S]{0,120}status: 503/.test(srcStatus), true)
-  check('only the outstanding balance is refunded (partial-refund safe)',
-    /outstanding = Math\.round\(\(total - already\) \* 100\)/.test(srcStatus), true)
-  check('helper does Stripe before any write',
-    /Stripe FIRST\. Nothing below runs if this throws/.test(
-      await import('node:fs').then(fs => fs.readFileSync('lib/order/native-refund.ts', 'utf8'))), true)
+  check('no refund helper in the cancel path', /refundNativeOrderAndRecord/.test(srcStatus), false)
+  check('no Stripe client in the status route', /stripeClient/.test(srcStatus), false)
+  check('no stripe.* call in the status route', /\bstripe\.[a-z]/i.test(srcStatus), false)
+  check('the status-only decision is documented', /STATUS ONLY — THIS DELIBERATELY DOES NOT TOUCH STRIPE/.test(srcStatus), true)
+
+  // ── 4. The portal tells the restaurant the charge still stands ────────────
+  console.log('\n=== a cancelled-but-unrefunded order is visibly still charged ===')
+  const portal = await import('node:fs').then(fs =>
+    fs.readFileSync('app/(restaurant)/restaurant/(portal)/orders/page.tsx', 'utf8'))
+  check('notice exists', /The customer has still been charged/.test(portal), true)
+  check('gated on a real charge, not on status alone', /order\.wasCharged && \(order\.maxAllowedRefundAmount/.test(portal), true)
+  check('shown for cancelled AND voided', /'CANCELED', 'CANCELLED', 'VOID', 'VOIDED'\]\.includes\(order\.orderStatus\)/.test(portal), true)
+  for (const [name, src] of [
+    ['orders list', await import('node:fs').then(fs => fs.readFileSync('app/api/restaurant/orders/route.ts', 'utf8'))],
+    ['order detail', await import('node:fs').then(fs => fs.readFileSync('app/api/restaurant/orders/[ref]/route.ts', 'utf8'))],
+  ] as const) {
+    check(`${name}: exposes wasCharged`, /wasCharged/.test(src), true)
+    check(`${name}: derives it from a SUCCEEDED PaymentIntent`, /SUCCEEDED'\s*AND stripe_payment_intent_id IS NOT NULL/.test(src), true)
+  }
+
+  // ── 5. The restaurant refund route never reports a completed refund as failed ─
+  console.log('\n=== defect 1: Stripe succeeded, DB write failed ===')
+  const rr = await import('node:fs').then(fs =>
+    fs.readFileSync('app/api/restaurant/orders/[ref]/refund/route.ts', 'utf8'))
+  check('returns ok+warning when a Stripe refund is confirmed', /if \(stripeRefundId\) \{[\s\S]{0,500}ok: true[\s\S]{0,400}warning:/.test(rr), true)
+  check('warning tells staff NOT to refund again', /Do NOT refund again/.test(rr), true)
+  check('still 500s when no Stripe refund was confirmed (FM path)', /return NextResponse\.json\(\{ error: 'Unable to process refund' \}, \{ status: 500 \}\)/.test(rr), true)
+  check('stale REFUNDED comment corrected', /order_status → 'REFUND'/.test(rr), true)
 
   console.log('\n' + '='.repeat(64))
   console.log(failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`)

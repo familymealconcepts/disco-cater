@@ -59,6 +59,7 @@ interface OrderRow {
   fee: string | null
   tips: string | null
   refund: string | null
+  was_charged: boolean | null
   note: string | null
   seen_by_admin: boolean
   edit_count: number
@@ -122,6 +123,10 @@ function toUiOrder(r: OrderRow): Record<string, unknown> {
     // Net of anything already refunded, so a fully-refunded order correctly offers
     // nothing and the button hides again on its own.
     maxAllowedRefundAmount: REFUNDABLE.has(status) ? Math.max(0, total - (r.refund != null ? num(r.refund) : 0)) : 0,
+    // True only when a SUCCEEDED PaymentIntent exists for this order. Lets the
+    // portal say "the customer is still charged" on a cancelled order without
+    // guessing from status — and stay silent when nothing was ever taken.
+    wasCharged: r.was_charged === true,
     // Disco edit state (used by the edit-history icon rule / edit gate).
     editCount: r.edit_count,
     editStatus: r.edit_status,
@@ -303,14 +308,20 @@ export async function GET(req: NextRequest) {
               source_of_order, restaurant_name, customer_email, customer_first_name, customer_last_name,
               to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time,
               to_char(${byCreated ? "(COALESCE(placed_at, created_at) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))" : 'order_date'}, 'YYYY-MM-DD') AS bucket_date,
-              subtotal, COALESCE(NULLIF(disco_orders.total, 0), sp.sp_total) AS total, fee, tips, refund, note, seen_by_admin,
+              subtotal, COALESCE(NULLIF(disco_orders.total, 0), sp.sp_total) AS total, sp.was_charged, fee, tips, refund, note, seen_by_admin,
               COALESCE(edit_count,0) AS edit_count, edit_status, created_at, placed_at, persons,
               company_name, tax_exempt_id, tax_exempt_state, rc.timezone AS timezone
        FROM disco_orders
        LEFT JOIN (
-         SELECT order_reference, MAX(total) AS sp_total
+         SELECT order_reference,
+                MAX(total) FILTER (WHERE total IS NOT NULL AND total > 0) AS sp_total,
+                -- Whether money was ACTUALLY taken, as opposed to an order merely
+                -- sitting in a status that implies it. A cancelled order can be
+                -- either genuinely charged or never paid at all (cancelled while
+                -- RESERVED, or an unpaid invoice), and the portal must not tell a
+                -- restaurant the customer was charged when they were not.
+                bool_or(status = 'SUCCEEDED' AND stripe_payment_intent_id IS NOT NULL) AS was_charged
          FROM disco_stripe_payments
-         WHERE total IS NOT NULL AND total > 0
          GROUP BY order_reference
        ) sp ON sp.order_reference = disco_orders.reference
        LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = disco_orders.restaurant_reference::text

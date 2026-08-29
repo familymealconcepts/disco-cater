@@ -273,6 +273,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
     base.orderClassics = []
   }
 
+  // Whether money was ACTUALLY taken — a SUCCEEDED PaymentIntent, not merely a
+  // status that implies one. Drives the portal's "customer is still charged" notice
+  // on a cancelled order; a cancellation that was never paid (cancelled while
+  // RESERVED, or an unpaid invoice) must not show it.
+  try {
+    const paid = (await sql`
+      SELECT 1 FROM disco_stripe_payments
+      WHERE order_reference = ${d.reference}::uuid
+        AND status = 'SUCCEEDED' AND stripe_payment_intent_id IS NOT NULL
+      LIMIT 1
+    `) as unknown[]
+    base.wasCharged = paid.length > 0
+  } catch { /* best-effort — absence just means no notice is shown */ }
+
   base.orderStatusesToChange = STATUS_TRANSITIONS[d.order_status] || []
   if (base.maxAllowedRefundAmount == null) {
     base.maxAllowedRefundAmount = REFUNDABLE.has(d.order_status) ? Math.max(0, num(d.total) - num(d.refund)) : 0

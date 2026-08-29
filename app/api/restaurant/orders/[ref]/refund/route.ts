@@ -15,11 +15,17 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // PUT /api/restaurant/orders/{ref}/refund  { amount }
-// Records the refund in Disco's Neon (source of truth): order_status → REFUNDED
-// and disco_orders.refund = amount, so the orders list shows "Refunded" and the
-// details panel shows the badge + refund amount. FM is notified best-effort (it
-// owns the actual Stripe refund for FM-charged orders); a FM failure never blocks
-// the Neon write.
+// Records the refund in Disco's Neon (source of truth): order_status → 'REFUND'
+// (or 'PARTIAL_REFUND' when it doesn't cover the whole order) and
+// disco_orders.refund = amount, so the orders list shows "Refunded" and the details
+// panel shows the badge + refund amount. FM is notified best-effort (it owns the
+// actual Stripe refund for FM-charged orders); a FM failure never blocks the Neon
+// write.
+//
+// 'REFUND', not 'REFUNDED' — this said REFUNDED while the code below has always
+// written REFUND. That is the exact spelling distinction the write-site comment
+// calls out (FM's real OrderStatus enum spelling, and the majority of stored rows),
+// so a stale comment here pointed the next reader at the wrong value.
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
@@ -159,6 +165,28 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     return NextResponse.json({ ok: true, orderStatus: newStatus, refund: totalRefund })
   } catch (err) {
     console.error('[restaurant/orders/refund] Neon update failed:', err instanceof Error ? err.message : err)
+    // NEVER REPORT A COMPLETED STRIPE REFUND AS A FAILURE. This returned a bare 500
+    // "Unable to process refund" even when Stripe had already sent the money back —
+    // so staff saw a failure, and the obvious next action is to retry, which is a
+    // SECOND refund. Same principle the admin refund route already states.
+    //
+    // Conditional on stripeRefundId, deliberately, because this route serves BOTH
+    // paths and the admin route's block only ever serves the native one:
+    //   • native (authType 'disco') — stripeRefundId is set, so the refund is a
+    //     confirmed fact and only the bookkeeping failed. Report success + warning.
+    //   • FM-backed — FM owns the Stripe refund and this route only pokes it
+    //     best-effort, logging failures rather than surfacing them. We do NOT know
+    //     the money moved, so claiming success would be the opposite lie. Keep the
+    //     500.
+    if (stripeRefundId) {
+      return NextResponse.json({
+        ok: true,
+        orderStatus: newStatus,
+        refund: totalRefund,
+        stripeRefundId,
+        warning: 'Refund issued in Stripe, but the order record failed to update. Do NOT refund again — the customer has already been refunded. Please flag this order for manual reconciliation.',
+      })
+    }
     return NextResponse.json({ error: 'Unable to process refund' }, { status: 500 })
   }
 }
