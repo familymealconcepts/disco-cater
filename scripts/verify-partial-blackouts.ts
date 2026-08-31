@@ -6,10 +6,11 @@
  *  1. PARITY — for every one of Bird & Co's blackout dates, diff Disco's offered
  *     pickup slots against FM's own availablePickUp. This is the test that matters:
  *     it compares against FM's live answer, not against our reading of FM's rules.
- *     Disco's slot grid is 30 minutes and FM's is 15, so the comparison is
- *     "does Disco offer any slot FM refuses" (a booking hole) and "does Disco
- *     refuse a 30-minute slot FM offers" (over-blocking). Granularity-only
- *     differences are reported separately and are a known pre-existing divergence.
+ *     Both grids are now 15 minutes over a closed [from, to] window, so this is a
+ *     STRICT set comparison: any difference in either direction is a failure.
+ *     It previously excluded FM's :15/:45 slots and the 19:00 closing slot as
+ *     known divergences; both were fixed rather than excluded, so nothing here
+ *     is filtered any more.
  *
  *  2. REGRESSION — whole-day blocks still block, ordinary days still open, and the
  *     inclusive-both-ends boundary holds at the exact minute.
@@ -60,7 +61,7 @@ async function main() {
 
   const dates = [...new Set(stored.map(s => s.fromDate))].sort()
   console.log('── PARITY: Disco offered slots vs FM availablePickUp ──\n')
-  let holes = 0, overblocks = 0, granularityOnly = 0
+  let holes = 0, overblocks = 0
 
   for (const date of dates) {
     const fmRaw = await (await fetch(`${FM}/public-api/mealPackages/${pkg.reference}/availablePickUp?localDate=${ddmmyyyy(date)}`)).json() as { localTime: string }[]
@@ -70,32 +71,21 @@ async function main() {
     // A hole = Disco offers a slot FM does not. That is a customer booking into a
     // window the restaurant closed — the defect this whole change is about.
     const hole = disco.filter(t => !fmSet.has(t))
-    // Over-block = FM offers a slot on Disco's 30-minute grid that Disco refuses.
-    //
-    // 19:00 is EXCLUDED as a known, pre-existing divergence unrelated to blackouts:
-    // windowSlotMinutes requires `m + 30 <= to`, so a window ending 19:00 stops at
-    // 18:30, while FM treats `to` as an inclusive pickup time and offers 19:00. It
-    // shows up here only because these dates are the ones being diffed. Logged with
-    // the granularity gap, deliberately not fixed in this change.
-    const KNOWN_END_SLOT_GAP = '19:00'
-    const over = [...fmSet]
-      .filter(t => t.endsWith(':00') || t.endsWith(':30'))
-      .filter(t => t !== KNOWN_END_SLOT_GAP)
-      .filter(t => !disco.includes(t))
-    // FM's :15/:45 slots Disco never offers at all — pre-existing granularity gap.
-    const gran = [...fmSet].filter(t => !t.endsWith(':00') && !t.endsWith(':30')).length
+    // Over-block = FM offers a slot Disco refuses. NOTHING is filtered out here:
+    // the grids now agree on both step and end bound, so an over-block is a real
+    // failure — a time the restaurant offers that a Disco customer cannot pick.
+    const over = [...fmSet].filter(t => !disco.includes(t))
 
-    holes += hole.length; overblocks += over.length; granularityOnly += gran
+    holes += hole.length; overblocks += over.length
     const partial = stored.find(s => s.fromDate === date && s.intervals?.length)
     const tag = partial ? `partial ${partial.intervals![0].fromTime}-${partial.intervals![0].toTime}` : 'whole day'
     const status = hole.length === 0 && over.length === 0 ? 'PASS' : 'FAIL'
     if (status === 'FAIL') failures++
     console.log(`   ${status}  ${date} (${tag})  Disco ${disco.length} slots / FM ${fmSet.size}`)
     if (hole.length) console.log(`         HOLE — Disco offers, FM refuses: ${hole.join(' ')}`)
-    if (over.length) console.log(`         OVER — FM offers on the 30-min grid, Disco refuses: ${over.join(' ')}`)
+    if (over.length) console.log(`         OVER — FM offers, Disco refuses: ${over.join(' ')}`)
   }
-  console.log(`\n   holes: ${holes}   over-blocks: ${overblocks}`)
-  console.log(`   known pre-existing divergences (not failures): ${granularityOnly} FM :15/:45 slots Disco never offers, plus the 19:00 closing slot`)
+  console.log(`\n   holes: ${holes}   over-blocks: ${overblocks}   (no exclusions — strict set equality)`)
 
   // ── Regression ───────────────────────────────────────────────────────────
   console.log('\n── REGRESSION ──\n')
@@ -128,8 +118,14 @@ async function main() {
   for (const [d, t] of [['2026-09-10', '12:00'], ['2026-09-16', '12:00'], ['2026-09-17', '17:00'], ['2026-09-25', '12:00']]) {
     check(`${d} ${t} bookable`, await isNativeDateTimeValid(REF, d, t, menuRef), true)
   }
-  check('ordinary day still offers all 18 slots',
-    buildAvailableTimes(sched as never, '2026-09-10').filter(t => !t.disabled).length, 18)
+  // 10:00-19:00 on a 15-minute closed grid = 37 slots (was 18 at 30 min, exclusive
+  // of the 19:00 close). Both the step and the closing slot changed here.
+  check('ordinary day offers the full 15-min grid incl. the closing slot',
+    buildAvailableTimes(sched as never, '2026-09-10').filter(t => !t.disabled).length, 37)
+  check('...ending at the window close, not 30 min before it',
+    buildAvailableTimes(sched as never, '2026-09-10').filter(t => !t.disabled).slice(-1)[0]?.time, '19:00:00')
+  check('...and offering quarter-hours FM has always offered',
+    buildAvailableTimes(sched as never, '2026-09-10').filter(t => !t.disabled).some(t => t.time === '10:45:00'), true)
 
   console.log('\n  Temporary cover removed — the 3 dates are partial again, not whole-day:')
   for (const [d, open, blocked] of [['2026-09-09', '15:30', '12:00'], ['2026-09-18', '12:00', '17:00'], ['2026-09-26', '12:00', '16:00']]) {

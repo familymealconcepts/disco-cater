@@ -133,7 +133,19 @@ interface SkippedInterval { fromTime?: string; toTime?: string }
 interface SkippedDay { fromDate?: string; toDate?: string; intervals?: SkippedInterval[] | null }
 
 const DAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY']
-const SLOT_MINUTES = 30
+// FM's pickup grid is 15 minutes, and Disco re-derives that grid from FM's own
+// scheduleOption rather than calling availablePickUp — so this constant IS the
+// customer's choice of times, for FM-backed and native restaurants alike. It was
+// 30 from this module's first commit (f8e7028, 2026-05-28); never 15, so this is
+// a long-standing divergence rather than a regression. At 30 a restaurant whose
+// FM storefront offered 49 slots offered 24 here (Veselka, 09:00-21:00), and the
+// restaurant portal's own hours picker (TimeSelect) has always let a restaurant
+// set a window on :15/:45 that this grid could not then honour.
+//
+// 15 is a divisor of 30, so every time the 30-minute grid ever produced is still
+// on this one: no stored order time is stranded, and no re-validation of an
+// existing booking changes answer.
+const SLOT_MINUTES = 15
 
 function parseHardCutoff(raw?: string | null): Date | null {
   if (!raw) return null
@@ -198,14 +210,23 @@ export function orderingClosed(s: FmScheduleLike, now = new Date()): boolean {
 /** Slot start-times (minutes since midnight) a pickup window produces. A
  *  window where from === to means "exactly one pickup time" (a single
  *  seating/delivery slot), not a zero-width range — it produces exactly that
- *  one slot. A normal [from, to) window produces 30-min slots, each ending
- *  no later than `to`. */
+ *  one slot; the CLOSED bound below makes that case fall out of the general
+ *  rule rather than needing its own branch, but it is kept explicit.
+ *
+ *  [from, to] IS CLOSED AT BOTH ENDS — `to` is itself a bookable pickup time.
+ *  This used to require `m + SLOT_MINUTES <= to`, i.e. the last slot had to END
+ *  by `to`, which silently dropped the closing slot: a 09:00-21:00 window
+ *  stopped at 20:30 while FM offered 21:00. That is a SEPARATE defect from the
+ *  slot step — at 15 minutes the same rule would have stopped at 20:45 — and
+ *  the two had to be fixed together for the grid to match FM's availablePickUp.
+ *  A restaurant that sets `toPickUpTime` 21:00 means "you can collect at 21:00",
+ *  which is also how FM reads it and how the portal's hours picker presents it. */
 function windowSlotMinutes(win: { from: string; to: string }): number[] {
   const fromMin = hhmmToMinutes(win.from)
   const toMinVal = hhmmToMinutes(win.to)
   if (fromMin === toMinVal) return [fromMin]
   const out: number[] = []
-  for (let m = fromMin; m + SLOT_MINUTES <= toMinVal; m += SLOT_MINUTES) out.push(m)
+  for (let m = fromMin; m <= toMinVal; m += SLOT_MINUTES) out.push(m)
   return out
 }
 
@@ -294,7 +315,8 @@ export function buildAvailableDates(
   return out
 }
 
-/** 30-minute pickup slots for a date, each flagged disabled per the three tiers.
+/** Pickup slots for a date (SLOT_MINUTES apart), each flagged disabled per the
+ *  three tiers.
  *  Defense-in-depth: rejects a date outside a Custom-availability menu's
  *  [startDate, endDate] range outright, independent of whatever surfaced the
  *  date (calendar pick, deep link, stale client state). */
@@ -399,13 +421,23 @@ export function runSelfTests(): void {
   }
   pass++
 
-  // 9. A normal multi-hour window is unaffected — still 30-min slots ending by `to`.
+  // 9. A normal multi-hour window: 15-min slots across a CLOSED [from, to].
+  // 11:00-13:00 is 11:00 … 13:00 inclusive = 9 slots, and the closing 13:00 is
+  // present — the two things this grid got wrong before.
   const normalSlots = buildAvailableTimes(
     { prepTime: 0, repeatWeekDays: [{ days: 'WEDNESDAY', fromPickUpTime: '11:00', toPickUpTime: '13:00' }] },
     '2026-06-03',
     farPast,
   )
-  if (normalSlots.length !== 4) throw new Error(`FAIL 9 normal window slot count: got ${normalSlots.length}`)
+  if (normalSlots.length !== 9) throw new Error(`FAIL 9 normal window slot count: got ${normalSlots.length}`)
+  pass++
+  if (normalSlots[0].time !== '11:00:00' || normalSlots[normalSlots.length - 1].time !== '13:00:00') {
+    throw new Error(`FAIL 9 window bounds: got ${normalSlots[0].time}..${normalSlots[normalSlots.length - 1].time}`)
+  }
+  pass++
+  if (!normalSlots.some(t => t.time === '11:15:00') || !normalSlots.some(t => t.time === '12:45:00')) {
+    throw new Error('FAIL 9 quarter-hour slots missing')
+  }
   pass++
 
   // 10. Custom availability (startDate === endDate) — ONLY that date is bookable,
