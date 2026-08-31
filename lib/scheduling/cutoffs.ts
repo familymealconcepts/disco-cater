@@ -146,6 +146,7 @@ const DAY_NAMES = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRID
 // on this one: no stored order time is stranded, and no re-validation of an
 // existing booking changes answer.
 const SLOT_MINUTES = 15
+const MINUTES_PER_DAY = 24 * 60
 
 function parseHardCutoff(raw?: string | null): Date | null {
   if (!raw) return null
@@ -220,11 +221,42 @@ export function orderingClosed(s: FmScheduleLike, now = new Date()): boolean {
  *  slot step — at 15 minutes the same rule would have stopped at 20:45 — and
  *  the two had to be fixed together for the grid to match FM's availablePickUp.
  *  A restaurant that sets `toPickUpTime` 21:00 means "you can collect at 21:00",
- *  which is also how FM reads it and how the portal's hours picker presents it. */
+ *  which is also how FM reads it and how the portal's hours picker presents it.
+ *
+ *  Two window shapes need explicit handling and are documented inline: a close of
+ *  00:00 (end of THIS day, last slot 23:45) and a genuinely crossing window
+ *  (returns nothing, matching FM). */
 function windowSlotMinutes(win: { from: string; to: string }): number[] {
   const fromMin = hhmmToMinutes(win.from)
-  const toMinVal = hhmmToMinutes(win.to)
+  let toMinVal = hhmmToMinutes(win.to)
   if (fromMin === toMinVal) return [fromMin]
+
+  // A CLOSE OF 00:00 MEANS MIDNIGHT AT THE END OF THIS DAY, not 00:00 at the
+  // start of it. Read literally it gives to = 0 < from, the loop below never
+  // runs, and the date silently disappears from the calendar with nothing
+  // logged and nobody told. That took out El Gallo Taqueria and Rinconcito
+  // DOMEX on ALL SEVEN DAYS and Razzis Pizzeria on Fridays and Saturdays —
+  // three live restaurants, wholly or partly unbookable, since this module
+  // shipped.
+  //
+  // The last slot is 23:45, NOT 00:00. That is not a judgement call: FM was
+  // asked directly and answers 10:00→23:45 = 56 slots, 09:00→23:45 = 60 and
+  // 05:00→23:45 = 76 on these exact restaurants. A midnight close means the
+  // last pickup fits inside the day, which also keeps every slot on the date
+  // it belongs to — the stored order_time, the Ready By offset and the
+  // blackout intervals all assume one calendar day.
+  if (toMinVal === 0) toMinVal = MINUTES_PER_DAY - SLOT_MINUTES
+
+  // A GENUINELY CROSSING WINDOW (12:00 → 02:00) still produces nothing, and
+  // that is correct rather than lazy: FM produces nothing for it either.
+  // Moonburger Brooklyn has exactly this shape on Fridays and Saturdays and
+  // FM's own availablePickUp returns zero slots on both days. Inventing slots
+  // here would put Disco AHEAD of FM and let a customer book a pickup the
+  // restaurant cannot serve — a booking hole, the one direction this module
+  // must never fail in. It is a data problem to raise with the restaurant,
+  // not a rule to implement.
+  if (toMinVal < fromMin) return []
+
   const out: number[] = []
   for (let m = fromMin; m <= toMinVal; m += SLOT_MINUTES) out.push(m)
   return out
@@ -438,6 +470,38 @@ export function runSelfTests(): void {
   if (!normalSlots.some(t => t.time === '11:15:00') || !normalSlots.some(t => t.time === '12:45:00')) {
     throw new Error('FAIL 9 quarter-hour slots missing')
   }
+  pass++
+
+  // 9b. A close of 00:00 is the end of THIS day — last slot 23:45, never 00:00.
+  // Matched against FM's own answers for the three live restaurants that have
+  // this shape (10:00→23:45 = 56 slots).
+  const midnightSlots = buildAvailableTimes(
+    { prepTime: 0, repeatWeekDays: [{ days: 'WEDNESDAY', fromPickUpTime: '10:00', toPickUpTime: '00:00' }] },
+    '2026-06-03',
+    farPast,
+  )
+  if (midnightSlots.length !== 56) throw new Error(`FAIL 9b midnight slot count: got ${midnightSlots.length}`)
+  pass++
+  if (midnightSlots[0].time !== '10:00:00' || midnightSlots[midnightSlots.length - 1].time !== '23:45:00') {
+    throw new Error(`FAIL 9b midnight bounds: got ${midnightSlots[0].time}..${midnightSlots[midnightSlots.length - 1].time}`)
+  }
+  pass++
+  if (midnightSlots.some(t => t.time.startsWith('24:') || t.time === '00:00:00')) {
+    throw new Error('FAIL 9b midnight produced an out-of-day slot')
+  }
+  pass++
+  // 05:00 → 00:00 is 76 slots, per FM on Rinconcito DOMEX.
+  if (buildAvailableTimes(
+    { prepTime: 0, repeatWeekDays: [{ days: 'WEDNESDAY', fromPickUpTime: '05:00', toPickUpTime: '0:00:00' }] },
+    '2026-06-03', farPast,
+  ).length !== 76) throw new Error('FAIL 9b 05:00-midnight count')
+  pass++
+
+  // 9c. A genuinely crossing window produces NOTHING — same as FM, deliberately.
+  if (buildAvailableTimes(
+    { prepTime: 0, repeatWeekDays: [{ days: 'WEDNESDAY', fromPickUpTime: '12:00', toPickUpTime: '02:00' }] },
+    '2026-06-03', farPast,
+  ).length !== 0) throw new Error('FAIL 9c crossing window should produce no slots')
   pass++
 
   // 10. Custom availability (startDate === endDate) — ONLY that date is bookable,
