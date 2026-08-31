@@ -27,7 +27,7 @@ import { setInviteToken, grantLocationAccess } from './disco-restaurant-auth'
 import { sendTeamMemberInvite } from './email/notifications'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { sanitizePhone } from './utils/phone'
-import { isHolidayName } from './holidays'
+import { isHolidayName, canonicalHolidayName } from './holidays'
 import { fmImageUrl } from './fm-image'
 import { sleep } from './bulk-invite'
 
@@ -758,14 +758,6 @@ async function flagClosedDaysNeedReview(ref: string): Promise<void> {
   }
 }
 
-// FM's real closed-days entries name a handful of holidays slightly differently
-// than Disco's own canonical list (lib/holidays.ts) — confirmed by reading real
-// FM data (Pelican Delicatessen, via master-password read) this session.
-const FM_HOLIDAY_NAME_ALIASES: Record<string, string> = {
-  "President's Day": "Presidents' Day",
-  'Easter Day': 'Easter',
-}
-
 // FM sends "DD.MM.YYYY"; Postgres date columns need "YYYY-MM-DD".
 function fmDateToIso(d: string): string | null {
   const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(d.trim())
@@ -815,7 +807,7 @@ export async function carryOverClosedDays(ref: string, walled?: FmWalledFieldsRe
       if (row.available !== true) continue // available: true = closed (see comment above); false = open, nothing to carry over
       const rawName = (row.eventName || '').trim()
       if (!rawName) { skipped++; continue }
-      const canonicalName = FM_HOLIDAY_NAME_ALIASES[rawName] || rawName
+      const canonicalName = canonicalHolidayName(rawName)
       const holiday = isHolidayName(canonicalName) ? canonicalName : null
       const dates = (row.eventDates || []).map(fmDateToIso).filter((d): d is string => !!d)
       if (dates.length === 0) { skipped++; continue }

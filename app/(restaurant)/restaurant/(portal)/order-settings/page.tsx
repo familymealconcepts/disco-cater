@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
+import { isFmSystemHolidayName } from '../../../../../lib/holidays'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -36,13 +37,17 @@ interface ClosedDay {
   eventDates?: string[]
 }
 
-const SYSTEM_HOLIDAYS = [
-  'Christmas Day', 'Christmas Eve', 'July 4th', 'Labor Day',
-  'Memorial Day', "New Year's Day", "New Year's Eve",
-  'Thanksgiving Day', "Valentine's Day", 'Martin Luther King Jr. Day',
-  "President's Day", 'Independence Day', 'Easter',
-]
-const isSystemHoliday = (d: ClosedDay) => SYSTEM_HOLIDAYS.includes(d.eventName)
+// ONE list, shared with the Disco-native settings page — see lib/holidays.ts.
+// This file used to hardcode its own 13 names, and the two had already drifted:
+// this one carried 'July 4th' and FM's "President's Day", the other carried
+// Juneteenth and Disco's "Presidents' Day", and NEITHER carried FM's real
+// "Valentines Day" spelling — so an FM restaurant closed on Valentine's Day saw
+// it filed under Custom Dates with a delete button instead of a toggle.
+//
+// isFmSystemHolidayName is a deliberate SUPERSET (canonical names + every FM
+// alias). This is a classifier over what FM returns, never a source of
+// checkboxes, so widening it is safe and narrowing it is not.
+const isSystemHoliday = (d: ClosedDay) => isFmSystemHolidayName(d.eventName)
 const formatEventDates = (dates?: string[]) => {
   if (!dates?.length) return ''
   if (dates.length === 1) return dates[0]

@@ -26,6 +26,57 @@ export const HOLIDAYS: string[] = [
 const isHolidayName = (name: string) => HOLIDAYS.includes(name)
 export { isHolidayName }
 
+/**
+ * FM's own spellings → Disco's canonical name.
+ *
+ * FM names several of these differently, and the differences are NOT cosmetic:
+ * an unrecognised name is stored with `holiday = NULL`, which files a real
+ * holiday as a one-off custom closure. It then (a) shows the Closed Holidays
+ * checkbox UNTICKED while the restaurant is in fact closed, and (b) keeps only
+ * the handful of years FM carried instead of Disco's 50.
+ *
+ * "Valentines Day" was the one this map missed. All six DeCheco's locations
+ * carried their Valentine's closure across as an orphan: 4 rows each, 2024-2027,
+ * so from 2028 they would have been silently OPEN on a day they close. Found
+ * 2026-08-31, backfilled by scripts/backfill-valentines-holiday.ts.
+ *
+ * Add to this map rather than renaming anything in HOLIDAYS — the canonical
+ * names are what the `holiday` column already stores fleet-wide.
+ */
+export const FM_HOLIDAY_NAME_ALIASES: Record<string, string> = {
+  "President's Day": "Presidents' Day",
+  'Easter Day': 'Easter',
+  'Valentines Day': "Valentine's Day",
+  'July 4th': 'Independence Day',
+}
+
+/** FM's name for a holiday → Disco's canonical one. Unknown names pass through. */
+export function canonicalHolidayName(rawName: string): string {
+  const n = (rawName || '').trim()
+  return FM_HOLIDAY_NAME_ALIASES[n] || n
+}
+
+/**
+ * Does this name — in FM's spelling or Disco's — denote a system holiday?
+ *
+ * THE FM-BACKED SETTINGS PAGE USES THIS AS A CLASSIFIER, not as a source of
+ * checkboxes. That page renders whatever FM's /closedDays returns; this only
+ * decides whether an entry appears under the holiday TOGGLES or under Custom
+ * Dates (which render a DELETE button instead). So the set must be a SUPERSET of
+ * every name FM might emit: widening it is safe, narrowing it is not — an
+ * unmatched holiday drops into Custom Dates and offers the restaurant a delete
+ * where it meant to offer a toggle.
+ *
+ * That is why 'July 4th' is kept alongside 'Independence Day' even though FM has
+ * only ever been observed emitting the latter, and why Juneteenth is included
+ * even though FM does not offer it.
+ */
+export function isFmSystemHolidayName(rawName: string | null | undefined): boolean {
+  const n = (rawName || '').trim()
+  if (!n) return false
+  return isHolidayName(n) || n in FM_HOLIDAY_NAME_ALIASES
+}
+
 const pad = (n: number) => String(n).padStart(2, '0')
 const fmt = (y: number, month0: number, day: number) => `${y}-${pad(month0 + 1)}-${pad(day)}`
 
