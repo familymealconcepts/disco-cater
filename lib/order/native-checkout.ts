@@ -352,10 +352,26 @@ export async function isNativeDateTimeValid(restaurantReference: string, orderDa
     menu = rows[0]
   }
   if (!menu) return true
+  // THE RESTAURANT'S OWN CLOCK, not this process's. This function is the
+  // server-side placement gate and runs on Vercel in UTC, while the picker that
+  // offered the slot ran in the CUSTOMER's browser zone. Without this the two
+  // disagreed and a customer could be shown a time the gate then refused — a
+  // failed checkout with no explanation. See wallClockInZone in
+  // lib/scheduling/cutoffs.ts for the measured divergence.
+  // NOTE THE MISSING ::uuid. disco_restaurant_cache.restaurant_reference is
+  // TEXT while disco_menus.restaurant_reference is UUID — casting here throws
+  // `operator does not exist: text = uuid`. The first version of this had the
+  // cast AND a `.catch(() => [])`, so the timezone silently came back null on
+  // every call and the fix appeared to do nothing. The catch is deliberately
+  // narrow now: a failure to read the zone is worth seeing, not swallowing.
+  const tzRows = (await sql`
+    SELECT timezone FROM disco_restaurant_cache WHERE restaurant_reference = ${restaurantReference} LIMIT 1
+  `.catch(e => { console.error('[native-checkout] timezone lookup failed for', restaurantReference, e instanceof Error ? e.message : e); return [] })) as { timezone: string | null }[]
   const scheduleOption = {
     ...buildNativeScheduleOption(menu.schedule_config, menu.availability_mode, menu.start_date, menu.end_date),
     ...menuRowToScheduleExtras(menu),
     ...(Array.isArray(menu.skipped_days) && menu.skipped_days.length ? { skippedDays: menu.skipped_days } : {}),
+    timezone: tzRows[0]?.timezone ?? null,
   }
   return isDateTimeBookable(scheduleOption, orderDate, orderTime)
 }

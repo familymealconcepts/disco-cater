@@ -37,6 +37,8 @@ export interface CachedRestaurant {
   isPremium: boolean | null
   lat: number | null
   lng: number | null
+  /** IANA zone of the restaurant — every scheduling rule is evaluated on it. */
+  timezone: string | null
   // Disco-native only (see lib/disco-restaurant-archive.ts). Checked FIRST,
   // ahead of is_live/visible/online_ordering_enabled — archive is a stronger
   // gate than any of those, so an archived restaurant must never fall through
@@ -55,7 +57,7 @@ export interface CachedRestaurant {
 export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRestaurant | null> => {
   const rows = (await withDiscoTables(() => sql`
     SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description,
-           c.image_url, c.icon_url, c.lat, c.lng, o.is_premium, o.archived_at
+           c.image_url, c.icon_url, c.lat, c.lng, c.timezone, o.is_premium, o.archived_at
     FROM disco_restaurant_cache c
     LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
     WHERE LOWER(c.slug) = LOWER(${slug})
@@ -63,7 +65,8 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
   `, runMigrations).catch(() => [])) as {
     restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null
     cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null
-    lat: string | number | null; lng: string | number | null; is_premium: boolean | null; archived_at: string | null
+    lat: string | number | null; lng: string | number | null; timezone: string | null
+    is_premium: boolean | null; archived_at: string | null
   }[]
   const r = rows[0]
   if (!r) return null
@@ -73,6 +76,7 @@ export const getCachedRestaurant = cache(async (slug: string): Promise<CachedRes
     cuisine: r.cuisine, description: r.description,
     imageUrl: r.image_url, iconUrl: r.icon_url, isPremium: r.is_premium,
     lat: r.lat != null ? Number(r.lat) : null, lng: r.lng != null ? Number(r.lng) : null,
+    timezone: r.timezone,
     isArchived: r.archived_at != null,
   }
 })
@@ -368,6 +372,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
     // critical path of the hottest customer surface for no benefit.
     const rows = (await withDiscoTables(() => sql`
       SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.cuisine, c.description, c.image_url, c.icon_url,
+             c.timezone,
              COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled,
              COALESCE(o.enable_menu_search, false) AS enable_menu_search,
              o.announcement, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows
@@ -375,7 +380,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE LOWER(c.slug) = LOWER(${slug}) AND c.is_disco_native = true AND c.is_live = true
       LIMIT 1
-    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; announcement: string | null; delivery_order_time_windows: string }[]
+    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; timezone: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; announcement: string | null; delivery_order_time_windows: string }[]
     const r = rows[0]
     if (!r) return null
 
@@ -542,6 +547,11 @@ async function loadDiscoNativeRestaurant(slug: string) {
         ...buildNativeScheduleOption(m?.schedule_config ?? null, m?.availability_mode ?? null, m?.start_date ?? null, m?.end_date ?? null),
         ...(m ? menuRowToScheduleExtras(m) : {}),
         ...(skippedDays.length ? { skippedDays } : {}),
+        // Every scheduling rule is evaluated on the RESTAURANT's clock. Without
+        // this the picker runs on the customer's browser zone and the placement
+        // gate on Vercel's UTC, and the two disagree — see wallClockInZone in
+        // lib/scheduling/cutoffs.ts.
+        timezone: r.timezone || null,
       }
       const settings = m ? menuRowToSettings(m) : { menuAvailability: ['PICKUP', 'DELIVERY'], menuAvailabilityExplicit: false }
 
@@ -662,7 +672,18 @@ export async function RestaurantView({
   // Address comes from the by-reference detail (business-by-slug has none).
   const fmDetail = await fetchFmRestaurantByRef(fmRestaurant.reference)
   const fmFullAddress = formatFullAddress(fmDetail?.address)
-  const menuData = await fetchMenuData(fmRestaurant.reference)
+  const rawMenuData = await fetchMenuData(fmRestaurant.reference)
+  // FM-BACKED RESTAURANTS GET THE SAME TREATMENT AS NATIVE ONES. Disco does not
+  // call FM's availablePickUp — it re-derives the grid from FM's scheduleOption
+  // — so the restaurant's own clock has to travel with that schedule, or the
+  // lead-time floor is computed in the customer's browser zone. FM computes it
+  // in the restaurant's zone; this is what makes Disco agree.
+  const menuData = rawMenuData.map(md => ({
+    ...md,
+    menu: md.menu?.scheduleOption
+      ? { ...md.menu, scheduleOption: { ...md.menu.scheduleOption, timezone: cached?.timezone || null } }
+      : md.menu,
+  }))
 
   const FM_IMG = process.env.NEXT_PUBLIC_FM_API_BASE_URL || 'https://api.familymeal.com'
   const restaurant = {

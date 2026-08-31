@@ -27,6 +27,55 @@ export interface CutoffConfig {
 const MIN = 60_000
 const DAY_MS = 86_400_000
 
+/**
+ * The restaurant's WALL CLOCK for a real instant, expressed as a Date whose
+ * LOCAL fields carry that wall clock.
+ *
+ * WHY THIS EXISTS. Every other date in this module is a wall-clock value: slot
+ * times are "HH:mm" strings the restaurant typed, and dates are built with
+ * `new Date(\`${'${dateStr}'}T00:00:00\`)`, which the runtime reads in ITS OWN zone. Only
+ * `now` was a real instant, so the entire comparison was performed in whatever
+ * timezone the code happened to be running in — and this module runs in two very
+ * different ones: the customer's browser (the picker) and UTC on Vercel (the
+ * placement gate).
+ *
+ * Same code, same instant, same restaurant, before this fix — Razzis Pizzeria
+ * (America/Los_Angeles) on 2026-09-01, against FM's 29 slots:
+ *
+ *     TZ=America/New_York      17 slots
+ *     TZ=America/Los_Angeles   29 slots   <- FM's answer
+ *     TZ=UTC                    1 slot    <- what the placement gate saw
+ *
+ * That last row is the real damage: the browser could offer a slot the server
+ * then refused, so the customer got a failed checkout with no explanation. FM
+ * computes lead time in the restaurant's own timezone, which is also the only
+ * answer a restaurant would recognise — 24 hours' notice means 24 hours by the
+ * kitchen's clock, not by the diner's.
+ *
+ * Shifting `now` into restaurant wall-clock space puts it in the same space as
+ * everything it is compared against, so no other function in this module needs
+ * to know about timezones. Falls back to the raw instant when the zone is absent
+ * or unrecognised — the previous behaviour, never a throw.
+ */
+function wallClockInZone(instant: Date, tz?: string | null): Date {
+  if (!tz) return instant
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(instant)
+    const get = (t: string) => Number(parts.find(x => x.type === t)?.value)
+    const y = get('year'), mo = get('month'), d = get('day')
+    let h = get('hour')
+    if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d) || !Number.isFinite(h)) return instant
+    if (h === 24) h = 0                     // some ICU builds emit "24" for midnight
+    return new Date(y, mo - 1, d, h, get('minute') || 0, get('second') || 0, 0)
+  } catch {
+    return instant                          // unknown IANA zone — behave as before
+  }
+}
+
 function startOfDay(d: Date): Date {
   const x = new Date(d)
   x.setHours(0, 0, 0, 0)
@@ -53,7 +102,10 @@ function atTime(day: Date, minutes: number): Date {
  *   earliestDay  = startOfDay(leadAbsolute)              // lead time floors the day
  *   if dailyCutoff set AND now's time-of-day > dailyCutoff: earliestDay += 1 day
  *   floor = (earliestDay is leadAbsolute's day) ? leadAbsolute : startOfDay(earliestDay)
- *   if dailyCutoff set: floor = max(floor, earliestDay @ dailyCutoff)
+ *
+ * The daily cutoff appears ONCE, as the roll-to-tomorrow. It is a deadline for
+ * placing the order, never a lower bound on the pickup time — see the note in
+ * the body.
  *
  * Using startOfDay(leadAbsolute) (rather than today + leadTimeDays) makes the
  * hours component carry across midnight correctly; the spec's day-only examples
@@ -70,16 +122,24 @@ export function earliestPickup(now: Date, cfg: CutoffConfig): Date {
     }
   }
 
-  let floor =
-    earliestDay.getTime() === startOfDay(leadAbsolute).getTime()
-      ? leadAbsolute
-      : startOfDay(earliestDay)
-
-  if (cfg.dailyCutoff) {
-    const cutoffOnDay = atTime(earliestDay, hhmmToMinutes(cfg.dailyCutoff))
-    if (cutoffOnDay > floor) floor = cutoffOnDay
-  }
-  return floor
+  // THE DAILY CUTOFF IS A DEADLINE FOR PLACING AN ORDER, NOT A FLOOR ON THE
+  // PICKUP TIME. It used to be applied twice — once correctly, as the
+  // roll-to-tomorrow above, and again here as `floor = max(floor, cutoff)`,
+  // which is the wrong dimension entirely. "Order by 1pm for next-day catering"
+  // does not mean "you may not collect before 1pm."
+  //
+  // It cost real bookable hours: of the 38 menus fleet-wide that set a DAILY
+  // cutoff, 37 lost the morning of their first bookable day — a median of EIGHT
+  // hours, 16.25h at FANTZYE (opens 07:30, cutoff 23:45) and 8h at each of the
+  // seven Surf Taco locations. Northside Inc. Cafe showed 21 slots from 13:00
+  // where FM showed 37 from 09:00. FM applies it as a deadline; FM is right.
+  //
+  // It hid for so long because a menu whose cutoff equals its opening time
+  // (Northside's own "Daily Lunch": cutoff 11:00, window 11:00-13:45) produces
+  // an identical answer either way. See scripts/audit-daily-cutoff-floor.ts.
+  return earliestDay.getTime() === startOfDay(leadAbsolute).getTime()
+    ? leadAbsolute
+    : startOfDay(earliestDay)
 }
 
 /** True once the hard cutoff has passed — ordering is globally closed. */
@@ -116,6 +176,14 @@ export interface FmScheduleLike {
   startDate?: string | null
   endDate?: string | null
   skippedDays?: (SkippedDay | string)[] | null
+  /**
+   * IANA zone of the RESTAURANT (disco_restaurant_cache.timezone), e.g.
+   * "America/Los_Angeles". Every rule in this module is evaluated against the
+   * restaurant's own clock when this is present — see wallClockInZone. Omit it
+   * and the module falls back to the runtime's zone, which is what produced the
+   * picker-vs-placement-gate disagreement this field exists to end.
+   */
+  timezone?: string | null
 }
 /**
  * A menu blackout, in FM's own shape.
@@ -205,7 +273,7 @@ function localISODate(d: Date): string {
 }
 
 export function orderingClosed(s: FmScheduleLike, now = new Date()): boolean {
-  return isOrderingClosed(now, toCutoffConfig(s))
+  return isOrderingClosed(wallClockInZone(now, s.timezone), toCutoffConfig(s))
 }
 
 /** Slot start-times (minutes since midnight) a pickup window produces. A
@@ -313,6 +381,16 @@ export function buildAvailableDates(
   now = new Date(),
   horizonDays?: number,
 ): { date: string; disabled: boolean }[] {
+  // Shift ONCE, here, into the restaurant's wall clock; the internal form below
+  // must never shift again (isDateTimeBookable composes both).
+  return datesFrom(s, wallClockInZone(now, s.timezone), horizonDays)
+}
+
+function datesFrom(
+  s: FmScheduleLike,
+  now: Date,
+  horizonDays?: number,
+): { date: string; disabled: boolean }[] {
   const cfg = toCutoffConfig(s)
   const skipped = skippedDateSet(s)
   const horizon = horizonDays ?? s.rollingAvailability ?? 90
@@ -357,6 +435,14 @@ export function buildAvailableTimes(
   dateStr: string,
   now = new Date(),
 ): { time: string; disabled: boolean }[] {
+  return timesFrom(s, dateStr, wallClockInZone(now, s.timezone))
+}
+
+function timesFrom(
+  s: FmScheduleLike,
+  dateStr: string,
+  now: Date,
+): { time: string; disabled: boolean }[] {
   if (!dateStr) return []
   if (s.startDate && dateStr < s.startDate) return []
   if (s.endDate && dateStr > s.endDate) return []
@@ -392,10 +478,15 @@ export function buildAvailableTimes(
  *  can't slip through a rule the UI never actually removed, it just hid it. */
 export function isDateTimeBookable(s: FmScheduleLike, dateStr: string, timeStr: string, now = new Date()): boolean {
   if (!dateStr || !timeStr) return false
-  const dateEntry = buildAvailableDates(s, now).find(d => d.date === dateStr)
+  // ONE shift, shared by both halves. This function is the server-side gate and
+  // the picker calls the two builders directly, so if the shift were applied
+  // per-call here it would land twice and the gate would disagree with the
+  // picker again — the exact failure this is fixing.
+  const zNow = wallClockInZone(now, s.timezone)
+  const dateEntry = datesFrom(s, zNow).find(d => d.date === dateStr)
   if (!dateEntry || dateEntry.disabled) return false
   const hhmm = timeStr.slice(0, 5)
-  const timeEntry = buildAvailableTimes(s, dateStr, now).find(t => t.time.slice(0, 5) === hhmm)
+  const timeEntry = timesFrom(s, dateStr, zNow).find(t => t.time.slice(0, 5) === hhmm)
   return !!timeEntry && !timeEntry.disabled
 }
 
@@ -420,10 +511,30 @@ export function runSelfTests(): void {
   eq('1 lead 1d0h', earliestPickup(wed3pm, { leadTimeMinutes: 1440 }), new Date(2026, 5, 4, 15, 0))
   // 2. Lead 1d1h, order 3pm Wed → 4pm Thu
   eq('2 lead 1d1h', earliestPickup(wed3pm, { leadTimeMinutes: 1500 }), new Date(2026, 5, 4, 16, 0))
-  // 3. Lead 1d + daily 9am, order 8:59am Tue → 9am Wed
-  eq('3 daily before', earliestPickup(tue859, { leadTimeMinutes: 1440, dailyCutoff: '09:00' }), new Date(2026, 5, 3, 9, 0))
-  // 4. Lead 1d + daily 9am, order 9:01am Tue → 9am Thu
-  eq('4 daily after', earliestPickup(tue901, { leadTimeMinutes: 1440, dailyCutoff: '09:00' }), new Date(2026, 5, 4, 9, 0))
+  // 3 & 4 CHANGED DELIBERATELY. They used to assert 9am on the earliest day,
+  // which encoded the defect: the daily cutoff was applied a second time as a
+  // floor on the PICKUP time. It is a deadline for PLACING the order. Both cases
+  // still resolve to the same first bookable SLOT once the day's window is
+  // applied — what changed is that the cutoff no longer eats the morning.
+  //
+  // 3. Lead 1d + daily 9am, ordered 8:59am Tue — BEFORE the cutoff, so the
+  //    order counts for today and lead time runs from now → Wed 8:59.
+  eq('3 daily before', earliestPickup(tue859, { leadTimeMinutes: 1440, dailyCutoff: '09:00' }), new Date(2026, 5, 3, 8, 59))
+  // 4. Ordered 9:01am Tue — AFTER the cutoff, so it counts as tomorrow's order
+  //    and the whole day two days out is open, from its opening time.
+  eq('4 daily after', earliestPickup(tue901, { leadTimeMinutes: 1440, dailyCutoff: '09:00' }), new Date(2026, 5, 4, 0, 0))
+  // 4b. The morning of the first bookable day is NOT eaten by the cutoff — the
+  //     regression that cost 37 of 38 daily-cutoff menus a median 8 hours.
+  const cutoffMorning = buildAvailableTimes(
+    { prepTime: 24, cutOffType: 'DAILY', cutOff: '13:00',
+      repeatWeekDays: [{ days: 'THURSDAY', fromPickUpTime: '09:00', toPickUpTime: '18:00' }] },
+    '2026-06-04',
+    tue901,
+  ).filter(t => !t.disabled)
+  if (cutoffMorning.length !== 37) throw new Error(`FAIL 4b cutoff morning: got ${cutoffMorning.length} slots`)
+  pass++
+  if (cutoffMorning[0].time !== '09:00:00') throw new Error(`FAIL 4b first slot: got ${cutoffMorning[0].time}, expected the window to open at 09:00`)
+  pass++
 
   // 5. Hard cutoff in the past → ordering closed, no slot enabled
   const past = new Date(wed3pm.getTime() - 5 * MIN)
@@ -502,6 +613,42 @@ export function runSelfTests(): void {
     { prepTime: 0, repeatWeekDays: [{ days: 'WEDNESDAY', fromPickUpTime: '12:00', toPickUpTime: '02:00' }] },
     '2026-06-03', farPast,
   ).length !== 0) throw new Error('FAIL 9c crossing window should produce no slots')
+  pass++
+
+  // 9d. TIMEZONE. The same instant, the same schedule, read in two zones must
+  // give the restaurant's answer both times — this is what stopped the picker
+  // (customer's browser) and the placement gate (UTC on Vercel) disagreeing.
+  //
+  // Restaurant in Los Angeles, 24h lead. The instant below is 2026-06-03
+  // 02:00 UTC = 2026-06-02 19:00 in LA. With the zone applied, lead lands
+  // 2026-06-03 19:00 LA, so the 2026-06-03 window (10:00-22:00) offers 19:00
+  // onward = 13 slots. WITHOUT it, a runtime in UTC would think it is already
+  // the 3rd and refuse nearly all of them.
+  const laSchedule = {
+    prepTime: 24, timezone: 'America/Los_Angeles',
+    repeatWeekDays: [{ days: 'WEDNESDAY', fromPickUpTime: '10:00', toPickUpTime: '22:00' }],
+  }
+  const instant = new Date(Date.UTC(2026, 5, 3, 2, 0, 0))
+  const laSlots = buildAvailableTimes(laSchedule, '2026-06-03', instant).filter(t => !t.disabled)
+  if (laSlots.length !== 13 || laSlots[0].time !== '19:00:00') {
+    throw new Error(`FAIL 9d LA slots: got ${laSlots.length} starting ${laSlots[0]?.time}`)
+  }
+  pass++
+  // The gate must agree with the picker for the SAME order — the disagreement
+  // is what produced a failed checkout, so assert it directly rather than
+  // trusting that two code paths happen to line up.
+  for (const t of ['19:00', '21:45', '18:45', '22:00']) {
+    const offered = laSlots.some(x => x.time.slice(0, 5) === t)
+    const accepted = isDateTimeBookable(laSchedule, '2026-06-03', t, instant)
+    if (offered !== accepted) {
+      throw new Error(`FAIL 9d picker/gate disagree on ${t}: picker=${offered} gate=${accepted}`)
+    }
+    pass++
+  }
+  // An absent or unrecognised zone falls back to the runtime's, never throws.
+  if (buildAvailableTimes({ ...laSchedule, timezone: 'Not/AZone' }, '2026-06-03', instant).length === 0) {
+    throw new Error('FAIL 9d bad zone should fall back, not empty out')
+  }
   pass++
 
   // 10. Custom availability (startDate === endDate) — ONLY that date is bookable,
