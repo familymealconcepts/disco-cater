@@ -1476,3 +1476,111 @@ rather than applying it as an exact hour offset. Confirm which, against
 `scheduleType`/`prepTime` combinations, before changing `earliestPickup` —
 loosening it wrongly would let a customer book inside the kitchen's real prep
 window, which is the one failure direction this module must never have.
+
+---
+
+## Product decisions settled 2026-08-31 (Peter)
+
+Seven rulings. They are recorded here because three of them describe behaviour
+that does not exist yet, and because the fourth is the principle the rest hang
+off. Where something is already built, the verification is named so nobody
+re-litigates it.
+
+### 1. Delivery method and fulfillment availability are per-MENU — confirmed intentional
+
+A restaurant can run one menu on couriers and another self-delivered, and can
+offer pickup on one menu and delivery on another. This is deliberate, not drift.
+The checkout blocks mixing menus with DIFFERENT delivery methods in one cart
+(`RestaurantClient.addItemWithConfig`); mixing menus that share a method is
+allowed, which is why a cart can legitimately carry more than one
+`menuReference`. Do not "fix" this by hoisting delivery settings to the
+restaurant.
+
+### 2. FM owns reminders for FM-sourced orders — customer AND restaurant-facing
+
+**PARTIALLY BUILT.** `app/api/cron/order-reminders` has two passes:
+
+- **PASS 1 (customer)** — already filtered: `AND o.source_of_order = 'DISCO'`
+  (route.ts:159). Correct.
+- **PASS 2 (restaurant/admin)** — has **no source filter**. Verified 2026-08-31:
+  its WHERE clause gates on `admin_order_reminder_emails_enabled`,
+  `admin_reminder_sent`, status, the 24h window and the placement skip — and
+  nothing else. So Disco sends a restaurant reminder for FM-sourced orders that
+  FM's Java has already reminded them about.
+
+**To build:** the same `AND o.source_of_order = 'DISCO'` on PASS 2. One line,
+same rationale as PASS 1. Until a converted restaurant takes its first native
+order the practical impact is zero, which is why it has gone unnoticed.
+
+### 3. Disco owns multi-unit grouping post-conversion
+
+Membership is determined by a system admin ticking their own locations, not by
+FM's grouping. See the per-chain conversion step above — seed explicit links,
+review with the owner, and only then does the FM fallback stop mattering for
+that chain.
+
+### 4. FM is authoritative pre-conversion; Disco is authoritative post-conversion
+
+**This is the principle the others sit on.** Until a restaurant converts, Disco
+should MIRROR FM's behaviour rather than improve on it — a Disco customer must
+not see a different answer from an FM customer for the same restaurant on the
+same day.
+
+Every scheduling fix this week is an instance of it, and all of them were Disco
+misreading FM rather than FM being wrong:
+
+- 15-minute slot grid, and the closing slot (`af682ea`)
+- Midnight-closing windows (`fbf9fbf`)
+- The daily cutoff as a placement deadline, and lead time on the restaurant's
+  clock (`17a7e31`)
+
+The corollary matters just as much: where Disco genuinely disagrees with FM and
+FM is wrong, prefer matching FM anyway until conversion, and fix it properly on
+the Disco side afterwards. Offering MORE than FM is the dangerous direction — it
+lets a customer book something the restaurant cannot serve. That is why a
+genuinely crossing pickup window (12:00→02:00) still yields nothing on Disco:
+FM yields nothing for it too.
+
+### 5. Cancellations and refunds need customer emails
+
+**NOT BUILT.** Mirror FM's templates, without the FM name. Today the restaurant
+sees the cancellation and the amber "the customer has still been charged" notice
+in the portal, and the refund reaches Stripe — but the CUSTOMER is told nothing
+by Disco. Note that cancel is deliberately status-only and does not refund, so
+the two emails are separate events and must not be collapsed into one.
+
+### 6. Blackouts are additive, and they COMPOUND — already works, nothing to build
+
+Whole-day closures at the LOCATION level (Settings → Closed Days / Closed
+Holidays, `disco_restaurant_closed_days`) and finer windows per MENU
+(`disco_menus.skipped_days`, with `intervals` for partial days) stack. Neither
+overrides the other; a date closed by either is closed.
+
+Verified end-to-end 2026-08-31, both layers:
+
+- **Picker** — `shared.tsx` concatenates the menu's `skipped_days` with the
+  location's closed-day rows into one `skippedDays` array, so
+  `buildAvailableDates`/`buildAvailableTimes` see both. Entries WITHOUT
+  `intervals` block the whole date (`skippedDateSet`); entries WITH them block
+  only those hours (`skippedIntervalsFor`, inclusive at both ends).
+- **Server** — `native-place-checkout` runs them as two separate gates:
+  `isNativeDateClosed` (location, whole-day, 403) at line 64 and
+  `isNativeDateTimeValid` (menu, incl. partial intervals, 400) at line 85. Both
+  must pass.
+
+Confirmed against real data: Francesca Catering – Elmwood Park's "vacation"
+closure returns `isNativeDateClosed = true` on dates where the MENU alone is
+perfectly bookable, and Bird & Co's 2026-09-05 partial blackout refuses 15:00 and
+16:30 while allowing 12:00 and 17:00.
+
+One latent caveat, logged not fixed: `isNativeDateClosed` wraps its query in
+`.catch(() => [])`, so a query failure would silently turn the location-level
+gate into a no-op. The cast is correct today (`disco_restaurant_closed_days
+.restaurant_reference` is uuid, unlike the cache's, which is TEXT), so nothing is
+broken — but the swallow is the same shape as several defects on this page.
+
+### 7. Item images are the restaurant's choice — no placeholder
+
+An item without an image renders without one. Do not add a generic placeholder.
+The importer carries FM's images where they exist (1,154 backfilled, `d14019f` +
+`09b053d`); an item with none simply has none, and that is the restaurant's call.
