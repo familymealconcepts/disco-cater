@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import GlobalHeader from '../../../components/GlobalHeader'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
+import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
@@ -147,18 +148,12 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
               )}
               {(orderDate || orderTime || orderType || addr) && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #f8f8f8' }}>
-                  {orderDate && (
-                    <div style={{ padding: '16px 20px', borderRight: '1px solid #f8f8f8' }}>
-                      <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Date</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{fmtDate(orderDate)}</div>
-                    </div>
-                  )}
-                  {orderTime && (
-                    <div style={{ padding: '16px 20px' }}>
-                      <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Time</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{orderTimeDisplay}</div>
-                    </div>
-                  )}
+                  <FulfillmentDateTime
+                    variant="cells"
+                    scale="lg"
+                    date={orderDate ? fmtDate(orderDate) : null}
+                    time={orderTimeDisplay || null}
+                  />
                 </div>
               )}
               {orderType && (

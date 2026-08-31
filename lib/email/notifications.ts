@@ -343,11 +343,16 @@ export async function sendRestaurantOrderNotification(
     let timingHtml = ''
     if (p.orderService) timingHtml += `Order Type: <strong>${escapeHtml(p.orderService)}</strong> ${isDelivery ? '(D)' : '(P)'}<br/>`
     timingHtml += `Order Source: <strong>${sourceLabel}</strong><br/>`
-    if (p.orderDate) timingHtml += `Order Date: <strong>${escapeHtml(p.orderDate)}</strong><br/>`
+    // DATE DOMINANT, TIME SECONDARY — the same hierarchy every screen now uses
+    // (app/components/FulfillmentDateTime). Applied by hand here rather than shared,
+    // because this is an HTML string for an email client and cannot mount React;
+    // inline font-size on the <strong> is the one sizing mechanism that survives
+    // Outlook and Gmail alike. Keep the two in step with the component if it changes.
+    if (p.orderDate) timingHtml += `Order Date: <strong style="font-size:17px;">${escapeHtml(p.orderDate)}</strong><br/>`
     if (isThirdPartyDelivery) {
-      if (p.orderTime) timingHtml += `Delivery Drop-off: <strong>${escapeHtml(p.orderTime)}</strong><br/>`
+      if (p.orderTime) timingHtml += `Delivery Drop-off: <strong style="font-size:13px;">${escapeHtml(p.orderTime)}</strong><br/>`
     } else if (p.orderTime) {
-      timingHtml += `Order Time: <strong>${escapeHtml(p.orderTime)}</strong><br/>`
+      timingHtml += `Order Time: <strong style="font-size:13px;">${escapeHtml(p.orderTime)}</strong><br/>`
     }
     if (p.persons != null && p.persons > 0) timingHtml += `Headcount: <strong>${escapeHtml(p.persons)}</strong><br/>`
 

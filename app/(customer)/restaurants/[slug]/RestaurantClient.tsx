@@ -13,6 +13,7 @@ import MenuAdvisor, { type DiscoIntake } from './MenuAdvisor'
 import FavoriteHeart from '../../account/components/FavoriteHeart'
 import { cartSubtotal } from '../../../../lib/pricing/cart'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
+import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 import { buildCheckoutPayload } from '../../../../lib/pricing/checkout'
 import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../../lib/pricing/totals'
 import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
@@ -1466,10 +1467,14 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         !embedded ? (
           <div style={{ padding: '12px 16px', borderBottom: '1px solid #f4f4f4', background: '#fafafa' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: 12, color: '#555' }}>
-                <span style={{ fontWeight: 700 }}>{fmtDateShort(selDate)}</span>
-                {selTime && <span style={{ color: '#888' }}> · {formatTimeWindow(selTime, deliveryWindow, orderType === 'DELIVERY')}</span>}
-                <span style={{ color: '#888' }}> · {orderType === 'PICKUP' ? 'Pickup' : 'Delivery'}</span>
+              <div style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                <FulfillmentDateTime
+                  scale="sm"
+                  date={fmtDateShort(selDate)}
+                  time={selTime ? formatTimeWindow(selTime, deliveryWindow, orderType === 'DELIVERY') : null}
+                />
+                <span aria-hidden style={{ color: '#ddd' }}>·</span>
+                <span style={{ color: '#888' }}>{orderType === 'PICKUP' ? 'Pickup' : 'Delivery'}</span>
               </div>
               <button onClick={openMenus} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>Edit</button>
             </div>
@@ -1767,9 +1772,11 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         <div className="date-time-sticky" style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 50, zIndex: 150, boxShadow: '0 1px 0 #f0f0f0' }}>
           <div style={{ maxWidth: 1140, margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12, height: 46 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtDateShort(selDate)}</span>
-              {selTime && <><span style={{ color: '#ddd' }}>·</span><span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{formatTimeWindow(selTime, deliveryWindow, orderType === 'DELIVERY')}</span></>}
-              <span style={{ color: '#ddd' }}>·</span>
+              <FulfillmentDateTime
+                date={fmtDateShort(selDate)}
+                time={selTime ? formatTimeWindow(selTime, deliveryWindow, orderType === 'DELIVERY') : null}
+              />
+              <span aria-hidden style={{ color: '#ddd' }}>·</span>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: orderType === 'PICKUP' ? '#EEF0FD' : '#F0FDF4', color: orderType === 'PICKUP' ? INDIGO : '#166534' }}>
                 {orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}
               </span>

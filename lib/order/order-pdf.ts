@@ -223,6 +223,11 @@ const SECONDARY_SIZE = 9.5
 type Ln = { t: string; b?: boolean; s?: number; c?: ReturnType<typeof rgb>; label?: boolean }
 const labelLine = (t: string): Ln => ({ t, label: true, s: LABEL_SIZE })
 const valueLine = (t: string): Ln => ({ t, s: VALUE_SIZE, c: GREY })
+// DATE DOMINANT, TIME SECONDARY — the same hierarchy every screen uses
+// (app/components/FulfillmentDateTime). Applied by hand here because this is
+// pdf-lib text drawing, not React. Bold, larger, and full-strength ink against the
+// time's 10pt grey, so the date leads both the ORDER DETAILS and READY BY boxes.
+const dateLine = (t: string): Ln => ({ t, s: 12.5, b: true, c: DARK })
 const secondaryLine = (t: string): Ln => ({ t, s: SECONDARY_SIZE, c: GREY })
 
 // Render the order as a bordered-grid invoice closely matching FamilyMeal's original
@@ -307,11 +312,11 @@ export async function renderOrderPdf(d: OrderPdfData): Promise<Uint8Array> {
   // the kitchen-readiness value, so a self-delivery order showed the SAME
   // minus-30 time in both boxes instead of differing by 30 minutes.)
   const leftDetail: Ln[] = [labelLine('ORDER DETAILS:'), { t: d.orderService || 'Pickup', s: 11 }]
-  if (d.orderDate) leftDetail.push(valueLine(`Date: ${d.orderDate}`))
+  if (d.orderDate) leftDetail.push(dateLine(`Date: ${d.orderDate}`))
   if (d.orderTime) leftDetail.push(valueLine(`Time: ${d.orderTime}`))
   if (d.persons) leftDetail.push(valueLine(`Headcount: ${d.persons}`))
   const rightTime: Ln[] = [labelLine(timeLabel)]
-  if (d.readinessDate) rightTime.push(valueLine(`Date: ${d.readinessDate}`))
+  if (d.readinessDate) rightTime.push(dateLine(`Date: ${d.readinessDate}`))
   if (d.readinessTime) rightTime.push(valueLine(`Time: ${d.readinessTime}`))
   // 0.5 split so the right column (READY BY) lines up exactly with the
   // Customer box below it — matching the Store column on the left at 0.5.

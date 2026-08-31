@@ -6,6 +6,7 @@ import GenerateReportButton from '../_components/GenerateReportButton'
 import {
   lineQty, lineRowTotal, lineModifiers, modifierQty, modifierRowTotal, formatCurrency,
 } from '../../../../../lib/pricing/lineItem'
+import { FulfillmentDateTime } from '../../../../components/FulfillmentDateTime'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 import { toast } from '../../../../components/ui/feedback'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
@@ -1697,17 +1698,29 @@ function OrdersContent() {
                       <td style={{ padding: '12px 14px' }}>
                         <SourcePill source={order.sourceoforder || ''} />
                       </td>
-                      {/* ORDER TIME is the operational number — when the food is
-                          needed — so it carries the visual weight: 16px/700 against
-                          the table's 13px/600 body, which makes it the largest text
-                          in the row. timeColor is UNCHANGED and load-bearing:
-                          statusColor() returns #77AE70 when the order is due within
-                          the hour and #E76F51 once its time has passed, so this cell
-                          doubles as the urgency signal. Do not fold it into a plain
-                          color, and do not let a font change here override it. */}
+                      {/* THE DATE carries the visual weight, with the time secondary
+                          — one rule, shared with every other surface via
+                          FulfillmentDateTime.
+                          This cell used to be INVERTED: the time at 16px/700 above the
+                          date at 12px/600, on the reasoning that the time is the
+                          operational number. That is a defensible argument and it was
+                          made deliberately, but it left this the only surface in the
+                          product ordering the pair that way, and date-dominant is now
+                          the product-wide decision.
+                          timeColor is UNCHANGED and still load-bearing: statusColor()
+                          returns #77AE70 when the order is due within the hour and
+                          #E76F51 once its time has passed, so this cell doubles as the
+                          urgency signal. It is passed straight through and applies to
+                          BOTH lines exactly as before — the type hierarchy moved, the
+                          colour did not. Do not fold it into a plain colour. */}
                       <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: timeColor || DARK, letterSpacing: '-0.01em', lineHeight: 1.25 }}>{fmtTime(order.orderTime)}</div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: timeColor || '#666', marginTop: 1 }}>{fmtDate(order.orderDate)}</div>
+                        <FulfillmentDateTime
+                          variant="stacked"
+                          scale="lg"
+                          color={timeColor || null}
+                          date={fmtDate(order.orderDate)}
+                          time={fmtTime(order.orderTime)}
+                        />
                       </td>
                       {/* CREATED is reference information, demoted to the muted
                           treatment the portal already uses for secondary metadata

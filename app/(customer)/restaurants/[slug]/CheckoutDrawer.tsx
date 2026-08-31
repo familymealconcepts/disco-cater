@@ -8,6 +8,7 @@ import { formatCurrency } from '../../../../lib/pricing/lineItem'
 import { trackEvent } from '../../../../lib/analytics'
 import { sanitizePhone, formatPhoneDisplay } from '../../../../lib/utils/phone'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
+import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 import { postFunnelStage } from '../../../../lib/utils/funnel-session'
 
 const F = "'DM Sans', sans-serif"
@@ -1145,9 +1146,11 @@ export default function CheckoutDrawer({
               drawer is a single Review & Pay surface). */}
           <div style={{ padding: '0 0 14px', borderBottom: '1px solid #f4f4f4', marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              {selDate && <span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtDateShort(selDate)}</span>}
-              {selTime && <><span style={{ color: '#ddd' }}>·</span><span style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{formatTimeWindow(selTime, deliveryOrderTimeWindows, orderType === 'DELIVERY')}</span></>}
-              <span style={{ color: '#ddd' }}>·</span>
+              <FulfillmentDateTime
+                date={selDate ? fmtDateShort(selDate) : null}
+                time={selTime ? formatTimeWindow(selTime, deliveryOrderTimeWindows, orderType === 'DELIVERY') : null}
+              />
+              <span aria-hidden style={{ color: '#ddd' }}>·</span>
               <span style={{ fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: orderType === 'PICKUP' ? '#EEF0FD' : '#F0FDF4', color: orderType === 'PICKUP' ? INDIGO : '#166534' }}>
                 {orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}
               </span>
