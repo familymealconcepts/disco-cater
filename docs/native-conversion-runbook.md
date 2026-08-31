@@ -1385,3 +1385,94 @@ print a breakdown that does not sum, falling back to the plain one-line descript
 So this is a concrete, restaurant-visible reason conversion matters: a converted
 restaurant gets a charge description that adds up, and an unconverted one never will.
 Worth saying to an owner who asks what they gain.
+
+---
+
+## Multi-unit grouping: seed explicit links PER CHAIN, at conversion (2026-08-31)
+
+A `/locations/<slug>` page's membership comes from FM's grouping, with a Disco
+`disco_multi_unit_links` table that overrides it when a link exists. FM's grouping
+key is inside its Java and cannot be corrected there any more, and it is
+demonstrably wrong in at least one place (Morning Squeeze appears on
+`/locations/eggstasy` despite being unchecked). So explicit Disco links are the
+only remaining way to get a correct page.
+
+**Do this per chain, at conversion — not as one estate-wide migration.** A chain
+being converted already has an owner conversation and a portal walkthrough; the
+grouping change lands as part of "your Disco setup" instead of as an unexplained
+change. Chains that never convert keep the FM fallback, which is exactly where
+you want it kept longest.
+
+### The conversion step
+
+1. **Seed explicit links** for every location in the chain, from FM's current
+   grouping.
+2. **Review the membership against FM with the owner.** This is the part that is
+   not mechanical: seeding from FM imports FM's errors, and the only detector is
+   a person recognising a location that should not be there. Do not skip it, and
+   do not try to derive the exclusions from data — they are not in the data.
+3. **Only then does the FM fallback stop mattering for that chain.** Leave
+   `getLocationLink`'s fallback in place for everyone else; it can be removed
+   only once the last multi-unit chain has explicit links.
+4. Note that `app/api/restaurant/multi-unit-links` branches on whether the
+   RESTAURANT is native. Once a chain has Disco links while still FM-backed,
+   that branch must key off whether the LINK exists, or the config UI writes to
+   FM while the page reads Neon.
+
+### RAISE THIS WITH THE OWNER — it is a real workflow change
+
+- Editing grouping in FM will no longer affect the Disco page. Silently. An owner
+  who removes a closed location in FM still sees it on Disco.
+- Grouping becomes a two-system job for as long as they take FM orders too: FM
+  for their FM storefront, Disco for their Disco page.
+- New locations must be added in both places until the chain fully converts.
+
+Whoever runs the conversation owns telling them where it moved. 13 slugs, each
+with an owner.
+
+---
+
+## Two scheduling defects found while fixing the slot grid, logged not fixed (2026-08-31)
+
+Both surfaced from the FM `availablePickUp` parity diff in
+`scripts/verify-partial-blackouts.ts` and the six-restaurant sweep behind
+commit `af682ea`. Neither is caused by that change; both predate it. Both fail
+in the SAFE direction (Disco offers less than FM, never more), so no customer
+can book a time the restaurant refuses — they just cannot book times the
+restaurant does offer.
+
+### 1. A midnight-wrapping window yields ZERO slots — the day is unbookable
+
+`windowSlotMinutes` compares minutes-since-midnight, so a window of
+`10:00:00 → 0:00:00` gives `from = 600`, `to = 0`, the loop never runs, and the
+date has no bookable time at all. `buildAvailableDates` then greys the date out
+entirely.
+
+Real and live: **Razzis Pizzeria – Downtown** (`0f293250-…`) has windows
+`10:00-23:00`, `10:00-0:00`, `11:00-23:00`, `11:00-0:00`. On 2026-09-04 FM
+offered 56 slots and Disco offered 0; on 2026-09-05, FM 52 and Disco 0. Two
+fully unbookable days a week on a live restaurant.
+
+The fix is not just `to === 0 → 1440`: a window can legitimately cross midnight
+(`22:00-02:00`), and slot times, the stored `order_time`, and the Ready By
+offset all assume a single calendar day. Needs its own decision about what a
+post-midnight pickup means for `order_date`, so it is logged rather than patched.
+Scan for other affected restaurants before deciding scope — the estate-wide count
+is not yet known.
+
+### 2. Disco's lead-time floor is stricter than FM's on the first bookable day
+
+Where FM opens the first available date at the window start, Disco opens it at
+the exact lead-time offset, so Disco loses the morning of that one day.
+
+- **Northside Inc. Cafe**, "Catering Menu", 2026-09-02: FM 37 slots from 09:00,
+  Disco 21 from 13:00.
+- **Northside Inc. Cafe**, "Box Lunch Menu", 2026-09-01: FM offers 17:45 and
+  18:00, Disco offers none.
+- **Razzis**, 2026-09-01: FM 30 slots, Disco 18.
+
+FM appears to round `prepTime` to a whole day for some `scheduleType` values
+rather than applying it as an exact hour offset. Confirm which, against
+`scheduleType`/`prepTime` combinations, before changing `earliestPickup` —
+loosening it wrongly would let a customer book inside the kitchen's real prep
+window, which is the one failure direction this module must never have.
