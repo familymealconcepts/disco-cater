@@ -2012,33 +2012,12 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                               Select {minCardQty(pkg)}+
                             </div>
                           )}
-                          {/* ADD AFFORDANCE. The card was clickable with nothing to
-                              say so — no button, no cue — and the only quantity
-                              signal ("N in order") appeared AFTER adding, which is a
-                              readout, not a control. This gives every card a visible
-                              action and, once something is in the order, states the
-                              count next to it so ordering several reads as normal.
-                              Deliberately NOT a bare +/− stepper: 48 of 67 Atlanta
-                              Bread items carry a required modifier group (every Boxed
-                              Lunch has 1-2), so incrementing on the card would
-                              silently duplicate the previous unit's sandwich and
-                              salad choices. */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-                            <span aria-hidden style={{
-                              display: 'inline-flex', alignItems: 'center', gap: 5,
-                              padding: '5px 11px', borderRadius: 8,
-                              border: `1.5px solid ${qty > 0 ? BLUE : '#e2e2ee'}`,
-                              background: qty > 0 ? BLUE : '#fff',
-                              color: qty > 0 ? '#fff' : BLUE,
-                              fontSize: 12, fontWeight: 700, fontFamily: F, lineHeight: 1,
-                            }}>
-                              <span style={{ fontSize: 13, lineHeight: 1 }}>+</span>
-                              {qty > 0 ? 'Add another' : 'Add'}
-                            </span>
-                            {qty > 0 && (
-                              <span style={{ fontSize: 11, color: BLUE, fontWeight: 700 }}>{qty} in order</span>
-                            )}
-                          </div>
+                          {qty > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6 }}>
+                              <div style={{ width: 18, height: 18, borderRadius: '50%', background: BLUE, color: '#fff', fontSize: 10, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{qty}</div>
+                              <span style={{ fontSize: 11, color: BLUE, fontWeight: 600 }}>in order</span>
+                            </div>
+                          )}
                         </div>
                         {/* RIGHT: image — only rendered if image exists */}
                         {imgUrl && (
