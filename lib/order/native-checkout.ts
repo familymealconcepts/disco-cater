@@ -10,6 +10,7 @@ import { priceNativeOrder, type Fulfillment, type NativePricedOrder } from '../p
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, getOrCreateStripeCustomer } from './native-payment'
 import { computeThirdPartyDelivery, menuRowToScheduleExtras, type DeliverySettings, type MenuSettingsRow } from '../menu-settings'
 import { cents, discountedBase, assertFiniteMoney } from '../promo-pricing'
+import { buildNativeChargeDescription } from './charge-description'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../scheduling/native-schedule'
 import { isDateTimeBookable } from '../scheduling/cutoffs'
 import { validateNativeDelivery, type NativeDeliveryAddress } from './native-delivery'
@@ -702,6 +703,14 @@ export interface NativePlaceResult {
   orderReference: string
   orderNumber: number
   breakdown: NativePricedOrder & { subtotal: number }
+  // The delivery split and fulfillment as PERSISTED, surfaced so the Stripe charge
+  // description prints the same figures the row was written with instead of
+  // re-deriving them (see ./charge-description — the whole point is that the printed
+  // components cannot disagree with the charge).
+  ownDeliveryFee: number
+  thirdPartyDeliveryFee: number
+  orderDate: string
+  orderType: string
 }
 
 // Persist a placed native order: disco_orders (RESERVED) + disco_sale_transactions
@@ -834,7 +843,13 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
     )
   `
 
-  return { orderId: order.id, orderReference: order.reference, orderNumber: Number(order.order_number), breakdown: b }
+  return {
+    orderId: order.id, orderReference: order.reference, orderNumber: Number(order.order_number), breakdown: b,
+    // Surfaced so the Stripe charge description prints the SAME delivery split that
+    // was just persisted, rather than re-deriving it and risking disagreement.
+    ownDeliveryFee, thirdPartyDeliveryFee,
+    orderDate: input.orderDate, orderType,
+  }
 }
 
 export interface NativePlaceAndPayResult extends NativePlaceResult {
@@ -883,6 +898,54 @@ function assertNativePaymentConfigured(pay: { connectedAccountId: string | null;
   if (!pay.connectedAccountId && !pay.withholdPayouts) throw new NativePaymentNotConfiguredError(restaurantReference)
 }
 
+/**
+ * The charge description, or the plain one-line fallback when the breakdown does not
+ * reconcile. Never throws and never blocks a charge — see ./charge-description.
+ */
+function nativeChargeDescription(
+  placed: NativePlaceResult,
+  input: NativePlaceInput,
+): string {
+  const fallback = `Disco Cater order #${placed.orderNumber}`
+  try {
+    const b = placed.breakdown
+    const desc = buildNativeChargeDescription({
+      orderNumber: placed.orderNumber,
+      orderDate: placed.orderDate,
+      orderType: placed.orderType,
+      items: (input.items || []).map(it => ({
+        // basePrice is the UNIT price excluding add-ons; `price` is the FOLDED unit
+        // price (base + add-ons) used for the money math. Printing `price` next to
+        // x{count} alongside the add-on lines would double-count the add-ons.
+        name: it.name,
+        basePrice: it.basePrice ?? it.price,
+        quantity: it.quantity,
+        addOns: it.addOns?.map(a => ({ name: a.name, price: a.price, quantity: a.quantity })),
+      })),
+      subtotal: b.subtotal,
+      discount: b.discount,
+      serviceCharge: b.serviceCharge,
+      stateTax: b.stateTax,
+      localTax: b.localTax,
+      otherTax: b.otherTax,
+      ownDeliveryFee: placed.ownDeliveryFee,
+      thirdPartyDeliveryFee: placed.thirdPartyDeliveryFee,
+      tipsInPrice: b.tipsInPrice,
+      thirdPartyDeliveryTips: b.thirdPartyDeliveryTips,
+      familyMealFee: b.familyMealFee,
+      total: b.total,
+    })
+    if (!desc) {
+      console.error(`[native-checkout] charge description did not reconcile for order #${placed.orderNumber} — using the plain description`)
+      return fallback
+    }
+    return desc
+  } catch (e) {
+    console.error('[native-checkout] charge description build failed:', e instanceof Error ? e.message : e)
+    return fallback
+  }
+}
+
 export async function placeAndPayNativeOrder(
   input: NativePlaceInput,
   stripe: Stripe,
@@ -908,7 +971,7 @@ export async function placeAndPayNativeOrder(
     receiptEmail: input.customerEmail || undefined,
     onBehalfOf: opts?.onBehalfOf ?? true, // production: restaurant is merchant-of-record
     metadata: { orderReference: placed.orderReference, orderNumber: String(placed.orderNumber), kind: 'native_order' },
-    description: `Disco Cater order #${placed.orderNumber}`,
+    description: nativeChargeDescription(placed, input),
   })
   // Link the PaymentIntent → order so the webhook can find and complete it.
   await sql`

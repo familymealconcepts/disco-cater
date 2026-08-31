@@ -1269,3 +1269,119 @@ the admin route's error semantics as the shared behaviour (never report a comple
 Stripe refund as a failure) and passing `source` per caller. Confirm the FM-mirrored
 UPDATE scope is genuinely wanted before carrying it over — it may itself be the bug.
 Not urgent; do it the next time either file is opened, not as its own project.
+
+---
+
+## Multi-unit /locations pages: explicit Disco links, now the only option (2026-08-31)
+
+REQUIRED, not eventual. The alternative — fixing the grouping in FM — died with FM's
+maintenance. Nobody maintains FM's Java backend, so anything wrong inside it is
+permanent. Recording the decision so the next person does not re-derive it.
+
+### Where membership comes from today
+
+`getLocationLink` (`lib/locations.ts`) has two paths:
+
+1. **Explicit** — `getNativeLinkBySlug` → `disco_multi_unit_links` → `membersOf()` →
+   `disco_multi_unit_link_members`. Takes precedence when a row exists.
+2. **Fallback** — `GET {FM}/public-api/restaurants/group/{slug}`.
+
+**`disco_multi_unit_links` is EMPTY. Zero rows.** So path 1 has never once fired, and
+all 13 mirrored link slugs (`atlantabread`, `dechecos`, `eggstasy`, `hugosrestaurant`,
+`hugostacos`, `morningsqueeze`, `namkeen`, `surftaco`, `tap42`, `twohands`,
+`almosthome`, `testgroup`, +1) are served entirely by FM.
+
+There is **no Disco-side inference** — no grouping by `business_name`, no grouping by
+email domain. Checked `locations.ts`, `multi-unit-links.ts`, `location-links.ts`.
+When a membership looks inferred, the inference is FM's, inside FM's Java.
+
+Disco's own multi-unit-links UI branches the same way: native restaurants →
+`createNativeLink` (Neon); FM-backed → proxy `{FM}/api/system-admin/restaurants/links`.
+So for an FM-backed chain, the config writes to FM and the page reads from FM. Disco
+is a pass-through on both sides and holds no membership of its own.
+
+### The case that surfaced it
+
+`/locations/eggstasy` lists Morning Squeeze (`8a7bb6f5-25fd-4672-b75c-e2912620116e`,
+Tempe AZ) despite being unchecked. All seven locations are FM-backed, FM's group
+endpoint returns Morning Squeeze directly, and Disco has no link row — so nothing in
+this repo decided it. Raised with Revyrie rather than patched here, because a
+Disco-side override would fork the source of truth for one tenant. (Same restaurant
+as the FM charge-description defect logged the same day — We Begg To Differ Catering
+LLC is the Stripe account behind both.)
+
+FM's grouping CANNOT be corrected. It was raised as an FM issue; there is no longer
+anyone to raise it with. Morning Squeeze will keep appearing on /locations/eggstasy
+for as long as that page is served by FM's group endpoint.
+
+### Why explicit links are now the only option
+
+"Explicit beats inferred" is only TRUE in a state Disco is not in. Right now an
+explicit exclusion cannot beat the fallback, because there is nothing explicit to
+beat it with — and **deleting the fallback today would break all 13 pages**, since
+none has a single explicit link.
+
+Two things make this compulsory rather than desirable:
+
+1. **The grouping errors are unfixable upstream.** Morning Squeeze is wrong today and
+   will stay wrong. Every future grouping error FM makes is equally permanent.
+2. **The fallback is a dependency on an unmaintained endpoint.** It works until it
+   does not, and when `/public-api/restaurants/group/{slug}` stops answering, all 13
+   `/locations/*` pages return null simultaneously with no degraded mode.
+
+### What it involves
+
+1. Seed `disco_multi_unit_links` + `_members` for all 13 slugs from FM's current
+   grouping — one-time, scriptable, verifiable by diffing each page's rendered
+   membership before and after.
+2. Only then remove the FM fallback from `getLocationLink`.
+3. Point the multi-unit-links UI at the Neon path for FM-backed restaurants too, or
+   the config and the display diverge in the opposite direction from today.
+
+**This is a data migration AND an owner-facing behaviour change**, not a refactor:
+after it, editing a chain's locations in FM stops affecting the Disco page, and
+restaurant owners who currently manage grouping in FM must be told where it moved.
+Sequence it with the conversion programme, not ahead of it.
+
+---
+
+## FM's Stripe charge description is permanently wrong (2026-08-31)
+
+Nobody maintains FM's Java backend, so this stands for as long as FM charges cards.
+It is not a Disco defect and there is no Disco-side mitigation for FM-sourced
+charges: FM builds the string and attaches it to its own PaymentIntent.
+
+**What a restaurant sees on any FM-sourced charge.** Verified on
+`pi_3UAa7QKp5OWEZLTA0bXrMOng` (We Begg To Differ Catering LLC, $262.98):
+
+```
+Receipt # 69032122; Total: 262.98 USD; Subtotal: 180 USD; Promo: 0 USD;
+Service Charge: 0.00 USD; Fee: 5.40 USD; Tips: 0 USD;  Order Details:
+Pickup date: 2026-09-02; Meal packages: 1. Fruit Cups  40 USD X1 ;
+2. 10 Sets of Utensils 10 USD X2 ; ...
+```
+
+Four defects, all permanent:
+
+1. **It accounts for $185.40 of $262.98.** Missing: third-party delivery fee $27.00,
+   courier tip $36.00, state sales tax $14.58. FM's own order API returns all three
+   and they reconcile exactly — `180.00 + 27.00 + 36.00 + 5.40 + 14.58 = 262.98`.
+2. **"Tips: 0" against $36.00 actually collected.** It reads `tipsInPrice` (the
+   restaurant tip, genuinely 0) and ignores `thirdPartyDeliveryTipsInPrice`.
+3. **"Pickup date" on a delivery.** The order is `DLIVRD_DELIVERY` to Phoenix with a
+   live courier booking.
+4. **The itemization double-counts quantity.** It prints each line's TOTAL in the
+   unit-price slot and then also prints the count: "10 Sets of Utensils 10 USD X2"
+   where the real unit price is $5.00. A reader multiplying gets $20 and a $190
+   subtotal against the correct $180. Every line with count > 1 is affected.
+
+**Disco's own native description does reconcile** (`lib/order/charge-description.ts`,
+verified by `scripts/verify-charge-description.ts`, which parses the money back out of
+the emitted string and re-adds it). It is built from the same `computeBreakdown` terms
+that compute the charge, so it cannot drift; it prints unit price beside `x{count}`;
+it names delivery fee, courier tip and tax separately; and it returns null rather than
+print a breakdown that does not sum, falling back to the plain one-line description.
+
+So this is a concrete, restaurant-visible reason conversion matters: a converted
+restaurant gets a charge description that adds up, and an unconverted one never will.
+Worth saying to an owner who asks what they gain.
