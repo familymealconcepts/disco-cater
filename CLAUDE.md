@@ -103,3 +103,84 @@ Extracted from Sanity `orderUrl`:
 6. Git: `git add . && git commit -m "message" && git push origin main`
 7. Never paste API keys into chat or code — use env vars only
 8. Sanity mutations use `createOrReplace`, not `publish`
+
+## Browser verification with Playwright (READ THIS BEFORE SAYING YOU CAN'T)
+
+**Playwright is already installed and working in this repo.** No install step.
+`@playwright/test ^1.60.0` is in devDependencies, Chromium is in
+`~/Library/Caches/ms-playwright`, and `playwright.config.ts` exists. Sessions have
+lost real verification by assuming otherwise — 1,154 item-image rows were written
+and *zero* rendered, and only a manual HTML grep caught it.
+
+Use it whenever a change is visual, or whenever "the data is right" is not the
+same claim as "the customer sees it".
+
+### The two gotchas that make it look broken
+
+1. **Import from `@playwright/test`, NOT `playwright`.** Only the test package is
+   installed, so `import { chromium } from 'playwright'` fails with
+   `ERR_MODULE_NOT_FOUND`. Use `import { chromium } from '@playwright/test'`.
+2. **The script must live inside the repo** so Node resolves `node_modules`. A
+   `.mjs` at the repo root works; a script in the scratchpad does not. Name it
+   `*.tmp.mjs` and delete it when done.
+
+Also: `playwright.config.ts` defaults `baseURL` to **production**
+(`https://www.discocater.com`). For local work start `npm run dev` and hit
+`http://localhost:3000` explicitly, or use `npm run test:e2e:local`.
+
+### Auth — the edge only checks that a cookie EXISTS
+
+`middleware.ts` cannot reach Neon, so it checks cookie presence (and, for the
+legacy FM cookie, decodes an unverified role claim). Full validation happens in
+the API routes. That is enough to render a gated page with stubbed APIs:
+
+- **Customer** (`/account/*`, `/portal`): cookie `disco_customer_token`.
+- **Restaurant portal** (`/restaurant/*`): cookie `disco_restaurant_token` —
+  opaque, so presence alone passes. (`fm_restaurant_token` also works but must be
+  a real JWT shape whose payload carries `role: ADMIN | SYSTEM_ADMIN |
+  SUPER_ADMIN`, or the edge bounces to `/restaurant/login`.) Also seed
+  `localStorage.restaurant_user` via `context.addInitScript`, and stub
+  `/api/disco-restaurant-auth/me` with a 401 so the layout keeps the seeded
+  identity.
+- **Set cookies with `url: 'http://localhost:3000'`**, not `domain: 'localhost'` —
+  the domain form silently fails to attach and you get redirected to login.
+
+Never invent or hard-code real credentials; stub the API instead (Rule 7).
+
+### Stubbing data
+
+`page.route('**/api/restaurant/orders?**', r => r.fulfill({...}))` renders the real
+component against a controlled fixture — the right way to verify a state that is
+hard to reach, like a cancelled-but-unrefunded order.
+
+**Match the field names the component actually reads.** The orders list keys rows
+on `orderReference`, not `reference`; getting it wrong yields a duplicate-key
+React warning and rows that will not open.
+
+### Two page-specific traps
+
+- The customer ordering page **opens a date/time modal on load**. Dismiss it
+  (`button` with text `×`) before asserting on the menu underneath, or every
+  locator resolves behind an overlay.
+- Don't scrape text with a blanket `document.querySelectorAll('*')` — it pulls in
+  `<script>`/`<style>` contents. Walk `NodeFilter.SHOW_TEXT` and skip
+  `SCRIPT`/`STYLE`/`NOSCRIPT`.
+
+### Assert on computed style, not source
+
+For hierarchy or colour, read it back from the rendered DOM — that is the whole
+point of using a browser:
+
+```js
+const s = getComputedStyle(el)          // fontSize / fontWeight / color
+```
+
+e.g. the portal orders date/time cell must be date-dominant, verified as
+`16.5px/700 #1A1028` above `13px/600 #6E6684`.
+
+### Screenshots
+
+`await page.screenshot({ path, clip })` — a `clip` box around the element under
+test reads far better in a report than `fullPage: true`. Include a **control** in
+the same frame where one exists (e.g. a min-4 item beside a min-1 item), so the
+screenshot proves the rule rather than just showing the happy case.
