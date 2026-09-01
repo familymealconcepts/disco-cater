@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
       const rows = (await sql`
         SELECT COALESCE(o.restaurant_reference, c.restaurant_reference) AS restaurant_reference,
                o.is_premium, o.visible, o.stripe_connected,
-               o.stripe_checked_at, o.order_url, o.online_ordering_enabled, c.menu_upload_url,
+               o.stripe_checked_at, o.order_url, o.online_ordering_enabled, o.money_flow, c.menu_upload_url,
                c.is_live, c.is_disco_native, o.archived_at,
                -- Disco-native restaurants connect Stripe via disco_restaurant_accounts;
                -- expose whether a Stripe account exists as a connection fallback.
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
       `) as {
         restaurant_reference: string; is_premium: boolean | null; visible: boolean | null
         stripe_connected: boolean | null; stripe_checked_at: string | null
-        order_url: string | null; online_ordering_enabled: boolean | null; menu_upload_url: string | null
+        order_url: string | null; online_ordering_enabled: boolean | null; money_flow: string | null; menu_upload_url: string | null
         is_live: boolean | null; is_disco_native: boolean | null; has_stripe_account: boolean | null
         menu_drift_detected: boolean | null; menu_drift_details: unknown | null; invite_expired: boolean | null
         archived_at: string | null
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
 
       type OverrideDto = {
         restaurantReference: string; isPremium: boolean; visible: boolean; stripeConnected: boolean
-        stripeCheckedAt: string | null; orderUrl: string; onlineOrderingEnabled: boolean | null
+        stripeCheckedAt: string | null; orderUrl: string; onlineOrderingEnabled: boolean | null; moneyFlow: string | null
         menuUploadUrl: string | null; isLive: boolean; isDiscoNative: boolean; hasStripeAccount: boolean
         menuDriftDetected: boolean; menuDriftDetails: unknown[]; inviteExpired: boolean
         archivedAt: string | null
@@ -98,6 +98,9 @@ export async function GET(req: NextRequest) {
           // an unset disco-native restaurant defaults to ON (matches the order gate's
           // COALESCE(online_ordering_enabled, true) and the portal settings default).
           onlineOrderingEnabled: r.online_ordering_enabled,
+          // Canonical money flow. The ordering page's Hold-Payments toggle used to
+          // read FM's value and treat "absent" as held; see effectiveMoneyFlow there.
+          moneyFlow: r.money_flow,
           menuUploadUrl: r.menu_upload_url ?? null,
           isLive: r.is_live ?? false,
           isDiscoNative: r.is_disco_native ?? false,
@@ -119,7 +122,7 @@ export async function GET(req: NextRequest) {
       const nativeRows = (await sql`
         SELECT a.fm_restaurant_reference AS fm_ref,
                o.is_premium, o.visible, o.stripe_connected, o.stripe_checked_at, o.order_url,
-               o.online_ordering_enabled, c.menu_upload_url, c.is_live, o.archived_at,
+               o.online_ordering_enabled, o.money_flow, c.menu_upload_url, c.is_live, o.archived_at,
                (a.stripe_account_id IS NOT NULL) AS has_stripe_account,
                d.has_drift AS menu_drift_detected, d.drift_details AS menu_drift_details,
                (a.invite_token IS NOT NULL AND a.invite_token_expires_at < NOW()) AS invite_expired
@@ -130,7 +133,7 @@ export async function GET(req: NextRequest) {
         WHERE a.is_disco_native = true AND a.fm_restaurant_reference IS NOT NULL
       `) as {
         fm_ref: string; is_premium: boolean | null; visible: boolean | null; stripe_connected: boolean | null
-        stripe_checked_at: string | null; order_url: string | null; online_ordering_enabled: boolean | null
+        stripe_checked_at: string | null; order_url: string | null; online_ordering_enabled: boolean | null; money_flow: string | null
         menu_upload_url: string | null; is_live: boolean | null; has_stripe_account: boolean | null
         menu_drift_detected: boolean | null; menu_drift_details: unknown | null; invite_expired: boolean | null
         archived_at: string | null
@@ -145,6 +148,7 @@ export async function GET(req: NextRequest) {
           stripeCheckedAt: n.stripe_checked_at,
           orderUrl: n.order_url ?? '',
           onlineOrderingEnabled: n.online_ordering_enabled,
+          moneyFlow: n.money_flow,
           menuUploadUrl: n.menu_upload_url ?? null,
           isLive: n.is_live ?? false,
           isDiscoNative: true,

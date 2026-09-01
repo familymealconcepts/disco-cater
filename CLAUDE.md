@@ -121,9 +121,17 @@ The FM restaurant object's `admin` field is **one designated contact, not the
 set** — Gracious Garden District's `admin` is empty while Uptown's is Barbara,
 and she runs both. Never derive reach from it.
 
-**Role and reach are independent.** Role says what a person may DO at a location.
-Reach says WHICH locations they can touch. A person can be `ADMIN` and hold eight
-grants; that is not a contradiction and must not be treated as one.
+**Role decides whether a person is multi-location at all** (confirmed with Peter
+2026-09-01): only `SYSTEM_ADMIN` and `SUPER_ADMIN` may see or switch between
+locations. An `ADMIN` is single-location **by design** — the portal shell puts
+them in Mode B unconditionally and that is correct behaviour, not a bug.
+
+So role and reach must be CONSISTENT, and where they disagree the grant rows are
+what's wrong. **An `ADMIN` holding more than one grant is a data error**, not a
+person with extra reach. FM is the arbiter: its authorized-users list carries a
+per-user `role`, and FM's `/api/system-admin/users` returns nothing at all for a
+plain ADMIN — an ADMIN has no Authorized Users concept in FM, so they must never
+appear in a multi-location grant sweep.
 
 ### The three tables
 
@@ -157,11 +165,25 @@ many" (all in `lib/disco-restaurant-auth.ts`).
 
 ### Three traps that have each cost a real bug
 
-1. **Do not gate multi-location UI on role.** `app/(restaurant)/restaurant/(portal)/layout.tsx`
-   used `isSystemAdmin` to decide `inRestaurantUserView`, and `RESTAURANT_USER_NAV`
-   has no Locations entry — so an `ADMIN` with two grants was never offered a
-   location list and nothing ever called a resolver. Her grants were correct the
-   whole time. Gate on `isMultiLocationUser` (`isSystemAdmin || locationAccessCount > 1`).
+1. **The multi-location UI is gated on role, and that is CORRECT — do not
+   "fix" it.** `app/(restaurant)/restaurant/(portal)/layout.tsx` uses
+   `isSystemAdmin` for `inRestaurantUserView`, and `RESTAURANT_USER_NAV` has no
+   Locations entry, so an `ADMIN` gets exactly one location. This was changed to
+   follow grant count on 2026-09-01 and **reverted the same day** — Peter's rule
+   is that ADMIN is single-location, full stop. When an `ADMIN` appears to be
+   missing locations, either their role is wrong (mirror FM's) or their grants
+   are (revoke the extras). Never widen the shell.
+
+   The write paths already assume this: `resolveWriteScope` gives a non-SA
+   `allowedRefs = [ownRef]`, and `resolveDiscoGroupScope` /
+   `resolveDiscoAccessScope` both return home-ref-only for any role that isn't
+   `SYSTEM_ADMIN`. **But three READ paths do not** — `lib/reports/report-scope.ts`,
+   `/api/restaurant/team` and `/api/restaurant/locations` call the grant
+   primitives with no role branch, so an `ADMIN` carrying stray grants can read
+   data for locations the nav never offers. Verified 2026-09-01:
+   `sanitizeReportFilter` accepted all 8 of an ADMIN's granted refs. Prefer the
+   role-gated wrappers in `lib/restaurant-write-scope.ts` over the raw
+   primitives.
 
 2. **An FM-session user has NO Disco identity.** `getRestaurantAuthContext()`
    returns `authType: 'fm'` with **`email: ''`** and `restaurantReference: ''`.

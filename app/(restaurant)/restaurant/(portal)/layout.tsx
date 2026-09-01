@@ -19,15 +19,6 @@ interface RestaurantUser {
   reference: string
   businessName?: string
   groupName?: string
-  /**
-   * Locations this person can REACH — the row count in
-   * disco_restaurant_location_access, supplied by
-   * /api/disco-restaurant-auth/me. Distinct from `role`, which says what they
-   * may do at a location, and from `reference`, which is only their default
-   * context. 0 when unknown (an FM-session user has no Disco identity), which
-   * degrades to the single-location shell.
-   */
-  locationAccessCount?: number
 }
 
 interface NavItem {
@@ -127,7 +118,6 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
         const u: RestaurantUser = {
           email: s.email || '', firstName: s.firstName || '', lastName: s.lastName || '',
           role: s.role || 'ADMIN', reference: s.restaurantReference || '',
-          locationAccessCount: typeof s.locationAccessCount === 'number' ? s.locationAccessCount : 0,
           businessName: s.restaurantName || '', groupName: s.businessName || undefined,
         }
         if (cancelled) return
@@ -173,23 +163,10 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   }, [router])
 
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN' || user?.role === 'SUPER_ADMIN'
-  // REACH, NOT ROLE, decides whether the multi-location UI appears.
-  //
-  // This used to be `isSystemAdmin` alone, and that is why Barbara Coultas saw
-  // only one Gracious location: her grants were correct (both refs, verified in
-  // disco_restaurant_location_access) and every resolver returned both, but her
-  // account row carries role ADMIN, so `inRestaurantUserView` below was
-  // unconditionally true, RESTAURANT_USER_NAV rendered, and that nav has no
-  // Locations entry at all — nothing ever asked for her location list. Role
-  // describes what a person may DO at a location; the grant table is the only
-  // thing that says which locations they can reach, and the two are independent.
-  // See the "Who can see which restaurants" section in CLAUDE.md.
-  const canReachManyLocations = (user?.locationAccessCount ?? 0) > 1
-  const isMultiLocationUser = isSystemAdmin || canReachManyLocations
   // ADMIN role is always in Mode B by definition. SYSTEM_ADMIN is in
   // Mode B only when they explicitly pick a location AND viewMode is
   // RESTAURANT_USER (e.g. they clicked a row on Locations).
-  const inRestaurantUserView = isMultiLocationUser
+  const inRestaurantUserView = isSystemAdmin
     ? (viewMode === 'RESTAURANT_USER' && !!selectedRestaurant)
     : true
 
@@ -405,7 +382,7 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* View-as-SystemAdmin back link — only when an SA is in Mode B */}
-          {isMultiLocationUser && inRestaurantUserView && (
+          {isSystemAdmin && inRestaurantUserView && (
             <button
               onClick={backToSystemAdmin}
               className="portal-back-link"

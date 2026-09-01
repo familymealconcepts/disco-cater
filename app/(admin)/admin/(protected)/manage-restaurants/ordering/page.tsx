@@ -68,6 +68,11 @@ interface OverrideMeta {
   // null = no explicit value stored (unset). This is what the restaurant portal
   // reads/writes — the super admin now reads/writes the same field.
   onlineOrderingEnabled: boolean | null
+  // Canonical money flow from Neon disco_restaurant_overrides.money_flow.
+  // null = no explicit value stored, which every consumer already treats as
+  // DIRECT (promo gates test `=== 'FAMILY_MEAL'`; disco-native-orphans selects
+  // COALESCE(money_flow,'DIRECT')).
+  moneyFlow: string | null
   // FM-side menu drift (disco_menu_drift_snapshots) — set for Disco-native
   // restaurants whose FM menu has changed since the last import/verification.
   menuDriftDetected: boolean
@@ -89,7 +94,7 @@ interface OverrideMeta {
 function defaultOverrideMeta(isDiscoNative: boolean): OverrideMeta {
   return {
     visible: false, isPremium: false, orderUrl: '', menuUploadUrl: null,
-    isLive: false, isDiscoNative, onlineOrderingEnabled: null,
+    isLive: false, isDiscoNative, onlineOrderingEnabled: null, moneyFlow: null,
     menuDriftDetected: false, menuDriftDetails: [], inviteExpired: false,
     archivedAt: null,
   }
@@ -140,6 +145,27 @@ function isOnlineWith(r: Restaurant, ov: OverrideMeta | undefined): boolean {
   if (ov && ov.onlineOrderingEnabled != null) return ov.onlineOrderingEnabled === true
   if (ov?.isDiscoNative) return true
   return r.onlineOrderingAllowed === true
+}
+
+// Money flow — "Hold Payments on FamilyMeal". FAMILY_MEAL = held, DIRECT =
+// released.
+//
+// This used to be read straight off FM's admin-list value as
+// `r.moneyFlow !== 'DIRECT'`, which meant ABSENT displayed as HELD. 28
+// restaurants showed "payments held" while nothing was held — 18 disco-native
+// (Love & Plates, Aztec Dave's Cantina, Tom Toms Italian, Lee's Chinese Food,
+// Cena Vegan, Rendang Republic, Almost Home + 11 test restaurants) and 10
+// FM-backed with no admin-list row (Katz's Deli, Westwood Fountain, Apollo
+// Bagels - Industry City, Westwoods BBQ & Spice Co, 502 Baking Company...).
+// A native restaurant has no FM record at all, so "absent" was never a
+// statement about its payouts.
+//
+// Prefer Neon (now kept correct for FM-backed rows by the money-flow
+// reconciler), fall back to FM's value, and default to DIRECT when neither has
+// one — the same default every other consumer already applies.
+function effectiveMoneyFlow(r: Restaurant, ov: OverrideMeta | undefined): 'DIRECT' | 'FAMILY_MEAL' {
+  const v = ov?.moneyFlow ?? r.moneyFlow ?? null
+  return v === 'FAMILY_MEAL' ? 'FAMILY_MEAL' : 'DIRECT'
 }
 
 function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolean; onChange: () => void; disabled?: boolean; color?: string }) {
@@ -386,7 +412,7 @@ export default function RestaurantsOrderingPage() {
   // "Hold Payments on FamilyMeal": ON = moneyFlow FAMILY_MEAL (held),
   // OFF = DIRECT (released). FM restaurant-table.component.ts:387-400.
   async function toggleMoneyFlow(r: Restaurant) {
-    const held = r.moneyFlow !== 'DIRECT'
+    const held = effectiveMoneyFlow(r, overrideMap[r.reference]) === 'FAMILY_MEAL'
     const next = held ? 'DIRECT' : 'FAMILY_MEAL'
     setRows(prev => prev.map(x => x._rowId === r._rowId ? { ...x, moneyFlow: next } : x))
     const res = await fetch(`/api/admin/restaurants/${r.reference}/money-flow?moneyFlow=${next}`, { method: 'PUT' })
@@ -768,6 +794,7 @@ export default function RestaurantsOrderingPage() {
         visible?: boolean; isPremium?: boolean; orderUrl?: string; menuUploadUrl?: string | null
         isLive?: boolean; isDiscoNative?: boolean; hasStripeAccount?: boolean
         onlineOrderingEnabled?: boolean | null
+        moneyFlow?: string | null
         menuDriftDetected?: boolean; menuDriftDetails?: OverrideMeta['menuDriftDetails']
         inviteExpired?: boolean; archivedAt?: string | null
       }[]) {
@@ -777,6 +804,7 @@ export default function RestaurantsOrderingPage() {
           orderUrl: o.orderUrl || '', menuUploadUrl: o.menuUploadUrl ?? null,
           isLive: !!o.isLive, isDiscoNative: !!o.isDiscoNative,
           onlineOrderingEnabled: o.onlineOrderingEnabled ?? null,
+          moneyFlow: o.moneyFlow ?? null,
           menuDriftDetected: !!o.menuDriftDetected, menuDriftDetails: o.menuDriftDetails ?? [],
           inviteExpired: !!o.inviteExpired,
           archivedAt: o.archivedAt ?? null,
@@ -1230,7 +1258,7 @@ export default function RestaurantsOrderingPage() {
                     })()}
                   </td>
                   <td style={cell}><Toggle checked={!!r.nashAllowed} onChange={() => toggleNash(r)} /></td>
-                  <td style={cell}><Toggle checked={r.moneyFlow !== 'DIRECT'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" /></td>
+                  <td style={cell}><Toggle checked={effectiveMoneyFlow(r, ov) === 'FAMILY_MEAL'} onChange={() => toggleMoneyFlow(r)} color="#EFB84A" /></td>
                   <td style={cell}><Toggle checked={!!r.shipdayEnabled} onChange={() => toggleShipday(r)} /></td>
                   <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap', position: 'sticky', right: 0, zIndex: 1, minWidth: 120, background: '#fff', borderLeft: '1px solid #f0f0f0' }}>
                     <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>

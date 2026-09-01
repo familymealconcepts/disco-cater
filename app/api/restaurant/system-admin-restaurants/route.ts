@@ -31,11 +31,19 @@ export async function GET() {
     try {
       const isSA = ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN'
       const group = isSA ? await getDiscoGroupAccounts(ctx.businessName, ctx.email) : []
-      const list = (isSA ? group : []).map(a => ({
-        reference: a.restaurant_reference,
-        businessName: a.restaurant_name || a.business_name || '',
-        editable: true,
-      }))
+      // De-duped by reference. getDiscoGroupAccounts used to return one row per
+      // (grant x account row) and this was the only surface that showed the
+      // duplicates to a human — kjp@atlantabread.com's dropdown listed Asheville
+      // 9 times. The resolver is fixed, but this list is built from a set either
+      // way so a future regression there can't reach the UI.
+      const seen = new Set<string>()
+      const list = (isSA ? group : []).reduce<{ reference: string; businessName: string; editable: boolean }[]>((acc, a) => {
+        const ref = a.restaurant_reference
+        if (!ref || seen.has(ref)) return acc
+        seen.add(ref)
+        acc.push({ reference: ref, businessName: a.restaurant_name || a.business_name || '', editable: true })
+        return acc
+      }, [])
       // Always include the user's own location (covers an ADMIN, or an SA whose
       // own row didn't come back from the group query).
       if (ctx.restaurantReference && !list.some(l => l.reference === ctx.restaurantReference)) {
