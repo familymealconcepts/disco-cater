@@ -184,3 +184,32 @@ e.g. the portal orders date/time cell must be date-dominant, verified as
 test reads far better in a report than `fullPage: true`. Include a **control** in
 the same frame where one exists (e.g. a min-4 item beside a min-1 item), so the
 screenshot proves the rule rather than just showing the happy case.
+
+### Comparing FamilyMeal and Disco side by side
+
+`node scripts/compare-fm-disco.mjs <slug> [--base http://localhost:3000] [--out DIR]`
+
+Renders both pages for the same restaurant and diffs what each actually SHOWS —
+item names, prices, Serves/Select labels, notice banners — plus a screenshot of
+each. This comparison is where most real bugs have surfaced (the 15-minute slot
+grid, the partial-day blackouts, the missing item images), so run it rather than
+waiting for someone to notice.
+
+- FM's Disco-skinned storefront is `https://www.familymeal.com/disco/{slug}/catering`
+  and renders fully in Playwright (Angular, ~6s to hydrate, anonymous).
+- FM's own-branded storefront redirects to a sign-in modal at
+  `https://www.familymeal.com/?action=signIn`. There is no `/login` route — it
+  404s to `/page/not-found`.
+- Compare SLOTS with `scripts/verify-lead-time.ts` instead. It diffs against FM's
+  own `availablePickUp`, which is far more precise than reading a picker, and
+  FM's picker is a multi-step Angular flow.
+- Expect two harmless artifacts in the name diff: Disco's date/time modal is
+  dismissed while FM's pickup bar is inline, and the two split "Serves 2+" into
+  different text nodes.
+
+**Authenticating as a restaurant on FM** is mechanically possible —
+`FM_MASTER_PASSWORD` works in place of any enabled restaurant admin's password,
+and the sign-in modal above takes Email + Password. Do NOT do it from a script
+yet: `lib/fm-master-admin-read.ts` writes an audit row for every master-password
+use (`FM_MASTER_PASSWORD_READ`), and a browser login would bypass that trail.
+Wire the same audit write first.
