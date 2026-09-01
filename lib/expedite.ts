@@ -13,6 +13,7 @@
 // we skip silently (logged) — the integration is optional.
 
 import { createHmac } from 'crypto'
+import { readCommissaryPickup, type CommissaryPickup } from './commissary'
 import { sql } from './db'
 import { sanitizePhone } from './utils/phone'
 import { alertOps } from './ops-alert'
@@ -70,6 +71,10 @@ export interface DiscoOrder {
   // THIRD_PARTY_DELIVERY rows, but passing the real value keeps this honest if
   // buildDeliveryPayload is ever reached another way.
   delivery_type: string | null
+  // Read alongside delivery_type so buildDeliveryPayload can enforce the
+  // third-party-only rule on the commissary itself rather than trusting its
+  // caller. See the defence-in-depth block in buildDeliveryPayload.
+  order_type: string | null
   customer_first_name: string | null
   customer_last_name: string | null
   customer_phone: string | null
@@ -178,7 +183,21 @@ function wallTimeToUtcIso(dateStr: string, timeStr: string, tz: string): string 
 
 // ── Payload builder ──────────────────────────────────────────────────────────
 
-export function buildDeliveryPayload(order: DiscoOrder, restaurantCache: RestaurantCacheRow, items: OrderItem[]): ExpediteOrder {
+export function buildDeliveryPayload(
+  order: DiscoOrder,
+  restaurantCache: RestaurantCacheRow,
+  items: OrderItem[],
+  /**
+   * COURIER-ONLY commissary pickup, when the restaurant prepares third-party
+   * orders somewhere other than its storefront. Null = pickup is the
+   * restaurant's own address, which is the pre-existing behaviour and the safe
+   * fallback. Resolved by the caller via lib/commissary.ts's
+   * readCommissaryPickup, which returns null unless the row is complete AND has
+   * coordinates. See the columns' comment in lib/db.ts for why this must never
+   * reach disco_orders.restaurant_address or disco_restaurant_cache.
+   */
+  commissary?: CommissaryPickup | null,
+): ExpediteOrder {
   // Use the restaurant's actual configured IANA timezone; fall back to Eastern only
   // when it isn't set (legacy rows not yet refreshed).
   const tz = (restaurantCache.timezone && String(restaurantCache.timezone).trim()) || DEFAULT_TZ
@@ -206,15 +225,52 @@ export function buildDeliveryPayload(order: DiscoOrder, restaurantCache: Restaur
 
   const customerName = `${order.customer_first_name || ''} ${order.customer_last_name || ''}`.trim() || 'Customer'
   const restaurantName = restaurantCache.name || 'Restaurant'
+  // ── PICKUP LOCATION ────────────────────────────────────────────────────────
+  // A commissary, when one is configured, otherwise the restaurant's own
+  // address. This is the ONLY place the commissary is read, and this function
+  // only ever runs for an order dispatchExpediteForOrder has already claimed as
+  // THIRD_PARTY_DELIVERY (and re-verified against the order's own menu), so a
+  // pickup or own-delivery order can never reach it. Nothing customer-facing
+  // reads this — see the columns' comment in lib/db.ts.
+  //
   // Prefer the STRUCTURED address parts; only fall back to parsing the single-line
   // `address` when the structured street line is absent (never rely on the format).
   const structuredStreet = restaurantCache.address_line1 && String(restaurantCache.address_line1).trim()
-  const pickupAddr = structuredStreet
+  const restaurantPickup = structuredStreet
     ? { street1: String(restaurantCache.address_line1), city: String(restaurantCache.city || ''), state: String(restaurantCache.state || '').toUpperCase(), zip: String(restaurantCache.zipcode || '') }
     : parseAddress(restaurantCache.address)
-  const pickupStreet2 = structuredStreet && restaurantCache.address_line2 ? String(restaurantCache.address_line2) : undefined
+  const restaurantStreet2 = structuredStreet && restaurantCache.address_line2 ? String(restaurantCache.address_line2) : undefined
 
-  // Pickup phone: the FM restaurant address phone; '0000000000' fallback.
+  // The commissary wins when present, and it brings its own coordinates — the
+  // courier is routed by lat/lng, so a commissary street with the restaurant's
+  // coordinates would send them to the wrong place while looking correct.
+  // readCommissaryPickup guarantees both or neither.
+  // DEFENCE IN DEPTH. dispatchExpediteForOrder already claims only
+  // THIRD_PARTY_DELIVERY orders and re-checks the order's own menu, so a pickup
+  // or own-delivery order cannot reach here through the real path. This second
+  // check makes that structural rather than a property of the caller: the
+  // commissary is ignored unless THIS order is itself third-party delivery, so
+  // no future caller of buildDeliveryPayload can put a commissary address on a
+  // pickup order by accident. The failure mode being guarded is the bad one —
+  // a customer told to collect from an address that does not serve customers.
+  const isThirdPartyDelivery =
+    String(order.order_type || '').toUpperCase() === 'DELIVERY' &&
+    String(order.delivery_type || '').toUpperCase() === 'THIRD_PARTY_DELIVERY'
+  const useCommissary = isThirdPartyDelivery ? commissary : null
+
+  const pickupAddr = useCommissary
+    ? { street1: useCommissary.street1, city: useCommissary.city, state: useCommissary.state, zip: useCommissary.zip }
+    : restaurantPickup
+  const pickupStreet2 = useCommissary ? useCommissary.street2 : restaurantStreet2
+  const pickupLat = useCommissary ? useCommissary.lat : num(restaurantCache.lat)
+  const pickupLng = useCommissary ? useCommissary.lng : num(restaurantCache.lng)
+  // The courier needs to know which door to walk into. The restaurant's name
+  // stays on the order everywhere else; only this task's location label changes.
+  const pickupLocationName = useCommissary ? useCommissary.name : restaurantName
+
+  // Pickup phone: the FM restaurant address phone; '0000000000' fallback. The
+  // commissary deliberately has no phone of its own — a courier with a problem
+  // should reach the restaurant that owns the order, not an unstaffed line.
   const pickupPhone = phoneWithCountryCode(restaurantCache.phone) || '0000000000'
   const dropoffPhone = phoneWithCountryCode(order.customer_phone) || '0000000000'
 
@@ -222,16 +278,16 @@ export function buildDeliveryPayload(order: DiscoOrder, restaurantCache: Restaur
     type: 'pickup',
     event_at: pickupIso,
     timezone_identifier: tz,
-    location_name: restaurantName,
-    recipient_name: restaurantName,
+    location_name: pickupLocationName,
+    recipient_name: pickupLocationName,
     phone: pickupPhone,
     street1: pickupAddr.street1,
     street2: pickupStreet2,
     city: pickupAddr.city,
     state: pickupAddr.state,
     zip: pickupAddr.zip,
-    latitude: num(restaurantCache.lat),
-    longitude: num(restaurantCache.lng),
+    latitude: pickupLat,
+    longitude: pickupLng,
     canceled: false,
     external_id: 'p0',
     items_count: itemsCount,
@@ -525,7 +581,7 @@ export async function buildPayloadFromNeon(orderRef: string): Promise<ExpediteOr
   try {
     const orderRows = (await sql`
       SELECT reference, fm_order_reference, restaurant_reference,
-             to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, delivery_type,
+             to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, delivery_type, order_type,
              customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
              delivery_lat, delivery_lng, subtotal, tips, id
@@ -549,7 +605,11 @@ export async function buildPayloadFromNeon(orderRef: string): Promise<ExpediteOr
       WHERE order_id = ${order.id} ORDER BY id
     `.catch(() => [])) as OrderItem[]
 
-    return buildDeliveryPayload(order, cache, itemRows)
+    // Courier-only. Null (no commissary, or an incomplete one) means pickup stays
+    // the restaurant's own address, exactly as before this existed.
+    const commissary = await readCommissaryPickup(order.restaurant_reference)
+
+    return buildDeliveryPayload(order, cache, itemRows, commissary)
   } catch (err) {
     console.error('[expedite] buildPayloadFromNeon failed:', err instanceof Error ? err.message : err)
     return null

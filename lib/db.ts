@@ -116,6 +116,41 @@ export async function runMigrations(): Promise<void> {
     // Online ordering defaults ON — a restaurant can take orders unless explicitly
     // paused. (The native order gate reads COALESCE(online_ordering_enabled, true),
     // so a missing row is also "open"; a stored FALSE means an intentional pause.)
+    // ── COMMISSARY PICKUP ADDRESS — COURIER ONLY ──────────────────────────
+    // Where a courier collects THIRD-PARTY delivery orders when the restaurant
+    // prepares them somewhere other than its own storefront (Gracious Bakery &
+    // Cafe prepares both locations' third-party orders at a shared commissary on
+    // Earhart Blvd).
+    //
+    // THE SAFETY PROPERTY, and it is the whole design: this address is read in
+    // EXACTLY ONE PLACE — buildDeliveryPayload's pickup task in lib/expedite.ts,
+    // behind the THIRD_PARTY_DELIVERY gate that dispatchExpediteForOrder already
+    // applies. It must NEVER be written into disco_orders.restaurant_address or
+    // into disco_restaurant_cache.address.
+    //
+    // Why that matters concretely: the order popout, the confirmation and
+    // reminder emails, and the order PDF all render ONE restaurant address with
+    // no order-type branch (order-pdf.ts:327; the three STORE blocks in
+    // email/notifications.ts). If the commissary reached either of those two
+    // shared sources, a PICKUP customer would be told to collect their order
+    // from the commissary — an address that does not serve customers. Keeping it
+    // in its own columns means every customer-facing surface keeps reading
+    // exactly what it read before and cannot regress.
+    //
+    // lat/lng are REQUIRED for dispatch, not decorative: the Expedite pickup
+    // task sends coordinates, so a commissary with no coordinates must fall back
+    // to the restaurant rather than send a courier to a bare string. They are
+    // geocoded ONCE at save (lib/commissary.ts), never per-dispatch.
+    //
+    // All NULL (the default) = byte-identical behaviour to before this existed.
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS commissary_name TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS commissary_address_line1 TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS commissary_address_line2 TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS commissary_city TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS commissary_state TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS commissary_zipcode TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS commissary_lat DOUBLE PRECISION`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS commissary_lng DOUBLE PRECISION`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS online_ordering_enabled BOOLEAN DEFAULT true`,
     `ALTER TABLE disco_restaurant_overrides ALTER COLUMN online_ordering_enabled SET DEFAULT true`,
     // Neon mirror of FM's nashAllowed / shipdayEnabled third-party-delivery
