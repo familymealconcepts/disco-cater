@@ -101,11 +101,12 @@ function atTime(day: Date, minutes: number): Date {
  *   leadAbsolute = now + leadTime
  *   earliestDay  = startOfDay(leadAbsolute)              // lead time floors the day
  *   if dailyCutoff set AND now's time-of-day > dailyCutoff: earliestDay += 1 day
- *   floor = (earliestDay is leadAbsolute's day) ? leadAbsolute : startOfDay(earliestDay)
+ *   earliest     = max(leadAbsolute, pastCutoff ? startOfTomorrow : now)
  *
- * The daily cutoff appears ONCE, as the roll-to-tomorrow. It is a deadline for
- * placing the order, never a lower bound on the pickup time — see the note in
- * the body.
+ * THE DAILY CUTOFF ONLY AFFECTS SAME-DAY ORDERING. Past it, no more orders for
+ * today; prep time does everything else. It is neither a floor on the pickup
+ * TIME (that was one defect) nor an extra day added to the lead time's day (that
+ * was another) — both are documented in the body.
  *
  * Using startOfDay(leadAbsolute) (rather than today + leadTimeDays) makes the
  * hours component carry across midnight correctly; the spec's day-only examples
@@ -113,34 +114,47 @@ function atTime(day: Date, minutes: number): Date {
  */
 export function earliestPickup(now: Date, cfg: CutoffConfig): Date {
   const leadAbsolute = new Date(now.getTime() + cfg.leadTimeMinutes * MIN)
-  let earliestDay = startOfDay(leadAbsolute)
+  if (!cfg.dailyCutoff) return leadAbsolute
 
-  if (cfg.dailyCutoff) {
-    const nowMinutes = now.getHours() * 60 + now.getMinutes()
-    if (nowMinutes > hhmmToMinutes(cfg.dailyCutoff)) {
-      earliestDay = new Date(earliestDay.getTime() + DAY_MS)
-    }
-  }
+  const cutoff = hhmmToMinutes(cfg.dailyCutoff)
+  if (!Number.isFinite(cutoff)) return leadAbsolute
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  if (nowMinutes <= cutoff) return leadAbsolute
 
-  // THE DAILY CUTOFF IS A DEADLINE FOR PLACING AN ORDER, NOT A FLOOR ON THE
-  // PICKUP TIME. It used to be applied twice — once correctly, as the
-  // roll-to-tomorrow above, and again here as `floor = max(floor, cutoff)`,
-  // which is the wrong dimension entirely. "Order by 1pm for next-day catering"
-  // does not mean "you may not collect before 1pm."
+  // PAST THE CUTOFF: no more orders for TODAY. That is all the cutoff does.
   //
-  // It cost real bookable hours: of the 38 menus fleet-wide that set a DAILY
-  // cutoff, 37 lost the morning of their first bookable day — a median of EIGHT
-  // hours, 16.25h at FANTZYE (opens 07:30, cutoff 23:45) and 8h at each of the
-  // seven Surf Taco locations. Northside Inc. Cafe showed 21 slots from 13:00
-  // where FM showed 37 from 09:00. FM applies it as a deadline; FM is right.
+  //   earliest = max(now + prepTime, pastCutoff ? startOfTomorrow : now)
   //
-  // It hid for so long because a menu whose cutoff equals its opening time
-  // (Northside's own "Daily Lunch": cutoff 11:00, window 11:00-13:45) produces
-  // an identical answer either way. See scripts/audit-daily-cutoff-floor.ts.
-  return earliestDay.getTime() === startOfDay(leadAbsolute).getTime()
-    ? leadAbsolute
-    : startOfDay(earliestDay)
+  // So a 15:45 cutoff with no prep time means the earliest slot is tomorrow;
+  // with 48h prep the cutoff is IRRELEVANT, because 48 hours out is already
+  // past today either way. Prep time does the rest.
+  //
+  // This replaces a rule that added a whole DAY to the lead time's day whenever
+  // the cutoff had passed, which double-counted: a 12-hour prep placed at 21:00
+  // was pushed to the day after tomorrow. Scored against FM's live
+  // availablePickUp for every DAILY-cutoff menu in the estate
+  // (scripts/audit-daily-cutoff-semantics.ts, 46 menus). Of the 11 cases where
+  // the rules actually disagree, the old one matched FM once and this one
+  // matches 10 times. It recovered ~407 slots across 10 restaurants, 8 live,
+  // each of which had been losing its ENTIRE first bookable day — including all
+  // six DeCheco's locations.
+  //
+  // THE TWO REMAINING DISAGREEMENTS ARE FM BEING WRONG, and are the reason this
+  // is not written as "match FM". Disco is authoritative post-conversion:
+  //   OBAO (prep 24h, cutoff 19:00, window 12:00-22:30) — ordering at 21:45,
+  //     24 hours out is 21:45 tomorrow, inside tomorrow's window. This offers
+  //     those 4 slots; FM refuses the whole day.
+  //   The Winkin' Rooster (prep 48h, cutoff 15:45, open Mon-Fri 10:00-17:30) —
+  //     48 hours out clears Thursday entirely. This offers Thursday's 31 slots;
+  //     FM refuses them and opens on Friday.
+  // Both are FM over-rolling. Neither is a booking hole: leadAbsolute below
+  // still enforces the kitchen's real prep window independently, so nothing
+  // here can offer a slot inside it.
+  const startOfTomorrow = startOfDay(now)
+  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1)   // not +DAY_MS — DST
+  return leadAbsolute.getTime() >= startOfTomorrow.getTime() ? leadAbsolute : startOfTomorrow
 }
+
 
 /** True once the hard cutoff has passed — ordering is globally closed. */
 export function isOrderingClosed(now: Date, cfg: CutoffConfig): boolean {
@@ -511,18 +525,43 @@ export function runSelfTests(): void {
   eq('1 lead 1d0h', earliestPickup(wed3pm, { leadTimeMinutes: 1440 }), new Date(2026, 5, 4, 15, 0))
   // 2. Lead 1d1h, order 3pm Wed → 4pm Thu
   eq('2 lead 1d1h', earliestPickup(wed3pm, { leadTimeMinutes: 1500 }), new Date(2026, 5, 4, 16, 0))
-  // 3 & 4 CHANGED DELIBERATELY. They used to assert 9am on the earliest day,
-  // which encoded the defect: the daily cutoff was applied a second time as a
-  // floor on the PICKUP time. It is a deadline for PLACING the order. Both cases
-  // still resolve to the same first bookable SLOT once the day's window is
-  // applied — what changed is that the cutoff no longer eats the morning.
+  // 3 & 4 encode THE cutoff rule, and both have changed as it was pinned down.
+  // The cutoff only affects SAME-DAY ordering: past it, no more orders for
+  // today, and prep time does everything else. It is not a floor on the pickup
+  // TIME and it does not add a day to the lead time's day.
   //
-  // 3. Lead 1d + daily 9am, ordered 8:59am Tue — BEFORE the cutoff, so the
-  //    order counts for today and lead time runs from now → Wed 8:59.
+  // 3. Lead 1d + daily 9am, ordered 8:59am Tue — before the cutoff, so lead time
+  //    alone applies → Wed 8:59.
   eq('3 daily before', earliestPickup(tue859, { leadTimeMinutes: 1440, dailyCutoff: '09:00' }), new Date(2026, 5, 3, 8, 59))
-  // 4. Ordered 9:01am Tue — AFTER the cutoff, so it counts as tomorrow's order
-  //    and the whole day two days out is open, from its opening time.
-  eq('4 daily after', earliestPickup(tue901, { leadTimeMinutes: 1440, dailyCutoff: '09:00' }), new Date(2026, 5, 4, 0, 0))
+  // 4. Ordered 9:01am Tue — PAST the cutoff, but 24 hours out is Wednesday,
+  //    already past today, so the cutoff changes nothing → Wed 9:01. It used to
+  //    assert Thursday, which double-counted the cutoff on top of the lead time.
+  eq('4 daily after', earliestPickup(tue901, { leadTimeMinutes: 1440, dailyCutoff: '09:00' }), new Date(2026, 5, 3, 9, 1))
+  // 4c. The cutoff DOES bite when prep time would otherwise leave today open.
+  //     Ordered 9:01am Tue with a 1-hour lead: 10:01 today is dead, floor is the
+  //     start of tomorrow. This is the case the estate has no live example of,
+  //     so it is pinned here rather than left to a future restaurant to discover.
+  eq('4c cutoff kills today', earliestPickup(tue901, { leadTimeMinutes: 60, dailyCutoff: '09:00' }), new Date(2026, 5, 3, 0, 0))
+  // 4d. Same order BEFORE the cutoff — today stays open.
+  eq('4d before cutoff today stays', earliestPickup(tue859, { leadTimeMinutes: 60, dailyCutoff: '09:00' }), new Date(2026, 5, 2, 9, 59))
+  // 4e. A long lead makes the cutoff irrelevant, which is the whole point.
+  //     48h from Tue 9:01 is Thu 9:01 either side of the cutoff.
+  eq('4e long lead ignores the cutoff', earliestPickup(tue901, { leadTimeMinutes: 2880, dailyCutoff: '09:00' }), new Date(2026, 5, 4, 9, 1))
+  eq('4f  ...and matches the no-cutoff answer', earliestPickup(tue901, { leadTimeMinutes: 2880 }), new Date(2026, 5, 4, 9, 1))
+  // 4g. THE OBAO SHAPE, which FM gets wrong. Ordering at 21:45 past a 19:00
+  //     cutoff, 24h out lands 21:45 tomorrow, inside a window open to 22:30 — so
+  //     tomorrow evening is bookable. FM refuses the whole day; Disco does not.
+  const tue2145 = new Date(2026, 5, 2, 21, 45, 0, 0)
+  const obao = buildAvailableTimes(
+    { prepTime: 24, cutOffType: 'DAILY', cutOff: '19:00',
+      repeatWeekDays: [{ days: 'WEDNESDAY', fromPickUpTime: '12:00', toPickUpTime: '22:30' }] },
+    '2026-06-03',
+    tue2145,
+  ).filter(t => !t.disabled)
+  if (obao.length !== 4 || obao[0].time !== '21:45:00' || obao[3].time !== '22:30:00') {
+    throw new Error(`FAIL 4g OBAO shape: got ${obao.length} slots ${obao[0]?.time}..${obao[obao.length - 1]?.time}`)
+  }
+  pass++
   // 4b. The morning of the first bookable day is NOT eaten by the cutoff — the
   //     regression that cost 37 of 38 daily-cutoff menus a median 8 hours.
   const cutoffMorning = buildAvailableTimes(

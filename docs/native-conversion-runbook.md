@@ -1661,7 +1661,24 @@ and the customer's picker could disagree.
 1pm". 37 of 38 menus lost the morning of their first bookable day, median 8
 hours. Removed in `17a7e31`. FM does not do this.
 
-### Semantic 3 — the cutoff as a ROLL OF THE DAY (OPEN)
+### Semantic 3 — the cutoff as a ROLL OF THE DAY (SETTLED, was wrong)
+
+**THE RULE, as settled by Peter and now shipped:**
+
+```
+earliest = max(now + prepTime, pastCutoff ? startOfTomorrow : now)
+```
+
+The daily cutoff only affects SAME-DAY ordering. Past it, no more orders for
+today; prep time does everything else. A 15:45 cutoff with no prep means the
+earliest slot is tomorrow; with 48h prep the cutoff is irrelevant, because 48
+hours out is already past today either way.
+
+It fits **10 of the 11 discriminating cases** (the old roll fit 1) and the
+remaining one is FM being wrong — see below. Everything from here down is the
+evidence that got there.
+
+### The old behaviour and how it was scored
 
 `if (now's time-of-day > cutoff) earliestDay += 1 day`.
 
@@ -1757,3 +1774,64 @@ than one that loses slots.
 `scripts/verify-lead-time.ts` is deliberately LEFT FAILING on the Pelons case
 until this is settled. A suite that names an open defect is doing its job; the
 granularity carve-out is how the 15-vs-30 gap survived three months.
+
+### Semantic 3 — RESOLVED (2026-08-31, shipped)
+
+Peter's rule, tested as H3 against all 46 DAILY-cutoff menus:
+
+```
+                               first-day   slot-count
+H0  roll the day (old)           31/42       32/42
+H1  no roll                      40/42       42/42
+H3  cutoff blocks TODAY only     40/42       42/42
+
+DISCRIMINATING CASES (the rules actually disagree): 11
+   FM agrees with H0:  1
+   FM agrees with H1: 10
+   FM agrees with H3: 10
+```
+
+**H3 vs H1 differ in ZERO cases in the current estate.** The same-day block only
+bites when `now + prepTime` still lands today, and no live DAILY-cutoff menu has
+a prep time short enough for that right now. They are empirically
+indistinguishable today, so H3 was chosen because it is the correct RULE, not
+because the data separated them — and a self-test (`4c`) pins the discriminating
+case so a future short-prep restaurant can't quietly break it.
+
+That also settles what the ~407 "lost" slots were: since H3 == H1 everywhere,
+none of them were same-day orders Disco was right to refuse. They were real
+losses, and they are recovered.
+
+**The two disagreements with FM are FM over-rolling.** Verified against each
+restaurant's real window rather than inferred:
+
+| | prep | cutoff | window | FM | Disco (H3) |
+|---|---|---|---|---|---|
+| OBAO | 24h | 19:00 | 12:00–22:30 daily | 0 slots on 09-01 | **4 slots, 21:45–22:30** |
+| The Winkin' Rooster | 48h | 15:45 | Mon–Fri 10:00–17:30 | 0 slots on 09-03 | **31 slots, 10:00–17:30** |
+
+Ordering at 21:45, OBAO's 24-hour lead lands at 21:45 tomorrow — inside a window
+open until 22:30. Those four slots are genuinely 24 hours out and FM refuses
+them. Winkin' Rooster's 48-hour lead clears Thursday entirely; FM opens on
+Friday. **Neither is a booking hole** — `leadAbsolute` still enforces the
+kitchen's real prep window independently, so nothing can be offered inside it.
+
+This is the standing rule in action: Disco is authoritative post-conversion, so
+where FM is wrong Disco is correct rather than diverging. The earlier note
+calling Winkin' Rooster "a booking hole in shipped code" was WRONG and is
+retracted — Disco was right and FM was refusing bookable slots.
+
+**What shipping it changed** — 11 menus, 11 restaurants (8 live), each of which
+had been losing its ENTIRE first bookable day:
+
+```
+Yella's                  prep 12h cut 12:00   09-02 -> 09-01    0 -> 46 slots
+Pelons Tex Mex           prep  6h cut 19:00   09-02 -> 09-01    0 -> 45   LIVE
+DeCheco's Pizzeria x6    prep 12h cut 21:00   09-02 -> 09-01    0 -> 44   LIVE
+Slate Cafe               prep 12h cut 17:00   09-02 -> 09-01    0 -> 30   LIVE
+Apollo Bagels - FiDi     prep 36h cut 15:00   09-03 -> 09-02    0 -> 22
+OBAO                     prep 24h cut 19:00   09-02 -> 09-01    +4 slots on 09-01
+```
+
+`scripts/verify-lead-time.ts` passes again. `scripts/audit-daily-cutoff-semantics.ts`
+is kept as the regression tool — re-run it after any change to `earliestPickup`.

@@ -9,7 +9,11 @@
  * THREE HYPOTHESES, each scored against FM's live availablePickUp:
  *   H0  current Disco — roll the day forward when now > cutoff
  *   H1  no roll at all — the cutoff never moves the date
- *   H2  same-day only — the cutoff blocks TODAY, never a later date
+ *   H3  PETER'S RULE — the cutoff only affects SAME-DAY ordering:
+ *         earliest = max(now + prepTime, pastCutoff ? startOfTomorrow : now)
+ *       Prep time does the rest. A 15:45 cutoff with 0 prep means the earliest
+ *       slot is tomorrow; with 48h prep the cutoff is irrelevant because 48h out
+ *       is already past today either way.
  *
  * "Several times of day" without waiting: `now` is fixed, but every restaurant
  * has a DIFFERENT cutoff and a different timezone, so the estate gives a natural
@@ -56,7 +60,7 @@ interface Case {
   fmFirst: string | null; fmFirstCount: number; fmFirstSlot: string
   h0First: string | null; h0CountOnFmFirst: number
   h1First: string | null; h1CountOnFmFirst: number
-  h2First: string | null; h2CountOnFmFirst: number
+  h3First: string | null; h3CountOnFmFirst: number
   slotsLost: number
   live: boolean
 }
@@ -101,13 +105,17 @@ async function main() {
       // Three schedule shapes fed to the SAME slot builder.
       const h0 = { ...so, timezone: r.timezone }                                  // as shipped
       const h1 = { ...so, cutOffType: null, cutOff: null, timezone: r.timezone }  // no roll
-      // H2: the cutoff blocks TODAY only. Modelled by using h1 and dropping
-      // today's date from consideration when we're past the cutoff.
-      const h2Blocked = pastCutoff ? ln.date : null
+      // H3 = H1 restricted to "not today, if past the cutoff".
+      //
+      // That IS max(now + prepTime, pastCutoff ? startOfTomorrow : now): H1
+      // already gives every slot at or after now+prepTime, and the extra clause
+      // is exactly the start-of-tomorrow floor. So it needs no separate slot
+      // builder — dropping the local TODAY from H1 is the whole rule.
+      const h3Blocked = pastCutoff ? ln.date : null
 
       let fmFirst: string | null = null, fmFirstCount = 0, fmFirstSlot = ''
-      let h0First: string | null = null, h1First: string | null = null, h2First: string | null = null
-      let h0Count = 0, h1Count = 0, h2Count = 0
+      let h0First: string | null = null, h1First: string | null = null, h3First: string | null = null
+      let h0Count = 0, h1Count = 0, h3Count = 0
 
       for (let i = 0; i < HORIZON; i++) {
         const date = isoPlus(ln.date, i)
@@ -115,13 +123,13 @@ async function main() {
         const fm = (Array.isArray(raw) ? raw : []).map((t: { localTime: string }) => t.localTime.slice(0, 5)).sort()
         const a0 = buildAvailableTimes(h0 as never, date).filter(t => !t.disabled)
         const a1 = buildAvailableTimes(h1 as never, date).filter(t => !t.disabled)
-        const a2 = date === h2Blocked ? [] : a1
+        const a3 = date === h3Blocked ? [] : a1
 
         if (!fmFirst && fm.length) { fmFirst = date; fmFirstCount = fm.length; fmFirstSlot = fm[0] }
         if (!h0First && a0.length) h0First = date
         if (!h1First && a1.length) h1First = date
-        if (!h2First && a2.length) h2First = date
-        if (fmFirst === date) { h0Count = a0.length; h1Count = a1.length; h2Count = a2.length }
+        if (!h3First && a3.length) h3First = date
+        if (fmFirst === date) { h0Count = a0.length; h1Count = a1.length; h3Count = a3.length }
       }
 
       if (!fmFirst) continue
@@ -132,7 +140,7 @@ async function main() {
         fmFirst, fmFirstCount, fmFirstSlot,
         h0First, h0CountOnFmFirst: h0Count,
         h1First, h1CountOnFmFirst: h1Count,
-        h2First, h2CountOnFmFirst: h2Count,
+        h3First, h3CountOnFmFirst: h3Count,
         slotsLost: Math.max(0, fmFirstCount - h0Count),
         live: r.live,
       })
@@ -143,14 +151,14 @@ async function main() {
   console.log(`now (UTC) ${now.toISOString()}`)
   console.log(`${menusSeen} DAILY-cutoff menu(s) found; ${cases.length} with a bookable day inside ${HORIZON} days\n`)
 
-  const score = (k: 'h0First' | 'h1First' | 'h2First') => cases.filter(c => c[k] === c.fmFirst).length
-  const scoreCount = (k: 'h0CountOnFmFirst' | 'h1CountOnFmFirst' | 'h2CountOnFmFirst') =>
+  const score = (k: 'h0First' | 'h1First' | 'h3First') => cases.filter(c => c[k] === c.fmFirst).length
+  const scoreCount = (k: 'h0CountOnFmFirst' | 'h1CountOnFmFirst' | 'h3CountOnFmFirst') =>
     cases.filter(c => c[k] === c.fmFirstCount).length
 
   console.log('── WHICH HYPOTHESIS MATCHES FM ──')
   console.log(`   H0 current (roll the day)   first-day match ${score('h0First')}/${cases.length}   slot-count match ${scoreCount('h0CountOnFmFirst')}/${cases.length}`)
   console.log(`   H1 no roll                  first-day match ${score('h1First')}/${cases.length}   slot-count match ${scoreCount('h1CountOnFmFirst')}/${cases.length}`)
-  console.log(`   H2 blocks TODAY only        first-day match ${score('h2First')}/${cases.length}   slot-count match ${scoreCount('h2CountOnFmFirst')}/${cases.length}`)
+  console.log(`   H3 Peter's rule             first-day match ${score('h3First')}/${cases.length}   slot-count match ${scoreCount('h3CountOnFmFirst')}/${cases.length}`)
 
   const past = cases.filter(c => c.pastCutoff)
   const before = cases.filter(c => !c.pastCutoff)
@@ -158,18 +166,18 @@ async function main() {
   for (const [label, set] of [['PAST the cutoff', past], ['BEFORE the cutoff', before]] as const) {
     if (!set.length) { console.log(`   ${label}: none right now`); continue }
     console.log(`   ${label} (${set.length} menu(s)):`)
-    console.log(`      H0 ${set.filter(c => c.h0First === c.fmFirst).length}/${set.length}   H1 ${set.filter(c => c.h1First === c.fmFirst).length}/${set.length}   H2 ${set.filter(c => c.h2First === c.fmFirst).length}/${set.length}`)
+    console.log(`      H0 ${set.filter(c => c.h0First === c.fmFirst).length}/${set.length}   H1 ${set.filter(c => c.h1First === c.fmFirst).length}/${set.length}   H3 ${set.filter(c => c.h3First === c.fmFirst).length}/${set.length}`)
   }
 
   console.log(`\n── BY scheduleType ──`)
   for (const st of [...new Set(cases.map(c => c.scheduleType))]) {
     const set = cases.filter(c => c.scheduleType === st)
-    console.log(`   ${st.padEnd(10)} n=${String(set.length).padStart(2)}  H0 ${set.filter(c => c.h0First === c.fmFirst).length}  H1 ${set.filter(c => c.h1First === c.fmFirst).length}  H2 ${set.filter(c => c.h2First === c.fmFirst).length}`)
+    console.log(`   ${st.padEnd(10)} n=${String(set.length).padStart(2)}  H0 ${set.filter(c => c.h0First === c.fmFirst).length}  H1 ${set.filter(c => c.h1First === c.fmFirst).length}  H3 ${set.filter(c => c.h3First === c.fmFirst).length}`)
   }
   console.log(`\n── BY prepTime ──`)
   for (const pt of [...new Set(cases.map(c => c.prepTime))].sort((a, b) => a - b)) {
     const set = cases.filter(c => c.prepTime === pt)
-    console.log(`   ${String(pt).padStart(5)}h n=${String(set.length).padStart(2)}  H0 ${set.filter(c => c.h0First === c.fmFirst).length}  H1 ${set.filter(c => c.h1First === c.fmFirst).length}  H2 ${set.filter(c => c.h2First === c.fmFirst).length}`)
+    console.log(`   ${String(pt).padStart(5)}h n=${String(set.length).padStart(2)}  H0 ${set.filter(c => c.h0First === c.fmFirst).length}  H1 ${set.filter(c => c.h1First === c.fmFirst).length}  H3 ${set.filter(c => c.h3First === c.fmFirst).length}`)
   }
 
   const losing = cases.filter(c => c.slotsLost > 0).sort((a, b) => b.slotsLost - a.slotsLost)
@@ -186,16 +194,17 @@ async function main() {
   // A "match" is cheap when H0 and H1 give the same answer (the next day isn't a
   // window day, the lead time dominates, ...). Only cases where they DISAGREE
   // say anything about the rule, so score those separately.
-  const disc = cases.filter(c => c.h0First !== c.h1First)
+  const disc = cases.filter(c => c.h0First !== c.h1First || c.h0First !== c.h3First)
   console.log(`\n── DISCRIMINATING CASES (H0 and H1 actually disagree): ${disc.length} ──`)
   const h0w = disc.filter(c => c.h0First === c.fmFirst)
   const h1w = disc.filter(c => c.h1First === c.fmFirst)
   const neither = disc.filter(c => c.h0First !== c.fmFirst && c.h1First !== c.fmFirst)
   console.log(`   FM agrees with H0 (roll):    ${h0w.length}`)
   console.log(`   FM agrees with H1 (no roll): ${h1w.length}`)
+  console.log(`   FM agrees with H3 (Peter):   ${disc.filter(c => c.h3First === c.fmFirst).length}`)
   console.log(`   FM agrees with neither:      ${neither.length}`)
   const fmt = (c: Case) => `      prep ${String(c.prepTime).padStart(5)}h  ${c.scheduleType.padEnd(9)} cut ${c.cutOff}  ` +
-    `${c.restaurant.slice(0, 26).padEnd(26)} ${c.menu.slice(0, 18).padEnd(18)} FM ${c.fmFirst} | H0 ${c.h0First ?? '-'} | H1 ${c.h1First ?? '-'}`
+    `${c.restaurant.slice(0, 26).padEnd(26)} ${c.menu.slice(0, 18).padEnd(18)} FM ${c.fmFirst} | H0 ${c.h0First ?? '-'} | H1 ${c.h1First ?? '-'} | H3 ${c.h3First ?? '-'}`
   console.log(`\n   ROLL IS RIGHT (FM = H0):`); h0w.forEach(c => console.log(fmt(c)))
   console.log(`\n   ROLL IS WRONG (FM = H1):`); h1w.forEach(c => console.log(fmt(c)))
   if (neither.length) { console.log(`\n   NEITHER:`); neither.forEach(c => console.log(fmt(c))) }
@@ -205,13 +214,38 @@ async function main() {
   console.log(`      prepTime % 24 == 0 :  roll right ${h0w.filter(c => wholeDays(c.prepTime)).length}, roll wrong ${h1w.filter(c => wholeDays(c.prepTime)).length}`)
   console.log(`      prepTime % 24 != 0 :  roll right ${h0w.filter(c => !wholeDays(c.prepTime)).length}, roll wrong ${h1w.filter(c => !wholeDays(c.prepTime)).length}`)
 
+  // ── DOES H3 EVER DIFFER FROM H1? ────────────────────────────────────────
+  // Only when now+prepTime still lands TODAY and we are past the cutoff. If it
+  // never differs in this estate, the 410 "lost" slots are genuine losses that
+  // H3 recovers, not same-day orders Disco was right to refuse.
+  const h3VsH1 = cases.filter(c => c.h3First !== c.h1First)
+  console.log(`\n── H3 vs H1: cases where the same-day block actually bites: ${h3VsH1.length} ──`)
+  h3VsH1.forEach(c => console.log(`   ${c.restaurant} | ${c.menu} | prep ${c.prepTime}h cut ${c.cutOff} | H1 ${c.h1First} vs H3 ${c.h3First} (FM ${c.fmFirst})`))
+  if (!h3VsH1.length) console.log('   (none — every prepTime here already pushes past today, so H3 == H1 everywhere)')
+
+  console.log(`\n── WHERE H3 AND FM DISAGREE (candidate FM-is-wrong cases) ──`)
+  const h3Diff = cases.filter(c => c.h3First !== c.fmFirst)
+  if (!h3Diff.length) console.log('   (none)')
+  h3Diff.forEach(c => {
+    const dir = c.h3First && c.fmFirst && c.h3First < c.fmFirst ? 'H3 EARLIER (FM over-rolls)' : 'H3 LATER (H3 over-restricts)'
+    console.log(`   ${dir}  ${c.restaurant} | ${c.menu} | prep ${c.prepTime}h cut ${c.cutOff} ${c.pastCutoff ? 'PAST' : 'before'} | H3 ${c.h3First} vs FM ${c.fmFirst}`)
+  })
+
+  console.log(`\n── WHAT SHIPPING H3 CHANGES vs TODAY (H0) ──`)
+  const changed = cases.filter(c => c.h0First !== c.h3First || c.h0CountOnFmFirst !== c.h3CountOnFmFirst)
+  console.log(`   ${changed.length} menu(s) across ${new Set(changed.map(c => c.ref)).size} restaurant(s) (${new Set(changed.filter(c => c.live).map(c => c.ref)).size} live) change`)
+  changed.sort((a, b) => (b.h3CountOnFmFirst - b.h0CountOnFmFirst) - (a.h3CountOnFmFirst - a.h0CountOnFmFirst))
+  changed.forEach(c => console.log(
+    `   ${c.live ? 'LIVE' : '    '} ${c.restaurant.slice(0, 28).padEnd(28)} ${c.menu.slice(0, 20).padEnd(20)} prep ${String(c.prepTime).padStart(5)}h cut ${c.cutOff}  ` +
+    `first day ${c.h0First ?? '-'} -> ${c.h3First ?? '-'}   slots on ${c.fmFirst}: ${c.h0CountOnFmFirst} -> ${c.h3CountOnFmFirst}  (FM ${c.fmFirstCount})`))
+
   // Where H1 would OVER-offer relative to FM: the safety question.
   const overshoot = cases.filter(c => c.h1First && c.fmFirst && c.h1First < c.fmFirst)
   console.log(`\n── SAFETY: cases where H1 (no roll) would offer a day FM does NOT: ${overshoot.length} ──`)
   overshoot.forEach(c => console.log(`   ${c.restaurant} | ${c.menu} | prep ${c.prepTime}h cut ${c.cutOff} ${c.pastCutoff ? 'PAST' : 'before'} | H1 ${c.h1First} vs FM ${c.fmFirst}`))
-  const overshoot2 = cases.filter(c => c.h2First && c.fmFirst && c.h2First < c.fmFirst)
-  console.log(`── SAFETY: cases where H2 would offer a day FM does NOT: ${overshoot2.length} ──`)
-  overshoot2.forEach(c => console.log(`   ${c.restaurant} | ${c.menu} | prep ${c.prepTime}h cut ${c.cutOff} | H2 ${c.h2First} vs FM ${c.fmFirst}`))
+  const overshoot3 = cases.filter(c => c.h3First && c.fmFirst && c.h3First < c.fmFirst)
+  console.log(`── SAFETY: cases where H3 would offer a day FM does NOT: ${overshoot3.length} ──`)
+  overshoot3.forEach(c => console.log(`   ${c.restaurant} | ${c.menu} | prep ${c.prepTime}h cut ${c.cutOff} | H3 ${c.h3First} vs FM ${c.fmFirst}`))
   process.exit(0)
 }
 main().catch(e => { console.error(e); process.exit(1) })
