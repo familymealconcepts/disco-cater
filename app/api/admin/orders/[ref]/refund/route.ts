@@ -3,7 +3,7 @@ import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { sql } from '../../../../../../lib/db'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
-import { sendCustomerRefundNotification } from '../../../../../../lib/email/notifications'
+import { sendOrderRefundEmail } from '../../../../../../lib/order/refund-email'
 import { cancelDelivery } from '../../../../../../lib/expedite'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -138,27 +138,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         console.log('[admin/orders/refund] expedite cancel:', result.success ? 'ok' : result.error)
       }
 
-      if (o.customer_email) {
-        try {
-          const rc = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${o.restaurant_reference} LIMIT 1`) as { name: string | null }[]
-          await sendCustomerRefundNotification({
-            to: o.customer_email,
-            firstName: o.customer_first_name || '',
-            lastName: o.customer_last_name || undefined,
-            orderNumber: o.order_number ?? o.reference,
-            refundAmount: amount,
-            businessName: rc[0]?.name || o.restaurant_name || 'the restaurant',
-            orderTotal: nativeRow.total > 0 ? nativeRow.total : undefined,
-            totalRefunded: totalRefund,
-            isPartial: newStatus === 'PARTIAL_REFUND',
-            orderProceeding: newStatus !== 'PARTIAL_REFUND'
-              ? undefined
-              : !CANCELLED_BEFORE_REFUND.has(nativeRow.priorStatus),
-          })
-        } catch (e) {
-          console.error('[admin/orders/refund] refund email failed (non-fatal):', e instanceof Error ? e.message : e)
-        }
-      }
+      // DISCO-source only, via the shared helper — see lib/order/refund-email.ts.
+      await sendOrderRefundEmail({
+        orderReference: o.reference,
+        amount,
+        totalRefunded: totalRefund,
+        orderTotal: nativeRow.total,
+        isPartial: newStatus === 'PARTIAL_REFUND',
+        orderProceeding: newStatus !== 'PARTIAL_REFUND'
+          ? undefined
+          : !CANCELLED_BEFORE_REFUND.has(nativeRow.priorStatus),
+      })
     }
     return NextResponse.json({ ok: true, native: true, orderStatus: newStatus, refund: totalRefund, stripeRefundId })
   } catch (err) {

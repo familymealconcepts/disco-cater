@@ -3,7 +3,7 @@ import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
-import { sendCustomerRefundNotification } from '../../../../../../lib/email/notifications'
+import { sendOrderRefundEmail } from '../../../../../../lib/order/refund-email'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
 import { cancelDelivery } from '../../../../../../lib/expedite'
@@ -154,34 +154,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       console.log('[restaurant/orders/refund] expedite cancel:', result.success ? 'ok' : result.error)
     }
 
-    // Notify the customer of the refund (best-effort — never block the refund).
-    if (o.customer_email) {
-      try {
-        const rc = (await sql`
-          SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${o.restaurant_reference} LIMIT 1
-        `) as { name: string | null }[]
-        await sendCustomerRefundNotification({
-          to: o.customer_email,
-          firstName: o.customer_first_name || '',
-          lastName: o.customer_last_name || undefined,
-          orderNumber: o.order_number ?? reference,
-          refundAmount: amount,
-          businessName: rc[0]?.name || o.restaurant_name || 'the restaurant',
-          orderTotal: orderTotal > 0 ? orderTotal : undefined,
-          totalRefunded: totalRefund,
-          isPartial: newStatus === 'PARTIAL_REFUND',
-          // Tri-state on purpose. Only claim the order is still happening when
-          // the status before this refund says it was — a partial refund on a
-          // CANCELED/VOID order is a real case, and telling that customer their
-          // catering is still coming would be worse than saying nothing.
-          orderProceeding: newStatus !== 'PARTIAL_REFUND'
-            ? undefined
-            : !CANCELLED_BEFORE_REFUND.has(priorStatus),
-        })
-      } catch (e) {
-        console.error('[restaurant/orders/refund] refund email failed (non-fatal):', e instanceof Error ? e.message : e)
-      }
-    }
+    // Notify the customer of the refund. DISCO-source only and non-throwing
+    // inside the helper — FM emails its own customers about FM-sourced orders.
+    await sendOrderRefundEmail({
+      orderReference: reference,
+      amount,
+      totalRefunded: totalRefund,
+      orderTotal,
+      isPartial: newStatus === 'PARTIAL_REFUND',
+      // Tri-state on purpose. Only claim the order is still happening when the
+      // status before this refund says it was — a partial refund on a
+      // CANCELED/VOID order is a real case, and telling that customer their
+      // catering is still coming would be worse than saying nothing.
+      orderProceeding: newStatus !== 'PARTIAL_REFUND'
+        ? undefined
+        : !CANCELLED_BEFORE_REFUND.has(priorStatus),
+    })
 
     return NextResponse.json({ ok: true, orderStatus: newStatus, refund: totalRefund })
   } catch (err) {

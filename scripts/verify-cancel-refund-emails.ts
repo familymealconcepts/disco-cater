@@ -47,6 +47,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
 import * as notifications from '../lib/email/notifications'
 import { sendOrderCancellationEmail } from '../lib/order/cancellation-email'
+import { sendOrderRefundEmail } from '../lib/order/refund-email'
 
 let failures = 0
 const check = (label: string, ok: boolean, detail = '') => {
@@ -163,7 +164,48 @@ async function main() {
     check('no scratch rows left behind', remaining[0].n === 0, `${remaining[0].n} remain`)
   }
 
-  // ── 5. Refund variants — pure template checks, no rows needed
+    // ── 5. Refunds are DISCO-source only too ────────────────────────────────
+    // FM owns FM-sourced orders end to end — reminders, cancellations, refunds.
+    // FM emails those customers itself ("Order refund from {Restaurant}
+    // #{number}", read live from Mailgun), so Disco must not add a second.
+    console.log('\n=== refund email: source filter ===')
+    const rDisco = await makeOrder('DISCO', true); made.push(rDisco)
+    sent.length = 0
+    const rf1 = await sendOrderRefundEmail({
+      orderReference: rDisco, amount: 40, totalRefunded: 40, orderTotal: 250,
+      isPartial: true, orderProceeding: true,
+    })
+    check('a DISCO-sourced refund still sends', rf1.sent === true && sent.length === 1, `sent=${sent.length} reason=${rf1.reason}`)
+    check('   ...and it is the partial variant', /Partial refund/i.test(sent[0]?.subject || ''), sent[0]?.subject)
+
+    const rFm = await makeOrder('FAMILYMEAL', true); made.push(rFm)
+    sent.length = 0
+    const rf2 = await sendOrderRefundEmail({
+      orderReference: rFm, amount: 40, totalRefunded: 40, orderTotal: 250,
+      isPartial: true, orderProceeding: true,
+    })
+    check('an FM-sourced refund sends NOTHING', rf2.sent === false && sent.length === 0, `sent=${sent.length}`)
+    check('   ...for the source reason, not an error', rf2.reason === 'not-disco-source', String(rf2.reason))
+
+    // A FULL refund on an FM-sourced order is equally suppressed — the filter is
+    // on the order, not on the refund shape.
+    sent.length = 0
+    const rf3 = await sendOrderRefundEmail({
+      orderReference: rFm, amount: 250, totalRefunded: 250, orderTotal: 250, isPartial: false,
+    })
+    check('a FULL FM-sourced refund also sends nothing', rf3.sent === false && sent.length === 0, `sent=${sent.length}`)
+
+    // No direct callers of the unfiltered template remain in app code.
+    const fs = await import('node:fs')
+    const leaks: string[] = []
+    for (const f of ['app/api/restaurant/orders/[ref]/refund/route.ts',
+                     'app/api/admin/orders/[ref]/refund/route.ts',
+                     'lib/order/native-refund.ts']) {
+      if (/sendCustomerRefundNotification/.test(fs.readFileSync(f, 'utf8'))) leaks.push(f)
+    }
+    check('every refund path goes through the filtered helper', leaks.length === 0, leaks.join(', '))
+
+  // ── 6. Refund variants — pure template checks, no rows needed
   console.log('\n=== refund: full vs partial ===')
   sent.length = 0
   await notifications.sendCustomerRefundNotification({

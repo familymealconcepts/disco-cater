@@ -168,31 +168,21 @@ export async function refundNativeOrderAndRecord(args: {
     }
 
     // Best-effort, AFTER the money and the row are settled — an email failure must
-    // never make a completed refund look failed.
-    if (o.customer_email) {
-      try {
-        const { sendCustomerRefundNotification } = await import('../email/notifications')
-        const rc = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${o.restaurant_reference} LIMIT 1`) as { name: string | null }[]
-        await sendCustomerRefundNotification({
-          to: o.customer_email,
-          firstName: o.customer_first_name || '',
-          lastName: o.customer_last_name || undefined,
-          orderNumber: o.order_number ?? o.reference,
-          refundAmount: amount,
-          businessName: rc[0]?.name || o.restaurant_name || 'the restaurant',
-          orderTotal: orderTotal > 0 ? orderTotal : undefined,
-          totalRefunded: totalRefund,
-          isPartial: newStatus === 'PARTIAL_REFUND',
-          // See the note on the UPDATE above: a partial refund on an already
-          // cancelled order must not tell the customer it is still happening.
-          orderProceeding: newStatus !== 'PARTIAL_REFUND'
-            ? undefined
-            : !CANCELLED_BEFORE_REFUND.has(String(o.prior_status || '').toUpperCase()),
-        })
-      } catch (e) {
-        console.error('[native-refund] customer refund notification failed:', e instanceof Error ? e.message : e)
-      }
-    }
+    // never make a completed refund look failed. DISCO-source only; the helper
+    // owns both the filter and the recipient lookup.
+    const { sendOrderRefundEmail } = await import('./refund-email')
+    await sendOrderRefundEmail({
+      orderReference: o.reference,
+      amount,
+      totalRefunded: totalRefund,
+      orderTotal,
+      isPartial: newStatus === 'PARTIAL_REFUND',
+      // See the note on the UPDATE above: a partial refund on an already
+      // cancelled order must not tell the customer it is still happening.
+      orderProceeding: newStatus !== 'PARTIAL_REFUND'
+        ? undefined
+        : !CANCELLED_BEFORE_REFUND.has(String(o.prior_status || '').toUpperCase()),
+    })
   }
 
   return { refundId: r.refundId, newStatus, totalRefund }
