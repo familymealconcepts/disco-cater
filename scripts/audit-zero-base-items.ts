@@ -122,6 +122,14 @@ async function main() {
       `display "${dp(x.r)}"  floor ${money(x.r.floor)}  range ${money(x.r.cheapest_any)}–${money(x.r.dearest)}`))
   }
 
+  if (requiredFree.length) {
+    console.log(`\n── THE ONLY GENUINELY $0-BUYABLE SHAPE (${requiredFree.length}) ──`)
+    console.log('   Every required group on these items has only free options, so nothing')
+    console.log('   forces a paid selection. Worth a look; not a display question.')
+    requiredFree.forEach(r => console.log(
+      `   ${r.live ? 'LIVE' : '    '} ${r.restaurant.slice(0, 24).padEnd(24)} ${r.item.slice(0, 26).padEnd(26)} display "${dp(r) || '(blank)'}"  groups=${r.groups} required=${r.required_groups}`))
+  }
+
   console.log('\n── SAMPLE (flat display price vs the real floor) ──')
   flat.slice(0, 8).forEach(r => {
     const n = Number(dp(r).replace(/[$,]/g, ''))
