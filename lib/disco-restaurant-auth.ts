@@ -237,6 +237,28 @@ export async function revokeLocationAccess(email: string, restaurantReference: s
   `
 }
 
+/**
+ * How many locations this email can REACH (grant rows). The portal shell gates
+ * its multi-location UI on this rather than on role: reach is a property of the
+ * grant table, and a person can legitimately hold role ADMIN and still be
+ * granted several locations — which is exactly how Barbara Coultas ended up
+ * unable to see the second Gracious location she had a grant for.
+ *
+ * Never throws; 0 on any failure, which degrades to the single-location shell.
+ */
+export async function countLocationAccess(email: string): Promise<number> {
+  const e = (email || '').trim()
+  if (!e) return 0
+  try {
+    const rows = (await sql`
+      SELECT COUNT(*)::int AS n FROM disco_restaurant_location_access WHERE account_email = ${e}
+    `) as Array<{ n: number }>
+    return rows[0]?.n ?? 0
+  } catch {
+    return 0
+  }
+}
+
 // An account's home/original location — the restaurant_reference on its
 // disco_restaurant_accounts row. Never removable from location access.
 export async function getHomeLocationRef(email: string): Promise<string | null> {
@@ -272,14 +294,34 @@ export async function getDiscoGroupAccounts(businessName: string | null, email: 
     // Explicit access wins (disco_restaurant_location_access). One row per access
     // entry (la is UNIQUE per email+ref); name comes from the restaurant cache.
     try {
+      // ONE ROW PER GRANT. The previous version joined
+      // disco_restaurant_accounts on restaurant_reference to test archived_at —
+      // but that column is NOT unique there (Atlanta Bread Asheville has 9
+      // account rows), so every grant was multiplied by the number of account
+      // rows at that location: Cory's 6 DeCheco's grants returned 7 rows, and
+      // kjp@atlantabread.com's 9 returned 24, with Asheville repeated 8 times.
+      // /api/restaurant/locations happened to survive it by de-duping refs into
+      // a Set, but any caller that counts or iterates this list (dashboard
+      // sale-stats, report scope) was reading inflated data.
+      //
+      // Archive is now tested where archive actually lives — a RESTAURANT is
+      // archived via disco_restaurant_overrides.archived_at (see
+      // lib/disco-restaurant-archive.ts, and the marketplace feed which uses the
+      // same column). disco_restaurant_accounts.archived_at describes one
+      // ACCOUNT, so another person's archived account at the same location was
+      // never a reason to hide that location from this person.
       const access = (await sql`
         SELECT la.id AS id, ${e} AS email, la.restaurant_reference AS restaurant_reference,
                COALESCE(c.name, '') AS restaurant_name,
                NULL AS business_name, 'SYSTEM_ADMIN' AS role
         FROM disco_restaurant_location_access la
         LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = la.restaurant_reference
-        LEFT JOIN disco_restaurant_accounts acc ON acc.restaurant_reference = la.restaurant_reference
-        WHERE la.account_email = ${e} AND acc.archived_at IS NULL
+        WHERE la.account_email = ${e}
+          AND NOT EXISTS (
+            SELECT 1 FROM disco_restaurant_overrides o
+            WHERE o.restaurant_reference = la.restaurant_reference
+              AND o.archived_at IS NOT NULL
+          )
         ORDER BY la.id ASC
       `) as DiscoGroupAccount[]
       if (access.length) return access

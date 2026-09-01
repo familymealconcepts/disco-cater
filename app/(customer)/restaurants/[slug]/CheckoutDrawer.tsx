@@ -770,7 +770,9 @@ export default function CheckoutDrawer({
     // here instead, keeping them in the cart/checkout flow (Item 5).
     // Direct entry skips this entirely: the restaurant admin is authenticated
     // via the restaurant cookie, not the customer AuthContext.
-    if (!isDirectEntry && !authUser) { setWaitingForAuth(true); openAuthModal(() => {}, 'login'); return }
+    // 'signup' for the same reason as the startCheckout gate in RestaurantClient:
+    // this is the checkout path, where the first-time customer is the common case.
+    if (!isDirectEntry && !authUser) { setWaitingForAuth(true); openAuthModal(() => {}, 'signup'); return }
 
     try {
       // Reuses the draft from the review-step preview if one exists (no

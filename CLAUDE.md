@@ -104,6 +104,82 @@ Extracted from Sanity `orderUrl`:
 7. Never paste API keys into chat or code — use env vars only
 8. Sanity mutations use `createOrReplace`, not `publish`
 
+## Who can see which restaurants (READ BEFORE TOUCHING ANY MULTI-LOCATION CODE)
+
+This model has now caused **five** separate bugs: the invite mechanism reading the
+designated-admin field; grants written from a self-reported `managedRestaurants`
+array; the Bulk Menu Editor reading the FM session only; Barbara Coultas seeing
+one of her two Gracious locations (2026-09-01); and, found in the same pass, six
+Atlanta Bread admins with 8 grants each seeing one location. Every one of them
+was the same mistake in a different file.
+
+### The domain model
+
+A **location has one or more admins**. An owner may hold every location. A
+regional manager holds a subset the owner grants them. FM models this properly.
+The FM restaurant object's `admin` field is **one designated contact, not the
+set** — Gracious Garden District's `admin` is empty while Uptown's is Barbara,
+and she runs both. Never derive reach from it.
+
+**Role and reach are independent.** Role says what a person may DO at a location.
+Reach says WHICH locations they can touch. A person can be `ADMIN` and hold eight
+grants; that is not a contradiction and must not be treated as one.
+
+### The three tables
+
+- **`disco_restaurant_accounts` is the credentials table.** One row per human,
+  `UNIQUE(email)`. Its `restaurant_reference` is an **anchor for default
+  context** — where the portal drops them on login — and is **NOT** the set of
+  locations they can reach. `role` lives here, and `is_disco_native` on this row
+  is stale and unreliable (the authoritative one is on `disco_restaurant_cache`).
+- **`disco_restaurant_location_access` is the ONLY source for reach.** One row
+  per person per restaurant, `UNIQUE(account_email, restaurant_reference)`. Note
+  it keys on **email**, not `account_id`.
+- **`disco_restaurant_cache` / `disco_restaurant_overrides`** hold the
+  restaurant. A restaurant's archive lives in `disco_restaurant_overrides
+  .archived_at` (see `lib/disco-restaurant-archive.ts`);
+  `disco_restaurant_accounts.archived_at` describes one ACCOUNT and says nothing
+  about the location.
+
+Sentinel `stripe-import+{ref}@familymeal.com` rows exist in the credentials table
+for locations with no real admin, so a future admin has a row to accept an invite
+onto. They are **never recipients of anything** — not invites, not notifications,
+not reports.
+
+### The rule
+
+**Any code answering "which restaurants can this person see" reads the grant
+table.** Reading the anchor is the bug, and it has happened repeatedly.
+
+Use `getLocationAccessRefs(email)` for the ref set, `getDiscoGroupAccounts(businessName, email)`
+for the enriched list, and `countLocationAccess(email)` when you only need "how
+many" (all in `lib/disco-restaurant-auth.ts`).
+
+### Three traps that have each cost a real bug
+
+1. **Do not gate multi-location UI on role.** `app/(restaurant)/restaurant/(portal)/layout.tsx`
+   used `isSystemAdmin` to decide `inRestaurantUserView`, and `RESTAURANT_USER_NAV`
+   has no Locations entry — so an `ADMIN` with two grants was never offered a
+   location list and nothing ever called a resolver. Her grants were correct the
+   whole time. Gate on `isMultiLocationUser` (`isSystemAdmin || locationAccessCount > 1`).
+
+2. **An FM-session user has NO Disco identity.** `getRestaurantAuthContext()`
+   returns `authType: 'fm'` with **`email: ''`** and `restaurantReference: ''`.
+   Every resolver above returns empty for a blank email — deliberately, so a
+   non-Disco user is never blocked — so a grant lookup silently yields nothing.
+   If reach matters on a path an FM-session user can reach, handle that case
+   explicitly rather than letting it fall through to home-only. (Same root as the
+   `ctx.restaurantReference` blank-for-FM family of bugs.)
+
+3. **Never join `disco_restaurant_accounts` on `restaurant_reference`.** It is
+   not unique there — Atlanta Bread Asheville has 9 account rows. A `LEFT JOIN`
+   on it to test `archived_at` multiplied every grant by the account-row count:
+   Cory's 6 DeCheco's grants returned 7, and kjp@atlantabread.com's 9 returned
+   24 with Asheville repeated 8 times. `/api/restaurant/locations` survived only
+   because it de-duped into a `Set`; anything counting or summing the list was
+   reading inflated data. Test the restaurant's archive with `NOT EXISTS` against
+   `disco_restaurant_overrides`.
+
 ## Browser verification with Playwright (READ THIS BEFORE SAYING YOU CAN'T)
 
 **Playwright is already installed and working in this repo.** No install step.

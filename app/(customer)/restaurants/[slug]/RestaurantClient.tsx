@@ -427,7 +427,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const [addrValidating, setAddrValidating] = useState(false)
   const [addrValidated, setAddrValidated] = useState(false)
   const [addrError, setAddrError] = useState('')
-  const [addrFee, setAddrFee] = useState<number | null>(null)
 
   // Legacy picker state (kept for backwards compat — openPicker still callable)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -723,7 +722,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // ── Address validation ────────────────────────────────────────────────────
   async function validateDeliveryAddr(details: AddrDetails) {
     if (!fmRef) return
-    setAddrValidating(true); setAddrError(''); setAddrValidated(false); setAddrFee(null)
+    setAddrValidating(true); setAddrError(''); setAddrValidated(false)
     try {
       // FM contract (doordash.service.ts checkValidate): nested deliveryAddress
       // with lat/lng + deliveryInstructions, plus restaurantReference and the
@@ -750,7 +749,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       const data = await res.json()
       if (res.ok && data.error == null && data.valid !== false) {
         setAddrValidated(true)
-        setAddrFee(data.deliveryFee ?? data.fee ?? null)
       } else {
         setAddrError('Delivery not available at this address')
       }
@@ -783,7 +781,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
     }
     setTempType(types.includes('PICKUP') ? 'PICKUP' : 'DELIVERY')
-    setAddrValidated(false); setAddrError(''); setAddrFee(null)
+    setAddrValidated(false); setAddrError('')
     setCalOpen(false)
   }
 
@@ -823,7 +821,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     setDeliveryAddrLine('')
     setDeliveryAddrDetails(null)
     setDeliveryAddr2(''); setDeliveryInstr('')
-    setAddrValidated(false); setAddrError(''); setAddrFee(null)
+    setAddrValidated(false); setAddrError('')
     if (first) {
       const d = new Date(first + 'T12:00:00')
       setCalYear(d.getFullYear()); setCalMonth(d.getMonth())
@@ -1209,7 +1207,13 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   function startCheckout(closeMobileCart: boolean) {
     if (!canCheckout) return
     if (!user && !isDirectEntry) {
-      openAuthModal(() => proceedToCheckout(closeMobileCart), 'login')
+      // 'signup', not 'login': at checkout the first-time customer is the common
+      // case — most people ordering catering from a restaurant's page have never
+      // used Disco Cater. Log In stays one click away in the modal's own tabs.
+      // Every OTHER entry point (GlobalHeader, fullmap, FavoriteHeart, the ?login
+      // query param) deliberately still opens on 'login': someone who clicked
+      // "Log In" wants Log In.
+      openAuthModal(() => proceedToCheckout(closeMobileCart), 'signup')
       return
     }
     proceedToCheckout(closeMobileCart)
@@ -2229,10 +2233,16 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   {addrValidated && !addrValidating && <span style={{ position: 'absolute', right: 10, color: '#22C55E', fontSize: 16, fontWeight: 700 }}>✓</span>}
                 </div>
                 {addrError && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 5 }}>{addrError}</div>}
-                {addrValidated && (addrFee != null
-                  ? <div style={{ fontSize: 12, color: '#22C55E', marginTop: 5 }}>Delivery fee: {formatPrice(addrFee)}</div>
-                  : <div style={{ fontSize: 12, color: '#888', marginTop: 5 }}>Delivery fee calculated at checkout</div>
-                )}
+                {/* NO DELIVERY FEE HERE, DELIBERATELY. This modal opens before the
+                    cart exists, and validate-address is called with no subtotal, so
+                    a third-party menu's fee (15% of subtotal, capped at $85) came
+                    back as $0.00 — rendering "Delivery fee: $0.00", which reads as
+                    free delivery. An own-delivery menu has a flat fee so its number
+                    happened to be right, but showing a fee for one delivery type and
+                    not the other is worse than showing neither. The fee belongs in
+                    the Order Summary panel and at checkout, where a real subtotal
+                    exists — see previewDelivery. The ✓ / error states above stay:
+                    the customer still needs to know if they're out of radius. */}
                 {/* Apt/suite (line 2) + delivery instructions — optional, no re-validation needed. */}
                 <input
                   value={deliveryAddr2}
