@@ -164,6 +164,40 @@ const fetchFmRestaurantByRef = cache(async (ref: string): Promise<FmRestaurantLo
   }
 })
 
+// THE ANNOUNCEMENT BANNER, and the only place FM publishes it.
+//
+// A restaurant's ordering constraints — notice period, order minimum, delivery
+// radius — are free text on this endpoint, and FM renders them across the top of
+// its storefront. Disco showed nothing: the native branch reads `announcement`
+// from disco_restaurant_overrides, and the FM branch never read it at all, so
+// 277 FM-backed restaurants (151 live) published constraints their Disco
+// customers could not see. Found by diffing the two rendered pages for Veselka
+// (scripts/compare-fm-disco.mjs).
+//
+// NOT SESSION-WALLED, despite living next to fields that are: this is
+// /public-api and answers anonymously for every restaurant, converted or not.
+//
+// `announcement` is the ONLY field taken from here. enableMenuSearch and
+// deliveryOrderTimeWindows ride along on the same payload but are already read
+// correctly from /public-api/restaurants/{ref} below and agree with these —
+// checked on Apollo Bagels - FiDi, where both report deliveryOrderTimeWindows
+// '30_min'. Reading them twice would just be a second source to drift.
+interface FmFeesAndTips { announcement?: string | null }
+const fetchFmAnnouncement = cache(async (ref: string): Promise<string | null> => {
+  try {
+    const res = await fetch(`${FM}/public-api/restaurants/${ref}/feesAndTips`, {
+      headers: { Accept: 'application/json' },
+      next: { revalidate: 3600 },
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as FmFeesAndTips
+    const a = typeof data?.announcement === 'string' ? data.announcement.trim() : ''
+    return a || null
+  } catch {
+    return null
+  }
+})
+
 // Resolve a restaurant's FM address object from an FM slug (business lookup →
 // ref → by-ref detail). cache()d on the slug so metadata + render share it.
 const resolveFmAddress = cache(async (fmSlug: string): Promise<FmRestaurantLookup['address'] | null> => {
@@ -671,6 +705,7 @@ export async function RestaurantView({
 
   // Address comes from the by-reference detail (business-by-slug has none).
   const fmDetail = await fetchFmRestaurantByRef(fmRestaurant.reference)
+  const fmAnnouncement = await fetchFmAnnouncement(fmRestaurant.reference)
   const fmFullAddress = formatFullAddress(fmDetail?.address)
   const rawMenuData = await fetchMenuData(fmRestaurant.reference)
   // FM-BACKED RESTAURANTS GET THE SAME TREATMENT AS NATIVE ONES. Disco does not
@@ -727,6 +762,9 @@ export async function RestaurantView({
         restaurantSettings={{
           enableMenuSearch: fmDetail?.enableMenuSearch,
           deliveryOrderTimeWindows: fmDetail?.deliveryOrderTimeWindows,
+          // See fetchFmAnnouncement — the FM branch never read this, so an
+          // FM-backed restaurant's ordering constraints were invisible on Disco.
+          announcement: fmAnnouncement ?? undefined,
         }}
       />
     </>

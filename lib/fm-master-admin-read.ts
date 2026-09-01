@@ -208,6 +208,42 @@ async function auditRead(detail: AuditDetail): Promise<void> {
   }
 }
 
+/**
+ * Audit a master-password use that did NOT go through readWalledFields — the
+ * browser path (scripts/fm-browser-session.mjs) being the reason this exists.
+ *
+ * A screenshot session that signs in as a restaurant admin is the same act as an
+ * API read: it uses FM_MASTER_PASSWORD in place of someone's real password. It
+ * must leave the same record, under the same `action`, or the audit trail
+ * quietly stops being the answer to "who used the master password". `via`
+ * distinguishes the two without splitting the action.
+ */
+export async function auditMasterPasswordUse(args: {
+  adminEmail: string
+  restaurantReference?: string | null
+  via: 'browser' | 'api' | string
+  ok: boolean
+  reason: string
+  extra?: Record<string, unknown>
+}): Promise<void> {
+  try {
+    await ensureAuditTable()
+    await sql`
+      INSERT INTO disco_admin_audit (action, restaurant_reference, actor_email, detail)
+      VALUES (
+        'FM_MASTER_PASSWORD_READ',
+        ${args.restaurantReference || null},
+        ${args.adminEmail},
+        ${JSON.stringify({ via: args.via, ok: args.ok, reason: args.reason, ...(args.extra || {}) })}::jsonb
+      )
+    `
+  } catch (e) {
+    console.error('[fm-master-admin-read] FAILED to write audit entry for a master-password use:', {
+      adminEmail: args.adminEmail, via: args.via, restaurant: args.restaurantReference,
+    }, e instanceof Error ? e.message : e)
+  }
+}
+
 // ── FM calls: login, switch, and the three reads ─────────────────────────────
 // Every one of these is a GET, or the /login call needed to obtain a token, or
 // the explicitly-permitted selection switch — never a write to restaurant data.
