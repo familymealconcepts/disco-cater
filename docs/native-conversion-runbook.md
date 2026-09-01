@@ -452,7 +452,8 @@ re-deriving the reasoning each time:
 | Hidden/inactive menu items | AUTO | Supplementary heuristic pass |
 | Item landed via last-resort fallback placement | NOTE | First fired on conversion 8 (Bird & Co., 2026-08-26) after 7 clean ones — see "The last-resort fallback has now fired" in Background |
 | Marketplace visibility unset | NOTE | Already set by normal onboarding; `is_live` computed either way, never forced (fixed 2026-08-19) |
-| `online_ordering_enabled` on, zero orders so far | NOTE | Never auto-correct or propose flipping this flag — it's set by us intentionally. A restaurant with no orders yet is just a restaurant that hasn't had an order yet, not a misconfiguration. Confirmed with Peter 2026-08-19 re: Aztec Dave's Cantina and Tom Toms Italian (both live, Stripe-connected, zero orders, no FM link) — leave alone. |
+| `online_ordering_enabled` on, zero orders so far | NOTE | Never auto-correct or propose flipping this flag **on a DISCO-NATIVE restaurant** — it's set by us intentionally. A restaurant with no orders yet is just a restaurant that hasn't had an order yet, not a misconfiguration. Confirmed with Peter 2026-08-19 re: Aztec Dave's Cantina and Tom Toms Italian (both live, Stripe-connected, zero orders, no FM link) — leave alone. **Scope narrowed 2026-09-01:** on an FM-BACKED restaurant the flag is a mirror with no authority of its own and IS auto-corrected from FM every 15 minutes — see "`online_ordering_enabled` is a mirror before conversion". |
+| `online_ordering_enabled` false on an FM-backed restaurant | AUTO | Was the single most common false BLOCKER at conversion: 4,224 FM-backed rows carried a bulk-import `false` and 296 of them actively disagreed with FM, 186 of those taking real orders. Fixed at the source 2026-09-01 — the mirror cron corrects it before you ever reach the readiness gate. If it's still false, FM says false too, and that is a real answer. |
 | Bare FM orders | NOTE | Background hygiene, not conversion-specific |
 | Order-history backfill fails | AUTO (was a false BLOCKER) | Usually the now-fixed timeout, not real FM downtime |
 | Per-restaurant admin never invited | AUTO | Fixed — real login-state check |
@@ -1540,6 +1541,88 @@ the Disco side afterwards. Offering MORE than FM is the dangerous direction — 
 lets a customer book something the restaurant cannot serve. That is why a
 genuinely crossing pickup window (12:00→02:00) still yields nothing on Disco:
 FM yields nothing for it too.
+
+### 4a. `online_ordering_enabled` is a MIRROR before conversion (2026-09-01)
+
+The first column found to violate §4 in the data rather than in the code, and
+the reason both Gracious Bakery & Cafe locations reported not-ready with FM
+saying they were fine.
+
+`disco_restaurant_overrides.online_ordering_enabled` was added as "a Disco-side
+mirror of FM's `onlineOrderingAllowed`" (`lib/db.ts`) and then nothing ever
+mirrored it. The bulk import wrote `false` fleet-wide — note it wrote a *value*
+rather than leaving the column's `DEFAULT true` unset, which is why the
+false-dominance never looked anomalous — and after that the only writers were
+humans clicking a toggle.
+
+**The rule, stated plainly.** While a restaurant is FM-backed the flag has no
+authority of its own: FM owns it and Disco mirrors it. The moment
+`convertToNative` sets `is_disco_native = true`, Disco owns it permanently and
+nothing may overwrite it from FM again. `is_disco_native` is the guard, and it is
+the same flag every existing gate already branches on.
+
+**Measured before the fix** (4,382 FM restaurants, 4,052 comparable):
+
+| | count |
+|---|---|
+| agree | 3,727 |
+| FM true, Neon false — the seed artifact | 296 (186 take real orders) |
+| FM false, Neon true — the dangerous direction | 29 (none native, 11 take real orders, 4 blocked on FM) |
+
+**Why correcting an FM-backed row is inert.** No FM-backed gate reads this
+column. `lib/restaurant-orderable.ts` only suppresses ordering when
+`isDiscoNative && onlineOrderingEnabled === false`, and
+`lib/marketplace-restaurants.ts` applies a deliberate 2-part rule to FM-backed
+rows for exactly this reason. So a flip in either direction changes nothing a
+customer can see *today*. What it changes is conversion: `native-conversion.ts`'s
+readiness gate reads `online_ordering_enabled !== false`, so a stale `false` is
+what makes a healthy FM restaurant report not-ready.
+
+**Shipped:** `lib/online-ordering-mirror.ts`, run by
+`/api/cron/mirror-online-ordering` at `5,20,35,50 * * * *`. Verify or preview
+with `npx tsx scripts/verify-online-ordering-mirror.ts` (add `--apply` to write).
+Applied once over the fleet on 2026-09-01: 325 rows corrected, then 4,026/4,026
+agreeing on the next pass.
+
+**Two design constraints, both learned the hard way.**
+
+1. It reads `disco_restaurant_admin_list_cache.raw`, not FM. That table already
+   holds FM's raw admin-list JSON for all 4,382 restaurants and
+   `refresh-restaurant-admin-list` rebuilds it every 15 minutes, so the mirror is
+   a Neon-to-Neon `UPDATE`: no FM call, no auth, no timeout. The cron is offset
+   past each quarter hour so it reads a freshly rebuilt cache instead of racing
+   the refresh.
+2. **It must NOT be folded into `sync-restaurants`.** That cron is daily, not
+   every 15 minutes, and its upsert only writes `disco_restaurant_cache`. Worse,
+   `lib/restaurant-cache.ts`'s `normalize()` drops every non-ACCEPTED or blocked
+   row — and FM couples `blocked` to `onlineOrderingAllowed` bidirectionally, so a
+   mirror living in that loop would fix the safe direction and silently skip the
+   risky one. The raw cache is unfiltered, which is what makes it correct.
+
+### 4b. Other columns with the same shape — and the one that must NOT be synced
+
+`online_ordering_enabled` was found by accident, so the whole overlap between
+`disco_restaurant_overrides` and FM's authoritative fields was swept.
+
+| column | Neon | disagrees with FM | verdict |
+|---|---|---|---|
+| `money_flow` | DIRECT 4,321 / NULL 78 / FAMILY_MEAL 40 | **0** | Same shape, **already solved** by `lib/money-flow-reconcile.ts` + a daily cron. The precedent the mirror above copies, and the proof the pattern converges once someone builds the reconciler. |
+| `nash_allowed` | `false` on all 4,439 | 777 | Same shape — but Nash is defunct (dlivrd is the courier). Dead weight. Record, don't sync. |
+| `shipday_enabled` | `false` on all 4,439 | 9 | Same shape, small, no consumer. |
+| `lead_gen_one_pct` / `lead_gen_two_pct` | `15.00` / `5.00` on 4,438 of 4,439 | **3,906 of 4,036** | **Looks identical and must NEVER be synced.** |
+
+**The lead-gen row is a trap and is written down so the next sweep doesn't
+"fix" it.** FM's real distribution is 15/3 on 3,729 restaurants and 0/0 on 394,
+so Neon's fleet-wide 15/5 disagrees with FM almost everywhere — on a *fee*
+column. It is nonetheless correct: per the Bird & Co. conversion (2026-08-26),
+Disco's 15/5 is Disco's OWN rate structure and is deliberately never reconciled
+to FM. A future audit will find 3,906 disagreements on a money column and
+reasonably conclude it's broken. It isn't.
+
+The general lesson: the surface signature "uniform value in Neon, varied value
+in FM, nothing syncing it" identifies a *candidate*, not a bug. What separates
+`online_ordering_enabled` from `lead_gen_*_pct` is whether the column is a mirror
+of FM's decision or a statement of Disco's own.
 
 ### 5. Cancellations and refunds need customer emails
 

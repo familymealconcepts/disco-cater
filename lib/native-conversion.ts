@@ -136,7 +136,29 @@ async function resolveNativeRef(ref: string): Promise<string> {
 
 // Resolve the connected-account id Disco has stored for this restaurant (native or
 // the FM bridge), preferring a completed one.
+//
+// READS BOTH LOCATIONS, and the order matters. The Stripe columns moved from
+// disco_restaurant_accounts to disco_restaurant_overrides on 2026-08-20 —
+// importRestaurantStripeAccount has written only to overrides ever since — but
+// this function kept reading the OLD table alone. The consequence was silent and
+// reporting-only: checkConversionReadiness called 21 of 53 real native
+// restaurants "not linked" while they were linked and live, including Bird & Co.
+// and five Atlanta Bread locations. is_live was never affected because the
+// marketplace feed reads overrides.stripe_connected, not this.
+//
+// OVERRIDES FIRST because it is the current writer, then the account row as a
+// fallback: 28 restaurants converted before the migration still carry the id
+// ONLY on the account row, so dropping that arm would break those instead. 21
+// carry it only on overrides and 0 only on accounts, so the fallback is for
+// history rather than for anything new. It can go once those 28 are backfilled.
 async function storedAccountId(ref: string): Promise<string | null> {
+  const fromOverrides = (await sql`
+    SELECT stripe_account_id FROM disco_restaurant_overrides
+    WHERE restaurant_reference = ${ref} AND stripe_account_id IS NOT NULL
+    LIMIT 1
+  `.catch(() => [])) as { stripe_account_id: string | null }[]
+  if (fromOverrides[0]?.stripe_account_id) return fromOverrides[0].stripe_account_id
+
   const rows = (await sql`
     SELECT stripe_account_id FROM disco_restaurant_accounts
     WHERE (restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref}) AND stripe_account_id IS NOT NULL

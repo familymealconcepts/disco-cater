@@ -39,6 +39,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/mirror-online-ordering",
+      "schedule": "5,20,35,50 * * * *"
+    },
+    {
       "path": "/api/cron/sync-restaurants",
       "schedule": "0 5 * * *"
     },
