@@ -489,11 +489,19 @@ export async function ensureRestaurantLoginInvited(ref: string, restaurantName: 
   return { invited: sent.success, email, reason: sent.success ? 'Invited — no prior working login existed.' : 'Invite email failed to send (login was still created/upgraded).' }
 }
 
+/**
+ * `created_by` for an account the conversion creates. A sentinel rather than a
+ * human's email on purpose — see the INSERT in inviteFmAuthorizedUsersFor.
+ */
+export const CREATED_BY_CONVERSION = 'fm-authorized-users-sync'
+
 export interface AuthorizedUserInviteResult {
   email: string
   invited: boolean       // a NEW account+invite was created this call (false if one already existed)
   grantedRefs: string[]  // restaurant_reference values granted/synced this call (idempotent)
   reason: string
+  /** Why no grant was written, when grantedRefs is empty. Null when one was. */
+  grantHeld: string | null
 }
 
 // Replaces the old SYSTEM_ADMIN-only invite loop. Reads FM's REAL Authorized
@@ -520,13 +528,45 @@ export interface AuthorizedUserInviteResult {
 // never affect another's, or the conversion itself — same non-blocking
 // contract as ensureRestaurantLoginInvited and the notification/closed-days/
 // promo-code carry-over steps.
+/**
+ * The email FM names as THIS restaurant's designated admin — the only
+ * per-restaurant naming FM exposes live (see the grant filter below for why
+ * that matters). Reads disco_restaurant_admin_list_cache first, which holds
+ * FM's raw admin-list JSON for every restaurant and is rebuilt every 15
+ * minutes, so this normally costs zero FM calls; falls back to the live
+ * per-restaurant endpoint when the cache has no row yet (a brand-new
+ * restaurant). Returns null rather than throwing — a lookup failure must hold
+ * grants, never widen them.
+ */
+async function designatedAdminEmailFor(ref: string): Promise<string | null> {
+  const cached = (await sql`
+    SELECT LOWER(raw->'admin'->>'email') AS email, raw->'admin'->>'enabled' AS enabled
+    FROM disco_restaurant_admin_list_cache WHERE restaurant_reference = ${ref} LIMIT 1
+  `.catch(() => [])) as { email: string | null; enabled: string | null }[]
+  if (cached.length) {
+    if (cached[0].enabled === 'false') return null
+    return cached[0].email || null
+  }
+  try {
+    const auth = await getFmServiceAuthHeader()
+    const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' })
+    if (!res.ok) return null
+    const d = await res.json().catch(() => null) as { admin?: { email?: string; enabled?: boolean } } | null
+    if (!d?.admin?.email || d.admin.enabled === false) return null
+    return d.admin.email.trim().toLowerCase()
+  } catch {
+    return null
+  }
+}
+
 export async function inviteFmAuthorizedUsersFor(
   ref: string,
   restaurantName: string | null,
   walled?: FmWalledFieldsResult,
+  opts?: { actorEmail?: string | null },
 ): Promise<AuthorizedUserInviteResult[]> {
   if (!walled?.ok) {
-    return [{ email: '', invited: false, grantedRefs: [], reason: walled?.reason || 'No master-password read available — cannot read FM’s Authorized Users list for this restaurant.' }]
+    return [{ email: '', invited: false, grantedRefs: [], grantHeld: 'No FM read.', reason: walled?.reason || 'No master-password read available — cannot read FM’s Authorized Users list for this restaurant.' }]
   }
   if (!walled.authorizedUsers) {
     // Confirmed real (2026-08-20, Francesca Catering x2, The Winkin' Rooster):
@@ -535,10 +575,37 @@ export async function inviteFmAuthorizedUsersFor(
     // restaurant whose only admin is role=ADMIN has no Authorized Users
     // concept in FM at all (their one ensureRestaurantLoginInvited invite is
     // already everyone), so this is expected, not a failure to chase.
-    return [{ email: '', invited: false, grantedRefs: [], reason: 'FM returned no Authorized Users for this restaurant — expected when the resolved admin is role=ADMIN (single-location; the endpoint requires SYSTEM_ADMIN), not necessarily a failure.' }]
+    return [{ email: '', invited: false, grantedRefs: [], grantHeld: 'No Authorized Users list.', reason: 'FM returned no Authorized Users for this restaurant — expected when the resolved admin is role=ADMIN (single-location; the endpoint requires SYSTEM_ADMIN), not necessarily a failure.' }]
   }
 
   const covering = walled.authorizedUsers.filter(a => a.enabled !== false && !!a.email)
+
+  // ── THE GRANT FILTER (interim rule, Peter 2026-09-01) ─────────────────────
+  // INVITE everyone FM returns; GRANT only this restaurant's designated admin.
+  //
+  // FM's Authorized Users endpoint OVER-REPORTS: it returns the whole CHAIN's
+  // users for every location, not that location's. Proven — for Atlanta Bread
+  // Alpharetta it returns 7 users and ZERO of them are assigned to Alpharetta
+  // in FM's own tbl_system_admin_restaurants. Believing it is what produced 84
+  // excess grant rows across 16 people, 52% of the whole grant table.
+  //
+  // Note what this does NOT do: it does not grant on `a.role === 'ADMIN'`.
+  // That reads like it would satisfy "FM names them as its ADMIN", but the list
+  // is chain-wide, so an ADMIN-role entry is not FM naming them as THIS
+  // restaurant's admin — southcobb@atlantabread.com is exactly that case. He is
+  // a real ADMIN of Smyrna alone, yet appears in all eight Atlanta Bread reads,
+  // and granting on role is precisely how he ended up with 8 grants. The
+  // designated `admin` field is the only per-restaurant naming FM exposes live,
+  // so it is the only thing used here.
+  //
+  // Holding a grant costs an ADMIN nothing: role gates reach, and an ADMIN's
+  // reach is their own location via disco_restaurant_accounts.restaurant_reference
+  // regardless of grant rows (see CLAUDE.md, "Who can see which restaurants").
+  // SYSTEM_ADMIN grants are held for explicit assignment — a super admin on
+  // /admin/manage-admins, or an existing SYSTEM_ADMIN on the portal's Authorized
+  // Users page assigning locations they themselves hold. See the runbook's
+  // "Grants at conversion" and "Who assigns SYSTEM_ADMIN locations" sections.
+  const designatedAdmin = await designatedAdminEmailFor(ref)
 
   const results: AuthorizedUserInviteResult[] = []
   for (const a of covering) {
@@ -593,9 +660,25 @@ export async function inviteFmAuthorizedUsersFor(
         reason = sent.success ? 'Existing account had never been invited — invited now.' : 'Existing account found; invite email failed to send.'
       } else {
         const sentinelHash = bcrypt.hashSync(randomUUID(), 10) // overwritten when the invite is accepted
+        // created_by records WHAT caused this account to exist. It was never set
+        // before, which is why all 21 pre-existing SYSTEM_ADMIN accounts are
+        // invisible to every peer's Authorized Users page and only a super admin
+        // can assign them.
+        //
+        // A SENTINEL, NOT AN EMAIL, deliberately. This column is load-bearing for
+        // AUTHORITY, not just provenance: /api/restaurant/team lists users
+        // `WHERE created_by = ctx.email` and the edit route guards on the same
+        // thing, so any value that could ever equal a portal session's email
+        // silently hands that person edit rights over every account this ever
+        // created. There is no `peter@familymeal.com` row in
+        // disco_restaurant_accounts today, but writing a real email here would
+        // make that a latent grant waiting for someone to create one. The
+        // sentinel can never match a session email. Who ran the conversion is
+        // already recorded in disco_admin_audit as CONVERTED_TO_NATIVE with the
+        // actor, so provenance is not lost.
         await sql`
-          INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, first_name, last_name, restaurant_name, role)
-          VALUES (${email}, ${sentinelHash}, ${ref}, ${ref}, ${a.firstName || null}, ${a.lastName || null}, ${restaurantName}, ${a.role || 'ADMIN'})
+          INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, first_name, last_name, restaurant_name, role, created_by)
+          VALUES (${email}, ${sentinelHash}, ${ref}, ${ref}, ${a.firstName || null}, ${a.lastName || null}, ${restaurantName}, ${a.role || 'ADMIN'}, ${CREATED_BY_CONVERSION})
         `
         const token = await setInviteToken(email)
         const sent = await sendTeamMemberInvite({
@@ -605,15 +688,26 @@ export async function inviteFmAuthorizedUsersFor(
           restaurantName: restaurantName || undefined,
         })
         invited = sent.success
-        reason = sent.success ? `Invited — FM Authorized User (${a.role || 'ADMIN'}) on this restaurant.` : 'Account created; invite email failed to send.'
+        reason = sent.success
+          ? `Invited — FM Authorized User (${a.role || 'ADMIN'}) on this restaurant${opts?.actorEmail ? `, by ${opts.actorEmail}` : ''}.`
+          : 'Account created; invite email failed to send.'
       }
 
-      // Only THIS restaurant — see the function header comment for why that's
-      // deliberate, not a missed opportunity to grant more from one read.
-      await grantLocationAccess(email, ref, 'fm-authorized-users-sync')
-      const grantedRefs = [ref]
+      // Only THIS restaurant, and only its designated admin — see the grant
+      // filter above.
+      const isDesignated = !!designatedAdmin && email === designatedAdmin
+      let grantedRefs: string[] = []
+      let grantHeld: string | null = null
+      if (isDesignated) {
+        await grantLocationAccess(email, ref, 'fm-authorized-users-sync')
+        grantedRefs = [ref]
+      } else if (!designatedAdmin) {
+        grantHeld = 'FM names no enabled designated admin for this restaurant — no grant written. Assign explicitly if this person needs multi-location reach.'
+      } else {
+        grantHeld = `Not this restaurant's designated admin (FM names ${designatedAdmin}). FM's Authorized Users list is chain-wide, so appearing in it is not per-restaurant membership — grant held for explicit assignment.`
+      }
 
-      results.push({ email, invited, grantedRefs, reason })
+      results.push({ email, invited, grantedRefs, grantHeld, reason })
 
       // Only pace after an actual send, not the (common) no-op branch where a usable login
       // already exists -- no reason to slow down what's already fast. This is same-restaurant
@@ -628,7 +722,7 @@ export async function inviteFmAuthorizedUsersFor(
     } catch (e) {
       // Most likely a unique-constraint collision (email in use elsewhere) —
       // flag for manual review rather than letting it affect the next admin.
-      results.push({ email, invited: false, grantedRefs: [], reason: `Threw: ${e instanceof Error ? e.message : e}` })
+      results.push({ email, invited: false, grantedRefs: [], grantHeld: 'Errored before the grant step.', reason: `Threw: ${e instanceof Error ? e.message : e}` })
     }
   }
   return results
@@ -1278,7 +1372,7 @@ export async function convertToNative(
   if (!opts?.skipInvites) {
     try {
       const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
-      authorizedUserInvites = await inviteFmAuthorizedUsersFor(readiness.restaurantReference, nameRow[0]?.name ?? null, walled)
+      authorizedUserInvites = await inviteFmAuthorizedUsersFor(readiness.restaurantReference, nameRow[0]?.name ?? null, walled, { actorEmail: opts?.actorEmail ?? null })
     } catch (e) {
       console.error(`[convertToNative] authorized-users invite step threw: ${e instanceof Error ? e.message : e}`)
     }
