@@ -1624,6 +1624,93 @@ in FM, nothing syncing it" identifies a *candidate*, not a bug. What separates
 `online_ordering_enabled` from `lead_gen_*_pct` is whether the column is a mirror
 of FM's decision or a statement of Disco's own.
 
+### 4c. Grants at conversion — the INTERIM RULE (Peter, 2026-09-01)
+
+**Why an interim.** FM's authorized-users endpoint OVER-REPORTS: it returns the
+whole CHAIN's authorized users for every location, not that location's. Proven —
+for Atlanta Bread Alpharetta it returned 7 users, all SYSTEM_ADMIN, and **zero of
+the 7** are assigned to Alpharetta in FM's own `tbl_system_admin_restaurants`.
+Reading it as membership is what produced 84 excess grant rows across 16 people
+(52% of the grant table). FM's real membership lives in the `fm_backup` snapshot
+(schema `familymeal`), which is **frozen at 2026-06-16**, and no live endpoint
+exposes it. Revyrie is gone, so there is no near-term live source.
+
+**THE RULE.** At conversion:
+
+1. **Invite from the endpoint** — it is still the right candidate list, and the
+   role reconciliation in `inviteFmAuthorizedUsersFor` (which mirrors FM's
+   per-user `role` in both directions) stays.
+2. **Grant only the restaurant being converted** — never a sibling, never the
+   chain. `inviteFmAuthorizedUsersFor` already does exactly this
+   (`grantLocationAccess(email, ref, 'fm-authorized-users-sync')`), and that is
+   correct: converting 5 locations calls it 5 times and the grants accumulate
+   one per conversion.
+3. **Grant only to people FM names as that restaurant's ADMIN or designated
+   admin.** This is the new constraint — it is what stops the chain-wide list
+   from becoming chain-wide grants.
+4. **Hold SYSTEM_ADMIN grants for explicit assignment.** A super admin or an
+   existing SYSTEM_ADMIN assigns locations they themselves hold. That is the
+   stated architecture anyway (see CLAUDE.md, "Who can see which restaurants").
+
+**Never revoke existing grants to make them match FM.** Post-conversion Disco
+owns them; a grant may be a deliberate later change. The 84 excess rows are
+deliberately left alone.
+
+### 4d. Who assigns SYSTEM_ADMIN locations, and where — BOTH SCREENS EXIST
+
+Verified working 2026-09-01. The interim does NOT create a manual step with no
+tool.
+
+**Super admin (us) — `/admin/manage-admins`**, "System Admins" in the admin nav.
+Open a system admin → location picker (filterable, sourced from
+`/api/admin/restaurant-cache/list`) → add/remove. The list itself is an FM proxy
+(`/api/admin/users/system-admin`, 364 people, server-side search over name,
+email and restaurant name), but the location editor is Neon-backed:
+`GET/POST/DELETE /api/admin/system-admins/{email}/locations`. The home location
+cannot be removed. **20 of the 21 existing Neon SYSTEM_ADMINs are findable
+there**; the one exception is `andrew+2@discocater.com`, our own test account.
+
+**An existing SYSTEM_ADMIN — `/restaurant/manage/authorized-users`**, in the
+portal nav. (The standalone `/restaurant/team` route still exists but is
+deliberately hidden from the nav — the page moved.) Add or edit a user → role
+(System Admin / Restaurant User) → location multi-select → invite email. The
+server enforces the rule: `resolveDiscoAccessScope` + `discoRefAllowed` reject
+anything outside the inviter's own set with "You can only assign locations you
+have access to", and an ADMIN can only ever mint an ADMIN, trimmed to one
+location.
+
+**THE ONE GAP, and the way around it.** A SYSTEM_ADMIN can only manage users
+**they created**: `/api/restaurant/team` lists `WHERE created_by = ctx.email`,
+and the edit route guards with `assertOwnedSubAdmin`. `inviteFmAuthorizedUsersFor`
+does not set `created_by`, so **all 21 existing SYSTEM_ADMIN accounts have
+`created_by = NULL`** and are invisible to every peer's Authorized Users page.
+Only a super admin can assign their locations.
+
+**So do this for a chain, in this order — it is far less work than it looks:**
+
+1. Convert the locations. Each SYSTEM_ADMIN ends up with an account anchored to
+   whichever location converted FIRST (the `ON CONFLICT (email) DO UPDATE` does
+   not move `restaurant_reference`) and no grants. They see that one location,
+   because `resolveDiscoAccessScope` falls back to the anchor when there are no
+   grant rows.
+2. **Pick ONE lead SYSTEM_ADMIN for the chain** and, as super admin, give them
+   the full set on `/admin/manage-admins`. For a 5-location chain that is 4
+   clicks.
+3. **Let the lead assign everyone else** from Authorized Users. Re-adding an
+   existing peer by the same email works: the POST's
+   `ON CONFLICT (email) DO UPDATE SET role, created_by = ${ctx.email}` adopts
+   them, which both grants the selected locations and makes them editable from
+   then on.
+
+For Atlanta Bread's shape (7 system admins × 8 locations) that is ~8 super-admin
+clicks instead of ~50. Doing step 2 for every person instead of one lead is the
+expensive path — avoid it.
+
+**Check before relying on step 3:** that POST also issues a fresh set-password
+invite. The account's `password_hash` is untouched so an existing login should
+keep working, but this has NOT been verified against someone who has already
+signed in. Confirm it on a test account before using it on a real operator.
+
 ### 5. Cancellations and refunds need customer emails
 
 **NOT BUILT.** Mirror FM's templates, without the FM name. Today the restaurant
