@@ -3,6 +3,7 @@ import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
+import { sendOrderCancellationEmail } from '../../../../../../lib/order/cancellation-email'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -28,7 +29,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const o = rows[0]
     if (!o) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     if (['RESERVED', 'UNPAID', 'CART'].includes(String(o.order_status))) {
-      await sql`UPDATE disco_orders SET order_status = 'CANCELED', updated_at = NOW() WHERE id = ${o.id}`
+      const upd = (await sql`
+        UPDATE disco_orders SET order_status = 'CANCELED', updated_at = NOW()
+        WHERE id = ${o.id} RETURNING reference
+      `) as { reference: string }[]
+      // Same cancellation email as /status and /void. Note this branch only ever
+      // runs for RESERVED/UNPAID/CART — never a paid order — so the helper's
+      // wasCharged check resolves to false and the email correctly says nothing
+      // about money. A paid order is rejected upstream, at the 409 below.
+      if (upd[0]) await sendOrderCancellationEmail(upd[0].reference, 'DISCO_REJECT')
       return NextResponse.json({ ok: true, orderStatus: 'CANCELED' })
     }
     return NextResponse.json({ error: 'This order is already paid — cancel it from the Refund or Void action so the customer is refunded.' }, { status: 409 })

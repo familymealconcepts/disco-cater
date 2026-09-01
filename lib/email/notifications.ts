@@ -485,6 +485,23 @@ export interface CustomerOrderCancellationParams {
   lastName?: string
   businessName: string
   businessPhone?: string
+  orderNumber?: string | number
+  /**
+   * TRUE when a SUCCEEDED payment still stands against this order.
+   *
+   * CANCELLING DOES NOT REFUND — that is a deliberate product decision, and this
+   * email must not undo it in words. It may never say "you have been refunded"
+   * or "your refund is on its way", because at the moment it is sent no money
+   * has moved and it may never move. What it can honestly say is that the
+   * restaurant will be in touch about the charge, which is true and is the
+   * customer's actual next step.
+   *
+   * Pass false and the money line is omitted entirely — correct for an order
+   * that was never charged, where mentioning a refund would only confuse.
+   */
+  wasCharged?: boolean
+  /** This refund's currency amount, only when something HAS already been returned. */
+  refundedAmount?: number
 }
 
 export async function sendCustomerOrderCancellation(
@@ -494,9 +511,24 @@ export async function sendCustomerOrderCancellation(
     const p = params
     const phone = formatPhone(p.businessPhone)
     const name = [p.firstName, p.lastName].filter(Boolean).map(escapeHtml).join(' ')
+    const orderLine = p.orderNumber != null && String(p.orderNumber).trim() !== ''
+      ? ` (order #${escapeHtml(p.orderNumber)})`
+      : ''
+
+    // Three states, and the wording differs because the customer's next action
+    // differs. Promising a refund that has not happened is the one thing this
+    // email must never do.
+    let moneyLine = ''
+    if (p.refundedAmount != null && p.refundedAmount > 0.005) {
+      moneyLine = `<p>A refund of <strong>${money(p.refundedAmount)}</strong> has been issued. Please allow a few days for the credit to reach your account, depending on your bank.</p>`
+    } else if (p.wasCharged) {
+      moneyLine = `<p>Your card was charged for this order. ${escapeHtml(p.businessName)} will be in touch about the charge — if you don't hear from them, contact them using the details below.</p>`
+    }
+
     const content = `
 <p>${name ? `${name},` : 'Hi,'}</p>
-<p>Your order was canceled. Please contact ${escapeHtml(p.businessName)} for more information.</p>
+<p>Your order${orderLine} with ${escapeHtml(p.businessName)} has been canceled.</p>
+${moneyLine}
 <p style="margin-top:28px;">ANY QUESTIONS?<br/>${escapeHtml(p.businessName)}${phone ? ` - ${escapeHtml(phone)}` : ''}</p>
 `
     return await sendEmail({
@@ -624,6 +656,25 @@ ${button('Reset your password', params.resetUrl)}
 
 // ── 7. Refund notification (no direct FM analog; simple message) ─────────────
 
+/**
+ * FULL and PARTIAL refunds read very differently to the person receiving them.
+ *
+ * Until now both sent the same sentence — "A refund of $40 has been processed" —
+ * which on a $300 order reads as complete and produces a "where is the rest of
+ * my money" reply. A partial refund is MORE confusing than a full one, not less.
+ *
+ * `isPartial` is derived from the route's own newStatus ('PARTIAL_REFUND' vs
+ * 'REFUND'), which is computed from the money, so the two can never disagree.
+ *
+ * `orderProceeding` is DELIBERATELY OPTIONAL AND TRI-STATE. A partial refund
+ * usually means the order is still going ahead, but it does NOT always: a
+ * cancelled or voided order stays refundable in the portal (that is intentional
+ * — see the cancel/refund work), so a restaurant can cancel first and refund
+ * part of the money afterwards. The caller decides by reading the order's status
+ * BEFORE the refund overwrites it. Pass undefined when it genuinely isn't known
+ * and the email simply says nothing about it — silence beats a confident wrong
+ * answer about whether someone's catering is still coming.
+ */
 export async function sendCustomerRefundNotification(params: {
   to: string
   firstName: string
@@ -631,19 +682,52 @@ export async function sendCustomerRefundNotification(params: {
   orderNumber: string | number
   refundAmount: number
   businessName: string
+  /** Whole-order total, for the partial variant's context line. */
+  orderTotal?: number
+  /** Cumulative refunded to date INCLUDING this refund. */
+  totalRefunded?: number
+  isPartial?: boolean
+  /** true = still going ahead, false = cancelled/voided, undefined = don't say. */
+  orderProceeding?: boolean
 }): Promise<{ success: boolean }> {
   try {
-    const { firstName, orderNumber, refundAmount, businessName } = params
+    const { firstName, orderNumber, refundAmount, businessName, orderTotal, totalRefunded, isPartial } = params
+    const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : 'Hi,'
+
+    let lead: string
+    let context = ''
+    if (isPartial) {
+      lead = `<p>A partial refund of <strong>${money(refundAmount)}</strong> has been issued for order #${escapeHtml(orderNumber)}.</p>`
+      // Only state figures that were actually passed. A context line assembled
+      // from defaults would be worse than none.
+      if (orderTotal != null && totalRefunded != null) {
+        const outstanding = Math.max(0, Math.round((orderTotal - totalRefunded) * 100) / 100)
+        context = `<p>Your order total was ${money(orderTotal)}. ${money(totalRefunded)} has been refunded so far, leaving ${money(outstanding)} charged.</p>`
+      }
+      if (params.orderProceeding === true) {
+        context += `<p><strong>Your order is still going ahead</strong> as scheduled — this refund is an adjustment, not a cancellation.</p>`
+      } else if (params.orderProceeding === false) {
+        context += `<p>This order has been canceled. ${escapeHtml(businessName)} will be in touch if anything further is owed.</p>`
+      }
+    } else {
+      lead = `<p>Your order #${escapeHtml(orderNumber)} has been refunded in full — <strong>${money(refundAmount)}</strong>.</p>`
+    }
+
     const content = `
-<p>Hi ${escapeHtml(firstName)},</p>
-<p>A refund of <strong>${money(refundAmount)}</strong> has been processed for order #${escapeHtml(orderNumber)}.</p>
-<p>Please allow 5-10 business days for the credit to appear.</p>
+<p>${greeting}</p>
+${lead}
+${context}
+<p>Please allow a few days for the credit to reach your account, depending on your bank.</p>
 <p>Questions? Contact ${escapeHtml(businessName)} or <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
 <p>Thanks,<br/>The Disco Cater Team</p>
 `
     return await sendEmail({
       to: params.to,
-      subject: 'Refund processed for your Disco Cater order',
+      // A partial refund gets its own subject too — the inbox line is the part a
+      // customer reads first, and "Refund processed" on a partial reads as done.
+      subject: isPartial
+        ? 'Partial refund issued for your Disco Cater order'
+        : 'Refund processed for your Disco Cater order',
       html: layout(content),
     })
   } catch (err) {

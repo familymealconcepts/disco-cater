@@ -1584,3 +1584,46 @@ broken — but the swallow is the same shape as several defects on this page.
 An item without an image renders without one. Do not add a generic placeholder.
 The importer carries FM's images where they exist (1,154 backfilled, `d14019f` +
 `09b053d`); an item with none simply has none, and that is the restaurant's call.
+
+---
+
+## A third lead-time divergence: the DAILY cutoff rolls the day forward, FM doesn't (2026-08-31)
+
+Found by `scripts/verify-lead-time.ts` after the clock crossed a restaurant's
+cutoff — it passed at 17:55 restaurant-local and failed at 19:30 against a 19:00
+cutoff. PRE-EXISTING, not a regression from `17a7e31`: that commit removed the
+cutoff-as-pickup-FLOOR, and this is the separate roll-the-day block above it,
+which was never touched.
+
+**Pelons Tex Mex** (America/Chicago, prepTime 6h, DAILY cutoff 19:00, window
+10:30–21:30), 2026-09-01: FM offers **45** slots, Disco offers **0**.
+
+`earliestPickup` pushes `earliestDay` forward a whole day whenever the current
+time-of-day is past the cutoff. With a 6-hour prep time at 19:30, `now + 6h` is
+01:30 the next morning — already before that day's window even opens — so the
+lead time is satisfied for the whole of the next day and the extra day costs a
+full day of bookings.
+
+Isolated directly:
+
+```
+earliestPickup(19:30 Chicago, lead 6h, cutoff 19:00) = Wed Sep 02 00:00
+earliestPickup(19:30 Chicago, lead 6h, no cutoff)    = Tue Sep 01 01:30
+Disco 2026-09-01 slots WITH cutoff    :  0
+Disco 2026-09-01 slots WITHOUT cutoff : 45   <- exactly FM's answer
+```
+
+FM's DAILY cutoff appears to mean **"no more SAME-DAY orders after this time"**,
+not "push every date out by one." Disco reads it as the latter.
+
+NOT FIXED HERE, deliberately — it is the third distinct semantic in this one
+function and it deserves its own confirmation against FM across
+`scheduleType`/`prepTime` combinations before being changed. Note the roll may be
+largely redundant: `leadAbsolute` already enforces prep time independently, so
+removing the roll would still refuse anything inside the kitchen's real window.
+Confirm that before touching it — loosening this wrongly is the one failure
+direction this module must never have.
+
+`verify-lead-time.ts` is left FAILING on this rather than carrying an exclusion.
+A suite that names a real open defect is doing its job; the previous granularity
+carve-out is exactly how the 15-vs-30 gap survived three months.

@@ -1,5 +1,8 @@
 import type Stripe from 'stripe'
 import { sql } from '../db'
+
+// Statuses meaning the order was already dead before this refund.
+const CANCELLED_BEFORE_REFUND = new Set(['CANCELED', 'CANCELLED', 'VOID', 'VOIDED', 'REJECTED'])
 import { cents } from '../promo-pricing'
 import { alertOps } from '../ops-alert'
 
@@ -122,16 +125,24 @@ export async function refundNativeOrderAndRecord(args: {
   const derived = orderTotal > 0 && totalRefund < orderTotal - 0.001 ? 'PARTIAL_REFUND' : 'REFUND'
   const newStatus = statusOverride || derived
 
+  // The `prior` join captures order_status BEFORE this statement overwrites it.
+  // UPDATE ... RETURNING gives the NEW row, and the OLD status is the only way to
+  // know whether a partially-refunded order had already been cancelled — which
+  // decides whether the customer email may say the order is still going ahead.
+  // Done in the same statement so there is no window between read and write.
   const rows = (await sql`
-    UPDATE disco_orders
+    UPDATE disco_orders o
     SET order_status = ${newStatus}, refund = ${totalRefund}, updated_at = NOW()
-    WHERE reference = ${orderReference}::uuid
-    RETURNING reference, order_number, customer_email, customer_first_name, customer_last_name,
-              restaurant_reference, restaurant_name, expedite_delivery_id
+    FROM (SELECT reference, order_status FROM disco_orders WHERE reference = ${orderReference}::uuid) prior
+    WHERE o.reference = prior.reference
+    RETURNING o.reference, o.order_number, o.customer_email, o.customer_first_name, o.customer_last_name,
+              o.restaurant_reference, o.restaurant_name, o.expedite_delivery_id,
+              prior.order_status AS prior_status
   `) as Array<{
     reference: string; order_number: string | number | null
     customer_email: string | null; customer_first_name: string | null; customer_last_name: string | null
     restaurant_reference: string | null; restaurant_name: string | null; expedite_delivery_id: string | null
+    prior_status: string | null
   }>
   const o = rows[0]
 
@@ -169,6 +180,14 @@ export async function refundNativeOrderAndRecord(args: {
           orderNumber: o.order_number ?? o.reference,
           refundAmount: amount,
           businessName: rc[0]?.name || o.restaurant_name || 'the restaurant',
+          orderTotal: orderTotal > 0 ? orderTotal : undefined,
+          totalRefunded: totalRefund,
+          isPartial: newStatus === 'PARTIAL_REFUND',
+          // See the note on the UPDATE above: a partial refund on an already
+          // cancelled order must not tell the customer it is still happening.
+          orderProceeding: newStatus !== 'PARTIAL_REFUND'
+            ? undefined
+            : !CANCELLED_BEFORE_REFUND.has(String(o.prior_status || '').toUpperCase()),
         })
       } catch (e) {
         console.error('[native-refund] customer refund notification failed:', e instanceof Error ? e.message : e)

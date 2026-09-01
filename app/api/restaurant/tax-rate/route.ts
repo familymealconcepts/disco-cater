@@ -4,6 +4,7 @@ import { getRestaurantAuthHeader, getRestaurantRef, SELECTED_RESTAURANT_COOKIE }
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
+import { restaurantActorEmail, overridesSnapshot, pick, logSettingsChange } from '../../../../lib/settings-audit'
 
 export const runtime = 'nodejs'
 
@@ -68,6 +69,29 @@ async function mirrorTaxRates(taxRates: unknown): Promise<void> {
   }
 }
 
+// Attribution for a tax-rate SAVE only. Deliberately NOT called from the
+// opportunistic mirror in GET: that fires on every page view and records no
+// human intent, so auditing it would bury the real saves in noise.
+// ctx is nullable only in theory on the FM path (getRestaurantAuthHeader would
+// already have thrown a 401 without a token) — tolerated rather than asserted so
+// a null can never turn an accepted save into a 500 from its own audit call.
+async function auditTaxRateSave(
+  ref: string,
+  ctx: Awaited<ReturnType<typeof getRestaurantAuthContext>>,
+  after: unknown,
+  extra?: Record<string, unknown>,
+): Promise<void> {
+  await logSettingsChange({
+    action: 'tax_rate_update',
+    restaurantReference: ref,
+    actorEmail: ctx ? restaurantActorEmail(ctx) : null,
+    authType: ctx?.authType ?? 'fm',
+    before: pick(await overridesSnapshot(ref), ['tax_rates']),
+    after: { tax_rates: after },
+    extra,
+  })
+}
+
 export async function GET() {
   // Disco-native restaurants store tax rates in Neon — read them directly, no FM.
   const ctx = await getRestaurantAuthContext()
@@ -119,6 +143,9 @@ export async function PUT(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
   if (ctx?.authType === 'disco') {
     try {
+      // Snapshot + log before the write — Neon is authoritative on this path, so
+      // before/after here are the real old and new rates.
+      await auditTaxRateSave(ref, ctx, taxBody)
       await saveDiscoTaxRates(ref, taxBody)
       return NextResponse.json(taxBody)
     } catch (e) {
@@ -155,6 +182,11 @@ export async function PUT(req: NextRequest) {
     }
     const text = await res.text()
     const data = text ? JSON.parse(text) : null
+    // Attribution BEFORE the mirror — FM has already accepted the change, so a
+    // mirror hiccup must not also lose the record of who made it. `before` reads
+    // the previously-mirrored Neon value, which is the FM value a later "FM says
+    // otherwise" dispute compares against.
+    await auditTaxRateSave(ref, ctx, data ?? taxBody, { fmEchoedRates: data != null })
     // Mirror the authoritative saved rates (FM's response echoes them; fall back to
     // the request body if the response is empty).
     await mirrorTaxRates(data ?? taxBody)

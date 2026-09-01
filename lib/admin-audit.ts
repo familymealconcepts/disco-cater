@@ -6,7 +6,33 @@ import { sql } from './db'
 // schema, declared again here IF NOT EXISTS rather than exported from there,
 // so this file has no dependency on the master-login module). Answers "who
 // archived/restored which restaurant, and when."
-export type AdminAuditAction = 'restaurant_archive' | 'restaurant_restore' | 'restaurant_permanent_delete' | 'CONVERTED_TO_NATIVE'
+//
+// notifications_update is the one action here written from the RESTAURANT portal
+// rather than the admin portal, so its actor_email is a restaurant user (or a
+// Disco staffer inside a master-password session), not an admin. It's in this
+// table anyway: a notifications save is the settings write most likely to be
+// disputed later ("you set this up, FM still says otherwise"), and before this
+// existed, attributing one meant reconstructing it from MASTER_PASSWORD_LOGIN
+// rows and disco_restaurant_overrides.updated_at by hand.
+//
+// Its `detail` carries { authType, before, after }. In `after`,
+// adminOrderReminderEmailsEnabled: null means "the client did not send this
+// field, so the stored value was preserved" — NOT "set to null". Compare
+// against `before` to read the real resulting value.
+//
+// The *_update / stripe_disconnect family below is the settings-write trail
+// added 2026-08-27 (Tier 1). All of them go through lib/settings-audit.ts,
+// which documents the shared { authType, before, after } detail contract; the
+// helpers there are the only thing that should be writing these actions.
+export type AdminAuditAction =
+  // admin portal — restaurant lifecycle
+  | 'restaurant_archive' | 'restaurant_restore' | 'restaurant_permanent_delete' | 'CONVERTED_TO_NATIVE'
+  // restaurant portal — settings
+  | 'notifications_update' | 'disco_settings_update' | 'tax_rate_update'
+  | 'online_ordering_update' | 'marketplace_visibility_update' | 'stripe_disconnect'
+  // admin portal — settings
+  | 'money_flow_update' | 'payout_schedule_update'
+  | 'admin_overrides_update' | 'admin_cache_update'
 
 let auditTableEnsured = false
 async function ensureAuditTable(): Promise<void> {

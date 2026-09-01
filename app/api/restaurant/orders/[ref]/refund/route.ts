@@ -9,6 +9,10 @@ import { stripeClient } from '../../../../../../lib/order/native-payment'
 import { cancelDelivery } from '../../../../../../lib/expedite'
 
 export const runtime = 'nodejs'
+
+// Statuses that mean the order was ALREADY dead before this refund. Used only to
+// decide whether the customer email may say "your order is still going ahead".
+const CANCELLED_BEFORE_REFUND = new Set(['CANCELED', 'CANCELLED', 'VOID', 'VOIDED', 'REJECTED'])
 export const dynamic = 'force-dynamic'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -52,10 +56,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   let alreadyRefunded = 0
   let orderTotal = 0
   let discoReference = ''
+  // The status BEFORE this refund overwrites it. A PARTIAL_REFUND normally means
+  // the order is still going ahead — but not always: a cancelled or voided order
+  // stays refundable on purpose, so a restaurant can cancel first and refund part
+  // of the money afterwards. The UPDATE below replaces order_status outright, so
+  // the only chance to know is here, before it.
+  let priorStatus = ''
   try {
     await runDiscoOrderMigrations()
     const rows = (await sql`
-      SELECT o.reference AS disco_reference,
+      SELECT o.reference AS disco_reference, o.order_status AS prior_status,
              COALESCE(NULLIF(o.total, 0),
                (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
              ) AS total,
@@ -63,9 +73,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       FROM disco_orders o
       WHERE o.reference = ${ref}::uuid OR o.fm_order_reference = ${ref}::uuid
       LIMIT 1
-    `) as Array<{ disco_reference: string; total: string | null; refund: string | null }>
+    `) as Array<{ disco_reference: string; prior_status: string | null; total: string | null; refund: string | null }>
     if (!rows.length) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     discoReference = rows[0].disco_reference
+    priorStatus = String(rows[0].prior_status || '').toUpperCase()
     orderTotal = Number(rows[0].total) || 0
     alreadyRefunded = Number(rows[0].refund) || 0
     maxRefundable = Math.max(0, orderTotal - alreadyRefunded)
@@ -156,6 +167,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
           orderNumber: o.order_number ?? reference,
           refundAmount: amount,
           businessName: rc[0]?.name || o.restaurant_name || 'the restaurant',
+          orderTotal: orderTotal > 0 ? orderTotal : undefined,
+          totalRefunded: totalRefund,
+          isPartial: newStatus === 'PARTIAL_REFUND',
+          // Tri-state on purpose. Only claim the order is still happening when
+          // the status before this refund says it was — a partial refund on a
+          // CANCELED/VOID order is a real case, and telling that customer their
+          // catering is still coming would be worse than saying nothing.
+          orderProceeding: newStatus !== 'PARTIAL_REFUND'
+            ? undefined
+            : !CANCELLED_BEFORE_REFUND.has(priorStatus),
         })
       } catch (e) {
         console.error('[restaurant/orders/refund] refund email failed (non-fatal):', e instanceof Error ? e.message : e)

@@ -3,6 +3,7 @@ import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
+import { restaurantActorEmail, overridesSnapshot, pick, logSettingsChange } from '../../../../lib/settings-audit'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -40,6 +41,27 @@ export async function PATCH(req: NextRequest) {
       fmOk = res.ok
     } catch {
       fmOk = false
+    }
+  }
+
+  // Attribution. Logged before the mirror write, and regardless of fmOk: this is
+  // the toggle that decides whether a restaurant receives orders at all, so the
+  // attempt is worth recording even when FM rejected it — `fmAccepted` says which
+  // happened. Own try: the response must not become a 500 because logging failed.
+  if (ref) {
+    try {
+      await runMigrations()
+      await logSettingsChange({
+        action: 'online_ordering_update',
+        restaurantReference: ref,
+        actorEmail: restaurantActorEmail(ctx),
+        authType: ctx.authType,
+        before: pick(await overridesSnapshot(ref), ['online_ordering_enabled']),
+        after: { online_ordering_enabled: allowed },
+        extra: { fmProxied: !!ctx.fmToken, fmAccepted: fmOk },
+      })
+    } catch (e) {
+      console.error('[online-ordering] audit row failed:', e instanceof Error ? e.message : e)
     }
   }
 

@@ -3,6 +3,7 @@ import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../../lib/db'
+import { restaurantActorEmail, overridesSnapshot, pick, logSettingsChange } from '../../../../../lib/settings-audit'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -27,8 +28,30 @@ export async function DELETE(req: NextRequest) {
   // PaymentIntents) must be left completely alone. Archiving hides the
   // storefront and access; it is not a payments action.
   const ctx = await getRestaurantAuthContext()
+
+  // Attribution. Money movement, and the `before` value is the whole point: once
+  // stripe_account_id is NULL the id that WAS connected is gone from the row, so
+  // the audit row is the only remaining record of which account was unlinked.
+  // Logged before the write on both branches for exactly that reason.
+  const auditDisconnect = async (extra?: Record<string, unknown>) => {
+    try {
+      await logSettingsChange({
+        action: 'stripe_disconnect',
+        restaurantReference: ref,
+        actorEmail: ctx ? restaurantActorEmail(ctx) : null,
+        authType: ctx?.authType ?? 'fm',
+        before: pick(await overridesSnapshot(ref), ['stripe_account_id']),
+        after: { stripe_account_id: null },
+        extra,
+      })
+    } catch (e) {
+      console.error('[stripe/disconnect] audit row failed:', e instanceof Error ? e.message : e)
+    }
+  }
+
   if (ctx?.authType === 'disco') {
     await runMigrations()
+    await auditDisconnect()
     await sql`UPDATE disco_restaurant_overrides SET stripe_account_id = NULL, updated_at = NOW() WHERE restaurant_reference = ${ref}`
     return NextResponse.json({ ok: true })
   }
@@ -46,6 +69,9 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to disconnect Stripe', raw: err }, { status: res.status })
     }
     const text = await res.text()
+    // FM has accepted; record it. `before` is what Disco's own row held — FM owns
+    // the authoritative link on this path, so the two can legitimately differ.
+    await auditDisconnect({ fmProxied: true })
     return NextResponse.json(text ? JSON.parse(text) : { ok: true })
   } catch {
     return NextResponse.json({ error: 'Unable to disconnect Stripe' }, { status: 500 })

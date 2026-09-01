@@ -3,6 +3,7 @@ import { getRestaurantAuthContext, getFmHeaderForRestaurant } from '../../../../
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
 import { fmFetch } from '../../../../../../lib/fm-fetch'
+import { sendOrderCancellationEmail } from '../../../../../../lib/order/cancellation-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -93,6 +94,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
       VALUES (${rows[0].reference}::uuid, 'STATUS_CHANGED', ${JSON.stringify({ status })}::jsonb, 'DISCO_STATUS')
     `.catch(e => console.error('[orders/status] event insert (non-fatal):', e instanceof Error ? e.message : e))
+
+    // Tell the customer. This route was silent on cancellation while /void was
+    // not, so the COMMON cancel path told nobody — and because cancelling is
+    // deliberately status-only (it does not refund), that was the exact case
+    // where the customer was left holding a charge with no message.
+    //
+    // Idempotent, DISCO-source-only and non-throwing inside the helper, so a
+    // repeat call or an email failure can never turn a successful cancellation
+    // into an error response.
+    if (status === 'CANCELED' || status === 'CANCELLED') {
+      const r = await sendOrderCancellationEmail(rows[0].reference, 'DISCO_STATUS')
+      if (!r.sent && r.reason !== 'not-disco-source' && r.reason !== 'already-sent') {
+        console.error('[orders/status] cancellation email not sent:', r.reason)
+      }
+    }
 
     return NextResponse.json({ ok: true, orderStatus: status, neon: true })
   } catch (e) {

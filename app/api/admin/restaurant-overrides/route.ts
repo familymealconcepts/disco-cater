@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations, runMenuDriftMigrations } from '../../../../lib/db'
 import { stripeReadySql } from '../../../../lib/stripe-readiness'
-import { getAdminAuthHeader } from '../../../../lib/admin-auth'
+import { getAdminAuthHeader, getAdminEmail } from '../../../../lib/admin-auth'
+import { overridesSnapshot, cacheSnapshot, accountMarketplaceSnapshot, logSettingsChange } from '../../../../lib/settings-audit'
 
 // Disco-owned per-restaurant overrides (Premium flag + order-URL) stored in Neon.
 // Admin-only (gated on the admin session cookie). The public /api/restaurants
@@ -191,6 +192,8 @@ export async function PATCH(req: NextRequest) {
 
     await runMigrations()
 
+    const claimedReference = restaurantReference
+
     // A Disco-native restaurant with a leftover FM reference is shown in the admin
     // list under that FM ref, but its canonical overrides live on the NATIVE ref
     // (what the restaurant portal + order gate read). Remap so every admin write
@@ -204,6 +207,38 @@ export async function PATCH(req: NextRequest) {
       if (nr[0]?.native_ref) restaurantReference = nr[0].native_ref
     } catch { /* non-UUID / lookup miss → keep the original reference */ }
 
+    // ── Attribution ────────────────────────────────────────────────────────────
+    // This route is the super admin's free-form write onto the exact tables the
+    // portal, the order gate and the marketplace all read, and it has three
+    // separate exit points writing different columns. So: snapshot once here
+    // (post-remap, so `before` is the row that actually governs behavior), then
+    // each exit logs only what it wrote.
+    //
+    // `claimedRef` vs restaurant_reference matters — a native restaurant with a
+    // leftover FM ref is displayed and PATCHed under the FM ref while the write
+    // lands on the native one. Without both recorded, the row looks like it
+    // touched a restaurant the admin never opened.
+    const beforeOverrides = await overridesSnapshot(restaurantReference)
+    const beforeCache = await cacheSnapshot(restaurantReference)
+    const beforeJoined = (await accountMarketplaceSnapshot(restaurantReference))?.joined_marketplace ?? null
+    const auditOverrides = async (before: unknown, after: unknown) => {
+      try {
+        await logSettingsChange({
+          action: 'admin_overrides_update',
+          restaurantReference: restaurantReference as string,
+          actorEmail: await getAdminEmail(),
+          authType: 'admin',
+          before,
+          after,
+          extra: claimedReference !== restaurantReference
+            ? { claimedRef: claimedReference, remappedToNativeRef: true }
+            : undefined,
+        })
+      } catch (e) {
+        console.error('[restaurant-overrides] audit row failed:', e instanceof Error ? e.message : e)
+      }
+    }
+
     // online_ordering_enabled — the canonical "Accept online orders" flag both the
     // restaurant portal (disco-settings / online-ordering) and the native order-gate
     // read. Handled independently so an ordering-only PATCH from the admin toggle
@@ -216,6 +251,10 @@ export async function PATCH(req: NextRequest) {
           SET online_ordering_enabled = EXCLUDED.online_ordering_enabled, updated_at = NOW()
       `
       if (body?.isPremium === undefined && body?.visible === undefined && body?.orderUrl === undefined && body?.isLive === undefined) {
+        await auditOverrides(
+          { online_ordering_enabled: beforeOverrides?.online_ordering_enabled ?? null },
+          { online_ordering_enabled: body.onlineOrderingEnabled },
+        )
         return NextResponse.json({ ok: true, restaurantReference, onlineOrderingEnabled: body.onlineOrderingEnabled })
       }
     }
@@ -231,6 +270,10 @@ export async function PATCH(req: NextRequest) {
       `
       // If only isLive was sent, we're done.
       if (body?.isPremium === undefined && body?.visible === undefined && body?.orderUrl === undefined) {
+        await auditOverrides(
+          { is_live: beforeCache?.is_live ?? null, ...(typeof body?.onlineOrderingEnabled === 'boolean' ? { online_ordering_enabled: beforeOverrides?.online_ordering_enabled ?? null } : {}) },
+          { is_live: body.isLive, ...(typeof body?.onlineOrderingEnabled === 'boolean' ? { online_ordering_enabled: body.onlineOrderingEnabled } : {}) },
+        )
         return NextResponse.json({ ok: true, restaurantReference, isLive: body.isLive })
       }
     }
@@ -264,6 +307,24 @@ export async function PATCH(req: NextRequest) {
       `.catch((e: unknown) => console.error('[restaurant-overrides] joined_marketplace sync failed:', e instanceof Error ? e.message : e))
     }
 
+    // The visible-triggered syncs above are fire-and-forget, so record the
+    // intent rather than asserting an outcome — unlike the restaurant-portal
+    // marketplace toggle, this route does not track their success.
+    const visibleSent = typeof body?.visible === 'boolean'
+    await auditOverrides(
+      {
+        is_premium: beforeOverrides?.is_premium ?? null,
+        visible: beforeOverrides?.visible ?? null,
+        order_url: beforeOverrides?.order_url ?? null,
+        ...(visibleSent ? { is_live: beforeCache?.is_live ?? null, joined_marketplace: beforeJoined } : {}),
+      },
+      {
+        is_premium: isPremium,
+        visible,
+        order_url: orderUrl,
+        ...(visibleSent ? { is_live: visible, joined_marketplace: visible } : {}),
+      },
+    )
     return NextResponse.json({ ok: true, restaurantReference, isPremium, visible, orderUrl })
   } catch (e) {
     console.error('[restaurant-overrides] PATCH failed:', e instanceof Error ? e.message : e)

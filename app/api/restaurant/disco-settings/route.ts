@@ -4,6 +4,7 @@ import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
 import { isStripeReady } from '../../../../lib/stripe-readiness'
+import { restaurantActorEmail, overridesSnapshot, pick, logSettingsChange } from '../../../../lib/settings-audit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,6 +41,15 @@ export async function GET() {
 }
 
 const WINDOWS = new Set(['exact', '30_min', '1_hour'])
+
+// Exactly the columns the PUT below upserts — the before/after set for the
+// audit row. Keep in step with the INSERT if a column is ever added there.
+const AUDITED_COLUMNS = [
+  'online_ordering_enabled', 'delivery_order_time_windows', 'tax_rates',
+  'notification_emails', 'notification_sms_numbers',
+  'order_reminder_emails_enabled', 'admin_order_reminder_emails_enabled',
+  'enable_menu_search', 'announcement', 'text_notifications_enabled',
+] as const
 
 export async function PUT(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
@@ -96,6 +106,47 @@ export async function PUT(req: NextRequest) {
   const textNotifications = body?.textNotificationsEnabled === true
 
   await runMigrations()
+
+  // Attribution. This route is the WIDE door onto the same
+  // disco_restaurant_overrides columns /api/restaurant/notifications writes —
+  // the whole Settings form saves through here, so a notification-recipient
+  // change made on the Settings page lands as disco_settings_update, not
+  // notifications_update. Query BOTH actions when tracing one of these fields.
+  //
+  // Snapshot before the upsert, logged before it: this is the only record of who
+  // changed these settings, and losing it to a failed write is the exact case it
+  // exists for.
+  const before = pick(await overridesSnapshot(ref), AUDITED_COLUMNS)
+  await logSettingsChange({
+    action: 'disco_settings_update',
+    restaurantReference: ref,
+    actorEmail: restaurantActorEmail(ctx),
+    authType: ctx.authType,
+    before,
+    after: {
+      online_ordering_enabled: onlineOrdering,
+      delivery_order_time_windows: window,
+      // The upsert COALESCEs a null taxRates (a save that didn't touch tax),
+      // so record what was actually sent, not a value that will be discarded.
+      tax_rates: taxRates != null ? JSON.parse(taxRates) : null,
+      notification_emails: emails,
+      notification_sms_numbers: sms,
+      order_reminder_emails_enabled: orderReminders,
+      admin_order_reminder_emails_enabled: adminReminders,
+      enable_menu_search: enableMenuSearch,
+      announcement,
+      text_notifications_enabled: textNotifications,
+    },
+    extra: {
+      // Whether the online-ordering value was carried through unchanged or was a
+      // genuine flip that passed (or failed) the Stripe-readiness gate. Without
+      // this you cannot tell a deliberate toggle from the standing-rule no-op.
+      onlineOrderingRequested: requestedOnlineOrdering,
+      onlineOrderingUnchanged: !!existing && requestedOnlineOrdering === (existing.online_ordering_enabled !== false),
+      taxRatesSent: taxRates != null,
+    },
+  })
+
   await sql`
     INSERT INTO disco_restaurant_overrides (
       restaurant_reference, online_ordering_enabled, delivery_order_time_windows, tax_rates,

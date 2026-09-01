@@ -188,6 +188,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS disco_order_events_once_uq
   ON disco_order_events (order_reference, event_type)
   WHERE event_type IN ('ORDER_CONFIRMATIONS_SENT', 'SLACK_NOTIFIED');
 
+-- The cancellation email is claimed the same way, on its OWN partial index
+-- rather than by widening the one above. Three routes can cancel an order
+-- (status -> CANCELED, reject, void) and the portal can call status twice with
+-- the same value, so without a claim a customer could be told twice.
+--
+-- A SEPARATE index on purpose: adding a value to the predicate above would mean
+-- dropping and recreating a live index that two other claim paths depend on, and
+-- the ON CONFLICT clauses must match their index predicate EXACTLY. Additive is
+-- cheaper and cannot disturb what already works.
+CREATE UNIQUE INDEX IF NOT EXISTS disco_order_events_cancel_email_uq
+  ON disco_order_events (order_reference, event_type)
+  WHERE event_type = 'CANCELLATION_EMAIL_SENT';
+
 -- ── Disco-native restaurant authentication ───────────────────────────────────
 -- Disco-owned credentials + sessions for new restaurant partners, replacing FM
 -- token auth. Passwords are bcrypt-hashed; sessions are opaque UUID tokens.

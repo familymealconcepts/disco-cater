@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
+import { getAdminAuthHeader, getAdminEmail } from '../../../../../../lib/admin-auth'
 import { sql, runMigrations } from '../../../../../../lib/db'
 import { getPayoutSchedule, updatePayoutSchedule, type PayoutInterval } from '../../../../../../lib/stripe-connect'
+import { logSettingsChange } from '../../../../../../lib/settings-audit'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -67,12 +68,43 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   try {
     const resolved = await resolveNativeAccount(ref)
     if (!resolved.ok) return NextResponse.json({ error: resolved.reason }, { status: 400 })
+
+    // `before` has to come from Stripe — the schedule is Stripe state, never
+    // stored in Neon, so there is no row to snapshot. One extra read, and without
+    // it the audit row could only say what the schedule became, not what it was.
+    // Never fatal: a failed read degrades to before: null, it does not block the
+    // change the admin asked for.
+    let before: unknown = null
+    try {
+      before = (await getPayoutSchedule(resolved.accountId)).schedule
+    } catch (e) {
+      console.error('[payout-schedule] pre-change read failed (audit before will be null):', e instanceof Error ? e.message : e)
+    }
+
     const schedule = await updatePayoutSchedule(resolved.accountId, {
       interval: interval as PayoutInterval,
       weeklyAnchor: body?.weeklyAnchor != null ? String(body.weeklyAnchor) : undefined,
       monthlyAnchor: body?.monthlyAnchor != null ? Number(body.monthlyAnchor) : undefined,
       delayDays: body?.delayDays != null ? Number(body.delayDays) : undefined,
     })
+
+    // Logged after the fact here, unlike the Neon-backed routes: Stripe is the
+    // system of record and only its response tells us what actually took effect
+    // (it normalises anchors and can reject a combination outright).
+    try {
+      await logSettingsChange({
+        action: 'payout_schedule_update',
+        restaurantReference: ref,
+        actorEmail: await getAdminEmail(),
+        authType: 'admin',
+        before,
+        after: schedule,
+        extra: { stripeAccountId: resolved.accountId, requestedInterval: interval },
+      })
+    } catch (e) {
+      console.error('[payout-schedule] audit row failed:', e instanceof Error ? e.message : e)
+    }
+
     return NextResponse.json({ applicable: true, schedule })
   } catch (e) {
     // Surface Stripe's rejection so the admin sees the real cause.

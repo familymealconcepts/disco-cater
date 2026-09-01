@@ -3,7 +3,7 @@ import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { cancelDelivery } from '../../../../../../lib/expedite'
-import { sendCustomerOrderCancellation } from '../../../../../../lib/email/notifications'
+import { sendOrderCancellationEmail } from '../../../../../../lib/order/cancellation-email'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -62,22 +62,12 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref
     }
 
     // Notify the customer their order was canceled (best-effort — never block the void).
-    if (o.customer_email) {
-      try {
-        const rc = (await sql`
-          SELECT name, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${o.restaurant_reference} LIMIT 1
-        `) as { name: string | null; phone: string | null }[]
-        await sendCustomerOrderCancellation({
-          to: o.customer_email,
-          firstName: o.customer_first_name || undefined,
-          lastName: o.customer_last_name || undefined,
-          businessName: rc[0]?.name || o.restaurant_name || 'the restaurant',
-          businessPhone: rc[0]?.phone || undefined,
-        })
-      } catch (e) {
-        console.error('[restaurant/orders/void] cancellation email failed (non-fatal):', e instanceof Error ? e.message : e)
-      }
-    }
+    //
+    // Now the SHARED helper, which /status and /reject also call. The inline copy
+    // that used to live here had no source filter, so a voided FM-sourced order
+    // got a Disco email on top of FM's own — the same duplicate the reminders
+    // cron had. It also had no idempotency claim.
+    await sendOrderCancellationEmail(reference, 'DISCO_VOID')
 
     return NextResponse.json({ ok: true, orderStatus: 'VOIDED' })
   } catch (err) {

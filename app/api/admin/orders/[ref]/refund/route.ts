@@ -9,6 +9,10 @@ import { cancelDelivery } from '../../../../../../lib/expedite'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+// Statuses meaning the order was already dead before this refund — see the
+// customer email's orderProceeding argument.
+const CANCELLED_BEFORE_REFUND = new Set(['CANCELED', 'CANCELLED', 'VOID', 'VOIDED', 'REJECTED'])
+
 // PUT /api/admin/orders/{ref}/refund  { amount }
 // Disco-native orders (in disco_orders with no FM reference) are refunded through
 // Disco's OWN Stripe via refundNativeOrder — a REAL refund that MUST succeed before
@@ -26,11 +30,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   if (!(amount > 0)) return NextResponse.json({ error: 'Refund amount required' }, { status: 400 })
 
   // Native order? (disco_orders row with no fm_order_reference)
-  let nativeRow: { discoReference: string; total: number; refund: number } | null = null
+  let nativeRow: { discoReference: string; total: number; refund: number; priorStatus: string } | null = null
   if (UUID_RE.test(ref)) {
     try {
       const rows = (await sql`
-        SELECT o.reference::text AS disco_reference,
+        SELECT o.reference::text AS disco_reference, o.order_status AS prior_status,
                COALESCE(NULLIF(o.total, 0),
                  (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
                ) AS total,
@@ -38,8 +42,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
         FROM disco_orders o
         WHERE o.reference = ${ref}::uuid AND o.fm_order_reference IS NULL
         LIMIT 1
-      `) as Array<{ disco_reference: string; total: string | null; refund: string | null }>
-      if (rows[0]) nativeRow = { discoReference: rows[0].disco_reference, total: Number(rows[0].total) || 0, refund: Number(rows[0].refund) || 0 }
+      `) as Array<{ disco_reference: string; prior_status: string | null; total: string | null; refund: string | null }>
+      // prior_status is captured BEFORE the UPDATE below overwrites order_status —
+      // it is the only way to know whether a partially-refunded order was already
+      // cancelled. See the customer email's orderProceeding note.
+      if (rows[0]) nativeRow = {
+        discoReference: rows[0].disco_reference,
+        total: Number(rows[0].total) || 0,
+        refund: Number(rows[0].refund) || 0,
+        priorStatus: String(rows[0].prior_status || '').toUpperCase(),
+      }
     } catch (e) {
       console.error('[admin/orders/refund] native lookup failed:', e instanceof Error ? e.message : e)
     }
@@ -136,6 +148,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
             orderNumber: o.order_number ?? o.reference,
             refundAmount: amount,
             businessName: rc[0]?.name || o.restaurant_name || 'the restaurant',
+            orderTotal: nativeRow.total > 0 ? nativeRow.total : undefined,
+            totalRefunded: totalRefund,
+            isPartial: newStatus === 'PARTIAL_REFUND',
+            orderProceeding: newStatus !== 'PARTIAL_REFUND'
+              ? undefined
+              : !CANCELLED_BEFORE_REFUND.has(nativeRow.priorStatus),
           })
         } catch (e) {
           console.error('[admin/orders/refund] refund email failed (non-fatal):', e instanceof Error ? e.message : e)

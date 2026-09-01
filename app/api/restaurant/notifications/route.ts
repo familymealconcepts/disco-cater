@@ -3,6 +3,7 @@ import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { sql, runMigrations } from '../../../../lib/db'
 import { sanitizePhone } from '../../../../lib/utils/phone'
+import { restaurantActorEmail, overridesSnapshot, logSettingsChange } from '../../../../lib/settings-audit'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -35,6 +36,38 @@ const cleanPhones = (v: unknown): string[] =>
 
 const splitCsv = (v: string | null | undefined): string[] =>
   String(v || '').split(',').map(s => s.trim()).filter(Boolean)
+
+// ── Audit attribution ───────────────────────────────────────────────────────
+// Actor resolution and the audit write itself live in lib/settings-audit.ts —
+// every audited settings route shares them, so the FM-token identity quirk
+// (ctx.email is always '') is handled in exactly one place.
+
+interface NotificationSnapshot {
+  email: string[]
+  phoneNumber: string[]
+  orderReminderEmailsEnabled: boolean | null
+  adminOrderReminderEmailsEnabled: boolean | null
+  textNotificationsEnabled: boolean | null
+}
+
+// Pre-save values for the audit detail's `before`, in the same shape this route
+// reports in `after`. Read from disco_restaurant_overrides in BOTH branches — on
+// the FM-token path that row is FM's mirror, so `before` there is the
+// previously-mirrored FM state, which is exactly the value a later "FM says
+// otherwise" dispute is about. null means "no overrides row yet" (a first-ever
+// save), distinct from an all-empty snapshot, which means the row existed and
+// was blank.
+async function notificationSnapshot(ref: string): Promise<NotificationSnapshot | null> {
+  const row = await overridesSnapshot(ref)
+  if (!row) return null
+  return {
+    email: splitCsv(row.notification_emails),
+    phoneNumber: splitCsv(row.notification_sms_numbers),
+    orderReminderEmailsEnabled: row.order_reminder_emails_enabled,
+    adminOrderReminderEmailsEnabled: row.admin_order_reminder_emails_enabled,
+    textNotificationsEnabled: row.text_notifications_enabled,
+  }
+}
 
 // Build the FM-shaped notifications object for a Disco-native restaurant from Neon.
 // `emailNotificationType`/`phoneNotificationType` are DERIVED from whether the
@@ -136,6 +169,51 @@ export async function PUT(req: NextRequest) {
       if (!res.ok) return NextResponse.json({ error: 'Failed' }, { status: res.status })
       const text = await res.text()
 
+      // Values FM has now accepted. Hoisted out of the mirror block below so the
+      // audit row can be written independently of whether the mirror succeeds.
+      const ref = ctx.restaurantReference || (await getRestaurantRef()) || ''
+      const emails = cleanEmails(body?.email)
+      const phones = cleanPhones(body?.phoneNumber)
+      const reminderOn = body?.orderReminderEmailsEnabled === true
+      const textNotificationsEnabled = body?.phoneNotificationType === 'ALL'
+      // FM's separate restaurant-reminder toggle — prefer the value FM returns,
+      // fall back to what the UI sent. null → don't overwrite (COALESCE keeps
+      // the existing/entity-default value).
+      let fmObj: Record<string, unknown> = {}
+      try { fmObj = text ? JSON.parse(text) : {} } catch { /* non-JSON body */ }
+      const adminReminderOn: boolean | null =
+        typeof fmObj.adminOrderReminderEmailsEnabled === 'boolean' ? fmObj.adminOrderReminderEmailsEnabled
+        : typeof body?.adminOrderReminderEmailsEnabled === 'boolean' ? (body.adminOrderReminderEmailsEnabled as boolean)
+        : null
+
+      // Attribution row, BEFORE the mirror write — FM has already accepted the
+      // change by this point, so a mirror failure must not also lose the record
+      // of who made it. Snapshot first (the mirror is what overwrites it).
+      // Self-contained try: FM's PUT has already succeeded, so nothing in here —
+      // including runMigrations — may turn this request into a 500.
+      try {
+        if (ref) {
+          await runMigrations()
+          const before = await notificationSnapshot(ref)
+          await logSettingsChange({
+            action: 'notifications_update',
+            restaurantReference: ref,
+            actorEmail: restaurantActorEmail(ctx),
+            authType: ctx.authType,
+            before,
+            after: {
+              email: emails,
+              phoneNumber: phones,
+              orderReminderEmailsEnabled: reminderOn,
+              adminOrderReminderEmailsEnabled: adminReminderOn,
+              textNotificationsEnabled,
+            },
+          })
+        }
+      } catch (e) {
+        console.error('[restaurant/notifications] audit row failed:', e instanceof Error ? e.message : e)
+      }
+
       // Mirror FM's settings into Neon so the reminder cron + new-order dispatch
       // (no restaurant session) can read them. Best-effort — never blocks.
       //
@@ -148,21 +226,7 @@ export async function PUT(req: NextRequest) {
       // an FM token (no real Disco login yet). Confirmed live on both Glen Rock and
       // Pelican Delicatessen: emails mirrored, SMS + toggle silently missing.
       try {
-        const ref = ctx.restaurantReference || (await getRestaurantRef()) || ''
         if (ref) {
-          const emails = cleanEmails(body?.email)
-          const phones = cleanPhones(body?.phoneNumber)
-          const reminderOn = body?.orderReminderEmailsEnabled === true
-          const textNotificationsEnabled = body?.phoneNotificationType === 'ALL'
-          // FM's separate restaurant-reminder toggle — prefer the value FM returns,
-          // fall back to what the UI sent. null → don't overwrite (COALESCE keeps
-          // the existing/entity-default value).
-          let fmObj: Record<string, unknown> = {}
-          try { fmObj = text ? JSON.parse(text) : {} } catch { /* non-JSON body */ }
-          const adminReminderOn: boolean | null =
-            typeof fmObj.adminOrderReminderEmailsEnabled === 'boolean' ? fmObj.adminOrderReminderEmailsEnabled
-            : typeof body?.adminOrderReminderEmailsEnabled === 'boolean' ? (body.adminOrderReminderEmailsEnabled as boolean)
-            : null
           await runMigrations()
           await sql`
             INSERT INTO disco_restaurant_overrides (restaurant_reference, order_reminder_emails_enabled, admin_order_reminder_emails_enabled, notification_emails, notification_sms_numbers, text_notifications_enabled, updated_at)
@@ -204,6 +268,26 @@ export async function PUT(req: NextRequest) {
     // ever sent, otherwise preserve the existing value (COALESCE below).
     const adminReminderOn: boolean | null =
       typeof body?.adminOrderReminderEmailsEnabled === 'boolean' ? (body.adminOrderReminderEmailsEnabled as boolean) : null
+
+    // Attribution row. Snapshot BEFORE the write below, logged before it too:
+    // this is the only record of who changed these settings, and losing it to a
+    // failed write is the exact case it exists for. Neon is authoritative on
+    // this path, so `before`/`after` here are the real old and new values.
+    const before = await notificationSnapshot(ref)
+    await logSettingsChange({
+      action: 'notifications_update',
+      restaurantReference: ref,
+      actorEmail: restaurantActorEmail(ctx),
+      authType: ctx.authType,
+      before,
+      after: {
+        email: emails,
+        phoneNumber: phones,
+        orderReminderEmailsEnabled: reminderOn,
+        adminOrderReminderEmailsEnabled: adminReminderOn,
+        textNotificationsEnabled,
+      },
+    })
 
     // Email list + phone list + reminder toggles → disco_restaurant_overrides (CSV).
     await sql`
