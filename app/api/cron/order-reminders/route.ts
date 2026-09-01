@@ -212,6 +212,15 @@ export async function GET(req: NextRequest) {
         AND o.admin_reminder_sent = false
         AND o.order_status = 'DUE'
         AND o.is_deleted = false
+        -- DISCO-source only — the SAME rule PASS 1 has, and for the same reason.
+        -- FM owns reminders for FM-sourced orders in BOTH directions: it already
+        -- emails the restaurant about an order placed on its own storefront, so
+        -- Disco sending a second one is a duplicate in the restaurant's inbox,
+        -- not a safety net. This pass shipped without the filter while PASS 1 had
+        -- it, which is why the customer side was clean and the restaurant side
+        -- was not. source_of_order is NOT NULL DEFAULT 'DISCO', so every native
+        -- and DISCO-marketplace order still qualifies.
+        AND o.source_of_order = 'DISCO'
         AND ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))
               BETWEEN NOW() + INTERVAL '23 hours 30 minutes' AND NOW() + INTERVAL '24 hours 30 minutes'
         AND COALESCE(o.placed_at, o.created_at) <= ((o.order_date + o.order_time::time) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York')) - INTERVAL '24 hours'
