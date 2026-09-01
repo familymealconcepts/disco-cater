@@ -1627,3 +1627,133 @@ direction this module must never have.
 `verify-lead-time.ts` is left FAILING on this rather than carrying an exclusion.
 A suite that names a real open defect is doing its job; the previous granularity
 carve-out is exactly how the 15-vs-30 gap survived three months.
+
+---
+
+## `earliestPickup` — the whole function's behaviour, written down (2026-08-31)
+
+Three distinct semantics have now been found in this one function, two fixed and
+one open. Writing the whole thing down rather than patching the third the way the
+first two were patched.
+
+Evidence: `scripts/audit-daily-cutoff-semantics.ts` (read-only), run against
+every DAILY-cutoff menu in the estate — **46 menus, 42 with a bookable day inside
+5 days**.
+
+### The three inputs
+
+| Input | FM field | Status |
+|---|---|---|
+| Lead time | `scheduleOption.prepTime` (total hours) | Fixed — now evaluated on the restaurant's clock (`17a7e31`) |
+| Daily cutoff | `scheduleOption.cutOff` + `cutOffType='DAILY'` | Floor **fixed** (`17a7e31`); **roll still open** |
+| Hard cutoff | `scheduleOption.cutOffDate` | No known divergence |
+
+### Semantic 1 — lead time (SETTLED)
+
+`now + prepTime`, evaluated in the RESTAURANT's timezone, not the runtime's.
+Before `17a7e31` the same instant gave 17 / 29 / 1 slots under Eastern / Pacific /
+UTC for the same Pacific restaurant, and Vercel runs UTC, so the placement gate
+and the customer's picker could disagree.
+
+### Semantic 2 — the cutoff as a FLOOR ON PICKUP TIME (SETTLED, was wrong)
+
+`floor = max(floor, cutoff)` made "order by 1pm" mean "you may not collect before
+1pm". 37 of 38 menus lost the morning of their first bookable day, median 8
+hours. Removed in `17a7e31`. FM does not do this.
+
+### Semantic 3 — the cutoff as a ROLL OF THE DAY (OPEN)
+
+`if (now's time-of-day > cutoff) earliestDay += 1 day`.
+
+**Scored against FM across the estate.** A "match" is cheap when the two
+hypotheses agree, so only the 11 cases where they DISAGREE say anything:
+
+```
+H0  roll the day (as shipped)   first-day 31/42   slot-count 32/42
+H1  no roll                     first-day 40/42   slot-count 42/42
+H2  blocks TODAY only           first-day 40/42   slot-count 42/42
+
+DISCRIMINATING CASES (H0 != H1): 11
+   FM agrees with H0 (roll):     1
+   FM agrees with H1 (no roll): 10
+   FM agrees with neither:       0
+```
+
+And the split that actually explains it:
+
+```
+prepTime % 24 == 0 :  roll right 1, roll wrong  0
+prepTime % 24 != 0 :  roll right 0, roll wrong 10
+```
+
+**Working reading: FM applies the cutoff to the DAYS component of the lead time.**
+When `prepTime` is a whole number of days (24h, 48h) the cutoff rolls the day;
+when it carries an hours remainder (6h, 12h, 36h) FM uses the absolute offset and
+the cutoff does not move the date. That fits all 11 discriminating cases with no
+exceptions. It matches how FM's own UI presents lead time — days AND hours —
+rather than as a single hour count.
+
+**H1 and H2 cannot be told apart from this data.** They score identically in every
+breakdown, because the discriminating case (past the cutoff, lead time short
+enough that TODAY is still bookable) does not occur anywhere in the estate right
+now. Do not pick between them on this evidence.
+
+### Is removing the roll safe? NO — not on its own
+
+`leadAbsolute` does enforce prep time independently, so removing the roll cannot
+let anyone book inside the kitchen's real prep window. But it can still put Disco
+AHEAD of FM, which is the direction that produces a booking hole:
+
+```
+H1 (no roll) would offer a day FM refuses:  2 cases
+   OBAO                 prep 24h  cut 19:00   H1 2026-09-01 vs FM 2026-09-02
+   The Winkin' Rooster  prep 48h  cut 15:45   H1 2026-09-03 vs FM 2026-09-04
+```
+
+Both are whole-day prep times — exactly the cases the working reading says SHOULD
+roll. So the fix is not "delete the roll"; it is "roll only when `prepTime % 24 === 0`".
+
+### A booking hole that already exists in shipped code
+
+Found while checking the above, and worth its own line because it is the
+dangerous direction and it is live TODAY:
+
+```
+The Winkin' Rooster (America/Chicago, prep 48h, cutoff 15:45), 2026-09-03:
+   FM  0 slots        Disco  31 slots     ← Disco offers all 31; FM refuses every one
+```
+
+Neither H0 nor H1 explains it — both over-offer — so a fourth thing is going on
+for whole-day prep times past the cutoff. Settle this before changing the roll:
+whatever rule explains Winkin' Rooster probably explains OBAO too.
+
+### What it costs today
+
+`scripts/audit-daily-cutoff-semantics.ts`, slots lost on FM's first bookable day
+under the shipped behaviour:
+
+```
+10 menus across 10 restaurants (8 live) lose slots
+total: 410 slots
+
+  -47  Yella's                      SAME_DAY  prep 12h  cut 12:00
+  -45  Pelons Tex Mex               CUSTOM    prep  6h  cut 19:00
+  -44  DeCheco's Pizzeria x6        SAME_DAY  prep 12h  cut 21:00
+  -31  Slate Cafe                   CUSTOM    prep 12h  cut 17:00
+  -23  Apollo Bagels - FiDi         SAME_DAY  prep 36h  cut 15:00
+```
+
+Every one loses its ENTIRE first bookable day — H0 offers 0 where FM offers all
+of them. All six DeCheco's locations are affected, which is a whole chain.
+
+### Recommendation
+
+One change, not two: gate the roll on `prepTime % 24 === 0`. That fits 11 of 11
+discriminating cases, recovers all 410 slots, and keeps the two whole-day cases
+where FM does roll. Do NOT ship it until the Winkin' Rooster hole is explained —
+it is the same population and a rule that leaves a booking hole standing is worse
+than one that loses slots.
+
+`scripts/verify-lead-time.ts` is deliberately LEFT FAILING on the Pelons case
+until this is settled. A suite that names an open defect is doing its job; the
+granularity carve-out is how the 15-vs-30 gap survived three months.
