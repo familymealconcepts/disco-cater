@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
-import { getDiscoGroupAccounts } from '../../../../lib/disco-restaurant-auth'
+import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
+import { resolveDiscoGroupScope } from '../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -10,17 +11,24 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // enriched from disco_restaurant_cache. Returns FM's { content, totalElements } +
 // Location field names so the page needs no changes. Zero FM.
 //
-// READ-PATH GAP (deliberately deferred, not fixed): doesn't branch on role at
-// all, so a disco-native SUPER_ADMIN (unrestricted by the write-path fix) gets
-// no special treatment here — this list only ever shows their own
-// business_name/email-domain group. A true "every restaurant" view for
-// SUPER_ADMIN would need a real list-all-restaurants query, which does not
-// exist; building one wasn't in scope. Today a SUPER_ADMIN sees their own
-// home restaurant only (if their account has restaurantReference set) or an
-// empty list (if not) — never an error, never another owner's locations.
+// ROLE GATES REACH (fixed 2026-09-01). This used to call getDiscoGroupAccounts
+// with no role branch, so an ADMIN carrying drifted grant rows got the whole
+// list — verified, Stacy Freemyer (role ADMIN, FM assigns her Woodstock alone)
+// got all 8 Atlanta Bread locations here. resolveDiscoGroupScope returns
+// home-ref-only for any role that isn't SYSTEM_ADMIN, which is also what the
+// portal shell already assumes: RESTAURANT_USER_NAV has no Locations entry, so
+// an ADMIN was never meant to reach this list at all.
+//
+// SUPER_ADMIN keeps EXACTLY today's behaviour (their own business_name/
+// email-domain group) rather than becoming unrestricted here — a true "every
+// restaurant" view would need a real list-all-restaurants query, which does not
+// exist; building one wasn't in scope.
 async function discoLocations(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, req: NextRequest) {
-  const group = await getDiscoGroupAccounts(ctx.businessName, ctx.email)
-  const refs = [...new Set([ctx.restaurantReference, ...group.map(g => g.restaurant_reference)].filter(Boolean))]
+  const gate = await resolveDiscoGroupScope(ctx)
+  const reachable = gate.unrestricted
+    ? await discoGroupRefs(ctx.businessName, ctx.email, ctx.restaurantReference)
+    : gate.refs
+  const refs = [...new Set([ctx.restaurantReference, ...reachable].filter(Boolean))]
   if (!refs.length) return NextResponse.json({ content: [], totalElements: 0 })
   const search = (req.nextUrl.searchParams.get('search') || '').trim().toLowerCase()
   await runMigrations()

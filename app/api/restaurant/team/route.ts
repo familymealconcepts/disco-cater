@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { runDiscoOrderMigrations, sql } from '../../../../lib/db'
 import { getLocationAccessRefs } from '../../../../lib/disco-restaurant-auth'
+import { resolveDiscoAccessScope } from '../../../../lib/restaurant-write-scope'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,13 +24,20 @@ export async function GET() {
   try {
     await runDiscoOrderMigrations()
 
-    // Section 1 — locations the PSA can access (name + address + live status).
-    // READ-PATH GAP (deliberately deferred, not fixed): doesn't branch on role
-    // — a disco-native SUPER_ADMIN sees only their own explicit-access rows
-    // here (home restaurant only, or empty if their account has none), same
-    // as any other account. A true "every restaurant" view would need a real
-    // list-all query; not built. Never an error, never another owner's data.
-    let refs = await getLocationAccessRefs(ctx.email)
+    // Section 1 — locations the caller can access (name + address + live status).
+    //
+    // ROLE GATES REACH (fixed 2026-09-01). This used to call
+    // getLocationAccessRefs directly with no role branch, so an ADMIN carrying
+    // drifted grant rows saw every one of them: verified, Stacy Freemyer
+    // (role ADMIN, FM assigns her Woodstock alone) got the name, address and
+    // live status of all 8 Atlanta Bread locations. resolveDiscoAccessScope
+    // returns home-ref-only for any role that isn't SYSTEM_ADMIN.
+    //
+    // SUPER_ADMIN keeps exactly today's behaviour (their own explicit-access
+    // rows, home-only if none) rather than becoming unrestricted — a true
+    // "every restaurant" view needs a real list-all query; not built.
+    const gate = await resolveDiscoAccessScope(ctx)
+    let refs = gate.unrestricted ? await getLocationAccessRefs(ctx.email) : [...gate.refs]
     if (!refs.length && ctx.restaurantReference) refs = [ctx.restaurantReference]
     const locations = refs.length
       ? (await sql`

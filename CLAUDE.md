@@ -106,100 +106,102 @@ Extracted from Sanity `orderUrl`:
 
 ## Who can see which restaurants (READ BEFORE TOUCHING ANY MULTI-LOCATION CODE)
 
-This model has now caused **five** separate bugs: the invite mechanism reading the
-designated-admin field; grants written from a self-reported `managedRestaurants`
-array; the Bulk Menu Editor reading the FM session only; Barbara Coultas seeing
-one of her two Gracious locations (2026-09-01); and, found in the same pass, six
-Atlanta Bread admins with 8 grants each seeing one location. Every one of them
-was the same mistake in a different file.
+This model has caused six separate bugs in six different files. Read it before
+writing anything that answers "which restaurants can this person see."
 
-### The domain model
+### The architecture (Peter, 2026-09-01 — authoritative)
 
-A **location has one or more admins**. An owner may hold every location. A
-regional manager holds a subset the owner grants them. FM models this properly.
-The FM restaurant object's `admin` field is **one designated contact, not the
-set** — Gracious Garden District's `admin` is empty while Uptown's is Barbara,
-and she runs both. Never derive reach from it.
+- **ADMIN: exactly one location.** All tools for that location. **Cannot see or
+  switch to another.** This is by design — the portal shell putting an ADMIN in
+  Mode B unconditionally is CORRECT, not a bug to fix.
+- **SYSTEM_ADMIN: all locations assigned to or created by them**, with a
+  rolled-up view across exactly those — orders, reporting, everything. No more,
+  no less.
+- **A "regional manager" is just a SYSTEM_ADMIN with a subset.** Not a separate
+  role. Do not add one.
+- **A location can have many ADMINs. A SYSTEM_ADMIN can hold 1 or 5,000
+  locations, overlapping freely with other SYSTEM_ADMINs.**
+- **Only a super admin (us) or another SYSTEM_ADMIN invites SYSTEM_ADMINs**, and
+  can only assign locations they themselves hold.
+- **ROLE GATES REACH.** Grants define a SYSTEM_ADMIN's set. **An ADMIN's reach is
+  their own location regardless of grants.** Never compute reach from grant count
+  alone.
+- **Post-conversion, Disco owns grants. NEVER reconcile them against FM** — a
+  grant may be a deliberate later change someone made on purpose, and revoking
+  it would overwrite a real decision.
 
-**Role decides whether a person is multi-location at all** (confirmed with Peter
-2026-09-01): only `SYSTEM_ADMIN` and `SUPER_ADMIN` may see or switch between
-locations. An `ADMIN` is single-location **by design** — the portal shell puts
-them in Mode B unconditionally and that is correct behaviour, not a bug.
-
-So role and reach must be CONSISTENT, and where they disagree the grant rows are
-what's wrong. **An `ADMIN` holding more than one grant is a data error**, not a
-person with extra reach. FM is the arbiter: its authorized-users list carries a
-per-user `role`, and FM's `/api/system-admin/users` returns nothing at all for a
-plain ADMIN — an ADMIN has no Authorized Users concept in FM, so they must never
-appear in a multi-location grant sweep.
-
-### The three tables
+### The tables
 
 - **`disco_restaurant_accounts` is the credentials table.** One row per human,
-  `UNIQUE(email)`. Its `restaurant_reference` is an **anchor for default
-  context** — where the portal drops them on login — and is **NOT** the set of
-  locations they can reach. `role` lives here, and `is_disco_native` on this row
-  is stale and unreliable (the authoritative one is on `disco_restaurant_cache`).
-- **`disco_restaurant_location_access` is the ONLY source for reach.** One row
-  per person per restaurant, `UNIQUE(account_email, restaurant_reference)`. Note
-  it keys on **email**, not `account_id`.
-- **`disco_restaurant_cache` / `disco_restaurant_overrides`** hold the
-  restaurant. A restaurant's archive lives in `disco_restaurant_overrides
-  .archived_at` (see `lib/disco-restaurant-archive.ts`);
-  `disco_restaurant_accounts.archived_at` describes one ACCOUNT and says nothing
-  about the location.
+  `UNIQUE(email)`. `role` lives here. Its `restaurant_reference` is an **anchor
+  for default context** — where the portal drops them on login — and for an
+  ADMIN it is also their single location. `is_disco_native` on this row is stale
+  and unreliable; the authoritative one is on `disco_restaurant_cache`.
+- **`disco_restaurant_location_access` is the grant table**, keyed on **email**
+  (not `account_id`). It defines a SYSTEM_ADMIN's set. For an ADMIN it is not
+  consulted for reach.
+- A **restaurant's** archive is `disco_restaurant_overrides.archived_at` (see
+  `lib/disco-restaurant-archive.ts`). `disco_restaurant_accounts.archived_at`
+  describes one ACCOUNT and says nothing about the location.
 
-Sentinel `stripe-import+{ref}@familymeal.com` rows exist in the credentials table
-for locations with no real admin, so a future admin has a row to accept an invite
-onto. They are **never recipients of anything** — not invites, not notifications,
-not reports.
+Sentinel `stripe-import+{ref}@familymeal.com` rows exist for locations with no
+real admin, so a future admin has a row to accept an invite onto. They are
+**never recipients of anything**.
 
-### The rule
+### Use the role-gated wrappers, not the raw primitives
 
-**Any code answering "which restaurants can this person see" reads the grant
-table.** Reading the anchor is the bug, and it has happened repeatedly.
+`lib/restaurant-write-scope.ts` exports the two that apply the role gate:
 
-Use `getLocationAccessRefs(email)` for the ref set, `getDiscoGroupAccounts(businessName, email)`
-for the enriched list, and `countLocationAccess(email)` when you only need "how
-many" (all in `lib/disco-restaurant-auth.ts`).
+- **`resolveDiscoGroupScope(ctx)`** — for call sites keyed on group refs
+  (locations, upload-image, bulk-pricing, report scope).
+- **`resolveDiscoAccessScope(ctx)`** — for call sites keyed on the grant table
+  (order scope, multi-unit links, team).
 
-### Three traps that have each cost a real bug
+Both return home-ref-only for any role that isn't `SYSTEM_ADMIN`, and
+`{unrestricted: true}` for `SUPER_ADMIN`. The raw `getLocationAccessRefs` /
+`getDiscoGroupAccounts` / `discoGroupRefs` primitives answer "what is this
+email's group" **without regard to role**, which is the wrong question for both
+an ADMIN and a SUPER_ADMIN. Reach for either through a wrapper.
 
-1. **The multi-location UI is gated on role, and that is CORRECT — do not
-   "fix" it.** `app/(restaurant)/restaurant/(portal)/layout.tsx` uses
-   `isSystemAdmin` for `inRestaurantUserView`, and `RESTAURANT_USER_NAV` has no
-   Locations entry, so an `ADMIN` gets exactly one location. This was changed to
-   follow grant count on 2026-09-01 and **reverted the same day** — Peter's rule
-   is that ADMIN is single-location, full stop. When an `ADMIN` appears to be
-   missing locations, either their role is wrong (mirror FM's) or their grants
-   are (revoke the extras). Never widen the shell.
+Verify any change with `npx tsx scripts/verify-role-gated-reach.ts`.
 
-   The write paths already assume this: `resolveWriteScope` gives a non-SA
-   `allowedRefs = [ownRef]`, and `resolveDiscoGroupScope` /
-   `resolveDiscoAccessScope` both return home-ref-only for any role that isn't
-   `SYSTEM_ADMIN`. **But three READ paths do not** — `lib/reports/report-scope.ts`,
-   `/api/restaurant/team` and `/api/restaurant/locations` call the grant
-   primitives with no role branch, so an `ADMIN` carrying stray grants can read
-   data for locations the nav never offers. Verified 2026-09-01:
-   `sanitizeReportFilter` accepted all 8 of an ADMIN's granted refs. Prefer the
-   role-gated wrappers in `lib/restaurant-write-scope.ts` over the raw
-   primitives.
+### Four traps that have each cost a real bug
 
-2. **An FM-session user has NO Disco identity.** `getRestaurantAuthContext()`
+1. **Do not gate multi-location UI on grant count.** Changed on 2026-09-01 and
+   **reverted the same day**. When an ADMIN appears to be missing locations,
+   either their role is wrong (mirror FM's) or their grants are — never widen the
+   shell. Barbara Coultas's real fix was her role: FM said `SYSTEM_ADMIN` and the
+   account row created by passing `email:` to `importRestaurantStripeAccount`
+   defaulted to `ADMIN`. **Don't pass `email` to that function** — the
+   `stripe-import+{ref}@` sentinel fallback is the correct behaviour.
+
+2. **FM's authorized-users endpoint OVER-REPORTS.** It returns the whole chain's
+   authorized users for every location, not that location's. Proven 2026-09-01:
+   for Atlanta Bread Alpharetta it returned 7 users and **none of the 7** is
+   assigned to Alpharetta in FM's own `tbl_system_admin_restaurants`. This is the
+   same shape as Morning Squeeze appearing on Eggstasy's page while unchecked.
+   FM's real membership lives in the snapshot DB (`fm_backup`, schema
+   `familymeal`):
+   - `tbl_restaurant_admins (restaurant_id, user_id)` — an ADMIN's location
+   - `tbl_system_admin_restaurants (user_id, restaurant_id)` — a SYSTEM_ADMIN's set
+   - `tbl_restaurant_groups_system_admins (group_id, user_id)`
+   The snapshot is frozen at **2026-06-16**, and no live FM endpoint exposes
+   these. Treat the endpoint as a candidate list, never as membership.
+
+3. **An FM-session user has NO Disco identity.** `getRestaurantAuthContext()`
    returns `authType: 'fm'` with **`email: ''`** and `restaurantReference: ''`.
-   Every resolver above returns empty for a blank email — deliberately, so a
+   Every grant resolver returns empty for a blank email — deliberately, so a
    non-Disco user is never blocked — so a grant lookup silently yields nothing.
-   If reach matters on a path an FM-session user can reach, handle that case
-   explicitly rather than letting it fall through to home-only. (Same root as the
-   `ctx.restaurantReference` blank-for-FM family of bugs.)
+   Handle that case explicitly rather than letting it fall through. (Same root as
+   the `ctx.restaurantReference` blank-for-FM family of bugs.)
 
-3. **Never join `disco_restaurant_accounts` on `restaurant_reference`.** It is
+4. **Never join `disco_restaurant_accounts` on `restaurant_reference`.** It is
    not unique there — Atlanta Bread Asheville has 9 account rows. A `LEFT JOIN`
    on it to test `archived_at` multiplied every grant by the account-row count:
-   Cory's 6 DeCheco's grants returned 7, and kjp@atlantabread.com's 9 returned
-   24 with Asheville repeated 8 times. `/api/restaurant/locations` survived only
-   because it de-duped into a `Set`; anything counting or summing the list was
-   reading inflated data. Test the restaurant's archive with `NOT EXISTS` against
+   kjp@atlantabread.com's 9 grants returned 24, Asheville repeated 8 times. No
+   revenue was ever overstated (aggregates de-dupe into a Set and filter with
+   `= ANY(refs)`, which is membership, not a join) but the location dropdown
+   showed the duplicates. Test a restaurant's archive with `NOT EXISTS` against
    `disco_restaurant_overrides`.
 
 ## Browser verification with Playwright (READ THIS BEFORE SAYING YOU CAN'T)
