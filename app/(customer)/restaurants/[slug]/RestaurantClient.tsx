@@ -155,9 +155,38 @@ const formatPrice = (p: number) => `$${p.toFixed(2)}`
 // What to SHOW for a package's price on the ordering page: the admin's
 // free-text display price (e.g. "$200.00+") when set, else the base price as
 // currency. Display only — never used for cart/checkout math.
+//
+// THE DISPLAY PRICE IS FREE TEXT AND IS SOMETIMES A BARE NUMBER. It used to be
+// rendered verbatim, so The Winkin' Rooster showed "5.00" and "2" where FM showed
+// "$5.00" and "$2.00". 25 items across 6 restaurants were affected, and all 16
+// distinct no-currency values fleet-wide are plain numbers ("2", "45", "43.99",
+// "76.99", …) — found by diffing the rendered pages, not the data
+// (scripts/compare-fm-disco.mjs).
+//
+// DELIBERATELY CONSERVATIVE: only a string that is ENTIRELY a number is touched.
+// Everything else passes through with whitespace tidied, because the real values
+// carry meaning this must not mangle — "$45.00+" (from-price), "$75.00-$125.00"
+// (a range), "$25.00 per person" (a unit). Prefixing "$" onto anything
+// non-numeric would risk "$Starting at $45".
+//
+// IT MUST NOT PAPER OVER A ZERO BASE PRICE. Many items legitimately cost 0 at
+// the base and carry their real price in a required modifier group — that is how
+// FM stores them too, and the display price IS the real cost, so formatting it
+// shows the customer the true number rather than hiding it. The two live items
+// with price 0 and NO display price still render "$0.00"; that is a separate
+// question about those two items, not something a formatter should invent a
+// price for.
+function normalizeDisplayPrice(raw: string): string {
+  const t = raw.trim().replace(/\s+/g, ' ')
+  if (!t) return t
+  if (t.includes('$')) return t
+  const n = Number(t)
+  return Number.isFinite(n) ? formatPrice(n) : t
+}
+
 function packagePriceLabel(p: { displayPrice?: string | number | null; price: number }): string {
   const dp = p.displayPrice
-  if (dp != null && String(dp).trim() !== '') return String(dp).trim()
+  if (dp != null && String(dp).trim() !== '') return normalizeDisplayPrice(String(dp))
   return formatPrice(p.price)
 }
 
