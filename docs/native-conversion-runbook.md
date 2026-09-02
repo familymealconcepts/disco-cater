@@ -1453,11 +1453,20 @@ Tacos Studio City (SAs `atwater@` and `stucity@hugostacos.com`, title "Hugo's Ta
 groups, different titles. Anyone reading "Hugo's ×4" as one chain will merge two
 unrelated businesses onto one public page.
 
-**FRANCESCA CATERING HAS NO FM GROUP AT ALL.** Twelve slug candidates probed, all 404,
-and no `disco_location_links` row. Both locations are converted and Disco holds them, but
-there is no slug, title, or banner to copy — and no existing public URL to preserve. It
-needs a **human-chosen slug**, which makes it a different operation from the other four:
-a creation, not a copy.
+**FRANCESCA CATERING IS NOT A CHAIN IN DISCO'S MODEL, and needs more than a slug.**
+Twelve slug candidates probed, all 404, and no `disco_location_links` row — so there is no
+slug, title, or banner to copy, and no existing public URL to preserve.
+
+**Corrected 2026-09-02 while building the pre-flight check:** it also has **ZERO
+`disco_restaurant_location_access` rows**, and both accounts (`sreina5@yahoo.com`,
+`info@elmwoodparkpizza.com`) are **ADMIN, not SYSTEM_ADMIN**, each anchored to one
+location. By the grant table these are two independent restaurants that share a brand
+name, not a chain. So membership has nobody to come from: the rule is that a SYSTEM_ADMIN
+checks boxes over their own locations, and Francesca has no SYSTEM_ADMIN at all.
+
+Francesca therefore needs, in order: someone promoted to SYSTEM_ADMIN over both locations,
+grants written, THEN a human-chosen slug. It is the furthest from ready of the five, not
+the closest. The pre-flight reports it as `isChain: false` for this reason — correctly.
 
 **ATLANTA BREAD'S GRANT TABLE DIVERGES — NEEDS BASIL, NOT A JUDGEMENT CALL.** FM lists 9.
 Seven SYSTEM_ADMINs hold all 9. `anthie@thenccgroup.com` and `tara@thenccgroup.com` hold

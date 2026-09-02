@@ -10,6 +10,7 @@ import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { verifyAccountReusable, type AccountReuseCheck } from './stripe-connect'
 import { resolveStripeAccountFromHistory } from './stripe-account-resolution'
+import { checkMultiUnit, type MultiUnitPreflight } from './locations/multi-unit-preflight'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const arrOf = (d: unknown): Record<string, unknown>[] => {
@@ -46,6 +47,12 @@ export interface PreflightResult {
   duplicateRecords: { restaurantReference: string; name: string | null }[]
   login: { hasAccount: boolean; isSentinel: boolean; email: string | null }
   fmOnlineOrderingAllowed: boolean | null
+  /**
+   * The chain's /locations link. PETER-classified when this restaurant is part of a chain and
+   * no native link covers it — seeding one is manual until the conversion step is built, and
+   * the FM fallback hides its absence completely (Gracious went three weeks unnoticed).
+   */
+  multiUnit: MultiUnitPreflight
 }
 
 async function storedAccountId(ref: string): Promise<string | null> {
@@ -76,6 +83,11 @@ export async function runPreflightCheck(ref: string, opts?: { stripe?: Stripe })
       stripe: { resolvedAccountId: null, resolutionSource: null, needsManualLookup: true, detail: 'Restaurant not found.', capability: null },
       duplicateRecords: [], login: { hasAccount: false, isSentinel: false, email: null },
       fmOnlineOrderingAllowed: null,
+      // A restaurant that is not in the cache has no chain to check.
+      multiUnit: {
+        isChain: false, grantedRefs: [], grantsBySystemAdmin: [], nativeLink: null,
+        fm: null, divergence: null, detail: 'Restaurant not found — no multi-unit check run.',
+      },
     }
   }
 
@@ -170,6 +182,34 @@ export async function runPreflightCheck(ref: string, opts?: { stripe?: Stripe })
     warnings.push({ code: 'notification-recipients-unset', message: 'Notification email/SMS recipients are not set and cannot be auto-imported (FM exposes this only via a session-scoped endpoint) — Peter needs to enter these manually via the portal.' })
   }
 
+  // ── 6. Multi-unit /locations link ───────────────────────────────────────────
+  // PETER, not BLOCKER: converting without a link does not break anything, which is exactly
+  // the problem — the FM fallback serves the page and nothing looks wrong. It is a manual step
+  // until the conversion step exists, so it belongs in the report someone reads BEFORE
+  // converting rather than in a runbook step that gets skipped.
+  const multiUnit = await checkMultiUnit(ref, name)
+  if (multiUnit.isChain && !multiUnit.nativeLink) {
+    warnings.push({
+      code: 'multi-unit-link-missing',
+      message: `PETER — this is a ${multiUnit.grantedRefs.length}-location chain with NO Disco-native /locations link, so its page will keep being served by FM's group endpoint after conversion. ${multiUnit.detail} Seed it by hand (runbook Tier 1 step 11); membership comes from disco_restaurant_location_access, FM supplies the slug and title only.`,
+    })
+  } else if (multiUnit.isChain && multiUnit.nativeLink) {
+    const covered = new Set(multiUnit.nativeLink.memberRefs)
+    const missing = multiUnit.grantedRefs.filter(g => g.isDiscoNative && !covered.has(g.restaurantReference))
+    if (missing.length) {
+      warnings.push({
+        code: 'multi-unit-link-incomplete',
+        message: `PETER — native link '${multiUnit.nativeLink.slug}' exists but is missing ${missing.length} converted location(s): ${missing.map(m => m.name || m.restaurantReference).join(', ')}. A chain converts one location at a time, so the link has to GROW — add this member after converting.`,
+      })
+    }
+  }
+  if (multiUnit.divergence && (multiUnit.divergence.inFmNotGranted.length || multiUnit.divergence.grantedNotInFm.length)) {
+    warnings.push({
+      code: 'multi-unit-membership-diverges',
+      message: `FM's group '${multiUnit.fm?.slug}' and disco_restaurant_location_access disagree — ${multiUnit.divergence.inFmNotGranted.length} in FM but not granted, ${multiUnit.divergence.grantedNotInFm.length} granted but not in FM. FM's group endpoint over-reports (Morning Squeeze on /locations/eggstasy), so STOP and ask rather than copying either side.`,
+    })
+  }
+
   return {
     restaurantReference: ref, name, found: true,
     ready: blockers.length === 0,
@@ -179,6 +219,7 @@ export async function runPreflightCheck(ref: string, opts?: { stripe?: Stripe })
     duplicateRecords,
     login: { hasAccount, isSentinel, email: acctRows[0]?.email ?? null },
     fmOnlineOrderingAllowed,
+    multiUnit,
   }
 }
 
