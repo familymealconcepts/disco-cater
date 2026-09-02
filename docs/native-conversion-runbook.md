@@ -347,7 +347,89 @@ flags it automatically.
   self-heals new ones in rotation.
 - **Post-conversion diff**: see below instead of eyeballing two screens.
 
-### 11. Post-conversion diff — a concrete check, not a screen comparison
+### 11. Multi-unit /locations link — **NOT BUILT, DO THIS BY HAND**
+
+**Applies only to a chain**, i.e. a restaurant whose SYSTEM_ADMIN holds more than one
+location. A single-venue conversion skips this step entirely.
+
+**Nothing in `convertToNative` or `checkConversionReadiness` touches
+`disco_multi_unit_links`.** `grep -c multi_unit lib/native-conversion.ts` returns 0. It
+was scoped as a per-chain step at conversion time and never written — it is a gap, not a
+regression. Until it is built, a human does the following, or the chain's `/locations`
+page silently keeps being served by FM.
+
+**Why it matters even though the page still "works".** The FM fallback in
+`getLocationLink` covers a converted chain, so nothing looks broken — which is exactly
+why Gracious went three weeks unnoticed. But a converted chain served from FM's group
+endpoint is a live dependency on an unmaintained system, and its membership is FM's, not
+ours. See the 2026-08-31 section below for why explicit links are compulsory.
+
+**1 — find the FM group slug.** It is NOT derivable from the location slugs. Gracious's
+two are `graciousbakerycafe-gardendistrict` and `graciousbakery-uptown`; the group slug
+is `graciousbakery`. Probe candidates until one answers:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' \
+  "https://api.familymeal.com/public-api/restaurants/group/<candidate>"
+```
+
+**Accept a 200 only if its membership CONTAINS the converting restaurant's reference.**
+A 200 for some other chain's slug is a wrong answer that looks like a right one.
+
+There is no ref → slug endpoint. Probed and confirmed 404 on 2026-09-02:
+`/public-api/restaurants/{ref}/links`, `/{ref}/group`,
+`/links/restaurant/{ref}`. `/public-api/restaurants/{ref}` returns 200 but carries no
+link- or group-shaped key. The authenticated portal listing
+(`/api/system-admin/restaurants/links/listing`) is keyed on `userReference`, not on a
+restaurant. So probing is currently the only route.
+
+**2 — create or grow the link.** If a native link already exists at that slug, ADD this
+member. If not, create it with this ONE member.
+
+Never write the whole chain at once from FM's list. **A chain converts one location at a
+time — Atlanta Bread converted over days — so the link has to GROW.** A link written
+once at the first conversion and left alone stays short forever. Growth is monotonic:
+add on each conversion, never remove. `getLocationLink`'s native branch already filters
+members on `is_live = true AND archived_at IS NULL`, so a location that later goes dark
+drops off the page without a second write path.
+
+**3 — membership comes from `disco_restaurant_location_access`, never from FM's group
+list.** FM supplies the **slug and title only**.
+
+FM's group endpoint OVER-REPORTS. That is not theoretical: it is how Morning Squeeze
+(`8a7bb6f5-25fd-4672-b75c-e2912620116e`, Tempe AZ) ended up listed on
+`/locations/eggstasy` despite being unchecked, and FM's grouping cannot be corrected
+because nobody maintains FM's Java backend. Copying FM's membership copies that class of
+error into Disco, where it becomes ours. Cross-check the two lists and **stop on any
+divergence in either direction rather than picking a side.**
+
+**4 — re-host the banner, never hotlink FM.** The native branch has no FM image fallback
+(deliberately — see below), so seeding a link DROPS THE BANNER and the page falls to its
+auto-extracted gradient. That happened to Gracious on 2026-09-02.
+
+Use `rehostFmBanner` (`lib/locations/fm-banner.ts`): downloads FM's image, sniffs magic
+bytes, uploads to Vercel Blob under `fm-link-banners/<sha256>.<ext>`. Content-addressed,
+so re-runs are idempotent and identical banners across slugs collapse to one object.
+
+**TWO WRITES ARE REQUIRED, and this is the part that fails silently.**
+`upsertLocationLink`'s `ON CONFLICT` updates `title` and `restaurant_reference` but
+deliberately **NOT** `image_url` — so it cannot set a banner on a slug that already has a
+row, and it reports success either way. A row very often DOES already exist with
+`image_url` NULL, because `resolveGradient`'s `cacheAutoGradient` creates one the first
+time the page renders. **Call `upsertLocationLinkImage(slug, blobUrl)` as well.**
+
+**Do NOT "fix" this by adding an FM image fallback to the native branch.** Reaching back
+to FM at render time for a converted chain reintroduces exactly the dependency conversion
+exists to sever.
+
+**5 — verify.** `curl -s https://www.discocater.com/locations/<slug>` and check: the Blob
+URL appears, `api.familymeal.com` appears ZERO times, and every expected location renders
+with an `/order/<slug>` link (**`/order/`, not `/restaurants/`** — the Order button
+target). Gracious, done 2026-09-02, is the worked example.
+
+---
+
+### 12. Post-conversion diff — a concrete check, not a screen comparison
 
 Kealoha found the logo/image/phone/closed-days gaps by manually comparing
 FM's admin view against Disco's after Winkin' Rooster converted. All four
@@ -1287,10 +1369,11 @@ permanent. Recording the decision so the next person does not re-derive it.
    `disco_multi_unit_link_members`. Takes precedence when a row exists.
 2. **Fallback** — `GET {FM}/public-api/restaurants/group/{slug}`.
 
-**`disco_multi_unit_links` is EMPTY. Zero rows.** So path 1 has never once fired, and
-all 13 mirrored link slugs (`atlantabread`, `dechecos`, `eggstasy`, `hugosrestaurant`,
-`hugostacos`, `morningsqueeze`, `namkeen`, `surftaco`, `tap42`, `twohands`,
-`almosthome`, `testgroup`, +1) are served entirely by FM.
+**`disco_multi_unit_links` held ZERO rows until 2026-09-02**, when `graciousbakery` was
+seeded as the first one (see Tier 1 step 11). Every other slug — `atlantabread`,
+`dechecos`, `eggstasy`, `hugosrestaurant`, `hugostacos`, `morningsqueeze`, `namkeen`,
+`surftaco`, `tap42`, `twohands`, `almosthome`, `testgroup`, +1 — is still served
+entirely by FM's group endpoint.
 
 There is **no Disco-side inference** — no grouping by `business_name`, no grouping by
 email domain. Checked `locations.ts`, `multi-unit-links.ts`, `location-links.ts`.
@@ -1343,6 +1426,58 @@ Two things make this compulsory rather than desirable:
 after it, editing a chain's locations in FM stops affecting the Disco page, and
 restaurant owners who currently manage grouping in FM must be told where it moved.
 Sequence it with the conversion programme, not ahead of it.
+
+---
+
+### Chain survey, 2026-09-02 — read this before seeding anything
+
+Every converted chain, measured against FM's group endpoint and
+`disco_restaurant_location_access`. **Nothing below was written except Gracious.** The
+other four were deliberately left on the FM fallback pending decisions recorded here.
+
+| Chain | FM group slug | Resolves | FM lists | Grant table | Banner |
+|---|---|---|---|---|---|
+| Gracious Bakery | `graciousbakery` | yes | 2 | Barbara: 2 — exact match | yes, **re-hosted** |
+| Atlanta Bread | `atlantabread` | yes | 9 | **7 SAs hold 9, two hold 8** | yes |
+| DeCheco's | `dechecos` | yes | 6 | 4 SAs hold 6 each — match | yes |
+| Hugo's Tacos | `hugostacos` | yes | 2 | 2 SAs hold 2 each — match | **none** |
+| Hugo's Restaurant | `hugosrestaurant` | yes | 2 | 1 SA holds 2 — match | **none** |
+| Francesca Catering | — | **no slug resolves** | — | 2 converted | — |
+
+**Five converted chains have no explicit link.** Only Gracious does.
+
+**HUGO'S IS TWO CHAINS, NEVER ONE LINK.** `hugostacos` holds Tacos Atwater Village +
+Tacos Studio City (SAs `atwater@` and `stucity@hugostacos.com`, title "Hugo's Tacos").
+`hugosrestaurant` holds Hugo's Studio City + West Hollywood (SA
+`contact@hugosrestaurant.com`, title "Hugo's Restaurant"). Different owners, different FM
+groups, different titles. Anyone reading "Hugo's ×4" as one chain will merge two
+unrelated businesses onto one public page.
+
+**FRANCESCA CATERING HAS NO FM GROUP AT ALL.** Twelve slug candidates probed, all 404,
+and no `disco_location_links` row. Both locations are converted and Disco holds them, but
+there is no slug, title, or banner to copy — and no existing public URL to preserve. It
+needs a **human-chosen slug**, which makes it a different operation from the other four:
+a creation, not a copy.
+
+**ATLANTA BREAD'S GRANT TABLE DIVERGES — NEEDS BASIL, NOT A JUDGEMENT CALL.** FM lists 9.
+Seven SYSTEM_ADMINs hold all 9. `anthie@thenccgroup.com` and `tara@thenccgroup.com` hold
+**8**, both missing **Atlanta Bread – Alpharetta**.
+
+`/locations/atlantabread` is one page with one membership, but the grant table gives two
+different answers depending on which SA you ask — union 9, intersection 8, or the owner's
+own grants depending on which of nine SAs owns the link. "Membership comes from the grant
+table" does not resolve it here.
+
+What makes it genuinely undecidable rather than merely fiddly: FM's authorized-users
+endpoint over-reports the whole chain per location, and 84 excess grants were deliberately
+left unrevoked. So the seven 9-grant SAs may themselves be carrying FM-derived
+over-grants, and anthie/tara's 8 may be the CURATED number. FM agreeing at 9 is therefore
+not corroboration — it is the same source counted twice. **Ask Basil whether Alpharetta
+belongs on the page, and whether anthie/tara's missing grant is a separate gap to fix.**
+
+DeCheco's and both Hugo's groups are unblocked — FM and the grant table agree exactly in
+both directions. Neither Hugo's group has an FM banner, so those two pages lose nothing
+by being seeded.
 
 ---
 
