@@ -1,45 +1,88 @@
 /**
- * The tax gate must distinguish three cases that Neon stores identically:
- *   a real non-zero rate      → pass on Neon, no live read
- *   deliberately 0% (FM says 0) → pass, but only after FM confirms
- *   nothing configured (FM null) → BLOCK
+ * "Ready to convert" and "safe to price" must agree, and must accept an explicit
+ * 0% while refusing a restaurant with no rate anywhere.
+ *
+ * Four real cases, chosen because each breaks a different naive predicate:
+ *   DeCheco's      explicit 0 everywhere  → converts, prices at 0%   (a state-only
+ *                                            gate that blocked on a zero SUM
+ *                                            would wrongly refuse it)
+ *   Tenkatori      0 state + 9.75 local   → converts, prices at 9.75% (a state-only
+ *                                            gate reports the wrong number)
+ *   Pine and Crane null state + 9.75 local → configured; would have 409'd on every
+ *                                            order under a state-only taxReliable
+ *   tax_rates NULL nothing anywhere       → still blocked, and checkout still refuses
  *
  *   npx tsx scripts/verify-tax-gate.ts
  */
 import { config } from 'dotenv'
 config({ path: '.env.local' })
 
-import { effectiveTaxPercent, checkConversionReadiness } from '../lib/native-conversion'
+import { sql } from '../lib/db'
+import { effectiveTaxPercent, isTaxConfigured } from '../lib/pricing/tax-config'
+import { loadNativePricingConfig } from '../lib/pricing/native-order'
+import { checkConversionReadiness } from '../lib/native-conversion'
 
 let fails = 0
 const check = (l: string, ok: boolean, extra = '') => { if (!ok) fails++; console.log(`   ${ok ? 'PASS' : 'FAIL'}  ${l}${extra ? ` — ${extra}` : ''}`) }
 
 async function main() {
-  console.log('── effectiveTaxPercent: null means UNCONFIGURED, 0 means configured-at-zero')
-  check('no object → null', effectiveTaxPercent(null) === null)
-  check('all fields null → null', effectiveTaxPercent({ stateSalesTax: { percent: null }, localSalesTax: { percent: null }, otherSalesTax: { percent: null } }) === null)
-  check('empty object → null', effectiveTaxPercent({}) === null)
-  check('explicit zeros → 0, not null', effectiveTaxPercent({ stateSalesTax: { percent: 0 }, localSalesTax: { percent: 0 }, otherSalesTax: { percent: 0 } }) === 0)
-  check('0 state + 9.75 local → 9.75 (the Tenkatori shape)', effectiveTaxPercent({ stateSalesTax: { percent: 0 }, localSalesTax: { percent: 9.75 } }) === 9.75)
-  check('state only → that value', effectiveTaxPercent({ stateSalesTax: { percent: 8.1 } }) === 8.1)
-  check('sums all three', effectiveTaxPercent({ stateSalesTax: { percent: 6 }, localSalesTax: { percent: 1.5 }, otherSalesTax: { percent: 0.25 } }) === 7.75)
-  check('non-numeric ignored', effectiveTaxPercent({ stateSalesTax: { percent: NaN }, localSalesTax: { percent: 2 } }) === 2)
+  console.log('── the shared predicate: 0 is an answer, null is the absence of one')
+  check('no object → not configured', !isTaxConfigured(null))
+  check('all-null fields → not configured', !isTaxConfigured({ stateSalesTax: { percent: null }, localSalesTax: { percent: null }, otherSalesTax: { percent: null } }))
+  check('explicit zeros → CONFIGURED (DeCheco\'s shape)', isTaxConfigured({ stateSalesTax: { percent: 0 }, localSalesTax: { percent: 0 }, otherSalesTax: { percent: 0 } }))
+  check('   ...and its effective rate is 0, not null', effectiveTaxPercent({ stateSalesTax: { percent: 0 }, localSalesTax: { percent: 0 } }) === 0)
+  check('local only, no state → CONFIGURED (Pine and Crane shape)', isTaxConfigured({ localSalesTax: { percent: 9.75 } }))
+  check('   ...and sums to 9.75', effectiveTaxPercent({ localSalesTax: { percent: 9.75 } }) === 9.75)
+  check('other only → CONFIGURED (Messy shape)', isTaxConfigured({ otherSalesTax: { percent: 8.875 } }))
+  check('state 0 + local 9.75 → 9.75 (Tenkatori shape)', effectiveTaxPercent({ stateSalesTax: { percent: 0 }, localSalesTax: { percent: 9.75 } }) === 9.75)
 
-  console.log('\n── the gate, against real restaurants')
-  const CASES: [string, string, boolean][] = [
-    // label, ref, expected settings-step pass
-    ['Tenkatori Sawtelle (0 state + 9.75 local)', 'f3f3a00b-2fa3-4d86-b31a-e7abf79a7eda', true],
-    ['DeCheco’s Fairlawn (no rate anywhere, FM null)', 'c42d8232-2cef-4f34-be9c-1705d4b48393', false],
+  console.log('\n── real restaurants: the gate and the pricing path must agree')
+  const CASES: [string, string, { configured: boolean; effective: number | null }][] = [
+    ["DeCheco's Fairlawn (explicit 0)", 'c42d8232-2cef-4f34-be9c-1705d4b48393', { configured: true, effective: 0 }],
+    ['Tenkatori Sawtelle (0 state + 9.75 local)', 'f3f3a00b-2fa3-4d86-b31a-e7abf79a7eda', { configured: true, effective: 9.75 }],
   ]
-  for (const [label, ref, expected] of CASES) {
+  // Pine and Crane + a NULL case, looked up by name so the test survives re-seeding.
+  const extra = (await sql`
+    SELECT c.name, c.restaurant_reference AS ref,
+           (o.tax_rates IS NULL) AS is_null
+      FROM disco_restaurant_cache c JOIN disco_restaurant_overrides o USING (restaurant_reference)
+     WHERE c.name IN ('Pine and Crane DTLA', 'Lee''s Chinese Food')
+     ORDER BY c.name
+  `) as { name: string; ref: string; is_null: boolean }[]
+
+  for (const [label, ref, expect] of CASES) {
+    const t = (await sql`SELECT tax_rates FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref}`) as { tax_rates: unknown }[]
+    const rates = t[0]?.tax_rates as never
+    console.log(`\n   ${label}`)
+    check('   configured as expected', isTaxConfigured(rates) === expect.configured)
+    check('   effective rate as expected', effectiveTaxPercent(rates) === expect.effective, String(effectiveTaxPercent(rates)))
+    const { taxReliable, cfg } = await loadNativePricingConfig(ref)
+    check('   checkout would price it (taxReliable)', taxReliable === expect.configured)
+    const charged = cfg.stateTax.percent + cfg.localTax.percent + cfg.otherTax.percent
+    check(`   checkout charges ${expect.effective}%`, charged === expect.effective, `${charged}%`)
     const r = await checkConversionReadiness(ref)
     const step = r.steps.find(s => s.key === 'settings')
-    console.log(`   ${label}`)
-    console.log(`      settings step: ${step?.done ? 'PASS' : 'BLOCK'} — ${step?.detail}`)
-    check(`   expected ${expected ? 'PASS' : 'BLOCK'}`, step?.done === expected)
+    check('   conversion gate passes', step?.done === true, step?.detail?.slice(0, 90))
   }
-  console.log('\n' + '='.repeat(60))
-  console.log(fails === 0 ? 'TAX GATE VERIFIED' : `${fails} CHECK(S) FAILED`)
+
+  for (const e of extra) {
+    const t = (await sql`SELECT tax_rates FROM disco_restaurant_overrides WHERE restaurant_reference = ${e.ref}`) as { tax_rates: unknown }[]
+    const rates = t[0]?.tax_rates as never
+    const { taxReliable, cfg } = await loadNativePricingConfig(e.ref)
+    const charged = cfg.stateTax.percent + cfg.localTax.percent + cfg.otherTax.percent
+    console.log(`\n   ${e.name} (tax_rates ${e.is_null ? 'NULL' : 'present'})`)
+    if (e.is_null) {
+      check('   NOT configured', !isTaxConfigured(rates))
+      check('   checkout REFUSES to price (taxReliable false)', taxReliable === false)
+    } else {
+      check('   configured (local only)', isTaxConfigured(rates))
+      check('   checkout would price it — the 409 that state-only caused is gone', taxReliable === true)
+      check('   and it charges the real local rate, not 0%', charged > 0, `${charged}%`)
+    }
+  }
+
+  console.log('\n' + '='.repeat(64))
+  console.log(fails === 0 ? 'TAX CONFIG VERIFIED — gate and pricing agree' : `${fails} CHECK(S) FAILED`)
   process.exit(fails === 0 ? 0 : 1)
 }
 main().catch(e => { console.error(e); process.exit(1) })

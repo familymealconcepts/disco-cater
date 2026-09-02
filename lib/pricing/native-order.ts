@@ -15,6 +15,7 @@
 //                            transfer (Disco keeps both; Disco pays the courier).
 
 import { sql } from '../db'
+import { isTaxConfigured } from './tax-config'
 import {
   computeBreakdown, type Breakdown, type PricingConfig, type PricingOrder,
 } from '../promo-pricing'
@@ -109,11 +110,19 @@ export async function loadNativePricingConfig(
 
   // Same defect class as the residual tax formula (#61848359): `?? 0` below turns
   // a MISSING rate into an indistinguishable REAL zero. `taxReliable` is the only
-  // thing that lets a caller refuse instead of silently charging 0% tax — true
-  // only when a real, finite state-tax percent was actually read (mirrors
-  // checkConversionReadiness's own `hasRealStateTaxPct` gate, so "ready to
-  // convert" and "safe to price" agree on the same definition of reliable).
-  const taxReliable = typeof tax.stateSalesTax?.percent === 'number' && Number.isFinite(tax.stateSalesTax.percent)
+  // thing that lets a caller refuse instead of silently charging 0% tax.
+  //
+  // ALL THREE FIELDS, not state alone. This used to test stateSalesTax only, and
+  // the comment promised it mirrored checkConversionReadiness — so when that gate
+  // widened to state + local + other, this had to widen with it or the two would
+  // say different things about the same restaurant. That is not hypothetical: ten
+  // restaurants (Pine and Crane DTLA, Bagel Miller, Petro's Chili & Chips and
+  // others) carry a real LOCAL rate with no state rate, and under the old
+  // state-only test every one of their orders would refuse with a 409 despite
+  // having a perfectly good 9.75% to charge.
+  //
+  // Both now call the SAME function, so they cannot drift again.
+  const taxReliable = isTaxConfigured(tax)
 
   const otherTypes = tax.otherSalesTax?.types ?? []
   const cfg: Omit<PricingConfig, 'leadGenPct'> = {

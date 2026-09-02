@@ -307,6 +307,14 @@ export interface FaithfulImportSummary {
   // the first visible menu as a last resort so nothing is ever silently dropped, but
   // worth a human glance since placement wasn't confidently determined.
   unplacedFallbackCount: number
+  /**
+   * WHICH items the last-resort fallback placed, and where. The count alone made
+   * the next reader infer the answer from item positions — on Tenkatori Sawtelle
+   * the 5 fallbacks turned out to be the Big Game Combos, but that had to be
+   * deduced rather than read. The fallback picks a menu it does not know is
+   * right, so it must say what it did.
+   */
+  unplacedFallbackItems: { name: string; category: string; menu: string }[]
   // Items skipped because FM's ItemCategory.visible was false. Only ever
   // non-zero on the fallback/supplementary paths, which read the unfiltered
   // flat admin catalog; the primary path inherits FM's own server-side filter.
@@ -342,7 +350,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     iconUrlImported: false, imageUrlImported: false,
     skippedDayPartialsImported: 0,
     itemImagesImported: 0, itemImagesMissing: 0, itemImagesFailed: 0,
-    supplementaryItemsPlaced: 0, duplicatedAcrossMenus: 0, unplacedFallbackCount: 0,
+    supplementaryItemsPlaced: 0, duplicatedAcrossMenus: 0, unplacedFallbackCount: 0, unplacedFallbackItems: [],
     skippedDayRangesImported: 0, skippedDayIntervalsDropped: 0, hiddenCategorySkipped: 0,
   }
   await runDiscoMenuMigrations()
@@ -445,6 +453,9 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
 
   // ── 2) Menus (with faithful operational settings) ──
   const menuMap = new Map<string, string>() // fm menu ref → disco menu ref
+  // disco menu ref → menu NAME, so the last-resort fallback can say where it put
+  // an item in words rather than a uuid.
+  const menuNameByRef = new Map<string, string>()
   let menuPos = 0
   for (const m of fmMenus) {
     const mRef = str(m.reference); if (!mRef) continue
@@ -481,6 +492,7 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
       RETURNING reference
     `) as { reference: string }[]
     menuMap.set(mRef, mi[0].reference)
+    menuNameByRef.set(mi[0].reference, nm)
     summary.menus++
   }
   // ── 3) Items → categories, scoped per menu ──
@@ -742,7 +754,19 @@ export async function importFmMenuFaithfully(fmRef: string, opts?: { targetRef?:
     if (!targets.length) continue
 
     await placeItem(it, targets)
-    if (wasFallback) summary.unplacedFallbackCount++
+    if (wasFallback) {
+      summary.unplacedFallbackCount++
+      // Name it. FM placed this item in no menu, so the target below is this
+      // importer's guess, not FM's instruction — the one case where a reader
+      // most needs to see the item rather than a tally.
+      const catObj = typeof it.itemCategory === 'object' && it.itemCategory ? (it.itemCategory as Record<string, unknown>) : null
+      summary.unplacedFallbackItems.push({
+        name: str(it.name) || '(unnamed)',
+        category: (catObj ? str(catObj.name) : str(it.itemCategory)) || 'Menu',
+        menu: menuNameByRef.get(targets[0]) || targets[0],
+      })
+      console.log(`[fm-faithful-import] last-resort placement: "${str(it.name)}" → menu "${menuNameByRef.get(targets[0]) || targets[0]}" (FM assigns it to no menu)`)
+    }
   }
 
   return summary

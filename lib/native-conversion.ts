@@ -14,6 +14,7 @@
 import type Stripe from 'stripe'
 import { MENU_ACTIVE_SQL } from './menu-state'
 import { logAdminAction } from './admin-audit'
+import { effectiveTaxPercent, isTaxConfigured, type TaxRatesShape } from './pricing/tax-config'
 import { sql, runMigrations } from './db'
 import { stripeReadySql } from './stripe-readiness'
 import bcrypt from 'bcryptjs'
@@ -238,32 +239,7 @@ async function recordConversionOutcome(id: number | null, outcome: Record<string
   }
 }
 
-/** The three tax percents Disco actually charges, as computeBreakdown reads them. */
-export interface TaxRatesShape {
-  stateSalesTax?: { percent?: number | null } | null
-  localSalesTax?: { percent?: number | null } | null
-  otherSalesTax?: { percent?: number | null } | null
-}
-
-/**
- * The effective tax percent — state + local + other — or NULL when NOTHING is
- * configured (no object, or every field null/absent/non-numeric).
- *
- * The null-vs-0 distinction is the whole point. `0` means a restaurant that IS
- * configured and charges nothing (Pelican Delicatessen, deliberately). `null`
- * means nobody ever set a rate, which is what all six DeCheco's look like on FM.
- * A gate that cannot tell those apart will let an unconfigured restaurant go
- * native charging no tax, which is what happened.
- *
- * Matches computeBreakdown, which sums the same three fields.
- */
-export function effectiveTaxPercent(t: TaxRatesShape | null | undefined): number | null {
-  if (!t) return null
-  const parts = [t.stateSalesTax?.percent, t.localSalesTax?.percent, t.otherSalesTax?.percent]
-  const present = parts.filter(p => typeof p === 'number' && Number.isFinite(p)) as number[]
-  if (!present.length) return null
-  return present.reduce((a, b) => a + b, 0)
-}
+export { effectiveTaxPercent, isTaxConfigured, type TaxRatesShape } from './pricing/tax-config'
 
 export async function checkConversionReadiness(
   ref: string,
@@ -324,20 +300,16 @@ export async function checkConversionReadiness(
   // missing state rate, and 25 have an effective rate of 0 once local and other
   // are added in.
   //
-  // Neon alone cannot distinguish "deliberately 0%" from "nothing was ever
-  // configured" — both are stored as 0/0/0. Only FM can: Pelican's live read
-  // returns explicit zeros, while all six DeCheco's return null/null/null (FM
-  // never had a rate for them either, so this was never a Disco carry-over
-  // failure). So a ZERO effective rate is no longer accepted on Neon's word: it
-  // falls through to the live master-password read, and passes only if FM
-  // confirms explicit numbers. If FM has nothing either, the gate BLOCKS and a
-  // human decides — which is the right outcome for a restaurant that would
-  // otherwise go native charging no tax at all.
+  // AN EXPLICIT 0 IS ACCEPTED. A zero effective rate is a real answer, not a
+  // missing one: DeCheco's Pizzeria genuinely has no sales tax and FM stores that
+  // as nulls. An earlier version of this gate blocked on a zero sum, which turned
+  // correct data into a conversion failure; it was reverted the same day. The only
+  // condition worth refusing on is that NOTHING is configured anywhere — which is
+  // exactly isTaxConfigured(), shared with the pricing path so the two cannot
+  // drift (lib/pricing/tax-config.ts).
   let stateTaxPct = ov[0]?.tax_rates?.stateSalesTax?.percent
   let effectiveTaxPct = effectiveTaxPercent(ov[0]?.tax_rates ?? null)
-  // "Real" = some rate is configured AND it is not a bare zero we cannot vouch
-  // for. A non-zero effective rate is self-evidently configured.
-  let hasRealTaxConfig = effectiveTaxPct != null && effectiveTaxPct > 0
+  let hasRealTaxConfig = isTaxConfigured(ov[0]?.tax_rates ?? null)
   let taxSource: 'neon' | 'live-master-password' = 'neon'
   // Populated only if a live read actually happened below — convertToNative
   // picks this up so it never fetches a second time for the same conversion.
@@ -364,7 +336,7 @@ export async function checkConversionReadiness(
     // restaurant confirmed to be 0%, not one nobody configured. null/absent
     // does NOT count, however many fields are null.
     const liveEffective = effectiveTaxPercent(live ?? null)
-    if (liveEffective != null) {
+    if (isTaxConfigured(live ?? null)) {
       stateTaxPct = live?.stateSalesTax?.percent ?? stateTaxPct
       effectiveTaxPct = liveEffective
       hasRealTaxConfig = true
@@ -401,7 +373,7 @@ export async function checkConversionReadiness(
       detail: settingsOk
         ? `Tax configured — effective ${effectiveTaxPct}% (state + local + other, ${taxSource === 'live-master-password' ? 'read live via master-password session' : 'Neon'}); online ordering on.`
         : !hasRealTaxConfig
-          ? 'NO TAX RATE CONFIGURED ANYWHERE — Neon holds no rate (or a bare 0 nobody can vouch for) across state, local AND other, and a live master-password read found none either (no real admin identity, login failed, or FM itself has no rate on file). Converting now would charge 0% tax on every native order. Populate the real rate, or confirm the restaurant is genuinely 0%-rated, before converting.'
+          ? 'NO TAX RATE CONFIGURED ANYWHERE — not one of state, local or other is a number, in Neon or in a live master-password read. Native checkout refuses to price an order in this state (taxReliable is false), so every order would 409. Populate the real rate before converting. Note an explicit 0 IS accepted: a restaurant genuinely rated at 0% passes this gate.'
           : 'Enable online ordering.' },
     // Advisory, not blocking — same bulk-migration reframe as stripe-ready: a
     // restaurant that would drop off the marketplace under the native 3-part rule
