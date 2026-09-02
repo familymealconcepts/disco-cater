@@ -1624,6 +1624,31 @@ in FM, nothing syncing it" identifies a *candidate*, not a bug. What separates
 `online_ordering_enabled` from `lead_gen_*_pct` is whether the column is a mirror
 of FM's decision or a statement of Disco's own.
 
+### 4b-ii. A menu window ending ~30/60/90 days out is ROLLING, not an expiry
+
+Confirmed with Peter 2026-09-01 after I mis-flagged it on Tenkatori Sawtelle.
+
+FM's `scheduleOption` reports `startDate` / `endDate` alongside
+`rollingAvailability`. When the gap between them equals the rolling value, the
+window is **the rolling setting working correctly** — a standard cap on how far
+ahead a customer may book, computed from today — **not** an end date to extend.
+
+Tenkatori's Catering Menu read `2026-09-01 → 2026-11-30` with
+`rollingAvailability: 90`, and 2026-09-01 + 90 days is exactly 2026-11-30. I
+reported it as a menu about to expire; it was not. Do the arithmetic before
+raising it.
+
+Two things that distinguish a REAL date-bounded menu from a rolling one:
+- A real one has a **short, fixed** span unrelated to the rolling number — e.g.
+  Tenkatori's "Super Bowl Menu " is `2026-02-08 → 2026-02-08` with
+  `rollingAvailability: 30`: one day, in the past, a genuine one-off event.
+- A real one usually carries `cutOffType: 'BY_DATE'` with a `cutOffDate`, as that
+  Super Bowl menu does (`12:00` on `2026-02-07`).
+
+The faithful importer already models this correctly: it writes
+`rolling_availability_days` and leaves `start_date`/`end_date` NULL, so nothing
+downstream treats the rolling horizon as a hard stop.
+
 ### 4c. Grants at conversion — the INTERIM RULE (Peter, 2026-09-01)
 
 **Why an interim.** FM's authorized-users endpoint OVER-REPORTS: it returns the
