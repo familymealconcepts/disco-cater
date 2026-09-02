@@ -283,7 +283,7 @@ restaurant immediately before it starts (before the history backfill, so
 it's the true pre-conversion state) and again at the end, returning both as
 `orderStats: { before, after }` on the result. This closes a real gap: eight
 of the nine Atlanta Bread locations converted without this being captured,
-because nothing forced it — the runbook's own diff (step 11) asked for it
+because nothing forced it — the runbook's own diff (step 12) asked for it
 and it was still missed.
 
 ### 9. Confirm the invite landed
