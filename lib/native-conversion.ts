@@ -307,7 +307,6 @@ export async function checkConversionReadiness(
   // condition worth refusing on is that NOTHING is configured anywhere — which is
   // exactly isTaxConfigured(), shared with the pricing path so the two cannot
   // drift (lib/pricing/tax-config.ts).
-  let stateTaxPct = ov[0]?.tax_rates?.stateSalesTax?.percent
   let effectiveTaxPct = effectiveTaxPercent(ov[0]?.tax_rates ?? null)
   let hasRealTaxConfig = isTaxConfigured(ov[0]?.tax_rates ?? null)
   let taxSource: 'neon' | 'live-master-password' = 'neon'
@@ -337,7 +336,6 @@ export async function checkConversionReadiness(
     // does NOT count, however many fields are null.
     const liveEffective = effectiveTaxPercent(live ?? null)
     if (isTaxConfigured(live ?? null)) {
-      stateTaxPct = live?.stateSalesTax?.percent ?? stateTaxPct
       effectiveTaxPct = liveEffective
       hasRealTaxConfig = true
       taxSource = 'live-master-password'
@@ -1047,16 +1045,35 @@ export async function carryOverTaxRates(ref: string, walled?: FmWalledFieldsResu
   if (!walled?.ok || !walled.taxRate) {
     return { carried: false, reason: walled?.reason || 'No master-password read available for tax rates.' }
   }
-  const statePct = walled.taxRate.stateSalesTax?.percent
-  if (typeof statePct !== 'number' || !Number.isFinite(statePct)) {
-    return { carried: false, reason: 'FM returned a tax-rate object but stateSalesTax.percent is null/missing — not a real rate, not carrying over.' }
+  // THE GUARD IS isTaxConfigured, the same predicate the readiness gate and
+  // checkout's taxReliable use (lib/pricing/tax-config.ts) — this is the fourth
+  // and last call site onto it.
+  //
+  // It used to require stateSalesTax.percent to be a finite number, which meant
+  // a restaurant whose real rate lives in localSalesTax with NO state rate had
+  // its rate discarded WHOLESALE — not written partially, not written at all.
+  // The write below has always been the complete FM object, so the bug was never
+  // "only state lands"; it was "nothing lands". Ten FM-backed restaurants have
+  // exactly that shape (Pine and Crane DTLA 9.75, Bagel Miller 10.75, Petro's
+  // Chili & Chips 9.49, and others). None had been converted, and all ten already
+  // hold their rate in Neon, so nothing was lost — but converting a restaurant
+  // whose Neon tax_rates is NULL and whose FM rate is local-only would have
+  // passed the gate, refused here, and left it unable to price a single order
+  // (taxReliable false → every checkout 409s).
+  //
+  // An explicit 0 passes, as everywhere else: 0 is a rate, null is the absence
+  // of one.
+  if (!isTaxConfigured(walled.taxRate)) {
+    return { carried: false, reason: 'FM returned a tax-rate object but not one of stateSalesTax / localSalesTax / otherSalesTax has a numeric percent — nothing to carry over.' }
   }
   await sql`
     INSERT INTO disco_restaurant_overrides (restaurant_reference, tax_rates, updated_at)
     VALUES (${ref}, ${JSON.stringify(walled.taxRate)}::jsonb, NOW())
     ON CONFLICT (restaurant_reference) DO UPDATE SET tax_rates = ${JSON.stringify(walled.taxRate)}::jsonb, updated_at = NOW()
   `
-  return { carried: true, reason: `Carried over real tax rates (state ${statePct}%) via master-password admin session.` }
+  // The EFFECTIVE rate, not the state percent. Reporting "(state 0%)" for
+  // Tenkatori Sawtelle's real 9.75% is how this stayed invisible.
+  return { carried: true, reason: `Carried over real tax rates (effective ${effectiveTaxPercent(walled.taxRate)}% — state + local + other) via master-password admin session.` }
 }
 
 export interface PromoCodesCarryOverResult {

@@ -104,6 +104,52 @@ Extracted from Sanity `orderUrl`:
 7. Never paste API keys into chat or code — use env vars only
 8. Sanity mutations use `createOrReplace`, not `publish`
 
+## NEVER COMPARE A CONVERTED RESTAURANT AGAINST FM
+
+`convertToNative` is a hand-off, and it is the last moment FM has any authority.
+
+- **Before it runs**, FM is the source of truth. Mirror FM, carry FM's values, and
+  a difference is drift worth correcting.
+- **After it runs, Disco owns the restaurant's data.** A difference from FM is a
+  **decision somebody made**, not drift. It is not a discrepancy, not a finding,
+  and not something to reconcile.
+
+**This is a rule about the ACT OF COMPARING, not about a list of fields.** Any
+list would be incomplete and would read as permission to compare whatever the
+list omits. So: if `is_disco_native` is true, FM's value for *anything* — tax,
+money flow, grants, menus, items, prices, settings, notifications, closed days,
+promo codes, online ordering, lead-gen, whatever comes next — is not evidence of
+anything. Do not fetch it to compare. Do not report the delta. Do not "fix" it.
+
+**Why it matters more than it sounds.** Reporting a converted restaurant's
+difference from FM is noise at best. At worst it reads as a bug and prompts
+someone to overwrite a deliberate change: a rate a restaurant asked us to set, a
+grant an owner assigned, a menu edit made in the portal. Peter has had to correct
+this **five** times:
+
+- lead-gen 15/5 flagged against FM's 15/3 (Disco's own rate structure — see the
+  trap table in the runbook's §4b)
+- the 84 "excess" grant rows proposed for revocation (Disco owns grants
+  post-conversion; revoking would have erased real assignments)
+- DeCheco's 0% tax reported as a live-money exposure (0% is correct data, and
+  FM's null is how a real 0% is stored)
+- Atlanta Bread Smyrna, Hugo's West Hollywood and Briscola Trattoria reported as
+  "disagreeing with FM" on tax — all three converted, all three Disco's to set
+- the `online_ordering_enabled` mirror, which is right *because* it is guarded by
+  `is_disco_native` and stops at conversion
+
+**What to do instead.** If a converted restaurant's data looks wrong, the
+question is "is this what we want?" — ask the restaurant or ask Peter. FM cannot
+answer it. The only legitimate FM reads for a converted restaurant are historical
+(order backfill) or explicitly re-authorised by a human for a specific purpose.
+
+**The one place FM comparison is correct is the conversion itself**, which is why
+`carryOverTaxRates`, `carryOverNotificationSettings`, `carryOverClosedDays`,
+`carryOverPromoCodes` and the authorized-users invite all run inside
+`convertToNative` and never again. Anything that keeps mirroring FM afterwards —
+like `lib/online-ordering-mirror.ts` — must exclude `is_disco_native = true`
+rows, and every one of them does.
+
 ## Who can see which restaurants (READ BEFORE TOUCHING ANY MULTI-LOCATION CODE)
 
 This model has caused six separate bugs in six different files. Read it before

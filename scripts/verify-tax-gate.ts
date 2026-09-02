@@ -20,7 +20,7 @@ config({ path: '.env.local' })
 import { sql } from '../lib/db'
 import { effectiveTaxPercent, isTaxConfigured } from '../lib/pricing/tax-config'
 import { loadNativePricingConfig } from '../lib/pricing/native-order'
-import { checkConversionReadiness } from '../lib/native-conversion'
+import { checkConversionReadiness, carryOverTaxRates } from '../lib/native-conversion'
 
 let fails = 0
 const check = (l: string, ok: boolean, extra = '') => { if (!ok) fails++; console.log(`   ${ok ? 'PASS' : 'FAIL'}  ${l}${extra ? ` — ${extra}` : ''}`) }
@@ -81,8 +81,26 @@ async function main() {
     }
   }
 
+  // ── the carry-over guard: the fourth call site on the same predicate ──────
+  // Exercised WITHOUT writing, by handing carryOverTaxRates a walled result whose
+  // read failed — it must refuse before touching the DB. The accept/refuse
+  // decision itself is isTaxConfigured, already covered exhaustively above.
+  console.log('\n── carryOverTaxRates refuses only when nothing is configured')
+  const shapes: [string, unknown, boolean][] = [
+    ['0 state + 9.75 local (Tenkatori)', { stateSalesTax: { percent: 0 }, localSalesTax: { percent: 9.75 } }, true],
+    ['explicit zeros (DeCheco\'s)', { stateSalesTax: { percent: 0 }, localSalesTax: { percent: 0 }, otherSalesTax: { percent: 0 } }, true],
+    ['local only, no state (Pine and Crane)', { localSalesTax: { percent: 9.75 } }, true],
+    ['all null', { stateSalesTax: { percent: null }, localSalesTax: { percent: null } }, false],
+  ]
+  for (const [label, rates, shouldCarry] of shapes) {
+    check(`   would carry "${label}"`, isTaxConfigured(rates as never) === shouldCarry)
+  }
+  // And the real refusal path, which must not throw or write.
+  const refused = await carryOverTaxRates('00000000-0000-0000-0000-000000000000', { ok: false, reason: 'test', taxRate: null, notifications: null, closedDays: null, promoCode: null, authorizedUsers: null } as never)
+  check('   no FM read → refuses, does not throw', refused.carried === false, refused.reason.slice(0, 60))
+
   console.log('\n' + '='.repeat(64))
-  console.log(fails === 0 ? 'TAX CONFIG VERIFIED — gate and pricing agree' : `${fails} CHECK(S) FAILED`)
+  console.log(fails === 0 ? 'TAX CONFIG VERIFIED — gate, pricing and carry-over agree' : `${fails} CHECK(S) FAILED`)
   process.exit(fails === 0 ? 0 : 1)
 }
 main().catch(e => { console.error(e); process.exit(1) })
