@@ -15,7 +15,10 @@ function getStripe(): Stripe {
 }
 
 // Create an Express connected account for a restaurant. Returns the acct_xxx id.
-export async function createConnectAccount(email: string, businessName: string): Promise<string> {
+//
+// `restaurantReference` is OPTIONAL only so no existing call site breaks — pass it
+// from every caller. See the metadata note below for why it earns its place.
+export async function createConnectAccount(email: string, businessName: string, restaurantReference?: string): Promise<string> {
   const stripe = getStripe()
   const account = await stripe.accounts.create({
     type: 'express',
@@ -40,7 +43,29 @@ export async function createConnectAccount(email: string, businessName: string):
         schedule: { interval: 'weekly', weekly_anchor: 'monday', delay_days: 2 },
       },
     },
-    metadata: { source: 'disco-become-a-partner' },
+    // ── restaurantReference IS THE POINT OF THIS BLOCK ──────────────────────────
+    // A connected account that does not say which restaurant it belongs to has to be
+    // re-identified later by inference, and that is expensive and weak. Measured
+    // 2026-09-02: 653 connected accounts on the platform, ZERO carrying a restaurant
+    // reference, and only 42 mapped to a restaurant in Neon. When Atlanta Bread -
+    // Alpharetta needed its account resolved, the only available evidence was an
+    // argument from elimination plus a six-second timestamp correlation against a
+    // Slack message — for an id that decides where customer money lands.
+    //
+    // Writing it at creation makes every future account self-identifying: one
+    // accounts.retrieve answers "whose is this" with no inference at all. It fixes
+    // nothing retroactively — the 640 standard accounts were onboarded through
+    // Stripe's own flow and Disco never touched them — but it stops the next
+    // generation of the problem outright, which is the cheapest possible time to
+    // stop it.
+    //
+    // Stripe metadata is free-form and never validated, so this is additive and
+    // cannot fail a creation. `source` is kept: it distinguishes a Disco-created
+    // express account from the FM-era standard ones.
+    metadata: {
+      source: 'disco-become-a-partner',
+      ...(restaurantReference ? { restaurantReference } : {}),
+    },
   })
   return account.id
 }
