@@ -141,6 +141,49 @@ mechanism (step 6, step 10). What's left that genuinely needs Peter:
 
 ### 5. Stripe — resolve, verify, reuse — never re-onboard, never fuzzy-match
 
+#### WHICH KEY VERIFIES — settle this before anything else (2026-09-02)
+
+**`STRIPE_READONLY_KEY` is LIVE (`rk_live_…`). `STRIPE_SECRET_KEY` is TEST (`sk_test_…`)
+locally.** That is the whole answer, and establishing it took two sessions. It should not
+take a third.
+
+- Verification (`accounts.retrieve`, `transfers.list`, PaymentIntent metadata) MUST use
+  `STRIPE_READONLY_KEY`. Confirmed live against a known-good account — Tenkatori's
+  `acct_1OakQrFzjlnQ16We` returns the account and 3 transfers.
+- `verifyAccountReusable` and `importRestaurantStripeAccount` default to `getStripe()`,
+  which reads `STRIPE_SECRET_KEY`. **Locally that is the test key, so you must pass the
+  live key explicitly** — `importRestaurantStripeAccount(ref, acct, { stripe })`.
+- **WHY THAT MATTERS MORE THAN IT LOOKS.** `verifyAccountReusable` fails CLOSED on a
+  retrieve error, and `importRestaurantStripeAccount` writes `stripe_account_id`
+  regardless while gating `stripe_onboarding_complete` and `stripe_connected` on
+  `reusable`. Run it with the test key and you get a SILENT HALF-IMPORT: an account id
+  sitting in production with both flags false, so the restaurant still cannot take orders
+  and the next person sees an id and assumes the job is done. Strictly worse than no
+  account at all.
+
+#### A WRONG ID AND A WRONG KEY PRODUCE THE IDENTICAL ERROR
+
+Stripe answers both with:
+
+```
+The provided key '…' does not have access to account 'acct_…'
+(or that account does not exist). Application access may have been revoked.
+```
+
+That message distinguishes NOTHING. A live account behind a test key, a revoked account,
+and a one-character typo are indistinguishable from it.
+
+**This is not hypothetical — it cost a session.** Alpharetta's account was first attempted
+as `acct_1U5nb03WZv4qhog5` (**digit zero**). The real id is `acct_1U5nbO3WZv4qhog5`
+(**capital O**) in the `1U5nbO3` segment. The wrong id was reported as "not connected to
+platform", and the test key was blamed — both were wrong at once, and either alone
+produces the same error.
+
+**RULE: confirm an id against the LIVE key before concluding anything about access.** Never
+report "no access" or "not connected" from a failed retrieve until the id itself has been
+checked with `STRIPE_READONLY_KEY`. If Peter supplies an id by hand, treat `0`/`O` and
+`1`/`l`/`I` as suspect and test the alternates — it is one extra call.
+
 Resolving the `acct_...` id no longer requires Peter pulling it from the
 Dashboard by hand. In order of reliability:
 
@@ -1487,6 +1530,79 @@ belongs on the page, and whether anthie/tara's missing grant is a separate gap t
 DeCheco's and both Hugo's groups are unblocked — FM and the grant table agree exactly in
 both directions. Neither Hugo's group has an FM banner, so those two pages lose nothing
 by being seeded.
+
+---
+
+## Atlanta Bread – Alpharetta: Stripe imported 2026-09-02, ownership by ELIMINATION
+
+`0532387f-e504-4d8e-8a21-217de5d39057` → `acct_1U5nbO3WZv4qhog5`.
+
+**READ THIS BEFORE TREATING IT AS A VERIFIED MATCH.** The account was confirmed to EXIST
+and to be CHARGE-CAPABLE against the live key. It was **NOT** confirmed to belong to
+Alpharetta by a payment trace: `transfers.list` returned **zero transfers**, so there are
+no PaymentIntents and no `metadata.restaurantReference` to match against. The usual proof
+was unavailable.
+
+What was used instead, stated plainly so nobody upgrades it later:
+
+- The account is assigned to **no** restaurant anywhere in Neon.
+- It is **distinct from all eight** other Atlanta Bread account ids, each already assigned
+  to its own location.
+- Alpharetta is the **only** Atlanta Bread location without an account.
+- Its owner, `arnav.anju@gmail.com`, is a real Atlanta Bread SYSTEM_ADMIN holding all nine.
+- It was created **2026-08-18**, one day before Alpharetta's 2026-08-19 conversion.
+
+Within the chain it can therefore only be Alpharetta's. **That is an argument from
+exhaustion, not evidence of ownership**, and it would not survive the account in fact
+belonging to a restaurant outside Atlanta Bread. If a transfer ever lands on it, re-check
+`metadata.restaurantReference` and upgrade this note to a real verification — or correct it.
+
+### Why the 2026-08-19 conversion recorded "not connected"
+
+Not a resolution bug. **Alpharetta had ZERO `disco_restaurant_accounts` rows** — no real
+admin, not even a `stripe-import+` sentinel — so `storedAccountId(ref)` had nothing to
+read, and `resolveStripeAccountFromHistory` found zero settled payments. Both paths empty.
+
+The other eight resolved through `disco_restaurant_accounts.stripe_account_id`, NOT through
+payment history — three of them have zero payments and still had ids. The discriminator is
+the account row, and Alpharetta is the one location that never got one. **It has now
+surfaced as a gap three separate ways**: no Stripe account row, no account row at all, and
+missing from `anthie@`/`tara@`'s grants (see the chain survey). Anything Atlanta-Bread-wide
+should check Alpharetta explicitly rather than assuming nine.
+
+### is_live was never the gate — `visible` was
+
+Recorded because the brief on this was wrong twice. Alpharetta was **already
+`is_live = true`** and stayed true throughout; `is_live` is not the marketplace gate and
+importing Stripe did not change it.
+
+The native feed predicate (`lib/marketplace-restaurants.ts`) is a 3-part AND plus an
+archive gate: `is_disco_native AND visible AND online_ordering_enabled AND
+(stripe_connected OR a completed account row)`, with `archived_at IS NULL`.
+
+| Field | Before import | After import | After visible flip |
+|---|---|---|---|
+| `is_live` | true | true | true |
+| `visible` | false | false | **true** |
+| `online_ordering_enabled` | true | true | true |
+| `stripe_account_id` | null | `acct_1U5nbO3WZv4qhog5` | same |
+| `stripe_onboarding_complete` | false | **true** | true |
+| `stripe_connected` | false | **true** | true |
+| **passes feed** | false | false | **true** |
+
+`visible` is a **separate decision from the import** and needed its own flip (Peter's call,
+2026-09-02). Confirmed after: the marketplace feed returns all nine Atlanta Bread
+locations, and `/order/atlantabread-alpharetta` serves HTTP 200. If anyone reports a
+converted restaurant "not showing", check `visible` before Stripe — three of 37 real
+converted restaurants sit at `visible = false`, so it is not a universal default.
+
+### Fleet sweep, same day
+
+**No converted restaurant is sitting on an FM Stripe account Disco never imported.** The
+only two non-test converted restaurants without a Stripe id are **Rendang Republic** and
+**Tom Toms Italian**, and **neither is connected on FM yet** (confirmed with Peter) — so
+there is nothing to import and this does not need re-investigating. Both are already
+`is_live` and `visible`, so each would list the moment an account exists.
 
 ---
 
