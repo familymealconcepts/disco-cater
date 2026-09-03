@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       const ovrRows = (await sql`SELECT stripe_account_id FROM disco_restaurant_overrides WHERE restaurant_reference = ${ref} LIMIT 1`) as { stripe_account_id: string | null }[]
       let accountId = ovrRows[0]?.stripe_account_id || ''
       if (!accountId) {
-        accountId = await createConnectAccount(rows[0].email, cacheRows[0]?.name || 'Disco Restaurant')
+        accountId = await createConnectAccount(rows[0].email, cacheRows[0]?.name || 'Disco Restaurant', ref)
         await sql`
           INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_account_id, updated_at)
           VALUES (${ref}, ${accountId}, NOW())

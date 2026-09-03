@@ -1537,25 +1537,106 @@ by being seeded.
 
 `0532387f-e504-4d8e-8a21-217de5d39057` → `acct_1U5nbO3WZv4qhog5`.
 
-**READ THIS BEFORE TREATING IT AS A VERIFIED MATCH.** The account was confirmed to EXIST
-and to be CHARGE-CAPABLE against the live key. It was **NOT** confirmed to belong to
-Alpharetta by a payment trace: `transfers.list` returned **zero transfers**, so there are
-no PaymentIntents and no `metadata.restaurantReference` to match against. The usual proof
-was unavailable.
+**OWNERSHIP IS A REAL TIMESTAMPED TRACE — corrected 2026-09-02, having first been recorded
+here as elimination-only.** The stronger evidence existed all along in `#stripe` and was
+missed; see the FM-vs-Disco message note below for why it looked like noise.
 
-What was used instead, stated plainly so nobody upgrades it later:
+```
+2026-08-18 14:03:40 UTC   acct_1U5nbO3WZv4qhog5 created on the platform
+2026-08-18 14:03:46 UTC   FM → #stripe: "New Stripe Connection
+                           Restaurant Name: Atlanta Bread - Alpharetta"
+```
 
-- The account is assigned to **no** restaurant anywhere in Neon.
-- It is **distinct from all eight** other Atlanta Bread account ids, each already assigned
-  to its own location.
-- Alpharetta is the **only** Atlanta Bread location without an account.
-- Its owner, `arnav.anju@gmail.com`, is a real Atlanta Bread SYSTEM_ADMIN holding all nine.
-- It was created **2026-08-18**, one day before Alpharetta's 2026-08-19 conversion.
+Six seconds apart, and **the join is unique**: exactly ONE connected account was created on
+2026-08-18 platform-wide, and none other within ±5 minutes. FM announced Alpharetta
+connecting Stripe six seconds after that account came into existence, and nothing else was
+created that day for it to refer to.
 
-Within the chain it can therefore only be Alpharetta's. **That is an argument from
-exhaustion, not evidence of ownership**, and it would not survive the account in fact
-belonging to a restaurant outside Atlanta Bread. If a transfer ever lands on it, re-check
-`metadata.restaurantReference` and upgrade this note to a real verification — or correct it.
+The account was separately confirmed to EXIST and be CHARGE-CAPABLE against the live key.
+`transfers.list` returned **zero transfers**, so there is still no payment trace and no
+`metadata.restaurantReference` — the usual proof remains unavailable, and the Slack
+correlation is what replaces it.
+
+The original elimination argument is kept, because it corroborates independently: the
+account is assigned to no restaurant anywhere in Neon; it is distinct from all eight other
+Atlanta Bread account ids, each already assigned; Alpharetta is the only Atlanta Bread
+location without one; and its owner `arnav.anju@gmail.com` is a real Atlanta Bread
+SYSTEM_ADMIN holding all nine. **Two independent lines now agree.**
+
+### Resolving a connected account: what the evidence actually is (2026-09-02)
+
+**`#stripe` CARRIES TWO DIFFERENT MESSAGE TYPES, AND THE USEFUL ONE LOOKS LIKE NOISE.**
+
+| Source | Shape | Carries | Since |
+|---|---|---|---|
+| **FM's own webhook** | attachment, `New Stripe Connection` | restaurant NAME, **no account id** | ≥ 2026-06-30 |
+| Disco's webhook | text, `💳 Stripe Connected` | name **and** `acct_…` | 2026-08-11 |
+
+**FM's messages RENDER BLANK in a concise Slack read** — the content is in the attachment,
+not the message text — so a quick scan of the channel shows a column of empty
+`incoming-webhook:` lines and they read as noise. They are the ownership trail. Read
+`#stripe` (`C05Q2JNP7V4`) with **`response_format: detailed`** or you will not see them.
+
+**DISCO'S OWN PING CANNOT SERVE THIS PURPOSE, BY CONSTRUCTION.** `notifyStripeConnectedIfNewlyFullyConnected`
+updates `WHERE stripe_account_id = <account>` and then:
+
+```js
+if (claimed.length === 0) return // no matching restaurant, or already notified
+```
+
+It only fires when **Neon already holds the mapping**. It announces mappings we have; it
+can never reveal one we do not. Fleet-wide only **2 rows** have ever had
+`stripe_connected_notified_at` set, and Alpharetta's is still NULL — no ping ever fired for
+it and none could have. Do not reach for Disco's ping to identify an unknown account.
+
+**`SLACK_STRIPE_CONNECTED_WEBHOOK_URL` IS configured in Vercel Production** (added
+2026-08-12), so it is not silently skipping. Contrast `SLACK_NOTIFICATIONS_WEBHOOK_URL`,
+which is absent from Vercel entirely — `alertOps()` really is console-only.
+
+### The census — most accounts are NOT mapped, by an order of magnitude
+
+Measured 2026-09-02 with `STRIPE_READONLY_KEY`:
+
+| | |
+|---|---|
+| Connected accounts on the platform | **653** (640 `standard`, 13 `express`) |
+| Charge-capable | 593 |
+| **Assigned to a restaurant in Neon** | **42** |
+| Unassigned | **611** — of which **554 charge-capable** |
+| Assigned in Neon but absent from the platform | 0 |
+| **Carrying a restaurant reference in metadata** | **0 of 653** |
+
+**Anyone assuming most connected accounts map to a restaurant is wrong by an order of
+magnitude.** 42 of 653. The 640 `standard` accounts are FM-era, onboarded through Stripe's
+own flow, and Disco never touched them; the 13 `express` ones are Disco-created and carry
+`{source: 'disco-become-a-partner'}` — and, as of 2026-09-02, `restaurantReference` too
+(`createConnectAccount`, `lib/stripe-connect.ts`). That fixes nothing retroactively but
+makes every FUTURE account self-identifying.
+
+### The Slack join resolves ~20 accounts, NOT the fleet — do not over-budget it
+
+Of the 554 unassigned charge-capable accounts:
+
+- **401 were created before 2026-06** — earlier than any FM message in the channel.
+  Effectively unreachable.
+- **134 carry no creation date at all** (epoch 0). Nothing to join on.
+- **~19 fall in 2026-06/07/08**, the window where FM messages demonstrably exist.
+
+Ambiguity narrows it further: only **201 of 554** sit on a creation-day holding exactly one
+account; **219 share a day with another**, where a day-level join is not unique and the
+message timestamp has to land within seconds the way Alpharetta's did.
+
+So the realistic yield is **on the order of 20 accounts**, and they are the RECENT ones —
+which is the conversion population, so it is worth knowing about, but it is not a
+fleet-wide fix.
+
+**A LOOKUP TOOL WAS SCOPED AND DELIBERATELY NOT BUILT (2026-09-02).** Alpharetta was the
+first conversion in nine Atlanta Bread locations to stall this way; one occurrence does not
+justify the machinery, and the metadata line above prevents the next generation of the
+problem outright. **The trigger to build it is a SECOND conversion stalling on an
+unresolvable account.** Until then, do the join by hand — read `#stripe` detailed, find the
+`New Stripe Connection` naming the restaurant, and match its timestamp against
+`accounts.list` creation times, confirming no other account was created nearby.
 
 ### Why the 2026-08-19 conversion recorded "not connected"
 

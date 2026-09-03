@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
 
     // Create the Express connected account and persist its id.
     const cacheRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { name: string | null }[]
-    const accountId = await createConnectAccount(email, restaurantName || cacheRow[0]?.name || '')
+    const accountId = await createConnectAccount(email, restaurantName || cacheRow[0]?.name || '', ref)
     await sql`
       INSERT INTO disco_restaurant_overrides (restaurant_reference, stripe_account_id, updated_at)
       VALUES (${ref}, ${accountId}, NOW())
