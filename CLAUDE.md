@@ -3,6 +3,37 @@
 ## Project
 Disco Cater (discocater.com) is a Next.js catering marketplace gradually replacing the FamilyMeal Angular frontend. The goal is to migrate all FamilyMeal functionality (diner, restaurant, and admin portals) into Disco Cater and sunset the old frontend entirely.
 
+## THERE ARE NO TRANSACTIONS IN THIS REPO — read before any write to a live table
+
+`lib/db.ts` uses `neon()` in **HTTP mode**. Every statement is its own HTTP request and
+**autocommits**. `BEGIN`, `COMMIT` and `ROLLBACK` are accepted and are **silent no-ops**.
+
+**There is no transaction-capable path here, and no script in this repo can roll back.**
+Grep confirms it: zero uses of `ROLLBACK` under `scripts/`.
+
+**The consequence, stated plainly: a probe write to a live table is PERMANENT the moment
+it runs, and a script that prints "ROLLED BACK" is lying to you.**
+
+**NEVER write test values to production tables to verify a code path.** Not inside a
+`BEGIN`, not "just for a second", not with a probe value you intend to clean up. The
+rolled-back-transaction discipline from the noise-machine runbook **does not transfer to
+this repo** — that codebase has `withDbUnpooled` handing out a real `pg.Client`; this one
+does not.
+
+To verify a write path, use one of:
+  * **A Neon branch** — a copy-on-write clone of the production database with its own
+    connection string. Point `DATABASE_URL` at the branch and the same script is safe.
+  * **The deployed endpoint** with a real session, undoing through the same UI.
+  * A read-only replay: run the SELECTs, and reason about the writes without issuing them.
+
+**This happened on 2026-09-04.** A save-path verification wrapped in `BEGIN`/`ROLLBACK`
+wrote probe values into `disco_restaurant_cache`, `disco_restaurant_overrides` and
+`disco_restaurant_accounts` for two live restaurants — Rendang Republic and Atlanta Bread –
+Smyrna — and the script's own output printed "ROLLED BACK" beneath the probe values still
+sitting in the rows. Six rows across three tables, restored by hand from a BEFORE snapshot
+and corroborated against FM. Nothing was lost, and only because the snapshot happened to
+have been printed first.
+
 ## Codebase
 - **Local path**: `/Users/peterventi/Desktop/VS Code/disco-cater`
 - **Repo**: github.com/familymealconcepts/disco-cater
