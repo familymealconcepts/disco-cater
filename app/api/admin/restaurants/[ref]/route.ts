@@ -10,22 +10,32 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // A restaurant is Disco-native (no FamilyMeal record) when its Disco account is
 // flagged is_disco_native with no fm_restaurant_reference. For these, FM has no
 // record at all — calling FM to delete just 404s — so we delete from Neon directly.
-async function isDiscoNativeNoFm(ref: string): Promise<boolean> {
-  try {
-    const rows = (await sql`
-      SELECT is_disco_native, fm_restaurant_reference
-      FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} LIMIT 1
-    `) as { is_disco_native: boolean | null; fm_restaurant_reference: string | null }[]
-    const a = rows[0]
-    return !!a && a.is_disco_native === true && !a.fm_restaurant_reference
-  } catch {
-    return false // on any doubt, fall through to the FM path (unchanged behavior)
-  }
-}
+// REMOVED 2026-09-04: isDiscoNativeNoFm, which used to decide this route's branch.
+//
+// It meant "never had any FM record at all" — is_disco_native AND no
+// fm_restaurant_reference — and native-conversion.ts stamps fm_restaurant_reference on
+// every CONVERTED restaurant as an audit link to the FM record it came from. So it was
+// false for 47 of 48 native restaurants, and the edit dialog fell through to the FM path
+// for all of them. Measured, and it broke in two different ways:
+//
+//   * 29 where the Disco ref happens to equal the FM ref: the FM GET→merge→PUT succeeded
+//     and the dialog wrote FM — for a restaurant Disco owns post-conversion. Silent
+//     standing-rule violation.
+//   * 18 where the refs differ (Rendang Republic, Cena Vegan, Love & Plates, …): the GET
+//     went to FM with the DISCO ref, which FM does not know, 404'd, and aborted the save
+//     before any write. EVERY field of the dialog was dead for those, not just Email.
+//     Confirmed against FM: Rendang's Disco ref → 404, its FM ref → 200.
+//
+// isCurrentlyNative below was already the right predicate, already in this file, already
+// carrying the explanation — it was written for the archive button and never propagated
+// here. Both branch decisions now use it, so the helper it replaced has no callers left
+// and is deleted rather than left as dead code.
 
-// Archive eligibility check — deliberately DIFFERENT from isDiscoNativeNoFm
-// above. That helper means "never had any FM record at all" (a true orphan,
-// e.g. a become-a-partner-only restaurant) — checked, this excludes 28 of the
+// "Is this restaurant native RIGHT NOW" — the predicate this whole route branches on
+// (archive eligibility, the GET's edit-form source, and the PUT's write target).
+//
+// It replaced isDiscoNativeNoFm, which meant "never had any FM record at all" (a true
+// orphan, e.g. a become-a-partner-only restaurant) — that excluded 28 of the
 // 29 real native restaurants in production, because native-conversion.ts
 // stores the FM restaurant a conversion came FROM as fm_restaurant_reference
 // (an audit/historical link, not a live-FM-presence flag) on every converted
@@ -36,7 +46,7 @@ async function isDiscoNativeNoFm(ref: string): Promise<boolean> {
 // disco_restaurant_cache.is_disco_native alone, regardless of
 // fm_restaurant_reference. Archive eligibility must match that, or the
 // button would silently misfire "FM-backed, deferred" for almost every real
-// native restaurant.
+// native restaurant — and, until 2026-09-04, the edit dialog did exactly that.
 async function isCurrentlyNative(ref: string): Promise<boolean> {
   try {
     const rows = (await sql`
@@ -70,10 +80,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   }
   const { ref } = await params
 
-  // Disco-native restaurants have no FM record — serve the edit form from Neon in
+  // Disco owns a native restaurant's identity post-conversion, so the edit form is
+  // served from Neon whether or not an FM record still exists — serve it in
   // the FM-shaped envelope the dialog reads (admin/address/businessName/leadGen).
   // lat/lng/cuisine/description/image load separately from the restaurant-cache GET.
-  if (await isDiscoNativeNoFm(ref)) {
+  if (await isCurrentlyNative(ref)) {
     try {
       const acc = (await sql`SELECT first_name, last_name, email FROM disco_restaurant_accounts WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
       const cache = (await sql`SELECT name, slug, address, address_line2, city, state, zipcode, phone FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as Array<Record<string, unknown>>
@@ -195,11 +206,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       incoming = await req.json()
     }
 
-    // Disco-native: write identity/address/lead-gen straight to Neon and return —
-    // FM has no record, so the FM GET→merge→PUT below would 404 and abort the save.
+    // Disco-native: write identity/address/lead-gen straight to Neon and return.
+    // Post-conversion Disco owns this restaurant, so the FM GET→merge→PUT below must not
+    // run even when an FM record still exists — writing FM here is the standing-rule
+    // violation, and where the refs differ it 404s and kills the whole save.
     // (Premium/visibility, cuisine/description/image, and lat/lng are written by the
     // dialog's follow-up overrides + cache PATCH calls, exactly as for FM-backed.)
-    if (await isDiscoNativeNoFm(ref)) {
+    if (await isCurrentlyNative(ref)) {
       const admin = (incoming.admin || {}) as Record<string, unknown>
       const addr = (incoming.address || {}) as Record<string, unknown>
       const s = (v: unknown) => (typeof v === 'string' ? v.trim() : v == null ? null : String(v))

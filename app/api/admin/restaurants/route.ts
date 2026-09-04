@@ -7,7 +7,7 @@ import { hashPassword } from '../../../../lib/disco-restaurant-auth'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 // Create a Disco-native (Neon-only, zero-FM) restaurant: a login account
-// (is_disco_native, no fm_restaurant_reference → isDiscoNativeNoFm), plus the
+// (is_disco_native, no fm_restaurant_reference — a true zero-FM orphan), plus the
 // marketplace cache + overrides rows. The account gets a random unusable password
 // so it exists and is editable immediately; the restaurant sets a real password
 // via the standard reset flow before logging in.
