@@ -564,7 +564,32 @@ export default function EditRestaurantDialog({ restaurantRef, onClose, onSaved }
                       untyped/unnamed input next to a same-shaped sibling is
                       exactly what let a browser drop an autofilled email into
                       this phone field (confirmed live on The Winkin' Rooster). */}
-                  <div><label style={label}>Email</label><input style={input} type="email" name="admin-email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
+                  {/* READ-ONLY, deliberately, and matching the restaurant's own profile page.
+                      This is disco_restaurant_accounts.email — the LOGIN CREDENTIAL — not a
+                      contact detail, and it was presented as one with no indication.
+
+                      Editing it here could not do the job even when it worked. A login move
+                      also has to carry disco_restaurant_sessions.email and
+                      disco_restaurant_location_access.account_email (both keyed on the address
+                      as TEXT, both orphaned by a bare UPDATE), leave disco_admin_audit.actor_email
+                      alone, check merge-vs-rename against the UNIQUE constraint, and end with a
+                      fresh invite so somebody can actually sign in afterwards. This dialog did one
+                      UPDATE. The failure mode is a restaurant locked out, discovered whenever they
+                      next try to log in.
+
+                      It was also scoped WHERE restaurant_reference = ref, which matches EVERY
+                      anchored row — 9 at Atlanta Bread – Asheville — so on the nine multi-account
+                      restaurants it set them all to one address and 409'd against itself with
+                      "already used by another account".
+
+                      Credential changes go through concierge: deliberate, verified, evidenced. */}
+                  <div>
+                    <label style={label}>Login email</label>
+                    <input style={{ ...input, background: '#f4f4f8', color: '#777' }} type="email" name="admin-email" autoComplete="email" value={email} disabled readOnly />
+                    <div style={{ fontSize: 11, color: '#aaa', marginTop: 5 }}>
+                      This is the restaurant&rsquo;s login. To change it, go through concierge@discocater.com — a login move also has to carry their session and location access, and ends with a fresh invite.
+                    </div>
+                  </div>
                   <div><label style={label}>Phone</label><input style={input} type="tel" name="admin-phone" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} /></div>
                 </div>
               </div>
