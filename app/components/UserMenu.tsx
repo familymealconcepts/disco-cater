@@ -8,7 +8,7 @@ import { useAuthContext } from '../context/AuthContext'
 // nothing when logged out (call sites supply their own Log In / Sign Up CTA).
 
 const F = "'DM Sans', sans-serif"
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
 
 const IconOrders = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
 const IconSubs = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
@@ -55,7 +55,7 @@ export default function UserMenu() {
           <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, background: '#fff', border: '1px solid #e8e8e8', borderRadius: 12, boxShadow: '0 8px 28px rgba(0,0,0,0.12)', minWidth: 210, zIndex: 400, overflow: 'hidden' }}>
             <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid #f0f0f0' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#111', fontFamily: F }}>{user.firstName} {user.lastName}</div>
-              <div style={{ fontSize: 10, color: '#999', marginTop: 1, fontFamily: F }}>{user.email}</div>
+              <div style={{ fontSize: 10, color: '#727272', marginTop: 1, fontFamily: F }}>{user.email}</div>
             </div>
             <div style={{ padding: '5px 0' }}>
               {MENU.map(item => (
@@ -63,7 +63,7 @@ export default function UserMenu() {
                   onMouseOver={e => (e.currentTarget as HTMLElement).style.background = '#f5f5f5'}
                   onMouseOut={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
                 >
-                  <span style={{ color: '#999', flexShrink: 0 }}>{item.icon}</span>
+                  <span style={{ color: '#727272', flexShrink: 0 }}>{item.icon}</span>
                   {item.label}
                 </a>
               ))}

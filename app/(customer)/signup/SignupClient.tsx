@@ -5,9 +5,9 @@ import Link from 'next/link'
 import { useAuthContext } from '../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 const DARK = '#1A1028'
-const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
+const GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
 
 const pillInput: React.CSSProperties = {
   width: '100%', height: 48, borderRadius: 999, border: '1.5px solid #e6e6ee',
@@ -82,7 +82,7 @@ export default function SignupClient() {
       <div style={{ maxWidth: 560, width: '100%', margin: '0 auto', padding: '18px 24px 0', textAlign: 'center' }}>
         <Link href="/" style={{ textDecoration: 'none', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em' }}>
           <span style={{ background: GRADIENT, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span>
-          <span style={{ color: '#999' }}> cater</span>
+          <span style={{ color: '#727272' }}> cater</span>
         </Link>
       </div>
 
@@ -119,11 +119,11 @@ export default function SignupClient() {
             {loading ? 'Creating your account…' : 'Create account'}
           </button>
 
-          <p style={{ textAlign: 'center', fontSize: 13, color: '#888', margin: '16px 0 0' }}>
+          <p style={{ textAlign: 'center', fontSize: 13, color: '#727272', margin: '16px 0 0' }}>
             Already have an account?{' '}
             <Link href="/" style={{ color: BLUE, fontWeight: 700, textDecoration: 'none' }}>Log in</Link>
           </p>
-          <p style={{ textAlign: 'center', fontSize: 13, color: '#888', margin: '8px 0 0' }}>
+          <p style={{ textAlign: 'center', fontSize: 13, color: '#727272', margin: '8px 0 0' }}>
             Forgot your password?{' '}
             <Link href="/" style={{ color: BLUE, fontWeight: 700, textDecoration: 'none' }}>Reset it →</Link>
           </p>

@@ -11,7 +11,7 @@ import GlobalHeader from '../../components/GlobalHeader'
 const SITE = 'https://www.discocater.com'
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
 
 export interface CityConfig {
   slug: string
@@ -155,7 +155,7 @@ export default async function CityLanding({ city }: { city: CityConfig }) {
         {restaurants.length === 0 ? (
           <div style={{ fontSize: 16, color: '#585786', lineHeight: 1.65 }}>
             We&apos;re expanding to {city.name} soon.{' '}
-            <Link href="/fullmap" style={{ color: '#5B6FE8', fontWeight: 600, textDecoration: 'none' }}>
+            <Link href="/fullmap" style={{ color: '#586CE1', fontWeight: 600, textDecoration: 'none' }}>
               Browse all restaurants on the catering map.
             </Link>
           </div>
@@ -186,7 +186,7 @@ export default async function CityLanding({ city }: { city: CityConfig }) {
                     <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 4, letterSpacing: '-0.01em' }}>
                       {r.name}{r.is_premium ? ' 🪩' : ''}
                     </div>
-                    <div style={{ fontSize: 12.5, color: '#888' }}>
+                    <div style={{ fontSize: 12.5, color: '#727272' }}>
                       {[tag, r.location].filter(Boolean).join(' · ')}
                     </div>
                     {/* Visible Order CTA. The whole card already navigates via the
@@ -206,16 +206,16 @@ export default async function CityLanding({ city }: { city: CityConfig }) {
       {/* Footer — Browse by City links are plain crawlable anchors. */}
       <footer style={{ fontFamily: F, borderTop: '1px solid #f0f0f0', padding: '24px 24px 40px', maxWidth: 1120, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-          <span style={{ fontSize: 13, color: '#bbb' }}>Browse by City</span>
+          <span style={{ fontSize: 13, color: '#727272' }}>Browse by City</span>
           {CITY_FOOTER_LINKS.map((c, i) => (
             <span key={c.slug} style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
               {i > 0 && <span style={{ fontSize: 13, color: '#ddd' }}>·</span>}
-              <Link href={`/${c.slug}`} style={{ fontSize: 13, color: '#bbb', textDecoration: 'none' }}>{c.name}</Link>
+              <Link href={`/${c.slug}`} style={{ fontSize: 13, color: '#727272', textDecoration: 'none' }}>{c.name}</Link>
             </span>
           ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-          <a href="mailto:concierge@discocater.com" style={{ fontSize: 13, color: '#bbb', textDecoration: 'none' }}>Contact</a>
+          <a href="mailto:concierge@discocater.com" style={{ fontSize: 13, color: '#727272', textDecoration: 'none' }}>Contact</a>
           <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
           <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 Disco Cater</span>
         </div>

@@ -8,7 +8,7 @@ type ToastType = 'success' | 'error' | 'info'
 const bg: Record<ToastType, string> = {
   success: '#1D9E75',
   error: '#E24B4A',
-  info: '#5B6FE8',
+  info: '#586CE1',
 }
 
 interface ToastProps {

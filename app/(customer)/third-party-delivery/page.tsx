@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import GlobalHeader from '../../components/GlobalHeader'
 
-const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
+const GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
 
 export const metadata = {
   title: 'Third-Party Delivery — Disco Cater',
@@ -14,7 +14,7 @@ export const metadata = {
 
 const sectionStyle: React.CSSProperties = { paddingTop: 40 }
 const h2Style: React.CSSProperties = {
-  fontSize: 13, fontWeight: 700, color: '#aaa', fontFamily: "'DM Sans', sans-serif",
+  fontSize: 13, fontWeight: 700, color: '#727272', fontFamily: "'DM Sans', sans-serif",
   textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8,
 }
 const pStyle: React.CSSProperties = {
@@ -38,7 +38,7 @@ export default function ThirdPartyDeliveryPage() {
 
       {/* ── Hero ───────────────────────────────────────────────────── */}
       <div className="tpd-hero" style={{ padding: '48px 24px 24px', textAlign: 'center' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 600, color: '#888', fontFamily: "'DM Sans', sans-serif", letterSpacing: '0.01em' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 600, color: '#727272', fontFamily: "'DM Sans', sans-serif", letterSpacing: '0.01em' }}>
           Third-Party Delivery
         </h1>
       </div>
@@ -78,11 +78,11 @@ export default function ThirdPartyDeliveryPage() {
           <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111', fontFamily: "'DM Sans', sans-serif", marginBottom: 8 }}>
             Ready to start catering with Disco Cater?
           </h3>
-          <p style={{ fontSize: 14, color: '#888', fontFamily: "'DM Sans', sans-serif", marginBottom: 20 }}>
+          <p style={{ fontSize: 14, color: '#727272', fontFamily: "'DM Sans', sans-serif", marginBottom: 20 }}>
             Signing up is fast and risk free.
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/become-a-partner" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
+            <Link href="/become-a-partner" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, background: '#586CE1', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
               Become a partner →
             </Link>
             <a href="mailto:concierge@discocater.com" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, border: '1.5px solid #e0e0e0', background: '#fff', color: '#111', fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
@@ -94,11 +94,11 @@ export default function ThirdPartyDeliveryPage() {
 
       {/* ── Footer ─────────────────────────────────────────────────── */}
       <footer style={{ borderTop: '1px solid #f0f0f0', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans', sans-serif" }}>
+        <span style={{ fontSize: 12, color: '#727272', fontFamily: "'DM Sans', sans-serif" }}>
           <span style={{ background: GRADIENT, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', fontWeight: 700 }}>disco</span>
-          <span style={{ color: '#bbb' }}> cater</span>
+          <span style={{ color: '#727272' }}> cater</span>
           {' · '}
-          <a href="mailto:concierge@discocater.com" style={{ color: '#bbb', textDecoration: 'none' }}>Contact</a>
+          <a href="mailto:concierge@discocater.com" style={{ color: '#727272', textDecoration: 'none' }}>Contact</a>
         </span>
       </footer>
     </>

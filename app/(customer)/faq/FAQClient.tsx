@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useState } from 'react'
 
-const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
+const GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
 
 type FAQItem = { q: string; a: string | React.ReactNode }
 type Section = { title: string; items: FAQItem[] }
@@ -39,7 +39,7 @@ const sections: Section[] = [
         a: (
           <>
             Browse restaurant partners on the map at discocater.com/fullmap and click to visit their menu page and place your order online. You can use Disco AI for tailored restaurant recommendations based on your event, or email our concierge team at{' '}
-            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a> for dedicated human support.
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a> for dedicated human support.
           </>
         ),
       },
@@ -48,7 +48,7 @@ const sections: Section[] = [
         a: (
           <>
             We encourage you to contact the restaurant directly — their contact information will be included in your order confirmation email. If you are still having issues, email us at{' '}
-            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
           </>
         ),
       },
@@ -66,7 +66,7 @@ const sections: Section[] = [
         a: (
           <>
             Yes — recurring office catering programs are one of Disco Cater's core specialties. Office managers can use Disco Cater to set up recurring orders on a daily, weekly, or custom schedule, build curated catering plans tailored to their team's preferences, and manage ongoing meal programs all in one place. Disco AI can help find the right restaurants and packages for your team size and budget. For enterprise account setup or high-volume recurring programs, contact{' '}
-            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
           </>
         ),
       },
@@ -79,7 +79,7 @@ const sections: Section[] = [
         a: (
           <>
             Yes. Disco Cater supports enterprise accounts for organizations that need recurring catering programs, centralized billing, and dedicated support. Enterprise clients including leading enterprise companies use Disco Cater for their office catering needs. To set up an enterprise account, contact{' '}
-            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a>.
           </>
         ),
       },
@@ -135,7 +135,7 @@ const sections: Section[] = [
         a: (
           <>
             Every Disco Cater customer has access to a dedicated concierge who can help you select the right restaurant and menu for your event, answer questions, and ensure your order goes smoothly from placement to delivery. Contact{' '}
-            <a href="mailto:concierge@discocater.com" style={{ color: '#5B6FE8', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a> and we will match you with the right person from our team.
+            <a href="mailto:concierge@discocater.com" style={{ color: '#586CE1', textDecoration: 'none', fontWeight: 600 }}>concierge@discocater.com</a> and we will match you with the right person from our team.
           </>
         ),
       },
@@ -220,7 +220,7 @@ function AccordionItem({ item }: { item: FAQItem }) {
         <span style={{
           width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
           background: open ? GRADIENT : '#f0f0f0',
-          color: open ? '#fff' : '#888',
+          color: open ? '#fff' : '#727272',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 16, fontWeight: 700, transition: 'all 0.2s',
           lineHeight: 1,
@@ -252,7 +252,7 @@ export default function FAQClient() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'DM Sans', sans-serif; background: #fff; color: #111; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: translateY(0) } }
-        .faq-nav-link:hover { color: #6B6EF9 !important; }
+        .faq-nav-link:hover { color: #6466E8 !important; }
         @media (max-width: 768px) {
           .faq-main { padding: 16px 16px 80px !important; }
           .faq-hero { padding: 32px 16px 16px !important; }
@@ -266,7 +266,7 @@ export default function FAQClient() {
 
       {/* ── Hero ───────────────────────────────────────────────────── */}
       <div className="faq-hero" style={{ padding: '48px 24px 24px', textAlign: 'center' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 600, color: '#888', fontFamily: "'DM Sans', sans-serif", letterSpacing: '0.01em' }}>
+        <h1 style={{ fontSize: 22, fontWeight: 600, color: '#727272', fontFamily: "'DM Sans', sans-serif", letterSpacing: '0.01em' }}>
           Frequently Asked Questions
         </h1>
       </div>
@@ -280,7 +280,7 @@ export default function FAQClient() {
             style={{ paddingTop: 48 }}
           >
             <div style={{ marginBottom: 8 }}>
-              <h2 style={{ fontSize: 13, fontWeight: 700, color: '#aaa', fontFamily: "'DM Sans', sans-serif", textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              <h2 style={{ fontSize: 13, fontWeight: 700, color: '#727272', fontFamily: "'DM Sans', sans-serif", textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 {section.title}
               </h2>
             </div>
@@ -296,11 +296,11 @@ export default function FAQClient() {
           <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111', fontFamily: "'DM Sans', sans-serif", marginBottom: 8 }}>
             Still have questions?
           </h3>
-          <p style={{ fontSize: 14, color: '#888', fontFamily: "'DM Sans', sans-serif", marginBottom: 20 }}>
+          <p style={{ fontSize: 14, color: '#727272', fontFamily: "'DM Sans', sans-serif", marginBottom: 20 }}>
             Our team is happy to help.
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <a href="mailto:concierge@discocater.com" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
+            <a href="mailto:concierge@discocater.com" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, background: '#586CE1', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
               Email us →
             </a>
             <Link href="/fullmap" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '11px 22px', borderRadius: 24, border: '1.5px solid #e0e0e0', background: '#fff', color: '#111', fontSize: 14, fontWeight: 600, textDecoration: 'none', fontFamily: "'DM Sans', sans-serif" }}>
@@ -312,8 +312,8 @@ export default function FAQClient() {
 
       {/* ── Footer ─────────────────────────────────────────────────── */}
       <footer style={{ borderTop: '1px solid #f0f0f0', padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans', sans-serif" }}>
-          <a href="mailto:concierge@discocater.com" style={{ color: '#bbb', textDecoration: 'none' }}>Contact</a>
+        <span style={{ fontSize: 12, color: '#727272', fontFamily: "'DM Sans', sans-serif" }}>
+          <a href="mailto:concierge@discocater.com" style={{ color: '#727272', textDecoration: 'none' }}>Contact</a>
           {' · '}© {new Date().getFullYear()} Disco Cater
         </span>
       </footer>

@@ -7,8 +7,8 @@ import { getOrderSourceBadge } from '../../../../lib/order-utils'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
+const BLUE = '#586CE1'
+const INDIGO = '#6466E8'
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
 interface ApiOrder {
@@ -182,7 +182,7 @@ function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[
               onMouseOver={e => { if (clickable) (e.currentTarget as HTMLElement).style.background = '#fafafa' }}
               onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = cell.today ? '#f0f0ff' : '#fff' }}
             >
-              <div style={{ fontSize: 10, fontWeight: cell.today ? 700 : 600, color: cell.today ? INDIGO : '#888', marginBottom: 3 }}>{cell.d}</div>
+              <div style={{ fontSize: 10, fontWeight: cell.today ? 700 : 600, color: cell.today ? INDIGO : '#727272', marginBottom: 3 }}>{cell.d}</div>
               {evs.map((ev, j) => (
                 <div key={j}
                   onClick={e => { e.stopPropagation(); onOpenOrder(ev.ref) }}
@@ -259,7 +259,7 @@ function MonthAgenda({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder:
     <div>
       {groups.map(g => (
         <div key={g.key} style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px 2px' }}>{g.key}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#727272', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px 2px' }}>{g.key}</div>
           <div style={{ border: '1px solid #ebebeb', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
             {g.items.map(({ o }, i) => {
               const ref = (o.reference || o.id || '') as string
@@ -276,7 +276,7 @@ function MonthAgenda({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder:
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}{getOrderSourceBadge(o.sourceoforder || '')}</div>
                     <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                       <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: p.bg, color: p.color, flexShrink: 0 }}>{p.label}</span>
-                      <span style={{ fontSize: 11.5, color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <span style={{ fontSize: 11.5, color: '#727272', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {[o.orderType ? o.orderType.charAt(0) + o.orderType.slice(1).toLowerCase() : null, o.itemCount ? `${o.itemCount} item${o.itemCount === 1 ? '' : 's'}` : null, o.orderNumber ? `#${o.orderNumber}` : null].filter(Boolean).join(' · ')}
                       </span>
                     </div>
@@ -381,12 +381,12 @@ export default function OrdersPage() {
 
       {/* Calendar or List — friendly empty state (any view) when there are no orders */}
       {loading ? (
-        <div style={{ color: '#aaa', fontSize: 13, padding: '20px 0' }}>Loading orders…</div>
+        <div style={{ color: '#727272', fontSize: 13, padding: '20px 0' }}>Loading orders…</div>
       ) : isError ? (
         <div style={{ textAlign: 'center', padding: '64px 24px' }}>
           <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>⚠️</div>
           <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>Couldn&apos;t load your orders</div>
-          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>Something went wrong. Please try again.</div>
+          <div style={{ fontSize: 14, color: '#727272', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>Something went wrong. Please try again.</div>
           <button onClick={fetchOrders} style={{ display: 'inline-block', padding: '11px 24px', background: BLUE, color: '#fff', border: 'none', borderRadius: 999, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
             Retry
           </button>
@@ -395,7 +395,7 @@ export default function OrdersPage() {
         <div style={{ textAlign: 'center', padding: '64px 24px' }}>
           <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>🍽️</div>
           <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>No orders yet</div>
-          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>When you place a catering order, it&apos;ll show up here.</div>
+          <div style={{ fontSize: 14, color: '#727272', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>When you place a catering order, it&apos;ll show up here.</div>
           <Link href="/fullmap" style={{ display: 'inline-block', padding: '11px 24px', background: BLUE, color: '#fff', borderRadius: 999, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
             Find a restaurant
           </Link>

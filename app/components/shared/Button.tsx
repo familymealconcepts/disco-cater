@@ -2,7 +2,7 @@
 import React from 'react'
 
 const F = "'DM Sans', sans-serif"
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger'

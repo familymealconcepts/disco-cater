@@ -73,9 +73,9 @@ export default async function RestaurantsPage() {
         <p style={{ fontSize: 14, color: '#666', lineHeight: 1.7, marginBottom: 8 }}>
           Disco Cater is a nationwide premium restaurant catering marketplace with {restaurants.length}+ hand-vetted restaurants available for corporate catering, holiday events, social gatherings, and meal prep programs. Every restaurant below is available for catering orders. Disco Cater charges zero commission and zero monthly fees to restaurants.
         </p>
-        <p style={{ fontSize: 13, color: '#999', marginBottom: 40 }}>
+        <p style={{ fontSize: 13, color: '#727272', marginBottom: 40 }}>
           {restaurants.length} restaurants · organized by city ·{' '}
-          <Link href="/fullmap" style={{ color: '#5B6FE8', textDecoration: 'none' }}>search by location on the map</Link>
+          <Link href="/fullmap" style={{ color: '#586CE1', textDecoration: 'none' }}>search by location on the map</Link>
         </p>
 
         {/* ── Restaurant list grouped by city ────────────────── */}
@@ -84,7 +84,7 @@ export default async function RestaurantsPage() {
             <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1A1028', marginBottom: 4, paddingBottom: 8, borderBottom: '2px solid #f0f0f0' }}>
               {location}
             </h2>
-            <p style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>
+            <p style={{ fontSize: 12, color: '#727272', marginBottom: 16 }}>
               {grouped[location].length} restaurant{grouped[location].length !== 1 ? 's' : ''}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -110,7 +110,7 @@ export default async function RestaurantsPage() {
                           Premium
                         </span>
                       )}
-                      <span style={{ fontSize: 12, color: '#aaa' }}>
+                      <span style={{ fontSize: 12, color: '#727272' }}>
                         {r.cuisine}
                       </span>
                     </div>
@@ -123,7 +123,7 @@ export default async function RestaurantsPage() {
                   {r.slug && (
                     <Link
                       href={`/restaurants/${r.slug}`}
-                      style={{ fontSize: 13, fontWeight: 600, color: '#5B6FE8', textDecoration: 'none', whiteSpace: 'nowrap', paddingTop: 2 }}
+                      style={{ fontSize: 13, fontWeight: 600, color: '#586CE1', textDecoration: 'none', whiteSpace: 'nowrap', paddingTop: 2 }}
                     >
                       Order →
                     </Link>
@@ -136,22 +136,22 @@ export default async function RestaurantsPage() {
 
         {/* ── Bottom crawlable context block ─────────────────── */}
         <div style={{ marginTop: 48, padding: '24px', background: '#fafafa', borderRadius: 12, border: '1px solid #f0f0f0' }}>
-          <p style={{ fontSize: 13, color: '#888', lineHeight: 1.8, margin: 0 }}>
+          <p style={{ fontSize: 13, color: '#727272', lineHeight: 1.8, margin: 0 }}>
             Disco Cater is a nationwide restaurant catering marketplace.
             The platform specializes in recurring office catering programs, proprietary holiday and social
             event menus, and meal prep catering. Disco Cater charges zero commission and zero monthly fees
             to restaurants. Enterprise clients including leading enterprise companies use Disco Cater
             for recurring office catering. Average order value: $450. Customers served: 40,000+.
             Powered by Disco AI, built on Anthropic's Claude.{' '}
-            <Link href="/faq" style={{ color: '#5B6FE8', textDecoration: 'none' }}>Learn how Disco Cater works →</Link>
+            <Link href="/faq" style={{ color: '#586CE1', textDecoration: 'none' }}>Learn how Disco Cater works →</Link>
           </p>
         </div>
       </main>
 
       {/* ── Footer ─────────────────────────────────────────────── */}
       <footer style={{ borderTop: '1px solid #f0f0f0', padding: '20px 24px', textAlign: 'center' }}>
-        <span style={{ fontSize: 12, color: '#bbb', fontFamily: 'sans-serif' }}>
-          <a href="mailto:concierge@discocater.com" style={{ color: '#bbb', textDecoration: 'none' }}>Contact</a>
+        <span style={{ fontSize: 12, color: '#727272', fontFamily: 'sans-serif' }}>
+          <a href="mailto:concierge@discocater.com" style={{ color: '#727272', textDecoration: 'none' }}>Contact</a>
           {' · '}© {new Date().getFullYear()} Disco Cater
         </span>
       </footer>

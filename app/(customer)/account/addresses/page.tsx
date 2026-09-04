@@ -3,8 +3,8 @@ import { useState, useEffect, useRef } from 'react'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
+const BLUE = '#586CE1'
+const INDIGO = '#6466E8'
 
 const inputSt: React.CSSProperties = {
   width: '100%', padding: '10px 13px', border: '1px solid #e0e0e0',
@@ -214,16 +214,16 @@ export default function AddressesPage() {
       `}</style>
       <div style={{ maxWidth: 560, fontFamily: F }}>
         <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 8, marginTop: 0 }}>Addresses</h1>
-        <p style={{ fontSize: 13, color: '#888', margin: '0 0 24px', lineHeight: 1.5 }}>
+        <p style={{ fontSize: 13, color: '#727272', margin: '0 0 24px', lineHeight: 1.5 }}>
           Save delivery addresses and pick a default — it&apos;ll be pre-selected at checkout.
         </p>
 
         {loading ? (
-          <div style={{ color: '#aaa', fontSize: 13 }}>Loading…</div>
+          <div style={{ color: '#727272', fontSize: 13 }}>Loading…</div>
         ) : (
           <>
             {addresses.length === 0 && !adding && (
-              <div style={{ border: '1px dashed #ddd', borderRadius: 12, padding: '28px 20px', textAlign: 'center', color: '#999', fontSize: 13, marginBottom: 16 }}>
+              <div style={{ border: '1px dashed #ddd', borderRadius: 12, padding: '28px 20px', textAlign: 'center', color: '#727272', fontSize: 13, marginBottom: 16 }}>
                 You don&apos;t have any saved addresses yet.
               </div>
             )}
@@ -245,11 +245,11 @@ export default function AddressesPage() {
                       {a.address_line1}{a.address_line2 ? `, ${a.address_line2}` : ''}
                       {a.is_default && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: INDIGO, background: 'rgba(107,110,249,0.12)', padding: '2px 8px', borderRadius: 999 }}>Default</span>}
                     </div>
-                    <div style={{ fontSize: 13, color: '#888', marginTop: 2 }}>
+                    <div style={{ fontSize: 13, color: '#727272', marginTop: 2 }}>
                       {[a.city, a.state].filter(Boolean).join(', ')} {a.zipcode}
                     </div>
                     {a.delivery_instructions && (
-                      <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>📝 {a.delivery_instructions}</div>
+                      <div style={{ fontSize: 12, color: '#727272', marginTop: 4 }}>📝 {a.delivery_instructions}</div>
                     )}
                     <div style={{ marginTop: 8, display: 'flex', gap: 14 }}>
                       {!a.is_default && (
@@ -281,7 +281,7 @@ export default function AddressesPage() {
                     style={inputSt}
                     autoComplete="off"
                   />
-                  <div style={{ fontSize: 11, color: '#aaa', marginTop: 5 }}>Pick a suggestion so we can verify and geocode the address.</div>
+                  <div style={{ fontSize: 11, color: '#727272', marginTop: 5 }}>Pick a suggestion so we can verify and geocode the address.</div>
                 </div>
                 <div style={{ marginBottom: 14 }}>
                   <label style={labelSt}>Apt, suite, floor (optional)</label>
@@ -303,7 +303,7 @@ export default function AddressesPage() {
                   <button type="submit" disabled={saving} style={{ background: saving ? '#ccc' : BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: F }}>
                     {saving ? 'Saving…' : 'Save address'}
                   </button>
-                  <button type="button" onClick={() => { setAdding(false); resetForm() }} style={{ background: 'none', color: '#888', border: '1px solid #e0e0e0', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  <button type="button" onClick={() => { setAdding(false); resetForm() }} style={{ background: 'none', color: '#727272', border: '1px solid #e0e0e0', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
                     Cancel
                   </button>
                 </div>

@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { useAuth } from './useAuth'
 import LoginModal from './LoginModal'
 
-const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
+const GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
 const DISCO_DARK = '#1A1028'
-const DISCO_PURPLE = '#6B6EF9'
+const DISCO_PURPLE = '#6466E8'
 const DISCO_PINK = '#F0468A'
 
 interface NavAuthButtonProps {
@@ -58,7 +58,7 @@ export default function NavAuthButton({ variant = 'dark' }: NavAuthButtonProps) 
                 {/* User info */}
                 <div style={{ padding: '10px 16px 12px', borderBottom: '1px solid #f5f5f5', marginBottom: 4 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: DISCO_DARK }}>{user.firstName} {user.lastName}</div>
-                  <div style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{user.email}</div>
+                  <div style={{ fontSize: 12, color: '#727272', marginTop: 1 }}>{user.email}</div>
                 </div>
 
                 {/* Menu items */}

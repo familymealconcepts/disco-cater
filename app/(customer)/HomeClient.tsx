@@ -6,7 +6,7 @@ import Image from 'next/image'
 import NavAuthButton from '../components/NavAuthButton'
 import { useAuthContext } from '../context/AuthContext'
 
-const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
+const GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
 
@@ -128,7 +128,7 @@ export default function HomeClient() {
           font-weight: 500;
           transition: color 0.15s;
         }
-        .nav-links a:hover { color: #6B6EF9; }
+        .nav-links a:hover { color: #6466E8; }
 
         .search-wrap {
           display: flex;
@@ -156,7 +156,7 @@ export default function HomeClient() {
           color: #111;
           font-family: 'DM Sans', sans-serif;
         }
-        .search-input::placeholder { color: #bbb; }
+        .search-input::placeholder { color: #727272; }
         .search-btn {
           margin: 5px;
           padding: 0 22px;
@@ -175,7 +175,7 @@ export default function HomeClient() {
           gap: 6px;
           border-radius: 999px;
         }
-        .search-btn:hover { background: #6B6EF9; }
+        .search-btn:hover { background: #6466E8; }
         .search-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .pac-container {
@@ -194,7 +194,7 @@ export default function HomeClient() {
         }
         .pac-item:hover { background: #f9f5ff !important; }
         .pac-item-selected { background: #f9f5ff !important; }
-        .pac-matched { color: #6B6EF9 !important; font-weight: 600 !important; }
+        .pac-matched { color: #6466E8 !important; font-weight: 600 !important; }
         .pac-icon { display: none !important; }
 
         @media (max-width: 768px) {
@@ -266,7 +266,7 @@ export default function HomeClient() {
           {/* Search */}
           <form onSubmit={handleSearch} style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
             <div className="search-wrap">
-              <div style={{ padding: '0 14px 0 20px', color: '#bbb', flexShrink: 0 }}>
+              <div style={{ padding: '0 14px 0 20px', color: '#727272', flexShrink: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
                   <circle cx="12" cy="9" r="2.5"/>
@@ -324,7 +324,7 @@ export default function HomeClient() {
           {/* Browse by City — plain crawlable links so Google finds the city
               landing pages from the homepage. */}
           <div className="home-footer-city" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, color: '#bbb' }}>Search by city:</span>
+            <span style={{ fontSize: 13, color: '#727272' }}>Search by city:</span>
             {[
               { slug: 'new-york', name: 'New York' },
               { slug: 'new-jersey', name: 'New Jersey' },
@@ -332,7 +332,7 @@ export default function HomeClient() {
             ].map((c, i) => (
               <span key={c.slug} style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                 {i > 0 && <span style={{ fontSize: 13, color: '#ddd' }}>·</span>}
-                <a href={`/${c.slug}`} style={{ fontSize: 13, color: '#bbb', textDecoration: 'none' }}>{c.name}</a>
+                <a href={`/${c.slug}`} style={{ fontSize: 13, color: '#727272', textDecoration: 'none' }}>{c.name}</a>
               </span>
             ))}
           </div>
@@ -341,23 +341,23 @@ export default function HomeClient() {
                 desktop left of Catering Map, on mobile inside the hamburger menu. */}
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
               <a href="/privacy"
-                style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
-                onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-                onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+                style={{ fontSize: 13, color: '#727272', textDecoration: 'none', transition: 'color 0.15s' }}
+                onMouseOver={e => (e.currentTarget.style.color = '#6466E8')}
+                onMouseOut={e => (e.currentTarget.style.color = '#727272')}>
                 Privacy Policy
               </a>
               <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
               <a href="/terms"
-                style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
-                onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-                onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+                style={{ fontSize: 13, color: '#727272', textDecoration: 'none', transition: 'color 0.15s' }}
+                onMouseOver={e => (e.currentTarget.style.color = '#6466E8')}
+                onMouseOut={e => (e.currentTarget.style.color = '#727272')}>
                 Terms
               </a>
               <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
               <a href="mailto:concierge@discocater.com"
-                style={{ fontSize: 13, color: '#bbb', textDecoration: 'none', transition: 'color 0.15s' }}
-                onMouseOver={e => (e.currentTarget.style.color = '#6B6EF9')}
-                onMouseOut={e => (e.currentTarget.style.color = '#bbb')}>
+                style={{ fontSize: 13, color: '#727272', textDecoration: 'none', transition: 'color 0.15s' }}
+                onMouseOver={e => (e.currentTarget.style.color = '#6466E8')}
+                onMouseOut={e => (e.currentTarget.style.color = '#727272')}>
                 Contact
               </a>
               <span style={{ fontSize: 13, color: '#ddd' }}>·</span>

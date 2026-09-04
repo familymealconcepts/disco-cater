@@ -16,7 +16,7 @@ import FavoriteHeart from '../account/components/FavoriteHeart'
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!
 
 // ── Dinova brand tokens (the only real difference from the live fullmap) ──────
-const ORANGE = '#F5A623'        // Dinova primary (replaces #6B6EF9 / #5B6FE8)
+const ORANGE = '#F5A623'        // Dinova primary (replaces #6466E8 / #586CE1)
 const ORANGE_DARK = '#D98410'   // active/highlight (replaces the disco gradient)
 const GRADIENT = ORANGE_DARK    // kept name; used for active markers/badges
 const LOGO_GREY = '#777'
@@ -448,10 +448,10 @@ export default function DinovaDemo() {
             ${r.image ? `<div style="height:140px;overflow:hidden"><img src="${r.image}" style="width:100%;height:100%;object-fit:cover"/></div>` : ''}
             <div style="padding:14px 16px 16px">
               <div style="font-size:14px;font-weight:700;margin-bottom:2px;color:#111">✦ ${r.name}${r.isDisco ? ' ★' : ''}</div>
-              <div style="font-size:11px;color:#999;margin-bottom:8px">${r.location}</div>
+              <div style="font-size:11px;color:#727272;margin-bottom:8px">${r.location}</div>
               ${r.description ? `<div style="font-size:11.5px;color:#555;line-height:1.55;margin-bottom:10px">${r.description}</div>` : ''}
               <div style="display:flex;gap:5px;margin-bottom:12px">
-                ${((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => `<span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#888">${tag}</span>`).join('')}
+                ${((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => `<span style="font-size:10px;background:#f5f1eb;border:1px solid #e8e0d8;padding:2px 8px;border-radius:10px;color:#727272">${tag}</span>`).join('')}
               </div>
               <a href="${r.slug?.current ? '/restaurants/' + r.slug.current : r.orderUrl || '#'}" style="display:block;width:100%;padding:10px 0;background:${ORANGE};color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;text-align:center;text-decoration:none;box-sizing:border-box">Order Catering →</a>
             </div>
@@ -712,8 +712,8 @@ export default function DinovaDemo() {
 
   // "Powered by Disco Cater" badge — bottom corner of the map.
   const poweredByBadge = (
-    <div style={{ position: 'absolute', bottom: 12, left: 12, zIndex: 10, background: 'rgba(255,255,255,0.94)', border: '1px solid #ececec', borderRadius: 8, padding: '5px 10px', fontSize: 10.5, color: '#999', fontFamily: "'DM Sans',sans-serif", fontWeight: 600, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', whiteSpace: 'nowrap' }}>
-      Powered by <span style={{ background: 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', fontWeight: 700 }}>disco</span><span style={{ color: '#aaa' }}> cater</span>
+    <div style={{ position: 'absolute', bottom: 12, left: 12, zIndex: 10, background: 'rgba(255,255,255,0.94)', border: '1px solid #ececec', borderRadius: 8, padding: '5px 10px', fontSize: 10.5, color: '#727272', fontFamily: "'DM Sans',sans-serif", fontWeight: 600, boxShadow: '0 2px 8px rgba(0,0,0,0.08)', whiteSpace: 'nowrap' }}>
+      Powered by <span style={{ background: 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text', fontWeight: 700 }}>disco</span><span style={{ color: '#727272' }}> cater</span>
     </div>
   )
 
@@ -728,9 +728,9 @@ export default function DinovaDemo() {
       <div style={{ background: '#fff', borderRadius: 20, padding: '32px 28px', maxWidth: 360, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', animation: 'fadeUp 0.25s ease', textAlign: 'center', fontFamily: "'DM Sans',sans-serif" }}>
         <div style={{ fontSize: 44, marginBottom: 12 }}>📍</div>
         <div style={{ fontSize: 18, fontWeight: 700, color: '#111', marginBottom: 8 }}>Find catering near you</div>
-        <div style={{ fontSize: 13, color: '#888', lineHeight: 1.6, marginBottom: 24 }}>Share your location to instantly see restaurants that can cater near you.</div>
+        <div style={{ fontSize: 13, color: '#727272', lineHeight: 1.6, marginBottom: 24 }}>Share your location to instantly see restaurants that can cater near you.</div>
         <button onClick={requestLocation} style={{ width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: ORANGE, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', marginBottom: 10, fontFamily: "'DM Sans',sans-serif" }}>Share my location</button>
-        <button onClick={() => setShowLocModal(false)} style={{ width: '100%', padding: '11px', borderRadius: 12, border: '1.5px solid #e8e8e8', background: '#fff', color: '#888', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Maybe later</button>
+        <button onClick={() => setShowLocModal(false)} style={{ width: '100%', padding: '11px', borderRadius: 12, border: '1.5px solid #e8e8e8', background: '#fff', color: '#727272', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>Maybe later</button>
       </div>
     </div>
   )
@@ -770,7 +770,7 @@ export default function DinovaDemo() {
       const idx = order.indexOf(current)
       return (
         <div style={{ marginBottom: compact ? 14 : 18 }}>
-          <div style={{ fontSize: 11, color: '#aaa', marginBottom: 8, fontFamily: "'DM Sans',sans-serif", display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 11, color: '#727272', marginBottom: 8, fontFamily: "'DM Sans',sans-serif", display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>Step {idx + 1} of {order.length}</span>
             {backTo[current] && (
               <button onClick={() => setIntakeStep(backTo[current] as IntakeStep)} style={{ fontSize: 11, color: DK, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: "'DM Sans',sans-serif", fontWeight: 600 }}>← Back</button>
@@ -822,7 +822,7 @@ export default function DinovaDemo() {
               placeholder="City or address…"
               style={{ width: '100%', boxSizing: 'border-box', padding: '12px 14px', borderRadius: 12, border: `1.5px solid ${DK}`, fontSize: 14, fontFamily: "'DM Sans',sans-serif", outline: 'none', background: '#fff', color: '#111' }}
             />
-            <div style={{ fontSize: 11, color: '#aaa', marginTop: 8, fontFamily: "'DM Sans',sans-serif" }}>Start typing and pick a suggestion.</div>
+            <div style={{ fontSize: 11, color: '#727272', marginTop: 8, fontFamily: "'DM Sans',sans-serif" }}>Start typing and pick a suggestion.</div>
           </div>
         )
       }
@@ -863,7 +863,7 @@ export default function DinovaDemo() {
           </button>
           <button
             onClick={() => runDiscoIntake([])}
-            style={{ display: 'block', margin: '0 auto', background: 'none', border: 'none', color: '#999', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", textDecoration: 'underline' }}
+            style={{ display: 'block', margin: '0 auto', background: 'none', border: 'none', color: '#727272', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", textDecoration: 'underline' }}
           >
             Skip
           </button>
@@ -905,7 +905,7 @@ export default function DinovaDemo() {
               </div>
               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
                 {((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => (
-                  <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888', fontFamily: "'DM Sans',sans-serif" }}>{tag}</span>
+                  <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#727272', fontFamily: "'DM Sans',sans-serif" }}>{tag}</span>
                 ))}
               </div>
               {href ? (
@@ -918,7 +918,7 @@ export default function DinovaDemo() {
                   View &amp; Order →
                 </a>
               ) : (
-                <div style={{ textAlign: 'center', padding: compact ? '9px 0' : '10px 0', background: '#f5f5f5', color: '#bbb', borderRadius: 8, fontSize: compact ? 12 : 13, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
+                <div style={{ textAlign: 'center', padding: compact ? '9px 0' : '10px 0', background: '#f5f5f5', color: '#727272', borderRadius: 8, fontSize: compact ? 12 : 13, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>
                   No order link available
                 </div>
               )}
@@ -959,7 +959,7 @@ export default function DinovaDemo() {
         )}
 
         <div style={{ marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: '#aaa', marginBottom: 7, fontFamily: "'DM Sans',sans-serif" }}>Have a follow-up question?</div>
+          <div style={{ fontSize: 11, color: '#727272', marginBottom: 7, fontFamily: "'DM Sans',sans-serif" }}>Have a follow-up question?</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               value={chatInput}
@@ -980,7 +980,7 @@ export default function DinovaDemo() {
 
         <button
           onClick={resetIntake}
-          style={{ width: '100%', padding: compact ? '9px' : '10px', borderRadius: 8, border: 'none', background: 'none', color: '#999', fontSize: compact ? 12 : 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", textDecoration: 'underline' }}
+          style={{ width: '100%', padding: compact ? '9px' : '10px', borderRadius: 8, border: 'none', background: 'none', color: '#727272', fontSize: compact ? 12 : 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", textDecoration: 'underline' }}
         >
           Start over
         </button>
@@ -1044,7 +1044,7 @@ export default function DinovaDemo() {
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: '#f5f5f5', borderRadius: 12, padding: '0 14px', border: '1.5px solid #e8e8e8', gap: 8 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
                 <input ref={locInputRef} value={locInput} onChange={e => { setLocInput(e.target.value); setLocError('') }} placeholder="Search by location…" style={{ flex: 1, padding: '13px 0', fontSize: 16, border: 'none', outline: 'none', background: 'transparent', color: '#111', fontFamily: "'DM Sans',sans-serif" }} />
-                {locInput && <button type="button" onClick={() => { setLocInput(''); setProximityAnchor(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>}
+                {locInput && <button type="button" onClick={() => { setLocInput(''); setProximityAnchor(null) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#727272', fontSize: 18, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>}
               </div>
               <button type="submit" disabled={locLoading} style={{ padding: '0 18px', borderRadius: 12, border: 'none', background: ORANGE, color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif", flexShrink: 0, minHeight: 48 }}>{locLoading ? '…' : 'Go'}</button>
             </form>
@@ -1052,7 +1052,7 @@ export default function DinovaDemo() {
             {proximityAnchor && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, paddingLeft: 4 }}>
                 <span style={{ fontSize: 12, background: TINT_CHIP, color: ORANGE_DARK, padding: '3px 10px', borderRadius: 8, fontWeight: 600 }}>📍 Showing nearby</span>
-                <button onClick={() => { setProximityAnchor(null); setLocInput('') }} style={{ fontSize: 12, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Clear</button>
+                <button onClick={() => { setProximityAnchor(null); setLocInput('') }} style={{ fontSize: 12, color: '#727272', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Clear</button>
               </div>
             )}
           </div>
@@ -1065,7 +1065,7 @@ export default function DinovaDemo() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px 8px', flexShrink: 0, background: '#fff', borderBottom: '1px solid #f0f0f0' }}>
-            <span style={{ fontSize: 12, color: '#bbb', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
+            <span style={{ fontSize: 12, color: '#727272', fontFamily: "'DM Sans',sans-serif" }}>{filtered.length} restaurant{filtered.length !== 1 ? 's' : ''}</span>
             <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
               <button
                 onClick={() => setMobileMapOpen(true)}
@@ -1074,7 +1074,7 @@ export default function DinovaDemo() {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
                 Map
               </button>
-              <button onClick={() => setMobileSearchOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: mobileSearchOpen ? ORANGE : '#bbb' }}>
+              <button onClick={() => setMobileSearchOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', padding: 6, background: 'none', border: 'none', cursor: 'pointer', color: mobileSearchOpen ? ORANGE : '#727272' }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
             </div>
@@ -1134,10 +1134,10 @@ export default function DinovaDemo() {
                               <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: "'DM Sans',sans-serif" }}>
                                 {i + 1}. {r.name}{r.isDisco ? ' ★' : ''}
                               </div>
-                              <div style={{ fontSize: 11, color: '#bbb', marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>{r.location}</div>
+                              <div style={{ fontSize: 11, color: '#727272', marginBottom: 6, fontFamily: "'DM Sans',sans-serif" }}>{r.location}</div>
                               <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
                                 {((r.cuisines && r.cuisines.length > 0) ? r.cuisines.slice(0, 3) : [r.cuisine]).map(tag => (
-                                  <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888', whiteSpace: 'nowrap' }}>{tag}</span>
+                                  <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#727272', whiteSpace: 'nowrap' }}>{tag}</span>
                                 ))}
                               </div>
                               {r.orderUrl ? (
@@ -1146,7 +1146,7 @@ export default function DinovaDemo() {
                                   Order Catering →
                                 </a>
                               ) : (
-                                <div style={{ textAlign: 'center', padding: '8px 0', background: '#f5f5f5', color: '#bbb', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
+                                <div style={{ textAlign: 'center', padding: '8px 0', background: '#f5f5f5', color: '#727272', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>
                                   No order link
                                 </div>
                               )}
@@ -1166,9 +1166,9 @@ export default function DinovaDemo() {
             {mobileSearchOpen && (
               <div style={{ padding: '10px 16px', background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
                 <div style={{ position: 'relative' }}>
-                  <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#bbb', pointerEvents: 'none' }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <svg style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#727272', pointerEvents: 'none' }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                   <input autoFocus value={search} onChange={e => { setSearch(e.target.value); if (e.target.value.length > 2) trackEvent('search_performed', { search_term: e.target.value }) }} placeholder="Search restaurants…" style={{ width: '100%', padding: '11px 36px 11px 36px', borderRadius: 10, border: '1.5px solid #e8e8e8', background: '#fff', color: '#111', fontSize: 16, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }} />
-                  <button onClick={() => { setMobileSearchOpen(false); setSearch('') }} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
+                  <button onClick={() => { setMobileSearchOpen(false); setSearch('') }} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#727272', fontSize: 18, lineHeight: 1, padding: 0 }}>×</button>
                 </div>
               </div>
             )}
@@ -1222,14 +1222,14 @@ export default function DinovaDemo() {
                   {r.image ? <img src={r.image} alt={r.name} style={{ width: 80, height: 80, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 80, height: 80, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✦</div>}
                   <div style={{ flex: 1, padding: '12px 14px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                      <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#999', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
+                      <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#727272', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{r.isDisco ? ' ★' : ''}</div>
                     </div>
-                    <div style={{ fontSize: 12, color: '#bbb', marginBottom: 5 }}>{r.location}</div>
+                    <div style={{ fontSize: 12, color: '#727272', marginBottom: 5 }}>{r.location}</div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1, marginRight: 8 }}>
                         {((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => (
-                          <span key={tag} style={{ fontSize: 11, background: '#f5f1eb', padding: '2px 8px', borderRadius: 10, color: '#888' }}>{tag}</span>
+                          <span key={tag} style={{ fontSize: 11, background: '#f5f1eb', padding: '2px 8px', borderRadius: 10, color: '#727272' }}>{tag}</span>
                         ))}
                       </div>
                       {r.orderUrl ? (
@@ -1243,7 +1243,7 @@ export default function DinovaDemo() {
                           Order →
                         </a>
                       ) : (
-                        <span style={{ fontSize: 12, color: '#bbb', fontWeight: 600 }}>No order link</span>
+                        <span style={{ fontSize: 12, color: '#727272', fontWeight: 600 }}>No order link</span>
                       )}
                     </div>
                   </div>
@@ -1283,7 +1283,7 @@ export default function DinovaDemo() {
       <div style={{ fontFamily: "'DM Sans',sans-serif", height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff', color: '#111' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', flexShrink: 0, background: `linear-gradient(180deg, ${TINT} 0%, ${TINT_SOFT} 100%), #fff`, overflow: 'visible' }}>
           <Link href="/dinova-demo" style={{ flexShrink: 0, marginRight: 4, textDecoration: 'none' }}>{dinovaLogo}</Link>
-          <div style={{ fontSize: 12, color: '#999', fontWeight: 600, flexShrink: 0, marginRight: 4 }}>Restaurant Network</div>
+          <div style={{ fontSize: 12, color: '#727272', fontWeight: 600, flexShrink: 0, marginRight: 4 }}>Restaurant Network</div>
           <div style={{ width: 1, height: 20, background: '#e8e8e8', flexShrink: 0 }} />
           <button style={darkPillStyle(stageFilter === 'all')} onClick={() => setStageFilter('all')}>All</button>
           <button style={gradientPillStyle(stageFilter === 'disco')} onClick={() => setStageFilter('disco')}>★ Premium</button>
@@ -1339,13 +1339,13 @@ export default function DinovaDemo() {
           <div style={{ width: 416, minWidth: 416, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0', background: '#fff' }}>
             <div style={{ padding: '10px 12px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
               <div style={{ position: 'relative' }}>
-                <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#bbb', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <svg style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#727272', pointerEvents: 'none' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input value={search} onChange={e => { setSearch(e.target.value); if (e.target.value.length > 2) trackEvent('search_performed', { search_term: e.target.value }) }} placeholder="Search restaurants…" style={{ width: '100%', padding: '9px 10px 9px 32px', borderRadius: 8, border: '1.5px solid #e8e8e8', background: '#fafafa', color: '#111', fontSize: 13, fontFamily: "'DM Sans',sans-serif", outline: 'none', boxSizing: 'border-box' }} />
               </div>
             </div>
-            <div style={{ padding: '6px 12px', fontSize: 11, color: '#bbb', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ padding: '6px 12px', fontSize: 11, color: '#727272', borderBottom: '1px solid #f0f0f0', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
               {filtered.length} restaurants
-              {proximityAnchor && (<><span style={{ fontSize: 10, background: TINT_CHIP, color: ORANGE_DARK, padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span><button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#bbb', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button></>)}
+              {proximityAnchor && (<><span style={{ fontSize: 10, background: TINT_CHIP, color: ORANGE_DARK, padding: '1px 7px', borderRadius: 8, fontWeight: 600, marginLeft: 6 }}>📍 Nearby</span><button onClick={() => setProximityAnchor(null)} style={{ fontSize: 10, color: '#727272', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', marginLeft: 4 }}>clear</button></>)}
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {!restaurantsLoaded && <SkeletonCards count={8} />}
@@ -1383,14 +1383,14 @@ export default function DinovaDemo() {
                   {r.image ? <img src={r.image} alt={r.name} style={{ width: 74, height: 74, objectFit: 'cover', flexShrink: 0 }} /> : <div style={{ width: 74, height: 74, background: '#f5f1eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>✦</div>}
                   <div style={{ flex: 1, padding: '10px 12px', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                      <div style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#999', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
+                      <div style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, background: activeId === r._id ? GRADIENT : '#f0f0f0', color: activeId === r._id ? '#fff' : '#727272', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}{r.isDisco ? ' ★' : ''}</div>
                     </div>
-                    <div style={{ fontSize: 11, color: '#bbb', marginBottom: 4 }}>{r.location}</div>
+                    <div style={{ fontSize: 11, color: '#727272', marginBottom: 4 }}>{r.location}</div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
                         {((r.cuisines && r.cuisines.length > 0) ? r.cuisines : [r.cuisine]).map(tag => (
-                          <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#888' }}>{tag}</span>
+                          <span key={tag} style={{ fontSize: 10, background: '#f5f1eb', padding: '2px 7px', borderRadius: 10, color: '#727272' }}>{tag}</span>
                         ))}
                       </div>
                       {r.orderUrl && (
@@ -1414,7 +1414,7 @@ export default function DinovaDemo() {
           <div style={{ flex: 1, position: 'relative' }}>
             <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', gap: 8, alignItems: 'stretch' }}>
               <form onSubmit={doLocSearch} style={{ display: 'flex', alignItems: 'stretch', background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.12)', border: '1.5px solid #e8e8e8' }}>
-                <div style={{ padding: '0 10px', color: '#bbb', flexShrink: 0, display: 'flex', alignItems: 'center' }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg></div>
+                <div style={{ padding: '0 10px', color: '#727272', flexShrink: 0, display: 'flex', alignItems: 'center' }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg></div>
                 <input ref={locInputRef} value={locInput} onChange={e => { setLocInput(e.target.value); setLocError('') }} placeholder="Search by location…" style={{ padding: '9px 4px', fontSize: 12.5, border: 'none', outline: 'none', background: 'transparent', color: '#111', width: 380, fontFamily: "'DM Sans',sans-serif" }} />
                 <button type="submit" disabled={locLoading} style={{ padding: '0 14px', border: 'none', cursor: 'pointer', background: ORANGE, color: '#fff', fontSize: 11, fontWeight: 700, fontFamily: "'DM Sans',sans-serif", flexShrink: 0 }}>{locLoading ? '...' : 'Go'}</button>
               </form>
@@ -1462,14 +1462,14 @@ export default function DinovaDemo() {
               <div style={{ fontSize: 11, color: ORANGE_DARK, fontWeight: 700, marginTop: 2, fontFamily: "'DM Sans',sans-serif" }}>The Home Depot Account</div>
             </div>
             <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ fontSize: 11, color: '#999', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: "'DM Sans',sans-serif" }}>Upcoming</div>
+              <div style={{ fontSize: 11, color: '#727272', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: "'DM Sans',sans-serif" }}>Upcoming</div>
               {FAKE_ORDERS.map(o => (
                 <div key={o.name} style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: '11px 12px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#111', marginBottom: 2, fontFamily: "'DM Sans',sans-serif" }}>{o.name}</div>
-                  <div style={{ fontSize: 11, color: '#999', marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>{o.detail}</div>
+                  <div style={{ fontSize: 11, color: '#727272', marginBottom: 8, fontFamily: "'DM Sans',sans-serif" }}>{o.detail}</div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: '#111', fontFamily: "'DM Sans',sans-serif" }}>{o.price}</span>
-                    <span style={{ fontSize: 11, color: '#999', fontFamily: "'DM Sans',sans-serif" }}>{o.people}</span>
+                    <span style={{ fontSize: 11, color: '#727272', fontFamily: "'DM Sans',sans-serif" }}>{o.people}</span>
                   </div>
                   <button style={{ width: '100%', padding: '7px 0', borderRadius: 8, border: 'none', background: ORANGE, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: "'DM Sans',sans-serif" }}>
                     Order again
@@ -1477,7 +1477,7 @@ export default function DinovaDemo() {
                 </div>
               ))}
             </div>
-            <div style={{ marginTop: 'auto', padding: '14px 16px', borderTop: '1px solid #f0f0f0', fontSize: 11.5, color: '#888', lineHeight: 1.6, fontFamily: "'DM Sans',sans-serif" }}>
+            <div style={{ marginTop: 'auto', padding: '14px 16px', borderTop: '1px solid #f0f0f0', fontSize: 11.5, color: '#727272', lineHeight: 1.6, fontFamily: "'DM Sans',sans-serif" }}>
               <strong style={{ color: '#111' }}>47 orders</strong> placed since Jan 2025 · <strong style={{ color: ORANGE_DARK }}>2,840 Dinova Rewards pts</strong>
             </div>
           </div>
@@ -1527,7 +1527,7 @@ function DinovaUserMenu() {
           <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, background: '#fff', border: '1px solid #e8e8e8', borderRadius: 12, boxShadow: '0 8px 28px rgba(0,0,0,0.12)', minWidth: 220, zIndex: 400, overflow: 'hidden' }}>
             <div style={{ padding: '12px 14px 10px', borderBottom: '1px solid #f0f0f0' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#111', fontFamily: F }}>{FAKE_USER.firstName} {FAKE_USER.lastName}</div>
-              <div style={{ fontSize: 10, color: '#999', marginTop: 1, fontFamily: F }}>{FAKE_USER.company}</div>
+              <div style={{ fontSize: 10, color: '#727272', marginTop: 1, fontFamily: F }}>{FAKE_USER.company}</div>
             </div>
             <div style={{ padding: '5px 0' }}>
               {MENU.map(label => (

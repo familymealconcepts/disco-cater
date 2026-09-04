@@ -7,8 +7,8 @@ import { lineQty, modifierQty, lineModifiers, formatCurrency } from '../../../..
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
-const PURPLE = '#6B6EF9'
+const BLUE = '#586CE1'
+const PURPLE = '#6466E8'
 const GREEN = '#1D9E75'
 const ORANGE = '#BA7517'
 
@@ -130,7 +130,7 @@ function paymentLabel(d: FmOrderDetail): { label: string; color: string } {
   const s = (d.orderStatus || '').toUpperCase()
   if (s === 'UNPAID') return { label: 'Unpaid', color: '#E24B4A' }
   if (s === 'REFUND' || s === 'PARTIAL_REFUND') return { label: 'Refunded', color: ORANGE }
-  if (s === 'CANCELED' || s === 'VOID' || s === 'VOIDED' || s === 'EXPIRED') return { label: s.charAt(0) + s.slice(1).toLowerCase(), color: '#888' }
+  if (s === 'CANCELED' || s === 'VOID' || s === 'VOIDED' || s === 'EXPIRED') return { label: s.charAt(0) + s.slice(1).toLowerCase(), color: '#727272' }
   return { label: 'Paid', color: GREEN }
 }
 
@@ -165,7 +165,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
     || detail?.restaurant?.businessNameWithoutSpaces
     || ''
   const headcount = detail ? deriveHeadcount(detail) : null
-  const payment = detail ? paymentLabel(detail) : { label: '—', color: '#888' }
+  const payment = detail ? paymentLabel(detail) : { label: '—', color: '#727272' }
   const tagText = recurring ? 'Weekly recurring' : 'Event catering'
   const tagColors = recurring
     ? { bg: '#EEEDFE', fg: '#3C3489' }
@@ -230,7 +230,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
               {loading ? 'Loading…' : restaurantName}
             </div>
             {detail?.orderNumber !== undefined && (
-              <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Order #{detail.orderNumber}</div>
+              <div style={{ fontSize: 11, color: '#727272', marginTop: 2 }}>Order #{detail.orderNumber}</div>
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -247,7 +247,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
               />
             )}
             <button onClick={onClose} aria-label="Close panel"
-              style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', fontSize: 16, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', fontSize: 16, color: '#727272', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               ×
             </button>
           </div>
@@ -258,7 +258,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
           {loading && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', gap: 12 }}>
               <div style={{ width: 28, height: 28, borderRadius: '50%', border: '3px solid #eee', borderTopColor: BLUE, animation: 'odp-spin 0.7s linear infinite' }} />
-              <div style={{ color: '#aaa', fontSize: 12 }}>Loading order…</div>
+              <div style={{ color: '#727272', fontSize: 12 }}>Loading order…</div>
             </div>
           )}
           {error && !loading && <div style={{ background: '#fff3f3', color: '#c00', padding: 10, borderRadius: 8, fontSize: 13 }}>{error}</div>}
@@ -289,7 +289,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
                   <div style={{ fontSize: 18, fontWeight: 700, color: DARK }}>{fmtMoney((detail.total || 0) - (detail.refund || 0))}</div>
                   <div style={{ textAlign: 'right', fontSize: 11, color: '#555' }}>
                     <div>{dateText}</div>
-                    {detail.orderTime && <div style={{ color: '#888', marginTop: 1 }}>{fmtTime(detail.orderTime)}</div>}
+                    {detail.orderTime && <div style={{ color: '#727272', marginTop: 1 }}>{fmtTime(detail.orderTime)}</div>}
                   </div>
                 </div>
               </div>
@@ -439,7 +439,7 @@ export default function OrderDetailPanel({ orderRef, mode = 'upcoming', onClose 
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ fontSize: 10, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 8px' }}>
+    <div style={{ fontSize: 10, fontWeight: 700, color: '#727272', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 8px' }}>
       {children}
     </div>
   )
@@ -448,7 +448,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 function DetailRow({ label, value, valueNode }: { label: string; value?: string; valueNode?: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 12 }}>
-      <span style={{ color: '#888' }}>{label}</span>
+      <span style={{ color: '#727272' }}>{label}</span>
       <span style={{ color: DARK, fontWeight: 600, textAlign: 'right', maxWidth: '60%' }}>
         {valueNode ?? (value || '—')}
       </span>
@@ -501,7 +501,7 @@ function LineItem({ name, count, price, addOns, comment, hidePrices }: { name: s
         </div>
       )}
       {comment && (
-        <div style={{ paddingLeft: 12, marginTop: 4, fontSize: 11, color: '#888', fontStyle: 'italic' }}>
+        <div style={{ paddingLeft: 12, marginTop: 4, fontSize: 11, color: '#727272', fontStyle: 'italic' }}>
           {comment}
         </div>
       )}

@@ -12,10 +12,10 @@ import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 import { postFunnelStage } from '../../../../lib/utils/funnel-session'
 
 const F = "'DM Sans', sans-serif"
-const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
+const BLUE = '#586CE1'
+const INDIGO = '#6466E8'
 const DARK = '#1A1028'
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
 
 // US state codes for the tax-exempt state dropdown.
 const US_STATES = [
@@ -154,7 +154,7 @@ function extractFmMoney(raw: any): null | {
 
 function fmt$(n: number) { return `$${n.toFixed(2)}` }
 
-const fieldLabel: React.CSSProperties = { fontSize: 11, color: '#888', fontWeight: 600, display: 'block', marginBottom: 4 }
+const fieldLabel: React.CSSProperties = { fontSize: 11, color: '#727272', fontWeight: 600, display: 'block', marginBottom: 4 }
 const fieldBox: React.CSSProperties = { border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '12px 12px', background: '#fff' }
 function fmtDateShort(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) } catch { return d }
@@ -375,7 +375,7 @@ export default function CheckoutDrawer({
       if (usingSavedCardForFields || numberElRef.current) return
       if (!numberRef.current || !expiryRef.current || !cvcRef.current) return
       const elements = stripeRef.current.elements()
-      const style = { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } }
+      const style = { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#727272' } } }
       // showIcon: false → no Stripe-rendered network/Link brand mark in the
       // field. disableLink: true → suppress Stripe Link's autofill badge that
       // injects a green "link" + Visa + last4 chip on the right of the field.
@@ -1111,7 +1111,7 @@ export default function CheckoutDrawer({
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 24px' }}>
         <div style={{ width: 56, height: 56, borderRadius: '50%', border: `3px solid ${BLUE}`, borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', marginBottom: 20 }} />
         <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 6 }}>Setting up your order…</div>
-        <div style={{ fontSize: 13, color: '#888', textAlign: 'center' }}>Confirming availability and calculating totals</div>
+        <div style={{ fontSize: 13, color: '#727272', textAlign: 'center' }}>Confirming availability and calculating totals</div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
@@ -1175,7 +1175,7 @@ export default function CheckoutDrawer({
           {orderType === 'DELIVERY' && (
             <div style={{ padding: '0 0 14px', borderBottom: '1px solid #f4f4f4', marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Delivery to</div>
+                <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Delivery to</div>
                 <button onClick={onChangeAddress || onClose}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: 0 }}>
                   Change address
@@ -1200,12 +1200,12 @@ export default function CheckoutDrawer({
             {cart.map(item => (
               <div key={item.lineId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '6px 0' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{item.quantity > 1 && <span style={{ color: '#888' }}>{item.quantity}× </span>}{item.pkg.name}</div>
-                  {item.pkg.serves && <div style={{ fontSize: 11, color: '#aaa' }}>Serves {item.pkg.serves}</div>}
+                  <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{item.quantity > 1 && <span style={{ color: '#727272' }}>{item.quantity}× </span>}{item.pkg.name}</div>
+                  {item.pkg.serves && <div style={{ fontSize: 11, color: '#727272' }}>Serves {item.pkg.serves}</div>}
                   {item.addOns.length > 0 && (
                     <div style={{ marginTop: 2 }}>
                       {item.addOns.map(a => (
-                        <div key={a.reference} style={{ fontSize: 11, color: '#888' }}>+ ({a.count}) {a.name}{a.price > 0 ? ` (+${fmt$(a.price)} each)` : ''}</div>
+                        <div key={a.reference} style={{ fontSize: 11, color: '#727272' }}>+ ({a.count}) {a.name}{a.price > 0 ? ` (+${fmt$(a.price)} each)` : ''}</div>
                       ))}
                     </div>
                   )}
@@ -1229,11 +1229,11 @@ export default function CheckoutDrawer({
                   style={{ flex: 1, height: 38, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: DARK, fontFamily: F, background: '#fff', outline: 'none' }} />
                 <button onClick={() => { const n = parseInt(headcountInput, 10); if (!isNaN(n) && n > 0) onHeadcount(n) }}
                   disabled={!headcountInput}
-                  style={{ height: 38, padding: '0 14px', background: headcountInput ? INDIGO : '#e0e0e0', color: headcountInput ? '#fff' : '#aaa', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: headcountInput ? 'pointer' : 'default', fontFamily: F }}>
+                  style={{ height: 38, padding: '0 14px', background: headcountInput ? INDIGO : '#e0e0e0', color: headcountInput ? '#fff' : '#727272', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: headcountInput ? 'pointer' : 'default', fontFamily: F }}>
                   Save
                 </button>
                 <button onClick={() => setHeadcountSkipped(true)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#888', fontWeight: 600, fontFamily: F, padding: '6px 4px' }}>
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#727272', fontWeight: 600, fontFamily: F, padding: '6px 4px' }}>
                   Skip
                 </button>
               </div>
@@ -1252,7 +1252,7 @@ export default function CheckoutDrawer({
               These values feed the place body's `customer` object, mirroring FM
               (checkout-customer-info.component.ts:195-204, 313-318). */}
           <div style={{ marginBottom: 18 }}>
-            <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Contact</div>
+            <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Contact</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
               <input name="checkout-first-name" autoComplete="given-name" value={contactFirst} onChange={e => setContactFirst(e.target.value)} placeholder="First name" aria-label="First name"
                 style={{ height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
@@ -1318,11 +1318,11 @@ export default function CheckoutDrawer({
             {/* Disco promo is charged in full, then credited back via Stripe after
                 the order — so the displayed total stays the full FM amount. */}
             {appliedPromo?.type === 'disco' && (
-              <div style={{ fontSize: 11, color: '#999', marginTop: 6, lineHeight: 1.45 }}>
+              <div style={{ fontSize: 11, color: '#727272', marginTop: 6, lineHeight: 1.45 }}>
                 Promo code {appliedPromo.code} will apply a {fmt$(appliedPromo.discountAmount)} credit to your card after your order is placed
               </div>
             )}
-            {!fmTotals && <div style={{ fontSize: 11, color: '#aaa', textAlign: 'right', marginTop: 2 }}>Estimate — final total confirmed at payment</div>}
+            {!fmTotals && <div style={{ fontSize: 11, color: '#727272', textAlign: 'right', marginTop: 2 }}>Estimate — final total confirmed at payment</div>}
           </div>
 
           {/* Single promo entry — Disco codes first, FM coupon fallback. */}
@@ -1350,7 +1350,7 @@ export default function CheckoutDrawer({
                     placeholder="Enter code" aria-label="Promo code"
                     style={{ flex: 1, height: 40, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none', textTransform: 'uppercase' }} />
                   <button onClick={applyPromo} disabled={!promoInput.trim() || promoLoading}
-                    style={{ height: 40, padding: '0 18px', background: promoInput.trim() && !promoLoading ? BLUE : '#e8e8e8', color: promoInput.trim() && !promoLoading ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: promoInput.trim() && !promoLoading ? 'pointer' : 'default', fontFamily: F }}>
+                    style={{ height: 40, padding: '0 18px', background: promoInput.trim() && !promoLoading ? BLUE : '#e8e8e8', color: promoInput.trim() && !promoLoading ? '#fff' : '#727272', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: promoInput.trim() && !promoLoading ? 'pointer' : 'default', fontFamily: F }}>
                     {promoLoading ? 'Checking…' : 'Apply'}
                   </button>
                 </div>
@@ -1382,16 +1382,16 @@ export default function CheckoutDrawer({
                   inputMode="numeric" placeholder="Tax exempt ID (6–12 digits)"
                   style={{ flex: '1 1 160px', minWidth: 0, height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 10px', fontSize: 13, fontFamily: F, color: DARK, outline: 'none' }} />
                 <select value={taxExemptState} onChange={e => setTaxExemptState(e.target.value)}
-                  style={{ flex: '0 0 92px', height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 8px', fontSize: 13, fontFamily: F, color: taxExemptState ? DARK : '#999', outline: 'none', background: '#fff' }}>
+                  style={{ flex: '0 0 92px', height: 38, border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '0 8px', fontSize: 13, fontFamily: F, color: taxExemptState ? DARK : '#727272', outline: 'none', background: '#fff' }}>
                   <option value="">State</option>
                   {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <button onClick={() => { if (canApplyExempt) setTaxExemptApplied(true) }} disabled={!canApplyExempt}
-                  style={{ height: 38, padding: '0 16px', background: canApplyExempt ? BLUE : '#e8e8e8', color: canApplyExempt ? '#fff' : '#bbb', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: canApplyExempt ? 'pointer' : 'default', fontFamily: F }}>
+                  style={{ height: 38, padding: '0 16px', background: canApplyExempt ? BLUE : '#e8e8e8', color: canApplyExempt ? '#fff' : '#727272', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: canApplyExempt ? 'pointer' : 'default', fontFamily: F }}>
                   Apply
                 </button>
               </div>
-              <div style={{ fontSize: 11, color: '#999', marginTop: 8 }}>Tax exempt ID and state are both required.</div>
+              <div style={{ fontSize: 11, color: '#727272', marginTop: 8 }}>Tax exempt ID and state are both required.</div>
             </div>
           ) : (
             <button onClick={() => setTaxExemptOpen(true)}
@@ -1419,12 +1419,12 @@ export default function CheckoutDrawer({
                   </div>
                 </div>
               </>
-            ) : <div style={{ fontSize: 13, color: '#aaa', padding: '8px 0' }}>Loading secure payment form…</div>
+            ) : <div style={{ fontSize: 13, color: '#727272', padding: '8px 0' }}>Loading secure payment form…</div>
 
             if (!savedCard) {
               return (
                 <div style={{ background: '#fff', border: '1.5px solid #e8e8e8', borderRadius: 12, padding: '14px 18px', marginBottom: 16 }}>
-                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Payment Method</div>
+                  <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>Payment Method</div>
                   {cardFields}
                 </div>
               )
@@ -1433,7 +1433,7 @@ export default function CheckoutDrawer({
             const optionRow: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', padding: '12px 0' }
             return (
               <div style={{ background: '#fff', border: '1.5px solid #e8e8e8', borderRadius: 12, padding: '4px 18px 14px', marginBottom: 16 }}>
-                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '12px 0 0' }}>Payment Method</div>
+                <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '12px 0 0' }}>Payment Method</div>
 
                 {/* Option 1 — saved card (default) */}
                 <label style={optionRow}>
@@ -1448,7 +1448,7 @@ export default function CheckoutDrawer({
                         brand (Stripe Link) doesn't show a Link bubble. */}
                     <div style={{ fontSize: 14, fontWeight: 700, color: DARK, letterSpacing: '0.04em' }}>•••• {savedCard.last4 || savedCard.lastFour || '••••'} — Use saved card</div>
                     {(savedCard.expMonth || savedCard.exp_month) && (
-                      <div style={{ fontSize: 12, color: '#888' }}>Expires {savedCard.expMonth || savedCard.exp_month}/{String(savedCard.expYear || savedCard.exp_year || '').slice(-2)}</div>
+                      <div style={{ fontSize: 12, color: '#727272' }}>Expires {savedCard.expMonth || savedCard.exp_month}/{String(savedCard.expYear || savedCard.exp_year || '').slice(-2)}</div>
                     )}
                   </div>
                 </label>
@@ -1485,7 +1485,7 @@ export default function CheckoutDrawer({
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 24px' }}>
         <div style={{ width: 56, height: 56, borderRadius: '50%', border: `3px solid ${BLUE}`, borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', marginBottom: 20 }} />
         <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 6 }}>Placing your order…</div>
-        <div style={{ fontSize: 13, color: '#888', textAlign: 'center' }}>Please don&apos;t close this window</div>
+        <div style={{ fontSize: 13, color: '#727272', textAlign: 'center' }}>Please don&apos;t close this window</div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
@@ -1497,7 +1497,7 @@ export default function CheckoutDrawer({
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 24px', textAlign: 'center' }}>
         <div style={{ fontSize: 52, marginBottom: 14 }}>✉️</div>
         <div style={{ fontSize: 18, fontWeight: 800, color: DARK, marginBottom: 8 }}>Invoice sent</div>
-        <div style={{ fontSize: 13.5, color: '#888', maxWidth: 320, marginBottom: 24 }}>The customer will receive a payment link by email to complete this order.</div>
+        <div style={{ fontSize: 13.5, color: '#727272', maxWidth: 320, marginBottom: 24 }}>The customer will receive a payment link by email to complete this order.</div>
         <button onClick={() => router.push('/restaurant/orders')}
           style={{ padding: '12px 24px', background: BLUE, color: '#fff', border: 'none', borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
           Back to Orders
@@ -1525,7 +1525,7 @@ export default function CheckoutDrawer({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 14, fontWeight: 800, background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>Checkout</span>
             <span style={{ fontSize: 12, color: '#ddd' }}>·</span>
-            <span style={{ fontSize: 12, color: '#888' }}>{restaurantName}</span>
+            <span style={{ fontSize: 12, color: '#727272' }}>{restaurantName}</span>
           </div>
           {step !== 'placing' && (
             <button onClick={onClose} style={{ background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>×</button>

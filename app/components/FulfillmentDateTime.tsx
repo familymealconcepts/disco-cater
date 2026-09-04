@@ -64,7 +64,7 @@ export interface FulfillmentDateTimeProps {
 }
 
 const capStyle: React.CSSProperties = {
-  fontSize: 11, color: '#aaa', fontWeight: 600,
+  fontSize: 11, color: '#727272', fontWeight: 600,
   textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4,
 }
 

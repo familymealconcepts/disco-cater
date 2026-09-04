@@ -379,7 +379,7 @@ function SeoBlock({ name, location, cuisine, description }: {
 }) {
   return (
     <div style={srOnly} aria-hidden="false">
-      <h1>{name}</h1>
+      <p>{name}</p>
       {(location || cuisine) && <p>{[location, cuisine].filter(Boolean).join(' · ')}</p>}
       {description && <p>{description}</p>}
     </div>

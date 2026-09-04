@@ -287,7 +287,7 @@ export default function TermsPage() {
       <p><strong>15.4. Notices.</strong> Notices to Disco Cater may be sent to <a href="mailto:concierge@discocater.com">concierge@discocater.com</a>. Notices to Merchant may be sent to the contact information associated with Merchant&rsquo;s account.</p>
       <p><strong>15.5. Miscellaneous.</strong> If any provision of these Terms is held unenforceable, the remaining provisions remain in effect. No waiver is effective unless in writing. Nothing in these Terms creates a partnership, joint venture, agency, or employment relationship between the parties; the parties are independent contractors. Section headings are for convenience only.</p>
 
-      <p style={{ marginTop: 32, color: '#888', fontSize: 14 }}>
+      <p style={{ marginTop: 32, color: '#727272', fontSize: 14 }}>
         Questions about these Terms? Contact us at{' '}
         <a href="mailto:concierge@discocater.com">concierge@discocater.com</a>.
       </p>

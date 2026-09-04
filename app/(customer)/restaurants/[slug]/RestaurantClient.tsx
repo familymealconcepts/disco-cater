@@ -21,9 +21,9 @@ import { trackEvent } from '../../../../lib/analytics'
 import { getOrCreateFunnelSessionId, postFunnelStage } from '../../../../lib/utils/funnel-session'
 
 const F = "'DM Sans', sans-serif"
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
-const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
+const BLUE = '#586CE1'
+const INDIGO = '#6466E8'
 const DARK = '#1A1028'
 const DAY_NAMES = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY']
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -273,7 +273,7 @@ function MonthCalendar({ year, month, availSet, todayIso, selDate, onSelect }: {
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, marginBottom: 4 }}>
         {['Su','Mo','Tu','We','Th','Fr','Sa'].map(n => (
-          <div key={n} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#bbb', padding: '4px 0' }}>{n}</div>
+          <div key={n} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#727272', padding: '4px 0' }}>{n}</div>
         ))}
         {cells.map((iso, i) => {
           if (!iso) return <div key={`e${i}`} />
@@ -1507,7 +1507,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   time={selTime ? formatTimeWindow(selTime, deliveryWindow, orderType === 'DELIVERY') : null}
                 />
                 <span aria-hidden style={{ color: '#ddd' }}>·</span>
-                <span style={{ color: '#888' }}>{orderType === 'PICKUP' ? 'Pickup' : 'Delivery'}</span>
+                <span style={{ color: '#727272' }}>{orderType === 'PICKUP' ? 'Pickup' : 'Delivery'}</span>
               </div>
               <button onClick={openMenus} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: BLUE, fontWeight: 700, fontFamily: F, padding: '2px 6px' }}>Edit</button>
             </div>
@@ -1532,7 +1532,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
       {hasSelection && orderType === 'DELIVERY' && (
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f4f4f4' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 7 }}>Delivery Address</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#727272', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 7 }}>Delivery Address</div>
           {/* Read-only — the validated, geocoded address from the order-setup
               modal. Editing here is via "Change address" (reopens the modal with
               Places autocomplete + re-validation) so we never lose lat/lng. */}
@@ -1540,10 +1540,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             <div style={{ fontSize: 13, color: DARK, lineHeight: 1.5 }}>
               {addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}<br />
               {[addr.city, addr.state].filter(Boolean).join(', ')} {addr.zip}
-              {addr.instructions && <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>📝 {addr.instructions}</div>}
+              {addr.instructions && <div style={{ fontSize: 11, color: '#727272', marginTop: 3 }}>📝 {addr.instructions}</div>}
             </div>
           ) : (
-            <div style={{ fontSize: 13, color: '#bbb' }}>No address selected</div>
+            <div style={{ fontSize: 13, color: '#727272' }}>No address selected</div>
           )}
           <button onClick={openMenus} style={{ marginTop: 7, background: 'none', border: 'none', color: BLUE, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: F }}>
             Change address
@@ -1553,8 +1553,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
 
       <div style={{ padding: '0 16px' }}>
         {cart.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '24px 0 8px', color: '#bbb', fontSize: 13, lineHeight: 1.7 }}>
-            Browse the menu and click<br /><strong style={{ color: '#aaa' }}>any item</strong> to get started
+          <div style={{ textAlign: 'center', padding: '24px 0 8px', color: '#727272', fontSize: 13, lineHeight: 1.7 }}>
+            Browse the menu and click<br /><strong style={{ color: '#727272' }}>any item</strong> to get started
           </div>
         ) : (
           <>
@@ -1563,17 +1563,17 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 <div key={item.lineId} style={{ padding: '10px 0', borderBottom: '1px solid #f4f4f4', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: DARK, lineHeight: 1.3, marginBottom: 1 }}>{item.pkg.name}</div>
-                    {item.pkg.serves && <div style={{ fontSize: 11, color: '#bbb' }}>Serves {item.pkg.serves}</div>}
+                    {item.pkg.serves && <div style={{ fontSize: 11, color: '#727272' }}>Serves {item.pkg.serves}</div>}
                     {item.addOns.length > 0 && (
                       <div style={{ marginTop: 3 }}>
                         {item.addOns.map(a => (
-                          <div key={a.reference} style={{ fontSize: 11, color: '#888' }}>
+                          <div key={a.reference} style={{ fontSize: 11, color: '#727272' }}>
                             + ({a.count}) {a.name}{a.price > 0 ? ` (+${formatPrice(a.price)} each)` : ''}
                           </div>
                         ))}
                       </div>
                     )}
-                    {item.note && <div style={{ fontSize: 11, color: '#aaa', fontStyle: 'italic', marginTop: 2 }}>{item.note}</div>}
+                    {item.note && <div style={{ fontSize: 11, color: '#727272', fontStyle: 'italic', marginTop: 2 }}>{item.note}</div>}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginTop: 1 }}>
                     <button onClick={() => incrementLine(item.lineId, -1)} style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: '#fff', cursor: 'pointer', fontSize: 14, color: DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
@@ -1585,7 +1585,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                       const atMax = rem != null && cartQty(item.pkg.reference) >= rem
                       return (
                         <button onClick={() => { if (!atMax) incrementLine(item.lineId, +1) }} disabled={atMax}
-                          style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: atMax ? '#f0f0f0' : '#fff', cursor: atMax ? 'default' : 'pointer', fontSize: 14, color: atMax ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                          style={{ width: 24, height: 24, borderRadius: 6, border: '1.5px solid #e8e8e8', background: atMax ? '#f0f0f0' : '#fff', cursor: atMax ? 'default' : 'pointer', fontSize: 14, color: atMax ? '#727272' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
                       )
                     })()}
                   </div>
@@ -1641,7 +1641,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                             <div style={{ fontSize: 12, color: DARK, marginBottom: 8 }}>Platform fee included at checkout</div>
                           </>
                         )}
-                        <div style={{ fontSize: 11, color: '#888', fontStyle: 'italic', lineHeight: 1.4 }}>This allows us to be free for restaurants.</div>
+                        <div style={{ fontSize: 11, color: '#727272', fontStyle: 'italic', lineHeight: 1.4 }}>This allows us to be free for restaurants.</div>
                       </div>
                     )}
                   </span>
@@ -1650,7 +1650,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   ? priceSkeleton
                   : previewTaxesFees != null
                     ? <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(previewTaxesFees)}</span>
-                    : <span style={{ color: '#bbb', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
+                    : <span style={{ color: '#727272', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
               </div>
               {/* Delivery fee — only for delivery, once FM has priced it. */}
               {orderType === 'DELIVERY' && (previewLoading || previewDelivery != null) && (
@@ -1665,7 +1665,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               )}
               {/* Tips */}
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 7 }}>Tips</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#727272', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 7 }}>Tips</div>
                 <div style={{ display: 'flex', gap: 5 }}>
                   {[10, 15, 20].map(pct => (
                     <button key={pct} onClick={() => { setTipPct(pct); setTipOther(false); setTipCustomInput('') }} style={{
@@ -1686,7 +1686,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 </div>
                 {tipOther && (
                   <div style={{ position: 'relative', marginTop: 8 }}>
-                    <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#888', pointerEvents: 'none' as const }}>$</span>
+                    <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#727272', pointerEvents: 'none' as const }}>$</span>
                     <input
                       type="number" min="0" step="0.01"
                       value={tipCustomInput}
@@ -1708,7 +1708,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 )}
                 {tipAmt > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 8 }}>
-                    <span style={{ color: '#888' }}>Tip amount</span>
+                    <span style={{ color: '#727272' }}>Tip amount</span>
                     <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(tipAmt)}</span>
                   </div>
                 )}
@@ -1758,6 +1758,22 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: '100svh', background: '#f8f8fc', fontFamily: F }}>
+      {/* Skip link — first focusable element in this subtree. Visually parked off-screen
+          until it takes focus, then it slides in.
+
+          THE REVEAL IS CSS :focus, NOT AN onFocus HANDLER. The handler version was written
+          first and did not work — the inline style was reapplied on React's next render, so
+          the link took focus while staying at top:-48px. A skip link that is invisible when
+          focused is useless to the sighted keyboard user it exists for, and it looked
+          correct in code. Verified with Playwright: Tab reveals it, Enter sets #main-content.
+
+          Lives here rather than in GlobalHeader because the 1P /order route renders its own
+          header and would otherwise miss it. */}
+      <style>{`
+        .dc-skip-link { position: absolute; left: 8px; top: -48px; z-index: 1000; background: #1A1028; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; text-decoration: none; transition: top .15s; }
+        .dc-skip-link:focus { top: 8px; outline: 2px solid #586CE1; outline-offset: 2px; }
+      `}</style>
+      <a className="dc-skip-link" href="#main-content">Skip to main content</a>
       {/* Direct Entry banner — full-width, dark, above everything. Makes it
           unmistakable that staff are placing on behalf of a customer. */}
       {isDirectEntry && (
@@ -1786,11 +1802,14 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
               mobile via .powered-by-badge below; it sits low-left where the
               mobile bottom order bar/cart already crowd the screen). No link,
               no hover. */}
-          <div className="powered-by-badge" style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 300, background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.12)', borderRadius: 20, padding: '6px 12px', fontSize: 11, color: '#999', fontFamily: F }}>
+          <div className="powered-by-badge" style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 300, background: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.12)', borderRadius: 20, padding: '6px 12px', fontSize: 11, color: '#727272', fontFamily: F }}>
             Powered by Disco Cater
           </div>
         </>
       ) : <GlobalHeader className="header-scroll-mobile" />)}
+
+      {/* Everything below the header is the page's main content — the skip link's target. */}
+      <main id="main-content">
 
       {/* Date/time/pickup sticky bar — hidden in embed mode because the
           enclosing NewOrderDialog already shows the date in its top bar
@@ -1835,7 +1854,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         <div style={{ maxWidth: 1140, margin: '0 auto', padding: '20px 24px 0' }}>
           {/* Discovery back-link — 3P marketplace only; hidden on the 1P direct page. */}
           {!isFirstParty && (
-            <Link href="/fullmap" style={{ fontSize: 12, color: '#888', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 16 }}>
+            <Link href="/fullmap" style={{ fontSize: 12, color: '#727272', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 16 }}>
               ← Back to Catering Map
             </Link>
           )}
@@ -1890,7 +1909,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 borderBottom: `2px solid ${activeMenuIdx === i ? INDIGO : 'transparent'}`,
                 fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.12s',
               }}>{s.menu.name}</button>
-            )) : <div style={{ padding: '11px 0', fontSize: 13, color: '#aaa' }}>Menu</div>}
+            )) : <div style={{ padding: '11px 0', fontSize: 13, color: '#727272' }}>Menu</div>}
           </div>
         </div>
       </div>
@@ -1959,7 +1978,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             <div style={{ textAlign: 'center', padding: '72px 0' }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>🍽️</div>
               <div style={{ fontSize: 17, fontWeight: 700, color: '#666', marginBottom: 8 }}>Menu details coming soon</div>
-              <div style={{ fontSize: 14, color: '#aaa' }}>Contact the restaurant to discuss catering options</div>
+              <div style={{ fontSize: 14, color: '#727272' }}>Contact the restaurant to discuss catering options</div>
             </div>
           ) : (
             <>
@@ -1971,6 +1990,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   value={menuSearch}
                   onChange={e => setMenuSearch(e.target.value)}
                   placeholder="Search menu items…"
+                  aria-label="Search menu items"
                   style={{ width: '100%', height: 44, paddingLeft: 38, paddingRight: 14, border: '1.5px solid #e8e8e8', borderRadius: 10, fontSize: 14, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }}
                 />
               </div>
@@ -1989,7 +2009,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   // it was never sticking anyway.
                   <div style={{ padding: '4px 0 14px', marginBottom: 4 }}>
                     <h2 style={{ fontSize: 16, fontWeight: 800, color: DARK, margin: 0, letterSpacing: '-0.01em' }}>{cat.name}</h2>
-                    {cat.description && <p style={{ fontSize: 13, color: '#888', margin: '4px 0 0' }}>{cat.description}</p>}
+                    {cat.description && <p style={{ fontSize: 13, color: '#727272', margin: '4px 0 0' }}>{cat.description}</p>}
                   </div>
                 )}
                 <div className="pkg-grid">
@@ -2023,7 +2043,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                           )}
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto' }}>
                             <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{packagePriceLabel(pkg)}</span>
-                            {pkg.serves && <><span style={{ color: '#ddd', fontSize: 14 }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {pkg.serves}</span></>}
+                            {pkg.serves && <><span style={{ color: '#ddd', fontSize: 14 }}>|</span><span style={{ fontSize: 12, color: '#727272' }}>Serves {pkg.serves}</span></>}
                           </div>
                           {/* Renders nothing at all when the restaurant has set no
                               flags — no empty container, which would imply the
@@ -2084,7 +2104,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', marginBottom: cart.length > 0 && fmRef ? 10 : 0 }}>
               <div style={{ padding: '16px 16px 14px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: DARK }}>Order Summary</div>
-                <div style={{ fontSize: 12, color: '#888' }}>{restaurant.name}</div>
+                <div style={{ fontSize: 12, color: '#727272' }}>{restaurant.name}</div>
               </div>
               {cartPanel}
             </div>
@@ -2094,8 +2114,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 onClick={() => startCheckout(false)}
                 disabled={!canCheckout}
                 onMouseOver={e => { if (canCheckout) e.currentTarget.style.background = '#4A5FD4' }}
-                onMouseOut={e => { if (canCheckout) e.currentTarget.style.background = '#5B6FE8' }}
-                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? '#5B6FE8' : '#e0e0e0', color: canCheckout ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(91,111,232,0.28)' : 'none', transition: 'all 0.15s' }}>
+                onMouseOut={e => { if (canCheckout) e.currentTarget.style.background = '#586CE1' }}
+                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? '#586CE1' : '#e0e0e0', color: canCheckout ? '#fff' : '#727272', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(91,111,232,0.28)' : 'none', transition: 'all 0.15s' }}>
                 {ctaLabel}
               </button>
             )}
@@ -2110,8 +2130,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       <div className="mobile-order-bar" style={{ display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0, padding: '12px 16px', background: '#fff', borderTop: '1px solid #f0f0f0', boxShadow: '0 -4px 16px rgba(0,0,0,0.06)', zIndex: 100 }}>
         <button onClick={() => setMobileCartOpen(true)}
           onMouseOver={e => { if (cartCount > 0) e.currentTarget.style.background = '#4A5FD4' }}
-          onMouseOut={e => { if (cartCount > 0) e.currentTarget.style.background = '#5B6FE8' }}
-          style={{ width: '100%', padding: '14px', background: cartCount > 0 ? '#5B6FE8' : '#e8e8e8', color: cartCount > 0 ? '#fff' : '#bbb', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: cartCount > 0 ? '0 4px 14px rgba(91,111,232,0.28)' : 'none' }}>
+          onMouseOut={e => { if (cartCount > 0) e.currentTarget.style.background = '#586CE1' }}
+          style={{ width: '100%', padding: '14px', background: cartCount > 0 ? '#586CE1' : '#e8e8e8', color: cartCount > 0 ? '#fff' : '#727272', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F, boxShadow: cartCount > 0 ? '0 4px 14px rgba(91,111,232,0.28)' : 'none' }}>
           {ctaLabel}
         </button>
       </div>
@@ -2120,7 +2140,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
       {mobileCartOpen && (
         <div style={{ position: 'fixed', inset: 0, background: '#fff', zIndex: 600, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 1, flexShrink: 0 }}>
-            <div><div style={{ fontSize: 15, fontWeight: 800, color: DARK }}>Order Summary</div><div style={{ fontSize: 12, color: '#888' }}>{restaurant.name}</div></div>
+            <div><div style={{ fontSize: 15, fontWeight: 800, color: DARK }}>Order Summary</div><div style={{ fontSize: 12, color: '#727272' }}>{restaurant.name}</div></div>
             <button onClick={() => setMobileCartOpen(false)} style={{ background: '#f0f0f0', border: 'none', cursor: 'pointer', width: 32, height: 32, borderRadius: '50%', fontSize: 18, color: '#555', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -2132,8 +2152,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 onClick={() => startCheckout(true)}
                 disabled={!canCheckout}
                 onMouseOver={e => { if (canCheckout) e.currentTarget.style.background = '#4A5FD4' }}
-                onMouseOut={e => { if (canCheckout) e.currentTarget.style.background = '#5B6FE8' }}
-                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? '#5B6FE8' : '#e0e0e0', color: canCheckout ? '#fff' : '#bbb', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(91,111,232,0.28)' : 'none', transition: 'all 0.15s' }}>
+                onMouseOut={e => { if (canCheckout) e.currentTarget.style.background = '#586CE1' }}
+                style={{ width: '100%', padding: '15px 18px', border: 'none', borderRadius: 12, background: canCheckout ? '#586CE1' : '#e0e0e0', color: canCheckout ? '#fff' : '#727272', fontSize: 14, fontWeight: 700, fontFamily: F, cursor: canCheckout ? 'pointer' : 'default', textAlign: 'center', boxShadow: canCheckout ? '0 4px 16px rgba(91,111,232,0.28)' : 'none', transition: 'all 0.15s' }}>
                 {ctaLabel}
               </button>
             </div>
@@ -2191,7 +2211,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                         <div style={{ fontSize: 14, fontWeight: 600, color: '#111', marginBottom: 2 }}>
                           {s.menu.name}
                         </div>
-                        {nextAvail && <div style={{ fontSize: 12, color: '#999' }}>{nextAvail}</div>}
+                        {nextAvail && <div style={{ fontSize: 12, color: '#727272' }}>{nextAvail}</div>}
                       </div>
                     </div>
                     {i < menuData.length - 1 && <div style={{ height: 1, background: '#f0f0f0', margin: '0 20px' }} />}
@@ -2229,7 +2249,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     placeholder="Enter delivery address..."
                     style={{ width: '100%', height: 40, paddingLeft: 34, paddingRight: addrValidated ? 32 : addrValidating ? 32 : 10, border: `1.5px solid ${addrValidated ? '#22C55E' : addrError ? '#EF4444' : '#e8e8e8'}`, borderRadius: 8, fontSize: 13, fontFamily: F, color: DARK, outline: 'none', boxSizing: 'border-box' }}
                   />
-                  {addrValidating && <span style={{ position: 'absolute', right: 10, fontSize: 12, color: '#888' }}>…</span>}
+                  {addrValidating && <span style={{ position: 'absolute', right: 10, fontSize: 12, color: '#727272' }}>…</span>}
                   {addrValidated && !addrValidating && <span style={{ position: 'absolute', right: 10, color: '#22C55E', fontSize: 16, fontWeight: 700 }}>✓</span>}
                 </div>
                 {addrError && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 5 }}>{addrError}</div>}
@@ -2269,17 +2289,18 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             {/* Date + Time row */}
             <div style={{ padding: '14px 20px 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, opacity: mMenuClosed ? 0.5 : 1, pointerEvents: mMenuClosed ? 'none' : 'auto' }}>
               <div>
-                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Date</div>
+                <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Date</div>
                 <button ref={dateButtonRef} onClick={openCalendar}
-                  style={{ width: '100%', height: 40, border: `1.5px solid ${calOpen ? BLUE : '#e8e8e8'}`, borderRadius: 8, background: '#fff', cursor: 'pointer', fontFamily: F, fontSize: 13, textAlign: 'left', padding: '0 10px', color: tempDate ? DARK : '#bbb', display: 'flex', alignItems: 'center', gap: 6, transition: 'border-color 0.12s' }}>
+                  style={{ width: '100%', height: 40, border: `1.5px solid ${calOpen ? BLUE : '#e8e8e8'}`, borderRadius: 8, background: '#fff', cursor: 'pointer', fontFamily: F, fontSize: 13, textAlign: 'left', padding: '0 10px', color: tempDate ? DARK : '#727272', display: 'flex', alignItems: 'center', gap: 6, transition: 'border-color 0.12s' }}>
                   <span style={{ flexShrink: 0 }}>📅</span>
                   <span>{tempDate ? fmtDateMD(tempDate) : 'Select date'}</span>
                 </button>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Time</div>
+                <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Time</div>
                 <select value={tempTime} onChange={e => setTempTime(e.target.value)}
-                  style={{ width: '100%', height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: tempTime ? DARK : '#aaa', fontFamily: F, background: '#fff', cursor: 'pointer', outline: 'none' }}>
+                  aria-label="Pickup or delivery time"
+                  style={{ width: '100%', height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: tempTime ? DARK : '#727272', fontFamily: F, background: '#fff', cursor: 'pointer', outline: 'none' }}>
                   <option value="">Select time</option>
                   {mModalTimes.map(t => <option key={t} value={t}>{formatTimeWindow(t, deliveryWindow, tempType === 'DELIVERY')}</option>)}
                 </select>
@@ -2289,14 +2310,15 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             {/* Headcount — optional (hidden entirely for restaurants in HEADCOUNT_HIDDEN_REFS) */}
             {!hideHeadcount && (
               <div style={{ padding: '6px 20px 14px', borderBottom: '1px solid #f0f0f0' }}>
-                <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
-                  Headcount <span style={{ color: '#bbb', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· optional</span>
+                <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
+                  Headcount <span style={{ color: '#727272', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· optional</span>
                 </div>
                 <input
                   type="number" inputMode="numeric" min={1}
                   value={tempHeadcount}
                   onChange={e => setTempHeadcount(e.target.value.replace(/[^0-9]/g, ''))}
                   placeholder="e.g. 40"
+                  aria-label="Headcount (optional)"
                   style={{ width: '100%', height: 40, border: '1.5px solid #e8e8e8', borderRadius: 8, padding: '0 10px', fontSize: 13, color: DARK, fontFamily: F, background: '#fff', outline: 'none' }}
                 />
               </div>
@@ -2305,7 +2327,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
             {/* Start Order CTA */}
             <div style={{ padding: '14px 20px 20px' }}>
               <button onClick={startOrder} disabled={!canStartOrder}
-                style={{ width: '100%', height: 48, background: canStartOrder ? DARK : '#e0e0e0', color: canStartOrder ? '#fff' : '#bbb', border: 'none', borderRadius: 24, fontSize: 15, fontWeight: 700, cursor: canStartOrder ? 'pointer' : 'default', fontFamily: F, transition: 'all 0.15s', boxShadow: canStartOrder ? '0 4px 14px rgba(26,16,40,0.22)' : 'none' }}>
+                style={{ width: '100%', height: 48, background: canStartOrder ? DARK : '#e0e0e0', color: canStartOrder ? '#fff' : '#727272', border: 'none', borderRadius: 24, fontSize: 15, fontWeight: 700, cursor: canStartOrder ? 'pointer' : 'default', fontFamily: F, transition: 'all 0.15s', boxShadow: canStartOrder ? '0 4px 14px rgba(26,16,40,0.22)' : 'none' }}>
                 Start Order
               </button>
               {hasSelection && (
@@ -2313,7 +2335,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   const pending = pendingItemRef.current
                   if (pending) { pendingItemRef.current = null; handleAddClickInner(pending) }
                   closeMenus()
-                }} style={{ display: 'block', width: '100%', textAlign: 'center', marginTop: 10, padding: '8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#aaa', fontFamily: F }}>
+                }} style={{ display: 'block', width: '100%', textAlign: 'center', marginTop: 10, padding: '8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#727272', fontFamily: F }}>
                   Keep current selection
                 </button>
               )}
@@ -2384,7 +2406,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 14, fontWeight: 700, color: BLUE }}>{packagePriceLabel(addOnsPkg)}</span>
-                  {addOnsPkg.serves && <><span style={{ color: '#ddd' }}>|</span><span style={{ fontSize: 12, color: '#999' }}>Serves {addOnsPkg.serves}</span></>}
+                  {addOnsPkg.serves && <><span style={{ color: '#ddd' }}>|</span><span style={{ fontSize: 12, color: '#727272' }}>Serves {addOnsPkg.serves}</span></>}
                 </div>
                 {/* QUANTITY FIRST, above the modifier groups. It used to sit
                     second-to-last, below Special Instructions — so the one control
@@ -2400,7 +2422,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   const atMin = addOnsQty <= minQty
                   return (
                     <button onClick={() => { if (!atMin) setAddOnsQty(q => Math.max(minQty, q - 1)) }} disabled={atMin}
-                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMin ? '#f0f0f0' : '#fff', cursor: atMin ? 'default' : 'pointer', fontSize: 16, color: atMin ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
+                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMin ? '#f0f0f0' : '#fff', cursor: atMin ? 'default' : 'pointer', fontSize: 16, color: atMin ? '#727272' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>
                   )
                 })()}
                 <span style={{ fontSize: 15, fontWeight: 700, color: DARK, minWidth: 24, textAlign: 'center' }}>{addOnsQty}</span>
@@ -2409,7 +2431,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   const atMax = maxQty != null && addOnsQty >= maxQty
                   return (
                     <button onClick={() => { if (!atMax) setAddOnsQty(q => q + 1) }} disabled={atMax}
-                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMax ? '#f0f0f0' : '#fff', cursor: atMax ? 'default' : 'pointer', fontSize: 16, color: atMax ? '#bbb' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                      style={{ width: 32, height: 32, borderRadius: 8, border: '1.5px solid #e8e8e8', background: atMax ? '#f0f0f0' : '#fff', cursor: atMax ? 'default' : 'pointer', fontSize: 16, color: atMax ? '#727272' : DARK, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
                   )
                 })()}
                 {maxAddOnsQty() != null && (
@@ -2422,7 +2444,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   directly — NOT from `serves`, which is descriptive free text and
                   need not match the real minimum. */}
               {minAddOnsQty() > 1 && (
-                <div style={{ fontSize: 12, color: minExceedsRemaining() ? '#EF4444' : '#aaa', marginTop: 6 }}>
+                <div style={{ fontSize: 12, color: minExceedsRemaining() ? '#EF4444' : '#727272', marginTop: 6 }}>
                   {minExceedsRemaining()
                     ? `Only ${maxAddOnsQty()} left for this date — this item needs at least ${minAddOnsQty()}.`
                     : `Select ${minAddOnsQty()}+`}
@@ -2448,10 +2470,10 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                         <span style={{ fontSize: 14, fontWeight: 700, color: DARK }}>{group.externalName || group.name}</span>
                         <ModifierGroupBadge isRequired={isRequired} isValid={isValid} />
                       </div>
-                      <span style={{ fontSize: 12, color: isValid ? '#22C55E' : '#aaa', fontWeight: 600 }}>{total} of {group.maxSelectedItems} selected</span>
+                      <span style={{ fontSize: 12, color: isValid ? '#22C55E' : '#727272', fontWeight: 600 }}>{total} of {group.maxSelectedItems} selected</span>
                     </div>
                     {group.minSelectedItems > 0 && (
-                      <div style={{ fontSize: 12, color: '#aaa', marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, color: '#727272', marginBottom: 10 }}>
                         Select {group.minSelectedItems === group.maxSelectedItems ? `exactly ${group.minSelectedItems}` : `${group.minSelectedItems}–${group.maxSelectedItems}`}
                       </div>
                     )}
@@ -2468,7 +2490,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                               {qty > 0 && <button onClick={() => setAddOnQty(group.reference, addOn.reference, -1, group.maxSelectedItems)} style={{ width: 26, height: 26, borderRadius: 7, border: `1.5px solid ${BLUE}`, background: '#fff', cursor: 'pointer', fontSize: 14, color: BLUE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>−</button>}
                               {qty > 0 && <span style={{ fontSize: 14, fontWeight: 800, color: BLUE, minWidth: 18, textAlign: 'center' }}>{qty}</span>}
                               <button onClick={() => { if (!isFull) setAddOnQty(group.reference, addOn.reference, 1, group.maxSelectedItems) }} disabled={isFull}
-                                style={{ width: 26, height: 26, borderRadius: 7, border: 'none', background: isFull ? '#f0f0f0' : BLUE, cursor: isFull ? 'default' : 'pointer', fontSize: 14, color: isFull ? '#bbb' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
+                                style={{ width: 26, height: 26, borderRadius: 7, border: 'none', background: isFull ? '#f0f0f0' : BLUE, cursor: isFull ? 'default' : 'pointer', fontSize: 14, color: isFull ? '#727272' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F }}>+</button>
                             </div>
                           </div>
                         )
@@ -2567,6 +2589,7 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
         // Real order context from the setup modal (headcount, date, service type).
         orderContext={{ headcount: headcount ?? undefined, date: selDate || undefined, service: orderType }}
       />
+      </main>
     </div>
   )
 }

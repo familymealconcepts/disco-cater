@@ -5,10 +5,10 @@ import { useAuthContext } from '../context/AuthContext'
 import { sanitizePhone } from '../../lib/utils/phone'
 
 const F = "'DM Sans', sans-serif"
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
 const DARK = '#1A1028'
-const INDIGO = '#6B6EF9'
-const BLUE = '#5B6FE8'
+const INDIGO = '#6466E8'
+const BLUE = '#586CE1'
 
 interface Props {
   isOpen: boolean
@@ -220,7 +220,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
         {/* Close */}
         <button
           onClick={handleClose}
-          style={{ position: 'absolute', top: 16, right: 16, background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 30, height: 30, borderRadius: '50%', fontSize: 16, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ position: 'absolute', top: 16, right: 16, background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 30, height: 30, borderRadius: '50%', fontSize: 16, color: '#727272', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           aria-label="Close"
         >
           ×
@@ -230,7 +230,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
         <div style={{ textAlign: 'center', marginBottom: 22 }}>
           <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.3px', marginBottom: 4 }}>
             <span style={{ background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span>
-            <span style={{ color: '#999' }}> cater</span>
+            <span style={{ color: '#727272' }}> cater</span>
           </div>
           <div style={{ fontSize: 18, fontWeight: 800, color: DARK, letterSpacing: '-0.02em' }}>
             {mode === 'forgot' ? 'Reset your password' : (tab === 'login' ? 'Welcome back' : 'Create your account')}
@@ -249,7 +249,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               type="button"
               className="auth-tab-btn"
               onClick={() => { setTab('login'); setLoginError(''); setSignupError('') }}
-              style={{ background: tab === 'login' ? '#fff' : 'transparent', color: tab === 'login' ? DARK : '#888', fontWeight: tab === 'login' ? 700 : 600, boxShadow: tab === 'login' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}
+              style={{ background: tab === 'login' ? '#fff' : 'transparent', color: tab === 'login' ? DARK : '#727272', fontWeight: tab === 'login' ? 700 : 600, boxShadow: tab === 'login' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}
             >
               Log In
             </button>
@@ -257,7 +257,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               type="button"
               className="auth-tab-btn"
               onClick={() => { setTab('signup'); setLoginError(''); setSignupError('') }}
-              style={{ background: tab === 'signup' ? '#fff' : 'transparent', color: tab === 'signup' ? DARK : '#888', fontWeight: tab === 'signup' ? 700 : 600, boxShadow: tab === 'signup' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}
+              style={{ background: tab === 'signup' ? '#fff' : 'transparent', color: tab === 'signup' ? DARK : '#727272', fontWeight: tab === 'signup' ? 700 : 600, boxShadow: tab === 'signup' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}
             >
               Sign Up
             </button>
@@ -296,7 +296,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
                   autoComplete="current-password"
                   style={{ ...inputStyle, paddingRight: 42 }}
                 />
-                <button type="button" onClick={() => setLoginShowPw(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 14, padding: 0 }}>
+                <button type="button" onClick={() => setLoginShowPw(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#727272', fontSize: 14, padding: 0 }}>
                   {loginShowPw ? '🙈' : '👁'}
                 </button>
               </div>
@@ -312,7 +312,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
               {loginLoading ? 'Signing in…' : 'Log In'}
             </button>
             <div style={{ textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 14 }}>
-              <a href="/restaurant/login" style={{ color: '#6B6EF9', textDecoration: 'underline' }}>Restaurant Log in</a>
+              <a href="/restaurant/login" style={{ color: '#6466E8', textDecoration: 'underline' }}>Restaurant Log in</a>
             </div>
           </form>
         )}
@@ -387,7 +387,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
                   autoComplete="new-password"
                   style={{ ...inputStyle, paddingRight: 42 }}
                 />
-                <button type="button" onClick={() => setSignupShowPw(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#aaa', fontSize: 14, padding: 0 }}>
+                <button type="button" onClick={() => setSignupShowPw(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#727272', fontSize: 14, padding: 0 }}>
                   {signupShowPw ? '🙈' : '👁'}
                 </button>
               </div>
@@ -404,7 +404,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Pro
             </button>
             <div style={{ textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 14 }}>
               Looking to create a{' '}
-              <a href="/for-restaurants" style={{ color: '#6B6EF9', textDecoration: 'underline' }}>restaurant account?</a>
+              <a href="/for-restaurants" style={{ color: '#6466E8', textDecoration: 'underline' }}>restaurant account?</a>
             </div>
           </form>
         )}

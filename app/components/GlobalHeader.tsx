@@ -7,7 +7,7 @@ import AuthModal from './AuthModal'
 import UserMenu from './UserMenu'
 
 const F = "'DM Sans', sans-serif"
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
 
 export default function GlobalHeader({ centerContent, rightLinks = true, className }: { centerContent?: React.ReactNode; rightLinks?: boolean; className?: string }) {
   const { user, isLoading, logout, openAuthModal, authModalOpen, authModalDefaultTab, closeAuthModal } = useAuthContext()
@@ -48,12 +48,31 @@ export default function GlobalHeader({ centerContent, rightLinks = true, classNa
         }
       `}</style>
 
+      {/* Skip link — the first focusable thing on the page. Visually hidden until it
+          takes focus, then it appears. Without it a keyboard or screen-reader user has to
+          tab through the whole header on every page to reach the content; the pages also
+          had no landmarks at all, so there was nothing else to jump to. Targets the
+          <main id="main-content"> wrapper. */}
+      <a
+        href="#main-content"
+        style={{
+          position: 'absolute', left: 8, top: -48, zIndex: 1000,
+          background: '#1A1028', color: '#fff', padding: '10px 16px',
+          borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none',
+          transition: 'top 0.15s',
+        }}
+        onFocus={e => { e.currentTarget.style.top = '8px' }}
+        onBlur={e => { e.currentTarget.style.top = '-48px' }}
+      >
+        Skip to main content
+      </a>
+
       <header className={className} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 18px', borderBottom: '1px solid #f0f0f0', background: 'linear-gradient(180deg,rgba(107,110,249,0.07) 0%,rgba(240,70,138,0.03) 100%),#fff', flexShrink: 0, position: 'sticky', top: 0, zIndex: 200 }}>
 
         <Link href="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>
             <span style={{ background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span>
-            <span style={{ color: '#999' }}> cater</span>
+            <span style={{ color: '#727272' }}> cater</span>
           </span>
         </Link>
 
@@ -63,7 +82,7 @@ export default function GlobalHeader({ centerContent, rightLinks = true, classNa
         </>}
 
         <div className="dc-desktop-nav">
-          {rightLinks && <Link href="/for-restaurants" className="dc-link" style={{ color: '#6B6EF9' }}>For Restaurants</Link>}
+          {rightLinks && <Link href="/for-restaurants" className="dc-link" style={{ color: '#6466E8' }}>For Restaurants</Link>}
           {rightLinks && <Link href="/fullmap" className="dc-link">Catering Map</Link>}
           {rightLinks && <Link href="/faq" className="dc-link">FAQ</Link>}
 
@@ -84,7 +103,7 @@ export default function GlobalHeader({ centerContent, rightLinks = true, classNa
                 </button>
                 <button
                   onClick={() => openAuthModal(undefined, 'signup')}
-                  style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}
+                  style={{ padding: '7px 18px', borderRadius: 999, border: 'none', background: '#586CE1', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}
                 >
                   Sign Up
                 </button>
@@ -113,7 +132,7 @@ export default function GlobalHeader({ centerContent, rightLinks = true, classNa
                   {isAmexDemoUser(user.email) && <div style={{ padding: '2px 10px 6px' }}><AmexBadge /></div>}
                   <div style={{ height: 1, background: '#f0f0f0', margin: '6px 0 8px' }} />
                   <Link href="/account/orders" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>My Account</Link>
-                  <Link href="/for-restaurants" className="dc-mobile-item" style={{ color: '#6B6EF9' }} onClick={() => setMobileOpen(false)}>For Restaurants</Link>
+                  <Link href="/for-restaurants" className="dc-mobile-item" style={{ color: '#6466E8' }} onClick={() => setMobileOpen(false)}>For Restaurants</Link>
                   <Link href="/fullmap" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>Catering Map</Link>
                   <Link href="/faq" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>FAQ</Link>
                   <div style={{ height: 1, background: '#f0f0f0', margin: '8px 0' }} />
@@ -124,10 +143,10 @@ export default function GlobalHeader({ centerContent, rightLinks = true, classNa
                   {/* Logged-out menu — unchanged. */}
                   <Link href="/fullmap" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>Catering Map</Link>
                   <Link href="/faq" className="dc-mobile-item" onClick={() => setMobileOpen(false)}>FAQ</Link>
-                  <Link href="/for-restaurants" className="dc-mobile-item" style={{ color: '#6B6EF9' }} onClick={() => setMobileOpen(false)}>For Restaurants</Link>
+                  <Link href="/for-restaurants" className="dc-mobile-item" style={{ color: '#6466E8' }} onClick={() => setMobileOpen(false)}>For Restaurants</Link>
                   <div style={{ height: 1, background: '#f0f0f0', margin: '8px 0' }} />
                   <button onClick={() => { setMobileOpen(false); openAuthModal(undefined, 'login') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: '1.5px solid #1A1028', background: 'transparent', color: '#1A1028', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: F, marginTop: 4 }}>Log In</button>
-                  <button onClick={() => { setMobileOpen(false); openAuthModal(undefined, 'signup') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: 'none', background: '#5B6FE8', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F, marginTop: 6 }}>Sign Up</button>
+                  <button onClick={() => { setMobileOpen(false); openAuthModal(undefined, 'signup') }} style={{ width: '100%', padding: '12px', borderRadius: 999, border: 'none', background: '#586CE1', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F, marginTop: 6 }}>Sign Up</button>
                 </>
               ))}
             </div>

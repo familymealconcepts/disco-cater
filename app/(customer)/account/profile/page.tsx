@@ -4,8 +4,8 @@ import { useAuthContext } from '../../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
+const BLUE = '#586CE1'
+const INDIGO = '#6466E8'
 
 const inputSt: React.CSSProperties = {
   width: '100%', padding: '10px 13px', border: '1px solid #e0e0e0',

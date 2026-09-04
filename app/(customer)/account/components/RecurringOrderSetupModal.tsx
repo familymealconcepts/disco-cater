@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 const GOLD = '#EFB84A'
 const LIGHT_PURPLE = '#F5F4FF'
 
@@ -278,7 +278,7 @@ export default function RecurringOrderSetupModal({ isOpen, onClose, sourceOrder 
               {success ? 'All set!' : 'Set up recurring order'}
             </h2>
             {!success && (
-              <div style={{ fontSize: 12, color: '#888', marginTop: 3 }}>
+              <div style={{ fontSize: 12, color: '#727272', marginTop: 3 }}>
                 Step {step} of 3 · <span style={{ color: DARK, fontWeight: 600 }}>{sourceOrder.restaurantName}</span>
               </div>
             )}
@@ -401,7 +401,7 @@ function Step1({
               </span>
               <span>
                 <span style={{ display: 'block', fontSize: 15, fontWeight: 700, color: DARK }}>{o.label}</span>
-                <span style={{ display: 'block', fontSize: 12, color: '#888', marginTop: 2 }}>{o.sub}</span>
+                <span style={{ display: 'block', fontSize: 12, color: '#727272', marginTop: 2 }}>{o.sub}</span>
               </span>
             </button>
           )
@@ -414,7 +414,7 @@ function Step1({
         <input type="date" value={startDate} min={tomorrowISO()} onChange={e => setStartDate(e.target.value)}
           style={dateInput} />
         {startDate && (
-          <p style={{ fontSize: 12, color: '#888', margin: '8px 0 0', lineHeight: 1.5 }}>
+          <p style={{ fontSize: 12, color: '#727272', margin: '8px 0 0', lineHeight: 1.5 }}>
             Your orders will repeat on <strong style={{ color: DARK }}>{weekdayLong(startDate)}s</strong> — e.g. if you pick {fmtShort(startDate)}, {frequency === 'MONTHLY' ? 'monthly' : frequency === 'BIWEEKLY' ? 'bi-weekly' : 'weekly'} orders will repeat every {weekdayLong(startDate)}.
           </p>
         )}
@@ -495,22 +495,22 @@ function Step2({ occurrences, startDate, frequency }: { occurrences: string[]; s
       </div>
 
       <div style={{ marginTop: 20 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#727272', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
           Upcoming orders
         </div>
         {occurrences.length === 0 ? (
-          <div style={{ fontSize: 13, color: '#999' }}>No dates in range — try an earlier start date.</div>
+          <div style={{ fontSize: 13, color: '#727272' }}>No dates in range — try an earlier start date.</div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {occurrences.slice(0, 6).map(d => (
               <div key={d} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: DARK }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: BLUE, flexShrink: 0 }} />
                 <span style={{ fontWeight: 600 }}>{fmtShort(d)}</span>
-                <span style={{ color: '#999' }}>· {freqWord}</span>
+                <span style={{ color: '#727272' }}>· {freqWord}</span>
               </div>
             ))}
             {occurrences.length > 6 && (
-              <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>+ {occurrences.length - 6} more scheduled</div>
+              <div style={{ fontSize: 12, color: '#727272', marginTop: 2 }}>+ {occurrences.length - 6} more scheduled</div>
             )}
           </div>
         )}
@@ -532,7 +532,7 @@ function MiniMonth({ year, month, occSet }: { year: number; month: number; occSe
       <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 10 }}>{monthName}</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center' }}>
         {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, i) => (
-          <div key={`h-${i}`} style={{ fontSize: 10, fontWeight: 700, color: '#bbb', paddingBottom: 4 }}>{w}</div>
+          <div key={`h-${i}`} style={{ fontSize: 10, fontWeight: 700, color: '#727272', paddingBottom: 4 }}>{w}</div>
         ))}
         {cells.map((d, i) => {
           if (d === null) return <div key={`e-${i}`} />
@@ -578,11 +578,11 @@ function Step3({
         <SummaryRow label="Order total" value={`${fmtMoney(sourceOrder.total)} per occurrence`} />
         {sourceOrder.items.length > 0 && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #ececec' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Items</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#727272', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Items</div>
             {sourceOrder.items.map((it, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: DARK, padding: '3px 0' }}>
                 <span>{it.name}</span>
-                <span style={{ color: '#888' }}>×{it.quantity}</span>
+                <span style={{ color: '#727272' }}>×{it.quantity}</span>
               </div>
             ))}
           </div>
@@ -612,7 +612,7 @@ function Step3({
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '5px 0', fontSize: 13, gap: 12 }}>
-      <span style={{ color: '#888' }}>{label}</span>
+      <span style={{ color: '#727272' }}>{label}</span>
       <span style={{ color: DARK, fontWeight: 600, textAlign: 'right' }}>{value}</span>
     </div>
   )
@@ -644,7 +644,7 @@ const modal: React.CSSProperties = {
 }
 const closeBtn: React.CSSProperties = {
   background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%',
-  fontSize: 18, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  fontSize: 18, color: '#727272', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
 }
 const pillBtn: React.CSSProperties = {
   padding: '11px 20px', border: 'none', borderRadius: 999, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: F,

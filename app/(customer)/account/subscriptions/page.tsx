@@ -6,7 +6,7 @@ import { toast, confirmDialog } from '../../../components/ui/feedback'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 const GREEN = '#1D9E75'
 const AMBER = '#BA7517'
 const RED = '#E24B4A'
@@ -326,7 +326,7 @@ export default function SubscriptionsPage() {
           <div style={{ border: '1px dashed #d8d8e4', borderRadius: 12, padding: '48px 24px', textAlign: 'center', background: 'rgba(107,110,249,0.03)' }}>
             <div style={{ fontSize: 40, marginBottom: 14, lineHeight: 1 }}>🪩</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: DARK, marginBottom: 8 }}>No recurring orders yet</div>
-            <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 360, margin: '0 auto' }}>
+            <div style={{ fontSize: 14, color: '#727272', lineHeight: 1.5, maxWidth: 360, margin: '0 auto' }}>
               Set one up from your order history.
             </div>
           </div>
@@ -355,9 +355,9 @@ export default function SubscriptionsPage() {
             <div style={{ fontSize: 13, fontWeight: 700, color: DARK, marginBottom: 4 }}>Repeat a past order with Disco Cater</div>
             <div style={{ fontSize: 12, color: '#777', marginBottom: 12 }}>Pick one of your recent orders to set up as a Disco-managed recurring order.</div>
             {historyLoading ? (
-              <div style={{ color: '#aaa', fontSize: 13 }}>Loading recent orders…</div>
+              <div style={{ color: '#727272', fontSize: 13 }}>Loading recent orders…</div>
             ) : history.length === 0 ? (
-              <div style={{ fontSize: 13, color: '#888' }}>No past orders yet.</div>
+              <div style={{ fontSize: 13, color: '#727272' }}>No past orders yet.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {history.slice(0, 5).map((o, i) => {
@@ -366,7 +366,7 @@ export default function SubscriptionsPage() {
                     <div key={ref || i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: '1px solid #ebebeb', borderRadius: 10, padding: '10px 12px' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{historyRestName(o)}</div>
-                        <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{historyDate(o)} · {fmtMoney(historyTotal(o))}</div>
+                        <div style={{ fontSize: 11, color: '#727272', marginTop: 2 }}>{historyDate(o)} · {fmtMoney(historyTotal(o))}</div>
                       </div>
                       <button onClick={() => repeatFromHistory(o)} disabled={!ref || seedLoading === ref}
                         style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 999, padding: '8px 14px', fontSize: 12, fontWeight: 700, cursor: ref ? 'pointer' : 'not-allowed', fontFamily: F, whiteSpace: 'nowrap', flexShrink: 0, opacity: (!ref || seedLoading === ref) ? 0.6 : 1 }}>
@@ -481,7 +481,7 @@ function DiscoRecurringCard({ order, busy, onPause, onResume, onCancel, onSkip, 
             <span key={i} style={{ background: '#f3f3f7', color: '#555', fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999 }}>{n}</span>
           ))}
           {itemNames.length > 2 && (
-            <span style={{ color: '#999', fontSize: 11, fontWeight: 600, padding: '4px 2px' }}>+ {itemNames.length - 2} more</span>
+            <span style={{ color: '#727272', fontSize: 11, fontWeight: 600, padding: '4px 2px' }}>+ {itemNames.length - 2} more</span>
           )}
         </div>
       )}
@@ -531,7 +531,7 @@ function DiscoRecurringCard({ order, busy, onPause, onResume, onCancel, onSkip, 
       {/* Action buttons row */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14, alignItems: 'center' }}>
         {isCanceled ? (
-          <span style={{ fontSize: 12, color: '#999' }}>Canceled</span>
+          <span style={{ fontSize: 12, color: '#727272' }}>Canceled</span>
         ) : isPaused ? (
           <>
             <button onClick={onResume} disabled={busy} style={miniBtn(BLUE, '#fff')}>Resume</button>
@@ -567,7 +567,7 @@ function OccurrenceRow({ occ, isLast, modifiable, busy, skipOpen, onModify, onSk
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: isLast ? 'none' : '1px solid #f5f5f5' }}>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: skipped ? '#aaa' : DARK, textDecoration: skipped ? 'line-through' : 'none' }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: skipped ? '#727272' : DARK, textDecoration: skipped ? 'line-through' : 'none' }}>
           {discoFmtDate(occ.scheduled_date)}
         </span>
         <span style={{ background: ost.bg, color: ost.fg, padding: '1px 7px', borderRadius: 8, fontSize: 9, fontWeight: 700, whiteSpace: 'nowrap' }}>{ost.label}</span>

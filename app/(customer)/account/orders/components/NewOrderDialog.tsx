@@ -6,9 +6,9 @@ import { sizedImage } from '../../../../../lib/sanity-image'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+const BLUE = '#586CE1'
+const INDIGO = '#6466E8'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
 
 interface Props {
   /** YYYY-MM-DD for the calendar cell the user clicked. */
@@ -87,7 +87,7 @@ export default function NewOrderDialog({ date, onClose, onOrderPlaced }: Props) 
             {picked ? picked.name : `Order for ${fmtDayLong(date)}`}
           </div>
           {picked && (
-            <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{fmtDayLong(date)}</div>
+            <div style={{ fontSize: 11, color: '#727272', marginTop: 1 }}>{fmtDayLong(date)}</div>
           )}
         </div>
         <button onClick={onClose} aria-label="Close"
@@ -149,12 +149,12 @@ function FavoritesPicker({ date, favorites, loading, onPick, onBrowseAll }: {
         </p>
 
         {loading ? (
-          <div style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: '40px 0' }}>Loading favorites…</div>
+          <div style={{ color: '#727272', fontSize: 13, textAlign: 'center', padding: '40px 0' }}>Loading favorites…</div>
         ) : usable.length === 0 ? (
           <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '48px 24px', textAlign: 'center', background: '#fff' }}>
             <div style={{ fontSize: 36, marginBottom: 14 }}>🤍</div>
             <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 6 }}>No favorites yet</div>
-            <div style={{ fontSize: 13, color: '#888', marginBottom: 22, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: '#727272', marginBottom: 22, lineHeight: 1.5 }}>
               Explore the Catering Map to find restaurants you love.
             </div>
             <Link href="/fullmap" onClick={onBrowseAll}
@@ -192,8 +192,8 @@ function FavoritesPicker({ date, favorites, loading, onPick, onBrowseAll }: {
                     <div style={{ fontSize: 14, fontWeight: 700, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {f.name || 'Restaurant'}
                     </div>
-                    {loc && <div style={{ fontSize: 11, color: '#888' }}>{loc}</div>}
-                    {f.cuisine && <div style={{ fontSize: 11, color: '#888' }}>{f.cuisine}</div>}
+                    {loc && <div style={{ fontSize: 11, color: '#727272' }}>{loc}</div>}
+                    {f.cuisine && <div style={{ fontSize: 11, color: '#727272' }}>{f.cuisine}</div>}
                     <div style={{ marginTop: 'auto', paddingTop: 10 }}>
                       <span style={{ display: 'block', textAlign: 'center', padding: '8px 10px', background: BLUE, color: '#fff', borderRadius: 7, fontSize: 12, fontWeight: 700 }}>
                         Order for this date →
