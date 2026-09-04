@@ -6,7 +6,7 @@ import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 
 const F = "'DM Sans', sans-serif"
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 const DARK = '#1A1028'
 
 function fmt$(n: number) { return `$${n.toFixed(2)}` }
@@ -112,7 +112,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
 
       <div style={{ maxWidth: 640, margin: '0 auto', padding: '48px 24px 80px' }}>
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '80px 0', color: '#888', fontSize: 15 }}>Loading your order…</div>
+          <div style={{ textAlign: 'center', padding: '80px 0', color: '#727272', fontSize: 15 }}>Loading your order…</div>
         ) : error ? (
           <div>
             <div style={{ textAlign: 'center', padding: '40px 0' }}>
@@ -134,14 +134,14 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
               <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 36 }}>✅</div>
               <h1 style={{ fontSize: 28, fontWeight: 800, color: DARK, margin: '0 0 8px', letterSpacing: '-0.02em' }}>Order Confirmed!</h1>
               {restaurantName && <p style={{ fontSize: 16, color: '#666', margin: '0 0 6px' }}>Your catering from <strong>{restaurantName}</strong> is confirmed.</p>}
-              <p style={{ fontSize: 13, color: '#aaa' }}>Order #{displayId}</p>
+              <p style={{ fontSize: 13, color: '#727272' }}>Order #{displayId}</p>
             </div>
 
             {/* Order details */}
             <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', overflow: 'hidden', marginBottom: 20 }}>
               {(customerName || companyName) && (
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
-                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Contact</div>
+                  <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Contact</div>
                   {customerName && <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{customerName}</div>}
                   {companyName && <div style={{ fontSize: 13, color: '#666', marginTop: 2 }}>{companyName}</div>}
                 </div>
@@ -158,13 +158,13 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
               )}
               {orderType && (
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
-                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Fulfillment</div>
+                  <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Fulfillment</div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{orderType === 'PICKUP' ? '🏃 Pickup' : '🚚 Delivery'}</div>
                 </div>
               )}
               {orderNote && (
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
-                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Notes</div>
+                  <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Notes</div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: DARK, whiteSpace: 'pre-wrap' }}>{orderNote}</div>
                 </div>
               )}
@@ -179,21 +179,21 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                 if (!n || n <= 0) return null
                 return (
                   <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
-                    <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Headcount</div>
+                    <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Headcount</div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>👥 {n} {n === 1 ? 'person' : 'people'}</div>
                   </div>
                 )
               })()}
               {addr && (
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
-                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Deliver to</div>
+                  <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Deliver to</div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{addr.addressLine1}, {addr.city}, {addr.state} {addr.zipcode}</div>
                 </div>
               )}
 
               {isTaxExempt && (
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
-                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tax Exempt</div>
+                  <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tax Exempt</div>
                   <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>Tax Exempt ID: {taxExemptId || '—'}</div>
                   {taxExemptState && <div style={{ fontSize: 14, fontWeight: 600, color: DARK, marginTop: 2 }}>Tax Exempt State: {taxExemptState}</div>}
                 </div>
@@ -202,7 +202,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
               {/* Items — itemized list: name, quantity, price per item, line total */}
               {items.length > 0 && (
                 <div style={{ padding: '16px 20px', borderBottom: '1px solid #f8f8f8' }}>
-                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Items</div>
+                  <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Items</div>
                   {items.map((item: any, i: number) => {
                     const name = item.name || item.mealPackageName || item.packageName || 'Item'
                     const quantity = Number(item.quantity ?? item.count) || 1
@@ -214,7 +214,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, fontSize: 14, color: DARK }}>
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 600 }}>{name}</div>
-                            <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                            <div style={{ fontSize: 12, color: '#727272', marginTop: 2 }}>
                               {quantity} × {fmt$(price)} each
                             </div>
                           </div>
@@ -227,7 +227,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                           const aQty = Number(a.quantity ?? a.count) || 1
                           const aPrice = Number(a.price) || 0
                           return (
-                            <div key={j} style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: 16, marginTop: 4, fontSize: 12.5, color: '#888' }}>
+                            <div key={j} style={{ display: 'flex', justifyContent: 'space-between', paddingLeft: 16, marginTop: 4, fontSize: 12.5, color: '#727272' }}>
                               <span>+ ({aQty}) {a.name}</span>
                               <span style={amountCol}>{fmt$(aQty * aPrice)}</span>
                             </div>
@@ -270,7 +270,7 @@ export default function ConfirmationClient({ orderRef }: { orderRef: string }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2, fontSize: 13, color: '#1D9E75', fontWeight: 600 }}>
                       <span>Discount ({promo.code})</span><span style={amountCol}>−{fmt$(promo.discountApplied)}</span>
                     </div>
-                    <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>Credited back to your card after the order.</div>
+                    <div style={{ fontSize: 11, color: '#727272', marginBottom: 6 }}>Credited back to your card after the order.</div>
                   </>
                 )}
                 {/* Refunded orders (RULE 3): Amount Charged → Refund (red) → Net Total. */}

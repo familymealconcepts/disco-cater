@@ -9,7 +9,7 @@ interface LoadingSpinnerProps {
   fullPage?: boolean
 }
 
-export default function LoadingSpinner({ size = 28, color = '#6B6EF9', label, fullPage }: LoadingSpinnerProps) {
+export default function LoadingSpinner({ size = 28, color = '#6466E8', label, fullPage }: LoadingSpinnerProps) {
   const spinner = (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
       <svg
@@ -22,7 +22,7 @@ export default function LoadingSpinner({ size = 28, color = '#6B6EF9', label, fu
         <circle cx="12" cy="12" r="10" stroke="#e0e0e0" strokeWidth="3" />
         <path d="M12 2a10 10 0 0 1 10 10" stroke={color} strokeWidth="3" strokeLinecap="round" />
       </svg>
-      {label && <span style={{ fontSize: 13, color: '#888', fontFamily: F }}>{label}</span>}
+      {label && <span style={{ fontSize: 13, color: '#727272', fontFamily: F }}>{label}</span>}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )

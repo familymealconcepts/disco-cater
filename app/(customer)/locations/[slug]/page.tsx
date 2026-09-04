@@ -5,7 +5,7 @@ import NoLongerAvailable from '../../../components/NoLongerAvailable'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 
 // The 1P direct order URL for a location — /order/{slug}, not /restaurants/{slug}
 // (the 3P marketplace path, which carries a lead-gen fee). This Links page is a
@@ -24,7 +24,7 @@ function orderHref(loc: LocationItem): string {
   return loc.slug ? `/order/${loc.slug}` : '/fullmap'
 }
 // 1st-party hero gradient used when the group carries no banner image of its own.
-const HERO_GRADIENT = 'linear-gradient(120deg,#6B6EF9 0%,#C044C8 52%,#F0468A 100%)'
+const HERO_GRADIENT = 'linear-gradient(120deg,#6466E8 0%,#C044C8 52%,#F0468A 100%)'
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params
@@ -111,7 +111,7 @@ function Landing({ link }: { link: LocationLink }) {
         {groups.map(({ state, items }) => (
           <section key={state || '_none'} style={{ marginBottom: 32 }}>
             {state && (
-              <h2 style={{ fontSize: 13, fontWeight: 700, color: '#999', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 12px', paddingBottom: 8, borderBottom: '1px solid #eee' }}>
+              <h2 style={{ fontSize: 13, fontWeight: 700, color: '#727272', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 12px', paddingBottom: 8, borderBottom: '1px solid #eee' }}>
                 {state}
               </h2>
             )}
@@ -131,7 +131,7 @@ function Landing({ link }: { link: LocationLink }) {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 16, fontWeight: 700, color: DARK }}>{loc.businessName}</div>
                     {loc.address && (
-                      <div style={{ fontSize: 13, color: '#888', marginTop: 3 }}>{loc.address}</div>
+                      <div style={{ fontSize: 13, color: '#727272', marginTop: 3 }}>{loc.address}</div>
                     )}
                   </div>
                   <a

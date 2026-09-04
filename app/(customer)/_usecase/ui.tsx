@@ -40,21 +40,21 @@ const CSS = `
 .uc-callout p { margin: 0; color: #444; }
 .uc-steps { display: grid; gap: 12px; }
 .uc-step { display: flex; gap: 14px; align-items: flex-start; }
-.uc-step .n { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; background: #5B6FE8; color: #fff; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+.uc-step .n { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; background: #586CE1; color: #fff; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; }
 .uc-step .t { font-size: 16px; line-height: 1.6; color: #333; padding-top: 2px; }
 .uc-faq-item { border: 1px solid #ececec; border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
 .uc-faq-toggle { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
 .uc-faq-q { display: flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; padding: 16px 18px; font-weight: 700; color: #1A1028; font-size: 16px; }
-.uc-faq-q .sign { color: #5B6FE8; font-size: 22px; line-height: 1; flex-shrink: 0; transition: transform 0.2s ease; }
+.uc-faq-q .sign { color: #586CE1; font-size: 22px; line-height: 1; flex-shrink: 0; transition: transform 0.2s ease; }
 .uc-faq-a { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
 .uc-faq-a p { padding: 0 18px 16px; margin: 0; color: #444; font-size: 15px; line-height: 1.65; }
 .uc-faq-toggle:checked ~ .uc-faq-a { max-height: 600px; }
 .uc-faq-toggle:checked ~ .uc-faq-q .sign { transform: rotate(45deg); }
 .uc-cta { text-align: center; background: #faf9fe; border: 1px solid #eee; border-radius: 16px; padding: 32px 24px; margin: 44px 0 8px; }
 .uc-cta h2 { border: none; margin: 0 0 16px; padding: 0; }
-.uc-btn { display: inline-block; background: #5B6FE8; color: #fff; border-radius: 999px; padding: 12px 26px; font-size: 15px; font-weight: 700; text-decoration: none; }
+.uc-btn { display: inline-block; background: #586CE1; color: #fff; border-radius: 999px; padding: 12px 26px; font-size: 15px; font-weight: 700; text-decoration: none; }
 .uc-also { margin-top: 40px; font-size: 14px; color: #666; }
-.uc-also a { color: #5B6FE8; text-decoration: none; }
+.uc-also a { color: #586CE1; text-decoration: none; }
 .uc-footer { font-family: 'DM Sans', sans-serif; border-top: 1px solid #f0f0f0; padding: 24px 24px 40px; max-width: 900px; margin: 0 auto; }
 .uc-footer a { text-decoration: none; }
 @media (max-width: 700px) {
@@ -145,22 +145,22 @@ function Footer() {
   return (
     <footer className="uc-footer">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        <span style={{ fontSize: 13, color: '#bbb' }}>Browse by City</span>
+        <span style={{ fontSize: 13, color: '#727272' }}>Browse by City</span>
         {CITY_FOOTER.map((c, i) => (
           <span key={c.slug} style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
             {i > 0 && <span style={{ fontSize: 13, color: '#ddd' }}>·</span>}
-            <Link href={`/${c.slug}`} style={{ fontSize: 13, color: '#bbb' }}>{c.name}</Link>
+            <Link href={`/${c.slug}`} style={{ fontSize: 13, color: '#727272' }}>{c.name}</Link>
           </span>
         ))}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-        <a href="/become-a-partner" style={{ fontSize: 13, color: '#6B6EF9' }}>For Restaurants</a>
+        <a href="/become-a-partner" style={{ fontSize: 13, color: '#6466E8' }}>For Restaurants</a>
         <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-        <a href="/privacy" style={{ fontSize: 13, color: '#bbb' }}>Privacy Policy</a>
+        <a href="/privacy" style={{ fontSize: 13, color: '#727272' }}>Privacy Policy</a>
         <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-        <a href="/terms" style={{ fontSize: 13, color: '#bbb' }}>Terms</a>
+        <a href="/terms" style={{ fontSize: 13, color: '#727272' }}>Terms</a>
         <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
-        <a href="mailto:concierge@discocater.com" style={{ fontSize: 13, color: '#bbb' }}>Contact</a>
+        <a href="mailto:concierge@discocater.com" style={{ fontSize: 13, color: '#727272' }}>Contact</a>
         <span style={{ fontSize: 13, color: '#ddd' }}>·</span>
         <span style={{ fontSize: 13, color: '#ccc' }}>© 2026 Disco Cater</span>
       </div>

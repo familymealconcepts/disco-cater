@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 export default function DinovaDemoPage() {
   return (
-    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'DM Sans, sans-serif', color: '#999', fontSize: 14 }}>Loading…</div>}>
+    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'DM Sans, sans-serif', color: '#727272', fontSize: 14 }}>Loading…</div>}>
       <DinovaDemo />
     </Suspense>
   )

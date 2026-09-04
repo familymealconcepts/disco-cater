@@ -3,7 +3,7 @@ import React from 'react'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const INDIGO = '#6B6EF9'
+const INDIGO = '#6466E8'
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string

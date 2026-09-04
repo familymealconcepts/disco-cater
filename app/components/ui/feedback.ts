@@ -12,7 +12,7 @@ const COLORS = {
   info: '#1A1028',
   success: '#1D9E75',
   error: '#E53935',
-  primary: '#5B6FE8',
+  primary: '#586CE1',
   danger: '#E53935',
 }
 

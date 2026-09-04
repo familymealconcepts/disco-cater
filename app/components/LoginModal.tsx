@@ -2,9 +2,9 @@
 import { useState } from 'react'
 import { useAuth, DiscoUser } from './useAuth'
 
-const GRADIENT = 'linear-gradient(90deg, #6B6EF9 0%, #C044C8 50%, #F0468A 100%)'
+const GRADIENT = 'linear-gradient(90deg, #6466E8 0%, #C044C8 50%, #F0468A 100%)'
 const DISCO_DARK = '#1A1028'
-const DISCO_PURPLE = '#6B6EF9'
+const DISCO_PURPLE = '#6466E8'
 const DISCO_PINK = '#F0468A'
 
 interface LoginModalProps {
@@ -63,11 +63,11 @@ export default function LoginModal({ onClose, onSuccess }: LoginModalProps) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 800, color: DISCO_DARK, letterSpacing: '-0.03em' }}>Sign in 🪩</div>
-            <div style={{ fontSize: 13, color: '#888', marginTop: 3 }}>Access your orders and saved restaurants</div>
+            <div style={{ fontSize: 13, color: '#727272', marginTop: 3 }}>Access your orders and saved restaurants</div>
           </div>
           <button
             onClick={onClose}
-            style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', background: '#f5f5f5', cursor: 'pointer', fontSize: 18, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ width: 32, height: 32, borderRadius: '50%', border: 'none', background: '#f5f5f5', cursor: 'pointer', fontSize: 18, color: '#727272', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >×</button>
         </div>
 
@@ -120,7 +120,7 @@ export default function LoginModal({ onClose, onSuccess }: LoginModalProps) {
           </button>
         </form>
 
-        <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #f5f5f5', textAlign: 'center', fontSize: 13, color: '#888' }}>
+        <div style={{ marginTop: 20, paddingTop: 20, borderTop: '1px solid #f5f5f5', textAlign: 'center', fontSize: 13, color: '#727272' }}>
           Use your Disco Cater account credentials to sign in.
         </div>
       </div>

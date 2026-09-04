@@ -5,7 +5,7 @@ import OrderDetailPanel from '../../components/OrderDetailPanel'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 const PAGE_SIZE = 10
 
 interface OrderItem {
@@ -67,12 +67,12 @@ export default function HistoryPage() {
       <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 24, marginTop: 0 }}>Order History</h1>
 
       {loading ? (
-        <div style={{ color: '#aaa', fontSize: 13 }}>Loading orders…</div>
+        <div style={{ color: '#727272', fontSize: 13 }}>Loading orders…</div>
       ) : orders.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '64px 24px' }}>
           <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>🕐</div>
           <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>No order history yet</div>
-          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>Your completed orders will appear here.</div>
+          <div style={{ fontSize: 14, color: '#727272', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>Your completed orders will appear here.</div>
           <Link href="/fullmap" style={{ display: 'inline-block', padding: '11px 24px', background: BLUE, color: '#fff', borderRadius: 999, fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
             Start ordering
           </Link>
@@ -90,11 +90,11 @@ export default function HistoryPage() {
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{o.restaurantName || o.restaurant?.name || 'Order'}</div>
-                  <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{fmtDate(o.orderDate || o.createdAt || o.date)}</div>
+                  <div style={{ fontSize: 11, color: '#727272', marginTop: 2 }}>{fmtDate(o.orderDate || o.createdAt || o.date)}</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: DARK }}>{fmtMoney(o.total || o.totalAmount)}</div>
-                  <div style={{ fontSize: 11, marginTop: 2, fontWeight: 600, color: o.status === 'CANCELLED' ? '#E24B4A' : o.status === 'COMPLETED' ? '#1D9E75' : '#888' }}>
+                  <div style={{ fontSize: 11, marginTop: 2, fontWeight: 600, color: o.status === 'CANCELLED' ? '#E24B4A' : o.status === 'COMPLETED' ? '#1D9E75' : '#727272' }}>
                     {o.status || 'Completed'}
                   </div>
                 </div>
@@ -108,7 +108,7 @@ export default function HistoryPage() {
               <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid #e0e0e0', background: '#fff', color: page === 0 ? '#ccc' : '#555', cursor: page === 0 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600, fontFamily: F }}>
                 ← Prev
               </button>
-              <span style={{ fontSize: 12, color: '#888' }}>{page + 1} / {totalPages}</span>
+              <span style={{ fontSize: 12, color: '#727272' }}>{page + 1} / {totalPages}</span>
               <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} style={{ padding: '6px 14px', borderRadius: 7, border: '1px solid #e0e0e0', background: '#fff', color: page >= totalPages - 1 ? '#ccc' : '#555', cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 600, fontFamily: F }}>
                 Next →
               </button>

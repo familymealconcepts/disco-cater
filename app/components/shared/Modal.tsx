@@ -42,7 +42,7 @@ export default function Modal({ open, onClose, title, maxWidth = 480, children }
       >
         <button
           onClick={onClose}
-          style={{ position: 'absolute', top: 14, right: 14, background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', fontSize: 16, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ position: 'absolute', top: 14, right: 14, background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', fontSize: 16, color: '#727272', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           ×
         </button>

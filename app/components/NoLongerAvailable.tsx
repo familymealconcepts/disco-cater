@@ -1,6 +1,6 @@
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 
 // Shared "this used to exist but doesn't anymore" state — originally built for
 // a dead multi-unit location link (locations/[slug]/page.tsx), reused here for

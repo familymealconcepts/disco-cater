@@ -6,9 +6,9 @@ import { sizedImage } from '../../../../lib/sanity-image'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const INDIGO = '#6B6EF9'
-const BLUE = '#5B6FE8'
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+const INDIGO = '#6466E8'
+const BLUE = '#586CE1'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
 
 // Card photo is ~full grid-column wide × 130px; request a 500×300 crop (retina).
 function resolveImage(src?: string): string | undefined {
@@ -28,7 +28,7 @@ export default function FavoritesPage() {
   return (
     <div style={{ fontFamily: F }}>
       <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 6, marginTop: 0 }}>Favorites</h1>
-      <p style={{ fontSize: 12, color: '#888', margin: '0 0 22px' }}>Restaurants you've saved for easy reordering.</p>
+      <p style={{ fontSize: 12, color: '#727272', margin: '0 0 22px' }}>Restaurants you've saved for easy reordering.</p>
 
       {loading ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 14 }}>
@@ -48,7 +48,7 @@ export default function FavoritesPage() {
         <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '64px 24px', textAlign: 'center', background: '#fff' }}>
           <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>⚠️</div>
           <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>Couldn&apos;t load your favorites</div>
-          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>
+          <div style={{ fontSize: 14, color: '#727272', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>
             Something went wrong. Please try again.
           </div>
           <button onClick={() => refresh()}
@@ -60,7 +60,7 @@ export default function FavoritesPage() {
         <div style={{ border: '1px solid #ebebeb', borderRadius: 12, padding: '64px 24px', textAlign: 'center', background: '#fff' }}>
           <div style={{ fontSize: 48, marginBottom: 16, lineHeight: 1 }}>⭐</div>
           <div style={{ fontSize: 17, fontWeight: 700, color: DARK, marginBottom: 8 }}>No favorites yet</div>
-          <div style={{ fontSize: 14, color: '#888', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>
+          <div style={{ fontSize: 14, color: '#727272', lineHeight: 1.5, maxWidth: 340, margin: '0 auto 22px' }}>
             Star a restaurant on the catering map to save it here for easy access.
           </div>
           <Link href="/fullmap"
@@ -105,10 +105,10 @@ export default function FavoritesPage() {
                     {name}
                   </div>
                   {loc && (
-                    <div style={{ fontSize: 11, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc}</div>
+                    <div style={{ fontSize: 11, color: '#727272', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc}</div>
                   )}
                   {f.cuisine && (
-                    <div style={{ fontSize: 11, color: '#888', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.cuisine}</div>
+                    <div style={{ fontSize: 11, color: '#727272', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.cuisine}</div>
                   )}
                   <Link href={orderHref}
                     style={{ marginTop: 'auto', paddingTop: 10, display: 'block' }}>

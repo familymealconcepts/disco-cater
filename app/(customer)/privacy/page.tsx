@@ -103,7 +103,7 @@ export default function PrivacyPage() {
         Services after an update becomes effective constitutes your acceptance of the updated Policy.
       </p>
 
-      <p style={{ marginTop: 32, color: '#888', fontSize: 14 }}>
+      <p style={{ marginTop: 32, color: '#727272', fontSize: 14 }}>
         Questions about this Policy or your information? Contact us at{' '}
         <a href="mailto:concierge@discocater.com">concierge@discocater.com</a>.
       </p>

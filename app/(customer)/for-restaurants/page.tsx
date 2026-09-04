@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 
 // Compact value props — emoji + title + description, no borders/shadows.
 const VALUE_PROPS: { emoji: string; title: string; desc: string }[] = [
@@ -34,13 +34,13 @@ export default function ForRestaurantsPage() {
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
         .fr-card { transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease; }
-        .fr-card:hover { transform: translateY(-2px); border-color: #5B6FE8; box-shadow: 0 10px 30px rgba(107,110,249,0.30), 0 4px 14px rgba(240,70,138,0.20); }
+        .fr-card:hover { transform: translateY(-2px); border-color: #586CE1; box-shadow: 0 10px 30px rgba(107,110,249,0.30), 0 4px 14px rgba(240,70,138,0.20); }
         .fr-card:hover .fr-arrow { transform: translateX(3px); }
         .fr-arrow { transition: transform 0.15s ease; }
         /* Value props: row on desktop, stacked on mobile. */
         .fr-valueprops { display: flex; gap: 22px; }
-        .fr-footer a { color: #bbb; text-decoration: none; transition: color 0.15s; }
-        .fr-footer a:hover { color: #6B6EF9; }
+        .fr-footer a { color: #727272; text-decoration: none; transition: color 0.15s; }
+        .fr-footer a:hover { color: #6466E8; }
         @media (max-width: 767px) {
           .fr-heading { font-size: 28px !important; }
           .fr-valueprops { flex-direction: column; gap: 18px; }

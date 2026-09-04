@@ -3,8 +3,8 @@ import { useState } from 'react'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
+const BLUE = '#586CE1'
+const INDIGO = '#6466E8'
 const RED = '#E24B4A'
 
 const inputSt: React.CSSProperties = {
@@ -105,7 +105,7 @@ export default function SecurityPage() {
       {/* ── Delete Account (subtle, bottom of page) ── */}
       <div style={{ marginTop: 8 }}>
         <button onClick={() => setConfirmOpen(true)}
-          style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: '#aaa', textDecoration: 'underline', cursor: 'pointer', fontFamily: F }}>
+          style={{ background: 'none', border: 'none', padding: 0, fontSize: 12, color: '#727272', textDecoration: 'underline', cursor: 'pointer', fontFamily: F }}>
           Delete account
         </button>
       </div>

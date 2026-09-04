@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from 'react'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
+const BLUE = '#586CE1'
 const RED = '#E24B4A'
 
 export interface CartItem {
@@ -144,7 +144,7 @@ export default function RecurringOrderCartEditor({ isOpen, onClose, occurrence, 
         <div style={{ padding: '18px 24px 14px', borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
           <div style={{ minWidth: 0 }}>
             <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: DARK }}>Modify order for {fmtLong(occurrence.scheduledDate)}</h2>
-            <div style={{ fontSize: 12, color: '#888', marginTop: 4, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 12, color: '#727272', marginTop: 4, lineHeight: 1.5 }}>
               Changes must be saved before <strong style={{ color: DARK }}>{fmtLong(deadlineISO)}</strong>. This is your {restaurantName} order.
             </div>
           </div>
@@ -160,7 +160,7 @@ export default function RecurringOrderCartEditor({ isOpen, onClose, occurrence, 
           )}
 
           {items.length === 0 ? (
-            <div style={{ fontSize: 13, color: '#999', padding: '16px 0' }}>No items left. Add items to keep this order, or close to leave it unchanged.</div>
+            <div style={{ fontSize: 13, color: '#727272', padding: '16px 0' }}>No items left. Add items to keep this order, or close to leave it unchanged.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {items.map((it, idx) => (
@@ -168,12 +168,12 @@ export default function RecurringOrderCartEditor({ isOpen, onClose, occurrence, 
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
                     {typeof it.price === 'number' && (
-                      <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{fmtMoney(it.price)} each</div>
+                      <div style={{ fontSize: 12, color: '#727272', marginTop: 2 }}>{fmtMoney(it.price)} each</div>
                     )}
                     {/* Same phrasing the ordering page and the add-on group picker
                         use, so a minimum reads identically wherever it appears. */}
                     {minFor(it.name) > 1 && (
-                      <div style={{ fontSize: 12, color: '#aaa', marginTop: 2 }}>Select {minFor(it.name)}+</div>
+                      <div style={{ fontSize: 12, color: '#727272', marginTop: 2 }}>Select {minFor(it.name)}+</div>
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -183,7 +183,7 @@ export default function RecurringOrderCartEditor({ isOpen, onClose, occurrence, 
                     <button onClick={() => setQty(idx, it.quantity + 1)} aria-label="Increase quantity" style={qtyBtn}>+</button>
                   </div>
                   <button onClick={() => removeItem(idx)} aria-label="Remove item"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#bbb', fontSize: 20, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>×</button>
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#727272', fontSize: 20, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}>×</button>
                 </div>
               ))}
             </div>
@@ -245,7 +245,7 @@ const modal: React.CSSProperties = {
 }
 const closeBtn: React.CSSProperties = {
   background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%',
-  fontSize: 18, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  fontSize: 18, color: '#727272', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
 }
 const qtyBtn: React.CSSProperties = {
   width: 28, height: 28, borderRadius: 8, border: '1.5px solid #e0e0e0', background: '#fff',

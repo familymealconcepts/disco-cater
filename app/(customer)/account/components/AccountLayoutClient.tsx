@@ -8,8 +8,8 @@ import { isAmexDemoUser, AmexNavIcon } from '../../../../lib/demo/amex-demo' // 
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const INDIGO = '#6B6EF9'
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+const INDIGO = '#6466E8'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
 
 function SvgOrders() {
   return (
@@ -170,7 +170,7 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
 
   if (isLoading || !user) {
     return (
-      <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F, color: '#888' }}>
+      <div style={{ minHeight: '100svh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: F, color: '#727272' }}>
         Loading…
       </div>
     )
@@ -202,13 +202,13 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
         .acct-toggle-btn {
           display: flex; align-items: center; justify-content: center;
           width: 26px; height: 26px; border-radius: 50%; border: 1px solid #e8e8e8;
-          background: #fff; cursor: pointer; color: #888; transition: background 0.12s, color 0.12s;
+          background: #fff; cursor: pointer; color: #727272; transition: background 0.12s, color 0.12s;
         }
         .acct-toggle-btn:hover { background: #f4f4f8; color: #333; }
         .acct-logout-btn {
           display: flex; align-items: center; gap: 10px; width: 100%;
           padding: 9px 12px; border-radius: 8px; border: none; background: transparent;
-          cursor: pointer; font-size: 12px; font-weight: 600; color: #999;
+          cursor: pointer; font-size: 12px; font-weight: 600; color: #727272;
           font-family: ${F}; transition: background 0.12s, color 0.12s;
         }
         .acct-logout-btn:hover { background: #fff0f0; color: #e24b4a; }
@@ -246,7 +246,7 @@ export default function AccountLayoutClient({ children }: { children: React.Reac
         {/* Mobile nav toggle bar */}
         <div className="acct-mobile-toggle">
           <button onClick={() => setMobileOpen(true)} aria-label="Open navigation"><SvgMenu /></button>
-          <span style={{ fontSize: 12, color: '#aaa', fontWeight: 500 }}>
+          <span style={{ fontSize: 12, color: '#727272', fontWeight: 500 }}>
             {navItems.find(n => pathname.startsWith(n.href))?.label ?? 'Account'}
           </span>
         </div>
@@ -344,7 +344,7 @@ function SidebarContent({
               {item.section && (
                 <>
                   {!collapsed ? (
-                    <div style={{ fontSize: 10, fontWeight: 700, color: '#bbb', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '0 8px', margin: '12px 0 4px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#727272', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '0 8px', margin: '12px 0 4px' }}>
                       {item.section}
                     </div>
                   ) : (
@@ -387,7 +387,7 @@ function SidebarContent({
               <div style={{ fontSize: 12, fontWeight: 700, color: DARK, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {user.firstName} {user.lastName}
               </div>
-              <div style={{ fontSize: 10, color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 10, color: '#727272', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {user.email}
               </div>
             </div>

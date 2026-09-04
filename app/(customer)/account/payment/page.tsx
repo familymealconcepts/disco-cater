@@ -5,8 +5,8 @@ declare global { interface Window { Stripe?: (key: string) => any } }
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
+const BLUE = '#586CE1'
+const INDIGO = '#6466E8'
 
 interface Card {
   id: number
@@ -88,7 +88,7 @@ export default function PaymentPage() {
       if (!numberRef.current || !expiryRef.current || !cvcRef.current) return
       stripeRef.current = window.Stripe(stripeKey)
       const elements = stripeRef.current.elements()
-      const style = { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#bbb' } } }
+      const style = { base: { fontFamily: F, fontSize: '15px', color: DARK, '::placeholder': { color: '#727272' } } }
       numberElRef.current = elements.create('cardNumber', { style, showIcon: false, disableLink: true })
       expiryElRef.current = elements.create('cardExpiry', { style })
       cvcElRef.current = elements.create('cardCvc', { style })
@@ -169,12 +169,12 @@ export default function PaymentPage() {
     <>
       <div style={{ maxWidth: 480, fontFamily: F }}>
         <h1 style={{ fontSize: 18, fontWeight: 700, color: DARK, marginBottom: 8, marginTop: 0 }}>Payment</h1>
-        <p style={{ fontSize: 13, color: '#888', margin: '0 0 24px', lineHeight: 1.5 }}>
+        <p style={{ fontSize: 13, color: '#727272', margin: '0 0 24px', lineHeight: 1.5 }}>
           Save cards and choose a default — it&apos;ll be pre-selected at checkout.
         </p>
 
         {loadingCards ? (
-          <div style={{ color: '#aaa', fontSize: 13 }}>Loading…</div>
+          <div style={{ color: '#727272', fontSize: 13 }}>Loading…</div>
         ) : (
           <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
@@ -188,7 +188,7 @@ export default function PaymentPage() {
                         {c.isDefault && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: INDIGO, background: 'rgba(107,110,249,0.12)', padding: '2px 8px', borderRadius: 999 }}>Default</span>}
                       </div>
                       {c.expMonth && (
-                        <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Expires {c.expMonth}/{String(c.expYear || '').slice(-2)}</div>
+                        <div style={{ fontSize: 12, color: '#727272', marginTop: 2 }}>Expires {c.expMonth}/{String(c.expYear || '').slice(-2)}</div>
                       )}
                       <div style={{ marginTop: 8, display: 'flex', gap: 14 }}>
                         {!c.isDefault && (
@@ -205,23 +205,23 @@ export default function PaymentPage() {
             {formVisible ? (
               <form onSubmit={saveCard}>
                 <div style={{ border: '1.5px solid #e0e0e0', borderRadius: 12, padding: '14px 16px', marginBottom: 14, background: '#fff' }}>
-                  <div style={{ fontSize: 11, color: '#aaa', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>New card details</div>
+                  <div style={{ fontSize: 11, color: '#727272', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>New card details</div>
                   {stripeKey ? (
                     <>
-                      <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>Card number</div>
+                      <div style={{ fontSize: 11, color: '#727272', marginBottom: 4 }}>Card number</div>
                       <div ref={numberRef} style={{ border: '1px solid #e8e8e8', borderRadius: 8, padding: '11px 12px', marginBottom: 10, minHeight: 20 }} />
                       <div style={{ display: 'flex', gap: 10 }}>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>Expiry</div>
+                          <div style={{ fontSize: 11, color: '#727272', marginBottom: 4 }}>Expiry</div>
                           <div ref={expiryRef} style={{ border: '1px solid #e8e8e8', borderRadius: 8, padding: '11px 12px', minHeight: 20 }} />
                         </div>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>CVC</div>
+                          <div style={{ fontSize: 11, color: '#727272', marginBottom: 4 }}>CVC</div>
                           <div ref={cvcRef} style={{ border: '1px solid #e8e8e8', borderRadius: 8, padding: '11px 12px', minHeight: 20 }} />
                         </div>
                       </div>
                     </>
-                  ) : <div style={{ fontSize: 13, color: '#aaa' }}>Loading payment form…</div>}
+                  ) : <div style={{ fontSize: 13, color: '#727272' }}>Loading payment form…</div>}
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button type="submit" disabled={saving} style={{ background: saving ? '#ccc' : BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: F }}>

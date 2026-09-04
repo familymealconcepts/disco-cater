@@ -4,8 +4,8 @@ import { useRouter } from 'next/navigation'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
-const INDIGO = '#6B6EF9'
+const BLUE = '#586CE1'
+const INDIGO = '#6466E8'
 const STEPS = ['Frequency', 'Start date', 'End condition', 'Review'] as const
 
 // FM frequency enum on the server side: WEEKLY | BIWEEKLY | MONTHLY | CUSTOM
@@ -93,7 +93,7 @@ export default function SubscriptionSetupModal({ restaurantName, restaurantSlug,
             <button onClick={onClose} aria-label="Close" style={closeBtn}>×</button>
           </div>
           {restaurantName && (
-            <div style={{ fontSize: 12, color: '#888' }}>Restaurant: <span style={{ color: DARK, fontWeight: 600 }}>{restaurantName}</span></div>
+            <div style={{ fontSize: 12, color: '#727272' }}>Restaurant: <span style={{ color: DARK, fontWeight: 600 }}>{restaurantName}</span></div>
           )}
           <Stepper step={step} />
         </div>
@@ -153,7 +153,7 @@ function Step1Frequency({ draft, setDraft }: { draft: SubscriptionDraft; setDraf
                 </span>
                 <div style={{ textAlign: 'left' }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{o.label}</div>
-                  <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{o.sub}</div>
+                  <div style={{ fontSize: 11, color: '#727272', marginTop: 1 }}>{o.sub}</div>
                 </div>
               </div>
             </button>
@@ -183,7 +183,7 @@ function Step2StartDate({ draft, setDraft }: { draft: SubscriptionDraft; setDraf
   return (
     <div>
       <SectionTitle>When should it start?</SectionTitle>
-      <p style={{ fontSize: 12, color: '#888', margin: '0 0 14px' }}>
+      <p style={{ fontSize: 12, color: '#727272', margin: '0 0 14px' }}>
         Defaults to the next available occurrence — restaurants may decline dates that fall on closed days at checkout.
       </p>
       <input type="date" value={draft.startDate} onChange={e => setDraft(d => ({ ...d, startDate: e.target.value }))}
@@ -242,7 +242,7 @@ function EndOption({ checked, onClick, label, sub, children }: {
         </span>
         <div style={{ textAlign: 'left', flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{label}</div>
-          <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{sub}</div>
+          <div style={{ fontSize: 11, color: '#727272', marginTop: 1 }}>{sub}</div>
           {children}
         </div>
       </div>
@@ -265,7 +265,7 @@ function Step4Review({ draft }: { draft: SubscriptionDraft }) {
         <ReviewRow label="Ends" value={end} />
         <ReviewRow label="Payment" value="Saved payment method (selected at checkout)" />
       </div>
-      <p style={{ fontSize: 11, color: '#888', margin: '14px 0 0', lineHeight: 1.5 }}>
+      <p style={{ fontSize: 11, color: '#727272', margin: '14px 0 0', lineHeight: 1.5 }}>
         You'll confirm items and payment on the next screen. FM creates the recurring order at checkout — you can pause, skip, or cancel anytime from <strong>Subscriptions</strong>.
       </p>
     </div>
@@ -275,7 +275,7 @@ function Step4Review({ draft }: { draft: SubscriptionDraft }) {
 function ReviewRow({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13 }}>
-      <span style={{ color: '#888' }}>{label}</span>
+      <span style={{ color: '#727272' }}>{label}</span>
       <span style={{ color: DARK, fontWeight: 600, textAlign: 'right', maxWidth: '65%' }}>{value}</span>
     </div>
   )
@@ -294,10 +294,10 @@ function Stepper({ step }: { step: number }) {
             <div style={{
               width: 22, height: 22, borderRadius: '50%',
               background: done ? INDIGO : active ? INDIGO : '#e8e8e8',
-              color: done || active ? '#fff' : '#aaa',
+              color: done || active ? '#fff' : '#727272',
               fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
             }}>{done ? '✓' : i + 1}</div>
-            <span style={{ fontSize: 10, color: active ? DARK : '#aaa', fontWeight: active ? 700 : 500, marginLeft: 6, marginRight: 6, whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 10, color: active ? DARK : '#727272', fontWeight: active ? 700 : 500, marginLeft: 6, marginRight: 6, whiteSpace: 'nowrap' }}>
               {label}
             </span>
             {i < STEPS.length - 1 && <div style={{ flex: 1, height: 2, background: done ? INDIGO : '#e8e8e8', borderRadius: 1 }} />}
@@ -355,7 +355,7 @@ const modal: React.CSSProperties = {
 }
 const closeBtn: React.CSSProperties = {
   background: '#f4f4f8', border: 'none', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%',
-  fontSize: 16, color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  fontSize: 16, color: '#727272', display: 'flex', alignItems: 'center', justifyContent: 'center',
 }
 const primaryBtn: React.CSSProperties = {
   padding: '10px 18px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8,

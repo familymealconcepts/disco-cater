@@ -6,8 +6,8 @@ import GlobalHeader from '../../../../components/GlobalHeader'
 import { useAuthContext } from '../../../../context/AuthContext'
 
 const F = "'DM Sans', sans-serif"
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
-const BLUE = '#5B6FE8'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
+const BLUE = '#586CE1'
 const DARK = '#1A1028'
 
 type Step = 'package' | 'date' | 'time' | 'details' | 'review' | 'payment' | 'done'
@@ -140,7 +140,7 @@ export default function OrderWizard({
       stripeRef.current = window.Stripe(stripeKey)
       const elements = stripeRef.current.elements()
       cardElRef.current = elements.create('card', {
-        style: { base: { fontFamily: F, fontSize: '16px', color: DARK, '::placeholder': { color: '#bbb' } } },
+        style: { base: { fontFamily: F, fontSize: '16px', color: DARK, '::placeholder': { color: '#727272' } } },
       })
       cardElRef.current.mount(cardRef.current)
     }
@@ -285,7 +285,7 @@ export default function OrderWizard({
         <h2 style={{ fontSize: 22, fontWeight: 800, color: DARK, margin: '0 0 6px' }}>Choose a Package</h2>
         <p style={{ fontSize: 14, color: '#666', margin: '0 0 28px' }}>Select a catering package from {restaurant.name}</p>
         {packages.length === 0
-          ? <div style={{ textAlign: 'center', padding: '48px 0', color: '#888', fontSize: 15 }}>No packages available for online ordering.</div>
+          ? <div style={{ textAlign: 'center', padding: '48px 0', color: '#727272', fontSize: 15 }}>No packages available for online ordering.</div>
           : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
               {packages.map(p => (
                 <button key={p.reference} onClick={() => { setPkg(p); setStep('date') }}
@@ -293,9 +293,9 @@ export default function OrderWizard({
                   {p.image && <img src={p.image} alt={p.name} style={{ width: '100%', height: 130, objectFit: 'cover' }} />}
                   <div style={{ padding: 18 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: DARK, marginBottom: 4 }}>{p.name}</div>
-                    {p.serves && <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>Serves {p.serves}</div>}
+                    {p.serves && <div style={{ fontSize: 12, color: '#727272', marginBottom: 6 }}>Serves {p.serves}</div>}
                     {p.description && <p style={{ fontSize: 13, color: '#666', lineHeight: 1.5, margin: '0 0 10px' }}>{p.description}</p>}
-                    <div style={{ fontSize: 17, fontWeight: 800, color: DARK }}>${(p.price / 100).toFixed(2)}<span style={{ fontSize: 11, fontWeight: 400, color: '#888' }}>/pp</span></div>
+                    <div style={{ fontSize: 17, fontWeight: 800, color: DARK }}>${(p.price / 100).toFixed(2)}<span style={{ fontSize: 11, fontWeight: 400, color: '#727272' }}>/pp</span></div>
                   </div>
                 </button>
               ))}
@@ -306,10 +306,10 @@ export default function OrderWizard({
   }
 
   function DateStep() {
-    if (loading) return <div style={{ color: '#888', fontSize: 14, padding: '32px 0' }}>Loading available dates…</div>
+    if (loading) return <div style={{ color: '#727272', fontSize: 14, padding: '32px 0' }}>Loading available dates…</div>
     if (!loading && dates.length === 0) return (
       <div style={{ textAlign: 'center', padding: '48px 0' }}>
-        <div style={{ fontSize: 15, color: '#888', marginBottom: 16 }}>No dates available right now for this package.</div>
+        <div style={{ fontSize: 15, color: '#727272', marginBottom: 16 }}>No dates available right now for this package.</div>
         <button onClick={() => setStep('package')} style={backBtn}>← Back to Packages</button>
       </div>
     )
@@ -324,7 +324,7 @@ export default function OrderWizard({
             return (
               <button key={d} onClick={() => { setDate(d); setTime('') }}
                 style={{ padding: '12px 18px', borderRadius: 12, border: `2px solid ${sel ? BLUE : '#e8e8e8'}`, background: sel ? '#EEF0FD' : '#fff', color: sel ? BLUE : DARK, fontFamily: F, cursor: 'pointer', transition: 'all 0.1s', textAlign: 'center' }}>
-                <div style={{ fontSize: 11, color: sel ? '#6B6EF9' : '#999', marginBottom: 2 }}>{dObj.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                <div style={{ fontSize: 11, color: sel ? '#6466E8' : '#727272', marginBottom: 2 }}>{dObj.toLocaleDateString('en-US', { weekday: 'short' })}</div>
                 <div style={{ fontSize: 15, fontWeight: 700 }}>{dObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
               </button>
             )
@@ -335,10 +335,10 @@ export default function OrderWizard({
   }
 
   function TimeStep() {
-    if (loading) return <div style={{ color: '#888', fontSize: 14, padding: '32px 0' }}>Loading available times…</div>
+    if (loading) return <div style={{ color: '#727272', fontSize: 14, padding: '32px 0' }}>Loading available times…</div>
     if (!loading && times.length === 0) return (
       <div style={{ textAlign: 'center', padding: '48px 0' }}>
-        <div style={{ fontSize: 15, color: '#888', marginBottom: 16 }}>No time slots available for {fmtDate(date)}.</div>
+        <div style={{ fontSize: 15, color: '#727272', marginBottom: 16 }}>No time slots available for {fmtDate(date)}.</div>
         <button onClick={() => setStep('date')} style={backBtn}>← Pick a different date</button>
       </div>
     )
@@ -370,7 +370,7 @@ export default function OrderWizard({
           {date && <>{fmtDate(date)}</>}
           {time && <> at {fmtTime(time)}</>}
         </p>
-        <p style={{ fontSize: 14, color: '#888', margin: '0 0 28px' }}>How many guests and where should we deliver?</p>
+        <p style={{ fontSize: 14, color: '#727272', margin: '0 0 28px' }}>How many guests and where should we deliver?</p>
 
         <div style={{ marginBottom: 28 }}>
           <label style={labelSt}>Number of Guests</label>
@@ -383,7 +383,7 @@ export default function OrderWizard({
             <button onClick={() => setHeadcount(h => h + 1)}
               style={{ width: 40, height: 40, borderRadius: 10, border: '1.5px solid #e8e8e8', background: '#fff', fontSize: 22, cursor: 'pointer', color: DARK, fontFamily: F, lineHeight: 1 }}>+</button>
             {estPricePerPerson > 0 && (
-              <span style={{ fontSize: 13, color: '#888', marginLeft: 4 }}>≈ ${(estPricePerPerson * headcount).toFixed(2)}</span>
+              <span style={{ fontSize: 13, color: '#727272', marginLeft: 4 }}>≈ ${(estPricePerPerson * headcount).toFixed(2)}</span>
             )}
           </div>
         </div>
@@ -410,7 +410,7 @@ export default function OrderWizard({
         <h2 style={{ fontSize: 22, fontWeight: 800, color: DARK, margin: '0 0 24px' }}>Review Your Order</h2>
         <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', overflow: 'hidden', marginBottom: 16 }}>
           <div style={{ padding: '18px 22px', borderBottom: '1px solid #f8f8f8' }}>
-            <div style={{ fontSize: 12, color: '#999', marginBottom: 3 }}>Package</div>
+            <div style={{ fontSize: 12, color: '#727272', marginBottom: 3 }}>Package</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: DARK }}>{pkg?.name || '—'}</div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
@@ -421,7 +421,7 @@ export default function OrderWizard({
               ['Deliver to', `${addr.line1}, ${addr.city}, ${addr.state} ${addr.zipCode}`],
             ].map(([label, val], i) => (
               <div key={label} style={{ padding: '14px 22px', borderBottom: i < 2 ? '1px solid #f8f8f8' : 'none', borderRight: i % 2 === 0 ? '1px solid #f8f8f8' : 'none' }}>
-                <div style={{ fontSize: 12, color: '#999', marginBottom: 3 }}>{label}</div>
+                <div style={{ fontSize: 12, color: '#727272', marginBottom: 3 }}>{label}</div>
                 <div style={{ fontSize: 14, fontWeight: 500, color: DARK }}>{val}</div>
               </div>
             ))}
@@ -447,7 +447,7 @@ export default function OrderWizard({
                 <span>Total</span><span>{totalDisplay}</span>
               </div>
             ) : (
-              <div style={{ fontSize: 13, color: '#aaa' }}>Exact total calculated at payment</div>
+              <div style={{ fontSize: 13, color: '#727272' }}>Exact total calculated at payment</div>
             )}
           </div>
         </div>
@@ -489,7 +489,7 @@ export default function OrderWizard({
 
         {savedCard ? (
           <div style={{ background: '#fff', borderRadius: 14, border: '1.5px solid #f0f0f0', padding: '18px 22px', marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: '#999', marginBottom: 10 }}>Saved payment method</div>
+            <div style={{ fontSize: 12, color: '#727272', marginBottom: 10 }}>Saved payment method</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ fontSize: 28 }}>💳</span>
               <div>
@@ -497,7 +497,7 @@ export default function OrderWizard({
                   {savedCard.brand || savedCard.cardBrand || 'Card'} ···· {savedCard.last4 || savedCard.lastFour || '••••'}
                 </div>
                 {(savedCard.expMonth || savedCard.exp_month) && (
-                  <div style={{ fontSize: 12, color: '#888' }}>Exp {savedCard.expMonth || savedCard.exp_month}/{String(savedCard.expYear || savedCard.exp_year).slice(-2)}</div>
+                  <div style={{ fontSize: 12, color: '#727272' }}>Exp {savedCard.expMonth || savedCard.exp_month}/{String(savedCard.expYear || savedCard.exp_year).slice(-2)}</div>
                 )}
               </div>
             </div>
@@ -507,7 +507,7 @@ export default function OrderWizard({
             <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 12 }}>Card details</div>
             {stripeKey
               ? <div ref={cardRef} style={{ padding: '10px 2px', minHeight: 20 }} />
-              : <div style={{ fontSize: 13, color: '#aaa' }}>Loading secure payment form…</div>
+              : <div style={{ fontSize: 13, color: '#727272' }}>Loading secure payment form…</div>
             }
           </div>
         )}
@@ -535,7 +535,7 @@ export default function OrderWizard({
         <p style={{ fontSize: 15, color: '#666', margin: '0 0 6px' }}>
           Your catering from <strong>{restaurant.name}</strong> is confirmed.
         </p>
-        {ref && <p style={{ fontSize: 13, color: '#aaa', margin: '0 0 32px' }}>Order #{ref}</p>}
+        {ref && <p style={{ fontSize: 13, color: '#727272', margin: '0 0 32px' }}>Order #{ref}</p>}
         <div style={{ background: '#fff', borderRadius: 16, border: '1.5px solid #f0f0f0', padding: '22px', maxWidth: 420, margin: '0 auto 32px', textAlign: 'left' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             {[
@@ -545,7 +545,7 @@ export default function OrderWizard({
               ['Delivery', addr.city ? `${addr.city}, ${addr.state}` : '—'],
             ].map(([label, val]) => (
               <div key={label}>
-                <div style={{ fontSize: 12, color: '#aaa', marginBottom: 3 }}>{label}</div>
+                <div style={{ fontSize: 12, color: '#727272', marginBottom: 3 }}>{label}</div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: DARK }}>{val}</div>
               </div>
             ))}
@@ -622,12 +622,12 @@ export default function OrderWizard({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <div style={{
                       width: 26, height: 26, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: done ? BLUE : active ? 'linear-gradient(135deg,#6B6EF9,#F0468A)' : '#f0f0f0',
-                      color: (done || active) ? '#fff' : '#aaa', fontSize: 11, fontWeight: 700, flexShrink: 0,
+                      background: done ? BLUE : active ? 'linear-gradient(135deg,#6466E8,#F0468A)' : '#f0f0f0',
+                      color: (done || active) ? '#fff' : '#727272', fontSize: 11, fontWeight: 700, flexShrink: 0,
                     }}>
                       {done ? '✓' : i + 1}
                     </div>
-                    <span className="step-lbl" style={{ fontSize: 11, color: active ? DARK : done ? '#666' : '#bbb', fontWeight: active ? 700 : 400, whiteSpace: 'nowrap' }}>
+                    <span className="step-lbl" style={{ fontSize: 11, color: active ? DARK : done ? '#666' : '#727272', fontWeight: active ? 700 : 400, whiteSpace: 'nowrap' }}>
                       {STEP_LABEL[s]}
                     </span>
                   </div>
@@ -643,7 +643,7 @@ export default function OrderWizard({
       {step !== 'done' && (
         <div style={{ background: '#fff', borderBottom: '1px solid #f0f0f0', padding: '8px 24px' }}>
           <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Link href={`/restaurants/${slug}`} style={{ fontSize: 13, color: '#888', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Link href={`/restaurants/${slug}`} style={{ fontSize: 13, color: '#727272', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               ← {restaurant.name}
             </Link>
             {pkg && step !== 'package' && (

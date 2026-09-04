@@ -5,8 +5,8 @@ import Link from 'next/link'
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
-const BLUE = '#5B6FE8'
-const GRAD = 'linear-gradient(90deg,#6B6EF9 0%,#C044C8 50%,#F0468A 100%)'
+const BLUE = '#586CE1'
+const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
 
 export default function ResetPasswordPage() {
   const [email, setEmail] = useState('')
@@ -62,7 +62,7 @@ export default function ResetPasswordPage() {
         <Link href="/" style={{ textDecoration: 'none' }}>
           <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>
             <span style={{ background: GRAD, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>disco</span>
-            <span style={{ color: '#999' }}> cater</span>
+            <span style={{ color: '#727272' }}> cater</span>
           </span>
         </Link>
       </header>
@@ -83,7 +83,7 @@ export default function ResetPasswordPage() {
           ) : (
             <>
               <h1 style={{ fontSize: 22, fontWeight: 800, color: DARK, margin: '0 0 6px', letterSpacing: '-0.02em' }}>Reset your password</h1>
-              <p style={{ fontSize: 13, color: '#888', lineHeight: 1.5, margin: '0 0 20px' }}>
+              <p style={{ fontSize: 13, color: '#727272', lineHeight: 1.5, margin: '0 0 20px' }}>
                 Enter the temporary password from your email, then choose a new one.
               </p>
 

@@ -54,3 +54,4 @@ scripts/run-migration.ts
 
 # stray working CSVs (never commit)
 /*.csv
+tests/e2e/a11y-out/
