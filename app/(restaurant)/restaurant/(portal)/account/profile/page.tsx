@@ -563,7 +563,19 @@ export default function ProfilePage() {
           </FormField>
           <FormField label="Email" htmlFor="admin-email">
             {inp(admin.email, () => {}, { disabled: true, type: 'email', name: 'admin-email', autoComplete: 'email' })}
-            <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>To change your email, contact concierge@discocater.com</div>
+            {/* Two things, because this box is the only Email field most restaurants ever
+                see and it does NOT route anything. It shows the LOGIN address, and order
+                notifications go to a different screen entirely (Settings → Email
+                Notification Recipients → disco_restaurant_overrides.notification_emails).
+                Without the second line a restaurant can reasonably assume changing this
+                would redirect their orders — it would not, and it cannot, because the
+                field is disabled and saveProfile() never sends it. */}
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
+              This is your login email. To change it, contact concierge@discocater.com.
+            </div>
+            <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>
+              Order notifications go somewhere else — set those under Settings → Email Notification Recipients.
+            </div>
           </FormField>
           <FormField label="Phone Number" htmlFor="admin-phone-number">
             {inp(admin.phoneNumber, v => setAdmin({ ...admin, phoneNumber: v }), { type: 'tel', name: 'admin-phone-number', autoComplete: 'tel' })}
