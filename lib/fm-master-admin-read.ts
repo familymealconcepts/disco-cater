@@ -482,16 +482,39 @@ async function readGroupForOneAdmin(
   const restaurantsRead: string[] = []
   let overallReason = 'ok'
 
+  // WHERE THE SESSION IS POINTING RIGHT NOW, tracked across the loop.
+  //
+  // THIS USED TO BE COMPARED AGAINST `homeRestaurant`, AND THAT WAS A REAL BUG THAT
+  // SILENTLY RETURNED ANOTHER RESTAURANT'S DATA. The switch was skipped whenever
+  // `ref === homeRestaurant`, on the assumption that the session was still on home —
+  // true only on the FIRST iteration. Once any earlier ref had switched the selection
+  // away, reading the home restaurant skipped the switch and read whatever the session
+  // was actually pointing at, returning the PREVIOUS restaurant's taxRate, notifications
+  // and closedDays under the home restaurant's key, with `ok: true`.
+  //
+  // Reproduced against Two Hands on 2026-09-06 (Franklin is this admin's JWT home):
+  //   [Franklin, Austin]              -> Franklin 7%,   Austin 8.25%    both correct
+  //   [Austin, Franklin]              -> Austin 8.25%,  Franklin 8.25%  WRONG
+  //   [Williamsburg, Austin, Franklin]-> ...,           Franklin 8.25%  WRONG
+  // Franklin is a Tennessee restaurant; 8.25% is Austin's Texas rate. Solo reads were
+  // always correct, which is why this survived — every conversion call site passes a
+  // single-element array.
+  //
+  // Tracking the ACTUAL selection fixes both directions: the first read still costs no
+  // switch when it happens to be home, and coming back to home later now switches.
+  let currentSelection: string | null = homeRestaurant
+
   try {
     for (const ref of refs) {
       try {
-        if (ref !== homeRestaurant) {
+        if (ref !== currentSelection) {
           const switched = await switchSelection(token, ref)
           if (!switched) {
             results.set(ref, { taxRate: null, notifications: null, closedDays: null, promoCode: null, authorizedUsers: null, ok: false, reason: `Could not switch ${email}'s selection to this restaurant.` })
             continue
           }
-          switchedTo.push(ref)
+          currentSelection = ref
+          if (ref !== homeRestaurant) switchedTo.push(ref)
         }
         const raw = await readWalledFields(token)
         results.set(ref, { ...raw, ok: true, reason: 'Read via master-password admin session.' })
