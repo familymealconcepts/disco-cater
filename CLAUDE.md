@@ -3,6 +3,33 @@
 ## Project
 Disco Cater (discocater.com) is a Next.js catering marketplace gradually replacing the FamilyMeal Angular frontend. The goal is to migrate all FamilyMeal functionality (diner, restaurant, and admin portals) into Disco Cater and sunset the old frontend entirely.
 
+## THE SOURCE OF TRUTH, BEFORE AND AFTER CONVERSION — read this first
+
+**FamilyMeal is the source of truth BEFORE conversion. Disco Cater is the source of truth
+AFTER conversion.** `convertToNative` is the hand-off, and it is the only moment the
+authority changes.
+
+**Before conversion — copy FM exactly.** Its data and its settings, as they are. Do not
+improve, normalise, correct, round, reformat or omit anything. **A value that looks wrong
+is FM's value, and it carries as-is.**
+
+**After conversion — never compare a converted restaurant against FM.** Do not fetch FM's
+value in order to compare it. Do not report a delta. Do not suggest reconciling one. A
+difference from FM is a DECISION somebody made, not drift.
+
+**Do not report FM-vs-Neon differences unless explicitly asked.** A pre-flight reports
+**what will carry**. A post-conversion report states **what carried**. Neither is an
+occasion to evaluate whether FM's data is correct — that is not the question being asked,
+and answering it anyway is how a deliberate value gets "fixed" back to something nobody
+chose.
+
+**This has needed restating eight times in one working relationship.** If you are about to
+write a sentence comparing a converted restaurant to FM, that sentence is the mistake.
+
+The worked examples, and the five specific corrections that preceded this rule, are under
+"NEVER COMPARE A CONVERTED RESTAURANT AGAINST FM" further down. This section is the rule;
+that one is the evidence.
+
 ## THERE ARE NO TRANSACTIONS IN THIS REPO — read before any write to a live table
 
 `lib/db.ts` uses `neon()` in **HTTP mode**. Every statement is its own HTTP request and
