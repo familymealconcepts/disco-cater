@@ -1526,6 +1526,33 @@ Sequence it with the conversion programme, not ahead of it.
 
 ---
 
+### Two Hands: the link holds EIGHT, and FM's group says four — do not "correct" it
+
+`/locations/twohands`, created 2026-09-07, reference `76909b0f-2e06-448c-b0ab-03e02776114e`.
+Slug and title are FM's (`twohands`, "Two Hands Catering"); the banner is FM's image
+`fb920f8d-6d19-48b3-b88c-877fc07cc1e7`, re-hosted to Blob.
+
+**MEMBERSHIP IS ALL EIGHT LOCATIONS, ON PETER'S INSTRUCTION, 2026-09-07.** Austin, Dallas,
+Denver, Franklin, Nashville, NoHo, Tribeca, Williamsburg.
+
+**Neither of the usual sources says eight, and that is expected here — not a defect to fix:**
+
+* **FM's group endpoint lists FOUR** — Denver, Franklin, Austin, Dallas. The four live
+  NY/TN locations are absent from FM's own grouping. FM is not authoritative for a
+  converted chain, and all eight converted on 2026-09-07.
+* **The grant table is EMPTY.** There are zero `disco_restaurant_location_access` rows for
+  any Two Hands location, and zero `disco_restaurant_accounts` rows anchored to one. So
+  the normal rule — membership comes from the grant table — had nothing to read.
+
+Membership therefore came from Peter directly. **If someone later compares this link to
+FM's group and finds it lists four, the link is right and FM is stale.** Do not reduce it.
+If the grant table is ever populated for Two Hands, reconcile toward the eight recorded
+here rather than silently narrowing to whatever the grants happen to hold that day.
+
+Owner is `naz@twohandshospitality.com`, FM's designated admin for the chain (currently the
+only named human on any Two Hands record; they have no Disco login yet, so only a
+super-admin can edit the link today).
+
 ### Chain survey, 2026-09-02 — read this before seeding anything
 
 Every converted chain, measured against FM's group endpoint and
@@ -1535,13 +1562,14 @@ other four were deliberately left on the FM fallback pending decisions recorded 
 | Chain | FM group slug | Resolves | FM lists | Grant table | Banner |
 |---|---|---|---|---|---|
 | Gracious Bakery | `graciousbakery` | yes | 2 | Barbara: 2 — exact match | yes, **re-hosted** |
+| Two Hands | `twohands` | yes | **4 of 8** | **none — grant table empty** | yes, **re-hosted** |
 | Atlanta Bread | `atlantabread` | yes | 9 | **7 SAs hold 9, two hold 8** | yes |
 | DeCheco's | `dechecos` | yes | 6 | 4 SAs hold 6 each — match | yes |
 | Hugo's Tacos | `hugostacos` | yes | 2 | 2 SAs hold 2 each — match | **none** |
 | Hugo's Restaurant | `hugosrestaurant` | yes | 2 | 1 SA holds 2 — match | **none** |
 | Francesca Catering | — | **no slug resolves** | — | 2 converted | — |
 
-**Five converted chains have no explicit link.** Only Gracious does.
+**Updated 2026-09-07: Gracious and Two Hands now have links.** The remaining chains without one are Atlanta Bread, DeCheco's, both Hugo's groups and Francesca.
 
 **HUGO'S IS TWO CHAINS, NEVER ONE LINK.** `hugostacos` holds Tacos Atwater Village +
 Tacos Studio City (SAs `atwater@` and `stucity@hugostacos.com`, title "Hugo's Tacos").
