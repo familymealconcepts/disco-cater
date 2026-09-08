@@ -93,7 +93,7 @@ export async function backfillFmOrderHistory(ref: string): Promise<{
 export type StripeMode = 'reuse' | 'needs-onboarding' | 'not-linked'
 
 export interface ConversionStep {
-  key: 'not-already-native' | 'native-menu' | 'stripe-ready' | 'settings' | 'marketplace-ready'
+  key: 'not-already-native' | 'native-menu' | 'stripe-ready' | 'tax' | 'online-ordering' | 'marketplace-ready'
   label: string
   done: boolean
   blocking: boolean
@@ -341,7 +341,27 @@ export async function checkConversionReadiness(
       taxSource = 'live-master-password'
     }
   }
-  const settingsOk = hasRealTaxConfig && ov[0]?.online_ordering_enabled !== false
+  // SPLIT FROM ONE 'settings' STEP INTO TWO, 2026-09-07. They were `hasRealTaxConfig &&
+  // online_ordering_enabled !== false` under a single blocking flag, and only ONE of them
+  // has ever justified blocking.
+  //
+  // The commit that made the combined step blocking (16c38fd, "Fix
+  // checkConversionReadiness tax false-positive; make it blocking") argues entirely about
+  // tax: a tax_rates blob whose every percent is null used to pass, and native checkout
+  // cannot price an order without a real rate. Online ordering is not mentioned in it at
+  // all — it was already bundled into settingsOk and inherited `blocking` as a side
+  // effect.
+  //
+  // Meanwhile marketplace-ready, one step below, is advisory on exactly the reasoning that
+  // covers online-ordering-off: a restaurant that would be hidden (or unorderable) as
+  // native "should still convert with its data intact". stripe-ready is advisory on the
+  // same grounds. Leaving online ordering blocking made the three inconsistent.
+  //
+  // Conversion is a data migration; online_ordering_enabled is state Disco OWNS once it
+  // completes. A restaurant that has deliberately paused ordering should be able to
+  // migrate and stay paused.
+  const taxOk = hasRealTaxConfig
+  const onlineOrderingOk = ov[0]?.online_ordering_enabled !== false
 
   // Orders already mirrored (advisory — a final sync is recommended before flip).
   const orders = (await sql`
@@ -367,12 +387,21 @@ export async function checkConversionReadiness(
     // (lib/pricing/native-order.ts) is the real guard against a bad CHARGE, but
     // this gate is what stops a restaurant from converting into a state where a
     // future order attempt just bounces with a 409 instead of ever being priced.
-    { key: 'settings', label: 'Settings populated', done: settingsOk, blocking: true,
-      detail: settingsOk
-        ? `Tax configured — effective ${effectiveTaxPct}% (state + local + other, ${taxSource === 'live-master-password' ? 'read live via master-password session' : 'Neon'}); online ordering on.`
-        : !hasRealTaxConfig
-          ? 'NO TAX RATE CONFIGURED ANYWHERE — not one of state, local or other is a number, in Neon or in a live master-password read. Native checkout refuses to price an order in this state (taxReliable is false), so every order would 409. Populate the real rate before converting. Note an explicit 0 IS accepted: a restaurant genuinely rated at 0% passes this gate.'
-          : 'Enable online ordering.' },
+    // BLOCKING, and the only one of the old pair that ever earned it: native checkout
+    // refuses to price an order without a real rate (taxReliable false), so every order
+    // would 409. An explicit 0 passes — a restaurant genuinely rated at 0% is configured.
+    { key: 'tax', label: 'Tax rate configured', done: taxOk, blocking: true,
+      detail: taxOk
+        ? `Tax configured — effective ${effectiveTaxPct}% (state + local + other, ${taxSource === 'live-master-password' ? 'read live via master-password session' : 'Neon'}).`
+        : 'NO TAX RATE CONFIGURED ANYWHERE — not one of state, local or other is a number, in Neon or in a live master-password read. Native checkout refuses to price an order in this state (taxReliable is false), so every order would 409. Populate the real rate before converting. Note an explicit 0 IS accepted: a restaurant genuinely rated at 0% passes this gate.' },
+    // ADVISORY — see the note above settingsOk's replacement. A converted restaurant with
+    // ordering off converts correctly paused: hidden from the marketplace by the native
+    // 3-part rule, and its storefront says so up front (RestaurantView calls
+    // assertRestaurantOrderable at page level, so the refusal is not deferred to checkout).
+    { key: 'online-ordering', label: 'Online ordering on', done: onlineOrderingOk, blocking: false,
+      detail: onlineOrderingOk
+        ? 'Online ordering is on.'
+        : 'Online ordering is OFF. Converting is fine — the flag is Disco-owned afterwards — but this restaurant will be hidden from the marketplace and its storefront will show "not accepting online orders right now" until it is turned on.' },
     // Advisory, not blocking — same bulk-migration reframe as stripe-ready: a
     // restaurant that would drop off the marketplace under the native 3-part rule
     // (usually because it has no Stripe) should still convert with its data intact;
