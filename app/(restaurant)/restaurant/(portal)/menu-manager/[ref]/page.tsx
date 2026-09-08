@@ -335,9 +335,19 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
     if (!res.ok) { setSaving(false); const d = await res.json().catch(() => ({})); setErr(d.error || 'Could not save item'); return }
     // Persist attached modifier groups (edit mode only — the item exists).
     if (isEdit && item?.reference) {
-      await fetch(`/api/restaurant/disco-menu-items/${item.reference}/groups`, {
+      // NOT swallowed. This used to be `.catch(() => {})`, so if the call failed
+      // the dialog closed as though it had saved and the restaurant was never
+      // told their modifier groups had not been written. The item itself is
+      // already saved by this point, so report and keep the dialog open rather
+      // than pretending the whole save failed.
+      const gRes = await fetch(`/api/restaurant/disco-menu-items/${item.reference}/groups`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groups: attached }),
-      }).catch(() => {})
+      }).catch(() => null)
+      if (!gRes || !gRes.ok) {
+        setSaving(false)
+        setErr('Item saved, but its modifier groups could not be updated. Your existing groups are unchanged — try again.')
+        return
+      }
     }
     setSaving(false)
     onSaved()
