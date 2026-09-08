@@ -564,3 +564,75 @@ async function readGroupForOneAdmin(
     })
   }
 }
+
+// ── Chain group: slug + true membership ──────────────────────────────────────
+/**
+ * Read a chain's FM group AS ONE OF ITS OWN ADMINS.
+ *
+ * GET /api/system-admin/groups returns the group of whichever chain the
+ * authenticated user belongs to: {name, url, numberOfLocations,
+ * restaurantReferences[], multiUnitLinksReference}. `url` IS the group slug —
+ * the value the /locations page is keyed on — so this removes the hand lookup
+ * entirely for any chain whose FM admin is a SYSTEM_ADMIN.
+ *
+ * TWO THINGS THIS BEATS.
+ *  - The public /public-api/restaurants/group/{slug} endpoint UNDER-REPORTS.
+ *    For Two Hands it returns 4 restaurants; this returns all 8, matching what
+ *    Peter said and what the Disco link holds. FM's data was never wrong — the
+ *    public projection of it is.
+ *  - /api/system-admin/restaurants/links/listing is NOT this. It needs a
+ *    userReference and returns 0 groups even for Two Hands and Gracious, whose
+ *    groups certainly exist. It is a different feature; do not reach for it.
+ *
+ * REQUIRES A SYSTEM_ADMIN. A plain ADMIN gets "Access is denied" on every
+ * system-admin route, and most single-brand chains only have plain ADMINs.
+ * Read-only, and audited like every other master-password use.
+ */
+export interface FmChainGroup {
+  ok: boolean
+  reason: string
+  adminEmail: string | null
+  adminRole: string | null
+  slug: string | null
+  name: string | null
+  numberOfLocations: number | null
+  restaurantReferences: string[]
+  multiUnitLinksReference: string | null
+}
+
+export async function readChainGroupAsAdmin(ref: string): Promise<FmChainGroup> {
+  const empty: FmChainGroup = {
+    ok: false, reason: '', adminEmail: null, adminRole: null, slug: null, name: null,
+    numberOfLocations: null, restaurantReferences: [], multiUnitLinksReference: null,
+  }
+  const identity = await resolveFmAdminIdentity(ref)
+  if (!identity) return { ...empty, reason: 'No usable FM admin identity for this restaurant.' }
+  if (identity.role !== 'SYSTEM_ADMIN') {
+    return { ...empty, adminEmail: identity.email, adminRole: identity.role,
+      reason: `FM's admin for this restaurant is a plain ${identity.role}; /api/system-admin/* denies it.` }
+  }
+  let token: string
+  try { ({ token } = await loginAsFmAdmin(identity.email)) } catch (e) {
+    await auditMasterPasswordUse({ adminEmail: identity.email, restaurantReference: ref, via: 'api',
+      ok: false, reason: 'chain-group read: login failed', extra: { error: e instanceof Error ? e.message : String(e) } })
+    return { ...empty, adminEmail: identity.email, adminRole: identity.role, reason: `FM login failed: ${e instanceof Error ? e.message : e}` }
+  }
+  const res = await fetch(`${FM}/api/system-admin/groups`, {
+    headers: { Authorization: token, Accept: 'application/json' }, cache: 'no-store',
+  })
+  const body = res.ok ? await res.json().catch(() => null) as Record<string, unknown> | null : null
+  await auditMasterPasswordUse({ adminEmail: identity.email, restaurantReference: ref, via: 'api',
+    ok: res.ok, reason: 'chain-group read (read-only)', extra: { httpStatus: res.status, slug: body?.url ?? null } })
+  if (!res.ok || !body) {
+    return { ...empty, adminEmail: identity.email, adminRole: identity.role, reason: `groups HTTP ${res.status}` }
+  }
+  const refs = Array.isArray(body.restaurantReferences) ? (body.restaurantReferences as string[]) : []
+  return {
+    ok: true, reason: 'ok', adminEmail: identity.email, adminRole: identity.role,
+    slug: typeof body.url === 'string' ? body.url : null,
+    name: typeof body.name === 'string' ? body.name : null,
+    numberOfLocations: typeof body.numberOfLocations === 'number' ? body.numberOfLocations : null,
+    restaurantReferences: refs,
+    multiUnitLinksReference: typeof body.multiUnitLinksReference === 'string' ? body.multiUnitLinksReference : null,
+  }
+}
