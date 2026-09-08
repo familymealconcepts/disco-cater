@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, use as usePromise } from 'react'
+import { SortableRows, DRAG_GLYPH } from '../../_components/SortableRows'
 import { useRouter } from 'next/navigation'
 import { DiscoGroupFormDialog, type DiscoGroupSummary } from '../../_components/DiscoGroupFormDialog'
 
@@ -29,8 +30,6 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
   const [itemDlg, setItemDlg] = useState<{ mode: 'create' | 'edit'; item?: Item } | null>(null)
   const [addExisting, setAddExisting] = useState(false)
 
-  const [dragCat, setDragCat] = useState<string>('')
-  const [dragItem, setDragItem] = useState<string>('')
 
   function flash(m: string) { setToast(m); setTimeout(() => setToast(''), 2500) }
 
@@ -67,15 +66,21 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
     if (res.ok) { await load(); flash('Category deleted') }
     else { const d = await res.json().catch(() => ({})); flash(d.error || 'Could not delete category') }
   }
-  async function reorderCats(fromRef: string, toRef: string) {
-    if (fromRef === toRef) return
-    const order = [...cats]
-    const from = order.findIndex(c => c.reference === fromRef)
-    const to = order.findIndex(c => c.reference === toRef)
-    if (from < 0 || to < 0) return
-    const [moved] = order.splice(from, 1); order.splice(to, 0, moved)
-    setCats(order.map((c, i) => ({ ...c, position: i })))
-    await fetch(`/api/restaurant/disco-menu-categories/${fromRef}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position: to }) })
+  // Full ordered list in one atomic write. Returning false makes SortableRows
+  // restore the previous order — the old code applied optimistically and never
+  // rolled back, so a failed save left the sidebar showing an order the
+  // database did not have.
+  async function reorderCats(orderedRefs: string[], ordered: Cat[]): Promise<boolean> {
+    const previous = cats
+    setCats(ordered.map((c, i) => ({ ...c, position: i })))
+    try {
+      const res = await fetch('/api/restaurant/disco-menu-categories/reorder', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ menuReference: ref, references: orderedRefs }),
+      })
+      if (!res.ok) { setCats(previous); flash('Could not save the new order'); return false }
+      return true
+    } catch { setCats(previous); flash('Could not save the new order'); return false }
   }
 
   // ── Item actions ──
@@ -97,15 +102,18 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
     })
     if (res.ok) { await load(); flash(next ? 'Item shown' : 'Item hidden') }
   }
-  async function reorderItems(fromRef: string, toRef: string) {
-    if (fromRef === toRef) return
-    const order = [...catItems]
-    const from = order.findIndex(i => i.reference === fromRef)
-    const to = order.findIndex(i => i.reference === toRef)
-    if (from < 0 || to < 0) return
-    const [moved] = order.splice(from, 1); order.splice(to, 0, moved)
-    setItems(prev => prev.map(i => { const idx = order.findIndex(o => o.reference === i.reference); return idx >= 0 ? { ...i, position: idx } : i }))
-    await fetch(`/api/restaurant/disco-menu-items/${fromRef}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ position: to }) })
+  async function reorderItems(orderedRefs: string[]): Promise<boolean> {
+    const previous = items
+    const rank = new Map(orderedRefs.map((r, i) => [r, i]))
+    setItems(prev => prev.map(i => rank.has(i.reference) ? { ...i, position: rank.get(i.reference)! } : i))
+    try {
+      const res = await fetch('/api/restaurant/disco-menu-items/reorder', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryReference: selCat, references: orderedRefs }),
+      })
+      if (!res.ok) { setItems(previous); flash('Could not save the new order'); return false }
+      return true
+    } catch { setItems(previous); flash('Could not save the new order'); return false }
   }
 
   if (loading) return <div style={{ padding: 40, color: '#aaa', fontFamily: F }}>Loading…</div>
@@ -128,15 +136,13 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
         <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, padding: 12 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#999', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 8px 10px' }}>Categories</div>
           {cats.length === 0 && <div style={{ fontSize: 12, color: '#aaa', padding: '8px' }}>No categories yet.</div>}
-          {cats.map(c => (
-            <div key={c.reference} draggable
-              onDragStart={() => setDragCat(c.reference)}
-              onDragOver={e => e.preventDefault()}
-              onDrop={() => { reorderCats(dragCat, c.reference); setDragCat('') }}
+          <SortableRows items={cats} getKey={c => c.reference} as="div" onReorder={reorderCats}>
+            {(c, { handleProps }) => (
+            <div
               onClick={() => setSelCat(c.reference)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 8px', borderRadius: 8, cursor: 'pointer', position: 'relative',
                 background: selCat === c.reference ? '#EEF0FD' : 'transparent' }}>
-              <span style={{ color: '#ccc', cursor: 'grab', fontSize: 13 }}>⠿</span>
+              <span {...handleProps} style={{ ...(handleProps.style as React.CSSProperties), fontSize: 13 }}>{DRAG_GLYPH}</span>
               <span style={{ flex: 1, fontSize: 13, fontWeight: selCat === c.reference ? 700 : 500, color: DARK }}>{c.name}</span>
               <button onClick={e => { e.stopPropagation(); setKebab(kebab === c.reference ? '' : c.reference) }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999', fontSize: 16, padding: '0 4px' }}>⋯</button>
@@ -147,7 +153,8 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                 </div>
               )}
             </div>
-          ))}
+            )}
+          </SortableRows>
           <button onClick={() => setCatDlg({ mode: 'create' })} style={{ width: '100%', marginTop: 8, background: 'none', border: '1px dashed #ccc', borderRadius: 8, padding: '9px', fontSize: 13, color: BLUE, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>+ Add Menu Category</button>
         </div>
 
@@ -173,15 +180,13 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                   <th style={{ padding: '6px 8px', width: 130, textAlign: 'right' }}></th>
                 </tr>
               </thead>
-              <tbody>
-                {catItems.map(it => (
-                  <tr key={it.reference} draggable
-                    onDragStart={() => setDragItem(it.reference)}
-                    onDragOver={e => e.preventDefault()}
-                    onDrop={() => { reorderItems(dragItem, it.reference); setDragItem('') }}
-                    onClick={() => setItemDlg({ mode: 'edit', item: it })}
-                    style={{ borderTop: '1px solid #f2f2f2', opacity: it.visible ? 1 : 0.5, cursor: 'pointer' }}>
-                    <td style={{ padding: '10px 8px', color: '#ccc', cursor: 'grab' }}>⠿</td>
+              <SortableRows items={catItems} getKey={i => i.reference} onReorder={reorderItems}
+                getRowProps={it => ({
+                  style: { borderTop: '1px solid #f2f2f2', opacity: it.visible ? 1 : 0.5, cursor: 'pointer' },
+                  onClick: () => setItemDlg({ mode: 'edit', item: it }),
+                })}>
+                {(it, { handleProps }) => (<>
+                  <td {...handleProps} style={{ ...(handleProps.style as React.CSSProperties), padding: '10px 8px' }}>{DRAG_GLYPH}</td>
                     <td style={{ padding: '10px 8px', fontWeight: 600, color: DARK }}>
                       {it.name}
                       {!it.visible && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 8px', verticalAlign: 'middle' }}>Inactive</span>}
@@ -196,9 +201,8 @@ export default function MenuEditorPage({ params }: { params: Promise<{ ref: stri
                       <button title="Edit" onClick={() => setItemDlg({ mode: 'edit', item: it })} style={iconBtn}>✎</button>
                       <button title="Delete" onClick={() => deleteItem(it)} style={{ ...iconBtn, color: RED }}>🗑</button>
                     </td>
-                  </tr>
-                ))}
-              </tbody>
+                </>)}
+              </SortableRows>
             </table>
           )}
         </div>
@@ -391,6 +395,36 @@ function ItemDialog({ mode, item, categoryRef, onCancel, onSaved }: { mode: 'cre
           const shownGroups = gq ? libGroups.filter(g => g.name.toLowerCase().includes(gq) || (g.external_name || '').toLowerCase().includes(gq)) : libGroups
           return (
           <>
+          {/* ATTACHED GROUPS, IN ORDER. This is the customer-facing modifier
+              ordering: the storefront reads disco_item_groups.position, not
+              disco_modifier_groups.position (which is library order). The PUT
+              below already writes position as the array index of `attached` —
+              there was simply never a way to change that array's order. */}
+          {attached.length > 1 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#999', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Order shown to customers
+              </div>
+              <div style={{ border: '1px solid #eee', borderRadius: 8, overflow: 'hidden' }}>
+                <SortableRows
+                  items={attached} getKey={a => a.reference} as="div"
+                  onReorder={async (_refs, ordered) => { setAttached(ordered); return true }}
+                >
+                  {(a, { handleProps }) => {
+                    const g = libGroups.find(x => x.reference === a.reference)
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', fontSize: 13, borderTop: '1px solid #f4f4f8', background: '#fff' }}>
+                        <span {...handleProps} style={{ ...(handleProps.style as React.CSSProperties), fontSize: 13 }}>{DRAG_GLYPH}</span>
+                        <span style={{ flex: 1, color: DARK }}>{g?.name ?? 'Group'}</span>
+                        {a.enabled === false && <span style={{ fontSize: 11, color: '#999' }}>Off</span>}
+                      </div>
+                    )
+                  }}
+                </SortableRows>
+              </div>
+              <div style={{ fontSize: 11.5, color: '#999', marginTop: 5 }}>Saved when you save the item.</div>
+            </div>
+          )}
           <input value={groupSearch} onChange={e => setGroupSearch(e.target.value)} placeholder="Search groups…" style={{ ...dlgInput, marginBottom: 8 }} />
           <div style={{ border: '1px solid #eee', borderRadius: 8, maxHeight: 300, overflowY: 'auto' }}>
             {shownGroups.length === 0 ? (

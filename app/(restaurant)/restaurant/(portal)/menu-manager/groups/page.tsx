@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
+import { SortableRows, DRAG_GLYPH } from '../../_components/SortableRows'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 import { ModifierMultiPicker, type PickerItem } from '../../_components/ModifierMultiPicker'
 
@@ -136,6 +137,26 @@ export default function GroupLibraryPage() {
   const q = query.trim().toLowerCase()
   const shown = q ? groups.filter(g => g.name.toLowerCase().includes(q) || (g.external_name || '').toLowerCase().includes(q)) : groups
 
+  // Library order only — nothing customer-facing reads
+  // disco_modifier_groups.position. The storefront orders an item's groups by
+  // disco_item_groups.position (see the per-item reorder). This arranges the
+  // admin's own list.
+  //
+  // Drag is DISABLED while a search is active: `shown` is filtered, and sending
+  // a filtered subset as the full order would shuffle the rows the filter hides.
+  async function reorderGroups(orderedRefs: string[], ordered: Group[]): Promise<boolean> {
+    const previous = groups
+    setGroups(ordered)
+    try {
+      const res = await fetch('/api/restaurant/disco-modifier-groups/reorder', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ references: orderedRefs }),
+      })
+      if (!res.ok) { setGroups(previous); setError('Could not save the new order'); return false }
+      return true
+    } catch { setGroups(previous); setError('Could not save the new order'); return false }
+  }
+
   const linkBtn: React.CSSProperties = { background: 'none', border: 'none', color: BLUE, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }
   const input: React.CSSProperties = { width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: 8, fontSize: 14, fontFamily: F, boxSizing: 'border-box' }
   const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#555', margin: '0 0 6px' }
@@ -169,6 +190,7 @@ export default function GroupLibraryPage() {
           <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, overflow: 'visible' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>
+                <th style={{ ...th, width: 28 }}></th>
                 <th style={th}>Name</th>
                 <th style={th}>Customer-facing</th>
                 <th style={{ ...th, width: 80 }}>Options</th>
@@ -176,11 +198,12 @@ export default function GroupLibraryPage() {
                 <th style={{ ...th, width: 100 }}>Used in</th>
                 <th style={{ ...th, textAlign: 'right', width: 200 }}>Actions</th>
               </tr></thead>
-              <tbody>
-                {shown.length === 0 ? (
-                  <tr><td style={{ ...td, color: '#999', textAlign: 'center' }} colSpan={6}>No groups match “{query}”.</td></tr>
-                ) : shown.map(g => (
-                  <tr key={g.reference}>
+              {shown.length === 0 ? (
+                <tbody><tr><td style={{ ...td, color: '#999', textAlign: 'center' }} colSpan={7}>No groups match “{query}”.</td></tr></tbody>
+              ) : (
+              <SortableRows items={shown} getKey={g => g.reference} onReorder={reorderGroups} disabled={!!q}>
+                {(g, { handleProps }) => (<>
+                    <td {...handleProps} style={{ ...(handleProps.style as React.CSSProperties), ...td, opacity: q ? 0.3 : 1 }}>{DRAG_GLYPH}</td>
                     <td style={{ ...td, fontWeight: 600 }}>
                       {g.name}
                       {g.archived && <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 7px' }}>ARCHIVED</span>}
@@ -202,9 +225,9 @@ export default function GroupLibraryPage() {
                         <button style={{ ...linkBtn, color: RED }} onClick={() => act(g, 'delete')}>Delete</button>
                       </span>
                     </td>
-                  </tr>
-                ))}
-              </tbody>
+                </>)}
+              </SortableRows>
+              )}
             </table>
           </div>
         )}

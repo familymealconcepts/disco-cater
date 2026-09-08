@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { SortableRows, DRAG_GLYPH } from './SortableRows'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#6B6EF9'
@@ -13,8 +14,9 @@ export interface PickerItem { reference: string; name: string; price: number }
 // the group/item dialog. Data-source-agnostic: FM add-ons and Disco-native
 // disco_modifiers use different endpoints, so the caller supplies the library
 // and persists new modifiers; this component only manages selection/order/UI.
-// Drag reorder matches the existing draggedRef/dragOverRef HTML5 DnD idiom
-// already used for group reorder in _MealPackageForm.tsx.
+// Drag reorder uses the shared SortableRows component (@dnd-kit) rather than a
+// private HTML5 implementation — there were five hand-rolled copies of this
+// behaviour in the portal and they are being consolidated onto one.
 //
 // orderPersists (default true): FM's own backend re-sorts a group's modifiers
 // by each modifier's global library position on every read, discarding any
@@ -37,8 +39,6 @@ export function ModifierMultiPicker({
   const [newPrice, setNewPrice] = useState('')
   const [createErr, setCreateErr] = useState('')
   const [savingNew, setSavingNew] = useState(false)
-  const [draggedRef, setDraggedRef] = useState<string | null>(null)
-  const [dragOverRef, setDragOverRef] = useState<string | null>(null)
 
   const byRef = new Map(library.map(m => [m.reference, m]))
   const selectedItems = selected.map(r => byRef.get(r)).filter((m): m is PickerItem => !!m)
@@ -48,30 +48,6 @@ export function ModifierMultiPicker({
 
   function add(ref: string) { onChange([...selected, ref]) }
   function remove(ref: string) { onChange(selected.filter(r => r !== ref)) }
-
-  function onDragStart(e: React.DragEvent, ref: string) {
-    setDraggedRef(ref)
-    e.dataTransfer.effectAllowed = 'move'
-    try { e.dataTransfer.setData('text/plain', ref) } catch {}
-  }
-  function onDragOver(e: React.DragEvent, ref: string) {
-    e.preventDefault()
-    if (ref !== draggedRef && ref !== dragOverRef) setDragOverRef(ref)
-  }
-  function onDrop(e: React.DragEvent, toRef: string) {
-    e.preventDefault()
-    const fromRef = draggedRef
-    setDraggedRef(null); setDragOverRef(null)
-    if (!fromRef || fromRef === toRef) return
-    const from = selected.indexOf(fromRef)
-    const to = selected.indexOf(toRef)
-    if (from < 0 || to < 0) return
-    const next = [...selected]
-    const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
-    onChange(next)
-  }
-  function onDragEnd() { setDraggedRef(null); setDragOverRef(null) }
 
   async function submitNew() {
     setCreateErr('')
@@ -97,22 +73,21 @@ export function ModifierMultiPicker({
       )}
       {selectedItems.length > 0 ? (
         <div style={{ border: '1px solid #eee', borderRadius: 8, marginBottom: 10, overflow: 'hidden' }}>
-          {selectedItems.map((m, i) => (
-            <div
-              key={m.reference}
-              onDragOver={orderPersists ? e => onDragOver(e, m.reference) : undefined}
-              onDrop={orderPersists ? e => onDrop(e, m.reference) : undefined}
-              onDragEnd={orderPersists ? onDragEnd : undefined}
-              style={{ ...rowBase, borderTop: i > 0 ? '1px solid #f4f4f8' : undefined, background: dragOverRef === m.reference ? '#EEF2FF' : draggedRef === m.reference ? '#f7f7fb' : '#fff' }}
-            >
-              {orderPersists && (
-                <span draggable onDragStart={e => onDragStart(e, m.reference)} title="Drag to reorder" style={{ cursor: 'grab', color: '#bbb', userSelect: 'none' }}>⠿</span>
-              )}
-              <span style={{ flex: 1 }}>{m.name}</span>
-              <span style={{ color: '#999' }}>${Number(m.price).toFixed(2)}</span>
-              <button type="button" onClick={() => remove(m.reference)} title="Remove from group" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c00', fontSize: 13 }}>✕</button>
-            </div>
-          ))}
+          <SortableRows
+            items={selectedItems} getKey={m => m.reference} as="div" disabled={!orderPersists}
+            onReorder={async (refs) => { onChange(refs); return true }}
+          >
+            {(m, { handleProps, index }) => (
+              <div style={{ ...rowBase, borderTop: index > 0 ? '1px solid #f4f4f8' : undefined, background: '#fff' }}>
+                {orderPersists && (
+                  <span {...handleProps} style={handleProps.style as React.CSSProperties}>{DRAG_GLYPH}</span>
+                )}
+                <span style={{ flex: 1 }}>{m.name}</span>
+                <span style={{ color: '#999' }}>${Number(m.price).toFixed(2)}</span>
+                <button type="button" onClick={() => remove(m.reference)} title="Remove from group" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#c00', fontSize: 13 }}>✕</button>
+              </div>
+            )}
+          </SortableRows>
         </div>
       ) : (
         <div style={{ fontSize: 12.5, color: '#999', padding: '4px 0 10px' }}>No modifiers in this group yet.</div>

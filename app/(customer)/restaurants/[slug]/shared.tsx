@@ -425,7 +425,13 @@ async function loadDiscoNativeRestaurant(slug: string) {
     const cats = (await withDiscoTables(() => sql`
       SELECT reference, name, description, menu_reference FROM disco_menu_categories
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
-      ORDER BY position, id
+      -- position, NAME to match the portal. The portal orders every one of these
+      -- lists by (position, name); this read used (position, id), so two rows
+      -- sharing a position could render in a different order here than the
+      -- restaurant sees while editing. Positions are unique within a scope today
+      -- and a reorder renumbers densely, so this is a tie-break that should
+      -- rarely fire — but when it fires it makes the editor a liar.
+      ORDER BY position, name
     `, runDiscoMenuMigrations)) as { reference: string; name: string; description: string | null; menu_reference: string | null }[]
     const items = (await sql`
       SELECT reference, category_reference, name, description, price, serves,
@@ -434,7 +440,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
              image_url
       FROM disco_menu_items
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND visible = true
-      ORDER BY position, id
+      ORDER BY position, name
     `) as {
       reference: string; category_reference: string | null; name: string; description: string | null
       price: string | number; serves: string | null; display_price: string | null; min_quantity: number | null
@@ -522,7 +528,7 @@ async function loadDiscoNativeRestaurant(slug: string) {
              delivery_settings, skipped_days, include_utensils
       FROM disco_menus
       WHERE restaurant_reference = ${r.restaurant_reference}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
-      ORDER BY position, id
+      ORDER BY position, name
     `) as (MenuSettingsRow & { reference: string; name: string; schedule_config: NativeScheduleConfig | null; availability_mode: string | null; start_date: string | null; end_date: string | null; skipped_days: { fromDate: string; toDate: string; intervals?: { fromTime: string; toTime: string }[] }[] | null })[]
     // The "primary" reference is only used now as the NULL-menu_reference
     // fallback target below (categories/items predating the multi-menu model,

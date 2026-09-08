@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
+import { SortableRows, DRAG_GLYPH } from '../../_components/SortableRows'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
 
 const F = "'DM Sans', sans-serif"
@@ -114,6 +115,26 @@ export default function ModifierLibraryPage() {
   const q = query.trim().toLowerCase()
   const shown = q ? modifiers.filter(m => m.name.toLowerCase().includes(q)) : modifiers
 
+  // Library order only — nothing customer-facing reads disco_modifiers.position.
+  // The storefront orders a group's modifiers by
+  // disco_modifier_group_members.position. This arranges the admin's own list,
+  // which is what gets long.
+  //
+  // Drag is DISABLED while a search is active: `shown` is filtered, and sending
+  // a filtered subset as the full order would shuffle the rows the filter hides.
+  async function reorderModifiers(orderedRefs: string[], ordered: Modifier[]): Promise<boolean> {
+    const previous = modifiers
+    setModifiers(ordered)
+    try {
+      const res = await fetch('/api/restaurant/disco-modifiers/reorder', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ references: orderedRefs }),
+      })
+      if (!res.ok) { setModifiers(previous); setError('Could not save the new order'); return false }
+      return true
+    } catch { setModifiers(previous); setError('Could not save the new order'); return false }
+  }
+
   const linkBtn: React.CSSProperties = { background: 'none', border: 'none', color: BLUE, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: F, padding: 0 }
   const th: React.CSSProperties = { textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#999', textTransform: 'uppercase', letterSpacing: '0.04em', padding: '9px 14px', borderBottom: '1px solid #eee', whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '9px 14px', fontSize: 13.5, color: DARK, verticalAlign: 'middle', borderBottom: '1px solid #f5f5f8' }
@@ -147,16 +168,18 @@ export default function ModifierLibraryPage() {
         <div style={{ background: '#fff', border: '1px solid #eee', borderRadius: 12, overflow: 'visible' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
+              <th style={{ ...th, width: 28 }}></th>
               <th style={th}>Name</th>
               <th style={{ ...th, width: 90 }}>Price</th>
               <th style={{ ...th, width: 120 }}>Used in</th>
               <th style={{ ...th, textAlign: 'right', width: 260 }}>Actions</th>
             </tr></thead>
-            <tbody>
-              {shown.length === 0 ? (
-                <tr><td style={{ ...td, color: '#999', textAlign: 'center' }} colSpan={4}>No modifiers match “{query}”.</td></tr>
-              ) : shown.map(m => (
-                <tr key={m.reference}>
+            {shown.length === 0 ? (
+              <tbody><tr><td style={{ ...td, color: '#999', textAlign: 'center' }} colSpan={5}>No modifiers match “{query}”.</td></tr></tbody>
+            ) : (
+            <SortableRows items={shown} getKey={m => m.reference} onReorder={reorderModifiers} disabled={!!q}>
+              {(m, { handleProps }) => (<>
+                  <td {...handleProps} style={{ ...(handleProps.style as React.CSSProperties), ...td, opacity: q ? 0.3 : 1 }}>{DRAG_GLYPH}</td>
                   <td style={{ ...td, fontWeight: 600 }}>
                     {m.name}
                     {m.archived && <span style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', borderRadius: 20, padding: '2px 7px' }}>ARCHIVED</span>}
@@ -171,9 +194,9 @@ export default function ModifierLibraryPage() {
                       <button style={{ ...linkBtn, color: RED }} onClick={() => act(m, 'delete')}>Delete</button>
                     </span>
                   </td>
-                </tr>
-              ))}
-            </tbody>
+              </>)}
+            </SortableRows>
+            )}
           </table>
         </div>
       )}

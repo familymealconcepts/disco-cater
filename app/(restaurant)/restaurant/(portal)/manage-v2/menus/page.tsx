@@ -99,11 +99,18 @@ export default function MenusPage() {
     const oldIndex = menus.findIndex(m => m.reference === active.id)
     const newIndex = menus.findIndex(m => m.reference === over.id)
     if (oldIndex < 0 || newIndex < 0) return
+    const previous = menus
     const reordered = arrayMove(menus, oldIndex, newIndex)
     setMenus(reordered)
     // Single page (size=100), so the list index is the absolute position.
     // Mirrors FM menu.service.ts:66 — PUT /api/menu/{ref}/position?position=.
-    await fetch(`/api/restaurant/menus/${active.id}/position?position=${newIndex}`, { method: 'PUT' })
+    // FM-backed surface, so this stays FM's per-row call; the roll-back on
+    // failure is the part that was missing (it applied optimistically and left
+    // the screen wrong if the save failed).
+    try {
+      const res = await fetch(`/api/restaurant/menus/${active.id}/position?position=${newIndex}`, { method: 'PUT' })
+      if (!res.ok) setMenus(previous)
+    } catch { setMenus(previous) }
   }
 
   const loadMenus = useCallback(async () => {
