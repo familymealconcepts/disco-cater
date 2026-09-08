@@ -444,16 +444,85 @@ flags it automatically.
   self-heals new ones in rotation.
 - **Post-conversion diff**: see below instead of eyeballing two screens.
 
-### 11. Multi-unit /locations link — **NOT BUILT, DO THIS BY HAND**
+### 11. Multi-unit /locations link — **BUILT 2026-09-07, runs automatically**
 
 **Applies only to a chain**, i.e. a restaurant whose SYSTEM_ADMIN holds more than one
 location. A single-venue conversion skips this step entirely.
 
-**Nothing in `convertToNative` or `checkConversionReadiness` touches
-`disco_multi_unit_links`.** `grep -c multi_unit lib/native-conversion.ts` returns 0. It
-was scoped as a per-chain step at conversion time and never written — it is a gap, not a
-regression. Until it is built, a human does the following, or the chain's `/locations`
-page silently keeps being served by FM.
+`convertToNative` now calls `ensureMultiUnitLink`
+(`lib/locations/multi-unit-conversion.ts`) after the flip, and the outcome comes back on
+`ConversionResult.multiUnitLink`. It **never blocks the conversion** — a chain page is
+worth having, but not at the cost of refusing a restaurant that is otherwise ready — so
+read the field rather than assuming it worked.
+
+**It runs AFTER the flip on purpose.** The link should only ever hold locations that are
+already native, because an unconverted member's Order button resolves to a storefront
+that cannot take an order.
+
+**Upsert-and-grow.** No link for the chain → create one holding just this location. A
+link already exists → add this location. **It never removes a member.** That is what
+makes a chain converting over several days safe: each conversion grows the link by one
+and no later run can shrink what an earlier one recorded. Re-running for a location
+already in the link reports `already-member` and writes nothing.
+
+**Outcomes:** `created`, `grown`, `already-member`, `not-a-chain`, `needs-slug`,
+`failed`. `needs-slug` is the one that wants a human — see the manual fallback below,
+and pass the slug as `convertToNative(ref, { multiUnitSlug })` rather than doing it all
+by hand.
+
+**Membership is the converted set. FM's group is advisory.** It is used to verify a
+candidate slug really belongs to this chain, and to report divergence. It is never the
+authority on who belongs, because it is wrong in both directions: it listed 4 of Two
+Hands' 8, and lists 10 for Savvy Sliders where 5 are converting. Post-conversion a
+difference from FM is a decision, not drift.
+
+**Zero overlap refuses rather than guessing.** A candidate slug is accepted ONLY if FM's
+group for it contains this restaurant's own reference. `Almost Home - Westfield` matches
+the slug `almosthome`, which returns three restaurants and contains ours zero times — a
+different business with the same name. A 200 for someone else's slug is a wrong answer
+that looks like a right one, and taking it would publish a page linking a stranger's
+locations. Verified live: Westfield refuses, while `Almost Home – Lincroft` (which *is*
+in that group) resolves.
+
+**An operator-supplied slug wins and skips membership verification.** This is the case
+the probe cannot serve: where FM's group under-reports, the omitted locations can never
+verify themselves. Two Hands is the worked example — FM lists 4 of 8, so the other 4
+would refuse forever. Sweet Chick has the same shape (FM lists 2 of 5, and `Sweet Chick
+- LES` is not one of them). When Peter supplies membership directly, that IS the
+authority.
+
+#### The weakest link in this design: chain grouping is a name heuristic
+
+Worth stating plainly because the membership probe hides it. **Grouping locations into a
+chain is done by splitting the name on a dash and taking the prefix.** That is not a
+chain model. It catches *mistakes* — a wrong slug is rejected by membership — but it
+cannot catch *omissions*: a chain whose locations do not share a name prefix is
+invisible to it, and no probe will ever be asked about it.
+
+Real example in the current data. **3 Pepper Burrito Co. has nine Florida locations and
+the heuristic splits them into four separate "chains":**
+
+```
+3 Pepper Burrito Co. Bradenton                     ← no separator at all
+3 Pepper Burrito Co. Fort Myers – College Plaza    ← "Fort", en dash
+3 Pepper Burrito Co. Ft Myers - The Forum          ← "Ft", hyphen
+3 Pepper Burrito Port Charlotte                    ← drops "Co."
+```
+
+Four spellings, two dash characters, and half of them with no separator between brand and
+location. Nothing downstream notices, because each fragment is independently plausible.
+
+Two consequences to hold in mind:
+
+- A chain can be silently under-linked — some locations join the link, others look like
+  single-venue restaurants and are never offered one.
+- The count of "chains needing a slug" is a floor, not a total.
+
+The real fix is a chain identity that does not come from the display name — FM's group
+membership itself, or an explicit chain column. Until then, **treat the automatic step as
+covering the easy majority and expect to supply slugs by hand for the ragged tail.**
+Splitting on hyphen, en dash and em dash (done) is a patch, not a solution: it does
+nothing for the four names above.
 
 **Why it matters even though the page still "works".** The FM fallback in
 `getLocationLink` covers a converted chain, so nothing looks broken — which is exactly

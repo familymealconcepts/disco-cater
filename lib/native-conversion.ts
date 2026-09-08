@@ -12,6 +12,7 @@
 // capability check (verifyAccountReusable), never a money_flow/proxy. Fresh
 // onboarding is the fallback ONLY for accounts that genuinely can't be reused.
 import type Stripe from 'stripe'
+import { ensureMultiUnitLink, type MultiUnitLinkOutcome } from './locations/multi-unit-conversion'
 import { MENU_ACTIVE_SQL } from './menu-state'
 import { logAdminAction } from './admin-audit'
 import { effectiveTaxPercent, isTaxConfigured, type TaxRatesShape } from './pricing/tax-config'
@@ -432,6 +433,14 @@ export interface ConversionResult {
   // captured. Recorded by the conversion itself now, so whoever runs it always
   // has both numbers in the result rather than needing to remember to check.
   orderStats?: { before: OrderStatsSnapshot; after: OrderStatsSnapshot }
+  /**
+   * The chain's /locations link, upserted-and-grown by this conversion. Always
+   * present so the absence of a link is visible in the result rather than
+   * silent — Gracious went three weeks unnoticed because nothing reported it.
+   * Never blocks the conversion: a chain page is worth having, but not at the
+   * cost of refusing to convert a restaurant that is otherwise ready.
+   */
+  multiUnitLink?: MultiUnitLinkOutcome
 }
 
 export interface OrderStatsSnapshot {
@@ -1337,7 +1346,12 @@ async function computeNativeIsLive(ref: string): Promise<boolean> {
 // deliberate product decision (this comment exists so it's visible, not silent).
 export async function convertToNative(
   ref: string,
-  opts?: { stripe?: Stripe; skipInvites?: boolean; prefetchedWalled?: FmWalledFieldsResult; actorEmail?: string | null },
+  opts?: {
+    stripe?: Stripe; skipInvites?: boolean; prefetchedWalled?: FmWalledFieldsResult; actorEmail?: string | null
+    /** Chain slug supplied by an operator, for a chain FM's group does not
+     *  vouch for. Overrides the probe — see ensureMultiUnitLink. */
+    multiUnitSlug?: string | null
+  },
 ): Promise<ConversionResult> {
   const readiness = await checkConversionReadiness(ref, opts)
   if (!readiness.found) return { converted: false, reason: 'Restaurant not found.', readiness }
@@ -1530,10 +1544,24 @@ export async function convertToNative(
     orderStats: { before: orderStatsBefore, after: orderStatsAfter },
   })
 
+  // Runs AFTER the flip, deliberately: the link should only ever hold locations
+  // that are already native, because an unconverted member's Order button would
+  // resolve to a storefront that cannot take an order. Upsert-and-grow, so a
+  // chain converting over several days accumulates rather than being rebuilt.
+  const linkName = ((await sql`
+    SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1
+  `.catch(() => [])) as { name: string | null }[])[0]?.name ?? null
+  const multiUnitLink = await ensureMultiUnitLink(
+    readiness.restaurantReference,
+    linkName,
+    { ownerEmail: opts?.actorEmail ?? null, slug: opts?.multiUnitSlug ?? null },
+  )
+
   return {
     converted: true, readiness: { ...readiness, isDiscoNative: true, isLive: nativeIsLive },
     invite, authorizedUserInvites, notificationSettings, closedDays, promoCodes, profileFields, taxRates,
     orderStats: { before: orderStatsBefore, after: orderStatsAfter },
+    multiUnitLink,
   }
 }
 
