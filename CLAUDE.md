@@ -292,6 +292,20 @@ Verify any change with `npx tsx scripts/verify-role-gated-reach.ts`.
    The snapshot is frozen at **2026-06-16**, and no live FM endpoint exposes
    these. Treat the endpoint as a candidate list, never as membership.
 
+   **What it over-reports is the LOCATION SET — nothing else.** The endpoint is
+   RELIABLE for identity and role: who exists, and whether they are `ADMIN` or
+   `SYSTEM_ADMIN`. It is UNRELIABLE only for per-location membership, because it
+   returns the whole chain's users for every location.
+
+   So: **take the role from it. Do not take the location set from it.**
+
+   A `SYSTEM_ADMIN` it names gets invited as a `SYSTEM_ADMIN` at conversion. That
+   is FM's data and it carries as-is — it is **not a decision to escalate**, and
+   it needs no separate approval. Downgrading such a person to `ADMIN` "to be
+   safe" is the actual error: it is what broke Barbara Coultas (trap 1), and the
+   fix was restoring the role FM already stated. Membership is the only half that
+   has to come from somewhere else — the snapshot DB, or Peter directly.
+
 3. **An FM-session user has NO Disco identity.** `getRestaurantAuthContext()`
    returns `authType: 'fm'` with **`email: ''`** and `restaurantReference: ''`.
    Every grant resolver returns empty for a blank email — deliberately, so a
