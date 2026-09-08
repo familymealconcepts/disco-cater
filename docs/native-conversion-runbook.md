@@ -491,6 +491,78 @@ would refuse forever. Sweet Chick has the same shape (FM lists 2 of 5, and `Swee
 - LES` is not one of them). When Peter supplies membership directly, that IS the
 authority.
 
+#### Slug discovery is a LOOKUP now, not a guess (2026-09-08)
+
+`GET /api/system-admin/groups`, under a master-password login as one of the
+chain's own admins, returns `{name, url, numberOfLocations,
+restaurantReferences[], multiUnitLinksReference}`. **`url` IS the group slug.**
+`resolveChainSlug` calls this first and falls back to the name probe only when
+FM's admin for the restaurant is a plain ADMIN (a plain ADMIN is denied every
+`/api/system-admin/*` route).
+
+This matters because the slugs are not guessable. Real values:
+
+| Chain | FM group slug |
+|---|---|
+| The Tattooed Pig | `plumcaterers` |
+| Fat Boy's Pizza | `metairie` |
+| Stacks & Cordials | `stacksncordials` |
+| Taim | `craveworthybrands` |
+
+No candidate generator produces `plumcaterers` from "The Tattooed Pig".
+
+**Do not reach for `/api/system-admin/restaurants/links/listing`.** It needs a
+`userReference`, 500s without one, and returns **zero groups even for Two Hands
+and Gracious**, whose groups certainly exist. It is a different feature. This
+was chased to the end once; the answer is `/api/system-admin/groups`.
+
+#### FM's PUBLIC group endpoint under-reports; the admin one is complete
+
+`/public-api/restaurants/group/twohands` returns **4** restaurants.
+`/api/system-admin/groups` for the same chain returns **8** — every location,
+matching what Peter said and what the Disco link holds.
+
+**This retroactively explains the Two Hands provenance note.** That note records
+that FM's group lists four while the link holds eight, and instructs nobody to
+reduce it. The instruction was right, but the stated reason — "FM is stale" —
+was wrong. FM's data was never stale. Its *public projection* omits members. Any
+future comparison should be made against the admin endpoint, and a disagreement
+with the public one is not evidence of anything.
+
+The same correction applies to `Almost Home - Westfield`, earlier written off as
+"a different business with the same name" because the public group excluded it.
+The admin group includes it. The public endpoint was the unreliable party.
+
+#### THE UNIT IS ONE OPERATOR, NOT ONE BRAND — and the link is per BRAND
+
+**FM groups are franchisee groups.** They can span brands, and one brand can
+span several groups. Both directions are real in current data:
+
+- `/metairie` is named "Fat Boys Pizza/ Savvy Sliders" and holds three Fat Boy's
+  and three Savvy Sliders — one operator, two brands, same three cities.
+- Savvy Sliders locations sit in **three** different groups: `/metairie`,
+  `/savvysliders`, and `/happyspizzacatering` ("Happys Pizza and Savvy Sliders
+  Co-Brand", 57 locations).
+
+**Peter's decision (2026-09-08): multi-unit links are PER BRAND.** Fat Boy's and
+Savvy Sliders get separate links even though FM puts them in one group. So
+`readChainGroupAsAdmin` supplies the **slug**, but **not the membership** — the
+members are the converted locations of a single brand.
+
+**The "43 chains" count was never the right shape.** It came from grouping by
+name prefix, which has the wrong unit at both ends: it split 3 Pepper Burrito
+Co.'s nine Florida locations four ways, and it would have merged nothing that FM
+merges. The per-restaurant group lookup sidesteps the counting problem entirely
+— ask FM per restaurant instead of trying to enumerate chains up front.
+
+#### Botte: no multi-unit page, by decision (2026-09-08)
+
+Botte's three locations (Astoria, Brooklyn, UES) **do not get a `/locations`
+page.** Peter's call. This closes the only chain whose slug could not be read:
+all three have plain ADMINs (`astoria@`, `info@`, `ues@bottecucina.com`) and no
+SYSTEM_ADMIN, so `/api/system-admin/groups` is denied for them. **The missing
+Botte slug is not an open item — there is nothing to look up.**
+
 #### The weakest link in this design: chain grouping is a name heuristic
 
 Worth stating plainly because the membership probe hides it. **Grouping locations into a
