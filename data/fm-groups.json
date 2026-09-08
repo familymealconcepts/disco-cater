@@ -1,0 +1,2940 @@
+{
+  "generatedAt": "2026-09-08T15:57:52.056Z",
+  "identities": [
+    {
+      "ref": "99f78eb8-3d2e-4e48-8b10-d707055443e6",
+      "name": "10th Ave. Burrito Co.",
+      "email": "kevin@tenthaveburrito.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "8978b7a2-c373-48fb-ae07-e32d784f8903",
+      "name": "29 Hance Bakehouse",
+      "email": "29hancebakehouse@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "cc716341-75f4-46f8-b958-1c2426720d33",
+      "name": "2nd Jetty Seafood",
+      "email": "2ndjettyseafood@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "5e35c2c0-f1fc-49d9-a487-7e41648d09ab",
+      "name": "3 Pepper Burrito Co. Bradenton",
+      "email": "justin@3pepperburrito.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "c02f541a-8ee8-4e73-881d-72dd8a553629",
+      "name": "3 Pepper Burrito Co. Cape Coral",
+      "email": "tim@3pepperburrito.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "c9f909fa-9494-4e96-b01c-4337db6e7120",
+      "name": "3 Pepper Burrito Co. Estero",
+      "email": "shaun@3pepperburrito.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "a4221571-85f2-4416-b634-7f98e3e2d6f2",
+      "name": "3 Pepper Burrito Co. Fort Myers – College Plaza",
+      "email": "mark@3pepperburrito.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "72f5d6e0-f460-4c29-8073-1c809798269f",
+      "name": "3 Pepper Burrito Co. Fort Myers – Daniels Crossing",
+      "email": "cory@3pepperburrito.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "9ea35001-2d8a-437e-8586-4a619d6118eb",
+      "name": "3 Pepper Burrito Co. Ft Myers - The Forum",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "97a86475-ec10-4590-a2a9-ea358004735b",
+      "name": "3 Pepper Burrito Co. Ft Myers – Downtown",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "16a0ed89-fbd6-484f-a4e7-88cce9e66a44",
+      "name": "3 Pepper Burrito Co. Lehigh Acres",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "dfe218bb-ec18-4620-9a8a-91fa9b90cb0c",
+      "name": "3 Pepper Burrito Port Charlotte",
+      "email": "yum@3pepperburrito.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "41f0fd33-9ccf-42c1-bbe0-f541cbef5c9f",
+      "name": "502 Baking Company",
+      "email": "502bakingcompany@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "362ac33f-e9a1-4112-b309-5481393d6f5e",
+      "name": "5ive Spice LES",
+      "email": "5ivespice227@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "85dc5165-cca0-4ba2-8c30-696f647cb0e0",
+      "name": "ActuallyNovember",
+      "email": "actuallynovember@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "a7ebd350-e0e6-4321-ab56-047b9fc3f1be",
+      "name": "Alfreda",
+      "email": "evan.moore@alfredadc.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "5dc6caef-a0d5-4099-befb-090a196047b1",
+      "name": "Almost Home - Westfield",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "6ab74a61-ca30-4a4e-89bf-dab2fc56bfc6",
+      "name": "Almost Home Red General – Navesink",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "8966f05b-790f-4737-8930-49d4ba276bdd",
+      "name": "Almost Home – Lincroft",
+      "email": "sales@almosthomecoffee.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "b328a7b1-59ff-4a63-8d37-ae6a2d789c40",
+      "name": "Almost Home – Oceanport",
+      "email": "julia@almosthomegeneral.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "c825a64e-a5d3-4409-9f25-0612ed272ce2",
+      "name": "Anchor Produce Market",
+      "email": "tnich984@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "632c781f-2a79-41ee-9cdb-a710aa89cad9",
+      "name": "Apollo Bagels - Hoboken",
+      "email": "324washington@apollobagels.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "fc81b2bc-f148-4146-895c-213db34083a3",
+      "name": "Apollo Bagels - Industry City",
+      "email": "26836th@apollobagels.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "cd100520-b2f1-40b4-9f58-ea06d8cd2e4c",
+      "name": "Apollo Bagels - Kips Bay",
+      "email": "416third@apollobagels.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "cc2a73bf-9384-4523-90a7-5d0f0b917a42",
+      "name": "Apollo Bagels - Midtown",
+      "email": "taylor@apollobagels.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "da6d7d02-91bb-4087-b408-02dda2998b8a",
+      "name": "Apollo Bagels - Williamsburg",
+      "email": "133n7@apollobagels.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "1ef81e10-6153-4ef5-bf6a-ad2b9fc5e65d",
+      "name": "Aunts et Uncles",
+      "email": "gather@auntsetuncles.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "15d3780d-9a25-4ecc-af25-2dffe9d92992",
+      "name": "Backyard Bowls - Beverly Grove",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "5f8e5496-f053-4cb4-8c5c-4c9a3f0c1742",
+      "name": "Backyard Bowls - Santa Monica",
+      "email": "rubi@backyardbowls.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "1726e0cf-168b-4bc3-9e50-444566b6dc16",
+      "name": "Bagel Miller",
+      "email": "dave@bagelmiller.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "aaa36344-9331-4a84-9c33-1764a4e6ec4f",
+      "name": "Bagel Point - Brooklyn",
+      "email": "nybk30@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "25318806-28a6-46ef-8319-32b28628a024",
+      "name": "Bakes Gone Wild",
+      "email": "tjpizzonia2@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "1f1dcfca-99ca-4017-b34f-4a1cd95cbd2e",
+      "name": "Barons Bagel's - Brick",
+      "email": "samanthastoll112@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "171b5f5e-b8cc-4f51-9631-8bbff001f572",
+      "name": "Barons Bagel's - Point Pleasant",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "171ac0cd-0df5-4257-8b3d-14d60e5d2c57",
+      "name": "Beach Buns Bakery",
+      "email": "beachbunsbakerynj@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "824bd847-1659-4134-b491-d50e4f003b7e",
+      "name": "Beatnic - Williamsburg",
+      "email": "williamsburg@eatbeatnic.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "95adff9f-87d2-4eae-830c-732efe67babe",
+      "name": "Benchmark Breads",
+      "email": "benchmarkbreads@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "526c5ef1-8d5f-4ac5-995d-3134b549197a",
+      "name": "Bertolone's",
+      "email": "sonia@bertolones.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "f7c42fe3-e0c1-4a12-8525-b2a0124aa6cc",
+      "name": "Best Pizza - Williamsburg",
+      "email": "bgelardi1@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "e1391394-dba4-4180-b216-f92a92b29950",
+      "name": "Binge Biryani - Long Island City",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "fd1b3e4e-96cd-42f8-bdbe-dc7b822e78d3",
+      "name": "Black Bear BBQ",
+      "email": "blackbearbbqavl.orders@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "0b8bea35-171a-449b-b18d-d45f99a4a43d",
+      "name": "Bloom Restaurant ",
+      "email": "nate@bloomrke.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "70019b5f-8b18-45f3-a96c-6026914014b1",
+      "name": "Bloomfield Deli + Catering",
+      "email": "sabrina@bloomfielddeli.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "70bb75de-a637-46f0-8d5a-4a36dc148557",
+      "name": "Bobby U’s BBQ",
+      "email": "bobbyusbbq@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "58af4209-01c0-41e5-aed0-e96a9d0d9cca",
+      "name": "Botte - Astoria",
+      "email": "astoria@bottecucina.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "a9822f03-a991-4c06-bce0-b13dacc4583b",
+      "name": "Botte - Brooklyn",
+      "email": "info@bottecucina.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "36142ac2-6fe4-4b22-ab60-601f2984966a",
+      "name": "Botte - UES",
+      "email": "ues@bottecucina.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "752fb7f6-7d75-4e09-ac87-416a8b28fb24",
+      "name": "Broasted Brothers - Plymouth",
+      "email": "timkokalis@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "41bd3847-3dc7-49bc-b00d-b91c956dc3b9",
+      "name": "Brooklyn Boys Pizza & Deli",
+      "email": "beruchyz@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "1e2ee4f7-51bb-4e7b-bc29-6e0c23af7bb8",
+      "name": "Brooklyn Dumpling Shop - Midtown",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "f1abc369-27cd-4a49-a432-0df5eacec420",
+      "name": "Brooklyn Dumpling Shop - UES",
+      "email": "alvin@brooklyndumpling.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "567a57eb-17b1-433c-bb46-48d7e373163e",
+      "name": "Brown Bag Sandwich Co",
+      "email": "gilli@brownbagny.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "95339b04-6f1d-4c7a-ac35-4955a9dfd5c3",
+      "name": "BurgerFi - Arlington",
+      "email": "lisa.berhanu@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "f647ba53-390e-4cf5-bc5b-9caaf40417fa",
+      "name": "BurgerFi - Bowie",
+      "email": "punamkhandpur@yahoo.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "af752a22-622e-4a59-9a33-2a976f563900",
+      "name": "BurgerFi - Boynton Beach",
+      "email": "jonathan@burgerfi.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "82648de2-b1fc-46ee-8551-d461e0c92d76",
+      "name": "BurgerFi - LBTS",
+      "email": "gcutie@burgerfi.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "68afa59c-82b1-4e49-b21b-a2dff8160743",
+      "name": "BurgerFi - O Town/Palm Parkway",
+      "email": "skaawach@yahoo.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "a96b77c2-9ffb-45fe-aa7a-22a86ce9b695",
+      "name": "BurgerFi - Pompano Beach Pier",
+      "email": "josephjkoury@yahoo.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "80cb21f2-275a-4dac-98a2-b0e95c07ea3a",
+      "name": "BurgerFi - St Johns Town Center",
+      "email": "gm_jacksonvilletowncenter@burgerfi.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "ddc862cc-78fe-494c-b461-e50c3d1157e7",
+      "name": "COPS",
+      "email": "jackson@eatcops.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "c08b87eb-1006-42ad-901b-9cc4f02f5fdc",
+      "name": "Cafe Landwer - Century City",
+      "email": "oscar@cafelandwerla.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "1c2df9c7-141d-40a8-a712-635e026f5155",
+      "name": "Cafe Landwer - Cleveland Circle",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "ea177c9e-25a1-4bd1-bf51-68cb51435bdd",
+      "name": "Casa Nono",
+      "email": "casanonox@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "e4c33bfc-8aa9-4b79-a6ea-acc3246fe51e",
+      "name": "Charlie’s Farm Market",
+      "email": "charliesfm491@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "776d00e0-a826-4cbd-a29f-1eab52a62245",
+      "name": "Chef Kenneth Clay ",
+      "email": "chefkennethclay@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "52bdfffe-68a5-43ed-a5a7-277c1daccfcd",
+      "name": "Chicas Tacos - Miracle Mile",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "d9073c43-ac9b-4950-9713-8cd6d4c7a5ed",
+      "name": "Club Sandwich",
+      "email": "hello@clubsandwichtivoli.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "47b2a215-2533-4bd0-9ada-aa297515902c",
+      "name": "Colette's Creations",
+      "email": "colettewilliams@southern.edu",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "ecf9bfdc-eb23-4ce4-b8c6-91ab14061cd5",
+      "name": "Colonial Ranch Market",
+      "email": "williamarms05@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "59da89e9-6b87-4a6f-9297-66fe38f1faf7",
+      "name": "Cookman Creamery",
+      "email": "cookmancreameryap@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "bed1392d-4e4f-465e-87e9-3ee2f24a6bc6",
+      "name": "Cotton’s Place",
+      "email": "cottonsplace@yahoo.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "14be4279-b234-40e9-9a03-9d0ade421440",
+      "name": "Crackin’ Yolks",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "3269312e-06c5-44f3-89fc-36b046d598e9",
+      "name": "Crispy Karma",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "f8d6237a-5fc7-4dca-98f0-0b705523546c",
+      "name": "Crum and Companie",
+      "email": "tom@crumandcompanie.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "3b7c7716-e128-4216-88ec-85736cae2c38",
+      "name": "Daily Chew Catering",
+      "email": "dailychewcatering@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "d8d27e83-a9b5-421f-b13b-611a3e316772",
+      "name": "Das Good Cafe ",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "770f731d-dbe0-42ef-89b7-499e2c91f584",
+      "name": "De Nada",
+      "email": "dmcclain@denadacantina.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "1e379942-9460-4cb3-bbf8-921177e98495",
+      "name": "Delco Rose Hoagies",
+      "email": "delcorosehoagies@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "d1875c3b-4115-4340-a936-7da4669e6d8a",
+      "name": "Deli-icious ",
+      "email": "deliiciouslajolla@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "8e9de986-4682-403e-99a4-b19055a92bb1",
+      "name": "Dinner Parties Do Good",
+      "email": "rebeccahsu7@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "86091c9b-e1d3-453c-96eb-be183ebf7c2f",
+      "name": "Doce Donut Co",
+      "email": "info@docedonut.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "bcc6ff2c-07f6-4f90-bc26-37e95b9caf68",
+      "name": "Donna Jean - San Diego",
+      "email": "sandiego@donnajeanrestaurant.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "11dfdac6-67cb-4289-ae79-e9fbcec59aa2",
+      "name": "East Wind Snack Shop",
+      "email": "eastwind471@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "d1d6454c-c923-44f6-80cb-decc93f568f5",
+      "name": "Eggstasy - Chandler",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "ba317e04-b341-4c31-b942-cd411bf8a2bf",
+      "name": "Eggstasy - Mesa",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "f718312a-03fb-4c63-895e-82ec09a8c843",
+      "name": "Eggstasy - Norterra Ctr.",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "188f682c-0cc4-44b7-a174-561ccecd797b",
+      "name": "Eggstasy - Queen Creek",
+      "email": "tawni@webeggtodiffer.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "49a5fa8d-9ea7-4353-a655-5a903358302e",
+      "name": "Eggstasy - Scottsdale",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "4ca9a6d4-4840-434c-8447-511a5a06d854",
+      "name": "Eggstasy - The Colony",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "d10052f1-0e36-47d1-8496-4fece29a0845",
+      "name": "El Burro",
+      "email": "elburropgh@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "be74639e-601d-4832-b794-37b3f22196cf",
+      "name": "El Mercado Mexican Kitchen",
+      "email": "info@elmercado-oc.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "01d5c182-e8ed-454a-beb5-fc8f1354b4f2",
+      "name": "FANTZYE",
+      "email": "elana@fantzye.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "66d75927-1cc8-4d00-9d1e-4f625cd2f547",
+      "name": "Fat Boy's Pizza - Covington",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "d2ea1a1f-b0a5-4b00-afc5-bc25752b57d6",
+      "name": "Fat Boy's Pizza - Fort Wayne",
+      "email": "dean@slider-boys.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "754705a3-d7da-49db-bc44-a7c3d2905dc0",
+      "name": "Fat Boy's Pizza - Harvey",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "a8902c33-78c4-4c74-bebb-3cff826c646b",
+      "name": "Fat Boy's Pizza - Metairie",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "1c8e3287-7d15-4c8f-b238-fd68be7c011b",
+      "name": "Fish Cheeks",
+      "email": "morgan@55hospitality.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "0943bf4d-ad2f-4ef3-b063-063030c6de38",
+      "name": "Fotinis Fit Fuel",
+      "email": "thomasfotinis@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "fedad06c-0720-44fa-be94-02e2553c8d1e",
+      "name": "Franco's Italian Restaurant",
+      "email": "apollos4557@yahoo.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "b66136e0-b683-41ce-9061-21d0f6f18113",
+      "name": "GERTIE",
+      "email": "emily@gertie.nyc",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "020c7411-1634-4700-b4fd-b4938442afbe",
+      "name": "General Tso's",
+      "email": "a.fusioncafe@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "dfc2c8e4-03d3-47c4-aad5-4ed5eb7e73da",
+      "name": "Gnocchi on 9th - East Village",
+      "email": "catering@gnocchinyc.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "6bfd9d8f-3070-4a17-8051-4d82d4ba0633",
+      "name": "Good&Fantzye",
+      "email": "eat@goodfantzye.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "cc006ff3-9013-47ec-a88f-d57886fd14eb",
+      "name": "Gordito's Burritos",
+      "email": "dleporini@foodconciergeco.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "4fe8f1c6-9abb-4f76-a2cb-32adfaecfdc6",
+      "name": "Green Tomato Grill",
+      "email": "kyle@greentomatogrill.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "d01c1ee9-044a-486b-9f5b-85a3cb6d8a7d",
+      "name": "Green Wrap Eatery",
+      "email": "gwrapeatery@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "e68bb428-2136-4d73-9471-f9fad0ab3c03",
+      "name": "Habana Cuba Restaurant",
+      "email": "jennifer@998cuba.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "31c6a621-28ad-46db-9a87-f82bd01d0e32",
+      "name": "Happy's Pizza - Port Huron ",
+      "email": "store042@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "78c5d87c-a460-43d7-b9e4-da79dd2a98de",
+      "name": "Hatch 44 Cafe - Bradley Beach",
+      "email": "lobospr99@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "602bc62b-06de-47f8-896a-cad6e951d98a",
+      "name": "Hatch 44 Cafe - Metuchen",
+      "email": "hatch44cafe@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "f3afe471-08b1-47ee-a121-95cd554408ea",
+      "name": "Hearthly Burger - Shrewsbury",
+      "email": "chris@hearthlyburger.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "7d284d58-c9ab-4279-919b-cedcda27b114",
+      "name": "Hello Halloumi",
+      "email": "alex@hellohallouminyc.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "853a9b23-3626-4126-8804-1b07ade7756e",
+      "name": "Hoboken Pie",
+      "email": "catering@hobokenpie.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "d8916675-b403-4035-87d8-0f3629f83b99",
+      "name": "Howlin' Willy's - Druid Hills",
+      "email": "catering@willys.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "2b49792b-2e3e-4e9c-87c7-613da21af59c",
+      "name": "Howlin' Willy's - East Cobb",
+      "email": "oneshia@willys.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "fcc7c70d-32b7-41a0-a1c9-f16951f7481d",
+      "name": "Howlin' Willy's - Hapeville",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "840dcb21-c6d5-44d2-b718-e6f5b3df69fb",
+      "name": "Huckaby's Smokehouse",
+      "email": "triplecfoodie@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "dacacc8f-8b7c-40d2-8fe7-d1cda02315ae",
+      "name": "Hungry House",
+      "email": "catering@orderhungryhouse.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "fc29f1ae-ef76-4d56-845e-2efd15adc7c0",
+      "name": "Industry - Austin",
+      "email": "eddie@industrytx.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "3e00758b-4fc0-43a2-bd3a-77955ba756ab",
+      "name": "Industry - San Marcos",
+      "email": "info@industrytx.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "31d0d046-ad5f-4ab1-be90-8483fc9bd2a0",
+      "name": "Inga's Alpine Tavern",
+      "email": "info@ingasalpine.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "f7aff310-27ee-495b-a1b0-8d71442e1518",
+      "name": "Isle of Us",
+      "email": "lisle@isleof.us",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "6e4b3828-d96f-4975-aa92-47fb0e3821e2",
+      "name": "John's Place",
+      "email": "jmanilow@att.net",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "f630672f-5e31-4a44-83a4-0271db1733aa",
+      "name": "Johns Cracker Barrel",
+      "email": "pcpierrecruz@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "4e675698-6882-4816-a3ce-c437af967495",
+      "name": "Julio's Pizza Co. – Atlantic Highlands",
+      "email": "heyitsjulios@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "44f125ae-7c43-4a8c-b2e8-d348f591af5c",
+      "name": "Julio's Pizza Co. – Keansburg",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "666ef413-1d42-496f-9cde-1d890737e3f6",
+      "name": "Junbi - San Francisco",
+      "email": "sanfrancisco@junbishop.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "4cc15dd7-5b13-4808-af3b-b7862af3cbfb",
+      "name": "Katz's Delicatessen",
+      "email": "catering@katzsdelicatessen.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "872d4c9f-6486-4304-ae44-7aaada09dd30",
+      "name": "Keep It Sweet Desserts",
+      "email": "lauren.c.lilling@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "50132136-6008-445b-8c8f-c683ab705128",
+      "name": "Kipos Greek",
+      "email": "contact@kiposgreek.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "bdf5b80c-29bb-4fb2-84e6-9c18bf8aee5b",
+      "name": "Kneaded by Lady J",
+      "email": "kneadedbyladyj@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "a2010d86-3abc-43bc-973d-5c1387e0cef2",
+      "name": "Krewe De Fromage",
+      "email": "krewedefromage@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "2231d163-eb41-4d23-8cd9-ab5238d82cc3",
+      "name": "Krewe of McGinley Square",
+      "email": "hank@hankmorris.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "ea088dbc-d45f-4709-993d-9660550db6fb",
+      "name": "Lazy Daisy Beverly Hills",
+      "email": "info@lazydaisybeverlyhills.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "f4fe7c19-667a-44de-bd4e-635bb5ad6eca",
+      "name": "Lechon Loco",
+      "email": "geroldcastro76@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "55e1ee63-91dd-49fc-b090-8e7334d2fa8d",
+      "name": "Lil' Easy",
+      "email": "mark@rizzos.net",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "ecc9a6e7-61e0-4808-98ba-3e43574a32af",
+      "name": "Little Chef Little Cafe",
+      "email": "events@littlechefnyc.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "51c8f90a-bf9c-4ea0-8b83-ebcb47a9ead9",
+      "name": "Little Egg",
+      "email": "info@eggrestaurant.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "addc4871-8f98-451b-824f-26b58c426795",
+      "name": "Local Pig",
+      "email": "localpig@thelocalpig.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "855250be-d3b1-4932-9c72-2f5ffc52e50b",
+      "name": "Local Smoke BBQ - Cookstown",
+      "email": "justinh@localsmokebbq.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "f9183a92-57c9-44c3-a9f7-42ed2fd1818b",
+      "name": "Local Smoke BBQ - Neptune City",
+      "email": "robertw@localsmokebbq.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "b56b06c5-4ead-4e68-a26c-6e4ff0f82a23",
+      "name": "Local Smoke BBQ - Red Bank",
+      "email": "lizbethm@localsmokebbq.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "e3494c25-13be-4cf8-aef7-b32b6e88e2c1",
+      "name": "Local Smoke BBQ - Sea Girt",
+      "email": "bryce@localsmokebbq.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "9ef76d84-4301-44d0-bd87-1a03ab6a0f5c",
+      "name": "Luna Verde Vegan Mexican Restaurant",
+      "email": "veganlunaverde@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "f25b21f9-716d-43f7-ae21-ce6a0e81939b",
+      "name": "Lunetta",
+      "email": "catering@lunettasm.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "5a71f537-14af-4db3-a355-11c188cbd758",
+      "name": "Maciel's Plant-Based Butcher & Deli",
+      "email": "joe@macielsplantbutcher.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "e2e1d8ad-6d72-49f5-93e0-ad3504475797",
+      "name": "Marcel Bakery and Kitchen",
+      "email": "eric.william.maury@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "bf8ad038-1a3f-4075-8fcc-35e40e587b0c",
+      "name": "Maíz Catering",
+      "email": "maiz.portland@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "f7fc4e70-57be-4414-8030-c43dda6f444f",
+      "name": "Mekelburg's ",
+      "email": "lee.saltz@mekelburgs.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "6a8f8d99-5102-4af6-b280-c763567aae86",
+      "name": "Memphis Seoul",
+      "email": "info@getmemphisseoul.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "38d3a921-4fb4-4356-ab19-31cec0a233cb",
+      "name": "Mi 'N Tea",
+      "email": "meetme@mi-n-tea.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "68cfeaac-4aac-4c1d-ae13-0ae9e29db0c3",
+      "name": "Miss Ada",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "76f854f0-7fe8-4edf-a60c-790c0fd22434",
+      "name": "Moaaz Mediterranean Grill",
+      "email": "saidk15@yahoo.co.uk",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "72559a85-50ef-4293-8484-256d7ec3335a",
+      "name": "Moonburger Brooklyn",
+      "email": "mwilliams@moonburger.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "8a7bb6f5-25fd-4672-b75c-e2912620116e",
+      "name": "Morning Squeeze",
+      "email": "tom@webeggtodiffer.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "1654aa32-03d3-4b8c-b2ee-17599e145d89",
+      "name": "Motorino",
+      "email": "info@motorinopizza.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "e17118c1-bb26-4720-9725-6c8448c804f7",
+      "name": "Mr. M's Sandwich Shop",
+      "email": "admin@brandedgoodsonline.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "b42dd2c2-2b89-4bca-96b3-91de850113ec",
+      "name": "Namkeen - Brooklyn",
+      "email": "aunchoudhary786@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "f2c77622-ba17-4724-b196-f4a8cb1bf0f4",
+      "name": "Namkeen - Chatham",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "86468e0c-0af1-41ed-898c-920d0e7b597f",
+      "name": "Namkeen - Lake Hiawatha",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "cedcfda2-aec3-41f7-bb56-38876a8667ad",
+      "name": "Namkeen - Metuchen",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "61250a17-f437-43c9-9c9f-992ac2c91549",
+      "name": "Namkeen - Union",
+      "email": "kishan.patel.1996.348@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "cc7b656b-1ab8-40bb-8c98-b985b497a8fb",
+      "name": "Nina & Rafi",
+      "email": "jeremy@ninaandrafi.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "79adde42-639c-442b-8e31-781e3003b5c9",
+      "name": "Northside Inc. Cafe",
+      "email": "bschmid@northsidedc.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "c4239680-b664-4f8b-b597-a4a7d5614b3a",
+      "name": "Osteria",
+      "email": "osteriabrooklyn@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "d15f7b7e-7706-4a3e-8173-2546c8cd40dd",
+      "name": "Panatieri's Pizza & Pasta of Flemington",
+      "email": "panatieris.flemington@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "c4d87805-18f1-4dd8-ab13-8e666b2df290",
+      "name": "Pancho LS",
+      "email": "reynolds.m32@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "e6b22697-d8a4-4bbd-bef4-197dd851db00",
+      "name": "Pastosa Ravioli - Manasquan",
+      "email": "manasquan@pastosa.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "0a889051-3e7e-4b4d-a760-a8767153cd34",
+      "name": "Pecking House - Chinatown",
+      "email": "peckinghouse@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "29f6688e-ee59-4226-af9f-8525c53fd8ec",
+      "name": "Pelons Tex Mex",
+      "email": "lauren@pelonstexmex.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "27e20709-bb8f-4a18-8720-1fda18c0f945",
+      "name": "Pete's Bagels - St. Pete",
+      "email": "erica@petesgeneral.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "987c6e9d-3a6a-4101-a207-fe8ab1702c2d",
+      "name": "Pete's Bagels - Ybor",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "d7e305da-e0e6-4947-9657-4de1f73d4208",
+      "name": "Pie Girl",
+      "email": "piegirlnj@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "8c6237db-a1ab-43f8-8650-82a58025f1e2",
+      "name": "Pine and Crane DTLA",
+      "email": "dtla@pineandcrane.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "45967e84-3aa5-42a2-888e-dd1062b14b66",
+      "name": "Pismo Fish and Chips",
+      "email": "pismofishandchips@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "b8d7e273-3cd1-4827-bd38-ed99c215f6f4",
+      "name": "Pismo's Coastal Grill",
+      "email": "michael@pismos.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "66bd4561-9558-416f-a6a0-854357d2ec96",
+      "name": "Pita Pit - Kent",
+      "email": "sherrie@thenccgroup.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "6664c604-c440-4dea-9dee-28a7e8810801",
+      "name": "Pixlcat Coffee - Mid Market",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "beafc22e-68dc-443c-a8a5-81dca1779c01",
+      "name": "Pizza Heaven",
+      "email": "507pizzaheaven@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "c2e1e477-29b4-4558-b9a6-ca811bf7096e",
+      "name": "Plum Caterers",
+      "email": "plumcaterers@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "d7e9296e-eabf-41ec-850f-ae951f9871ff",
+      "name": "Point Lobster Co",
+      "email": "jake@pointlobster.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "760d6c2f-ea51-42d8-9b35-1d98e2759735",
+      "name": "Pollen Basket",
+      "email": "hello@pollenbasketcafe.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "906191fd-e6df-4ff2-ae72-184d2b9c66c5",
+      "name": "Purslane",
+      "email": "nhojel@theoberon.co",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "133fd459-b3b4-4013-a281-c7474516058c",
+      "name": "Purslane x Milk Bar",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "147599e9-bc77-4b95-9045-8814813495e4",
+      "name": "Railroad BBQ",
+      "email": "bgray3128@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "0eff5d05-b021-4171-b856-fb80050a908b",
+      "name": "Rice N Spice",
+      "email": "ricenspicethaitaste@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "7ce53dc5-6f6e-499f-b13b-5bf51f774abe",
+      "name": "Rinconcito DOMEX",
+      "email": "aruiz@rinconcitodomex.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "9cce421e-fffb-4919-ac69-bd8a5bcf75ff",
+      "name": "Rock n Roots",
+      "email": "rocknrootseatery@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "caec6029-135a-4aa5-9866-38356f3955e1",
+      "name": "Rooted Cafe & Catering",
+      "email": "catering@rooted-cafe.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "6b9d5c5b-0f2e-41a8-8323-0ed5d67e9086",
+      "name": "Salad House ",
+      "email": "jarrod@thesaladhouse.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "8423cd0f-8c6c-464d-bf03-1d5637cc19e1",
+      "name": "Sandy Hook Seafood",
+      "email": "order@sandyhookseafood.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "731539fb-de2e-47b3-85ae-7192a20ddbd1",
+      "name": "Savvy Sliders - Covington",
+      "email": "bwigglesworth@eatfatboyspizza.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "d1eb0a1b-a1dd-4b17-924e-2fe2efc60f9f",
+      "name": "Savvy Sliders - Dallas",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "2d067273-2abe-40a3-b8c1-bf46223a3b73",
+      "name": "Savvy Sliders - Detroit (Midtown)",
+      "email": "amit.klass@savvysliders.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "b956e932-1b35-4c30-ac96-bffd8f8c316f",
+      "name": "Savvy Sliders - Fort Wayne",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "adf5d7c2-cb9d-4c15-9b99-a3fded7d3efc",
+      "name": "Savvy Sliders - Fraser",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "a9c6d8e2-301f-4341-8aa0-40c3518a3c97",
+      "name": "Savvy Sliders - Harvey",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "8236e59e-5761-435c-ac7f-19f375c524d7",
+      "name": "Savvy Sliders - Metairie",
+      "email": "brad@eatfatboyspizza.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "6590181f-f914-41bc-ad41-aa105a3889d3",
+      "name": "Savvy Sliders - Oak Park",
+      "email": "joe.wojnarski@savvysliders.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "fb115bce-a4af-4fa8-a6d6-27f85a72f3b1",
+      "name": "Savvy Sliders - Port Huron",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "c634b37e-d2ff-4a8f-94ed-6f34bc51b783",
+      "name": "Savvy Sliders - San Antonio",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "1464ab45-8b64-4f78-a634-6730bbe30bd3",
+      "name": "See No Evil Pizza",
+      "email": "adrien@alldayyes.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "223c0ab5-c34a-4abc-aaae-087ce035c58a",
+      "name": "Seymour's",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "c707d99e-7cb0-4ac2-a4c2-62bb747e8870",
+      "name": "Shine Provisions",
+      "email": "zshine00@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "f979249c-72ae-42e5-9656-b50373420bd0",
+      "name": "Shore Good Eats",
+      "email": "booking@shoregoodeats.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "8612519b-0c67-4da0-9f44-39cfe7452e13",
+      "name": "Signature Fitness",
+      "email": "asfeldi@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "7062135b-6bc5-49ed-b97f-df9de350f3a0",
+      "name": "Sigri",
+      "email": "uyadav@eatsigri.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "47b3b5bc-9ed5-4c35-9271-4aae9f6b9dfd",
+      "name": "Slate Cafe",
+      "email": "catering@slatecafe.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "197ff8ab-a2d3-451b-ba89-dc90c3ae2b27",
+      "name": "SmackBird Chicken - North Dallas",
+      "email": "sboyett@cowboychicken.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "d0d4dca4-b58a-494a-a37a-e759d7023772",
+      "name": "SmackBird Chicken - Overton",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "639cd82d-cec2-4464-8a5f-7c5beaebcc5f",
+      "name": "Smokies Craft BBQ",
+      "email": "smokiescraftbbq@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "b4acebdb-7295-4870-af0d-1b29383449a6",
+      "name": "Something Green",
+      "email": "elliot@somethingreen.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "2156d12f-96bb-4b1d-9339-99fbfdbfd853",
+      "name": "Son del North - LES",
+      "email": "abochetto@sondelnorth.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "2c39c942-d21b-43ec-b086-691760cb290d",
+      "name": "Son del North - West Village",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "561fb1e9-8794-4e15-a5ad-90bce5610996",
+      "name": "SouzaFit - Hoboken",
+      "email": "info@souzafitrestaurant.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "035f1f94-d493-4381-99cf-0dfe5a32c776",
+      "name": "Springbone Kitchen",
+      "email": "info@springbone.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "9d918415-8712-4a03-8bb1-a0b9f5e20b51",
+      "name": "Stacks & Cordials - Clawson",
+      "email": "stacksncordials@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "26ef6512-0581-4b45-8c54-810103284a88",
+      "name": "Stacks & Cordials - Royal Oak",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "7159e4b8-0b6c-45f6-8425-27eb5c744502",
+      "name": "Starvin' Arvin's Catering",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "6ab75b4f-edf4-4b16-ab75-fd0690de8ea1",
+      "name": "Strange Delight",
+      "email": "ap@oysterdisco.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "9d54553f-98bb-4289-9953-6bcae143edce",
+      "name": "Supernatural",
+      "email": "wesleyroderick@icloud.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "d150a80d-e88f-4936-8259-cf5bef0785ae",
+      "name": "Surf Taco - Lacey",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "c3f2e62f-5a76-4a6f-b6de-3cc858b4e81e",
+      "name": "Surf Taco - Long Branch",
+      "email": "brianh@surftaco.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "90104ec3-9713-4a1d-bb90-25362266842f",
+      "name": "Surf Taco - Manasquan",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "140bbdbb-fd95-4bff-9379-b6926ccb8f50",
+      "name": "Surf Taco - Point Pleasant",
+      "email": "marissa@surftaco.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "5883ed95-d7c6-4c5a-b0da-a9ab02b6addf",
+      "name": "Surf Taco - Red Bank",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "c9080d63-d875-4dcf-8216-d34eb46be2c8",
+      "name": "Surf Taco - Silverton",
+      "email": "vsanchez@surftaco.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "946e86f1-0cf3-4706-b985-4a5c7f75f211",
+      "name": "Surf Taco - Wall",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "96e03a5d-fc4f-45ea-a836-858f00cf1989",
+      "name": "Sweet Chick - LES",
+      "email": "info+2@familymeal.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "f45c3e57-664b-4760-9051-fe95717951bc",
+      "name": "Sweet Chick - Long Island City",
+      "email": "catering@sweetchicklife.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "e5bf4b04-6df2-4598-876c-32198a0df6c2",
+      "name": "Sweet Chick - Prospect Heights",
+      "email": "info+3@familymeal.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "bd974dd6-3c93-4092-831e-8cbaccb73573",
+      "name": "Sweet Chick - Union Square",
+      "email": "info@familymeal.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "8316170c-5b34-499d-ad5f-013f0a1f3a87",
+      "name": "Sweet Chick - Williamsburg",
+      "email": "info+1@familymeal.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "2a41260e-7d69-400a-82da-ca55a21fb9b0",
+      "name": "Taim - Broadway",
+      "email": "1372broadway@taimkitchen.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "9921339a-c3f2-4089-ab03-1770fda0fa5d",
+      "name": "Taim - City Spire",
+      "email": "rmanson@craveworthybrands.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "cc260670-20f6-48a0-a051-2367aacb3396",
+      "name": "Taim - Dupont Circle",
+      "email": "dupontcircle@taimkitchen.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "6c0e6c51-7449-4745-8b8d-9035829d510e",
+      "name": "Taim - FIDI",
+      "email": "maidenlane@taimkitchen.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "89255708-f0af-41bd-9f1e-01a863aa07a3",
+      "name": "Taim - Fresh Meadows, Queens",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "7e6d3fc6-686c-4166-8104-2588197d9c37",
+      "name": "Taim - Hoyt",
+      "email": "claudia@craveworthybrands.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "8a76bb6c-9d21-4b1c-9b05-88ca3a760bf2",
+      "name": "Taim - LIC / JACX&CO",
+      "email": "jacx@taimkitchen.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "40f1453c-8d3b-44a8-8831-a041f87909d6",
+      "name": "Taim - Nolita",
+      "email": "nolita@taimkitchen.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "21e4c809-e932-4713-9d98-28b089d6cfd9",
+      "name": "Taim - Park Slope",
+      "email": "parkslope@taimkitchen.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "5ca70757-d75e-4472-baf3-0fd9b1d1848f",
+      "name": "Taim - Plainview",
+      "email": "plainview@taimkitchen.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "7d1314cd-1178-4e18-8d57-02ca42823269",
+      "name": "Taim - West Village",
+      "email": "gkeown@craveworthybrands.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "c9f91109-08e0-43d0-9bc8-cc3145d69c65",
+      "name": "Tap 42 - Aventura",
+      "email": "megan@tap42.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "c773ab12-2bbc-4678-853b-fa1487aa03d0",
+      "name": "Tap 42 - Boca Raton",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "a815323a-48b3-4778-963a-9ec351d0608e",
+      "name": "Tap 42 - Coral Gables",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "29a1d258-5273-4746-b55d-3955758a9734",
+      "name": "Tap 42 - Coral Springs",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "4fdcd7ef-f214-48b5-9cdc-0e3d24ac19ec",
+      "name": "Tap 42 - Davie",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "8b68cae4-55a5-4f05-9c6f-5383f11d77fc",
+      "name": "Tap 42 - Doral",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "61a6091b-caf7-42d7-ac32-f176dc7c27c5",
+      "name": "Tap 42 - Fort Myers",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "57a9e421-686e-4159-ac78-31085420fa21",
+      "name": "Tap 42 - Ft Lauderdale",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "0568c9cf-2074-4455-8dea-cc16e7858245",
+      "name": "Tap 42 - Kendall",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "66eb3936-b529-47c7-8b5e-3195a7791d17",
+      "name": "Tap 42 - Miami",
+      "email": "alex@tap42.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "7bb4735b-119f-477e-9de6-dbbc79f58d07",
+      "name": "Tap 42 - Naples",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "1a22dd6a-4fb3-4803-955e-9efeba2e2251",
+      "name": "Tap 42 - Palm Beach Gardens",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "831e3c2e-855a-4925-8919-2b463bf4cb63",
+      "name": "Taqueria Al Pastor - Bushwick",
+      "email": "catering@taqueriaalpastor.nyc",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "e49197f1-64f2-4cd3-b769-273e9056da25",
+      "name": "Tasty Dawg",
+      "email": "gfox037@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "17a4f456-b802-473c-a04a-04dcac866286",
+      "name": "Tasty Dawg",
+      "email": "teddybearstable@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "1eef42de-e410-4769-8af5-c1d267851a79",
+      "name": "Teranga",
+      "email": "noah@itsteranga.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "73a401e6-2733-4715-9ca9-b2edcb44836f",
+      "name": "The Biz Catering",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "c6258978-adac-4f41-9b56-f7b6ef379a99",
+      "name": "The Commons Chelsea",
+      "email": "sam@thecommonschelsea.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "739bc2d3-fcf3-4c87-904b-2757dfe4774e",
+      "name": "The Corner Street Taco Bar",
+      "email": "thecornerstreettacobar@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "96cd6980-b4c4-4f93-8239-22631930edf7",
+      "name": "The Eatery of Wallingford",
+      "email": "jon@wallingfordeatery.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "370a4ded-6a82-4f66-97b9-9a821ddd915b",
+      "name": "The Juice Standard",
+      "email": "catering@juicestandard.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "cee78f21-8ad6-4cf2-b9f8-f4249d6f90d5",
+      "name": "The Onion Tree - Sea Cliff",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "6de3d1d7-ebab-49ce-9b9d-f28d12327a9b",
+      "name": "The Pink Waffle",
+      "email": "thepinkwaffleme@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "941c9eab-8f58-49ad-8332-c8d73fac984c",
+      "name": "The Potato Concept",
+      "email": "thepotatoconcept@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "36cda559-452f-4b54-9c5d-202bae55d6d0",
+      "name": "The Smoky Cottage",
+      "email": "saltandsmoke@familymeal.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "a964a352-2e98-440e-8cd3-8af7a72ab39b",
+      "name": "The Speakeatery",
+      "email": "thespeakeatery@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "c15614db-ceb0-4d1f-9fad-47ac8f73651e",
+      "name": "The Tattooed Pig - Aston",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "91067a15-0173-4541-95dd-deca007b111d",
+      "name": "The Tattooed Pig - Media",
+      "email": null,
+      "role": null
+    },
+    {
+      "ref": "95fe4ac3-8a2f-45c4-b255-ef4f26b6ec81",
+      "name": "Thea Bakery",
+      "email": "info@missadanyc.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "63d96c4d-761a-439f-bf95-9b6043986b6b",
+      "name": "Three Dollar Cafe - McDonough",
+      "email": "chauncy@threedollarcafe.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "2d642782-4ef4-4029-b7f2-de24a47f950f",
+      "name": "Three Dollar Cafe - Stockbridge",
+      "email": "chauncy@threedollarcafe.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "994a132d-b35d-427f-b57a-07d0880c85da",
+      "name": "Tinga Fresh Mexican",
+      "email": "davidfishman321@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "8e542c81-fa92-4cb8-bb12-ff9b737d4087",
+      "name": "Tings Things Food Truck",
+      "email": "tingsthingsco@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "876ceb3f-d651-49aa-b8e2-f8589fb39fc6",
+      "name": "Tipsy Cafe & Catering",
+      "email": "tipsycafeandcatering@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "04147a99-4f68-481a-aac7-933c8ef67d02",
+      "name": "Toast & Taste Catering",
+      "email": "hello@partyonthe.rocks",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "d265cc7c-a251-4015-88ef-d09bf84a9a88",
+      "name": "Trattoria Moderna Italian Catering",
+      "email": "dleporini@foodconciergeco.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "c8447ce0-c4b9-4d66-ab31-c676df8bb21b",
+      "name": "Ugly Duckling",
+      "email": "info@uglyducklingmaine.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "3938f480-0b55-4d16-b586-908115553b9c",
+      "name": "Urban CoalHouse - Brick",
+      "email": "clombardi@urbancoal.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "1d7e9a99-37ed-4986-b19a-5d6ac32e06ed",
+      "name": "Urban CoalHouse - Hoboken",
+      "email": "clombardi@urbancoal.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "144d2786-88f5-499f-919e-cab20a5401e9",
+      "name": "Urban CoalHouse - Red Bank",
+      "email": "clombardi@urbancoal.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "1acab412-b3e0-44de-91b1-f01cc49bd7f0",
+      "name": "Utopia Bagels",
+      "email": "midtown@utopiabagels.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "d6a90372-7931-4ba0-a2ef-d448c3777e25",
+      "name": "Veselka",
+      "email": "sarah@veselka.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "119870c4-30f6-49c5-8e1c-897696c3bedc",
+      "name": "Vesti",
+      "email": "shane@eatvesti.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "ba06ace8-8bc2-494d-b7e7-1002b24c5d80",
+      "name": "WannaBee Chef",
+      "email": "wannabeechef@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "1c2d6427-1b06-43ef-a109-e251992971c2",
+      "name": "Wax Paper - Frogtown",
+      "email": "catering@waxpaperco.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "cab3a831-e8a6-4f90-9a48-b8dd7359e12a",
+      "name": "West Hill Deli",
+      "email": "geroldcastro76@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "6c3df4ba-2de5-46bc-8207-a47731956ffc",
+      "name": "Westwoods BBQ & Spice Co.",
+      "email": "josh@fanslerrestaurantgroup.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "4b4aa9a9-1972-4c42-8b5e-7c276250bc90",
+      "name": "Willa's",
+      "email": "hi@willastampa.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "5fb5cfce-3f70-43f1-8399-fc2f52a61016",
+      "name": "Winfield Street Coffee - Croton",
+      "email": "bdonatti@winfieldcoffee.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "18d74768-f6fd-4e70-a5f5-f2ff8a47fa01",
+      "name": "Winfield Street Coffee - Naples South",
+      "email": "bdonatti@winfieldcoffee.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "6ce3636c-0b33-40fb-bba9-d05c382d4511",
+      "name": "Winfield Street Coffee - New York City",
+      "email": "bdonatti@winfieldcoffee.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "544ca778-96c2-4d6b-bc63-d18c2dd627cf",
+      "name": "Winfield Street Coffee - Rye",
+      "email": "bdonatti@winfieldcoffee.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "dc5d3f5f-5613-46c3-a110-e909b3c70168",
+      "name": "Winfield Street Coffee - Stamford",
+      "email": "bdonatti@winfieldcoffee.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "35781c2a-ce41-47a2-abf3-01661022cde9",
+      "name": "Winfield Street Coffee - Westport",
+      "email": "bdonatti@winfieldcoffee.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "7d5aa38b-70d8-4faa-ab3d-18a001587243",
+      "name": "Yosemite Ranch",
+      "email": "josh@fanslerrestaurantgroup.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "780e32c9-33dd-4ee0-829b-ea72a0b8907d",
+      "name": "Zutto - Nolita",
+      "email": "zuttonyc@gmail.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "7f8657c5-368a-4841-adbb-363a2030d1c3",
+      "name": "eléa",
+      "email": "nadia@eleanyc.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "f00dc9d9-57d4-4363-8bac-2d604844a89a",
+      "name": "oomi kitchen",
+      "email": "markus@gokrave.com",
+      "role": "SYSTEM_ADMIN"
+    },
+    {
+      "ref": "3921a66d-0850-40b5-aaef-b8d92e91d413",
+      "name": "rhk marketplace",
+      "email": "redhookkitchenette@gmail.com",
+      "role": "ADMIN"
+    },
+    {
+      "ref": "13eb0573-03cc-4ce4-ae3b-e910adc92e41",
+      "name": "Ánimo!",
+      "email": "mark@animonyc.com",
+      "role": "SYSTEM_ADMIN"
+    }
+  ],
+  "groups": [
+    {
+      "email": "shaun@3pepperburrito.com",
+      "viaName": "3 Pepper Burrito Co. Estero",
+      "slug": "3pepperburrito",
+      "name": "3 Pepper Burrito Co.",
+      "numberOfLocations": 9,
+      "restaurantReferences": [
+        "97a86475-ec10-4590-a2a9-ea358004735b",
+        "9ea35001-2d8a-437e-8586-4a619d6118eb",
+        "dfe218bb-ec18-4620-9a8a-91fa9b90cb0c",
+        "5e35c2c0-f1fc-49d9-a487-7e41648d09ab",
+        "c9f909fa-9494-4e96-b01c-4337db6e7120",
+        "c02f541a-8ee8-4e73-881d-72dd8a553629",
+        "a4221571-85f2-4416-b634-7f98e3e2d6f2",
+        "72f5d6e0-f460-4c29-8073-1c809798269f",
+        "16a0ed89-fbd6-484f-a4e7-88cce9e66a44"
+      ]
+    },
+    {
+      "email": "yum@3pepperburrito.com",
+      "viaName": "3 Pepper Burrito Port Charlotte",
+      "slug": "3pepperburrito",
+      "name": "3 Pepper Burrito Co.",
+      "numberOfLocations": 9,
+      "restaurantReferences": [
+        "97a86475-ec10-4590-a2a9-ea358004735b",
+        "9ea35001-2d8a-437e-8586-4a619d6118eb",
+        "dfe218bb-ec18-4620-9a8a-91fa9b90cb0c",
+        "5e35c2c0-f1fc-49d9-a487-7e41648d09ab",
+        "c9f909fa-9494-4e96-b01c-4337db6e7120",
+        "c02f541a-8ee8-4e73-881d-72dd8a553629",
+        "a4221571-85f2-4416-b634-7f98e3e2d6f2",
+        "72f5d6e0-f460-4c29-8073-1c809798269f",
+        "16a0ed89-fbd6-484f-a4e7-88cce9e66a44"
+      ]
+    },
+    {
+      "email": "sales@almosthomecoffee.com",
+      "viaName": "Almost Home – Lincroft",
+      "slug": "almosthome",
+      "name": "Almost Home",
+      "numberOfLocations": 4,
+      "restaurantReferences": [
+        "8966f05b-790f-4737-8930-49d4ba276bdd",
+        "b328a7b1-59ff-4a63-8d37-ae6a2d789c40",
+        "5dc6caef-a0d5-4099-befb-090a196047b1",
+        "6ab74a61-ca30-4a4e-89bf-dab2fc56bfc6"
+      ]
+    },
+    {
+      "email": "taylor@apollobagels.com",
+      "viaName": "Apollo Bagels - Midtown",
+      "slug": "apollobagels",
+      "name": "Apollo Bagels",
+      "numberOfLocations": 9,
+      "restaurantReferences": [
+        "cc2a73bf-9384-4523-90a7-5d0f0b917a42",
+        "cd100520-b2f1-40b4-9f58-ea06d8cd2e4c",
+        "632c781f-2a79-41ee-9cdb-a710aa89cad9",
+        "da6d7d02-91bb-4087-b408-02dda2998b8a",
+        "b14c6ccf-d7d4-47ac-b628-db3770881a6b",
+        "864671d9-7ac5-4f2c-81fa-6e8726854107",
+        "f4112807-6681-44db-b1d4-9b21b0e99fed",
+        "83487cf2-d592-4f04-a1fe-a1b969a6c48b",
+        "fc81b2bc-f148-4146-895c-213db34083a3"
+      ]
+    },
+    {
+      "email": "rubi@backyardbowls.com",
+      "viaName": "Backyard Bowls - Santa Monica",
+      "slug": "backyardbowls",
+      "name": "Backyard Bowls ",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "15d3780d-9a25-4ecc-af25-2dffe9d92992",
+        "5f8e5496-f053-4cb4-8c5c-4c9a3f0c1742"
+      ]
+    },
+    {
+      "email": "nybk30@gmail.com",
+      "viaName": "Bagel Point - Brooklyn",
+      "slug": "of1kz3",
+      "name": "Bagel Point",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "aaa36344-9331-4a84-9c33-1764a4e6ec4f",
+        "961ea996-b757-4835-b0b4-3133b8115336"
+      ]
+    },
+    {
+      "email": "samanthastoll112@gmail.com",
+      "viaName": "Barons Bagel's - Brick",
+      "slug": "baronsbagels",
+      "name": "Barons Bagel's - Point Pleasant ",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "171b5f5e-b8cc-4f51-9631-8bbff001f572",
+        "1f1dcfca-99ca-4017-b34f-4a1cd95cbd2e"
+      ]
+    },
+    {
+      "email": "sonia@bertolones.com",
+      "viaName": "Bertolone's",
+      "slug": "hd5cmf",
+      "name": "Bertolone's",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "526c5ef1-8d5f-4ac5-995d-3134b549197a"
+      ]
+    },
+    {
+      "email": "bgelardi1@gmail.com",
+      "viaName": "Best Pizza - Williamsburg",
+      "slug": "nwrwwf",
+      "name": "Best Pizza - American Dream",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "f7c42fe3-e0c1-4a12-8525-b2a0124aa6cc",
+        "38dfdbc2-93c3-4df5-adc1-94083940cb51"
+      ]
+    },
+    {
+      "email": "bobbyusbbq@gmail.com",
+      "viaName": "Bobby U’s BBQ",
+      "slug": "z1syjb",
+      "name": "Bobby U’s BBQ",
+      "numberOfLocations": 3,
+      "restaurantReferences": [
+        "70bb75de-a637-46f0-8d5a-4a36dc148557",
+        "6a190f80-8f9a-4315-94a0-830de982b992",
+        "0b1de482-1988-4d6b-957d-5c537aaa283b"
+      ]
+    },
+    {
+      "email": "timkokalis@gmail.com",
+      "viaName": "Broasted Brothers - Plymouth",
+      "slug": "ggpg4q",
+      "name": "Broasted Brothers - Plymouth",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "752fb7f6-7d75-4e09-ac87-416a8b28fb24",
+        "59b9e7e1-f3b5-413d-975c-9baa91230714"
+      ]
+    },
+    {
+      "email": "beruchyz@gmail.com",
+      "viaName": "Brooklyn Boys Pizza & Deli",
+      "slug": "s7ojgs",
+      "name": "Brooklyn Boys Pizza & Deli ",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "41bd3847-3dc7-49bc-b00d-b91c956dc3b9"
+      ]
+    },
+    {
+      "email": "gilli@brownbagny.com",
+      "viaName": "Brown Bag Sandwich Co",
+      "slug": "ebzzai",
+      "name": "Brown Bag Sandwich Co",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "567a57eb-17b1-433c-bb46-48d7e373163e"
+      ]
+    },
+    {
+      "email": "punamkhandpur@yahoo.com",
+      "viaName": "BurgerFi - Bowie",
+      "slug": "kedj1z",
+      "name": "Burgerfi",
+      "numberOfLocations": 3,
+      "restaurantReferences": [
+        "f647ba53-390e-4cf5-bc5b-9caaf40417fa",
+        "ca123d68-c04e-4edd-bc11-8d15f2fa45c1",
+        "95339b04-6f1d-4c7a-ac35-4955a9dfd5c3"
+      ]
+    },
+    {
+      "email": "jonathan@burgerfi.com",
+      "viaName": "BurgerFi - Boynton Beach",
+      "slug": "burgerfi",
+      "name": "BurgerFi",
+      "numberOfLocations": 11,
+      "restaurantReferences": [
+        "80cb21f2-275a-4dac-98a2-b0e95c07ea3a",
+        "82648de2-b1fc-46ee-8551-d461e0c92d76",
+        "a96b77c2-9ffb-45fe-aa7a-22a86ce9b695",
+        "68afa59c-82b1-4e49-b21b-a2dff8160743",
+        "77cea8e4-cb1a-4003-98c2-8bdba85e9eec",
+        "379cd922-5d36-4d22-b808-b1dfd4574105",
+        "3ef5a496-02bc-49dd-8ced-842b5e07c306",
+        "f41734ab-f162-45cb-b21b-16e46ce3c2ff",
+        "f2f87bed-0272-4d19-933f-3e84cf15830f",
+        "abb4a9e4-2ad5-41cb-a675-3f6d35f972e1",
+        "af752a22-622e-4a59-9a33-2a976f563900"
+      ]
+    },
+    {
+      "email": "jackson@eatcops.com",
+      "viaName": "COPS",
+      "slug": "pycmgv",
+      "name": "COPS",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "ddc862cc-78fe-494c-b461-e50c3d1157e7"
+      ]
+    },
+    {
+      "email": "williamarms05@gmail.com",
+      "viaName": "Colonial Ranch Market",
+      "slug": "qzatjd",
+      "name": "Lenny's Markets",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "ecf9bfdc-eb23-4ce4-b8c6-91ab14061cd5"
+      ]
+    },
+    {
+      "email": "dmcclain@denadacantina.com",
+      "viaName": "De Nada",
+      "slug": "2dine4",
+      "name": "De Nada",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "770f731d-dbe0-42ef-89b7-499e2c91f584",
+        "55e1ee63-91dd-49fc-b090-8e7334d2fa8d"
+      ]
+    },
+    {
+      "email": "tawni@webeggtodiffer.com",
+      "viaName": "Eggstasy - Queen Creek",
+      "slug": "eggstasy",
+      "name": "We Begg to Differ Restaurants LLC",
+      "numberOfLocations": 7,
+      "restaurantReferences": [
+        "8a7bb6f5-25fd-4672-b75c-e2912620116e",
+        "49a5fa8d-9ea7-4353-a655-5a903358302e",
+        "d1d6454c-c923-44f6-80cb-decc93f568f5",
+        "f718312a-03fb-4c63-895e-82ec09a8c843",
+        "ba317e04-b341-4c31-b942-cd411bf8a2bf",
+        "4ca9a6d4-4840-434c-8447-511a5a06d854",
+        "188f682c-0cc4-44b7-a174-561ccecd797b"
+      ]
+    },
+    {
+      "email": "info@elmercado-oc.com",
+      "viaName": "El Mercado Mexican Kitchen",
+      "slug": "zxucm0",
+      "name": "El Mercado Mexican Kitchen",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "be74639e-601d-4832-b794-37b3f22196cf"
+      ]
+    },
+    {
+      "email": "elana@fantzye.com",
+      "viaName": "FANTZYE",
+      "slug": "4rhexi",
+      "name": "FANTZYE",
+      "numberOfLocations": 3,
+      "restaurantReferences": [
+        "01d5c182-e8ed-454a-beb5-fc8f1354b4f2",
+        "55a2a4d0-8245-4be6-b56a-21b202a69605",
+        "a23cf8a3-56ff-4f3b-844c-7881129ebaf6"
+      ]
+    },
+    {
+      "email": "dean@slider-boys.com",
+      "viaName": "Fat Boy's Pizza - Fort Wayne",
+      "slug": "fortwayne",
+      "name": "Savvy Sliders/Fat Boy's Pizza",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "b956e932-1b35-4c30-ac96-bffd8f8c316f",
+        "d2ea1a1f-b0a5-4b00-afc5-bc25752b57d6"
+      ]
+    },
+    {
+      "email": "catering@gnocchinyc.com",
+      "viaName": "Gnocchi on 9th - East Village",
+      "slug": "uvizwl",
+      "name": "Gnocchi on 9th - East Village",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "dfc2c8e4-03d3-47c4-aad5-4ed5eb7e73da"
+      ]
+    },
+    {
+      "email": "dleporini@foodconciergeco.com",
+      "viaName": "Gordito's Burritos",
+      "slug": "foodconcierge",
+      "name": "Crackin’ Yolks Breakfast Catering ",
+      "numberOfLocations": 38,
+      "restaurantReferences": [
+        "14be4279-b234-40e9-9a03-9d0ade421440",
+        "cc006ff3-9013-47ec-a88f-d57886fd14eb",
+        "73a401e6-2733-4715-9ca9-b2edcb44836f",
+        "d265cc7c-a251-4015-88ef-d09bf84a9a88",
+        "1e0ef347-073e-486a-a5a2-fbaa733da606",
+        "71941ab5-20f4-4058-a13b-eb217fc797df",
+        "9adf276b-af85-4069-a040-c0f9f61e40d6",
+        "f54726a1-3d33-4168-80ad-4b13afd01f8b",
+        "a27fa80f-6bba-4eb1-974a-5daffe7f5db1",
+        "f2a7f84e-cfe7-4a20-9266-f36c6a799cbd",
+        "aed20bd8-4116-4100-8952-868205c0be14",
+        "5989dcc0-8264-49ea-8d08-ddec2f267147",
+        "c665289e-309a-44bb-bc65-be6e38c03b69",
+        "f316f081-78fd-40ec-98e2-74da43a24151",
+        "14c0585d-0f28-4412-890f-e49ebc4f69f7",
+        "529b0c70-3e53-4aa3-8a76-876328ee2782",
+        "28e26d54-5773-40c3-8608-fc5184ac35d0",
+        "5963f41a-622d-4818-ab81-eea48b36bee2",
+        "e50be725-f12c-4462-a464-19694b2a5cf5",
+        "4bd560d6-5064-481a-8ec1-ef69936a78b2",
+        "33cb29d2-e4b4-47cd-aea5-43473a3f77a3",
+        "93f459c3-912a-42e5-a465-6e0dc524a233",
+        "3127d1db-d3b2-4e16-8c1e-0de6f8c6fc5c",
+        "b377b578-de51-4da5-912c-e885283146cd",
+        "330d9c6d-4592-4c97-9ce3-7c0dc6ce4052",
+        "5b915f2f-eb8c-43d0-8fb8-eb82252009de",
+        "70b1871b-5bdc-4a04-a0c7-b968184be1fb",
+        "70f7e4ca-78f9-4192-974f-bd4c4d5b3dcb",
+        "9f74d803-d77c-4c18-8da3-775f1c040e8e",
+        "fed0d987-d171-42e2-98bc-c652aa496d17",
+        "44717403-bbbe-46fc-a3f1-b9a3844ed35b",
+        "fd9d1086-e3ab-4c2a-ae8b-4122b6ac6bf1",
+        "768749c4-adb8-4c82-ba8e-467d26bd8d51",
+        "33eac692-08a9-4770-9ea2-6a597208b088",
+        "08cc59d4-f16f-4475-9c7d-14d2264df6f4",
+        "20687665-3300-414c-b136-f423e509e1cf",
+        "3fd2e53d-763d-456c-968c-b38a50dcb8f9",
+        "e2f44360-0e71-4465-a752-805add0cacad"
+      ]
+    },
+    {
+      "email": "kyle@greentomatogrill.com",
+      "viaName": "Green Tomato Grill",
+      "slug": "greentomatogrill",
+      "name": "Green Tomato Grill - Orange",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "4fe8f1c6-9abb-4f76-a2cb-32adfaecfdc6"
+      ]
+    },
+    {
+      "email": "store042@gmail.com",
+      "viaName": "Happy's Pizza - Port Huron ",
+      "slug": "happyspizzacatering",
+      "name": "Happys Pizza and Savvy Sliders Co-Brand",
+      "numberOfLocations": 57,
+      "restaurantReferences": [
+        "31c6a621-28ad-46db-9a87-f82bd01d0e32",
+        "667d28f7-2966-40e2-9bfe-dca495cb5fc3",
+        "919a1c90-5522-47eb-bf22-e07ebf9811b6",
+        "c09be82c-54ae-470f-a77a-1b7b85d9084d",
+        "c2845ebc-1e0b-4ccf-b3e1-b989c8209743",
+        "87a00dff-9609-41f4-97c1-6b0a4894215f",
+        "7daaa5f5-0811-49c8-85db-5a9613a28cdb",
+        "dd1b3960-904b-477e-8b2f-ead5e3648f3c",
+        "fb115bce-a4af-4fa8-a6d6-27f85a72f3b1",
+        "bd33ac0f-8675-4587-932a-1f82092ddc34",
+        "7f04ee24-45f7-4acd-a4d1-dfab941448d6",
+        "2c1777f1-cffd-4015-aa59-b9f38ab8d5bb",
+        "2e36f407-5d2d-4f01-94cc-3679e74a706f",
+        "ddc06090-e839-41c8-a9e9-7b82c51bd19b",
+        "bc033998-08dd-4a47-9798-fe067a221ad7",
+        "20c22cd0-f90f-4492-be0b-b5d93741980d",
+        "fb2c95b9-1c16-4263-9e81-bb7c88985078",
+        "f529445b-9449-4af0-8550-95580a560036",
+        "412dd855-9f41-4726-887c-4cdcd4c5bd44",
+        "8471b87e-145f-4942-9d6f-2bd79fa269ee",
+        "5f33098b-da0b-46ce-8e02-7171264c310e",
+        "49f36819-ba86-4f5a-a206-74872c1901b2",
+        "9c150d0a-c324-49ed-a9fd-8100d4c19979",
+        "07105b07-efbd-434b-b63e-5095e17c7fe9",
+        "99d12eca-dc54-4650-bb33-36b5ff786970",
+        "fe3355f6-a980-4f4e-b411-cefe7d37b818",
+        "e54f7b6b-ebe8-4160-b5e4-d39e115cc091",
+        "c4d14004-26cd-4d3c-96b6-a72db3373f4c",
+        "3dbc50a6-0157-48bc-8c86-c38ba47273de",
+        "d89c41a8-53d6-4644-a049-b0454f969243",
+        "53ce20b9-67af-4808-8d8e-552532745594",
+        "e46d5abe-6ee7-49eb-a034-62357b76c8c0",
+        "85bf1383-8dab-4b7e-b5b7-ead41d9693e4",
+        "5369a412-5132-4e18-92d2-afaab14f6bf0",
+        "e79e90e8-d113-4a98-9aa9-54e290eaf754",
+        "157c0dac-c657-4334-b070-c997d4244607",
+        "d47cb024-a9eb-47ee-b702-4fecf925e32c",
+        "35aa542f-6add-4312-bd7a-8522ef059e8b",
+        "ad7195e1-4007-4f65-b224-41fc0d2ac177",
+        "d5e6476c-5c73-4e68-a202-9a2606d2dfd5",
+        "d0c2f78d-cb59-4fd0-aa7a-28a5a9b82ce1",
+        "e19b97fd-3f89-4c2e-ba7a-9fe7250f6fbb",
+        "c0520f14-30e5-448d-b10a-8220088c65f9",
+        "790231df-d435-4e5a-9a7b-068850428fbf",
+        "07a287ba-4f19-4537-bca5-30692c3017a2",
+        "af734ea3-5c3f-45e0-9658-9098a40d4b5c",
+        "f68d0790-76fa-481d-ba5d-6eb6b43b503d",
+        "97a4843f-b2dd-43bc-bbc9-df49db5f2586",
+        "c29db912-81b9-4e42-8c78-5317e5f15197",
+        "d829b5a5-d903-4846-9d9f-d022507b1e9d",
+        "4a5ff5c0-5861-43e0-8df6-a34def6e37b6",
+        "4dca0752-51a9-43f6-b540-f8b9286ba73d",
+        "cedd3914-ab49-4ba6-80d4-7c4ba5ab871b",
+        "066854a3-221d-4cad-85b5-07351d2013c7",
+        "1b9dfc76-b9e0-4f9b-a23e-b91ce7ae86f4",
+        "a42409cf-4c69-45f4-a910-07e8f5b18928",
+        "82c041a8-f292-4148-9089-a0ff503b5324"
+      ]
+    },
+    {
+      "email": "lobospr99@gmail.com",
+      "viaName": "Hatch 44 Cafe - Bradley Beach",
+      "slug": "hatch44cafe",
+      "name": "Hatch 44 Cafe - Bradley Beach",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "78c5d87c-a460-43d7-b9e4-da79dd2a98de",
+        "602bc62b-06de-47f8-896a-cad6e951d98a"
+      ]
+    },
+    {
+      "email": "chris@hearthlyburger.com",
+      "viaName": "Hearthly Burger - Shrewsbury",
+      "slug": "hearthly",
+      "name": "Hearthly Burger",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "f3afe471-08b1-47ee-a121-95cd554408ea",
+        "a5d64264-77fb-4d4f-a192-e549874d895f"
+      ]
+    },
+    {
+      "email": "catering@hobokenpie.com",
+      "viaName": "Hoboken Pie",
+      "slug": "tax7p9",
+      "name": "Hoboken Pie",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "853a9b23-3626-4126-8804-1b07ade7756e"
+      ]
+    },
+    {
+      "email": "catering@willys.com",
+      "viaName": "Howlin' Willy's - Druid Hills",
+      "slug": "howlinwillys",
+      "name": "Howlin' Willy's - Druid Hills",
+      "numberOfLocations": 3,
+      "restaurantReferences": [
+        "d8916675-b403-4035-87d8-0f3629f83b99",
+        "fcc7c70d-32b7-41a0-a1c9-f16951f7481d",
+        "2b49792b-2e3e-4e9c-87c7-613da21af59c"
+      ]
+    },
+    {
+      "email": "triplecfoodie@gmail.com",
+      "viaName": "Huckaby's Smokehouse",
+      "slug": "fysjsv",
+      "name": "Huckaby's Smokehouse",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "840dcb21-c6d5-44d2-b718-e6f5b3df69fb",
+        "56f924a9-d4aa-4bde-bf67-57d652c86b0b"
+      ]
+    },
+    {
+      "email": "info@industrytx.com",
+      "viaName": "Industry - San Marcos",
+      "slug": "industry",
+      "name": "Industry - Austin",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "fc29f1ae-ef76-4d56-845e-2efd15adc7c0",
+        "3e00758b-4fc0-43a2-bd3a-77955ba756ab"
+      ]
+    },
+    {
+      "email": "info@ingasalpine.com",
+      "viaName": "Inga's Alpine Tavern",
+      "slug": "wiswas",
+      "name": "Inga's Alpine Tavern",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "31d0d046-ad5f-4ab1-be90-8483fc9bd2a0",
+        "377ace8a-510d-40ec-acaa-35db8433b891"
+      ]
+    },
+    {
+      "email": "lisle@isleof.us",
+      "viaName": "Isle of Us",
+      "slug": "xhiesm",
+      "name": "Isle of Us",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "f7aff310-27ee-495b-a1b0-8d71442e1518"
+      ]
+    },
+    {
+      "email": "jmanilow@att.net",
+      "viaName": "John's Place",
+      "slug": "somxoc",
+      "name": "John's Place",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "6e4b3828-d96f-4975-aa92-47fb0e3821e2",
+        "8e3b543a-053d-4453-85e1-0f2750bf02dd"
+      ]
+    },
+    {
+      "email": "heyitsjulios@gmail.com",
+      "viaName": "Julio's Pizza Co. – Atlantic Highlands",
+      "slug": "juliospizzaco",
+      "name": "Julio's Pizza Co.",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "4e675698-6882-4816-a3ce-c437af967495",
+        "44f125ae-7c43-4a8c-b2e8-d348f591af5c"
+      ]
+    },
+    {
+      "email": "geroldcastro76@gmail.com",
+      "viaName": "Lechon Loco",
+      "slug": "4us9tk",
+      "name": "West Hill Deli",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "cab3a831-e8a6-4f90-9a48-b8dd7359e12a",
+        "f4fe7c19-667a-44de-bd4e-635bb5ad6eca"
+      ]
+    },
+    {
+      "email": "mark@rizzos.net",
+      "viaName": "Lil' Easy",
+      "slug": "2dine4",
+      "name": "De Nada",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "770f731d-dbe0-42ef-89b7-499e2c91f584",
+        "55e1ee63-91dd-49fc-b090-8e7334d2fa8d"
+      ]
+    },
+    {
+      "email": "events@littlechefnyc.com",
+      "viaName": "Little Chef Little Cafe",
+      "slug": "04a8y2",
+      "name": "Little Chef Little Cafe",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "ecc9a6e7-61e0-4808-98ba-3e43574a32af"
+      ]
+    },
+    {
+      "email": "bryce@localsmokebbq.com",
+      "viaName": "Local Smoke BBQ - Sea Girt",
+      "slug": "localsmokebbq",
+      "name": "Local Smoke BBQ ",
+      "numberOfLocations": 4,
+      "restaurantReferences": [
+        "b56b06c5-4ead-4e68-a26c-6e4ff0f82a23",
+        "855250be-d3b1-4932-9c72-2f5ffc52e50b",
+        "f9183a92-57c9-44c3-a9f7-42ed2fd1818b",
+        "e3494c25-13be-4cf8-aef7-b32b6e88e2c1"
+      ]
+    },
+    {
+      "email": "maiz.portland@gmail.com",
+      "viaName": "Maíz Catering",
+      "slug": "maiz",
+      "name": "Maiz - Brunswick",
+      "numberOfLocations": 8,
+      "restaurantReferences": [
+        "bf8ad038-1a3f-4075-8fcc-35e40e587b0c",
+        "5417255d-44b9-47d6-a7e8-11ccbe23d0ea",
+        "70d27aaa-bc77-46d1-8dfc-552a3859b087",
+        "71e61a21-b9e4-437c-b54d-98296c5ae505",
+        "da7f0f90-52a7-4e25-bb58-b341bab908a9",
+        "d9e755ca-0ba1-4b6a-8c80-78be2df403e3",
+        "4b05abf8-9574-49c1-b35c-c92979d2bf20",
+        "3453cd71-0e87-4060-8b2a-08132d8fd9c7"
+      ]
+    },
+    {
+      "email": "info@getmemphisseoul.com",
+      "viaName": "Memphis Seoul",
+      "slug": "memphisseoul",
+      "name": "Memphis Seoul",
+      "numberOfLocations": 5,
+      "restaurantReferences": [
+        "6a8f8d99-5102-4af6-b280-c763567aae86",
+        "d373490a-60be-4555-93f5-c9b4327636f8",
+        "810d468f-77ed-4895-9225-a52fc64ae365",
+        "02ee917f-b7ad-4333-bf8a-374d2a695144",
+        "1a8a858e-389e-4b1a-a2d8-3ddd387f51e6"
+      ]
+    },
+    {
+      "email": "mwilliams@moonburger.com",
+      "viaName": "Moonburger Brooklyn",
+      "slug": "hekmfl",
+      "name": "Moonburger Brooklyn",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "72559a85-50ef-4293-8484-256d7ec3335a"
+      ]
+    },
+    {
+      "email": "tom@webeggtodiffer.com",
+      "viaName": "Morning Squeeze",
+      "slug": "eggstasy",
+      "name": "We Begg to Differ Restaurants LLC",
+      "numberOfLocations": 7,
+      "restaurantReferences": [
+        "8a7bb6f5-25fd-4672-b75c-e2912620116e",
+        "49a5fa8d-9ea7-4353-a655-5a903358302e",
+        "d1d6454c-c923-44f6-80cb-decc93f568f5",
+        "f718312a-03fb-4c63-895e-82ec09a8c843",
+        "ba317e04-b341-4c31-b942-cd411bf8a2bf",
+        "4ca9a6d4-4840-434c-8447-511a5a06d854",
+        "188f682c-0cc4-44b7-a174-561ccecd797b"
+      ]
+    },
+    {
+      "email": "info@motorinopizza.com",
+      "viaName": "Motorino",
+      "slug": "efos9i",
+      "name": "Motorino",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "1654aa32-03d3-4b8c-b2ee-17599e145d89"
+      ]
+    },
+    {
+      "email": "peckinghouse@gmail.com",
+      "viaName": "Pecking House - Chinatown",
+      "slug": "peckinghouse",
+      "name": "Pecking House",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "0a889051-3e7e-4b4d-a760-a8767153cd34",
+        "34a9875f-02de-4247-9626-b3054c7d6098"
+      ]
+    },
+    {
+      "email": "erica@petesgeneral.com",
+      "viaName": "Pete's Bagels - St. Pete",
+      "slug": "petesbagels",
+      "name": "Pete's Bagels - St. Pete",
+      "numberOfLocations": 6,
+      "restaurantReferences": [
+        "27e20709-bb8f-4a18-8720-1fda18c0f945",
+        "987c6e9d-3a6a-4101-a207-fe8ab1702c2d",
+        "223c0ab5-c34a-4abc-aaae-087ce035c58a",
+        "ffe3efd0-c2ff-43a5-98f9-9abfcbbc4b93",
+        "5197ab23-a458-4817-af58-049bb92e911d",
+        "cd5a5233-e537-4ec4-b0ca-47428b801e4d"
+      ]
+    },
+    {
+      "email": "pismofishandchips@gmail.com",
+      "viaName": "Pismo Fish and Chips",
+      "slug": "ufuz7q",
+      "name": "Pismo Fish and Chips",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "45967e84-3aa5-42a2-888e-dd1062b14b66",
+        "3a355581-534e-46d7-813c-f8cd320a9589"
+      ]
+    },
+    {
+      "email": "plumcaterers@gmail.com",
+      "viaName": "Plum Caterers",
+      "slug": "plumcaterers",
+      "name": "The Tattooed Pig - Aston",
+      "numberOfLocations": 3,
+      "restaurantReferences": [
+        "c15614db-ceb0-4d1f-9fad-47ac8f73651e",
+        "91067a15-0173-4541-95dd-deca007b111d",
+        "c2e1e477-29b4-4558-b9a6-ca811bf7096e"
+      ]
+    },
+    {
+      "email": "jake@pointlobster.com",
+      "viaName": "Point Lobster Co",
+      "slug": "6c29pm",
+      "name": "Point Lobster Co",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "d7e9296e-eabf-41ec-850f-ae951f9871ff"
+      ]
+    },
+    {
+      "email": "nhojel@theoberon.co",
+      "viaName": "Purslane",
+      "slug": "purslane",
+      "name": "Purslane",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "906191fd-e6df-4ff2-ae72-184d2b9c66c5",
+        "133fd459-b3b4-4013-a281-c7474516058c"
+      ]
+    },
+    {
+      "email": "order@sandyhookseafood.com",
+      "viaName": "Sandy Hook Seafood",
+      "slug": "npkyh2",
+      "name": "Sandy Hook Seafood",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "8423cd0f-8c6c-464d-bf03-1d5637cc19e1",
+        "66f14186-f0f5-4b34-bc1b-c491983bcf4b"
+      ]
+    },
+    {
+      "email": "bwigglesworth@eatfatboyspizza.com",
+      "viaName": "Savvy Sliders - Covington",
+      "slug": "metairie",
+      "name": "Fat Boys Pizza/ Savvy Sliders",
+      "numberOfLocations": 6,
+      "restaurantReferences": [
+        "8236e59e-5761-435c-ac7f-19f375c524d7",
+        "a8902c33-78c4-4c74-bebb-3cff826c646b",
+        "a9c6d8e2-301f-4341-8aa0-40c3518a3c97",
+        "754705a3-d7da-49db-bc44-a7c3d2905dc0",
+        "731539fb-de2e-47b3-85ae-7192a20ddbd1",
+        "66d75927-1cc8-4d00-9d1e-4f625cd2f547"
+      ]
+    },
+    {
+      "email": "amit.klass@savvysliders.com",
+      "viaName": "Savvy Sliders - Detroit (Midtown)",
+      "slug": "savvysliders",
+      "name": "Savvy Sliders",
+      "numberOfLocations": 6,
+      "restaurantReferences": [
+        "6590181f-f914-41bc-ad41-aa105a3889d3",
+        "adf5d7c2-cb9d-4c15-9b99-a3fded7d3efc",
+        "c634b37e-d2ff-4a8f-94ed-6f34bc51b783",
+        "d1eb0a1b-a1dd-4b17-924e-2fe2efc60f9f",
+        "3824ebad-b4ce-4555-901b-395bb184b96c",
+        "2d067273-2abe-40a3-b8c1-bf46223a3b73"
+      ]
+    },
+    {
+      "email": "brad@eatfatboyspizza.com",
+      "viaName": "Savvy Sliders - Metairie",
+      "slug": "metairie",
+      "name": "Fat Boys Pizza/ Savvy Sliders",
+      "numberOfLocations": 6,
+      "restaurantReferences": [
+        "8236e59e-5761-435c-ac7f-19f375c524d7",
+        "a8902c33-78c4-4c74-bebb-3cff826c646b",
+        "a9c6d8e2-301f-4341-8aa0-40c3518a3c97",
+        "754705a3-d7da-49db-bc44-a7c3d2905dc0",
+        "731539fb-de2e-47b3-85ae-7192a20ddbd1",
+        "66d75927-1cc8-4d00-9d1e-4f625cd2f547"
+      ]
+    },
+    {
+      "email": "adrien@alldayyes.com",
+      "viaName": "See No Evil Pizza",
+      "slug": "zalfmi",
+      "name": "See No Evil Pizza",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "1464ab45-8b64-4f78-a634-6730bbe30bd3"
+      ]
+    },
+    {
+      "email": "asfeldi@gmail.com",
+      "viaName": "Signature Fitness",
+      "slug": "t71ivw",
+      "name": "Signature Fitness",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "8612519b-0c67-4da0-9f44-39cfe7452e13"
+      ]
+    },
+    {
+      "email": "catering@slatecafe.com",
+      "viaName": "Slate Cafe",
+      "slug": "slatecafe",
+      "name": "Slate Cafe",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "47b3b5bc-9ed5-4c35-9271-4aae9f6b9dfd"
+      ]
+    },
+    {
+      "email": "sboyett@cowboychicken.com",
+      "viaName": "SmackBird Chicken - North Dallas",
+      "slug": "smackbird",
+      "name": "SmackBird Chicken",
+      "numberOfLocations": 4,
+      "restaurantReferences": [
+        "d0d4dca4-b58a-494a-a37a-e759d7023772",
+        "cb87b777-d972-473c-91d2-582a4b0bffc3",
+        "197ff8ab-a2d3-451b-ba89-dc90c3ae2b27",
+        "6a7e93eb-7a1b-4e3e-846a-eb70d6854961"
+      ]
+    },
+    {
+      "email": "abochetto@sondelnorth.com",
+      "viaName": "Son del North - LES",
+      "slug": "sondelnorth",
+      "name": "Son del North - LES",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "2156d12f-96bb-4b1d-9339-99fbfdbfd853",
+        "2c39c942-d21b-43ec-b086-691760cb290d"
+      ]
+    },
+    {
+      "email": "stacksncordials@gmail.com",
+      "viaName": "Stacks & Cordials - Clawson",
+      "slug": "stacksncordials",
+      "name": "Stacks & Cordials",
+      "numberOfLocations": 3,
+      "restaurantReferences": [
+        "26ef6512-0581-4b45-8c54-810103284a88",
+        "9d918415-8712-4a03-8bb1-a0b9f5e20b51",
+        "3fd3bf85-dca6-4931-b3d2-6caa1a48ecd9"
+      ]
+    },
+    {
+      "email": "ap@oysterdisco.com",
+      "viaName": "Strange Delight",
+      "slug": "wusi7b",
+      "name": "Strange Delight",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "6ab75b4f-edf4-4b16-ab75-fd0690de8ea1"
+      ]
+    },
+    {
+      "email": "wesleyroderick@icloud.com",
+      "viaName": "Supernatural",
+      "slug": "t05ppk",
+      "name": "Supernatural",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "9d54553f-98bb-4289-9953-6bcae143edce"
+      ]
+    },
+    {
+      "email": "marissa@surftaco.com",
+      "viaName": "Surf Taco - Point Pleasant",
+      "slug": "surftaco",
+      "name": "Surf Taco",
+      "numberOfLocations": 7,
+      "restaurantReferences": [
+        "d150a80d-e88f-4936-8259-cf5bef0785ae",
+        "c3f2e62f-5a76-4a6f-b6de-3cc858b4e81e",
+        "90104ec3-9713-4a1d-bb90-25362266842f",
+        "140bbdbb-fd95-4bff-9379-b6926ccb8f50",
+        "5883ed95-d7c6-4c5a-b0da-a9ab02b6addf",
+        "c9080d63-d875-4dcf-8216-d34eb46be2c8",
+        "946e86f1-0cf3-4706-b985-4a5c7f75f211"
+      ]
+    },
+    {
+      "email": "catering@sweetchicklife.com",
+      "viaName": "Sweet Chick - Long Island City",
+      "slug": "sweetchick",
+      "name": "Sweet Chick - Union Square",
+      "numberOfLocations": 5,
+      "restaurantReferences": [
+        "bd974dd6-3c93-4092-831e-8cbaccb73573",
+        "8316170c-5b34-499d-ad5f-013f0a1f3a87",
+        "96e03a5d-fc4f-45ea-a836-858f00cf1989",
+        "e5bf4b04-6df2-4598-876c-32198a0df6c2",
+        "f45c3e57-664b-4760-9051-fe95717951bc"
+      ]
+    },
+    {
+      "email": "rmanson@craveworthybrands.com",
+      "viaName": "Taim - City Spire",
+      "slug": "craveworthybrands",
+      "name": "Taim - 156 W 56th St.",
+      "numberOfLocations": 39,
+      "restaurantReferences": [
+        "48e0dcac-bf3c-49db-9b59-21f8ed6f8524",
+        "9921339a-c3f2-4089-ab03-1770fda0fa5d",
+        "6c0e6c51-7449-4745-8b8d-9035829d510e",
+        "40f1453c-8d3b-44a8-8831-a041f87909d6",
+        "7d1314cd-1178-4e18-8d57-02ca42823269",
+        "2a41260e-7d69-400a-82da-ca55a21fb9b0",
+        "5ca70757-d75e-4472-baf3-0fd9b1d1848f",
+        "7e6d3fc6-686c-4166-8104-2588197d9c37",
+        "21e4c809-e932-4713-9d98-28b089d6cfd9",
+        "cc260670-20f6-48a0-a051-2367aacb3396",
+        "8a76bb6c-9d21-4b1c-9b05-88ca3a760bf2",
+        "89255708-f0af-41bd-9f1e-01a863aa07a3",
+        "7062135b-6bc5-49ed-b97f-df9de350f3a0",
+        "fe337c54-c21f-4727-965f-d43e3e394965",
+        "b1350993-bf23-4f78-85fa-a74e9e79c766",
+        "78a3beb6-7892-493e-bbfe-3cdf31d658a2",
+        "ca62b9de-0ee9-4f8d-b3b9-dcfad021831b",
+        "00019f07-5bd6-4403-855e-3faabac7f747",
+        "5dd6626c-efda-4511-b857-c79dd6468bb7",
+        "55a6d7e8-1d2c-482c-83ba-9404d92c7033",
+        "4aa2b592-e84c-4f07-bbcb-a964846ed624",
+        "688c0c44-3d6e-46bd-9ee4-d3ef2129230c",
+        "c90ed7c9-712a-4b6d-a800-84a127086146",
+        "6c36a136-50e7-44c3-9246-db76e49467cf",
+        "0568ab69-7d8c-411c-8e6e-d58e9f0ed6c9",
+        "d9af81ad-12fe-41c1-9741-8d0163657d5d",
+        "544f393c-1d4b-4a7d-926b-cd57b820dc89",
+        "78892e1d-40fb-4a20-ab9b-03b673fc7bea",
+        "e3c6c104-c565-4518-83f5-68f7072f2a7a",
+        "f33ab2ed-c0ad-480a-b03b-eee94e490d47",
+        "0f28687e-32dc-4381-8491-0e95776cf394",
+        "3b71ab0e-bca3-4d51-80c1-7e21c951f73d",
+        "85fb9785-d01c-49ba-bcce-7b81ba01adef",
+        "f70f83f4-5656-4760-aa10-3701f6418a51",
+        "b4f0374d-0265-4219-9d52-ac9660cb4f62",
+        "a4403d09-2fc0-4e22-aa66-fbe59efb8d82",
+        "b1012d50-d2fa-40c5-8aae-7bb7b6ef679f",
+        "5344e141-1621-4381-86c9-ff2f45ab6087",
+        "d0a1be6f-e996-422c-a294-0a70d3db0f2d"
+      ]
+    },
+    {
+      "email": "megan@tap42.com",
+      "viaName": "Tap 42 - Aventura",
+      "slug": "tap42",
+      "name": "Tap 42",
+      "numberOfLocations": 13,
+      "restaurantReferences": [
+        "c9f91109-08e0-43d0-9bc8-cc3145d69c65",
+        "c773ab12-2bbc-4678-853b-fa1487aa03d0",
+        "a815323a-48b3-4778-963a-9ec351d0608e",
+        "29a1d258-5273-4746-b55d-3955758a9734",
+        "4fdcd7ef-f214-48b5-9cdc-0e3d24ac19ec",
+        "8b68cae4-55a5-4f05-9c6f-5383f11d77fc",
+        "61a6091b-caf7-42d7-ac32-f176dc7c27c5",
+        "57a9e421-686e-4159-ac78-31085420fa21",
+        "0568c9cf-2074-4455-8dea-cc16e7858245",
+        "66eb3936-b529-47c7-8b5e-3195a7791d17",
+        "7bb4735b-119f-477e-9de6-dbbc79f58d07",
+        "1a22dd6a-4fb3-4803-955e-9efeba2e2251",
+        "b92e35c8-b702-42f3-9f4e-ffa92e60bd66"
+      ]
+    },
+    {
+      "email": "catering@taqueriaalpastor.nyc",
+      "viaName": "Taqueria Al Pastor - Bushwick",
+      "slug": "q72eq5",
+      "name": "Taqueria Al Pastor - Bushwick",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "831e3c2e-855a-4925-8919-2b463bf4cb63"
+      ]
+    },
+    {
+      "email": "teddybearstable@gmail.com",
+      "viaName": "Tasty Dawg",
+      "slug": "tastydawg",
+      "name": "Tasty Dawg",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "17a4f456-b802-473c-a04a-04dcac866286",
+        "e49197f1-64f2-4cd3-b769-273e9056da25"
+      ]
+    },
+    {
+      "email": "info@missadanyc.com",
+      "viaName": "Thea Bakery",
+      "slug": "ubyseg",
+      "name": "Miss Ada",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "68cfeaac-4aac-4c1d-ae13-0ae9e29db0c3",
+        "95fe4ac3-8a2f-45c4-b255-ef4f26b6ec81"
+      ]
+    },
+    {
+      "email": "chauncy@threedollarcafe.com",
+      "viaName": "Three Dollar Cafe - McDonough",
+      "slug": "threedollarcafe",
+      "name": "Three Dollar Cafe",
+      "numberOfLocations": 10,
+      "restaurantReferences": [
+        "2d642782-4ef4-4029-b7f2-de24a47f950f",
+        "63d96c4d-761a-439f-bf95-9b6043986b6b",
+        "e12a4908-c51c-4496-bdf4-a1d6f488b2e0",
+        "4b302fee-20ae-4080-82db-7963b1d047a4",
+        "fdfdaa28-72f0-4a53-afc8-ee1e983fd742",
+        "9347503e-a862-4274-a11a-c7b29a591f95",
+        "c343028b-1ca1-4701-a4a2-6f5b1fd4d325",
+        "b37cdc97-5b20-426c-b475-84d56083c7bf",
+        "632a3cd5-0097-4c45-b4e4-024ca29e3cfc",
+        "191a39ca-1275-4948-bfc3-9e8e79fc19cf"
+      ]
+    },
+    {
+      "email": "tipsycafeandcatering@gmail.com",
+      "viaName": "Tipsy Cafe & Catering",
+      "slug": "e6yemu",
+      "name": "Tipsy Cafe and Catering",
+      "numberOfLocations": 4,
+      "restaurantReferences": [
+        "876ceb3f-d651-49aa-b8e2-f8589fb39fc6",
+        "d8d27e83-a9b5-421f-b13b-611a3e316772",
+        "a85c9bbe-8833-425c-843f-76c6b7b1cd27",
+        "cc88bc5e-4c3e-4ba1-8242-cfc183c3ffa8"
+      ]
+    },
+    {
+      "email": "clombardi@urbancoal.com",
+      "viaName": "Urban CoalHouse - Brick",
+      "slug": "urbancoalhouse",
+      "name": "Urban CoalHouse - Red Bank",
+      "numberOfLocations": 3,
+      "restaurantReferences": [
+        "144d2786-88f5-499f-919e-cab20a5401e9",
+        "3938f480-0b55-4d16-b586-908115553b9c",
+        "1d7e9a99-37ed-4986-b19a-5d6ac32e06ed"
+      ]
+    },
+    {
+      "email": "shane@eatvesti.com",
+      "viaName": "Vesti",
+      "slug": "0nk3k5",
+      "name": "Vesti",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "119870c4-30f6-49c5-8e1c-897696c3bedc"
+      ]
+    },
+    {
+      "email": "catering@waxpaperco.com",
+      "viaName": "Wax Paper - Frogtown",
+      "slug": "xfjdpw",
+      "name": "Wax Paper",
+      "numberOfLocations": 2,
+      "restaurantReferences": [
+        "1c2d6427-1b06-43ef-a109-e251992971c2",
+        "3206b989-9b3a-439e-b1bb-ce6f19b632fc"
+      ]
+    },
+    {
+      "email": "josh@fanslerrestaurantgroup.com",
+      "viaName": "Westwoods BBQ & Spice Co.",
+      "slug": "pmbl6w",
+      "name": "Westwoods BBQ & Spice Co.",
+      "numberOfLocations": 3,
+      "restaurantReferences": [
+        "6c3df4ba-2de5-46bc-8207-a47731956ffc",
+        "b8d7e273-3cd1-4827-bd38-ed99c215f6f4",
+        "7d5aa38b-70d8-4faa-ab3d-18a001587243"
+      ]
+    },
+    {
+      "email": "bdonatti@winfieldcoffee.com",
+      "viaName": "Winfield Street Coffee - Croton",
+      "slug": "winfieldstreetcoffee",
+      "name": "Winfield Street Coffee",
+      "numberOfLocations": 7,
+      "restaurantReferences": [
+        "dc5d3f5f-5613-46c3-a110-e909b3c70168",
+        "35781c2a-ce41-47a2-abf3-01661022cde9",
+        "5fb5cfce-3f70-43f1-8399-fc2f52a61016",
+        "6ce3636c-0b33-40fb-bba9-d05c382d4511",
+        "544ca778-96c2-4d6b-bc63-d18c2dd627cf",
+        "18d74768-f6fd-4e70-a5f5-f2ff8a47fa01",
+        "b6365e09-3a30-4221-a724-e05876b70593"
+      ]
+    },
+    {
+      "email": "zuttonyc@gmail.com",
+      "viaName": "Zutto - Nolita",
+      "slug": "zutto",
+      "name": "Zutto Japanese American Bar",
+      "numberOfLocations": 3,
+      "restaurantReferences": [
+        "5a24d627-3975-4d90-b331-99d2ae3c5e49",
+        "a3fad151-dc9e-4626-a073-8cf86909147a",
+        "780e32c9-33dd-4ee0-829b-ea72a0b8907d"
+      ]
+    },
+    {
+      "email": "nadia@eleanyc.com",
+      "viaName": "eléa",
+      "slug": "dl3o8n",
+      "name": "eléa",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "7f8657c5-368a-4841-adbb-363a2030d1c3"
+      ]
+    },
+    {
+      "email": "markus@gokrave.com",
+      "viaName": "oomi kitchen",
+      "slug": "d1uudj",
+      "name": "Oomi Kitchen",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "f00dc9d9-57d4-4363-8bac-2d604844a89a"
+      ]
+    },
+    {
+      "email": "mark@animonyc.com",
+      "viaName": "Ánimo!",
+      "slug": "bqqnrn",
+      "name": "Ánimo!",
+      "numberOfLocations": 1,
+      "restaurantReferences": [
+        "13eb0573-03cc-4ce4-ae3b-e910adc92e41"
+      ]
+    }
+  ]
+}

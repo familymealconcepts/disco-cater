@@ -19,6 +19,7 @@ import { sql } from '../db'
 import { fetchFmLinkMeta, rehostFmBanner } from './fm-banner'
 import { upsertLocationLink, upsertLocationLinkImage } from '../location-links'
 import { getLocationLink } from '../locations'
+import { readChainGroupAsAdmin } from '../fm-master-admin-read'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const PROBE_TIMEOUT_MS = 8000
@@ -28,6 +29,7 @@ export type MultiUnitLinkOutcome =
   | { status: 'grown'; slug: string; linkReference: string; title: string; members: number; banner: BannerReport; divergence: Divergence }
   | { status: 'already-member'; slug: string; linkReference: string; members: number }
   | { status: 'not-a-chain'; detail: string }
+  | { status: 'not-converted'; detail: string }
   | { status: 'needs-slug'; detail: string; candidatesTried: string[] }
   | { status: 'failed'; detail: string }
 
@@ -109,12 +111,26 @@ export async function slugCandidates(restaurantName: string | null): Promise<str
  * right one, and taking it would publish a page linking a stranger's locations.
  */
 export async function resolveChainSlug(ref: string, restaurantName: string | null): Promise<
-  { slug: string; fmRefs: string[] } | { slug: null; candidatesTried: string[] }
+  { slug: string; fmRefs: string[]; source: 'admin-group' | 'name-probe' } | { slug: null; candidatesTried: string[] }
 > {
+  // PRIMARY: ask FM as one of the chain's own admins. This is a lookup, not a
+  // guess — it returns the group's real slug and its full membership, including
+  // slugs no candidate generator would produce (`plumcaterers` for The Tattooed
+  // Pig, `metairie` for Fat Boy's Pizza). It also returns membership the public
+  // endpoint omits: 8 for Two Hands where the public group says 4.
+  //
+  // It needs a SYSTEM_ADMIN, and plenty of single-brand chains only have plain
+  // ADMINs (all three Botte locations, for one), so the probe stays as the
+  // fallback rather than being deleted.
+  const viaAdmin = await readChainGroupAsAdmin(ref).catch(() => null)
+  if (viaAdmin?.ok && viaAdmin.slug && viaAdmin.restaurantReferences.includes(ref)) {
+    return { slug: viaAdmin.slug, fmRefs: viaAdmin.restaurantReferences, source: 'admin-group' }
+  }
+
   const candidates = await slugCandidates(restaurantName)
   for (const slug of candidates) {
     const refs = await fmGroupRefs(slug)
-    if (refs && refs.includes(ref)) return { slug, fmRefs: refs }
+    if (refs && refs.includes(ref)) return { slug, fmRefs: refs, source: 'name-probe' }
   }
   return { slug: null, candidatesTried: candidates }
 }
@@ -176,23 +192,39 @@ export async function ensureMultiUnitLink(
   opts?: { ownerEmail?: string | null; slug?: string | null },
 ): Promise<MultiUnitLinkOutcome> {
   try {
+    // HARD GUARD: never link a restaurant that has not been flipped yet.
+    // The step is documented as running after the flip, but documentation is
+    // not enforcement. Calling this against an unconverted restaurant during
+    // verification created a real, live /locations page holding one unconverted
+    // location whose Order button could not have taken an order. The link is
+    // customer-facing, so this refuses rather than trusting its caller.
+    const nativeRow = (await sql`
+      SELECT COALESCE(is_disco_native, false) AS native FROM disco_restaurant_cache
+      WHERE restaurant_reference = ${ref} LIMIT 1
+    `) as { native: boolean }[]
+    if (!nativeRow.length) return { status: 'failed', detail: 'Restaurant not in the cache.' }
+    if (!nativeRow[0].native) {
+      return { status: 'not-converted', detail: 'Restaurant is not Disco-native yet — the link step runs after the flip, never before.' }
+    }
+
     // AN OPERATOR-SUPPLIED SLUG WINS, and is not required to appear in FM's
     // group. This is the case the probe cannot serve: FM's group under-reports,
     // so the locations FM omits can never verify themselves. Two Hands is the
     // worked example — FM listed 4 of 8, and the other 4 would refuse forever.
     // Sweet Chick has the same shape (FM lists 2 of 5). When Peter supplies
     // membership directly, that IS the authority; FM is not consulted for it.
-    const resolved = opts?.slug
-      ? { slug: opts.slug, fmRefs: (await fmGroupRefs(opts.slug)) ?? [] }
+    const resolved: { slug: string | null; fmRefs?: string[]; source?: string; candidatesTried?: string[] } = opts?.slug
+      ? { slug: opts.slug, fmRefs: (await fmGroupRefs(opts.slug)) ?? [], source: 'operator' }
       : await resolveChainSlug(ref, restaurantName)
     if (resolved.slug === null) {
       return {
         status: 'needs-slug',
         detail: `No FM group slug resolved whose membership contains this restaurant. Supply the slug by hand, or this is genuinely a single-location restaurant.`,
-        candidatesTried: resolved.candidatesTried,
+        candidatesTried: resolved.candidatesTried ?? [],
       }
     }
-    const { slug, fmRefs } = resolved
+    const slug = resolved.slug
+    const fmRefs = resolved.fmRefs ?? []
 
     // A group of one is not a chain — a link over a single location is just the
     // storefront with an extra hop. Skipped for an operator-supplied slug,
