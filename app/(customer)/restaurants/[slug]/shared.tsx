@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import RestaurantClient from './RestaurantClient'
 import NoLongerAvailable from '../../../components/NoLongerAvailable'
+import { assertRestaurantOrderable } from '../../../../lib/restaurant-orderable'
 import { sql, runMigrations, runDiscoMenuMigrations, withDiscoTables } from '../../../../lib/db'
 import { buildNativeScheduleOption, type NativeScheduleConfig } from '../../../../lib/scheduling/native-schedule'
 import { menuRowToSettings, menuRowToScheduleExtras, type MenuSettingsRow } from '../../../../lib/menu-settings'
@@ -636,12 +637,50 @@ export async function RestaurantView({
   // costs nothing extra — loadDiscoNativeRestaurant and the FM path below
   // both call it again and get the same cached row.
   const cachedForArchiveCheck = await getCachedRestaurant(slug)
-  if (cachedForArchiveCheck?.isArchived) {
+
+  // ── ORDERABILITY IS DECIDED HERE, AT PAGE LEVEL, NOT AT CHECKOUT ────────────────────
+  // This used to check `isArchived` alone. Every other refusal reason — a Disco-native
+  // restaurant with online ordering off, or with no connected Stripe account — rendered a
+  // COMPLETE, fully interactive storefront: menu, photos, prices, a working date/time
+  // modal and a live Start Order button. The refusal only arrived when CheckoutDrawer
+  // called /api/order/init, i.e. after the customer had browsed, chosen items, filled a
+  // cart and opened checkout. Correct message, worst possible moment.
+  //
+  // That mattered more once the conversion gate's online-ordering step became ADVISORY
+  // (2026-09-07): a converted-but-paused restaurant is now a state we create on purpose,
+  // so the storefront has to say so up front rather than deferring the bad news.
+  //
+  // assertRestaurantOrderable is the SAME predicate the order routes call, so the page and
+  // the API can never disagree about whether a restaurant is open — which is the whole
+  // reason lib/restaurant-orderable.ts exists. It is read-only and never writes a flag.
+  const orderable = cachedForArchiveCheck?.restaurantReference
+    ? await assertRestaurantOrderable(cachedForArchiveCheck.restaurantReference)
+    : null
+  if (cachedForArchiveCheck?.isArchived || orderable?.reason === 'archived') {
+    // Archive keeps its own longer-standing copy — it is the shipped experience and points
+    // the customer somewhere useful, which the shared one-liner does not.
     return (
       <NoLongerAvailable
         icon="🏚"
         title="This restaurant is no longer available"
         message="This restaurant has closed on Disco Cater. Browse our marketplace to find catering near you."
+      />
+    )
+  }
+  if (orderable && !orderable.orderable) {
+    // The predicate's own message is the headline, verbatim — there is no second wording
+    // here to drift out of step with what /api/order/init would have said. The supporting
+    // line is the archive page's existing sentence rather than anything new; the
+    // ordering-disabled message is a complete statement on its own, so repeating it
+    // underneath (which the first cut did) just said the same thing twice.
+    const paused = orderable.reason === 'ordering-disabled'
+    return (
+      <NoLongerAvailable
+        icon={paused ? '⏸' : '💳'}
+        title={paused ? orderable.message : 'Online ordering isn’t set up yet'}
+        message={paused
+          ? 'Browse our marketplace to find catering near you.'
+          : orderable.message}
       />
     )
   }

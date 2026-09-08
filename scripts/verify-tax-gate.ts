@@ -61,7 +61,10 @@ async function main() {
     const charged = cfg.stateTax.percent + cfg.localTax.percent + cfg.otherTax.percent
     check(`   checkout charges ${expect.effective}%`, charged === expect.effective, `${charged}%`)
     const r = await checkConversionReadiness(ref)
-    const step = r.steps.find(s => s.key === 'settings')
+    // 'settings' split into 'tax' (blocking) + 'online-ordering' (advisory) on 2026-09-07.
+    // This suite is about tax, so it asserts the tax half — which is also the half that
+    // still blocks. A restaurant with ordering off no longer fails this check.
+    const step = r.steps.find(s => s.key === 'tax')
     check('   conversion gate passes', step?.done === true, step?.detail?.slice(0, 90))
   }
 

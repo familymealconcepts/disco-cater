@@ -299,11 +299,65 @@ needed. Confirmed live on Smyrna: Neon's `announcement` and
 ("Pickup & Delivery | Please allow 12 hours advanced notice | Order minimum:
 $200.00", `exact`) with zero extra work.
 
+### 7b. Online ordering — REFRESH THE ADMIN-LIST CACHE, THEN MIRROR
+
+`online_ordering_enabled` is a MIRROR of FM while a restaurant is FM-backed
+(`lib/online-ordering-mirror.ts`, `WHERE COALESCE(c.is_disco_native, false) = false`).
+Disco only owns the column once `is_disco_native` is true. Two things follow, and both
+cost real time on Two Hands (2026-09-07):
+
+**1 — Setting it in Disco does nothing.** The super-admin overrides UI writes
+`disco_restaurant_overrides` in Neon, and the mirror reverts it on its next run. Four
+locations were toggled in Disco, reverted by the cron, and it read as "FM isn't taking the
+change". **The toggle has to be set in FM's own admin.**
+
+**2 — THE MIRROR DOES NOT READ FM. It reads `disco_restaurant_admin_list_cache`.**
+
+```
+FM  →  disco_restaurant_admin_list_cache  →  mirror  →  disco_restaurant_overrides
+       (refresh-restaurant-admin-list cron)   (mirror-online-ordering cron)
+```
+
+Running the mirror straight after an FM change reports `matched=4019, flipped=0` — a
+completely clean, completely wrong result, because the cache still holds FM's OLD value.
+That looked like FM not having saved the change, and cost a second round of toggling.
+
+**Refresh first, then mirror:**
+
+```ts
+import { refreshRestaurantAdminListCache } from './lib/restaurant-admin-list-cache'
+import { mirrorOnlineOrderingFromFm } from './lib/online-ordering-mirror'
+await refreshRestaurantAdminListCache()   // FM  -> admin-list cache
+await mirrorOnlineOrderingFromFm()        // cache -> overrides
+```
+
+Confirm FM's own value first, so a no-op mirror is never ambiguous:
+
+```
+GET https://api.familymeal.com/public-api/restaurants/{ref}  ->  onlineOrderingAllowed
+```
+
+**Since 2026-09-07 this is no longer a conversion blocker** — the readiness step is
+advisory (see step 8). It still governs whether the restaurant is orderable and listed
+AFTER conversion, so it is worth getting right, but it no longer stops a migration.
+
 ### 8. Confirm readiness, then convert
 
-`checkConversionReadiness(ref)` — **three** blocking steps as of 2026-08-19
-(`not-already-native`, `native-menu`, `settings`); `stripe-ready` and
+`checkConversionReadiness(ref)` — **three** blocking steps as of 2026-09-07
+(`not-already-native`, `native-menu`, `tax`); `stripe-ready`, `online-ordering` and
 `marketplace-ready` are advisory/reported only, not blocking (see step 5).
+
+**`settings` SPLIT INTO `tax` + `online-ordering` on 2026-09-07.** It was one step
+combining `hasRealTaxConfig && online_ordering_enabled !== false` under a single
+`blocking: true`, and only the tax half ever earned it: commit `16c38fd`, which made the
+combined step blocking, argues entirely about tax (a null-percent blob used to pass, and
+native checkout cannot price without a real rate). Online ordering is not mentioned in it
+— it was already bundled in and inherited `blocking` as a side effect. Meanwhile
+`marketplace-ready` and `stripe-ready` are advisory on reasoning that covers
+online-ordering-off exactly: a restaurant that would be hidden or unorderable as native
+"should still convert with its data intact". **Conversion is a data migration; the flag is
+state Disco owns afterwards.** A restaurant that has deliberately paused ordering can now
+migrate and stay paused.
 Then `convertToNative(ref)`. Never `goLiveNativeRestaurant` — that's for
 restaurants starting native from zero.
 
