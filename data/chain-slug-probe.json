@@ -1,0 +1,435 @@
+{
+  "generatedAt": "2026-09-08T02:06:06.737Z",
+  "chains": [
+    {
+      "chain": "Tap 42",
+      "ourLocations": 12,
+      "slug": "tap42",
+      "fmGroupSize": 12,
+      "overlap": 12,
+      "verified": true,
+      "banner": null,
+      "header": "Tap 42 Catering"
+    },
+    {
+      "chain": "Savvy Sliders",
+      "ourLocations": 10,
+      "slug": "savvysliders",
+      "fmGroupSize": 5,
+      "overlap": 5,
+      "verified": true,
+      "banner": "8d317b22-c76e-42ca-96d6-996a2ffa84e4",
+      "header": "Savvy Sliders"
+    },
+    {
+      "chain": "Surf Taco",
+      "ourLocations": 7,
+      "slug": "surftaco",
+      "fmGroupSize": 7,
+      "overlap": 7,
+      "verified": true,
+      "banner": "21e90aeb-75cf-465a-90e8-2c9622b03454",
+      "header": "Surf Taco Catering"
+    },
+    {
+      "chain": "BurgerFi",
+      "ourLocations": 7,
+      "slug": "burgerfi",
+      "fmGroupSize": 5,
+      "overlap": 5,
+      "verified": true,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Eggstasy",
+      "ourLocations": 6,
+      "slug": "eggstasy",
+      "fmGroupSize": 7,
+      "overlap": 6,
+      "verified": true,
+      "banner": "5b50b25b-321d-4c21-9d10-dcf3b2e0936b",
+      "header": "Eggstasy Catering"
+    },
+    {
+      "chain": "Winfield Street Coffee",
+      "ourLocations": 6,
+      "slug": "winfieldstreetcoffee",
+      "fmGroupSize": 7,
+      "overlap": 6,
+      "verified": true,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Apollo Bagels",
+      "ourLocations": 5,
+      "slug": "apollobagels",
+      "fmGroupSize": 7,
+      "overlap": 4,
+      "verified": true,
+      "banner": "262bda38-8fbd-489d-9050-72c6369fc464",
+      "header": "Apollo Bagels Catering"
+    },
+    {
+      "chain": "Namkeen",
+      "ourLocations": 5,
+      "slug": "namkeen",
+      "fmGroupSize": 7,
+      "overlap": 5,
+      "verified": true,
+      "banner": "4e461cb9-6e42-46b0-ac88-960c0e79592c",
+      "header": "Namkeen Catering"
+    },
+    {
+      "chain": "Sweet Chick",
+      "ourLocations": 5,
+      "slug": "sweetchick",
+      "fmGroupSize": 2,
+      "overlap": 2,
+      "verified": true,
+      "banner": "76051ec1-3b03-4e5d-a219-2153fe5dbebf",
+      "header": "Sweet Chick Catering"
+    },
+    {
+      "chain": "Local Smoke BBQ",
+      "ourLocations": 4,
+      "slug": "localsmokebbq",
+      "fmGroupSize": 4,
+      "overlap": 4,
+      "verified": true,
+      "banner": null,
+      "header": "Local Smoke BBQ Catering"
+    },
+    {
+      "chain": "Urban CoalHouse",
+      "ourLocations": 3,
+      "slug": "urbancoalhouse",
+      "fmGroupSize": 3,
+      "overlap": 3,
+      "verified": true,
+      "banner": "17e1e6e3-e3a3-4256-a41c-0d09f8c803ad",
+      "header": "Urban CoalHouse Catering"
+    },
+    {
+      "chain": "Tasty Dawg",
+      "ourLocations": 2,
+      "slug": "tastydawg",
+      "fmGroupSize": 2,
+      "overlap": 2,
+      "verified": true,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Cafe Landwer",
+      "ourLocations": 2,
+      "slug": "cafelandwer",
+      "fmGroupSize": 1,
+      "overlap": 1,
+      "verified": true,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Hatch 44 Cafe",
+      "ourLocations": 2,
+      "slug": "hatch44cafe",
+      "fmGroupSize": 2,
+      "overlap": 2,
+      "verified": true,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Brooklyn Dumpling Shop",
+      "ourLocations": 2,
+      "slug": "brooklyndumplingshop",
+      "fmGroupSize": 2,
+      "overlap": 2,
+      "verified": true,
+      "banner": "680cb86b-2744-456a-b3a9-46742445deac",
+      "header": "Brooklyn Dumpling Shop Catering"
+    },
+    {
+      "chain": "Son del North",
+      "ourLocations": 2,
+      "slug": "sondelnorth",
+      "fmGroupSize": 2,
+      "overlap": 2,
+      "verified": true,
+      "banner": "cc9dc7e5-17a9-416d-9ec3-8bb40609117f",
+      "header": "Son Del North Catering"
+    },
+    {
+      "chain": "Backyard Bowls",
+      "ourLocations": 2,
+      "slug": "backyardbowls",
+      "fmGroupSize": 2,
+      "overlap": 2,
+      "verified": true,
+      "banner": "f3b2d959-e438-4494-ab4e-a5175911c6cb",
+      "header": "Backyard Bowls Catering"
+    },
+    {
+      "chain": "Industry",
+      "ourLocations": 2,
+      "slug": "industry",
+      "fmGroupSize": 2,
+      "overlap": 2,
+      "verified": true,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Three Dollar Cafe",
+      "ourLocations": 2,
+      "slug": "threedollarcafe",
+      "fmGroupSize": 2,
+      "overlap": 2,
+      "verified": true,
+      "banner": "8b77a89f-ad66-401c-8fc2-90ff25fe142f",
+      "header": "Three Dollar Cafe Catering"
+    },
+    {
+      "chain": "SmackBird Chicken",
+      "ourLocations": 2,
+      "slug": "smackbird",
+      "fmGroupSize": 4,
+      "overlap": 2,
+      "verified": true,
+      "banner": "085e81e1-39be-4317-a4c0-5ee3f31ef09b",
+      "header": "SmackBird Catering"
+    },
+    {
+      "chain": "Barons Bagel's",
+      "ourLocations": 2,
+      "slug": "baronsbagels",
+      "fmGroupSize": 2,
+      "overlap": 2,
+      "verified": true,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Pete's Bagels",
+      "ourLocations": 2,
+      "slug": "petesbagels",
+      "fmGroupSize": 3,
+      "overlap": 2,
+      "verified": true,
+      "banner": null,
+      "header": "Pete's Bagels Catering"
+    },
+    {
+      "chain": "Zutto",
+      "ourLocations": 1,
+      "slug": "zutto",
+      "fmGroupSize": 1,
+      "overlap": 1,
+      "verified": true,
+      "banner": null,
+      "header": "Zutto Catering"
+    },
+    {
+      "chain": "Chicas Tacos",
+      "ourLocations": 1,
+      "slug": "chicastacos",
+      "fmGroupSize": 2,
+      "overlap": 1,
+      "verified": true,
+      "banner": "203cfe13-ac08-4242-829a-b4ad490dcaef",
+      "header": "Chicas Tacos Catering"
+    },
+    {
+      "chain": "Hearthly Burger",
+      "ourLocations": 1,
+      "slug": "hearthly",
+      "fmGroupSize": 1,
+      "overlap": 1,
+      "verified": true,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Binge Biryani",
+      "ourLocations": 1,
+      "slug": "bingebiryani",
+      "fmGroupSize": 1,
+      "overlap": 1,
+      "verified": true,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Taim",
+      "ourLocations": 11,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Fat Boy's Pizza",
+      "ourLocations": 4,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Botte",
+      "ourLocations": 3,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Howlin' Willy's",
+      "ourLocations": 3,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "The Tattooed Pig",
+      "ourLocations": 2,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Stacks & Cordials",
+      "ourLocations": 2,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Slate Cafe",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "502 Baking Company",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Pixlcat Coffee",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Almost Home",
+      "ourLocations": 1,
+      "slug": "almosthome",
+      "fmGroupSize": 3,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Broasted Brothers",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Happy's Pizza",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "SouzaFit",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Donna Jean",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Pita Pit",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Yosemite Ranch",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    },
+    {
+      "chain": "Pastosa Ravioli",
+      "ourLocations": 1,
+      "slug": null,
+      "fmGroupSize": null,
+      "overlap": 0,
+      "verified": false,
+      "banner": null,
+      "header": null
+    }
+  ]
+}
