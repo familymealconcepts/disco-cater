@@ -1,0 +1,382 @@
+{
+  "generatedAt": "2026-09-08T16:20:39.255Z",
+  "purpose": "Seeded brand splits for FM groups that span more than one brand. Multi-unit links are PER BRAND (Peter, 2026-09-08) while FM groups are per OPERATOR, so these groups need splitting. Every entry is PROPOSED until Peter reviews it. `refs` overrides brand detection for individual restaurants; `slug` is the link slug for that brand.",
+  "rules": [
+    "A brand whose token equals the FM group slug keeps that slug.",
+    "Otherwise the FM slug is operator-scoped (2dine4, ubyseg, metairie…) and every brand in the group gets its own slug.",
+    "A brand spanning several FM groups gets ONE link aggregating all its converting locations, regardless of operator.",
+    "Only the brand keeping a slug that has an FM banner keeps the banner; the others render a gradient."
+  ],
+  "brands": [
+    {
+      "brand": "taim",
+      "slug": "taim",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "craveworthybrands"
+      ],
+      "convertingLocations": [
+        "Taim - City Spire",
+        "Taim - FIDI",
+        "Taim - Nolita",
+        "Taim - West Village",
+        "Taim - Broadway",
+        "Taim - Plainview",
+        "Taim - Hoyt",
+        "Taim - Park Slope",
+        "Taim - Dupont Circle",
+        "Taim - LIC / JACX&CO",
+        "Taim - Fresh Meadows, Queens"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "savvysliders",
+      "slug": "savvysliders",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "fortwayne",
+        "happyspizzacatering",
+        "metairie"
+      ],
+      "convertingLocations": [
+        "Savvy Sliders - Fort Wayne",
+        "Savvy Sliders - Port Huron",
+        "Savvy Sliders - Metairie",
+        "Savvy Sliders - Harvey",
+        "Savvy Sliders - Covington",
+        "Savvy Sliders - Oak Park",
+        "Savvy Sliders - Fraser",
+        "Savvy Sliders - San Antonio",
+        "Savvy Sliders - Dallas",
+        "Savvy Sliders - Detroit (Midtown)"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "eggstasy",
+      "slug": "eggstasy",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": true,
+      "fmGroups": [
+        "eggstasy"
+      ],
+      "convertingLocations": [
+        "Eggstasy - Scottsdale",
+        "Eggstasy - Chandler",
+        "Eggstasy - Norterra Ctr.",
+        "Eggstasy - Mesa",
+        "Eggstasy - The Colony",
+        "Eggstasy - Queen Creek"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "fatboyspizza",
+      "slug": "fatboyspizza",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "fortwayne",
+        "metairie"
+      ],
+      "convertingLocations": [
+        "Fat Boy's Pizza - Fort Wayne",
+        "Fat Boy's Pizza - Metairie",
+        "Fat Boy's Pizza - Harvey",
+        "Fat Boy's Pizza - Covington"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "petesbagels",
+      "slug": "petesbagels",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": true,
+      "fmGroups": [
+        "petesbagels"
+      ],
+      "convertingLocations": [
+        "Pete's Bagels - St. Pete",
+        "Pete's Bagels - Ybor"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "thetattooedpig",
+      "slug": "thetattooedpig",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "plumcaterers"
+      ],
+      "convertingLocations": [
+        "The Tattooed Pig - Aston",
+        "The Tattooed Pig - Media"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "denada",
+      "slug": "denada",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "2dine4"
+      ],
+      "convertingLocations": [
+        "De Nada"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "lileasy",
+      "slug": "lileasy",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "2dine4"
+      ],
+      "convertingLocations": [
+        "Lil' Easy"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "morningsqueeze",
+      "slug": "morningsqueeze",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "eggstasy"
+      ],
+      "convertingLocations": [
+        "Morning Squeeze"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "crackinyolks",
+      "slug": "crackinyolks",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "foodconcierge"
+      ],
+      "convertingLocations": [
+        "Crackin’ Yolks"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "gorditosburritos",
+      "slug": "gorditosburritos",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "foodconcierge"
+      ],
+      "convertingLocations": [
+        "Gordito's Burritos"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "thebizcatering",
+      "slug": "thebizcatering",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "foodconcierge"
+      ],
+      "convertingLocations": [
+        "The Biz Catering"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "trattoriamodernaitaliancatering",
+      "slug": "trattoriamodernaitaliancatering",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "foodconcierge"
+      ],
+      "convertingLocations": [
+        "Trattoria Moderna Italian Catering"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "happyspizza",
+      "slug": "happyspizza",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "happyspizzacatering"
+      ],
+      "convertingLocations": [
+        "Happy's Pizza - Port Huron "
+      ],
+      "refs": []
+    },
+    {
+      "brand": "westhilldeli",
+      "slug": "westhilldeli",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "4us9tk"
+      ],
+      "convertingLocations": [
+        "West Hill Deli"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "lechonloco",
+      "slug": "lechonloco",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "4us9tk"
+      ],
+      "convertingLocations": [
+        "Lechon Loco"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "seymours",
+      "slug": "seymours",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "petesbagels"
+      ],
+      "convertingLocations": [
+        "Seymour's"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "plumcaterers",
+      "slug": "plumcaterers",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": true,
+      "fmGroups": [
+        "plumcaterers"
+      ],
+      "convertingLocations": [
+        "Plum Caterers"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "sigri",
+      "slug": "sigri",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "craveworthybrands"
+      ],
+      "convertingLocations": [
+        "Sigri"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "missada",
+      "slug": "missada",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "ubyseg"
+      ],
+      "convertingLocations": [
+        "Miss Ada"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "theabakery",
+      "slug": "theabakery",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "ubyseg"
+      ],
+      "convertingLocations": [
+        "Thea Bakery"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "tipsycafecatering",
+      "slug": "tipsycafecatering",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "e6yemu"
+      ],
+      "convertingLocations": [
+        "Tipsy Cafe & Catering"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "dasgoodcafe",
+      "slug": "dasgoodcafe",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "e6yemu"
+      ],
+      "convertingLocations": [
+        "Das Good Cafe "
+      ],
+      "refs": []
+    },
+    {
+      "brand": "westwoodsbbqspiceco",
+      "slug": "westwoodsbbqspiceco",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "pmbl6w"
+      ],
+      "convertingLocations": [
+        "Westwoods BBQ & Spice Co."
+      ],
+      "refs": []
+    },
+    {
+      "brand": "pismoscoastalgrill",
+      "slug": "pismoscoastalgrill",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "pmbl6w"
+      ],
+      "convertingLocations": [
+        "Pismo's Coastal Grill"
+      ],
+      "refs": []
+    },
+    {
+      "brand": "yosemiteranch",
+      "slug": "yosemiteranch",
+      "status": "PROPOSED — not yet reviewed by Peter",
+      "keepsFmSlug": false,
+      "fmGroups": [
+        "pmbl6w"
+      ],
+      "convertingLocations": [
+        "Yosemite Ranch"
+      ],
+      "refs": []
+    }
+  ]
+}

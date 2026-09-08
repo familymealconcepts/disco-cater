@@ -1,0 +1,559 @@
+{
+  "generatedAt": "2026-09-08T16:20:17.157Z",
+  "rows": [
+    {
+      "fmGroup": "2dine4",
+      "fmGroupName": "De Nada",
+      "groupHasBanner": false,
+      "brand": "denada",
+      "proposedSlug": "denada",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "2dine4"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "De Nada"
+      ]
+    },
+    {
+      "fmGroup": "2dine4",
+      "fmGroupName": "De Nada",
+      "groupHasBanner": false,
+      "brand": "lileasy",
+      "proposedSlug": "lileasy",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "2dine4"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Lil' Easy"
+      ]
+    },
+    {
+      "fmGroup": "eggstasy",
+      "fmGroupName": "We Begg to Differ Restaurants LLC",
+      "groupHasBanner": true,
+      "brand": "eggstasy",
+      "proposedSlug": "eggstasy",
+      "keepsFmSlug": true,
+      "slugIsOperatorScoped": false,
+      "spansGroups": [
+        "eggstasy"
+      ],
+      "convertingTotal": 6,
+      "convertingInThisGroup": 6,
+      "names": [
+        "Eggstasy - Scottsdale",
+        "Eggstasy - Chandler",
+        "Eggstasy - Norterra Ctr.",
+        "Eggstasy - Mesa",
+        "Eggstasy - The Colony",
+        "Eggstasy - Queen Creek"
+      ]
+    },
+    {
+      "fmGroup": "eggstasy",
+      "fmGroupName": "We Begg to Differ Restaurants LLC",
+      "groupHasBanner": true,
+      "brand": "morningsqueeze",
+      "proposedSlug": "morningsqueeze",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": false,
+      "spansGroups": [
+        "eggstasy"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Morning Squeeze"
+      ]
+    },
+    {
+      "fmGroup": "fortwayne",
+      "fmGroupName": "Savvy Sliders/Fat Boy's Pizza",
+      "groupHasBanner": false,
+      "brand": "savvysliders",
+      "proposedSlug": "savvysliders",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "fortwayne",
+        "happyspizzacatering",
+        "metairie",
+        "savvysliders"
+      ],
+      "convertingTotal": 10,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Savvy Sliders - Fort Wayne",
+        "Savvy Sliders - Port Huron",
+        "Savvy Sliders - Metairie",
+        "Savvy Sliders - Harvey",
+        "Savvy Sliders - Covington",
+        "Savvy Sliders - Oak Park",
+        "Savvy Sliders - Fraser",
+        "Savvy Sliders - San Antonio",
+        "Savvy Sliders - Dallas",
+        "Savvy Sliders - Detroit (Midtown)"
+      ]
+    },
+    {
+      "fmGroup": "fortwayne",
+      "fmGroupName": "Savvy Sliders/Fat Boy's Pizza",
+      "groupHasBanner": false,
+      "brand": "fatboyspizza",
+      "proposedSlug": "fatboyspizza",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "fortwayne",
+        "metairie"
+      ],
+      "convertingTotal": 4,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Fat Boy's Pizza - Fort Wayne",
+        "Fat Boy's Pizza - Metairie",
+        "Fat Boy's Pizza - Harvey",
+        "Fat Boy's Pizza - Covington"
+      ]
+    },
+    {
+      "fmGroup": "foodconcierge",
+      "fmGroupName": "Crackin’ Yolks Breakfast Catering ",
+      "groupHasBanner": false,
+      "brand": "crackinyolks",
+      "proposedSlug": "crackinyolks",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "foodconcierge"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Crackin’ Yolks"
+      ]
+    },
+    {
+      "fmGroup": "foodconcierge",
+      "fmGroupName": "Crackin’ Yolks Breakfast Catering ",
+      "groupHasBanner": false,
+      "brand": "gorditosburritos",
+      "proposedSlug": "gorditosburritos",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "foodconcierge"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Gordito's Burritos"
+      ]
+    },
+    {
+      "fmGroup": "foodconcierge",
+      "fmGroupName": "Crackin’ Yolks Breakfast Catering ",
+      "groupHasBanner": false,
+      "brand": "thebizcatering",
+      "proposedSlug": "thebizcatering",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "foodconcierge"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "The Biz Catering"
+      ]
+    },
+    {
+      "fmGroup": "foodconcierge",
+      "fmGroupName": "Crackin’ Yolks Breakfast Catering ",
+      "groupHasBanner": false,
+      "brand": "trattoriamodernaitaliancatering",
+      "proposedSlug": "trattoriamodernaitaliancatering",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "foodconcierge"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Trattoria Moderna Italian Catering"
+      ]
+    },
+    {
+      "fmGroup": "happyspizzacatering",
+      "fmGroupName": "Happys Pizza and Savvy Sliders Co-Brand",
+      "groupHasBanner": true,
+      "brand": "happyspizza",
+      "proposedSlug": "happyspizza",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "happyspizzacatering"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Happy's Pizza - Port Huron "
+      ]
+    },
+    {
+      "fmGroup": "happyspizzacatering",
+      "fmGroupName": "Happys Pizza and Savvy Sliders Co-Brand",
+      "groupHasBanner": true,
+      "brand": "savvysliders",
+      "proposedSlug": "savvysliders",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "fortwayne",
+        "happyspizzacatering",
+        "metairie",
+        "savvysliders"
+      ],
+      "convertingTotal": 10,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Savvy Sliders - Fort Wayne",
+        "Savvy Sliders - Port Huron",
+        "Savvy Sliders - Metairie",
+        "Savvy Sliders - Harvey",
+        "Savvy Sliders - Covington",
+        "Savvy Sliders - Oak Park",
+        "Savvy Sliders - Fraser",
+        "Savvy Sliders - San Antonio",
+        "Savvy Sliders - Dallas",
+        "Savvy Sliders - Detroit (Midtown)"
+      ]
+    },
+    {
+      "fmGroup": "4us9tk",
+      "fmGroupName": "West Hill Deli",
+      "groupHasBanner": false,
+      "brand": "westhilldeli",
+      "proposedSlug": "westhilldeli",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "4us9tk"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "West Hill Deli"
+      ]
+    },
+    {
+      "fmGroup": "4us9tk",
+      "fmGroupName": "West Hill Deli",
+      "groupHasBanner": false,
+      "brand": "lechonloco",
+      "proposedSlug": "lechonloco",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "4us9tk"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Lechon Loco"
+      ]
+    },
+    {
+      "fmGroup": "petesbagels",
+      "fmGroupName": "Pete's Bagels - St. Pete",
+      "groupHasBanner": false,
+      "brand": "petesbagels",
+      "proposedSlug": "petesbagels",
+      "keepsFmSlug": true,
+      "slugIsOperatorScoped": false,
+      "spansGroups": [
+        "petesbagels"
+      ],
+      "convertingTotal": 2,
+      "convertingInThisGroup": 2,
+      "names": [
+        "Pete's Bagels - St. Pete",
+        "Pete's Bagels - Ybor"
+      ]
+    },
+    {
+      "fmGroup": "petesbagels",
+      "fmGroupName": "Pete's Bagels - St. Pete",
+      "groupHasBanner": false,
+      "brand": "seymours",
+      "proposedSlug": "seymours",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": false,
+      "spansGroups": [
+        "petesbagels"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Seymour's"
+      ]
+    },
+    {
+      "fmGroup": "plumcaterers",
+      "fmGroupName": "The Tattooed Pig - Aston",
+      "groupHasBanner": false,
+      "brand": "thetattooedpig",
+      "proposedSlug": "thetattooedpig",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": false,
+      "spansGroups": [
+        "plumcaterers"
+      ],
+      "convertingTotal": 2,
+      "convertingInThisGroup": 2,
+      "names": [
+        "The Tattooed Pig - Aston",
+        "The Tattooed Pig - Media"
+      ]
+    },
+    {
+      "fmGroup": "plumcaterers",
+      "fmGroupName": "The Tattooed Pig - Aston",
+      "groupHasBanner": false,
+      "brand": "plumcaterers",
+      "proposedSlug": "plumcaterers",
+      "keepsFmSlug": true,
+      "slugIsOperatorScoped": false,
+      "spansGroups": [
+        "plumcaterers"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Plum Caterers"
+      ]
+    },
+    {
+      "fmGroup": "metairie",
+      "fmGroupName": "Fat Boys Pizza/ Savvy Sliders",
+      "groupHasBanner": false,
+      "brand": "savvysliders",
+      "proposedSlug": "savvysliders",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "fortwayne",
+        "happyspizzacatering",
+        "metairie",
+        "savvysliders"
+      ],
+      "convertingTotal": 10,
+      "convertingInThisGroup": 3,
+      "names": [
+        "Savvy Sliders - Fort Wayne",
+        "Savvy Sliders - Port Huron",
+        "Savvy Sliders - Metairie",
+        "Savvy Sliders - Harvey",
+        "Savvy Sliders - Covington",
+        "Savvy Sliders - Oak Park",
+        "Savvy Sliders - Fraser",
+        "Savvy Sliders - San Antonio",
+        "Savvy Sliders - Dallas",
+        "Savvy Sliders - Detroit (Midtown)"
+      ]
+    },
+    {
+      "fmGroup": "metairie",
+      "fmGroupName": "Fat Boys Pizza/ Savvy Sliders",
+      "groupHasBanner": false,
+      "brand": "fatboyspizza",
+      "proposedSlug": "fatboyspizza",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "fortwayne",
+        "metairie"
+      ],
+      "convertingTotal": 4,
+      "convertingInThisGroup": 3,
+      "names": [
+        "Fat Boy's Pizza - Fort Wayne",
+        "Fat Boy's Pizza - Metairie",
+        "Fat Boy's Pizza - Harvey",
+        "Fat Boy's Pizza - Covington"
+      ]
+    },
+    {
+      "fmGroup": "craveworthybrands",
+      "fmGroupName": "Taim - 156 W 56th St.",
+      "groupHasBanner": false,
+      "brand": "taim",
+      "proposedSlug": "taim",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "craveworthybrands"
+      ],
+      "convertingTotal": 11,
+      "convertingInThisGroup": 11,
+      "names": [
+        "Taim - City Spire",
+        "Taim - FIDI",
+        "Taim - Nolita",
+        "Taim - West Village",
+        "Taim - Broadway",
+        "Taim - Plainview",
+        "Taim - Hoyt",
+        "Taim - Park Slope",
+        "Taim - Dupont Circle",
+        "Taim - LIC / JACX&CO",
+        "Taim - Fresh Meadows, Queens"
+      ]
+    },
+    {
+      "fmGroup": "craveworthybrands",
+      "fmGroupName": "Taim - 156 W 56th St.",
+      "groupHasBanner": false,
+      "brand": "sigri",
+      "proposedSlug": "sigri",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "craveworthybrands"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Sigri"
+      ]
+    },
+    {
+      "fmGroup": "ubyseg",
+      "fmGroupName": "Miss Ada",
+      "groupHasBanner": false,
+      "brand": "missada",
+      "proposedSlug": "missada",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "ubyseg"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Miss Ada"
+      ]
+    },
+    {
+      "fmGroup": "ubyseg",
+      "fmGroupName": "Miss Ada",
+      "groupHasBanner": false,
+      "brand": "theabakery",
+      "proposedSlug": "theabakery",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "ubyseg"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Thea Bakery"
+      ]
+    },
+    {
+      "fmGroup": "e6yemu",
+      "fmGroupName": "Tipsy Cafe and Catering",
+      "groupHasBanner": false,
+      "brand": "tipsycafecatering",
+      "proposedSlug": "tipsycafecatering",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "e6yemu"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Tipsy Cafe & Catering"
+      ]
+    },
+    {
+      "fmGroup": "e6yemu",
+      "fmGroupName": "Tipsy Cafe and Catering",
+      "groupHasBanner": false,
+      "brand": "dasgoodcafe",
+      "proposedSlug": "dasgoodcafe",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "e6yemu"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Das Good Cafe "
+      ]
+    },
+    {
+      "fmGroup": "pmbl6w",
+      "fmGroupName": "Westwoods BBQ & Spice Co.",
+      "groupHasBanner": false,
+      "brand": "westwoodsbbqspiceco",
+      "proposedSlug": "westwoodsbbqspiceco",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "pmbl6w"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Westwoods BBQ & Spice Co."
+      ]
+    },
+    {
+      "fmGroup": "pmbl6w",
+      "fmGroupName": "Westwoods BBQ & Spice Co.",
+      "groupHasBanner": false,
+      "brand": "pismoscoastalgrill",
+      "proposedSlug": "pismoscoastalgrill",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "pmbl6w"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Pismo's Coastal Grill"
+      ]
+    },
+    {
+      "fmGroup": "pmbl6w",
+      "fmGroupName": "Westwoods BBQ & Spice Co.",
+      "groupHasBanner": false,
+      "brand": "yosemiteranch",
+      "proposedSlug": "yosemiteranch",
+      "keepsFmSlug": false,
+      "slugIsOperatorScoped": true,
+      "spansGroups": [
+        "pmbl6w"
+      ],
+      "convertingTotal": 1,
+      "convertingInThisGroup": 1,
+      "names": [
+        "Yosemite Ranch"
+      ]
+    }
+  ]
+}

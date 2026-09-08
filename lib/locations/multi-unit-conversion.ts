@@ -20,6 +20,8 @@ import { fetchFmLinkMeta, rehostFmBanner } from './fm-banner'
 import { upsertLocationLink, upsertLocationLinkImage } from '../location-links'
 import { getLocationLink } from '../locations'
 import { readChainGroupAsAdmin } from '../fm-master-admin-read'
+import { splitGroupIntoBrands, type BrandMember } from './brand'
+import { brandOverrideFor, brandSlugFor } from './brand-overrides'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const PROBE_TIMEOUT_MS = 8000
@@ -46,6 +48,35 @@ export interface Divergence {
   inFmNotConverted: number
   convertedNotInFm: number
   note: string | null
+}
+
+/** businessNameWithoutSpaces + cache name for each ref, for brand splitting. */
+async function hydrateMembers(refs: string[]): Promise<BrandMember[]> {
+  const rows = (await sql`
+    SELECT restaurant_reference AS ref, name FROM disco_restaurant_cache WHERE restaurant_reference = ANY(${refs})
+  `.catch(() => [])) as { ref: string; name: string }[]
+  return Promise.all(rows.map(async r => {
+    let bnws: string | null = null
+    try {
+      const res = await fetch(`${FM}/public-api/restaurants/${r.ref}`, {
+        headers: { Accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      })
+      if (res.ok) {
+        const j = await res.json().catch(() => null) as { businessNameWithoutSpaces?: string } | null
+        bnws = j?.businessNameWithoutSpaces ?? null
+      }
+    } catch { /* brand falls through to prefix clustering */ }
+    return { ref: r.ref, name: r.name, bnws }
+  }))
+}
+
+async function overridesByRef(members: BrandMember[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  for (const m of members) {
+    const b = brandOverrideFor(m.ref)
+    if (b) out[m.ref] = b
+  }
+  return out
 }
 
 async function fmGroupRefs(slug: string): Promise<string[] | null> {
@@ -111,7 +142,7 @@ export async function slugCandidates(restaurantName: string | null): Promise<str
  * right one, and taking it would publish a page linking a stranger's locations.
  */
 export async function resolveChainSlug(ref: string, restaurantName: string | null): Promise<
-  { slug: string; fmRefs: string[]; source: 'admin-group' | 'name-probe' } | { slug: null; candidatesTried: string[] }
+  { slug: string; fmRefs: string[]; source: 'admin-group' | 'name-probe'; brand?: string } | { slug: null; candidatesTried: string[] }
 > {
   // PRIMARY: ask FM as one of the chain's own admins. This is a lookup, not a
   // guess — it returns the group's real slug and its full membership, including
@@ -124,6 +155,29 @@ export async function resolveChainSlug(ref: string, restaurantName: string | nul
   // fallback rather than being deleted.
   const viaAdmin = await readChainGroupAsAdmin(ref).catch(() => null)
   if (viaAdmin?.ok && viaAdmin.slug && viaAdmin.restaurantReferences.includes(ref)) {
+    // THE GROUP IS THE OPERATOR; THE LINK IS THE BRAND. FM's group can hold two
+    // brands (/metairie is three Fat Boy's and three Savvy Sliders), so the
+    // group gives the candidate slug and the roster, but the link's members are
+    // one brand's locations. Split the roster and keep only this brand.
+    const members: BrandMember[] = await hydrateMembers(viaAdmin.restaurantReferences)
+    const brands = splitGroupIntoBrands(members, await overridesByRef(members))
+    const mine = [...brands.entries()].find(([, ms]) => ms.some(m => m.ref === ref))
+    if (mine) {
+      const [token, brandMembers] = mine
+      // SINGLE-BRAND GROUP → ALWAYS KEEP FM'S SLUG. The group slug need not equal
+      // the brand token even when there is only one brand: 3 Pepper Burrito Co.'s
+      // group is `3pepperburrito` while its brand token is `3pepperburritoco`.
+      // Minting a new slug there would abandon FM's slug, and its banner, for
+      // nothing. Only split when the group genuinely holds more than one brand.
+      //
+      // When it does, a brand whose token IS the group slug keeps it; otherwise
+      // the group slug is operator-scoped (2dine4, ubyseg, metairie) and every
+      // brand gets its own. A reviewed override in data/brand-overrides.json
+      // wins over both.
+      const slug = brandSlugFor(token)
+        ?? (brands.size === 1 || token === viaAdmin.slug ? viaAdmin.slug : token)
+      return { slug, fmRefs: brandMembers.map(m => m.ref), source: 'admin-group', brand: token }
+    }
     return { slug: viaAdmin.slug, fmRefs: viaAdmin.restaurantReferences, source: 'admin-group' }
   }
 

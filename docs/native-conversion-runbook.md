@@ -555,6 +555,52 @@ Co.'s nine Florida locations four ways, and it would have merged nothing that FM
 merges. The per-restaurant group lookup sidesteps the counting problem entirely
 — ask FM per restaurant instead of trying to enumerate chains up front.
 
+#### Morning Squeeze on Eggstasy's page: Kealoha was right, and it was never a data error
+
+Kealoha reported Morning Squeeze appearing on Eggstasy's `/locations` page. That
+report was **correct**, and it was repeatedly treated as a mystery or a
+suspected data error. It is neither.
+
+FM's group `/eggstasy` is named "We Begg to Differ Restaurants LLC" — an
+operator, not a brand — and it holds six Eggstasy locations **and** Morning
+Squeeze. The page rendered exactly what FM said. **The cause is that FM's group
+is a franchisee group**, so a customer browsing Eggstasy saw a different brand
+run by the same company.
+
+Under the per-brand rule this resolves itself: Eggstasy keeps `/eggstasy` (six
+locations, and FM's banner, which hangs off that slug) and Morning Squeeze moves
+to its own `/morningsqueeze`. Nothing about the underlying data needed fixing.
+
+Worth remembering the shape: **a brand appearing on another brand's locations
+page is the expected consequence of an operator-scoped group, not a bug to hunt.**
+
+#### Brand detection, and why some of it is hand-set
+
+Order, most trustworthy first:
+
+1. **FM's `businessNameWithoutSpaces`** where it carries a `<brand>-<location>`
+   hyphen — `fatboyspizza-covington`, `3pepperburritoco-estero`. FM's own data.
+   It covers only **94 of 342 (27%)**, but it is what unifies 3 Pepper Burrito
+   Co.'s nine Florida locations whose display names spell the city four ways.
+2. **Longest-common-prefix clustering within one FM group**, by union-find.
+   Order-independent on purpose: a single greedy pass shortened the comparison
+   key as it merged and fragmented Taim into nine "brands". Safe only because
+   the candidate set is one operator's 2-13 locations.
+3. **`data/brand-overrides.json`** — reviewed by hand. Expected to be used.
+
+**There is no brand field on FM's record.** Checked every field. Logos looked
+promising and are not: FM's image `name` is a shared storage key, so a brand
+sharing one logo would be detectable, but every location has a distinct key —
+the three Fat Boy's have three different logo files.
+
+**Slug rule.** A single-brand group always keeps FM's slug, even when the token
+differs (`3pepperburrito` vs token `3pepperburritoco`) — minting a new slug
+there would abandon FM's slug and banner for nothing. Where a group holds
+several brands, a brand whose token IS the slug keeps it, and otherwise the slug
+is operator-scoped (`2dine4`, `ubyseg`, `metairie`) and every brand gets its
+own. **The brand that does not keep the slug also loses FM's banner**, because
+the banner hangs off the slug.
+
 #### Botte: no multi-unit page, by decision (2026-09-08)
 
 Botte's three locations (Astoria, Brooklyn, UES) **do not get a `/locations`
