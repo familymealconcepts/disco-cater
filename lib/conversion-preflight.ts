@@ -55,7 +55,24 @@ export interface PreflightResult {
   multiUnit: MultiUnitPreflight
 }
 
+// OVERRIDES FIRST, then the account row as a fallback — kept deliberately
+// identical to the copy in lib/native-conversion.ts, because the two answering
+// differently is exactly the bug this had. On 2026-08-20 the Stripe columns
+// moved to disco_restaurant_overrides and importRestaurantStripeAccount stopped
+// writing the account row; native-conversion.ts was updated and this copy was
+// not, so runPreflightCheck reported stripeMode "not-linked" for every
+// restaurant imported after that date, including ones with a verified,
+// charge-capable account. Reporting-only (is_live reads overrides via
+// stripeReadySql and was never affected), but it sends a human to the Stripe
+// Dashboard for a lookup that was already done.
 async function storedAccountId(ref: string): Promise<string | null> {
+  const fromOverrides = (await sql`
+    SELECT stripe_account_id FROM disco_restaurant_overrides
+    WHERE restaurant_reference = ${ref} AND stripe_account_id IS NOT NULL
+    LIMIT 1
+  `.catch(() => [])) as { stripe_account_id: string | null }[]
+  if (fromOverrides[0]?.stripe_account_id) return fromOverrides[0].stripe_account_id
+
   const rows = (await sql`
     SELECT stripe_account_id FROM disco_restaurant_accounts
     WHERE (restaurant_reference = ${ref} OR fm_restaurant_reference = ${ref}) AND stripe_account_id IS NOT NULL
