@@ -533,119 +533,42 @@ The same correction applies to `Almost Home - Westfield`, earlier written off as
 "a different business with the same name" because the public group excluded it.
 The admin group includes it. The public endpoint was the unreliable party.
 
-#### THE UNIT IS ONE OPERATOR, NOT ONE BRAND — and the link is per BRAND
+#### MULTI-UNIT LINKS MIRROR FM'S GROUPS. EXACTLY. (Peter, 2026-09-09)
 
-**FM groups are franchisee groups.** They can span brands, and one brand can
-span several groups. Both directions are real in current data:
+**A system admin creates their own links in FM, so FM's group IS the link.**
+Read it with `readChainGroupAsAdmin` and copy it: **membership, slug and title
+all come from FM.** No splitting, no inference, nothing added or removed.
 
-- `/metairie` is named "Fat Boys Pizza/ Savvy Sliders" and holds three Fat Boy's
-  and three Savvy Sliders — one operator, two brands, same three cities.
-- Savvy Sliders locations sit in **three** different groups: `/metairie`,
-  `/savvysliders`, and `/happyspizzacatering` ("Happys Pizza and Savvy Sliders
-  Co-Brand", 57 locations).
+This REPLACES the per-brand rule that stood from 2026-09-08 to 2026-09-09. That
+rule split an FM group across brands and produced links FM had never authored —
+`/savvysliders` gathered eight locations from four different operator groups,
+which is a page no FM admin ever made. It is gone. `data/brand-overrides.json`
+and `lib/locations/brand.ts` are no longer consulted for link membership.
 
-**Peter's decision (2026-09-08): multi-unit links are PER BRAND.** Fat Boy's and
-Savvy Sliders get separate links even though FM puts them in one group. So
-`readChainGroupAsAdmin` supplies the **slug**, but **not the membership** — the
-members are the converted locations of a single brand.
+Use `readChainGroupAsAdmin`, not the public endpoint: the public
+`/public-api/restaurants/group/{slug}` UNDER-REPORTS (4 of Two Hands' 8), while
+the admin endpoint is complete.
 
-**The "43 chains" count was never the right shape.** It came from grouping by
-name prefix, which has the wrong unit at both ends: it split 3 Pepper Burrito
-Co.'s nine Florida locations four ways, and it would have merged nothing that FM
-merges. The per-restaurant group lookup sidesteps the counting problem entirely
-— ask FM per restaurant instead of trying to enumerate chains up front.
+**Consequences, all accepted deliberately:**
 
-#### Morning Squeeze on Eggstasy's page: Kealoha was right, and it was never a data error
+| FM group | holds | so the link holds |
+|---|---|---|
+| `/metairie` "Fat Boys Pizza/ Savvy Sliders" | 3 Fat Boy's + 3 Savvy Sliders | one page, both brands |
+| `/eggstasy` "We Begg to Differ Restaurants LLC" | 6 Eggstasy + Morning Squeeze | Morning Squeeze on Eggstasy's page |
+| `/savvysliders` | 6 | six — NOT the eight the brand rule gathered |
+| `/happyspizzacatering` | 57, two brands | all 57, when they convert |
 
-Kealoha reported Morning Squeeze appearing on Eggstasy's `/locations` page. That
-report was **correct**, and it was repeatedly treated as a mystery or a
-suspected data error. It is neither.
+**Morning Squeeze on Eggstasy's page is FM's grouping, not a bug.** Kealoha's
+original report was accurate about what appeared; the resolution is that this is
+what the operator built, and Disco copies it.
 
-FM's group `/eggstasy` is named "We Begg to Differ Restaurants LLC" — an
-operator, not a brand — and it holds six Eggstasy locations **and** Morning
-Squeeze. The page rendered exactly what FM said. **The cause is that FM's group
-is a franchisee group**, so a customer browsing Eggstasy saw a different brand
-run by the same company.
+**Sync, don't grow.** `ensureMultiUnitLink` reconciles the link to FM's group in
+BOTH directions on every conversion: members FM has are added, members FM does
+not have are **removed**. The old add-only behaviour was correct only while the
+link was a Disco-authored set.
 
-Under the per-brand rule this resolves itself: Eggstasy keeps `/eggstasy` (six
-locations, and FM's banner, which hangs off that slug) and Morning Squeeze moves
-to its own `/morningsqueeze`. Nothing about the underlying data needed fixing.
-
-Worth remembering the shape: **a brand appearing on another brand's locations
-page is the expected consequence of an operator-scoped group, not a bug to hunt.**
-
-#### Brand detection, and why some of it is hand-set
-
-Order, most trustworthy first:
-
-1. **FM's `businessNameWithoutSpaces`** where it carries a `<brand>-<location>`
-   hyphen — `fatboyspizza-covington`, `3pepperburritoco-estero`. FM's own data.
-   It covers only **94 of 342 (27%)**, but it is what unifies 3 Pepper Burrito
-   Co.'s nine Florida locations whose display names spell the city four ways.
-2. **Longest-common-prefix clustering within one FM group**, by union-find.
-   Order-independent on purpose: a single greedy pass shortened the comparison
-   key as it merged and fragmented Taim into nine "brands". Safe only because
-   the candidate set is one operator's 2-13 locations.
-3. **`data/brand-overrides.json`** — reviewed by hand. Expected to be used.
-
-**There is no brand field on FM's record.** Checked every field. Logos looked
-promising and are not: FM's image `name` is a shared storage key, so a brand
-sharing one logo would be detectable, but every location has a distinct key —
-the three Fat Boy's have three different logo files.
-
-**Slug rule.** A single-brand group always keeps FM's slug, even when the token
-differs (`3pepperburrito` vs token `3pepperburritoco`) — minting a new slug
-there would abandon FM's slug and banner for nothing. Where a group holds
-several brands, a brand whose token IS the slug keeps it, and otherwise the slug
-is operator-scoped (`2dine4`, `ubyseg`, `metairie`) and every brand gets its
-own. **The brand that does not keep the slug also loses FM's banner**, because
-the banner hangs off the slug.
-
-#### READING FM ASSIGNMENTS — use readUserAssignment, never the email (2026-09-09)
-
-This question blocked four conversions in a week. It is answered.
-
-`readUserAssignment(email, role)` in `lib/fm-master-admin-read.ts` asks FM, by
-the only path each role allows:
-
-- **SYSTEM_ADMIN** — sign in as them and `GET /api/system-admin/restaurants`,
-  which returns the set assigned to the AUTHENTICATED user. Same endpoint that
-  returned Two Hands' eight.
-- **ADMIN** — every `/api/system-admin/*` route denies a plain ADMIN ("Access is
-  denied"). But an ADMIN belongs to exactly one restaurant and their login JWT
-  carries it as the `restaurant` claim. That claim IS FM's assignment.
-
-**This replaces the `fm_backup` dependency.** `tbl_system_admin_restaurants` and
-`tbl_restaurant_admins` are unreachable from this machine and a snapshot goes
-stale; this reads live. It also covers plain ADMINs, which a system-admin-only
-export does not.
-
-**Never infer an assignment from an email address.** Apollo Bagels' logins are
-`41john@`, `133n7@`, `242east10@` — an address per mailbox, which makes the
-mapping look obvious. Reading FM confirmed eight of the nine and caught the one
-inference would have got wrong: `chris@apollobagels.com` carries no address and
-FM assigns them **Midtown**, giving Midtown two ADMINs. West Village has no
-ADMIN of its own. Neither fact is visible from the email.
-
-Do NOT reach for `/api/system-admin/users` to answer this. It over-reports
-membership (whole chain per location) for every role equally. Its rows do carry
-a `restaurant` field — `readAuthorizedUsersRaw` keeps it — but take **identity
-and role** from that list and the **assignment** from `readUserAssignment`.
-
-#### AN ADMIN ROLE EARNS AN INVITE. BEING A NOTIFICATION RECIPIENT DOES NOT.
-
-Two separate fields with two separate meanings, and they must not be conflated:
-
-- **FM's authorized-users list** names people with a role. Everyone on it gets
-  invited, at the role FM states.
-- **`notification_emails`** is where order notifications are delivered. It is a
-  mailbox list. It earns no account and no grant.
-
-They overlap and that is fine. At Apollo Bagels, `taylor@` and `andrea@` are
-both admins AND recipients — they were invited **because they are admins**.
-`lex@apollobagels.com` is on Williamsburg's recipients and appears nowhere in
-FM's authorized-users list, so **`lex@` was not invited**. Being sent orders is
-not evidence of authority.
+A group of one is still `not-a-chain` — a link over a single location is the
+storefront with an extra hop.
 
 #### Botte: no multi-unit page, by decision (2026-09-08)
 

@@ -241,6 +241,22 @@ rows, and every one of them does.
 This model has caused six separate bugs in six different files. Read it before
 writing anything that answers "which restaurants can this person see."
 
+### Multi-unit links mirror FM's groups, exactly (Peter, 2026-09-09)
+
+**A system admin creates their own links in FM, so FM's group IS the link.** Read
+it with `readChainGroupAsAdmin` (NOT the public group endpoint, which
+under-reports) and copy it: **membership, slug and title all come from FM.** No
+splitting, no inference, nothing added or removed.
+
+`ensureMultiUnitLink` syncs in BOTH directions on every conversion — members FM
+has are added, members FM does not have are removed.
+
+This replaced a per-brand rule that stood for one day and produced links FM never
+authored. Its consequences are deliberate: `/metairie` holds three Fat Boy's and
+three Savvy Sliders on one page, and `/eggstasy` holds Morning Squeeze. **Both
+are FM's grouping, not bugs.** Details and the worked cases are in
+`docs/native-conversion-runbook.md`.
+
 ### The architecture (Peter, 2026-09-01 — authoritative)
 
 - **ADMIN: exactly one location.** All tools for that location. **Cannot see or
