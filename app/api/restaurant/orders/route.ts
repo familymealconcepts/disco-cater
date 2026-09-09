@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { waitUntil } from '@vercel/functions'
 import { deliveryStatusLabel } from '../../../../lib/order/fulfillment-label'
 import { getRestaurantRole, getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
@@ -216,17 +217,34 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: page, size, restaurantExists: false })
   }
 
-  // Lightweight FM→Neon sync for the scoped restaurant before reading, so the
-  // list reflects the latest FM state. Bounded to the most recent page (order
-  // level only, no per-order items) to keep page loads fast; never blocks the
-  // read on failure. Skipped for the all-locations aggregate view (too heavy to
-  // sync inline) — use POST /api/admin/sync/fm-orders for a full backfill.
+  // FM→Neon sync for the scoped restaurant, RENDER FIRST / SYNC AFTER.
+  //
+  // This used to be awaited, and it is the whole reason the orders tab felt
+  // broken: the cost scales with a location's FM order volume, not with the
+  // number of locations. Measured — Apollo Bagels Hoboken 15.6s, Kips Bay
+  // 11.5s, Midtown 8.1s, against a list query that is 27-40ms whether it spans
+  // one location or two hundred. Every page load paid it.
+  //
+  // Note which view was slow: the sync only ever ran for a SINGLE selected
+  // location, so the chain-wide aggregate was already fast and picking one busy
+  // location was what hurt. Kealoha felt it on Apollo because Apollo has the
+  // order volume, not because it has nine locations.
+  //
+  // waitUntil, NOT a bare un-awaited promise: this is a serverless function and
+  // the runtime can tear down as soon as the response is sent, which would kill
+  // the sync silently and leave the list permanently stale. Same pattern as
+  // api/order/init and api/order/place.
+  //
+  // The trade, deliberately taken: the list is now eventually consistent by one
+  // page load. An order placed seconds ago appears on the next refresh rather
+  // than this one. The hourly cron and POST /api/admin/sync/fm-orders remain the
+  // full-backfill paths.
   if (scopeRef && UUID_RE.test(scopeRef)) {
-    try {
-      await syncRestaurantOrders(scopeRef, { withItems: false, pageSize: 50, maxPages: 1 })
-    } catch (e) {
-      console.error('[restaurant/orders] inline sync failed (non-fatal):', e instanceof Error ? e.message : e)
-    }
+    const syncRef = scopeRef
+    waitUntil(
+      syncRestaurantOrders(syncRef, { withItems: false, pageSize: 50, maxPages: 1 })
+        .catch(e => console.error('[restaurant/orders] background sync failed (non-fatal):', e instanceof Error ? e.message : e)),
+    )
   }
 
   // Build the filtered query with positional params.

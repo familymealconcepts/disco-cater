@@ -139,10 +139,31 @@ export function isDeliveryFulfillment(
  * Two populations, and they are NOT the same "no status" — showing one dash for
  * both is what made this column look broken rather than empty:
  *
- *   NATIVE (delivery_type = THIRD_PARTY_DELIVERY, 3 orders) — Disco dispatched
- *     the courier through Expedite, so a status is ours to know. Real status if
- *     we have one; otherwise it says the dispatch happened but no update has
- *     come back, which is true and actionable.
+ *   NATIVE (delivery_type = THIRD_PARTY_DELIVERY, 6 orders) — Disco dispatched
+ *     the courier through Expedite. We know a courier was BOOKED. We do not
+ *     know anything after that: NOTHING syncs delivery status back today. The
+ *     webhook receiver at /api/webhooks/expedite is built, deployed and
+ *     verified working (signed POST → 200; bad/absent signature → 401), but it
+ *     has never been called once — zero EXPEDITE_STATUS rows in
+ *     disco_order_events — because the URL and secret were never registered
+ *     with dlivrd. There is no poll either.
+ *
+ *     So both of these say the same thing operationally and collapse to one
+ *     label:
+ *       expedite_status = 'success' — dlivrd's DISPATCH-API acknowledgement,
+ *         written by lib/expedite.ts at booking time. It means "we accepted
+ *         your request", NOT that anything was delivered. It was rendered
+ *         verbatim and read like a completed delivery.
+ *       expedite_status = null — nothing recorded.
+ *
+ *     "Awaiting courier update" was worse than wrong: it promised news from a
+ *     pipeline that does not exist, so it would have waited forever.
+ *
+ *     Do NOT render expediteStatus verbatim. Once the webhook is live, dlivrd's
+ *     vocabulary needs an explicit mapping to display labels — otherwise
+ *     `picked_up` and `en_route` leak into the UI exactly as `success` did.
+ *     That mapping belongs WITH the registration, not before it: there is no
+ *     point mapping labels we have never received.
  *
  *   FM-BOOKED (DLIVRD / NASH / DOOR_DASH, 1,969 orders) — FamilyMeal booked the
  *     courier. Disco has no relationship with that delivery, never dispatched
@@ -164,11 +185,12 @@ export function deliveryStatusLabel(
   const isNativeDispatch = dt === 'THIRD_PARTY_DELIVERY' || dt === 'THIRDPARTY_DELIVERY'
   if (!isNativeDispatch) return 'Booked by FamilyMeal'
 
-  const status = String(expediteStatus ?? '').trim()
-  if (status) return status
   const id = String(expediteDeliveryId ?? '').trim()
   // 'PENDING' is dispatchExpediteForOrder's in-flight claim, not a courier state.
   if (id === 'PENDING') return 'Dispatching…'
-  if (id) return 'Awaiting courier update'
+  // A delivery id means a courier was booked. Whether expedite_status holds
+  // 'success' or nothing changes nothing we can tell the restaurant, so both
+  // collapse here rather than surfacing an internal API value.
+  if (id) return 'Booked — no status'
   return '—'
 }
