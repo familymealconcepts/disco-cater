@@ -13,7 +13,6 @@
 // onboarding is the fallback ONLY for accounts that genuinely can't be reused.
 import type Stripe from 'stripe'
 import { ensureMultiUnitLink, type MultiUnitLinkOutcome } from './locations/multi-unit-conversion'
-import { MENU_ACTIVE_SQL } from './menu-state'
 import { logAdminAction } from './admin-audit'
 import { effectiveTaxPercent, isTaxConfigured, type TaxRatesShape } from './pricing/tax-config'
 import { sql, runMigrations } from './db'
@@ -257,11 +256,26 @@ export async function checkConversionReadiness(
   const isDiscoNative = cache[0]?.is_disco_native === true
   const isLive = cache[0]?.is_live === true
 
-  // Native menu: a visible, non-archived disco_menus row (native pricing reads the
-  // primary visible menu). restaurant_reference is UUID on disco_menus.
+  // Native menu: ANY non-archived disco_menus row. Deliberately NOT
+  // MENU_ACTIVE_SQL, which also requires visible = true.
+  //
+  // The importer carries FM's visibility as-is, so a restaurant whose FM menus
+  // are all Inactive gets menus in Disco that are all `visible = false`. It HAS
+  // a native menu built — we copied every one — and requiring a VISIBLE one
+  // refused three restaurants whose import had already succeeded, while telling
+  // the operator to "run the menu import first". Almost Home - Westfield had 5
+  // menus and 104 items and was blocked; Colette's Creations and Bobby U's BBQ
+  // had one hidden menu each.
+  //
+  // Nothing about conversion needs a customer-visible menu: is_live is computed
+  // separately and 29 restaurants converted native-but-dark tonight without
+  // issue. MENU_ACTIVE_SQL is unchanged and still governs is_live and the
+  // marketplace feed, which DO require visible.
+  //
+  // archived stays excluded — an archived menu is FM's own dead record.
   const menu = (await sql`
     SELECT COUNT(*)::int AS n FROM disco_menus
-    WHERE restaurant_reference = ${nativeRef}::uuid AND ${sql.unsafe(MENU_ACTIVE_SQL)}
+    WHERE restaurant_reference = ${nativeRef}::uuid AND archived = false
   `.catch(() => [{ n: 0 }])) as { n: number }[]
   const hasMenu = (menu[0]?.n ?? 0) > 0
 
@@ -376,7 +390,7 @@ export async function checkConversionReadiness(
 
   const steps: ConversionStep[] = [
     { key: 'not-already-native', label: 'Not already Disco-native', done: found && !isDiscoNative, blocking: true, detail: !found ? 'Restaurant not found.' : isDiscoNative ? 'Already Disco-native.' : 'FM-backed — eligible to convert.' },
-    { key: 'native-menu', label: 'Native menu built', done: hasMenu, blocking: true, detail: hasMenu ? 'A visible Disco-native menu exists.' : 'No visible native menu — run the menu import (dual-write) first.' },
+    { key: 'native-menu', label: 'Native menu built', done: hasMenu, blocking: true, detail: hasMenu ? 'A Disco-native menu exists (hidden menus count — FM visibility is carried as-is).' : 'No native menu at all — run the menu import (dual-write) first.' },
     // Advisory, not blocking (bulk-migration reframe): most FM restaurants have no
     // Stripe account, will never be marketplace-visible, and will never take an
     // order — conversion is a data migration, not a go-live, so it must not wait
