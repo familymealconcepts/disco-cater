@@ -391,8 +391,11 @@ async function readWalledFields(token: string): Promise<RawWalledFields> {
         const role = r.role
         return {
           email: String(r.email || '').trim().toLowerCase(),
-          firstName: typeof r.firstName === 'string' ? r.firstName : undefined,
-          lastName: typeof r.lastName === 'string' ? r.lastName : undefined,
+          // TRIMMED AT THE SOURCE. FM stores "Chris " with a trailing space, and
+          // it went out as "Hi Chris ,". Cheap to fix here, and it would
+          // otherwise recur on every conversion that mints an invite.
+          firstName: typeof r.firstName === 'string' ? (r.firstName.trim() || undefined) : undefined,
+          lastName: typeof r.lastName === 'string' ? (r.lastName.trim() || undefined) : undefined,
           role: (role === 'ADMIN' || role === 'SYSTEM_ADMIN' ? role : undefined) as ('ADMIN' | 'SYSTEM_ADMIN' | undefined),
           enabled: typeof r.enabled === 'boolean' ? r.enabled : undefined,
         }
@@ -741,8 +744,8 @@ export async function readAuthorizedUsersRaw(ref: string): Promise<FmUserRow[] |
     const r = (u.restaurant ?? null) as Record<string, unknown> | null
     return {
       email: String(u.email ?? '').trim().toLowerCase(),
-      firstName: typeof u.firstName === 'string' ? u.firstName : undefined,
-      lastName: typeof u.lastName === 'string' ? u.lastName : undefined,
+      firstName: typeof u.firstName === 'string' ? (u.firstName.trim() || undefined) : undefined,
+      lastName: typeof u.lastName === 'string' ? (u.lastName.trim() || undefined) : undefined,
       role: typeof u.role === 'string' ? u.role : null,
       locked: typeof u.locked === 'boolean' ? u.locked : undefined,
       restaurantReference: r && typeof r.reference === 'string' ? r.reference : null,

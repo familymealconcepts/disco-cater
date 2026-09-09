@@ -606,7 +606,7 @@ export async function sendTeamMemberInvite(params: {
     const restaurant = params.restaurantName || 'Disco Cater'
     const inviter = params.inviterName || 'Your team admin'
     const content = `
-<p>Hi ${escapeHtml(params.firstName || 'there')},</p>
+<p>Hi ${escapeHtml((params.firstName || '').trim() || 'there')},</p>
 <p>${escapeHtml(inviter)} has invited you to manage ${escapeHtml(restaurant)} on Disco Cater. Click below to set your password and get started.</p>
 ${button('Set your password', params.inviteUrl)}
 <p style="color:#888;font-size:13px;">This link expires in 14 days. If you weren't expecting this, please contact us at <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
@@ -637,7 +637,7 @@ export async function sendPasswordReset(params: {
   try {
     const restaurant = params.restaurantName || 'Disco Cater'
     const content = `
-<p>Hi ${escapeHtml(params.firstName || 'there')},</p>
+<p>Hi ${escapeHtml((params.firstName || '').trim() || 'there')},</p>
 <p>We received a request to reset the password for your ${escapeHtml(restaurant)} account on Disco Cater. Click below to choose a new password.</p>
 ${button('Reset your password', params.resetUrl)}
 <p style="color:#888;font-size:13px;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change. Questions? <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>

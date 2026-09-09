@@ -1,5 +1,6 @@
 import { sql, runMigrations } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
+import { alertOps } from './ops-alert'
 
 // Builds/refreshes disco_restaurant_cache from FM. This is the ONLY place that
 // fetches FM for the map; the public /api/restaurants route reads the cache
@@ -111,7 +112,9 @@ function normalize(r: FmRow): CacheRow | null {
  * deliberately left alone on conflict — those are owned by the Sanity import.
  * Returns counts + duration.
  */
-export async function refreshRestaurantCache(): Promise<{ total: number; cached: number; durationMs: number }> {
+export async function refreshRestaurantCache(): Promise<{
+  total: number; cached: number; qualified: number; missing: number; durationMs: number
+}> {
   const startedAt = Date.now()
   await runMigrations()
 
@@ -150,5 +153,36 @@ export async function refreshRestaurantCache(): Promise<{ total: number; cached:
     )
   }
 
-  return { total: fmRows.length, cached: rows.length, durationMs: Date.now() - startedAt }
+  // VERIFY, don't assume. `rows.length` is what we MEANT to write; this counts
+  // what is actually there. Apollo Bagels - West Village sat outside the cache
+  // for four months while this cron reported success every night: it wrote
+  // 3,996 of 3,997 and said nothing, so nothing ever pointed at it. A run that
+  // silently drops one row is the failure mode worth naming, because the
+  // restaurant it drops cannot be converted and no one finds out.
+  const refs = rows.map(r => r.reference)
+  const present = refs.length
+    ? ((await sql`
+        SELECT COUNT(*)::int AS n FROM disco_restaurant_cache WHERE restaurant_reference = ANY(${refs})
+      `.catch(() => [{ n: -1 }])) as { n: number }[])[0].n
+    : 0
+  const missing = present < 0 ? -1 : refs.length - present
+
+  if (missing > 0) {
+    // Name the rows, not just the count — with ~4,000 references a bare "1
+    // missing" is not actionable, and the whole point is that the next
+    // occurrence identifies itself.
+    const absent = (await sql`
+      SELECT t.ref FROM unnest(${refs}::text[]) AS t(ref)
+      WHERE NOT EXISTS (SELECT 1 FROM disco_restaurant_cache c WHERE c.restaurant_reference = t.ref)
+      LIMIT 25
+    `.catch(() => [])) as { ref: string }[]
+    const byRef = new Map(rows.map(r => [r.reference, r.name]))
+    const named = absent.map(a => `${byRef.get(a.ref) ?? '?'} (${a.ref})`)
+    console.error(`[refresh-map-cache] QUALIFIED ${refs.length} BUT ONLY ${present} ARE PRESENT — ${missing} missing:`, named)
+    await alertOps('refresh-map-cache: qualifying restaurants missing from the cache', {
+      qualified: refs.length, present, missing, sample: named,
+    })
+  }
+
+  return { total: fmRows.length, cached: present, qualified: refs.length, missing, durationMs: Date.now() - startedAt }
 }

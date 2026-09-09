@@ -1,0 +1,2134 @@
+{
+ "generatedAt": "2026-09-09T00:34:43.583Z",
+ "note": "first-page latency, size=100, service auth",
+ "rows": [
+  {
+   "name": "10th Ave. Burrito Co.",
+   "orders": 55,
+   "rows": 55,
+   "ms": 18327,
+   "status": 200
+  },
+  {
+   "name": "29 Hance Bakehouse",
+   "orders": 109,
+   "rows": 100,
+   "ms": 18410,
+   "status": 200
+  },
+  {
+   "name": "2nd Jetty Seafood",
+   "orders": 944,
+   "rows": 100,
+   "ms": 15762,
+   "status": 200
+  },
+  {
+   "name": "3 Pepper Burrito Co. Bradenton",
+   "orders": 3,
+   "rows": 3,
+   "ms": 1030,
+   "status": 200
+  },
+  {
+   "name": "3 Pepper Burrito Co. Cape Coral",
+   "orders": 50,
+   "rows": 50,
+   "ms": 9308,
+   "status": 200
+  },
+  {
+   "name": "3 Pepper Burrito Co. Estero",
+   "orders": 53,
+   "rows": 53,
+   "ms": 9777,
+   "status": 200
+  },
+  {
+   "name": "3 Pepper Burrito Co. Fort Myers – College Plaza",
+   "orders": 57,
+   "rows": 57,
+   "ms": 9814,
+   "status": 200
+  },
+  {
+   "name": "3 Pepper Burrito Co. Fort Myers – Daniels Crossing",
+   "orders": 52,
+   "rows": 52,
+   "ms": 6373,
+   "status": 200
+  },
+  {
+   "name": "3 Pepper Burrito Co. Ft Myers - The Forum",
+   "orders": 40,
+   "rows": 40,
+   "ms": 4585,
+   "status": 200
+  },
+  {
+   "name": "3 Pepper Burrito Co. Ft Myers – Downtown",
+   "orders": 40,
+   "rows": 40,
+   "ms": 4197,
+   "status": 200
+  },
+  {
+   "name": "3 Pepper Burrito Co. Lehigh Acres",
+   "orders": 7,
+   "rows": 7,
+   "ms": 945,
+   "status": 200
+  },
+  {
+   "name": "3 Pepper Burrito Port Charlotte",
+   "orders": 38,
+   "rows": 38,
+   "ms": 4019,
+   "status": 200
+  },
+  {
+   "name": "502 Baking Company",
+   "orders": 74,
+   "rows": 74,
+   "ms": 10409,
+   "status": 200
+  },
+  {
+   "name": "5ive Spice LES",
+   "orders": 7,
+   "rows": 7,
+   "ms": 727,
+   "status": 200
+  },
+  {
+   "name": "ActuallyNovember",
+   "orders": 1,
+   "rows": 1,
+   "ms": 249,
+   "status": 200
+  },
+  {
+   "name": "Alfreda",
+   "orders": 3,
+   "rows": 3,
+   "ms": 742,
+   "status": 200
+  },
+  {
+   "name": "Almost Home - Westfield",
+   "orders": 11,
+   "rows": 11,
+   "ms": 2240,
+   "status": 200
+  },
+  {
+   "name": "Almost Home Red General – Navesink",
+   "orders": 45,
+   "rows": 45,
+   "ms": 10632,
+   "status": 200
+  },
+  {
+   "name": "Almost Home – Lincroft",
+   "orders": 711,
+   "rows": 100,
+   "ms": 27734,
+   "status": 200
+  },
+  {
+   "name": "Almost Home – Oceanport",
+   "orders": 30,
+   "rows": 30,
+   "ms": 6640,
+   "status": 200
+  },
+  {
+   "name": "Anchor Produce Market",
+   "orders": 40,
+   "rows": 40,
+   "ms": 7986,
+   "status": 200
+  },
+  {
+   "name": "Apollo Bagels - Hoboken",
+   "orders": 62,
+   "rows": 63,
+   "ms": 38191,
+   "status": 200
+  },
+  {
+   "name": "Apollo Bagels - Industry City",
+   "orders": 11,
+   "rows": 12,
+   "ms": 5702,
+   "status": 200
+  },
+  {
+   "name": "Apollo Bagels - Kips Bay",
+   "orders": 105,
+   "rows": 100,
+   "ms": 56656,
+   "status": 200
+  },
+  {
+   "name": "Apollo Bagels - Midtown",
+   "orders": 35,
+   "rows": 35,
+   "ms": 19378,
+   "status": 200
+  },
+  {
+   "name": "Apollo Bagels - Williamsburg",
+   "orders": 28,
+   "rows": 29,
+   "ms": 12897,
+   "status": 200
+  },
+  {
+   "name": "Aunts et Uncles",
+   "orders": 1,
+   "rows": 1,
+   "ms": 308,
+   "status": 200
+  },
+  {
+   "name": "Backyard Bowls - Beverly Grove",
+   "orders": 2,
+   "rows": 2,
+   "ms": 481,
+   "status": 200
+  },
+  {
+   "name": "Backyard Bowls - Santa Monica",
+   "orders": 3,
+   "rows": 3,
+   "ms": 607,
+   "status": 200
+  },
+  {
+   "name": "Bagel Miller",
+   "orders": 232,
+   "rows": 100,
+   "ms": 15918,
+   "status": 200
+  },
+  {
+   "name": "Bagel Point - Brooklyn",
+   "orders": 392,
+   "rows": 100,
+   "ms": 39719,
+   "status": 200
+  },
+  {
+   "name": "Bakes Gone Wild",
+   "orders": 53,
+   "rows": 53,
+   "ms": 14431,
+   "status": 200
+  },
+  {
+   "name": "Barons Bagel's - Brick",
+   "orders": 10,
+   "rows": 10,
+   "ms": 3996,
+   "status": 200
+  },
+  {
+   "name": "Barons Bagel's - Point Pleasant",
+   "orders": 14,
+   "rows": 14,
+   "ms": 3627,
+   "status": 200
+  },
+  {
+   "name": "Beach Buns Bakery",
+   "orders": 505,
+   "rows": 100,
+   "ms": 12887,
+   "status": 200
+  },
+  {
+   "name": "Beatnic - Williamsburg",
+   "orders": 2,
+   "rows": 2,
+   "ms": 467,
+   "status": 200
+  },
+  {
+   "name": "Benchmark Breads",
+   "orders": 372,
+   "rows": 100,
+   "ms": 17817,
+   "status": 200
+  },
+  {
+   "name": "Bertolone's",
+   "orders": 3,
+   "rows": 3,
+   "ms": 1061,
+   "status": 200
+  },
+  {
+   "name": "Best Pizza - Williamsburg",
+   "orders": 1,
+   "rows": 1,
+   "ms": 472,
+   "status": 200
+  },
+  {
+   "name": "Binge Biryani - Long Island City",
+   "orders": 1,
+   "rows": 1,
+   "ms": 318,
+   "status": 200
+  },
+  {
+   "name": "Black Bear BBQ",
+   "orders": 467,
+   "rows": 100,
+   "ms": 30897,
+   "status": 200
+  },
+  {
+   "name": "Bloom Restaurant ",
+   "orders": 40,
+   "rows": 40,
+   "ms": 7216,
+   "status": 200
+  },
+  {
+   "name": "Bloomfield Deli + Catering",
+   "orders": 107,
+   "rows": 100,
+   "ms": 18753,
+   "status": 200
+  },
+  {
+   "name": "Bobby U’s BBQ",
+   "orders": 2,
+   "rows": 2,
+   "ms": 784,
+   "status": 200
+  },
+  {
+   "name": "Botte - Astoria",
+   "orders": 1,
+   "rows": 1,
+   "ms": 518,
+   "status": 200
+  },
+  {
+   "name": "Botte - Brooklyn",
+   "orders": 1,
+   "rows": 1,
+   "ms": 388,
+   "status": 200
+  },
+  {
+   "name": "Botte - UES",
+   "orders": 1,
+   "rows": 1,
+   "ms": 348,
+   "status": 200
+  },
+  {
+   "name": "Broasted Brothers - Plymouth",
+   "orders": 8,
+   "rows": 8,
+   "ms": 2125,
+   "status": 200
+  },
+  {
+   "name": "Brooklyn Boys Pizza & Deli",
+   "orders": 4,
+   "rows": 4,
+   "ms": 845,
+   "status": 200
+  },
+  {
+   "name": "Brooklyn Dumpling Shop - Midtown",
+   "orders": 1,
+   "rows": 1,
+   "ms": 293,
+   "status": 200
+  },
+  {
+   "name": "Brooklyn Dumpling Shop - UES",
+   "orders": 1,
+   "rows": 1,
+   "ms": 250,
+   "status": 200
+  },
+  {
+   "name": "Brown Bag Sandwich Co",
+   "orders": 1,
+   "rows": 1,
+   "ms": 224,
+   "status": 200
+  },
+  {
+   "name": "BurgerFi - Arlington",
+   "orders": 4,
+   "rows": 4,
+   "ms": 460,
+   "status": 200
+  },
+  {
+   "name": "BurgerFi - Bowie",
+   "orders": 1,
+   "rows": 1,
+   "ms": 278,
+   "status": 200
+  },
+  {
+   "name": "BurgerFi - Boynton Beach",
+   "orders": 3,
+   "rows": 3,
+   "ms": 404,
+   "status": 200
+  },
+  {
+   "name": "BurgerFi - LBTS",
+   "orders": 3,
+   "rows": 3,
+   "ms": 595,
+   "status": 200
+  },
+  {
+   "name": "BurgerFi - O Town/Palm Parkway",
+   "orders": 1,
+   "rows": 1,
+   "ms": 250,
+   "status": 200
+  },
+  {
+   "name": "BurgerFi - Pompano Beach Pier",
+   "orders": 3,
+   "rows": 3,
+   "ms": 530,
+   "status": 200
+  },
+  {
+   "name": "BurgerFi - St Johns Town Center",
+   "orders": 2,
+   "rows": 2,
+   "ms": 424,
+   "status": 200
+  },
+  {
+   "name": "COPS",
+   "orders": 1,
+   "rows": 1,
+   "ms": 451,
+   "status": 200
+  },
+  {
+   "name": "Cafe Landwer - Century City",
+   "orders": 1,
+   "rows": 1,
+   "ms": 319,
+   "status": 200
+  },
+  {
+   "name": "Cafe Landwer - Cleveland Circle",
+   "orders": 1,
+   "rows": 1,
+   "ms": 279,
+   "status": 200
+  },
+  {
+   "name": "Casa Nono",
+   "orders": 1,
+   "rows": 1,
+   "ms": 196,
+   "status": 200
+  },
+  {
+   "name": "Charlie’s Farm Market",
+   "orders": 10,
+   "rows": 10,
+   "ms": 3411,
+   "status": 200
+  },
+  {
+   "name": "Chef Kenneth Clay ",
+   "orders": 17,
+   "rows": 17,
+   "ms": 3308,
+   "status": 200
+  },
+  {
+   "name": "Chicas Tacos - Miracle Mile",
+   "orders": 48,
+   "rows": 48,
+   "ms": 18141,
+   "status": 200
+  },
+  {
+   "name": "Club Sandwich",
+   "orders": 1,
+   "rows": 1,
+   "ms": 237,
+   "status": 200
+  },
+  {
+   "name": "Colette's Creations",
+   "orders": 1,
+   "rows": 1,
+   "ms": 306,
+   "status": 200
+  },
+  {
+   "name": "Colonial Ranch Market",
+   "orders": 4582,
+   "rows": 100,
+   "ms": 22391,
+   "status": 200
+  },
+  {
+   "name": "Cookman Creamery",
+   "orders": 1,
+   "rows": 1,
+   "ms": 230,
+   "status": 200
+  },
+  {
+   "name": "Cotton’s Place",
+   "orders": 2,
+   "rows": 2,
+   "ms": 327,
+   "status": 200
+  },
+  {
+   "name": "Crackin’ Yolks",
+   "orders": 10,
+   "rows": 10,
+   "ms": 3726,
+   "status": 200
+  },
+  {
+   "name": "Crispy Karma",
+   "orders": 2,
+   "rows": 2,
+   "ms": 464,
+   "status": 200
+  },
+  {
+   "name": "Crum and Companie",
+   "orders": 3,
+   "rows": 3,
+   "ms": 476,
+   "status": 200
+  },
+  {
+   "name": "Daily Chew Catering",
+   "orders": 1,
+   "rows": 1,
+   "ms": 289,
+   "status": 200
+  },
+  {
+   "name": "Das Good Cafe ",
+   "orders": 10,
+   "rows": 10,
+   "ms": 1167,
+   "status": 200
+  },
+  {
+   "name": "De Nada",
+   "orders": 96,
+   "rows": 96,
+   "ms": 37199,
+   "status": 200
+  },
+  {
+   "name": "Delco Rose Hoagies",
+   "orders": 18,
+   "rows": 18,
+   "ms": 3048,
+   "status": 200
+  },
+  {
+   "name": "Deli-icious ",
+   "orders": 1,
+   "rows": 1,
+   "ms": 265,
+   "status": 200
+  },
+  {
+   "name": "Dinner Parties Do Good",
+   "orders": 28,
+   "rows": 28,
+   "ms": 2614,
+   "status": 200
+  },
+  {
+   "name": "Doce Donut Co",
+   "orders": 16,
+   "rows": 16,
+   "ms": 2200,
+   "status": 200
+  },
+  {
+   "name": "Donna Jean - San Diego",
+   "orders": 9,
+   "rows": 9,
+   "ms": 1808,
+   "status": 200
+  },
+  {
+   "name": "East Wind Snack Shop",
+   "orders": 6,
+   "rows": 6,
+   "ms": 1365,
+   "status": 200
+  },
+  {
+   "name": "Eggstasy - Chandler",
+   "orders": 8,
+   "rows": 8,
+   "ms": 2651,
+   "status": 200
+  },
+  {
+   "name": "Eggstasy - Mesa",
+   "orders": 1,
+   "rows": 1,
+   "ms": 305,
+   "status": 200
+  },
+  {
+   "name": "Eggstasy - Norterra Ctr.",
+   "orders": 10,
+   "rows": 10,
+   "ms": 3949,
+   "status": 200
+  },
+  {
+   "name": "Eggstasy - Queen Creek",
+   "orders": 6,
+   "rows": 6,
+   "ms": 1589,
+   "status": 200
+  },
+  {
+   "name": "Eggstasy - Scottsdale",
+   "orders": 20,
+   "rows": 20,
+   "ms": 7711,
+   "status": 200
+  },
+  {
+   "name": "Eggstasy - The Colony",
+   "orders": 3,
+   "rows": 3,
+   "ms": 860,
+   "status": 200
+  },
+  {
+   "name": "El Burro",
+   "orders": 58,
+   "rows": 58,
+   "ms": 26247,
+   "status": 200
+  },
+  {
+   "name": "El Mercado Mexican Kitchen",
+   "orders": 12,
+   "rows": 12,
+   "ms": 3825,
+   "status": 200
+  },
+  {
+   "name": "FANTZYE",
+   "orders": 241,
+   "rows": 100,
+   "ms": 18645,
+   "status": 200
+  },
+  {
+   "name": "Fat Boy's Pizza - Covington",
+   "orders": 1,
+   "rows": 1,
+   "ms": 327,
+   "status": 200
+  },
+  {
+   "name": "Fat Boy's Pizza - Fort Wayne",
+   "orders": 1,
+   "rows": 1,
+   "ms": 293,
+   "status": 200
+  },
+  {
+   "name": "Fat Boy's Pizza - Harvey",
+   "orders": 2,
+   "rows": 2,
+   "ms": 410,
+   "status": 200
+  },
+  {
+   "name": "Fat Boy's Pizza - Metairie",
+   "orders": 4,
+   "rows": 4,
+   "ms": 498,
+   "status": 200
+  },
+  {
+   "name": "Fish Cheeks",
+   "orders": 1,
+   "rows": 1,
+   "ms": 256,
+   "status": 200
+  },
+  {
+   "name": "Fotinis Fit Fuel",
+   "orders": 11,
+   "rows": 11,
+   "ms": 1569,
+   "status": 200
+  },
+  {
+   "name": "Franco's Italian Restaurant",
+   "orders": 8,
+   "rows": 8,
+   "ms": 1953,
+   "status": 200
+  },
+  {
+   "name": "GERTIE",
+   "orders": 2,
+   "rows": 2,
+   "ms": 333,
+   "status": 200
+  },
+  {
+   "name": "General Tso's",
+   "orders": 11,
+   "rows": 11,
+   "ms": 1342,
+   "status": 200
+  },
+  {
+   "name": "Gnocchi on 9th - East Village",
+   "orders": 4,
+   "rows": 4,
+   "ms": 531,
+   "status": 200
+  },
+  {
+   "name": "Good&Fantzye",
+   "orders": 5,
+   "rows": 5,
+   "ms": 628,
+   "status": 200
+  },
+  {
+   "name": "Gordito's Burritos",
+   "orders": 2,
+   "rows": 2,
+   "ms": 470,
+   "status": 200
+  },
+  {
+   "name": "Green Tomato Grill",
+   "orders": 1,
+   "rows": 1,
+   "ms": 434,
+   "status": 200
+  },
+  {
+   "name": "Green Wrap Eatery",
+   "orders": 1,
+   "rows": 1,
+   "ms": 234,
+   "status": 200
+  },
+  {
+   "name": "Habana Cuba Restaurant",
+   "orders": 17,
+   "rows": 17,
+   "ms": 5934,
+   "status": 200
+  },
+  {
+   "name": "Happy's Pizza - Port Huron ",
+   "orders": 1,
+   "rows": 1,
+   "ms": 246,
+   "status": 200
+  },
+  {
+   "name": "Hatch 44 Cafe - Bradley Beach",
+   "orders": 22,
+   "rows": 22,
+   "ms": 5075,
+   "status": 200
+  },
+  {
+   "name": "Hatch 44 Cafe - Metuchen",
+   "orders": 71,
+   "rows": 71,
+   "ms": 15379,
+   "status": 200
+  },
+  {
+   "name": "Hearthly Burger - Shrewsbury",
+   "orders": 22,
+   "rows": 22,
+   "ms": 3677,
+   "status": 200
+  },
+  {
+   "name": "Hello Halloumi",
+   "orders": 1,
+   "rows": 1,
+   "ms": 217,
+   "status": 200
+  },
+  {
+   "name": "Hoboken Pie",
+   "orders": 21,
+   "rows": 21,
+   "ms": 5967,
+   "status": 200
+  },
+  {
+   "name": "Howlin' Willy's - Druid Hills",
+   "orders": 11,
+   "rows": 11,
+   "ms": 3542,
+   "status": 200
+  },
+  {
+   "name": "Howlin' Willy's - East Cobb",
+   "orders": 24,
+   "rows": 24,
+   "ms": 5934,
+   "status": 200
+  },
+  {
+   "name": "Howlin' Willy's - Hapeville",
+   "orders": 5,
+   "rows": 5,
+   "ms": 1205,
+   "status": 200
+  },
+  {
+   "name": "Huckaby's Smokehouse",
+   "orders": 1,
+   "rows": 1,
+   "ms": 537,
+   "status": 200
+  },
+  {
+   "name": "Hungry House",
+   "orders": 1,
+   "rows": 1,
+   "ms": 260,
+   "status": 200
+  },
+  {
+   "name": "Industry - Austin",
+   "orders": 11,
+   "rows": 11,
+   "ms": 7189,
+   "status": 200
+  },
+  {
+   "name": "Industry - San Marcos",
+   "orders": 2,
+   "rows": 2,
+   "ms": 655,
+   "status": 200
+  },
+  {
+   "name": "Inga's Alpine Tavern",
+   "orders": 3,
+   "rows": 3,
+   "ms": 815,
+   "status": 200
+  },
+  {
+   "name": "Isle of Us",
+   "orders": 1,
+   "rows": 1,
+   "ms": 356,
+   "status": 200
+  },
+  {
+   "name": "John's Place",
+   "orders": 4,
+   "rows": 4,
+   "ms": 634,
+   "status": 200
+  },
+  {
+   "name": "Johns Cracker Barrel",
+   "orders": 5,
+   "rows": 5,
+   "ms": 810,
+   "status": 200
+  },
+  {
+   "name": "Julio's Pizza Co. – Atlantic Highlands",
+   "orders": 10,
+   "rows": 10,
+   "ms": 1832,
+   "status": 200
+  },
+  {
+   "name": "Julio's Pizza Co. – Keansburg",
+   "orders": 1,
+   "rows": 1,
+   "ms": 322,
+   "status": 200
+  },
+  {
+   "name": "Junbi - San Francisco",
+   "orders": 17,
+   "rows": 17,
+   "ms": 3223,
+   "status": 200
+  },
+  {
+   "name": "Katz's Delicatessen",
+   "orders": 1,
+   "rows": 1,
+   "ms": 226,
+   "status": 200
+  },
+  {
+   "name": "Keep It Sweet Desserts",
+   "orders": 5,
+   "rows": 5,
+   "ms": 577,
+   "status": 200
+  },
+  {
+   "name": "Kipos Greek",
+   "orders": 65,
+   "rows": 65,
+   "ms": 23237,
+   "status": 200
+  },
+  {
+   "name": "Kneaded by Lady J",
+   "orders": 4,
+   "rows": 4,
+   "ms": 803,
+   "status": 200
+  },
+  {
+   "name": "Krewe De Fromage",
+   "orders": 30,
+   "rows": 30,
+   "ms": 3656,
+   "status": 200
+  },
+  {
+   "name": "Krewe of McGinley Square",
+   "orders": 38,
+   "rows": 38,
+   "ms": 15356,
+   "status": 200
+  },
+  {
+   "name": "Lazy Daisy Beverly Hills",
+   "orders": 1,
+   "rows": 1,
+   "ms": 292,
+   "status": 200
+  },
+  {
+   "name": "Lechon Loco",
+   "orders": 22,
+   "rows": 22,
+   "ms": 4288,
+   "status": 200
+  },
+  {
+   "name": "Lil' Easy",
+   "orders": 10,
+   "rows": 10,
+   "ms": 3324,
+   "status": 200
+  },
+  {
+   "name": "Little Chef Little Cafe",
+   "orders": 269,
+   "rows": 100,
+   "ms": 31098,
+   "status": 200
+  },
+  {
+   "name": "Little Egg",
+   "orders": 3,
+   "rows": 3,
+   "ms": 1021,
+   "status": 200
+  },
+  {
+   "name": "Local Pig",
+   "orders": 21,
+   "rows": 21,
+   "ms": 7784,
+   "status": 200
+  },
+  {
+   "name": "Local Smoke BBQ - Cookstown",
+   "orders": 74,
+   "rows": 74,
+   "ms": 17667,
+   "status": 200
+  },
+  {
+   "name": "Local Smoke BBQ - Neptune City",
+   "orders": 160,
+   "rows": 100,
+   "ms": 25524,
+   "status": 200
+  },
+  {
+   "name": "Local Smoke BBQ - Red Bank",
+   "orders": 435,
+   "rows": 100,
+   "ms": 24339,
+   "status": 200
+  },
+  {
+   "name": "Local Smoke BBQ - Sea Girt",
+   "orders": 190,
+   "rows": 100,
+   "ms": 29005,
+   "status": 200
+  },
+  {
+   "name": "Luna Verde Vegan Mexican Restaurant",
+   "orders": 1,
+   "rows": 1,
+   "ms": 195,
+   "status": 200
+  },
+  {
+   "name": "Lunetta",
+   "orders": 15,
+   "rows": 15,
+   "ms": 3521,
+   "status": 200
+  },
+  {
+   "name": "Maciel's Plant-Based Butcher & Deli",
+   "orders": 244,
+   "rows": 100,
+   "ms": 14169,
+   "status": 200
+  },
+  {
+   "name": "Marcel Bakery and Kitchen",
+   "orders": 514,
+   "rows": 100,
+   "ms": 17968,
+   "status": 200
+  },
+  {
+   "name": "Maíz Catering",
+   "orders": 34,
+   "rows": 34,
+   "ms": 13226,
+   "status": 200
+  },
+  {
+   "name": "Mekelburg's ",
+   "orders": 1,
+   "rows": 1,
+   "ms": 412,
+   "status": 200
+  },
+  {
+   "name": "Memphis Seoul",
+   "orders": 1,
+   "rows": 1,
+   "ms": 256,
+   "status": 200
+  },
+  {
+   "name": "Mi 'N Tea",
+   "orders": 2,
+   "rows": 2,
+   "ms": 297,
+   "status": 200
+  },
+  {
+   "name": "Miss Ada",
+   "orders": 1,
+   "rows": 1,
+   "ms": 255,
+   "status": 200
+  },
+  {
+   "name": "Moaaz Mediterranean Grill",
+   "orders": 9,
+   "rows": 9,
+   "ms": 1377,
+   "status": 200
+  },
+  {
+   "name": "Moonburger Brooklyn",
+   "orders": 1,
+   "rows": 1,
+   "ms": 203,
+   "status": 200
+  },
+  {
+   "name": "Morning Squeeze",
+   "orders": 89,
+   "rows": 89,
+   "ms": 31743,
+   "status": 200
+  },
+  {
+   "name": "Motorino",
+   "orders": 1,
+   "rows": 1,
+   "ms": 155,
+   "status": 200
+  },
+  {
+   "name": "Mr. M's Sandwich Shop",
+   "orders": 22,
+   "rows": 22,
+   "ms": 4585,
+   "status": 200
+  },
+  {
+   "name": "Namkeen - Brooklyn",
+   "orders": 11,
+   "rows": 11,
+   "ms": 3662,
+   "status": 200
+  },
+  {
+   "name": "Namkeen - Chatham",
+   "orders": 31,
+   "rows": 31,
+   "ms": 10184,
+   "status": 200
+  },
+  {
+   "name": "Namkeen - Lake Hiawatha",
+   "orders": 6,
+   "rows": 6,
+   "ms": 1805,
+   "status": 200
+  },
+  {
+   "name": "Namkeen - Metuchen",
+   "orders": 14,
+   "rows": 14,
+   "ms": 4378,
+   "status": 200
+  },
+  {
+   "name": "Namkeen - Union",
+   "orders": 1,
+   "rows": 1,
+   "ms": 238,
+   "status": 200
+  },
+  {
+   "name": "Nina & Rafi",
+   "orders": 2,
+   "rows": 2,
+   "ms": 364,
+   "status": 200
+  },
+  {
+   "name": "Northside Inc. Cafe",
+   "orders": 172,
+   "rows": 100,
+   "ms": 14341,
+   "status": 200
+  },
+  {
+   "name": "Osteria",
+   "orders": 1,
+   "rows": 1,
+   "ms": 206,
+   "status": 200
+  },
+  {
+   "name": "Panatieri's Pizza & Pasta of Flemington",
+   "orders": 70,
+   "rows": 70,
+   "ms": 10962,
+   "status": 200
+  },
+  {
+   "name": "Pancho LS",
+   "orders": 7,
+   "rows": 7,
+   "ms": 1137,
+   "status": 200
+  },
+  {
+   "name": "Pastosa Ravioli - Manasquan",
+   "orders": 4,
+   "rows": 4,
+   "ms": 1761,
+   "status": 200
+  },
+  {
+   "name": "Pecking House - Chinatown",
+   "orders": 24,
+   "rows": 24,
+   "ms": 8123,
+   "status": 200
+  },
+  {
+   "name": "Pelons Tex Mex",
+   "orders": 11,
+   "rows": 11,
+   "ms": 2953,
+   "status": 200
+  },
+  {
+   "name": "Pete's Bagels - St. Pete",
+   "orders": 247,
+   "rows": 100,
+   "ms": 16514,
+   "status": 200
+  },
+  {
+   "name": "Pete's Bagels - Ybor",
+   "orders": 123,
+   "rows": 100,
+   "ms": 17194,
+   "status": 200
+  },
+  {
+   "name": "Pie Girl",
+   "orders": 1238,
+   "rows": 100,
+   "ms": 17286,
+   "status": 200
+  },
+  {
+   "name": "Pine and Crane DTLA",
+   "orders": 1,
+   "rows": 1,
+   "ms": 188,
+   "status": 200
+  },
+  {
+   "name": "Pismo Fish and Chips",
+   "orders": 1,
+   "rows": 1,
+   "ms": 466,
+   "status": 200
+  },
+  {
+   "name": "Pismo's Coastal Grill",
+   "orders": 246,
+   "rows": 100,
+   "ms": 12591,
+   "status": 200
+  },
+  {
+   "name": "Pita Pit - Kent",
+   "orders": 1,
+   "rows": 1,
+   "ms": 197,
+   "status": 200
+  },
+  {
+   "name": "Pixlcat Coffee - Mid Market",
+   "orders": 3,
+   "rows": 3,
+   "ms": 690,
+   "status": 200
+  },
+  {
+   "name": "Pizza Heaven",
+   "orders": 2,
+   "rows": 2,
+   "ms": 300,
+   "status": 200
+  },
+  {
+   "name": "Plum Caterers",
+   "orders": 7,
+   "rows": 7,
+   "ms": 1553,
+   "status": 200
+  },
+  {
+   "name": "Point Lobster Co",
+   "orders": 286,
+   "rows": 100,
+   "ms": 20340,
+   "status": 200
+  },
+  {
+   "name": "Pollen Basket",
+   "orders": 8,
+   "rows": 8,
+   "ms": 1064,
+   "status": 200
+  },
+  {
+   "name": "Purslane",
+   "orders": 10,
+   "rows": 10,
+   "ms": 4861,
+   "status": 200
+  },
+  {
+   "name": "Purslane x Milk Bar",
+   "orders": 1,
+   "rows": 1,
+   "ms": 231,
+   "status": 200
+  },
+  {
+   "name": "Railroad BBQ",
+   "orders": 6,
+   "rows": 6,
+   "ms": 2662,
+   "status": 200
+  },
+  {
+   "name": "Rice N Spice",
+   "orders": 5,
+   "rows": 5,
+   "ms": 643,
+   "status": 200
+  },
+  {
+   "name": "Rinconcito DOMEX",
+   "orders": 5,
+   "rows": 5,
+   "ms": 2047,
+   "status": 200
+  },
+  {
+   "name": "Rock n Roots",
+   "orders": 3,
+   "rows": 3,
+   "ms": 639,
+   "status": 200
+  },
+  {
+   "name": "Rooted Cafe & Catering",
+   "orders": 10,
+   "rows": 10,
+   "ms": 2893,
+   "status": 200
+  },
+  {
+   "name": "Salad House ",
+   "orders": 26,
+   "rows": 26,
+   "ms": 2367,
+   "status": 200
+  },
+  {
+   "name": "Sandy Hook Seafood",
+   "orders": 420,
+   "rows": 100,
+   "ms": 10499,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - Covington",
+   "orders": 1,
+   "rows": 1,
+   "ms": 283,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - Dallas",
+   "orders": 1,
+   "rows": 1,
+   "ms": 279,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - Detroit (Midtown)",
+   "orders": 1,
+   "rows": 1,
+   "ms": 335,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - Fort Wayne",
+   "orders": 1,
+   "rows": 1,
+   "ms": 326,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - Fraser",
+   "orders": 1,
+   "rows": 1,
+   "ms": 258,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - Harvey",
+   "orders": 1,
+   "rows": 1,
+   "ms": 291,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - Metairie",
+   "orders": 1,
+   "rows": 1,
+   "ms": 253,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - Oak Park",
+   "orders": 1,
+   "rows": 1,
+   "ms": 232,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - Port Huron",
+   "orders": 2,
+   "rows": 2,
+   "ms": 311,
+   "status": 200
+  },
+  {
+   "name": "Savvy Sliders - San Antonio",
+   "orders": 1,
+   "rows": 1,
+   "ms": 267,
+   "status": 200
+  },
+  {
+   "name": "See No Evil Pizza",
+   "orders": 5,
+   "rows": 5,
+   "ms": 1889,
+   "status": 200
+  },
+  {
+   "name": "Seymour's",
+   "orders": 5,
+   "rows": 5,
+   "ms": 1118,
+   "status": 200
+  },
+  {
+   "name": "Shine Provisions",
+   "orders": 140,
+   "rows": 100,
+   "ms": 10296,
+   "status": 200
+  },
+  {
+   "name": "Shore Good Eats",
+   "orders": 3,
+   "rows": 3,
+   "ms": 502,
+   "status": 200
+  },
+  {
+   "name": "Signature Fitness",
+   "orders": 122,
+   "rows": 100,
+   "ms": 8596,
+   "status": 200
+  },
+  {
+   "name": "Sigri",
+   "orders": 8,
+   "rows": 9,
+   "ms": 2924,
+   "status": 200
+  },
+  {
+   "name": "Slate Cafe",
+   "orders": 2,
+   "rows": 2,
+   "ms": 356,
+   "status": 200
+  },
+  {
+   "name": "SmackBird Chicken - North Dallas",
+   "orders": 2,
+   "rows": 2,
+   "ms": 674,
+   "status": 200
+  },
+  {
+   "name": "SmackBird Chicken - Overton",
+   "orders": 3,
+   "rows": 3,
+   "ms": 510,
+   "status": 200
+  },
+  {
+   "name": "Smokies Craft BBQ",
+   "orders": 13,
+   "rows": 13,
+   "ms": 4400,
+   "status": 200
+  },
+  {
+   "name": "Something Green",
+   "orders": 5,
+   "rows": 5,
+   "ms": 1034,
+   "status": 200
+  },
+  {
+   "name": "Son del North - LES",
+   "orders": 21,
+   "rows": 20,
+   "ms": 5746,
+   "status": 200
+  },
+  {
+   "name": "Son del North - West Village",
+   "orders": 2,
+   "rows": 2,
+   "ms": 405,
+   "status": 200
+  },
+  {
+   "name": "SouzaFit - Hoboken",
+   "orders": 2,
+   "rows": 2,
+   "ms": 354,
+   "status": 200
+  },
+  {
+   "name": "Springbone Kitchen",
+   "orders": 1,
+   "rows": 1,
+   "ms": 217,
+   "status": 200
+  },
+  {
+   "name": "Stacks & Cordials - Clawson",
+   "orders": 11,
+   "rows": 11,
+   "ms": 2586,
+   "status": 200
+  },
+  {
+   "name": "Stacks & Cordials - Royal Oak",
+   "orders": 27,
+   "rows": 27,
+   "ms": 6422,
+   "status": 200
+  },
+  {
+   "name": "Starvin' Arvin's Catering",
+   "orders": 2,
+   "rows": 2,
+   "ms": 343,
+   "status": 200
+  },
+  {
+   "name": "Strange Delight",
+   "orders": 6,
+   "rows": 6,
+   "ms": 584,
+   "status": 200
+  },
+  {
+   "name": "Supernatural",
+   "orders": 134,
+   "rows": 100,
+   "ms": 20809,
+   "status": 200
+  },
+  {
+   "name": "Surf Taco - Lacey",
+   "orders": 6,
+   "rows": 6,
+   "ms": 1006,
+   "status": 200
+  },
+  {
+   "name": "Surf Taco - Long Branch",
+   "orders": 6,
+   "rows": 6,
+   "ms": 924,
+   "status": 200
+  },
+  {
+   "name": "Surf Taco - Manasquan",
+   "orders": 15,
+   "rows": 15,
+   "ms": 2240,
+   "status": 200
+  },
+  {
+   "name": "Surf Taco - Point Pleasant",
+   "orders": 21,
+   "rows": 21,
+   "ms": 3364,
+   "status": 200
+  },
+  {
+   "name": "Surf Taco - Red Bank",
+   "orders": 22,
+   "rows": 22,
+   "ms": 4053,
+   "status": 200
+  },
+  {
+   "name": "Surf Taco - Silverton",
+   "orders": 15,
+   "rows": 15,
+   "ms": 2056,
+   "status": 200
+  },
+  {
+   "name": "Surf Taco - Wall",
+   "orders": 14,
+   "rows": 14,
+   "ms": 1788,
+   "status": 200
+  },
+  {
+   "name": "Sweet Chick - LES",
+   "orders": 17,
+   "rows": 17,
+   "ms": 3370,
+   "status": 200
+  },
+  {
+   "name": "Sweet Chick - Long Island City",
+   "orders": 29,
+   "rows": 29,
+   "ms": 7806,
+   "status": 200
+  },
+  {
+   "name": "Sweet Chick - Prospect Heights",
+   "orders": 56,
+   "rows": 56,
+   "ms": 13655,
+   "status": 200
+  },
+  {
+   "name": "Sweet Chick - Union Square",
+   "orders": 71,
+   "rows": 71,
+   "ms": 19550,
+   "status": 200
+  },
+  {
+   "name": "Sweet Chick - Williamsburg",
+   "orders": 22,
+   "rows": 22,
+   "ms": 4180,
+   "status": 200
+  },
+  {
+   "name": "Taim - Broadway",
+   "orders": 112,
+   "rows": 100,
+   "ms": 21524,
+   "status": 200
+  },
+  {
+   "name": "Taim - City Spire",
+   "orders": 59,
+   "rows": 59,
+   "ms": 11217,
+   "status": 200
+  },
+  {
+   "name": "Taim - Dupont Circle",
+   "orders": 70,
+   "rows": 70,
+   "ms": 16162,
+   "status": 200
+  },
+  {
+   "name": "Taim - FIDI",
+   "orders": 99,
+   "rows": 99,
+   "ms": 20012,
+   "status": 200
+  },
+  {
+   "name": "Taim - Fresh Meadows, Queens",
+   "orders": 2,
+   "rows": 2,
+   "ms": 255,
+   "status": 200
+  },
+  {
+   "name": "Taim - Hoyt",
+   "orders": 39,
+   "rows": 39,
+   "ms": 10054,
+   "status": 200
+  },
+  {
+   "name": "Taim - LIC / JACX&CO",
+   "orders": 17,
+   "rows": 17,
+   "ms": 3608,
+   "status": 200
+  },
+  {
+   "name": "Taim - Nolita",
+   "orders": 76,
+   "rows": 76,
+   "ms": 22737,
+   "status": 200
+  },
+  {
+   "name": "Taim - Park Slope",
+   "orders": 23,
+   "rows": 23,
+   "ms": 5985,
+   "status": 200
+  },
+  {
+   "name": "Taim - Plainview",
+   "orders": 22,
+   "rows": 22,
+   "ms": 5131,
+   "status": 200
+  },
+  {
+   "name": "Taim - West Village",
+   "orders": 50,
+   "rows": 50,
+   "ms": 12715,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Aventura",
+   "orders": 4,
+   "rows": 4,
+   "ms": 935,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Boca Raton",
+   "orders": 7,
+   "rows": 7,
+   "ms": 2218,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Coral Gables",
+   "orders": 1,
+   "rows": 1,
+   "ms": 262,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Coral Springs",
+   "orders": 3,
+   "rows": 3,
+   "ms": 606,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Davie",
+   "orders": 1,
+   "rows": 1,
+   "ms": 305,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Doral",
+   "orders": 1,
+   "rows": 1,
+   "ms": 316,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Fort Myers",
+   "orders": 1,
+   "rows": 1,
+   "ms": 401,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Ft Lauderdale",
+   "orders": 1,
+   "rows": 1,
+   "ms": 302,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Kendall",
+   "orders": 1,
+   "rows": 1,
+   "ms": 329,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Miami",
+   "orders": 4,
+   "rows": 4,
+   "ms": 2251,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Naples",
+   "orders": 3,
+   "rows": 3,
+   "ms": 1517,
+   "status": 200
+  },
+  {
+   "name": "Tap 42 - Palm Beach Gardens",
+   "orders": 2,
+   "rows": 2,
+   "ms": 949,
+   "status": 200
+  },
+  {
+   "name": "Taqueria Al Pastor - Bushwick",
+   "orders": 2,
+   "rows": 2,
+   "ms": 802,
+   "status": 200
+  },
+  {
+   "name": "Tasty Dawg",
+   "orders": 27,
+   "rows": 27,
+   "ms": 7940,
+   "status": 200
+  },
+  {
+   "name": "Tasty Dawg",
+   "orders": 9,
+   "rows": 9,
+   "ms": 2326,
+   "status": 200
+  },
+  {
+   "name": "Teranga",
+   "orders": 1,
+   "rows": 1,
+   "ms": 225,
+   "status": 200
+  },
+  {
+   "name": "The Biz Catering",
+   "orders": 23,
+   "rows": 23,
+   "ms": 10217,
+   "status": 200
+  },
+  {
+   "name": "The Commons Chelsea",
+   "orders": 2,
+   "rows": 2,
+   "ms": 1476,
+   "status": 200
+  },
+  {
+   "name": "The Corner Street Taco Bar",
+   "orders": 1,
+   "rows": 1,
+   "ms": 499,
+   "status": 200
+  },
+  {
+   "name": "The Eatery of Wallingford",
+   "orders": 81,
+   "rows": 81,
+   "ms": 22900,
+   "status": 200
+  },
+  {
+   "name": "The Juice Standard",
+   "orders": 2,
+   "rows": 2,
+   "ms": 350,
+   "status": 200
+  },
+  {
+   "name": "The Onion Tree - Sea Cliff",
+   "orders": 29,
+   "rows": 29,
+   "ms": 10245,
+   "status": 200
+  },
+  {
+   "name": "The Pink Waffle",
+   "orders": 2,
+   "rows": 2,
+   "ms": 1970,
+   "status": 200
+  },
+  {
+   "name": "The Potato Concept",
+   "orders": 18,
+   "rows": 18,
+   "ms": 3303,
+   "status": 200
+  },
+  {
+   "name": "The Smoky Cottage",
+   "orders": 5,
+   "rows": 5,
+   "ms": 1764,
+   "status": 200
+  },
+  {
+   "name": "The Speakeatery",
+   "orders": 1148,
+   "rows": 100,
+   "ms": 9040,
+   "status": 200
+  },
+  {
+   "name": "The Tattooed Pig - Aston",
+   "orders": 7,
+   "rows": 7,
+   "ms": 1543,
+   "status": 200
+  },
+  {
+   "name": "The Tattooed Pig - Media",
+   "orders": 13,
+   "rows": 13,
+   "ms": 3911,
+   "status": 200
+  },
+  {
+   "name": "Thea Bakery",
+   "orders": 1,
+   "rows": 1,
+   "ms": 308,
+   "status": 200
+  },
+  {
+   "name": "Three Dollar Cafe - McDonough",
+   "orders": 7,
+   "rows": 7,
+   "ms": 3344,
+   "status": 200
+  },
+  {
+   "name": "Three Dollar Cafe - Stockbridge",
+   "orders": 33,
+   "rows": 33,
+   "ms": 11156,
+   "status": 200
+  },
+  {
+   "name": "Tinga Fresh Mexican",
+   "orders": 63,
+   "rows": 63,
+   "ms": 10926,
+   "status": 200
+  },
+  {
+   "name": "Tings Things Food Truck",
+   "orders": 2,
+   "rows": 2,
+   "ms": 433,
+   "status": 200
+  },
+  {
+   "name": "Tipsy Cafe & Catering",
+   "orders": 39,
+   "rows": 39,
+   "ms": 10037,
+   "status": 200
+  },
+  {
+   "name": "Toast & Taste Catering",
+   "orders": 1,
+   "rows": 1,
+   "ms": 341,
+   "status": 200
+  },
+  {
+   "name": "Trattoria Moderna Italian Catering",
+   "orders": 1,
+   "rows": 1,
+   "ms": 410,
+   "status": 200
+  },
+  {
+   "name": "Ugly Duckling",
+   "orders": 17,
+   "rows": 17,
+   "ms": 1947,
+   "status": 200
+  },
+  {
+   "name": "Urban CoalHouse - Brick",
+   "orders": 15,
+   "rows": 15,
+   "ms": 2451,
+   "status": 200
+  },
+  {
+   "name": "Urban CoalHouse - Hoboken",
+   "orders": 24,
+   "rows": 24,
+   "ms": 5420,
+   "status": 200
+  },
+  {
+   "name": "Urban CoalHouse - Red Bank",
+   "orders": 32,
+   "rows": 32,
+   "ms": 6061,
+   "status": 200
+  },
+  {
+   "name": "Utopia Bagels",
+   "orders": 1,
+   "rows": 1,
+   "ms": 305,
+   "status": 200
+  },
+  {
+   "name": "Veselka",
+   "orders": 1,
+   "rows": 1,
+   "ms": 265,
+   "status": 200
+  },
+  {
+   "name": "Vesti",
+   "orders": 1,
+   "rows": 1,
+   "ms": 249,
+   "status": 200
+  },
+  {
+   "name": "WannaBee Chef",
+   "orders": 195,
+   "rows": 100,
+   "ms": 19967,
+   "status": 200
+  },
+  {
+   "name": "Wax Paper - Frogtown",
+   "orders": 39,
+   "rows": 39,
+   "ms": 16943,
+   "status": 200
+  },
+  {
+   "name": "West Hill Deli",
+   "orders": 93,
+   "rows": 93,
+   "ms": 19551,
+   "status": 200
+  },
+  {
+   "name": "Westwoods BBQ & Spice Co.",
+   "orders": 1685,
+   "rows": 100,
+   "ms": 19719,
+   "status": 200
+  },
+  {
+   "name": "Willa's",
+   "orders": 75,
+   "rows": 75,
+   "ms": 17927,
+   "status": 200
+  },
+  {
+   "name": "Winfield Street Coffee - Croton",
+   "orders": 1,
+   "rows": 1,
+   "ms": 292,
+   "status": 200
+  },
+  {
+   "name": "Winfield Street Coffee - Naples South",
+   "orders": 4,
+   "rows": 4,
+   "ms": 1345,
+   "status": 200
+  },
+  {
+   "name": "Winfield Street Coffee - New York City",
+   "orders": 1,
+   "rows": 1,
+   "ms": 203,
+   "status": 200
+  },
+  {
+   "name": "Winfield Street Coffee - Rye",
+   "orders": 1,
+   "rows": 1,
+   "ms": 200,
+   "status": 200
+  },
+  {
+   "name": "Winfield Street Coffee - Stamford",
+   "orders": 5,
+   "rows": 5,
+   "ms": 1223,
+   "status": 200
+  },
+  {
+   "name": "Winfield Street Coffee - Westport",
+   "orders": 1,
+   "rows": 1,
+   "ms": 226,
+   "status": 200
+  },
+  {
+   "name": "Yosemite Ranch",
+   "orders": 287,
+   "rows": 100,
+   "ms": 9882,
+   "status": 200
+  },
+  {
+   "name": "Zutto - Nolita",
+   "orders": 8,
+   "rows": 8,
+   "ms": 1210,
+   "status": 200
+  },
+  {
+   "name": "eléa",
+   "orders": 2,
+   "rows": 2,
+   "ms": 566,
+   "status": 200
+  },
+  {
+   "name": "oomi kitchen",
+   "orders": 17,
+   "rows": 17,
+   "ms": 2919,
+   "status": 200
+  },
+  {
+   "name": "rhk marketplace",
+   "orders": 1,
+   "rows": 1,
+   "ms": 231,
+   "status": 200
+  },
+  {
+   "name": "Ánimo!",
+   "orders": 1,
+   "rows": 1,
+   "ms": 382,
+   "status": 200
+  }
+ ]
+}
