@@ -113,7 +113,9 @@ function normalize(r: FmRow): CacheRow | null {
  * Returns counts + duration.
  */
 export async function refreshRestaurantCache(): Promise<{
-  total: number; cached: number; qualified: number; missing: number; durationMs: number
+  total: number; cached: number; qualified: number; missing: number
+  rejected: number; rejectedSample: { reference: string; name: string; error: string }[]
+  durationMs: number
 }> {
   const startedAt = Date.now()
   await runMigrations()
@@ -124,10 +126,23 @@ export async function refreshRestaurantCache(): Promise<{
   // Upsert in concurrent chunks. On INSERT, cuisine defaults to 'Other' and
   // description/image_url stay null until the Sanity import fills them; on
   // conflict we only refresh the FM-owned fields, never the Sanity ones.
+  // allSettled, NOT all. There are no transactions here and the chunk loop is
+  // sequential, so Promise.all never bought atomicity — a rejection at chunk 40
+  // of 80 left chunks 1-39 committed and 41-80 stale. It only ever cost rows:
+  // one bad row killed its 49 chunk-mates and every chunk after it.
+  //
+  // Cache rows carry no cross-row invariant (no foreign keys between them, no
+  // derived totals), so a per-row failure is a staler row, never a corrupt one.
+  // That is what makes continuing safe here, and it is the opposite of the
+  // item-groups swap, where a partial write destroyed data.
+  //
+  // Safe ONLY because the verification below exists: without it this would trade
+  // a loud abort for a silent shortfall. The ordering matters.
   const CHUNK = 50
+  const failures: { reference: string; name: string; error: string }[] = []
   for (let i = 0; i < rows.length; i += CHUNK) {
     const chunk = rows.slice(i, i + CHUNK)
-    await Promise.all(
+    const settled = await Promise.allSettled(
       chunk.map((c) => sql`
         INSERT INTO disco_restaurant_cache
           (restaurant_reference, name, slug, lat, lng, location, address,
@@ -151,6 +166,22 @@ export async function refreshRestaurantCache(): Promise<{
           cached_at = NOW()
       `),
     )
+    // Keep the per-row reason. Promise.all surfaced one arbitrary error and
+    // discarded the other 49 outcomes, which is why a failure here was never
+    // diagnosable.
+    settled.forEach((r, j) => {
+      if (r.status === 'rejected') {
+        failures.push({
+          reference: chunk[j].reference,
+          name: chunk[j].name,
+          error: r.reason instanceof Error ? r.reason.message : String(r.reason),
+        })
+      }
+    })
+  }
+
+  if (failures.length) {
+    console.error(`[refresh-map-cache] ${failures.length} row(s) failed to upsert:`, failures.slice(0, 25))
   }
 
   // VERIFY, don't assume. `rows.length` is what we MEANT to write; this counts
@@ -181,8 +212,16 @@ export async function refreshRestaurantCache(): Promise<{
     console.error(`[refresh-map-cache] QUALIFIED ${refs.length} BUT ONLY ${present} ARE PRESENT — ${missing} missing:`, named)
     await alertOps('refresh-map-cache: qualifying restaurants missing from the cache', {
       qualified: refs.length, present, missing, sample: named,
+      rejected: failures.length, rejectedSample: failures.slice(0, 10),
     })
   }
 
-  return { total: fmRows.length, cached: present, qualified: refs.length, missing, durationMs: Date.now() - startedAt }
+  return {
+    total: fmRows.length, cached: present, qualified: refs.length, missing,
+    rejected: failures.length,
+    // Bounded: with ~4,000 rows a systemic failure would otherwise dump 4,000
+    // identical messages into the cron log.
+    rejectedSample: failures.slice(0, 10),
+    durationMs: Date.now() - startedAt,
+  }
 }
