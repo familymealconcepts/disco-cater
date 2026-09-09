@@ -12,6 +12,8 @@ const SORT_LABELS: Record<SortKey, string> = {
   createdDate: 'Registration Date', status: 'Online Ordering', stripe: 'Stripe',
 }
 
+import { CopyableEmail } from '../../_components/CopyableEmail'
+
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const GOLD = '#EFB84A'
@@ -1077,7 +1079,7 @@ export default function RestaurantsOrderingPage() {
           pin against. minHeight:0 lets the flex child shrink so its own overflow
           scrolls instead of the page. */}
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'auto', flex: 1, minHeight: 0 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1630 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1710 }}>
           {/* Fixed column proportions: narrow toggle column, wide Restaurant + Admin
               (names/locations need room), everything else compact. Order matches the
               <thead> below. */}
@@ -1085,7 +1087,7 @@ export default function RestaurantsOrderingPage() {
             <col style={{ width: 76 }} />{/* Disco Cater Marketplace */}
             <col style={{ width: 320 }} />{/* Restaurant */}
             <col style={{ width: 210 }} />{/* Admin */}
-            <col style={{ width: 190 }} />{/* Email */}
+            <col style={{ width: 260 }} />{/* Email — 260 fits the longest address in this table (measured 232px at DM Sans 12.5) plus the 24px cell padding. */}
             <col style={{ width: 112 }} />{/* Registration Date */}
             <col style={{ width: 88 }} />{/* Checkout Page */}
             <col style={{ width: 116 }} />{/* Stripe */}
@@ -1218,7 +1220,13 @@ export default function RestaurantsOrderingPage() {
                     )}
                   </td>
                   <td style={{ ...cell, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={adminName || undefined}>{adminName || '—'}</td>
-                  <td style={{ ...cell, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={adminEmail || undefined}>{adminEmail}</td>
+                  {/* Click-to-copy: the title tooltip made the address readable but
+                      not selectable, and copying it meant a click-drag across a
+                      232px target in a 7px-padded row. CopyableEmail keeps the
+                      tooltip and the ellipsis guard. */}
+                  <td style={{ ...cell, color: '#555', overflow: 'hidden' }}>
+                    <CopyableEmail email={adminEmail} style={{ color: '#555', fontSize: 12.5 }} />
+                  </td>
                   <td style={{ ...cell, color: '#666' }}>{fmtDate(r.createdDate)}</td>
                   {/* Checkout Page: the 1P direct ordering URL (/order/[slug]),
                       slug = FM businessNameWithoutSpaces lowercased. */}

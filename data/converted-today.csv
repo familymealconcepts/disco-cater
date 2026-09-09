@@ -1,0 +1,125 @@
+name,restaurant_reference,is_live,visible,effective_tax_pct,menu_count,item_count,order_count,multi_unit_link_slug,run,converted_at_utc
+ActuallyNovember,85dc5165-cca0-4ba2-8c30-696f647cb0e0,false,false,9.5,1,22,1,,mass run,2026-09-09T01:02:49.511Z
+Almost Home - Westfield,5dc6caef-a0d5-4099-befb-090a196047b1,false,false,6.625,5,104,11,almosthome,named conversion,2026-09-09T12:54:32.732Z
+Almost Home – Lincroft,8966f05b-790f-4737-8930-49d4ba276bdd,true,true,6.625,8,235,713,almosthome,chain run,2026-09-09T11:51:08.740Z
+Almost Home – Oceanport,b328a7b1-59ff-4a63-8d37-ae6a2d789c40,true,true,6.625,7,203,30,almosthome,chain run,2026-09-09T11:48:28.633Z
+Ánimo!,13eb0573-03cc-4ce4-ae3b-e910adc92e41,true,true,8.875,1,32,1,,mass run,2026-09-09T01:03:14.718Z
+Apollo Bagels - East Village,b14c6ccf-d7d4-47ac-b628-db3770881a6b,true,true,8.875,1,13,1,apollobagels,named conversion (Apollo Bagels),2026-09-09T00:08:54.668Z
+Apollo Bagels - FiDi,f4112807-6681-44db-b1d4-9b21b0e99fed,true,true,8.875,1,14,4,apollobagels,named conversion (Apollo Bagels),2026-09-09T00:09:16.778Z
+Apollo Bagels - Hoboken,632c781f-2a79-41ee-9cdb-a710aa89cad9,true,true,6.625,1,13,63,apollobagels,named conversion (Apollo Bagels),2026-09-09T00:17:03.647Z
+Apollo Bagels - Industry City,fc81b2bc-f148-4146-895c-213db34083a3,true,true,8.875,2,26,12,apollobagels,named conversion (Apollo Bagels),2026-09-09T00:09:35.783Z
+Apollo Bagels - Kips Bay,cd100520-b2f1-40b4-9f58-ea06d8cd2e4c,true,true,8.875,2,26,106,apollobagels,named conversion (Apollo Bagels),2026-09-09T00:18:01.227Z
+Apollo Bagels - Midtown,cc2a73bf-9384-4523-90a7-5d0f0b917a42,true,true,8.875,3,43,35,apollobagels,named conversion (Apollo Bagels),2026-09-09T00:09:58.756Z
+Apollo Bagels - Tribeca,83487cf2-d592-4f04-a1fe-a1b969a6c48b,false,false,8.875,2,26,1,apollobagels,named conversion (Apollo Bagels),2026-09-09T00:10:07.536Z
+Apollo Bagels - West Village,864671d9-7ac5-4f2c-81fa-6e8726854107,true,true,8.875,1,13,1,apollobagels,named conversion (Apollo Bagels),2026-09-09T00:10:11.035Z
+Apollo Bagels - Williamsburg,da6d7d02-91bb-4087-b408-02dda2998b8a,true,true,8.875,1,13,27,apollobagels,named conversion (Apollo Bagels),2026-09-09T00:10:21.446Z
+Aunts et Uncles,1ef81e10-6153-4ef5-bf6a-ad2b9fc5e65d,true,true,8.875,1,28,1,,mass run,2026-09-09T01:03:36.387Z
+Backyard Bowls - Beverly Grove,15d3780d-9a25-4ecc-af25-2dffe9d92992,true,true,0,1,18,2,backyardbowls,mass run,2026-09-09T01:50:24.343Z
+Backyard Bowls - Santa Monica,5f8e5496-f053-4cb4-8c5c-4c9a3f0c1742,true,true,0,1,18,3,backyardbowls,chain run,2026-09-09T11:52:29.797Z
+Beatnic - Williamsburg,824bd847-1659-4134-b491-d50e4f003b7e,false,false,8.875,1,30,2,,mass run,2026-09-09T01:50:43.531Z
+Best Pizza - Williamsburg,f7c42fe3-e0c1-4a12-8525-b2a0124aa6cc,true,true,8.875,2,37,1,,mass run,2026-09-09T01:03:48.353Z
+Binge Biryani - Long Island City,e1391394-dba4-4180-b216-f92a92b29950,true,true,8.875,1,8,1,bingebiryani,mass run,2026-09-09T01:03:55.666Z
+Bobby U’s BBQ,70bb75de-a637-46f0-8d5a-4a36dc148557,false,false,6.625,1,18,2,z1syjb,named conversion,2026-09-09T12:54:46.023Z
+Botte - Astoria,58af4209-01c0-41e5-aed0-e96a9d0d9cca,true,true,8.875,1,40,1,,mass run,2026-09-09T01:04:04.432Z
+Botte - Brooklyn,a9822f03-a991-4c06-bce0-b13dacc4583b,true,true,8.875,1,39,1,,mass run,2026-09-09T01:04:10.703Z
+Botte - UES,36142ac2-6fe4-4b22-ab60-601f2984966a,true,true,8.875,1,39,1,,mass run,2026-09-09T01:04:17.257Z
+Brooklyn Dumpling Shop - Midtown,1e2ee4f7-51bb-4e7b-bc29-6e0c23af7bb8,true,true,8.875,1,27,1,brooklyndumplingshop,mass run,2026-09-09T01:10:58.091Z
+Brooklyn Dumpling Shop - UES,f1abc369-27cd-4a49-a432-0df5eacec420,true,true,8.875,1,27,1,brooklyndumplingshop,mass run,2026-09-09T01:11:36.214Z
+Brown Bag Sandwich Co,567a57eb-17b1-433c-bb46-48d7e373163e,true,true,8.875,2,11,1,,mass run,2026-09-09T01:11:42.811Z
+BurgerFi - Arlington,95339b04-6f1d-4c7a-ac35-4955a9dfd5c3,true,true,11,1,17,4,kedj1z,chain run,2026-09-09T11:39:09.338Z
+BurgerFi - Bowie,f647ba53-390e-4cf5-bc5b-9caaf40417fa,true,true,6,1,17,1,kedj1z,mass run,2026-09-09T01:11:54.659Z
+BurgerFi - Boynton Beach,af752a22-622e-4a59-9a33-2a976f563900,true,true,7.5,1,19,3,burgerfi,chain run,2026-09-09T11:39:21.180Z
+BurgerFi - LBTS,82648de2-b1fc-46ee-8551-d461e0c92d76,true,true,7.5,1,18,3,burgerfi,chain run,2026-09-09T11:39:35.682Z
+BurgerFi - O Town/Palm Parkway,68afa59c-82b1-4e49-b21b-a2dff8160743,true,true,6.5,1,18,1,burgerfi,mass run,2026-09-09T01:12:11.848Z
+BurgerFi - Pompano Beach Pier,a96b77c2-9ffb-45fe-aa7a-22a86ce9b695,true,true,7.5,1,18,3,burgerfi,chain run,2026-09-09T11:38:56.156Z
+BurgerFi - St Johns Town Center,80cb21f2-275a-4dac-98a2-b0e95c07ea3a,true,true,7.5,1,18,2,burgerfi,mass run,2026-09-09T01:50:55.654Z
+Cafe Landwer - Century City,c08b87eb-1006-42ad-901b-9cc4f02f5fdc,false,false,9.5,1,37,1,,mass run,2026-09-09T01:12:21.790Z
+Cafe Landwer - Cleveland Circle,1c2df9c7-141d-40a8-a712-635e026f5155,true,true,6.25,1,88,1,cafelandwer,mass run,2026-09-09T01:13:35.054Z
+Casa Nono,ea177c9e-25a1-4bd1-bf51-68cb51435bdd,false,false,8.875,1,29,1,,mass run,2026-09-09T01:13:44.223Z
+Club Sandwich,d9073c43-ac9b-4950-9713-8cd6d4c7a5ed,true,true,8.129999999999999,1,38,1,,mass run,2026-09-09T01:13:52.539Z
+Colette's Creations,47b2a215-2533-4bd0-9ada-aa297515902c,false,false,6.25,1,4,1,,named conversion,2026-09-09T12:54:42.555Z
+Cookman Creamery,59da89e9-6b87-4a6f-9297-66fe38f1faf7,false,false,6.625,1,8,1,,mass run,2026-09-09T01:14:05.925Z
+COPS,ddc862cc-78fe-494c-b461-e50c3d1157e7,true,true,8.875,1,25,1,,mass run,2026-09-09T01:14:25.933Z
+Daily Chew Catering,3b7c7716-e128-4216-88ec-85736cae2c38,false,false,7.75,1,3,1,,mass run,2026-09-09T01:14:32.367Z
+Deli-icious ,d1875c3b-4115-4340-a936-7da4669e6d8a,false,false,6.75,1,51,1,,mass run,2026-09-09T01:14:39.347Z
+Eggstasy - Chandler,d1d6454c-c923-44f6-80cb-decc93f568f5,true,true,7.8,1,47,8,eggstasy,chain run,2026-09-09T11:44:43.664Z
+Eggstasy - Mesa,ba317e04-b341-4c31-b942-cd411bf8a2bf,true,true,8.3,1,47,1,eggstasy,mass run,2026-09-09T01:14:47.474Z
+Eggstasy - Norterra Ctr.,f718312a-03fb-4c63-895e-82ec09a8c843,true,true,9.1,1,47,10,eggstasy,chain run,2026-09-09T11:45:21.624Z
+Eggstasy - Queen Creek,188f682c-0cc4-44b7-a174-561ccecd797b,true,true,8.55,1,47,6,eggstasy,chain run,2026-09-09T11:44:54.419Z
+Eggstasy - Scottsdale,49a5fa8d-9ea7-4353-a655-5a903358302e,true,true,8,1,47,20,eggstasy,chain run,2026-09-09T11:45:36.985Z
+Eggstasy - The Colony,4ca9a6d4-4840-434c-8447-511a5a06d854,true,true,9.1,1,47,3,eggstasy,chain run,2026-09-09T11:45:06.079Z
+Fat Boy's Pizza - Covington,66d75927-1cc8-4d00-9d1e-4f625cd2f547,true,true,10,2,38,1,metairie,mass run,2026-09-09T01:15:27.045Z
+Fat Boy's Pizza - Fort Wayne,d2ea1a1f-b0a5-4b00-afc5-bc25752b57d6,true,true,8,2,37,1,,mass run,2026-09-09T01:15:57.391Z
+Fat Boy's Pizza - Harvey,754705a3-d7da-49db-bc44-a7c3d2905dc0,true,true,9.75,2,38,2,metairie,chain run,2026-09-09T11:52:12.145Z
+Fat Boy's Pizza - Metairie,a8902c33-78c4-4c74-bebb-3cff826c646b,true,true,9.75,2,38,4,metairie,chain run,2026-09-09T11:51:46.345Z
+Fish Cheeks,1c8e3287-7d15-4c8f-b238-fd68be7c011b,true,true,8.875,1,29,1,,mass run,2026-09-09T01:16:15.399Z
+Green Tomato Grill,4fe8f1c6-9abb-4f76-a2cb-32adfaecfdc6,true,true,7.75,1,124,1,,mass run,2026-09-09T01:18:31.597Z
+Green Wrap Eatery,d01c1ee9-044a-486b-9f5b-85a3cb6d8a7d,true,true,8,1,26,1,,mass run,2026-09-09T01:18:52.933Z
+Happy's Pizza - Port Huron ,31c6a621-28ad-46db-9a87-f82bd01d0e32,true,true,6,1,50,1,happyspizzacatering,mass run,2026-09-09T01:19:51.779Z
+Hello Halloumi,7d284d58-c9ab-4279-919b-cedcda27b114,true,true,8.875,1,22,1,,named conversion,2026-09-09T01:20:18.978Z
+Huckaby's Smokehouse,840dcb21-c6d5-44d2-b718-e6f5b3df69fb,false,false,9,1,22,1,,mass run,2026-09-09T01:21:38.102Z
+Hungry House,dacacc8f-8b7c-40d2-8fe7-d1cda02315ae,false,false,8.875,1,52,1,,mass run,2026-09-09T01:21:54.354Z
+Isle of Us,f7aff310-27ee-495b-a1b0-8d71442e1518,false,true,8.875,1,64,1,,mass run,2026-09-09T01:22:36.473Z
+Julio's Pizza Co. – Atlantic Highlands,4e675698-6882-4816-a3ce-c437af967495,true,true,6.625,2,51,10,juliospizzaco,chain run,2026-09-09T11:52:46.619Z
+Julio's Pizza Co. – Keansburg,44f125ae-7c43-4a8c-b2e8-d348f591af5c,false,true,6.625,2,63,1,juliospizzaco,mass run,2026-09-09T01:23:04.750Z
+Katz's Delicatessen,4cc15dd7-5b13-4808-af3b-b7862af3cbfb,false,true,8.875,1,44,1,,mass run,2026-09-09T01:23:36.112Z
+Lazy Daisy Beverly Hills,ea088dbc-d45f-4709-993d-9660550db6fb,true,true,9.5,1,171,1,,mass run,2026-09-09T01:24:08.719Z
+Luna Verde Vegan Mexican Restaurant,9ef76d84-4301-44d0-bd87-1a03ab6a0f5c,false,true,6.625,2,15,1,,mass run,2026-09-09T01:24:27.716Z
+Mekelburg's ,f7fc4e70-57be-4414-8030-c43dda6f444f,false,false,8.875,1,114,1,,mass run,2026-09-09T01:26:02.814Z
+Memphis Seoul,6a8f8d99-5102-4af6-b280-c763567aae86,false,false,8.875,1,65,1,,mass run,2026-09-09T01:26:54.754Z
+Miss Ada,68cfeaac-4aac-4c1d-ae13-0ae9e29db0c3,true,true,8.875,1,62,1,,mass run,2026-09-09T01:27:12.179Z
+Moonburger Brooklyn,72559a85-50ef-4293-8484-256d7ec3335a,true,true,8.875,1,27,1,,mass run,2026-09-09T01:27:36.008Z
+Motorino,1654aa32-03d3-4b8c-b2ee-17599e145d89,false,true,8.875,1,13,1,,mass run,2026-09-09T01:27:55.859Z
+Namkeen - Brooklyn,b42dd2c2-2b89-4bca-96b3-91de850113ec,true,true,8.875,1,36,11,namkeen,chain run,2026-09-09T11:40:03.842Z
+Namkeen - Chatham,f2c77622-ba17-4724-b196-f4a8cb1bf0f4,true,true,6.625,1,36,31,namkeen,chain run,2026-09-09T11:41:32.284Z
+Namkeen - Lake Hiawatha,86468e0c-0af1-41ed-898c-920d0e7b597f,true,true,6.625,1,37,6,namkeen,chain run,2026-09-09T11:40:58.991Z
+Namkeen - Metuchen,cedcfda2-aec3-41f7-bb56-38876a8667ad,true,true,6.625,1,37,14,namkeen,chain run,2026-09-09T11:40:33.006Z
+Namkeen - Union,61250a17-f437-43c9-9c9f-992ac2c91549,true,true,6.625,1,36,1,namkeen,mass run,2026-09-09T01:30:58.772Z
+Osteria,c4239680-b664-4f8b-b597-a4a7d5614b3a,false,false,8.875,1,63,1,,mass run,2026-09-09T01:31:30.113Z
+Pine and Crane DTLA,8c6237db-a1ab-43f8-8650-82a58025f1e2,true,true,9.75,2,28,1,,mass run,2026-09-09T01:31:44.420Z
+Pismo Fish and Chips,45967e84-3aa5-42a2-888e-dd1062b14b66,true,true,7.75,1,26,1,,mass run,2026-09-09T01:31:59.316Z
+Pita Pit - Kent,66bd4561-9558-416f-a6a0-854357d2ec96,true,true,10.4,2,24,1,gv4ykr,mass run,2026-09-09T01:32:28.601Z
+Purslane x Milk Bar,133fd459-b3b4-4013-a281-c7474516058c,false,false,8.875,4,144,1,purslane,mass run,2026-09-09T01:35:24.936Z
+rhk marketplace,3921a66d-0850-40b5-aaef-b8d92e91d413,true,true,8.875,1,75,1,,mass run,2026-09-09T01:36:04.276Z
+Savvy Sliders - Covington,731539fb-de2e-47b3-85ae-7192a20ddbd1,true,true,10,2,38,1,metairie,mass run,2026-09-09T01:36:50.421Z
+Savvy Sliders - Dallas,d1eb0a1b-a1dd-4b17-924e-2fe2efc60f9f,true,true,8.25,1,18,1,savvysliders,mass run,2026-09-09T01:37:18.401Z
+Savvy Sliders - Detroit (Midtown),2d067273-2abe-40a3-b8c1-bf46223a3b73,true,true,6,1,18,1,savvysliders,mass run,2026-09-09T01:37:49.694Z
+Savvy Sliders - Fort Wayne,b956e932-1b35-4c30-ac96-bffd8f8c316f,true,true,8,1,17,1,,mass run,2026-09-09T01:38:20.850Z
+Savvy Sliders - Fraser,adf5d7c2-cb9d-4c15-9b99-a3fded7d3efc,true,true,6,1,18,1,savvysliders,mass run,2026-09-09T01:38:45.635Z
+Savvy Sliders - Harvey,a9c6d8e2-301f-4341-8aa0-40c3518a3c97,true,true,9.75,2,38,1,metairie,mass run,2026-09-09T01:39:30.013Z
+Savvy Sliders - Metairie,8236e59e-5761-435c-ac7f-19f375c524d7,true,true,9.75,2,38,1,metairie,mass run,2026-09-09T01:40:11.605Z
+Savvy Sliders - Oak Park,6590181f-f914-41bc-ad41-aa105a3889d3,true,true,6,1,18,1,savvysliders,mass run,2026-09-09T01:40:37.779Z
+Savvy Sliders - Port Huron,fb115bce-a4af-4fa8-a6d6-27f85a72f3b1,true,true,6,1,23,2,happyspizzacatering,chain run,2026-09-09T11:38:35.901Z
+Savvy Sliders - San Antonio,c634b37e-d2ff-4a8f-94ed-6f34bc51b783,true,true,8.25,1,18,1,savvysliders,mass run,2026-09-09T01:41:06.345Z
+SmackBird Chicken - Longview,6a7e93eb-7a1b-4e3e-846a-eb70d6854961,false,false,8.25,1,22,1,smackbird,mass run,2026-09-09T01:02:27.201Z
+SmackBird Chicken - North Dallas,197ff8ab-a2d3-451b-ba89-dc90c3ae2b27,true,true,8.25,1,22,2,smackbird,chain run,2026-09-09T11:45:58.320Z
+SmackBird Chicken - Overton,d0d4dca4-b58a-494a-a37a-e759d7023772,true,true,8.25,1,22,3,smackbird,chain run,2026-09-09T11:46:17.891Z
+Springbone Kitchen,035f1f94-d493-4381-99cf-0dfe5a32c776,false,true,8.875,1,79,1,,mass run,2026-09-09T01:41:23.920Z
+Starbucks - Union Street Station,86d6d1aa-8d95-4a7e-a032-cea99378c694,false,false,7.5,1,31,1,,mass run,2026-09-09T01:02:39.023Z
+Supernatural,9d54553f-98bb-4289-9953-6bcae143edce,true,true,7.5,3,45,131,,named conversion (SuperNatural),2026-09-09T00:52:40.375Z
+Tap 42 - Aventura,c9f91109-08e0-43d0-9bc8-cc3145d69c65,true,true,8,1,31,4,tap42,chain run,2026-09-09T11:43:29.929Z
+Tap 42 - Boca Raton,c773ab12-2bbc-4678-853b-fa1487aa03d0,true,true,7,1,30,7,tap42,chain run,2026-09-09T11:43:03.274Z
+Tap 42 - Coral Gables,a815323a-48b3-4778-963a-9ec351d0608e,true,true,8,1,32,1,tap42,mass run,2026-09-09T01:41:56.541Z
+Tap 42 - Coral Springs,29a1d258-5273-4746-b55d-3955758a9734,true,true,7,1,30,3,tap42,chain run,2026-09-09T11:43:56.772Z
+Tap 42 - Davie,4fdcd7ef-f214-48b5-9cdc-0e3d24ac19ec,true,true,7,1,30,1,tap42,mass run,2026-09-09T01:42:33.032Z
+Tap 42 - Doral,8b68cae4-55a5-4f05-9c6f-5383f11d77fc,true,true,8,1,30,1,tap42,mass run,2026-09-09T01:43:15.181Z
+Tap 42 - Fort Myers,61a6091b-caf7-42d7-ac32-f176dc7c27c5,true,true,6.5,1,30,1,tap42,mass run,2026-09-09T01:43:51.667Z
+Tap 42 - Ft Lauderdale,57a9e421-686e-4159-ac78-31085420fa21,true,true,7,1,30,1,tap42,mass run,2026-09-09T01:44:31.242Z
+Tap 42 - Kendall,0568c9cf-2074-4455-8dea-cc16e7858245,true,true,8,1,31,1,tap42,mass run,2026-09-09T01:45:05.072Z
+Tap 42 - Miami,66eb3936-b529-47c7-8b5e-3195a7791d17,true,true,8,1,30,4,tap42,chain run,2026-09-09T11:44:32.059Z
+Tap 42 - Naples,7bb4735b-119f-477e-9de6-dbbc79f58d07,true,true,6,1,30,3,tap42,chain run,2026-09-09T11:42:32.172Z
+Tap 42 - Palm Beach Gardens,1a22dd6a-4fb3-4803-955e-9efeba2e2251,true,true,7,1,30,2,tap42,chain run,2026-09-09T11:41:59.997Z
+Teranga,1eef42de-e410-4769-8af5-c1d267851a79,true,true,8.875,1,37,1,,mass run,2026-09-09T01:45:36.327Z
+The Corner Street Taco Bar,739bc2d3-fcf3-4c87-904b-2757dfe4774e,true,true,6,1,4,1,,mass run,2026-09-09T01:45:45.784Z
+Thea Bakery,95fe4ac3-8a2f-45c4-b255-ef4f26b6ec81,true,true,8.875,1,66,1,,mass run,2026-09-09T01:45:57.451Z
+Toast & Taste Catering,04147a99-4f68-481a-aac7-933c8ef67d02,true,true,10.55,1,129,1,,mass run,2026-09-09T01:46:26.886Z
+Trattoria Moderna Italian Catering,d265cc7c-a251-4015-88ef-d09bf84a9a88,true,true,10.25,1,61,1,,mass run,2026-09-09T01:46:49.686Z
+Utopia Bagels,1acab412-b3e0-44de-91b1-f01cc49bd7f0,true,true,8.875,1,12,1,,mass run,2026-09-09T01:47:03.934Z
+Veselka,d6a90372-7931-4ba0-a2ef-d448c3777e25,true,true,8.875,1,32,1,,mass run,2026-09-09T01:47:35.900Z
+Vesti,119870c4-30f6-49c5-8e1c-897696c3bedc,false,true,9.75,1,38,1,,mass run,2026-09-09T01:48:01.827Z
+Winfield Street Coffee - Croton,5fb5cfce-3f70-43f1-8399-fc2f52a61016,false,false,8.38,1,44,1,winfieldstreetcoffee,mass run,2026-09-09T01:48:35.558Z
+Winfield Street Coffee - Naples South,18d74768-f6fd-4e70-a5f5-f2ff8a47fa01,false,false,6,1,44,4,winfieldstreetcoffee,chain run,2026-09-09T11:47:18.965Z
+Winfield Street Coffee - New York City,6ce3636c-0b33-40fb-bba9-d05c382d4511,false,false,8.875,1,44,1,winfieldstreetcoffee,mass run,2026-09-09T01:49:06.222Z
+Winfield Street Coffee - Rye,544ca778-96c2-4d6b-bc63-d18c2dd627cf,false,false,8.38,1,44,1,winfieldstreetcoffee,mass run,2026-09-09T01:49:38.972Z
+Winfield Street Coffee - Stamford,dc5d3f5f-5613-46c3-a110-e909b3c70168,false,false,6.35,1,44,5,winfieldstreetcoffee,chain run,2026-09-09T11:46:46.443Z
+Winfield Street Coffee - Westport,35781c2a-ce41-47a2-abf3-01661022cde9,false,false,6.35,1,44,1,winfieldstreetcoffee,mass run,2026-09-09T01:50:08.943Z
