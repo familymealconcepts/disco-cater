@@ -66,14 +66,37 @@ export async function GET() {
       ORDER BY la.id ASC
     `) as Array<{ reference: string; name: string }>
 
-    // All users this account created — both SYSTEM_ADMIN and ADMIN (Restaurant
-    // User) — for the unified Authorized Users table.
-    const userRows = (await sql`
-      SELECT email, first_name, last_name, role, invite_token, created_at::text AS created_at
-      FROM disco_restaurant_accounts
-      WHERE created_by = ${ctx.email}
-      ORDER BY id ASC
-    `) as Array<{ email: string; first_name: string | null; last_name: string | null; role: string | null; invite_token: string | null; created_at: string | null }>
+    // AUTHORIZED USERS = everyone with a grant on a location this viewer can
+    // reach. NOT `created_by = ctx.email`, which is what this used to be.
+    //
+    // That old filter meant "people I personally invited", so anyone who arrived
+    // by the FM sync was invisible: Basil at Atlanta Bread saw a team of one
+    // while 15 people held grants on his locations. Note those 15 carry
+    // created_by = NULL, not the fm-authorized-users-sync sentinel — they
+    // predate it — so keying the fix on the sentinel would have fixed nothing.
+    //
+    // `refs` above is already the ROLE-GATED scope from resolveDiscoAccessScope:
+    // a SYSTEM_ADMIN's full set, home-ref-only for anyone else. So an ADMIN sees
+    // only themselves, because grants are chain-wide and showing an ADMIN every
+    // colleague at the chain would be a quiet widening of what they can see.
+    //
+    // created_by is kept as a COLUMN, never as a gate — "invited by me" versus
+    // "from FamilyMeal" is worth showing and worth not filtering on.
+    const isSystemAdmin = (ctx.role || '').toUpperCase() === 'SYSTEM_ADMIN'
+    const userRows = (isSystemAdmin && refs.length
+      ? (await sql`
+          SELECT DISTINCT ON (a.email)
+                 a.email, a.first_name, a.last_name, a.role, a.invite_token,
+                 a.created_at::text AS created_at, a.created_by, a.id
+          FROM disco_restaurant_location_access la
+          JOIN disco_restaurant_accounts a ON a.email = la.account_email
+          WHERE la.restaurant_reference = ANY(${refs}::text[])
+            AND a.archived_at IS NULL
+            AND a.email <> ${ctx.email}
+            AND a.email NOT LIKE 'stripe-import+%'
+          ORDER BY a.email, a.id ASC
+        `)
+      : []) as Array<{ email: string; first_name: string | null; last_name: string | null; role: string | null; invite_token: string | null; created_at: string | null; created_by: string | null }>
 
     const users = []
     for (const u of userRows) {
@@ -84,6 +107,10 @@ export async function GET() {
         role: u.role || 'ADMIN',
         registration: u.created_at || null,
         pendingInvite: !!u.invite_token,
+        // 'me' | 'familymeal' | 'unknown' — how this account came to exist.
+        // created_by is NULL on everything that predates the sync sentinel.
+        origin: u.created_by === ctx.email ? 'me' : u.created_by ? 'familymeal' : 'unknown',
+        createdBy: u.created_by,
         locations: (await accessFor(u.email)).map(a => ({ reference: a.reference, name: a.name })),
       })
     }
