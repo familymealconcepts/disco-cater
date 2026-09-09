@@ -30,6 +30,34 @@ The worked examples, and the five specific corrections that preceded this rule, 
 "NEVER COMPARE A CONVERTED RESTAURANT AGAINST FM" further down. This section is the rule;
 that one is the evidence.
 
+## NEVER WRITE TO FAMILYMEAL. READ ONLY.
+
+FM is a live platform with thousands of restaurants taking real orders. **A write there
+is not a conversion step and it is not a fix** — it changes what real customers see and
+what real kitchens receive.
+
+This holds regardless of how the data looks:
+
+- A tax rate that seems missing, a 0% that seems wrong, a name that looks corrupted, an
+  address that disagrees with itself, a menu item priced at 0, a blackout with odd
+  polarity — **all of it stays as it is.**
+- **"Suspicious" is not a reason to write.** It is not evidence of an error. FM's data is
+  FM's data.
+- If FM's data blocks a conversion, **that restaurant does not convert.** Report it and
+  stop. Do not resolve it by writing to FM.
+
+The only permitted FM interactions are **reads**, and the selected-restaurant switch the
+master-password mechanism performs — which is bookended with a verified restore, because
+even that is a persisted change to a real admin's account.
+
+**If a conversion appears to need an FM write, the answer is that the conversion waits.
+Never that FM changes.**
+
+Worked example, 2026-09-09: 29 Hance Bakehouse and Point Lobster Co are live New Jersey
+restaurants with no tax rate anywhere in FM. NJ charges 6.625%, so the data is plainly
+incomplete — and they were LEFT OUT OF THE BATCH rather than corrected. That is the
+correct outcome, not a gap to close.
+
 ## THERE ARE NO TRANSACTIONS IN THIS REPO — read before any write to a live table
 
 `lib/db.ts` uses `neon()` in **HTTP mode**. Every statement is its own HTTP request and

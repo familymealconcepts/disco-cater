@@ -1,0 +1,172 @@
+{
+ "6a7e93eb-7a1b-4e3e-846a-eb70d6854961": {
+  "name": "SmackBird Chicken - Longview",
+  "ref": "6a7e93eb-7a1b-4e3e-846a-eb70d6854961",
+  "ordersFm": 0,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 22,
+   "groups": 15,
+   "links": 22
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "created",
+  "orders": 1,
+  "seconds": 36.4
+ },
+ "86d6d1aa-8d95-4a7e-a032-cea99378c694": {
+  "name": "Starbucks - Union Street Station",
+  "ref": "86d6d1aa-8d95-4a7e-a032-cea99378c694",
+  "ordersFm": 0,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 31,
+   "groups": 4,
+   "links": 2
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 8.2
+ },
+ "85dc5165-cca0-4ba2-8c30-696f647cb0e0": {
+  "name": "ActuallyNovember",
+  "ref": "85dc5165-cca0-4ba2-8c30-696f647cb0e0",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 22,
+   "groups": 13,
+   "links": 10
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 11
+ },
+ "13eb0573-03cc-4ce4-ae3b-e910adc92e41": {
+  "name": "Ánimo!",
+  "ref": "13eb0573-03cc-4ce4-ae3b-e910adc92e41",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 32,
+   "groups": 49,
+   "links": 74
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 26
+ },
+ "1ef81e10-6153-4ef5-bf6a-ad2b9fc5e65d": {
+  "name": "Aunts et Uncles",
+  "ref": "1ef81e10-6153-4ef5-bf6a-ad2b9fc5e65d",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 28,
+   "groups": 9,
+   "links": 17
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 20.8
+ },
+ "f7c42fe3-e0c1-4a12-8525-b2a0124aa6cc": {
+  "name": "Best Pizza - Williamsburg",
+  "ref": "f7c42fe3-e0c1-4a12-8525-b2a0124aa6cc",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 37,
+   "groups": 20,
+   "links": 27
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 12.3
+ },
+ "e1391394-dba4-4180-b216-f92a92b29950": {
+  "name": "Binge Biryani - Long Island City",
+  "ref": "e1391394-dba4-4180-b216-f92a92b29950",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 8,
+   "groups": 8,
+   "links": 10
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 8.4
+ },
+ "58af4209-01c0-41e5-aed0-e96a9d0d9cca": {
+  "name": "Botte - Astoria",
+  "ref": "58af4209-01c0-41e5-aed0-e96a9d0d9cca",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 40,
+   "groups": 1,
+   "links": 5
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 7
+ },
+ "a9822f03-a991-4c06-bce0-b13dacc4583b": {
+  "name": "Botte - Brooklyn",
+  "ref": "a9822f03-a991-4c06-bce0-b13dacc4583b",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 39,
+   "groups": 1,
+   "links": 5
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 6.4
+ },
+ "36142ac2-6fe4-4b22-ab60-601f2984966a": {
+  "name": "Botte - UES",
+  "ref": "36142ac2-6fe4-4b22-ab60-601f2984966a",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 39,
+   "groups": 1,
+   "links": 5
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 6.4
+ }
+}
