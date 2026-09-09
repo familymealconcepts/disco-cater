@@ -601,6 +601,52 @@ is operator-scoped (`2dine4`, `ubyseg`, `metairie`) and every brand gets its
 own. **The brand that does not keep the slug also loses FM's banner**, because
 the banner hangs off the slug.
 
+#### READING FM ASSIGNMENTS — use readUserAssignment, never the email (2026-09-09)
+
+This question blocked four conversions in a week. It is answered.
+
+`readUserAssignment(email, role)` in `lib/fm-master-admin-read.ts` asks FM, by
+the only path each role allows:
+
+- **SYSTEM_ADMIN** — sign in as them and `GET /api/system-admin/restaurants`,
+  which returns the set assigned to the AUTHENTICATED user. Same endpoint that
+  returned Two Hands' eight.
+- **ADMIN** — every `/api/system-admin/*` route denies a plain ADMIN ("Access is
+  denied"). But an ADMIN belongs to exactly one restaurant and their login JWT
+  carries it as the `restaurant` claim. That claim IS FM's assignment.
+
+**This replaces the `fm_backup` dependency.** `tbl_system_admin_restaurants` and
+`tbl_restaurant_admins` are unreachable from this machine and a snapshot goes
+stale; this reads live. It also covers plain ADMINs, which a system-admin-only
+export does not.
+
+**Never infer an assignment from an email address.** Apollo Bagels' logins are
+`41john@`, `133n7@`, `242east10@` — an address per mailbox, which makes the
+mapping look obvious. Reading FM confirmed eight of the nine and caught the one
+inference would have got wrong: `chris@apollobagels.com` carries no address and
+FM assigns them **Midtown**, giving Midtown two ADMINs. West Village has no
+ADMIN of its own. Neither fact is visible from the email.
+
+Do NOT reach for `/api/system-admin/users` to answer this. It over-reports
+membership (whole chain per location) for every role equally. Its rows do carry
+a `restaurant` field — `readAuthorizedUsersRaw` keeps it — but take **identity
+and role** from that list and the **assignment** from `readUserAssignment`.
+
+#### AN ADMIN ROLE EARNS AN INVITE. BEING A NOTIFICATION RECIPIENT DOES NOT.
+
+Two separate fields with two separate meanings, and they must not be conflated:
+
+- **FM's authorized-users list** names people with a role. Everyone on it gets
+  invited, at the role FM states.
+- **`notification_emails`** is where order notifications are delivered. It is a
+  mailbox list. It earns no account and no grant.
+
+They overlap and that is fine. At Apollo Bagels, `taylor@` and `andrea@` are
+both admins AND recipients — they were invited **because they are admins**.
+`lex@apollobagels.com` is on Williamsburg's recipients and appears nowhere in
+FM's authorized-users list, so **`lex@` was not invited**. Being sent orders is
+not evidence of authority.
+
 #### Botte: no multi-unit page, by decision (2026-09-08)
 
 Botte's three locations (Astoria, Brooklyn, UES) **do not get a `/locations`
