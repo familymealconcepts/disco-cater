@@ -636,3 +636,69 @@ export async function readChainGroupAsAdmin(ref: string): Promise<FmChainGroup> 
     multiUnitLinksReference: typeof body.multiUnitLinksReference === 'string' ? body.multiUnitLinksReference : null,
   }
 }
+
+// ── Per-user FM assignment ───────────────────────────────────────────────────
+/**
+ * What locations does FM assign to ONE named admin?
+ *
+ * Read from FM, never inferred. Apollo Bagels' logins look like
+ * `41john@`, `133n7@`, `242east10@` — an address per email, which makes the
+ * mapping look obvious and is exactly why guessing it is unsafe: the email is a
+ * mailbox name, not an assignment.
+ *
+ * Two paths, both FM's own answer, chosen by the role FM reports:
+ *  - SYSTEM_ADMIN → sign in as them and GET /api/system-admin/restaurants, which
+ *    returns the set assigned to the AUTHENTICATED user (the same endpoint that
+ *    returned Two Hands' eight).
+ *  - ADMIN → system-admin routes deny a plain ADMIN entirely ("Access is
+ *    denied"), but an ADMIN belongs to exactly one restaurant and their login
+ *    JWT carries it as the `restaurant` claim. That claim is FM's assignment.
+ *
+ * Read-only, and audited like every other master-password use.
+ */
+export interface FmUserAssignment {
+  email: string
+  role: string | null
+  source: 'system-admin-restaurants' | 'jwt-restaurant-claim' | null
+  restaurantReferences: string[]
+  reason: string
+}
+
+export async function readUserAssignment(email: string, role: string): Promise<FmUserAssignment> {
+  const base: FmUserAssignment = { email, role, source: null, restaurantReferences: [], reason: '' }
+  let token: string
+  try { ({ token } = await loginAsFmAdmin(email)) } catch (e) {
+    await auditMasterPasswordUse({ adminEmail: email, via: 'api', ok: false,
+      reason: 'per-user assignment read: login failed', extra: { error: e instanceof Error ? e.message : String(e) } })
+    return { ...base, reason: `FM login failed: ${e instanceof Error ? e.message : e}` }
+  }
+  const h = { Authorization: token, Accept: 'application/json' }
+
+  if (role === 'SYSTEM_ADMIN') {
+    const refs: string[] = []
+    let page = 0
+    for (;;) {
+      const res = await fetch(`${FM}/api/system-admin/restaurants?page=${page}&size=100`, { headers: h, cache: 'no-store' })
+      if (!res.ok) {
+        await auditMasterPasswordUse({ adminEmail: email, via: 'api', ok: false,
+          reason: 'per-user assignment read: system-admin/restaurants denied', extra: { httpStatus: res.status } })
+        return { ...base, reason: `system-admin/restaurants HTTP ${res.status}` }
+      }
+      const b = await res.json().catch(() => null) as { content?: { reference?: string }[]; totalPages?: number } | null
+      for (const r of (b?.content ?? [])) if (r?.reference) refs.push(String(r.reference))
+      if (!b || page + 1 >= (b.totalPages ?? 1)) break
+      page++
+    }
+    await auditMasterPasswordUse({ adminEmail: email, via: 'api', ok: true,
+      reason: 'per-user assignment read', extra: { role, assigned: refs.length } })
+    return { ...base, source: 'system-admin-restaurants', restaurantReferences: refs, reason: 'ok' }
+  }
+
+  const claims = decodeJwt(token) as Record<string, unknown> | null
+  const claim = typeof claims?.restaurant === 'string' ? claims.restaurant : null
+  await auditMasterPasswordUse({ adminEmail: email, via: 'api', ok: !!claim,
+    reason: 'per-user assignment read (ADMIN, JWT claim)', extra: { role, claim } })
+  return claim
+    ? { ...base, source: 'jwt-restaurant-claim', restaurantReferences: [claim], reason: 'ok' }
+    : { ...base, reason: 'ADMIN login carried no `restaurant` claim — FM assignment unreadable' }
+}
