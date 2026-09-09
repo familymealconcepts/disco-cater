@@ -17,12 +17,14 @@
  * Usage: npx tsx --env-file=.env.local scripts/mass-convert.ts [limit]
  */
 import Stripe from 'stripe'
-import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { readFileSync } from 'fs'
+import { readProgress, appendProgress, importLegacyMap } from '../lib/run-progress'
 import { sql } from '../lib/db'
 import { convertToNative, importRestaurantStripeAccount } from '../lib/native-conversion'
 import { importFmMenuFaithfully } from '../lib/menu-import/fm-faithful-import'
 
-const PROGRESS = 'data/mass-convert-progress.json'
+const PROGRESS = 'data/mass-convert-progress.jsonl'
+const LEGACY_JSON = 'data/mass-convert-progress.json'
 // Excluded by Peter: dormant/test rows, and two live NJ restaurants with no tax
 // rate anywhere in FM (they cannot price an order, so they must not convert).
 const SKIP_SLUGS = new Set(['tastydawgvip'])
@@ -55,8 +57,11 @@ async function main() {
   const limit = Number(process.argv[2] || '0') || Infinity
   const stripe = new Stripe(process.env.STRIPE_READONLY_KEY!)
   const queue = await build()
-  const done: Record<string, unknown> = existsSync(PROGRESS)
-    ? JSON.parse(readFileSync(PROGRESS, 'utf8')) : {}
+  // APPEND-ONLY. The old map-rewrite lost Hello Halloumi when two runs
+  // overlapped — see lib/run-progress.ts.
+  const imported = importLegacyMap(LEGACY_JSON, PROGRESS)
+  if (imported) console.log(`carried ${imported} record(s) over from ${LEGACY_JSON}`)
+  const done: Record<string, unknown> = readProgress(PROGRESS)
   const todo = queue.filter(q => !done[q.ref])
   console.log(`queue ${queue.length} | already recorded ${Object.keys(done).length} | this run ${Math.min(limit, todo.length)}`)
 
@@ -86,7 +91,7 @@ async function main() {
     }
     rec.seconds = Number(((Date.now() - t0) / 1000).toFixed(1))
     done[q.ref] = rec
-    writeFileSync(PROGRESS, JSON.stringify(done, null, 1) + '\n')
+    appendProgress(PROGRESS, { ...rec, ref: q.ref })
     console.log(
       String(n).padStart(3) + '.',
       String(q.name).slice(0, 30).padEnd(32),

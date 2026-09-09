@@ -1,9 +1,11 @@
 import Stripe from 'stripe'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync } from 'fs'
+import { readProgress, appendProgress, importLegacyMap } from '../lib/run-progress'
 import { sql } from '../lib/db'
 import { convertToNative, importRestaurantStripeAccount } from '../lib/native-conversion'
 import { importFmMenuFaithfully } from '../lib/menu-import/fm-faithful-import'
-const PROGRESS = 'data/chain-finish-progress.json'
+const PROGRESS = 'data/chain-finish-progress.jsonl'
+const LEGACY_JSON = 'data/chain-finish-progress.json'
 const chains = JSON.parse(readFileSync('data/partial-chains.json','utf8')) as any[]
 const res = JSON.parse(readFileSync('data/stripe-account-resolutions.json','utf8'))
 const acct = new Map<string,string>()
@@ -11,7 +13,9 @@ for (const r of res.resolutions as any[]) if (r.bucket==='resolved') acct.set(r.
 ;(async()=>{
   const stripe = new Stripe(process.env.STRIPE_READONLY_KEY!)
   const queue = chains.flatMap((c:any)=>c.remaining.filter((r:any)=>r.hasAcct).map((r:any)=>({...r, chain:c.token})))
-  const done: Record<string, any> = existsSync(PROGRESS) ? JSON.parse(readFileSync(PROGRESS,'utf8')) : {}
+  const imported = importLegacyMap(LEGACY_JSON, PROGRESS)
+  if (imported) console.log(`carried ${imported} record(s) over from ${LEGACY_JSON}`)
+  const done: Record<string, any> = readProgress(PROGRESS)
   const todo = queue.filter((q:any)=>!done[q.ref])
   console.log('chain-finish queue:', queue.length, '| remaining this run:', todo.length)
   let n=0
@@ -33,7 +37,7 @@ for (const r of res.resolutions as any[]) if (r.bucket==='resolved') acct.set(r.
       if (!r.converted) rec.reason = String(r.reason).slice(0,150)
     } catch(e:any) { rec.converted=false; rec.reason='THREW: '+String(e?.message).slice(0,150) }
     rec.seconds = Number(((Date.now()-t0)/1000).toFixed(1))
-    done[q.ref]=rec; writeFileSync(PROGRESS, JSON.stringify(done,null,1)+'\n')
+    done[q.ref]=rec; appendProgress(PROGRESS, { ...rec, ref: q.ref })
     console.log(String(n).padStart(3)+'.', String(q.chain).padEnd(20), String(q.name).slice(0,34).padEnd(36), String(rec.seconds).padStart(6)+'s',
       rec.converted ? 'OK live='+rec.isLive+' link='+rec.link+'('+rec.linkMembers+')' : 'FAIL '+rec.reason)
   }
