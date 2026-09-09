@@ -1010,11 +1010,11 @@ export async function carryOverClosedDays(ref: string, walled?: FmWalledFieldsRe
       // mass-conversion run on 2026-09-09. State the fact instead.
       const anyRow = rows.length > 0
       if (anyRow && skipped === 0) {
-        const msg = `FM /api/closedDays returned ${rows.length} row(s), 0 closed — the restaurant is open on those dates. Nothing to carry over.`
+        const msg = `FM returned ${rows.length} closed-day rows, 0 closed — carried 0.`
         console.log(`[convertToNative] closed-days for ${ref}: ${msg}`)
         return { carried: true, reason: msg }
       }
-      return fail(`FM /api/closedDays returned ${rows.length} row(s), 0 usable — ${skipped} row(s) had no name or no parseable date. Nothing carried over.`)
+      return fail(`FM returned ${rows.length} closed-day rows, carried 0 — ${skipped} row(s) had no name or no parseable date.`)
     }
 
     // Replace wholesale rather than merge — this only ever runs once, at
