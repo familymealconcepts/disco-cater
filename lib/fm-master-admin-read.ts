@@ -702,3 +702,51 @@ export async function readUserAssignment(email: string, role: string): Promise<F
     ? { ...base, source: 'jwt-restaurant-claim', restaurantReferences: [claim], reason: 'ok' }
     : { ...base, reason: 'ADMIN login carried no `restaurant` claim — FM assignment unreadable' }
 }
+
+// ── Authorized users WITH their restaurant field, per restaurant ─────────────
+/**
+ * FM's /api/system-admin/users rows carry a `restaurant` object alongside role.
+ * readWalledFields drops it; this keeps it, because for a plain ADMIN that field
+ * is the location FM assigns them — the relationship behind FM's own Authorized
+ * Users screen — without needing to sign in as each person.
+ *
+ * The list still over-reports MEMBERSHIP (it returns the whole chain for every
+ * location), so the caller must read each row's own `restaurant`, never assume
+ * the rows belong to the restaurant it authenticated against.
+ */
+export interface FmUserRow {
+  email: string
+  firstName?: string
+  lastName?: string
+  role: string | null
+  locked?: boolean
+  restaurantReference: string | null
+  restaurantName: string | null
+}
+
+export async function readAuthorizedUsersRaw(ref: string): Promise<FmUserRow[] | null> {
+  const identity = await resolveFmAdminIdentity(ref)
+  if (!identity || identity.role !== 'SYSTEM_ADMIN') return null
+  let token: string
+  try { ({ token } = await loginAsFmAdmin(identity.email)) } catch { return null }
+  const res = await fetch(`${FM}/api/system-admin/users?page=0&size=200`, {
+    headers: { Authorization: token, Accept: 'application/json' }, cache: 'no-store',
+  })
+  await auditMasterPasswordUse({ adminEmail: identity.email, restaurantReference: ref, via: 'api',
+    ok: res.ok, reason: 'authorized-users raw read', extra: { httpStatus: res.status } })
+  if (!res.ok) return null
+  const body = await res.json().catch(() => null) as { content?: Record<string, unknown>[] } | null
+  if (!Array.isArray(body?.content)) return null
+  return body!.content.map(u => {
+    const r = (u.restaurant ?? null) as Record<string, unknown> | null
+    return {
+      email: String(u.email ?? '').trim().toLowerCase(),
+      firstName: typeof u.firstName === 'string' ? u.firstName : undefined,
+      lastName: typeof u.lastName === 'string' ? u.lastName : undefined,
+      role: typeof u.role === 'string' ? u.role : null,
+      locked: typeof u.locked === 'boolean' ? u.locked : undefined,
+      restaurantReference: r && typeof r.reference === 'string' ? r.reference : null,
+      restaurantName: r && typeof r.businessName === 'string' ? r.businessName : null,
+    }
+  }).filter(u => !!u.email)
+}

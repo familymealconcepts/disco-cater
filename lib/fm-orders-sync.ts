@@ -441,20 +441,32 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
 // endpoint first, falling back to the admin endpoint. Returns the raw order array.
 async function fetchFmOrdersPage(restaurantReference: string, auth: Record<string, string>, page: number, size: number): Promise<Record<string, unknown>[] | null> {
   const qs = `page=${page}&size=${size}&sort=orderDate,desc`
+  let lastError: string | null = null
   const urls = [
     `${FM}/public-api/v2/restaurants/${restaurantReference}/orders?${qs}`,
     `${FM}/api/admin/restaurants/${restaurantReference}/orders?${qs}`,
   ]
   for (const url of urls) {
     try {
-      const res = await fmFetch(url, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' })
-      if (!res.ok) continue
+      // 60s, not fmFetch's 10s default. A page of 100 orders is genuinely slow
+      // on FM: measured 6.5s for a 35-order restaurant, 10.6s for 63 orders and
+      // 21.7s for 108. At the default the fetch aborted, the catch below
+      // swallowed it, and the caller reported a bare "FM orders fetch failed" —
+      // which BLOCKS CONVERSION, because the order-history backfill is a hard
+      // gate. It silently made the BIGGEST restaurants the unconvertible ones.
+      const res = await fmFetch(url, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' }, 60_000)
+      if (!res.ok) { lastError = `HTTP ${res.status}`; continue }
       const data = await res.json().catch(() => null)
       if (Array.isArray(data)) return data as Record<string, unknown>[]
       if (Array.isArray((data as Record<string, unknown>)?.content)) return (data as { content: Record<string, unknown>[] }).content
       return []
-    } catch { /* try next url */ }
+    } catch (e) {
+      // Was a bare `catch {}`. Still try the next URL, but record why the last
+      // one failed — a swallowed timeout is what made this hard to find.
+      lastError = e instanceof Error ? e.message : String(e)
+    }
   }
+  if (lastError) console.error(`[fm-orders-sync] orders fetch failed for ${restaurantReference}: ${lastError}`)
   return null
 }
 
