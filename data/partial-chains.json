@@ -1,0 +1,766 @@
+[
+ {
+  "token": "happyspizza",
+  "converted": [
+   "Happy's Pizza - Port Huron "
+  ],
+  "remaining": [
+   {
+    "name": "Happy's Pizza - Wayne",
+    "ref": "d0c2f78d-cb59-4fd0-aa7a-28a5a9b82ce1",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Toledo",
+    "ref": "a42409cf-4c69-45f4-a910-07e8f5b18928",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Shelby Twp",
+    "ref": "07a287ba-4f19-4537-bca5-30692c3017a2",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Sterling Heights",
+    "ref": "35aa542f-6add-4312-bd7a-8522ef059e8b",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Southfield (Store 034)",
+    "ref": "ad7195e1-4007-4f65-b224-41fc0d2ac177",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Mount Clemens",
+    "ref": "e46d5abe-6ee7-49eb-a034-62357b76c8c0",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Hazel Park ",
+    "ref": "5369a412-5132-4e18-92d2-afaab14f6bf0",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Warren",
+    "ref": "85bf1383-8dab-4b7e-b5b7-ead41d9693e4",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Redford Twp",
+    "ref": "e79e90e8-d113-4a98-9aa9-54e290eaf754",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Southfield (Store 008)",
+    "ref": "c09be82c-54ae-470f-a77a-1b7b85d9084d",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Columbus",
+    "ref": "667d28f7-2966-40e2-9bfe-dca495cb5fc3",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Battle Creek",
+    "ref": "919a1c90-5522-47eb-bf22-e07ebf9811b6",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Fraser",
+    "ref": "2c1777f1-cffd-4015-aa59-b9f38ab8d5bb",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Chesterfield",
+    "ref": "2e36f407-5d2d-4f01-94cc-3679e74a706f",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Farmington Hills",
+    "ref": "87a00dff-9609-41f4-97c1-6b0a4894215f",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Detroit (Store 009)",
+    "ref": "fe3355f6-a980-4f4e-b411-cefe7d37b818",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Detroit (Store 044)",
+    "ref": "f529445b-9449-4af0-8550-95580a560036",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Waterford",
+    "ref": "bc033998-08dd-4a47-9798-fe067a221ad7",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Pontiac",
+    "ref": "07105b07-efbd-434b-b63e-5095e17c7fe9",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Detroit (Store 003)",
+    "ref": "8471b87e-145f-4942-9d6f-2bd79fa269ee",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Trenton",
+    "ref": "20c22cd0-f90f-4492-be0b-b5d93741980d",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Monroe",
+    "ref": "fb2c95b9-1c16-4263-9e81-bb7c88985078",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Detroit (Store 004) ",
+    "ref": "412dd855-9f41-4726-887c-4cdcd4c5bd44",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Dearborn Heights",
+    "ref": "99d12eca-dc54-4650-bb33-36b5ff786970",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Oak Park ",
+    "ref": "49f36819-ba86-4f5a-a206-74872c1901b2",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Detroit (Store 005)",
+    "ref": "5f33098b-da0b-46ce-8e02-7171264c310e",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Detroit (Store 011)",
+    "ref": "e54f7b6b-ebe8-4160-b5e4-d39e115cc091",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Southgate",
+    "ref": "157c0dac-c657-4334-b070-c997d4244607",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Cincinnati",
+    "ref": "4dca0752-51a9-43f6-b540-f8b9286ba73d",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Lansing",
+    "ref": "d5e6476c-5c73-4e68-a202-9a2606d2dfd5",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Belleville",
+    "ref": "53ce20b9-67af-4808-8d8e-552532745594",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Commerce",
+    "ref": "790231df-d435-4e5a-9a7b-068850428fbf",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Eastpointe",
+    "ref": "d89c41a8-53d6-4644-a049-b0454f969243",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Westland (Store 027)",
+    "ref": "c0520f14-30e5-448d-b10a-8220088c65f9",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Detroit (Store 016)",
+    "ref": "c4d14004-26cd-4d3c-96b6-a72db3373f4c",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Taylor (Store 021)",
+    "ref": "3dbc50a6-0157-48bc-8c86-c38ba47273de",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Taylor (Store 039)",
+    "ref": "d47cb024-a9eb-47ee-b702-4fecf925e32c",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Detroit (Store 006)",
+    "ref": "e19b97fd-3f89-4c2e-ba7a-9fe7250f6fbb",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Dayton",
+    "ref": "1b9dfc76-b9e0-4f9b-a23e-b91ce7ae86f4",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Detroit (Store 100)",
+    "ref": "af734ea3-5c3f-45e0-9658-9098a40d4b5c",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Saginaw",
+    "ref": "ddc06090-e839-41c8-a9e9-7b82c51bd19b",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Westland (Store 043)",
+    "ref": "bd33ac0f-8675-4587-932a-1f82092ddc34",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Flint",
+    "ref": "7f04ee24-45f7-4acd-a4d1-dfab941448d6",
+    "hasAcct": false
+   },
+   {
+    "name": "Happy's Pizza - Ypsilanti",
+    "ref": "9c150d0a-c324-49ed-a9fd-8100d4c19979",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "savvysliders",
+  "converted": [
+   "Savvy Sliders - Oak Park",
+   "Savvy Sliders - Covington",
+   "Savvy Sliders - Metairie",
+   "Savvy Sliders - San Antonio",
+   "Savvy Sliders - Fraser",
+   "Savvy Sliders - Harvey",
+   "Savvy Sliders - Detroit (Midtown)",
+   "Savvy Sliders - Dallas",
+   "Savvy Sliders - Fort Wayne"
+  ],
+  "remaining": [
+   {
+    "name": "Savvy Sliders - Toledo",
+    "ref": "82c041a8-f292-4148-9089-a0ff503b5324",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Detroit (Store 006)",
+    "ref": "f68d0790-76fa-481d-ba5d-6eb6b43b503d",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Brook Park",
+    "ref": "3824ebad-b4ce-4555-901b-395bb184b96c",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Battle Creek",
+    "ref": "c2845ebc-1e0b-4ccf-b3e1-b989c8209743",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Southfield (Store 008)",
+    "ref": "7daaa5f5-0811-49c8-85db-5a9613a28cdb",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Columbus",
+    "ref": "dd1b3960-904b-477e-8b2f-ead5e3648f3c",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Commerce",
+    "ref": "c29db912-81b9-4e42-8c78-5317e5f15197",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Detroit (Store 100)",
+    "ref": "d829b5a5-d903-4846-9d9f-d022507b1e9d",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Shelby Twp",
+    "ref": "97a4843f-b2dd-43bc-bbc9-df49db5f2586",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Westland (Store 027)",
+    "ref": "4a5ff5c0-5861-43e0-8df6-a34def6e37b6",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Cincinnati",
+    "ref": "cedd3914-ab49-4ba6-80d4-7c4ba5ab871b",
+    "hasAcct": false
+   },
+   {
+    "name": "Savvy Sliders - Port Huron",
+    "ref": "fb115bce-a4af-4fa8-a6d6-27f85a72f3b1",
+    "hasAcct": true
+   },
+   {
+    "name": "Savvy Sliders",
+    "ref": "be3391f5-af37-4103-9f6c-95f62f5baad6",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "burgerfi",
+  "converted": [
+   "BurgerFi - St Johns Town Center",
+   "BurgerFi - O Town/Palm Parkway",
+   "BurgerFi - Bowie"
+  ],
+  "remaining": [
+   {
+    "name": "BurgerFi - Pompano Beach Pier",
+    "ref": "a96b77c2-9ffb-45fe-aa7a-22a86ce9b695",
+    "hasAcct": true
+   },
+   {
+    "name": "BurgerFi - Falls Church",
+    "ref": "ca123d68-c04e-4edd-bc11-8d15f2fa45c1",
+    "hasAcct": false
+   },
+   {
+    "name": "BurgerFi - Windermere",
+    "ref": "f2f87bed-0272-4d19-933f-3e84cf15830f",
+    "hasAcct": false
+   },
+   {
+    "name": "BurgerFi - Winter Park",
+    "ref": "3ef5a496-02bc-49dd-8ced-842b5e07c306",
+    "hasAcct": false
+   },
+   {
+    "name": "BurgerFi - Lake Mary",
+    "ref": "77cea8e4-cb1a-4003-98c2-8bdba85e9eec",
+    "hasAcct": false
+   },
+   {
+    "name": "BurgerFi - Winter Garden",
+    "ref": "f41734ab-f162-45cb-b21b-16e46ce3c2ff",
+    "hasAcct": false
+   },
+   {
+    "name": "BurgerFi - UCF",
+    "ref": "abb4a9e4-2ad5-41cb-a675-3f6d35f972e1",
+    "hasAcct": false
+   },
+   {
+    "name": "BurgerFi - Altamonte Springs",
+    "ref": "379cd922-5d36-4d22-b808-b1dfd4574105",
+    "hasAcct": false
+   },
+   {
+    "name": "BurgerFi - Arlington",
+    "ref": "95339b04-6f1d-4c7a-ac35-4955a9dfd5c3",
+    "hasAcct": true
+   },
+   {
+    "name": "BurgerFi - Boynton Beach",
+    "ref": "af752a22-622e-4a59-9a33-2a976f563900",
+    "hasAcct": true
+   },
+   {
+    "name": "BurgerFi - LBTS",
+    "ref": "82648de2-b1fc-46ee-8551-d461e0c92d76",
+    "hasAcct": true
+   }
+  ]
+ },
+ {
+  "token": "brooklyndumplingshop",
+  "converted": [
+   "Brooklyn Dumpling Shop - Midtown",
+   "Brooklyn Dumpling Shop - UES"
+  ],
+  "remaining": [
+   {
+    "name": "Brooklyn Dumpling Shop - Dallas",
+    "ref": "0ad7bb78-3f21-4ff2-8f01-fb19efc7f07b",
+    "hasAcct": false
+   },
+   {
+    "name": "Brooklyn Dumpling Shop - Willowbrook",
+    "ref": "463188f2-42b3-498b-a0dd-c0030032143d",
+    "hasAcct": false
+   },
+   {
+    "name": "Brooklyn Dumpling Shop - Downtown Miami",
+    "ref": "17e17754-f2df-4769-a1b5-01ba30909a74",
+    "hasAcct": false
+   },
+   {
+    "name": "Brooklyn Dumpling Shop - Sansom Street",
+    "ref": "44d39bee-f61c-45be-81d9-1d28c948cb76",
+    "hasAcct": false
+   },
+   {
+    "name": "Brooklyn Dumpling Shop - Garden City",
+    "ref": "59429cc2-a9ed-41a3-9edf-3de4a54ee430",
+    "hasAcct": false
+   },
+   {
+    "name": "Brooklyn Dumpling Shop - Uni City",
+    "ref": "aa71ed79-977c-4ab3-84d9-859f960ece43",
+    "hasAcct": false
+   },
+   {
+    "name": "Brooklyn Dumpling Shop - South Street",
+    "ref": "c2084846-36ef-48f5-9381-d5052c7b41b8",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "namkeen",
+  "converted": [
+   "Namkeen - Union"
+  ],
+  "remaining": [
+   {
+    "name": "Namkeen -  Stony Brook",
+    "ref": "b2bb4b36-8a6a-41ec-9072-d1668bb1e267",
+    "hasAcct": false
+   },
+   {
+    "name": "Namkeen - Milton",
+    "ref": "10ec4d09-75b9-4787-ae92-82b79a709865",
+    "hasAcct": false
+   },
+   {
+    "name": "Namkeen - North Brunswick",
+    "ref": "4e280597-e6f9-4aff-81f0-06f4847d1cd0",
+    "hasAcct": false
+   },
+   {
+    "name": "Namkeen - Brooklyn",
+    "ref": "b42dd2c2-2b89-4bca-96b3-91de850113ec",
+    "hasAcct": true
+   },
+   {
+    "name": "Namkeen - Metuchen",
+    "ref": "cedcfda2-aec3-41f7-bb56-38876a8667ad",
+    "hasAcct": true
+   },
+   {
+    "name": "Namkeen - Lake Hiawatha",
+    "ref": "86468e0c-0af1-41ed-898c-920d0e7b597f",
+    "hasAcct": true
+   },
+   {
+    "name": "Namkeen - Chatham",
+    "ref": "f2c77622-ba17-4724-b196-f4a8cb1bf0f4",
+    "hasAcct": true
+   }
+  ]
+ },
+ {
+  "token": "tap42",
+  "converted": [
+   "Tap 42 - Coral Gables",
+   "Tap 42 - Fort Myers",
+   "Tap 42 - Doral",
+   "Tap 42 - Ft Lauderdale",
+   "Tap 42 - Kendall",
+   "Tap 42 - Davie"
+  ],
+  "remaining": [
+   {
+    "name": "Tap 42 - Palm Beach Gardens",
+    "ref": "1a22dd6a-4fb3-4803-955e-9efeba2e2251",
+    "hasAcct": true
+   },
+   {
+    "name": "Tap 42 - Naples",
+    "ref": "7bb4735b-119f-477e-9de6-dbbc79f58d07",
+    "hasAcct": true
+   },
+   {
+    "name": "Tap 42 - Boca Raton",
+    "ref": "c773ab12-2bbc-4678-853b-fa1487aa03d0",
+    "hasAcct": true
+   },
+   {
+    "name": "Tap 42 - Aventura",
+    "ref": "c9f91109-08e0-43d0-9bc8-cc3145d69c65",
+    "hasAcct": true
+   },
+   {
+    "name": "Tap 42 - Coral Springs",
+    "ref": "29a1d258-5273-4746-b55d-3955758a9734",
+    "hasAcct": true
+   },
+   {
+    "name": "Tap 42 - Miami",
+    "ref": "66eb3936-b529-47c7-8b5e-3195a7791d17",
+    "hasAcct": true
+   }
+  ]
+ },
+ {
+  "token": "eggstasy",
+  "converted": [
+   "Eggstasy - Mesa"
+  ],
+  "remaining": [
+   {
+    "name": "Eggstasy - Chandler",
+    "ref": "d1d6454c-c923-44f6-80cb-decc93f568f5",
+    "hasAcct": true
+   },
+   {
+    "name": "Eggstasy - Queen Creek",
+    "ref": "188f682c-0cc4-44b7-a174-561ccecd797b",
+    "hasAcct": true
+   },
+   {
+    "name": "Eggstasy - The Colony",
+    "ref": "4ca9a6d4-4840-434c-8447-511a5a06d854",
+    "hasAcct": true
+   },
+   {
+    "name": "Eggstasy - Norterra Ctr.",
+    "ref": "f718312a-03fb-4c63-895e-82ec09a8c843",
+    "hasAcct": true
+   },
+   {
+    "name": "Eggstasy - Scottsdale",
+    "ref": "49a5fa8d-9ea7-4353-a655-5a903358302e",
+    "hasAcct": true
+   }
+  ]
+ },
+ {
+  "token": "smackbirdchicken",
+  "converted": [
+   "SmackBird Chicken - Longview"
+  ],
+  "remaining": [
+   {
+    "name": "SmackBird Chicken - Wylie",
+    "ref": "cb87b777-d972-473c-91d2-582a4b0bffc3",
+    "hasAcct": false
+   },
+   {
+    "name": "SmackBird Chicken - North Dallas",
+    "ref": "197ff8ab-a2d3-451b-ba89-dc90c3ae2b27",
+    "hasAcct": true
+   },
+   {
+    "name": "SmackBird Chicken - Overton",
+    "ref": "d0d4dca4-b58a-494a-a37a-e759d7023772",
+    "hasAcct": true
+   }
+  ]
+ },
+ {
+  "token": "winfieldstreetcoffee",
+  "converted": [
+   "Winfield Street Coffee - New York City",
+   "Winfield Street Coffee - Rye",
+   "Winfield Street Coffee - Croton",
+   "Winfield Street Coffee - Westport"
+  ],
+  "remaining": [
+   {
+    "name": "Winfield Street Coffee - Stamford",
+    "ref": "dc5d3f5f-5613-46c3-a110-e909b3c70168",
+    "hasAcct": true
+   },
+   {
+    "name": "Winfield Street Coffee - Naples North",
+    "ref": "b6365e09-3a30-4221-a724-e05876b70593",
+    "hasAcct": false
+   },
+   {
+    "name": "Winfield Street Coffee - Naples South",
+    "ref": "18d74768-f6fd-4e70-a5f5-f2ff8a47fa01",
+    "hasAcct": true
+   }
+  ]
+ },
+ {
+  "token": "almosthome",
+  "converted": [
+   "Almost Home"
+  ],
+  "remaining": [
+   {
+    "name": "Almost Home - Westfield",
+    "ref": "5dc6caef-a0d5-4099-befb-090a196047b1",
+    "hasAcct": true
+   },
+   {
+    "name": "Almost Home – Oceanport",
+    "ref": "b328a7b1-59ff-4a63-8d37-ae6a2d789c40",
+    "hasAcct": true
+   },
+   {
+    "name": "Almost Home – Lincroft",
+    "ref": "8966f05b-790f-4737-8930-49d4ba276bdd",
+    "hasAcct": true
+   }
+  ]
+ },
+ {
+  "token": "fatboyspizza",
+  "converted": [
+   "Fat Boy's Pizza - Covington",
+   "Fat Boy's Pizza - Fort Wayne"
+  ],
+  "remaining": [
+   {
+    "name": "Fat Boy's Pizza - Metairie",
+    "ref": "a8902c33-78c4-4c74-bebb-3cff826c646b",
+    "hasAcct": true
+   },
+   {
+    "name": "Fat Boy's Pizza - Harvey",
+    "ref": "754705a3-d7da-49db-bc44-a7c3d2905dc0",
+    "hasAcct": true
+   }
+  ]
+ },
+ {
+  "token": "cafelandwer",
+  "converted": [
+   "Cafe Landwer - Century City",
+   "Cafe Landwer - Cleveland Circle"
+  ],
+  "remaining": [
+   {
+    "name": "Cafe Landwer - Back Bay",
+    "ref": "7f0898ec-ddfb-47ff-ad0e-29e792b1b993",
+    "hasAcct": false
+   },
+   {
+    "name": "Cafe Landwer - Audubon Circle",
+    "ref": "cd43bfa0-fb5e-454a-9504-f1d464caa4d7",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "crimsoncoward",
+  "converted": [
+   "Crimson Coward - Frisco"
+  ],
+  "remaining": [
+   {
+    "name": "Crimson Coward",
+    "ref": "e1d41978-85b1-438a-afaa-a20f7da4bace",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "pitapit",
+  "converted": [
+   "Pita Pit - Kent"
+  ],
+  "remaining": [
+   {
+    "name": "Pita Pit",
+    "ref": "2a5986c1-dd2d-4b02-b6e5-5d1669ab2097",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "backyardbowls",
+  "converted": [
+   "Backyard Bowls - Beverly Grove"
+  ],
+  "remaining": [
+   {
+    "name": "Backyard Bowls - Santa Monica",
+    "ref": "5f8e5496-f053-4cb4-8c5c-4c9a3f0c1742",
+    "hasAcct": true
+   }
+  ]
+ },
+ {
+  "token": "blasteran",
+  "converted": [
+   "Blasteran"
+  ],
+  "remaining": [
+   {
+    "name": "Blasteran",
+    "ref": "4cdf589f-7a42-46d8-b63d-9bd72a39ec1f",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "test50",
+  "converted": [
+   "Test 50"
+  ],
+  "remaining": [
+   {
+    "name": "Test 50",
+    "ref": "41ac8ade-7a8f-4c31-8016-57c031d39c99",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "rendangrepublic",
+  "converted": [
+   "Rendang Republic"
+  ],
+  "remaining": [
+   {
+    "name": "Rendang Republic",
+    "ref": "896fc510-8e9d-4d20-a45e-b4bc1534763b",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "cenavegan",
+  "converted": [
+   "Cena Vegan"
+  ],
+  "remaining": [
+   {
+    "name": "Cena Vegan",
+    "ref": "4f33229a-7334-4d5c-8a47-c6162711aa02",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "bingebiryani",
+  "converted": [
+   "Binge Biryani - Long Island City"
+  ],
+  "remaining": [
+   {
+    "name": "Binge Biryani - Forest Hills",
+    "ref": "60f2a33a-1d51-4aac-9719-e6a2cb3ae924",
+    "hasAcct": false
+   }
+  ]
+ },
+ {
+  "token": "juliospizzaco",
+  "converted": [
+   "Julio's Pizza Co. – Keansburg"
+  ],
+  "remaining": [
+   {
+    "name": "Julio's Pizza Co. – Atlantic Highlands",
+    "ref": "4e675698-6882-4816-a3ce-c437af967495",
+    "hasAcct": true
+   }
+  ]
+ }
+]

@@ -168,5 +168,1231 @@
   "link": "needs-slug",
   "orders": 1,
   "seconds": 6.4
+ },
+ "1e2ee4f7-51bb-4e7b-bc29-6e0c23af7bb8": {
+  "name": "Brooklyn Dumpling Shop - Midtown",
+  "ref": "1e2ee4f7-51bb-4e7b-bc29-6e0c23af7bb8",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 27,
+   "groups": 26,
+   "links": 40
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 46.2
+ },
+ "f1abc369-27cd-4a49-a432-0df5eacec420": {
+  "name": "Brooklyn Dumpling Shop - UES",
+  "ref": "f1abc369-27cd-4a49-a432-0df5eacec420",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 27,
+   "groups": 26,
+   "links": 40
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 30.7
+ },
+ "567a57eb-17b1-433c-bb46-48d7e373163e": {
+  "name": "Brown Bag Sandwich Co",
+  "ref": "567a57eb-17b1-433c-bb46-48d7e373163e",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 11,
+   "groups": 2,
+   "links": 0
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 6.1
+ },
+ "f647ba53-390e-4cf5-bc5b-9caaf40417fa": {
+  "name": "BurgerFi - Bowie",
+  "ref": "f647ba53-390e-4cf5-bc5b-9caaf40417fa",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 17,
+   "groups": 3,
+   "links": 6
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 12.4
+ },
+ "68afa59c-82b1-4e49-b21b-a2dff8160743": {
+  "name": "BurgerFi - O Town/Palm Parkway",
+  "ref": "68afa59c-82b1-4e49-b21b-a2dff8160743",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 18,
+   "groups": 4,
+   "links": 7
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 18.1
+ },
+ "c08b87eb-1006-42ad-901b-9cc4f02f5fdc": {
+  "name": "Cafe Landwer - Century City",
+  "ref": "c08b87eb-1006-42ad-901b-9cc4f02f5fdc",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 37,
+   "groups": 15,
+   "links": 18
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 7.9
+ },
+ "1c2df9c7-141d-40a8-a712-635e026f5155": {
+  "name": "Cafe Landwer - Cleveland Circle",
+  "ref": "1c2df9c7-141d-40a8-a712-635e026f5155",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 88,
+   "groups": 45,
+   "links": 68
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 74.7
+ },
+ "ea177c9e-25a1-4bd1-bf51-68cb51435bdd": {
+  "name": "Casa Nono",
+  "ref": "ea177c9e-25a1-4bd1-bf51-68cb51435bdd",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 29,
+   "groups": 16,
+   "links": 27
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 7.5
+ },
+ "d9073c43-ac9b-4950-9713-8cd6d4c7a5ed": {
+  "name": "Club Sandwich",
+  "ref": "d9073c43-ac9b-4950-9713-8cd6d4c7a5ed",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 38,
+   "groups": 16,
+   "links": 26
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 8.4
+ },
+ "47b2a215-2533-4bd0-9ada-aa297515902c": {
+  "name": "Colette's Creations",
+  "ref": "47b2a215-2533-4bd0-9ada-aa297515902c",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 4,
+   "groups": 1,
+   "links": 0
+  },
+  "converted": false,
+  "isLive": false,
+  "link": null,
+  "orders": null,
+  "reason": "Not ready — resolve: Native menu built.",
+  "seconds": 5
+ },
+ "59da89e9-6b87-4a6f-9297-66fe38f1faf7": {
+  "name": "Cookman Creamery",
+  "ref": "59da89e9-6b87-4a6f-9297-66fe38f1faf7",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 8,
+   "groups": 0,
+   "links": 0
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 8.5
+ },
+ "ddc862cc-78fe-494c-b461-e50c3d1157e7": {
+  "name": "COPS",
+  "ref": "ddc862cc-78fe-494c-b461-e50c3d1157e7",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 25,
+   "groups": 11,
+   "links": 51
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 20.4
+ },
+ "3b7c7716-e128-4216-88ec-85736cae2c38": {
+  "name": "Daily Chew Catering",
+  "ref": "3b7c7716-e128-4216-88ec-85736cae2c38",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 3,
+   "groups": 2,
+   "links": 4
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 5.9
+ },
+ "d1875c3b-4115-4340-a936-7da4669e6d8a": {
+  "name": "Deli-icious ",
+  "ref": "d1875c3b-4115-4340-a936-7da4669e6d8a",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 51,
+   "groups": 4,
+   "links": 5
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 7
+ },
+ "ba317e04-b341-4c31-b942-cd411bf8a2bf": {
+  "name": "Eggstasy - Mesa",
+  "ref": "ba317e04-b341-4c31-b942-cd411bf8a2bf",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 47,
+   "groups": 14,
+   "links": 20
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 11.1
+ },
+ "66d75927-1cc8-4d00-9d1e-4f625cd2f547": {
+  "name": "Fat Boy's Pizza - Covington",
+  "ref": "66d75927-1cc8-4d00-9d1e-4f625cd2f547",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 38,
+   "groups": 30,
+   "links": 43
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 39.8
+ },
+ "d2ea1a1f-b0a5-4b00-afc5-bc25752b57d6": {
+  "name": "Fat Boy's Pizza - Fort Wayne",
+  "ref": "d2ea1a1f-b0a5-4b00-afc5-bc25752b57d6",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 37,
+   "groups": 22,
+   "links": 46
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 35.2
+ },
+ "1c8e3287-7d15-4c8f-b238-fd68be7c011b": {
+  "name": "Fish Cheeks",
+  "ref": "1c8e3287-7d15-4c8f-b238-fd68be7c011b",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 29,
+   "groups": 12,
+   "links": 25
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 10.3
+ },
+ "4fe8f1c6-9abb-4f76-a2cb-32adfaecfdc6": {
+  "name": "Green Tomato Grill",
+  "ref": "4fe8f1c6-9abb-4f76-a2cb-32adfaecfdc6",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 124,
+   "groups": 167,
+   "links": 167
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 136.8
+ },
+ "d01c1ee9-044a-486b-9f5b-85a3cb6d8a7d": {
+  "name": "Green Wrap Eatery",
+  "ref": "d01c1ee9-044a-486b-9f5b-85a3cb6d8a7d",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 26,
+   "groups": 12,
+   "links": 25
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 20.8
+ },
+ "31c6a621-28ad-46db-9a87-f82bd01d0e32": {
+  "name": "Happy's Pizza - Port Huron ",
+  "ref": "31c6a621-28ad-46db-9a87-f82bd01d0e32",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 50,
+   "groups": 26,
+   "links": 53
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 63.1
+ },
+ "840dcb21-c6d5-44d2-b718-e6f5b3df69fb": {
+  "name": "Huckaby's Smokehouse",
+  "ref": "840dcb21-c6d5-44d2-b718-e6f5b3df69fb",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 22,
+   "groups": 8,
+   "links": 24
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 38.4
+ },
+ "dacacc8f-8b7c-40d2-8fe7-d1cda02315ae": {
+  "name": "Hungry House",
+  "ref": "dacacc8f-8b7c-40d2-8fe7-d1cda02315ae",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 52,
+   "groups": 0,
+   "links": 0
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 9.7
+ },
+ "f7aff310-27ee-495b-a1b0-8d71442e1518": {
+  "name": "Isle of Us",
+  "ref": "f7aff310-27ee-495b-a1b0-8d71442e1518",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 64,
+   "groups": 21,
+   "links": 24
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 42.6
+ },
+ "44f125ae-7c43-4a8c-b2e8-d348f591af5c": {
+  "name": "Julio's Pizza Co. – Keansburg",
+  "ref": "44f125ae-7c43-4a8c-b2e8-d348f591af5c",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 63,
+   "groups": 45,
+   "links": 73
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "created",
+  "orders": 1,
+  "seconds": 30.6
+ },
+ "4cc15dd7-5b13-4808-af3b-b7862af3cbfb": {
+  "name": "Katz's Delicatessen",
+  "ref": "4cc15dd7-5b13-4808-af3b-b7862af3cbfb",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 44,
+   "groups": 19,
+   "links": 28
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 28.8
+ },
+ "ea088dbc-d45f-4709-993d-9660550db6fb": {
+  "name": "Lazy Daisy Beverly Hills",
+  "ref": "ea088dbc-d45f-4709-993d-9660550db6fb",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 171,
+   "groups": 39,
+   "links": 131
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 32.3
+ },
+ "9ef76d84-4301-44d0-bd87-1a03ab6a0f5c": {
+  "name": "Luna Verde Vegan Mexican Restaurant",
+  "ref": "9ef76d84-4301-44d0-bd87-1a03ab6a0f5c",
+  "ordersFm": 1,
+  "stripe": false,
+  "menu": {
+   "menus": 2,
+   "items": 15,
+   "groups": 11,
+   "links": 18
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 19.5
+ },
+ "f7fc4e70-57be-4414-8030-c43dda6f444f": {
+  "name": "Mekelburg's ",
+  "ref": "f7fc4e70-57be-4414-8030-c43dda6f444f",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 114,
+   "groups": 64,
+   "links": 106
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 94.8
+ },
+ "6a8f8d99-5102-4af6-b280-c763567aae86": {
+  "name": "Memphis Seoul",
+  "ref": "6a8f8d99-5102-4af6-b280-c763567aae86",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 65,
+   "groups": 15,
+   "links": 61
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 57.8
+ },
+ "68cfeaac-4aac-4c1d-ae13-0ae9e29db0c3": {
+  "name": "Miss Ada",
+  "ref": "68cfeaac-4aac-4c1d-ae13-0ae9e29db0c3",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 62,
+   "groups": 1,
+   "links": 1
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 12.3
+ },
+ "72559a85-50ef-4293-8484-256d7ec3335a": {
+  "name": "Moonburger Brooklyn",
+  "ref": "72559a85-50ef-4293-8484-256d7ec3335a",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 27,
+   "groups": 6,
+   "links": 48
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 23.4
+ },
+ "1654aa32-03d3-4b8c-b2ee-17599e145d89": {
+  "name": "Motorino",
+  "ref": "1654aa32-03d3-4b8c-b2ee-17599e145d89",
+  "ordersFm": 1,
+  "stripe": false,
+  "menu": {
+   "menus": 1,
+   "items": 13,
+   "groups": 9,
+   "links": 9
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 19.9
+ },
+ "61250a17-f437-43c9-9c9f-992ac2c91549": {
+  "name": "Namkeen - Union",
+  "ref": "61250a17-f437-43c9-9c9f-992ac2c91549",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 36,
+   "groups": 29,
+   "links": 32
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 186.8
+ },
+ "c4239680-b664-4f8b-b597-a4a7d5614b3a": {
+  "name": "Osteria",
+  "ref": "c4239680-b664-4f8b-b597-a4a7d5614b3a",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 63,
+   "groups": 50,
+   "links": 53
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 27.1
+ },
+ "8c6237db-a1ab-43f8-8650-82a58025f1e2": {
+  "name": "Pine and Crane DTLA",
+  "ref": "8c6237db-a1ab-43f8-8650-82a58025f1e2",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 28,
+   "groups": 9,
+   "links": 12
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 14.7
+ },
+ "45967e84-3aa5-42a2-888e-dd1062b14b66": {
+  "name": "Pismo Fish and Chips",
+  "ref": "45967e84-3aa5-42a2-888e-dd1062b14b66",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 26,
+   "groups": 17,
+   "links": 20
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 21.1
+ },
+ "66bd4561-9558-416f-a6a0-854357d2ec96": {
+  "name": "Pita Pit - Kent",
+  "ref": "66bd4561-9558-416f-a6a0-854357d2ec96",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 24,
+   "groups": 9,
+   "links": 11
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 23.1
+ },
+ "133fd459-b3b4-4013-a281-c7474516058c": {
+  "name": "Purslane x Milk Bar",
+  "ref": "133fd459-b3b4-4013-a281-c7474516058c",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 4,
+   "items": 144,
+   "groups": 34,
+   "links": 69
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "created",
+  "orders": 1,
+  "seconds": 177.1
+ },
+ "3921a66d-0850-40b5-aaef-b8d92e91d413": {
+  "name": "rhk marketplace",
+  "ref": "3921a66d-0850-40b5-aaef-b8d92e91d413",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 75,
+   "groups": 20,
+   "links": 23
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 38
+ },
+ "731539fb-de2e-47b3-85ae-7192a20ddbd1": {
+  "name": "Savvy Sliders - Covington",
+  "ref": "731539fb-de2e-47b3-85ae-7192a20ddbd1",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 38,
+   "groups": 30,
+   "links": 43
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 50.4
+ },
+ "d1eb0a1b-a1dd-4b17-924e-2fe2efc60f9f": {
+  "name": "Savvy Sliders - Dallas",
+  "ref": "d1eb0a1b-a1dd-4b17-924e-2fe2efc60f9f",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 18,
+   "groups": 17,
+   "links": 26
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 31.2
+ },
+ "2d067273-2abe-40a3-b8c1-bf46223a3b73": {
+  "name": "Savvy Sliders - Detroit (Midtown)",
+  "ref": "2d067273-2abe-40a3-b8c1-bf46223a3b73",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 18,
+   "groups": 17,
+   "links": 26
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 25.6
+ },
+ "b956e932-1b35-4c30-ac96-bffd8f8c316f": {
+  "name": "Savvy Sliders - Fort Wayne",
+  "ref": "b956e932-1b35-4c30-ac96-bffd8f8c316f",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 17,
+   "groups": 16,
+   "links": 23
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 30
+ },
+ "adf5d7c2-cb9d-4c15-9b99-a3fded7d3efc": {
+  "name": "Savvy Sliders - Fraser",
+  "ref": "adf5d7c2-cb9d-4c15-9b99-a3fded7d3efc",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 18,
+   "groups": 17,
+   "links": 26
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 25.7
+ },
+ "a9c6d8e2-301f-4341-8aa0-40c3518a3c97": {
+  "name": "Savvy Sliders - Harvey",
+  "ref": "a9c6d8e2-301f-4341-8aa0-40c3518a3c97",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 38,
+   "groups": 30,
+   "links": 43
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 44.3
+ },
+ "8236e59e-5761-435c-ac7f-19f375c524d7": {
+  "name": "Savvy Sliders - Metairie",
+  "ref": "8236e59e-5761-435c-ac7f-19f375c524d7",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 2,
+   "items": 38,
+   "groups": 30,
+   "links": 43
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 40.7
+ },
+ "6590181f-f914-41bc-ad41-aa105a3889d3": {
+  "name": "Savvy Sliders - Oak Park",
+  "ref": "6590181f-f914-41bc-ad41-aa105a3889d3",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 18,
+   "groups": 17,
+   "links": 26
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 27.5
+ },
+ "c634b37e-d2ff-4a8f-94ed-6f34bc51b783": {
+  "name": "Savvy Sliders - San Antonio",
+  "ref": "c634b37e-d2ff-4a8f-94ed-6f34bc51b783",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 18,
+   "groups": 17,
+   "links": 26
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 28.3
+ },
+ "035f1f94-d493-4381-99cf-0dfe5a32c776": {
+  "name": "Springbone Kitchen",
+  "ref": "035f1f94-d493-4381-99cf-0dfe5a32c776",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 79,
+   "groups": 10,
+   "links": 14
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 16.3
+ },
+ "a815323a-48b3-4778-963a-9ec351d0608e": {
+  "name": "Tap 42 - Coral Gables",
+  "ref": "a815323a-48b3-4778-963a-9ec351d0608e",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 32,
+   "groups": 28,
+   "links": 30
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 1,
+  "seconds": 35.1
+ },
+ "4fdcd7ef-f214-48b5-9cdc-0e3d24ac19ec": {
+  "name": "Tap 42 - Davie",
+  "ref": "4fdcd7ef-f214-48b5-9cdc-0e3d24ac19ec",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 30,
+   "groups": 28,
+   "links": 28
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 41.5
+ },
+ "8b68cae4-55a5-4f05-9c6f-5383f11d77fc": {
+  "name": "Tap 42 - Doral",
+  "ref": "8b68cae4-55a5-4f05-9c6f-5383f11d77fc",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 30,
+   "groups": 28,
+   "links": 28
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 36.4
+ },
+ "61a6091b-caf7-42d7-ac32-f176dc7c27c5": {
+  "name": "Tap 42 - Fort Myers",
+  "ref": "61a6091b-caf7-42d7-ac32-f176dc7c27c5",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 30,
+   "groups": 28,
+   "links": 28
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 37
+ },
+ "57a9e421-686e-4159-ac78-31085420fa21": {
+  "name": "Tap 42 - Ft Lauderdale",
+  "ref": "57a9e421-686e-4159-ac78-31085420fa21",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 30,
+   "groups": 28,
+   "links": 28
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 39.3
+ },
+ "0568c9cf-2074-4455-8dea-cc16e7858245": {
+  "name": "Tap 42 - Kendall",
+  "ref": "0568c9cf-2074-4455-8dea-cc16e7858245",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 31,
+   "groups": 28,
+   "links": 29
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 35.3
+ },
+ "1eef42de-e410-4769-8af5-c1d267851a79": {
+  "name": "Teranga",
+  "ref": "1eef42de-e410-4769-8af5-c1d267851a79",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 37,
+   "groups": 14,
+   "links": 34
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 27.8
+ },
+ "739bc2d3-fcf3-4c87-904b-2757dfe4774e": {
+  "name": "The Corner Street Taco Bar",
+  "ref": "739bc2d3-fcf3-4c87-904b-2757dfe4774e",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 4,
+   "groups": 5,
+   "links": 5
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 9.4
+ },
+ "95fe4ac3-8a2f-45c4-b255-ef4f26b6ec81": {
+  "name": "Thea Bakery",
+  "ref": "95fe4ac3-8a2f-45c4-b255-ef4f26b6ec81",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 66,
+   "groups": 1,
+   "links": 7
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 12.5
+ },
+ "04147a99-4f68-481a-aac7-933c8ef67d02": {
+  "name": "Toast & Taste Catering",
+  "ref": "04147a99-4f68-481a-aac7-933c8ef67d02",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 129,
+   "groups": 26,
+   "links": 64
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 28.7
+ },
+ "d265cc7c-a251-4015-88ef-d09bf84a9a88": {
+  "name": "Trattoria Moderna Italian Catering",
+  "ref": "d265cc7c-a251-4015-88ef-d09bf84a9a88",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 61,
+   "groups": 34,
+   "links": 105
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 25.3
+ },
+ "1acab412-b3e0-44de-91b1-f01cc49bd7f0": {
+  "name": "Utopia Bagels",
+  "ref": "1acab412-b3e0-44de-91b1-f01cc49bd7f0",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 12,
+   "groups": 4,
+   "links": 4
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 12
+ },
+ "d6a90372-7931-4ba0-a2ef-d448c3777e25": {
+  "name": "Veselka",
+  "ref": "d6a90372-7931-4ba0-a2ef-d448c3777e25",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 32,
+   "groups": 19,
+   "links": 21
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "needs-slug",
+  "orders": 1,
+  "seconds": 35.8
+ },
+ "119870c4-30f6-49c5-8e1c-897696c3bedc": {
+  "name": "Vesti",
+  "ref": "119870c4-30f6-49c5-8e1c-897696c3bedc",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 38,
+   "groups": 5,
+   "links": 23
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "not-a-chain",
+  "orders": 1,
+  "seconds": 22
+ },
+ "5fb5cfce-3f70-43f1-8399-fc2f52a61016": {
+  "name": "Winfield Street Coffee - Croton",
+  "ref": "5fb5cfce-3f70-43f1-8399-fc2f52a61016",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 44,
+   "groups": 20,
+   "links": 61
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "created",
+  "orders": 1,
+  "seconds": 34.3
+ },
+ "6ce3636c-0b33-40fb-bba9-d05c382d4511": {
+  "name": "Winfield Street Coffee - New York City",
+  "ref": "6ce3636c-0b33-40fb-bba9-d05c382d4511",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 44,
+   "groups": 20,
+   "links": 61
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 30.9
+ },
+ "544ca778-96c2-4d6b-bc63-d18c2dd627cf": {
+  "name": "Winfield Street Coffee - Rye",
+  "ref": "544ca778-96c2-4d6b-bc63-d18c2dd627cf",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 44,
+   "groups": 20,
+   "links": 61
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 32.5
+ },
+ "35781c2a-ce41-47a2-abf3-01661022cde9": {
+  "name": "Winfield Street Coffee - Westport",
+  "ref": "35781c2a-ce41-47a2-abf3-01661022cde9",
+  "ordersFm": 1,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 44,
+   "groups": 20,
+   "links": 61
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "grown",
+  "orders": 1,
+  "seconds": 30.3
+ },
+ "15d3780d-9a25-4ecc-af25-2dffe9d92992": {
+  "name": "Backyard Bowls - Beverly Grove",
+  "ref": "15d3780d-9a25-4ecc-af25-2dffe9d92992",
+  "ordersFm": 2,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 18,
+   "groups": 6,
+   "links": 6
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "created",
+  "orders": 2,
+  "seconds": 16.7
+ },
+ "824bd847-1659-4134-b491-d50e4f003b7e": {
+  "name": "Beatnic - Williamsburg",
+  "ref": "824bd847-1659-4134-b491-d50e4f003b7e",
+  "ordersFm": 2,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 30,
+   "groups": 12,
+   "links": 22
+  },
+  "converted": true,
+  "isLive": false,
+  "link": "needs-slug",
+  "orders": 2,
+  "seconds": 16.1
+ },
+ "70bb75de-a637-46f0-8d5a-4a36dc148557": {
+  "name": "Bobby U’s BBQ",
+  "ref": "70bb75de-a637-46f0-8d5a-4a36dc148557",
+  "ordersFm": 2,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 18,
+   "groups": 6,
+   "links": 15
+  },
+  "converted": false,
+  "isLive": false,
+  "link": null,
+  "orders": null,
+  "reason": "Not ready — resolve: Native menu built.",
+  "seconds": 4
+ },
+ "80cb21f2-275a-4dac-98a2-b0e95c07ea3a": {
+  "name": "BurgerFi - St Johns Town Center",
+  "ref": "80cb21f2-275a-4dac-98a2-b0e95c07ea3a",
+  "ordersFm": 2,
+  "stripe": true,
+  "menu": {
+   "menus": 1,
+   "items": 18,
+   "groups": 4,
+   "links": 7
+  },
+  "converted": true,
+  "isLive": true,
+  "link": "grown",
+  "orders": 2,
+  "seconds": 9.9
  }
 }
