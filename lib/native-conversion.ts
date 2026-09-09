@@ -1000,7 +1000,21 @@ export async function carryOverClosedDays(ref: string, walled?: FmWalledFieldsRe
     }
 
     if (dated.length === 0) {
-      return fail(`FM /api/closedDays returned ${rows.length} row(s) but none were usable/closed (unrecognized shape, or the restaurant is open on every listed date) — cannot carry over.`)
+      // NOT A FAILURE. `available: true` means closed; a restaurant whose rows
+      // are all `available: false` is OPEN on every listed date, so there is
+      // genuinely nothing to carry. Zero is the right answer.
+      //
+      // This used to call fail(), which logged "carry-over FAILED" and made the
+      // conversion report "converted WITHOUT real closed-days". That wording put
+      // an error interpretation on a normal result and stopped a working
+      // mass-conversion run on 2026-09-09. State the fact instead.
+      const anyRow = rows.length > 0
+      if (anyRow && skipped === 0) {
+        const msg = `FM /api/closedDays returned ${rows.length} row(s), 0 closed — the restaurant is open on those dates. Nothing to carry over.`
+        console.log(`[convertToNative] closed-days for ${ref}: ${msg}`)
+        return { carried: true, reason: msg }
+      }
+      return fail(`FM /api/closedDays returned ${rows.length} row(s), 0 usable — ${skipped} row(s) had no name or no parseable date. Nothing carried over.`)
     }
 
     // Replace wholesale rather than merge — this only ever runs once, at
@@ -1508,6 +1522,8 @@ export async function convertToNative(
     // Loud and explicit — same reasoning as the notification-settings gap:
     // a restaurant converting WITHOUT its real closed dates can accept orders
     // for a date it believes it's closed.
+    // Only reached when carry-over genuinely failed; "0 closed, restaurant is
+    // open on those dates" returns carried:true and never lands here.
     console.error(`[convertToNative] ⚠ ${readiness.restaurantReference} converted WITHOUT real closed-days carried over: ${closedDays.reason}`)
   }
 
