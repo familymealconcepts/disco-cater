@@ -10,6 +10,7 @@ import { sanitizePhone, formatPhoneDisplay } from '../../../../lib/utils/phone'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { FulfillmentDateTime } from '../../../components/FulfillmentDateTime'
 import { postFunnelStage } from '../../../../lib/utils/funnel-session'
+import { formatTime12 } from '../../../../lib/utils/time'
 
 const F = "'DM Sans', sans-serif"
 const BLUE = '#586CE1'
@@ -160,7 +161,7 @@ function fmtDateShort(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) } catch { return d }
 }
 function fmtTime(t: string) {
-  try { const [h, m] = t.split(':').map(Number); const dt = new Date(); dt.setHours(h, m); return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) } catch { return t }
+  return formatTime12(t)
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────

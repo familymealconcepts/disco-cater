@@ -468,7 +468,7 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div><label style={label}>Daily cutoff time</label><input type="time" value={dailyCutoffTime} onChange={e => setDailyCutoffTime(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Same-day orders stop at this time.</div></div>
+            <div><label style={label}>Daily cutoff time</label><TimeSelect value={dailyCutoffTime} onChange={setDailyCutoffTime} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Same-day orders stop at this time.</div></div>
             <div><label style={label}>Hard cutoff date</label><input type="date" value={hardCutoffDate} onChange={e => setHardCutoffDate(e.target.value)} style={inputStyle} /><div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>Ordering closes after this date.</div></div>
           </div>
         </div>

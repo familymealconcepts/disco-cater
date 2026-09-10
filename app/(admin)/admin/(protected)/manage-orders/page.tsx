@@ -4,6 +4,10 @@ import { isThirdPartyFulfillment } from '../../../../../lib/order/fulfillment-la
 import { fulfillmentLabel } from '../../../../../lib/order/fulfillment-label'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { getOrderSourceBadge } from '../../../../../lib/order-utils'
+import { formatTime12 } from '../../../../../lib/utils/time'
+
+// Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
+const fmtTime = formatTime12
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -336,14 +340,6 @@ function fmtDate(d?: string) {
     const dt = new Date(d)
     return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   } catch { return d }
-}
-function fmtTime(t?: string) {
-  if (!t) return ''
-  const [h, m] = t.split(':').map(Number)
-  if (isNaN(h)) return t
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
 // Right-anchored order details panel — opens when a SUPER_ADMIN clicks an order

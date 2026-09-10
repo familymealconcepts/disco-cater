@@ -1,4 +1,5 @@
 import React from 'react'
+import { formatTime12 } from '../../../../../lib/utils/time'
 
 // FM serializes times as "H:mm:ss" (non-zero-padded hour, with seconds). HTML
 // inputs / our <select> options need strict "HH:mm". Normalize on load so values
@@ -28,9 +29,7 @@ export const TIME_OPTIONS: { value: string; label: string }[] = (() => {
   for (let h = 0; h < 24; h++) {
     for (let m = 0; m < 60; m += 15) {
       const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-      const ampm = h >= 12 ? 'PM' : 'AM'
-      const h12 = h % 12 || 12
-      out.push({ value, label: `${h12}:${String(m).padStart(2, '0')} ${ampm}` })
+      out.push({ value, label: formatTime12(value) })
     }
   }
   return out
@@ -47,7 +46,9 @@ export function TimeSelect({ value, onChange, style }: {
   const v = normalizeTime(value)
   const opts = !v || TIME_OPTIONS.some(o => o.value === v)
     ? TIME_OPTIONS
-    : [{ value: v, label: v }, ...TIME_OPTIONS]
+    // An off-grid legacy value keeps its slot, but is LABELLED in 12-hour form
+    // like every other option rather than shown raw as "11:20".
+    : [{ value: v, label: formatTime12(v) }, ...TIME_OPTIONS]
   return (
     <select value={v} onChange={e => onChange(e.target.value)} style={style}>
       {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}

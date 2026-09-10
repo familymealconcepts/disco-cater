@@ -11,6 +11,7 @@ import { fulfillmentDateTime } from './fulfillment-time'
 import { DISCO_LOGO_PNG_BASE64, DISCO_LOGO_W, DISCO_LOGO_H } from './disco-logo'
 import { displayEmail } from '../customer-email-guard'
 import { loadOrderItemsWithAddOns } from '../order-items'
+import { formatTime12 } from '../utils/time'
 
 function num(v: unknown): number {
   const n = parseFloat(String(v ?? ''))
@@ -31,14 +32,8 @@ function fmtDate(v: unknown): string {
 // The pick-up/fulfillment time is a single kitchen-readiness instant, not a
 // customer-facing arrival window (formatTimeWindow's "start - end" range is a
 // different concept and doesn't belong on this box — see fulfillment-time.ts).
-function fmtTime(t: string): string {
-  if (!t) return ''
-  const [h, m] = t.split(':').map(Number)
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return t
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
-}
+// Shared 12-hour formatter (lib/utils/time.ts).
+const fmtTime = (t: string): string => formatTime12(t)
 
 export interface OrderPdfData {
   orderNumber: string

@@ -2,6 +2,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { confirmDialog } from '../../../../../components/ui/feedback'
 import { useSelectedRestaurant } from '../../_components/SelectedRestaurantContext'
+import { formatTime12 } from '../../../../../../lib/utils/time'
+import { TimeSelect } from '../../_components/TimeSelect'
+
+// Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
+const fmtTime12 = formatTime12
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -75,15 +80,6 @@ const STATUS_GROUP: Record<string, string[]> = { VOID: ['VOID', 'VOIDED'], REFUN
 const statusGroupMembers = (s: string) => STATUS_GROUP[s] || [s]
 const FULFILLMENT_TYPES = ['PICKUP','OWN_DELIVERY','DLIVRD_DELIVERY']
 
-function fmtTime12(t?: string) {
-  if (!t) return ''
-  const parts = t.split(':')
-  const h = parseInt(parts[0] || '0', 10)
-  const m = parts[1] || '00'
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${m} ${ampm}`
-}
 
 // The scheduled-reports UI body (tabs + content + editor) without any page
 // chrome. Rendered both by this page and embedded at the bottom of the
@@ -527,7 +523,7 @@ function ReportEditor({ initial, onClose, onSaved }: { initial: ReportPayload; o
             </select>
           </Field>
           <Field label="Delivery time*">
-            <input type="time" style={inputSt} value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))} />
+            <TimeSelect style={inputSt} value={form.time} onChange={v => setForm(f => ({ ...f, time: v }))} />
           </Field>
           <Field label="Timezone*">
             <select style={inputSt} value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))}>

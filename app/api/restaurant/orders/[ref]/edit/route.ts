@@ -40,6 +40,10 @@ import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, type Restaur
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { priceNativeOrderAtSubtotal, type Fulfillment, type FrozenEditContext } from '../../../../../../lib/pricing/native-order'
 import type { Breakdown } from '../../../../../../lib/promo-pricing'
+import { formatTime12 } from '../../../../../../lib/utils/time'
+
+// Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
+const fmtTime = formatTime12
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -73,12 +77,6 @@ function fmtDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '')
   if (!m) return iso || ''
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-}
-function fmtTime(t: string): string {
-  const m = /^(\d{1,2}):(\d{2})/.exec(t || '')
-  if (!m) return t || ''
-  let h = +m[1]; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12
-  return `${h}:${m[2]} ${ap}`
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {

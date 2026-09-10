@@ -2,6 +2,10 @@
 import { useState, useEffect, use } from 'react'
 import { fulfillmentLabel } from '../../../../../../lib/order/fulfillment-label'
 import { useRouter } from 'next/navigation'
+import { formatTime12 } from '../../../../../../lib/utils/time'
+
+// Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
+const fmtTime = formatTime12
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -38,13 +42,6 @@ function fmtDate(d: string) {
   return `${mo}/${day}/${y}`
 }
 
-function fmtTime(t: string) {
-  if (!t) return ''
-  const [h, m] = t.split(':').map(Number)
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
-}
 
 const STATUS_LABEL: Record<string, string> = {
   DUE: 'Due', COMPLETED: 'Completed', REOPEN: 'Reopened', REFUND: 'Refunded',

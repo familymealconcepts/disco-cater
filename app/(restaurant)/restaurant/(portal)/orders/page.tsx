@@ -11,6 +11,11 @@ import { getOrderSourceBadge } from '../../../../../lib/order-utils'
 import { toast } from '../../../../components/ui/feedback'
 import { useSelectedRestaurant } from '../_components/SelectedRestaurantContext'
 import { fulfillmentDateTime } from '../../../../../lib/order/fulfillment-time'
+import { formatTime12 } from '../../../../../lib/utils/time'
+import { TimeSelect } from '../_components/TimeSelect'
+
+// Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
+const fmtTime = formatTime12
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -236,13 +241,6 @@ function fmt(n: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n)
 }
 
-function fmtTime(t: string) {
-  if (!t) return ''
-  const [h, m] = t.split(':').map(Number)
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
-}
 
 // Recurring detection — FM surfaces the indicator under different keys across
 // deployments, so any truthy one of these marks the order as recurring.
@@ -695,7 +693,7 @@ function ReopenModal({ order, orderRef, onClose, onSaved }: { order: Order; orde
         </div>
         <div style={{ marginBottom: 20 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Order Time</label>
-          <input type="time" value={orderTime} onChange={e => setOrderTime(e.target.value)}
+          <TimeSelect value={orderTime} onChange={setOrderTime}
             style={{ width: '100%', border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: F, outline: 'none' }} />
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

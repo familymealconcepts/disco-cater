@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
-import { TimeSelect, normalizeTime } from './TimeSelect'
+import { TimeSelect } from './TimeSelect'
+import { formatTime12, formatTimeRange12 } from '../../../../../lib/utils/time'
 
 // Lifted verbatim (behaviour-wise) out of manage-v2/menus/MenuSettingsDialog, which
 // has had a fully interval-capable blackout editor since it proxies FM. The
@@ -40,7 +41,9 @@ function ModeBtn({ active, onClick, children }: { active: boolean; onClick: () =
 export function describeSkippedDay(d: SkippedDay): string {
   const ivs = d.intervals ?? []
   if (!ivs.length) return 'Closed all day'
-  return ivs.map(iv => `${normalizeTime(iv.fromTime)}–${normalizeTime(iv.toTime)}`).join(', ')
+  // normalizeTime is the WIRE normalizer ("HH:mm"), not a display format —
+  // using it here is what rendered "15:30–17:00" to restaurants.
+  return ivs.map(iv => formatTimeRange12(iv.fromTime, iv.toTime)).join(', ')
 }
 
 export function SkippedDaysEditor({ value, onChange, inputStyle, labelStyle, requireName = true }: {
@@ -116,7 +119,7 @@ export function SkippedDaysEditor({ value, onChange, inputStyle, labelStyle, req
               </div>
               <div style={{ fontSize: 12, color: timesValid ? '#888' : '#E24B4A', marginTop: 8 }}>
                 {timesValid
-                  ? `Orders between ${normalizeTime(fromTime)} and ${normalizeTime(toTime)} are blocked, including both times. The rest of the day stays open.`
+                  ? `Orders between ${formatTime12(fromTime)} and ${formatTime12(toTime)} are blocked, including both times. The rest of the day stays open.`
                   : 'The end time must be after the start time.'}
               </div>
             </>

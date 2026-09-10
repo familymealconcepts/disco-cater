@@ -6,6 +6,10 @@ import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { sendOrderEditPaymentConfirmed } from './email/notifications'
 import { modifyDelivery, buildPayloadFromNeon } from './expedite'
+import { formatTime12 } from './utils/time'
+
+// Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
+const fmtTimeHuman = formatTime12
 
 // Push an edited order's new date/time/items to Expedite when it has an active
 // third-party delivery. Best-effort: never throws.
@@ -504,12 +508,6 @@ function fmtDateHuman(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '')
   if (!m) return iso || ''
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-}
-function fmtTimeHuman(t: string): string {
-  const m = /^(\d{1,2}):(\d{2})/.exec(t || '')
-  if (!m) return t || ''
-  let h = +m[1]; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12
-  return `${h}:${m[2]} ${ap}`
 }
 
 export async function applyPendingEdit(args: {

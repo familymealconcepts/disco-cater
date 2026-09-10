@@ -23,6 +23,10 @@ import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
 import { isDiscoNativeRestaurant, chargeAndPlaceNativeRecurringOrder, loadRestaurantServiceChargePct, type NativePlaceInput } from '../../../../lib/order/native-checkout'
 import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
 import { sendEmail as sendEmailShared } from '../../../../lib/email/send'
+import { formatTime12 } from '../../../../lib/utils/time'
+
+// Shared 12-hour formatter; this caller's copy-specific empty fallback is kept.
+const fmtTime = (t?: string | null) => formatTime12(t, { fallback: 'your scheduled time' })
 
 const FM_API = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -67,14 +71,6 @@ function fmtLong(dateISO?: string | null): string {
   })
 }
 // "12:30 PM" — occurrences may carry no time (null), so fall back gracefully.
-function fmtTime(t?: string | null): string {
-  if (!t) return 'your scheduled time'
-  const [h, m] = t.split(':').map(Number)
-  if (isNaN(h)) return t
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(m || 0).padStart(2, '0')} ${ampm}`
-}
 
 // Neon may hand back DATE columns as a Date or as a 'YYYY-MM-DD' string
 // depending on driver/runtime — normalize to the ISO string we compare on.
@@ -546,7 +542,9 @@ export async function GET(req: NextRequest) {
             fulfillment: 'PICKUP',
             items: (repricedCart || []).map(i => ({ name: i.name || 'Item', price: Number(i.price) || 0, quantity: Math.max(1, Math.trunc(Number(i.quantity) || 1)) })),
             orderDate: date,
-            orderTime: String(occ.scheduled_time || '').match(/^(\d{2}:\d{2})/)?.[1] || '12:00',
+            // Emails render orderTime verbatim, so format here — this was the
+            // one transactional email still shipping a 24-hour time.
+            orderTime: formatTime12(String(occ.scheduled_time || '').match(/^(\d{2}:\d{2})/)?.[1] || '12:00'),
             customerFirstName: occ.customer_first_name ?? undefined,
             customerLastName: occ.customer_last_name ?? undefined,
             scPct: await loadRestaurantServiceChargePct(occ.restaurant_reference),

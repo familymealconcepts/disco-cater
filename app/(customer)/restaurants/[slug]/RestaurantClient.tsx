@@ -19,6 +19,7 @@ import { computeServiceCharge, computeTip, computeGrandTotal } from '../../../..
 import { buildAvailableDates, buildAvailableTimes, orderingClosed } from '../../../../lib/scheduling/cutoffs'
 import { trackEvent } from '../../../../lib/analytics'
 import { getOrCreateFunnelSessionId, postFunnelStage } from '../../../../lib/utils/funnel-session'
+import { formatTime12 } from '../../../../lib/utils/time'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
@@ -210,8 +211,7 @@ function fmtDateMD(d: string) {
   catch { return d }
 }
 function fmtTime(t: string) {
-  try { const [h, m] = t.split(':').map(Number); const dt = new Date(); dt.setHours(h, m); return dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) }
-  catch { return t }
+  return formatTime12(t)
 }
 // Pull the server-computed money out of FM's /orders/init response. Mirrors
 // CheckoutDrawer's extractFmMoney (kept local to avoid touching the drawer):

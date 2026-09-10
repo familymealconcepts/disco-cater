@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import GlobalHeader from '../../../../components/GlobalHeader'
 import { useAuthContext } from '../../../../context/AuthContext'
+import { formatTime12 } from '../../../../../lib/utils/time'
 
 const F = "'DM Sans', sans-serif"
 const GRAD = 'linear-gradient(90deg,#6466E8 0%,#C044C8 50%,#F0468A 100%)'
@@ -268,7 +269,7 @@ export default function OrderWizard({
     try { return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) } catch { return d }
   }
   function fmtTime(t: string) {
-    try { const [h, m] = t.split(':').map(Number); const d = new Date(); d.setHours(h, m); return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) } catch { return t }
+    return formatTime12(t)
   }
 
   // ── Styles ─────────────────────────────────────────────────────────────────

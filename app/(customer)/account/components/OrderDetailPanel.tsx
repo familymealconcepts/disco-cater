@@ -4,6 +4,10 @@ import { useRouter } from 'next/navigation'
 import RecurringOrderSetupModal from './RecurringOrderSetupModal'
 import FavoriteHeart from './FavoriteHeart'
 import { lineQty, modifierQty, lineModifiers, formatCurrency } from '../../../../lib/pricing/lineItem'
+import { formatTime12 } from '../../../../lib/utils/time'
+
+// Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
+const fmtTime = formatTime12
 
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
@@ -102,14 +106,6 @@ function fmtDate(d?: string) {
   } catch { return d }
 }
 
-function fmtTime(t?: string) {
-  if (!t) return ''
-  const [h, m] = t.split(':').map(Number)
-  if (isNaN(h)) return t
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(m || 0).padStart(2, '0')} ${ampm}`
-}
 
 function recurrenceLabel(sub: OrderSubscription | null | undefined) {
   if (!sub) return ''

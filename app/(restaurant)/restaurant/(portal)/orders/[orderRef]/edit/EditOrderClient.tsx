@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation'
 import { cartSubtotal, lineUnitPrice } from '../../../../../../../lib/pricing/cart'
 import { formatCurrency } from '../../../../../../../lib/pricing/lineItem'
 import { ModifierGroupBadge } from '../../../../../../components/ModifierGroupBadge'
+import { formatTime12 } from '../../../../../../../lib/utils/time'
+
+// Shared 12-hour formatter (lib/utils/time.ts).
+const fmt12h = (t: string) => formatTime12(t)
 
 // ─── Brand ─────────────────────────────────────────────────────────────────
 const F = "'DM Sans', sans-serif"
@@ -65,15 +69,6 @@ function toIsoDateInput(d: string): string {
   return ymd ? `${ymd[1]}-${ymd[2]}-${ymd[3]}` : ''
 }
 
-// "HH:mm" / "HH:mm:ss" → "9:00 AM". Empty string when unparseable.
-function fmt12h(t: string): string {
-  const m = /^(\d{1,2}):(\d{2})/.exec(t || '')
-  if (!m) return ''
-  let h = Number(m[1])
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  h = h % 12 || 12
-  return `${h}:${m[2]} ${ampm}`
-}
 
 // "2026-06-30" (ISO) → "Jun 30, 2026". Falls back to a dash.
 function fmtSummaryDate(iso: string): string {

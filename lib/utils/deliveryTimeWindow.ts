@@ -1,3 +1,4 @@
+import { formatTime12 } from './time'
 // Delivery Order Time Windows — mirrors FM's `timeRangeFormat` pipe
 // (familymeal-platform time-range-format-pipe.ts).
 //
@@ -14,10 +15,10 @@
 // from FM) still overrides this default.
 const WINDOW_MINUTES: Record<string, number> = { exact: 0, '30_min': 30, '1_hour': 60 }
 
+// Delegates to the shared formatter so the window range and every other
+// 12-hour label in the app cannot drift apart.
 function to12h(h: number, m: number): string {
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const h12 = h % 12 || 12
-  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
+  return formatTime12(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)
 }
 
 // startTime: "HH:mm" (24h). windowKey: 'exact' | '30_min' | '1_hour' | null.
