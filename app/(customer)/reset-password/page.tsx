@@ -21,6 +21,12 @@ export default function ResetPasswordPage() {
   // temporary password, no FM. Without a token the legacy temp-password form
   // below is kept for any FM-originated link still in an inbox.
   const [token, setToken] = useState('')
+  // The token is only readable on the client (window.location), so the form is
+  // held back for one paint. Without this the server-rendered markup is the
+  // temp-password variant, and a diner arriving from a Disco reset link sees
+  // "Enter the temporary password from your email" — for a password they were
+  // never sent — before it swaps out.
+  const [ready, setReady] = useState(false)
 
   // Pre-fill the email from a ?email= link param (FM may include it). Read from
   // window so we don't need a Suspense boundary for useSearchParams.
@@ -32,6 +38,7 @@ export default function ResetPasswordPage() {
       const t = p.get('token')
       if (t) setToken(t)
     } catch { /* noop */ }
+    setReady(true)
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -85,7 +92,9 @@ export default function ResetPasswordPage() {
 
       <div style={{ flex: 1, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '48px 16px' }}>
         <div style={{ width: '100%', maxWidth: 420, background: '#fff', border: '1px solid #f0f0f0', borderRadius: 16, padding: '28px 26px', boxShadow: '0 8px 30px rgba(26,16,40,0.06)' }}>
-          {done ? (
+          {!ready ? (
+            <div style={{ padding: '28px 0', textAlign: 'center', color: '#999', fontSize: 13 }}>Loading…</div>
+          ) : done ? (
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 14 }}>✅</div>
               <h1 style={{ fontSize: 20, fontWeight: 800, color: DARK, margin: '0 0 10px' }}>Password updated</h1>
