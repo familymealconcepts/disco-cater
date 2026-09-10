@@ -57,14 +57,44 @@ export async function GET() {
       ...refs.filter(r => !seen.has(r)).map(r => ({ reference: r, name: '', address: '', isLive: false, isHome: r === ctx.restaurantReference })),
     ]
 
-    // Helper: the location names an account can access.
-    const accessFor = async (email: string) => (await sql`
-      SELECT la.restaurant_reference AS reference, COALESCE(c.name, '') AS name
-      FROM disco_restaurant_location_access la
-      LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = la.restaurant_reference
-      WHERE la.account_email = ${email}
-      ORDER BY la.id ASC
-    `) as Array<{ reference: string; name: string }>
+    // Helper: the locations an account can actually REACH.
+    //
+    // This used to read disco_restaurant_location_access raw, which returns
+    // GRANTS — and grants are not reach. Chain-wide invites left six Atlanta
+    // Bread ADMINs holding 8 grants each against a real reach of 1, so the
+    // screen reported 8 locations for people who can open exactly one.
+    //
+    // resolveDiscoAccessScope is the same resolver the viewer is gated by; it
+    // is applied here PER LISTED USER, with that user's own role and anchor, so
+    // the column reports what each person can reach. Role gates reach: a
+    // SYSTEM_ADMIN's set is their grants, an ADMIN's is their anchor however
+    // many grants they hold. The resolver itself is unchanged.
+    const accessFor = async (email: string, role: string | null, anchor: string | null) => {
+      const scope = await resolveDiscoAccessScope({
+        // Only role, email and restaurantReference are read by the resolver.
+        // The rest are inert and present to satisfy the context type.
+        restaurantReference: anchor || '',
+        email,
+        role: (role || 'ADMIN').toUpperCase(),
+        firstName: null, lastName: null, restaurantName: null,
+        authType: 'disco', fmToken: null, businessName: null,
+      })
+      const refs = [...scope.refs]
+      if (!refs.length) return []
+      // Names come from the cache keyed on the SCOPE, not from a join back onto
+      // the grants table: an ADMIN's reach is their anchor whether or not a
+      // grant row happens to exist for it, and joining grants would render that
+      // person no locations at all.
+      const named = (await sql`
+        SELECT restaurant_reference AS reference, COALESCE(name, '') AS name
+        FROM disco_restaurant_cache WHERE restaurant_reference = ANY(${refs}::text[])
+      `) as Array<{ reference: string; name: string }>
+      const nameOf = new Map(named.map(n => [n.reference, n.name]))
+      // Keep references with no cache row so a location never silently vanishes.
+      return refs
+        .map(r => ({ reference: r, name: nameOf.get(r) ?? '' }))
+        .sort((a, b) => (a.name || '\uffff').localeCompare(b.name || '\uffff'))
+    }
 
     // AUTHORIZED USERS = everyone with a grant on a location this viewer can
     // reach. NOT `created_by = ctx.email`, which is what this used to be.
@@ -87,6 +117,7 @@ export async function GET() {
       ? (await sql`
           SELECT DISTINCT ON (a.email)
                  a.email, a.first_name, a.last_name, a.role, a.invite_token,
+                 a.restaurant_reference AS anchor,
                  a.created_at::text AS created_at, a.created_by, a.id
           FROM disco_restaurant_location_access la
           JOIN disco_restaurant_accounts a ON a.email = la.account_email
@@ -96,7 +127,7 @@ export async function GET() {
             AND a.email NOT LIKE 'stripe-import+%'
           ORDER BY a.email, a.id ASC
         `)
-      : []) as Array<{ email: string; first_name: string | null; last_name: string | null; role: string | null; invite_token: string | null; created_at: string | null; created_by: string | null }>
+      : []) as Array<{ email: string; first_name: string | null; last_name: string | null; role: string | null; invite_token: string | null; anchor: string | null; created_at: string | null; created_by: string | null }>
 
     const users = []
     for (const u of userRows) {
@@ -111,7 +142,7 @@ export async function GET() {
         // created_by is NULL on everything that predates the sync sentinel.
         origin: u.created_by === ctx.email ? 'me' : u.created_by ? 'familymeal' : 'unknown',
         createdBy: u.created_by,
-        locations: (await accessFor(u.email)).map(a => ({ reference: a.reference, name: a.name })),
+        locations: (await accessFor(u.email, u.role, u.anchor)).map(a => ({ reference: a.reference, name: a.name })),
       })
     }
 
@@ -127,7 +158,7 @@ export async function GET() {
       lastName: selfRow?.last_name || ctx.lastName || '',
       role: selfRow?.role || ctx.role || 'SYSTEM_ADMIN',
       registration: selfRow?.created_at || null,
-      locations: (await accessFor(ctx.email)).map(a => ({ reference: a.reference, name: a.name })),
+      locations: (await accessFor(ctx.email, selfRow?.role || ctx.role, ctx.restaurantReference)).map(a => ({ reference: a.reference, name: a.name })),
     }
 
     // Backward-compat: the (hidden) standalone Team page still reads `subAdmins`.

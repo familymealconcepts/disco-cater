@@ -202,8 +202,8 @@ export interface DiscoGroupAccount {
 // ── Explicit location access (disco_restaurant_location_access) ───────────────
 // The source of truth for which restaurant_references a SYSTEM_ADMIN can see.
 
-// All restaurant_references the email has explicit access to. Returns [] for a
-// blank email (FM-native users) or on any query error — never throws.
+// All restaurant_references the email has explicit access to. Returns [] only
+// for a blank email (FM-native users). THROWS on a query error — see below.
 export async function getLocationAccessRefs(email: string): Promise<string[]> {
   const e = (email || '').trim()
   if (!e) return []
@@ -213,10 +213,20 @@ export async function getLocationAccessRefs(email: string): Promise<string[]> {
       WHERE account_email = ${e} ORDER BY id ASC
     `) as Array<{ restaurant_reference: string }>
     return rows.map(r => r.restaurant_reference)
-  } catch {
-    // Table not migrated yet — caller falls back to legacy grouping.
-    return []
+  } catch (err) {
+    // NEVER swallow. Returning [] here was indistinguishable from "this account
+    // holds no grants", so a transient DB failure silently degraded every caller
+    // to a SMALLER permitted set: the team roster dropped to the viewer's anchor
+    // and rendered 200 OK, looking like a complete list. A scope that fails must
+    // fail loudly — callers are API routes that already turn a throw into a 500.
+    throw new Error(`getLocationAccessRefs failed for ${maskEmail(e)}: ${err instanceof Error ? err.message : err}`)
   }
+}
+
+// Emails are PII-adjacent; keep them out of error strings that reach logs.
+function maskEmail(email: string): string {
+  const at = email.indexOf('@')
+  return at > 1 ? `${email.slice(0, 2)}***${email.slice(at)}` : '***'
 }
 
 // Grant access to a location (idempotent via the UNIQUE constraint).

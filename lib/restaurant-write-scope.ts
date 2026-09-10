@@ -113,8 +113,15 @@ export async function resolveDiscoGroupScope(ctx: RestaurantAuthContext): Promis
 export async function resolveDiscoAccessScope(ctx: RestaurantAuthContext): Promise<DiscoPermittedRefs> {
   if (ctx.role === 'SUPER_ADMIN') return { unrestricted: true, refs: new Set() }
   if (ctx.role !== 'SYSTEM_ADMIN') return { unrestricted: false, refs: new Set([ctx.restaurantReference].filter(Boolean)) }
-  let refs: string[] = []
-  try { refs = await getLocationAccessRefs(ctx.email) } catch { /* fall through to home-only below */ }
-  if (!refs.length && ctx.restaurantReference) refs = [ctx.restaurantReference]
+  // NO try/catch. This used to swallow the lookup failure and fall through to
+  // home-only, which silently narrowed a SYSTEM_ADMIN's scope to one location
+  // and let the caller render a partial result as a success. A scope that
+  // cannot be established is an error, not a smaller scope — let it propagate
+  // to the route, which returns 500.
+  //
+  // The empty-set fallback below is NOT the same thing and stays: zero rows is
+  // a real answer (an account with no explicit grants yet), not a failure.
+  const refs: string[] = await getLocationAccessRefs(ctx.email)
+  if (!refs.length && ctx.restaurantReference) return { unrestricted: false, refs: new Set([ctx.restaurantReference]) }
   return { unrestricted: false, refs: new Set(refs) }
 }

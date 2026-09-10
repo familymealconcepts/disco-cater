@@ -115,6 +115,7 @@ interface UserForm {
 function DiscoUsers() {
   const [data, setData] = useState<TeamData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [form, setForm] = useState<UserForm | null>(null)
   const [saving, setSaving] = useState(false)
@@ -123,9 +124,21 @@ function DiscoUsers() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch('/api/restaurant/team')
-    if (res.ok) setData(await res.json())
-    setLoading(false)
+    // A failed request must NOT leave the previous roster on screen. `if (res.ok)
+    // setData(...)` silently kept stale data — an incomplete team looked like a
+    // complete one, which is the same class of bug as the swallowed scope
+    // lookups on the server. Surface it instead.
+    try {
+      const res = await fetch('/api/restaurant/team')
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setData(await res.json())
+      setLoadErr(null)
+    } catch (e) {
+      setData(null)
+      setLoadErr(e instanceof Error ? e.message : 'Request failed')
+    } finally {
+      setLoading(false)
+    }
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -241,8 +254,14 @@ function DiscoUsers() {
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && filtered.length === 0 && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999' }}>No users.</td></tr>}
-            {!loading && filtered.map(u => {
+            {!loading && loadErr && (
+              <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#B3261E' }}>
+                Could not load the team ({loadErr}). This list may be incomplete — reload rather than trusting it.
+                <button onClick={() => load()} style={{ marginLeft: 10, background: 'none', border: 'none', color: BLUE, cursor: 'pointer', fontWeight: 600, fontFamily: F }}>Retry</button>
+              </td></tr>
+            )}
+            {!loading && !loadErr && filtered.length === 0 && <tr><td colSpan={6} style={{ ...cell, textAlign: 'center', color: '#999' }}>No users.</td></tr>}
+            {!loading && !loadErr && filtered.map(u => {
               const locs = u.locations.map(l => l.name || l.reference).filter(Boolean).join(', ') || '—'
               const rowColor = u.isSelf ? '#aaa' : DARK
               return (
