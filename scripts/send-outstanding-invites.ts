@@ -35,8 +35,10 @@ const DAY = Number((process.argv.find(a => a.startsWith('--day=')) || '--day=1')
 const HARD_BOUNCED = new Set([
   'eat@bingebiryani.com', 'alvin@brooklyndumpling.com', 'store042@gmail.com',
   'ido@landwercafe.com', 'jackson@eatcops.com', 'justin@eatcops.com',
-  // from Mailgun's bounce suppression lists, 2026-09-10
+  // from Mailgun's bounce suppression lists, 2026-09-10 (315 addresses across
+  // both domains; 9 of them fall inside this cohort)
   'fhunter@burgerfi.com', 'anthie@thenccgroup.com', 'chef+30@gmail.com',
+  'nhojel@theoberon.co',
 ])
 // Delivered 2026-09-09 17:54:29, token cleared and password set 18:18 — the
 // signature of an ACCEPTED invite (acceptInvite nulls the token and writes
@@ -94,6 +96,23 @@ async function main() {
   let ok = 0, fail = 0
   for (let i = 0; i < todo.length; i++) {
     const r = todo[i]
+    // JUST-IN-TIME re-check. The batch was resolved before day 1 went out; if
+    // this person has signed in since, they now have a working login and
+    // re-inviting them would mint a token over a live account. This is the same
+    // condition hasUsableLogin uses, minus the live-token arm — a live token is
+    // exactly what everyone here has and is not evidence of a usable login.
+    const live = (await sql`
+      SELECT 1 FROM disco_restaurant_sessions WHERE email = ${r.email} LIMIT 1
+    `) as unknown[]
+    if (live.length) {
+      console.log(`  [${i + 1}/${todo.length}] SKIPPED    ${r.email} — signed in since the batch was built`)
+      fs.appendFileSync(LOG, JSON.stringify({
+        run: 'outstanding-2026-09-10', day: DAY, ref: r.ref, restaurant: r.restaurant,
+        email: r.email, role: r.role, dispatched: false,
+        reason: 'skipped — signed in since the batch was built', at: new Date().toISOString(),
+      }) + '\n')
+      continue
+    }
     let res: { invited: boolean; reason: string }
     try { res = await inviteAccountByEmail(r.email, r.restaurant) }
     catch (e) { res = { invited: false, reason: `threw: ${e instanceof Error ? e.message : e}` } }
@@ -105,7 +124,7 @@ async function main() {
       email: r.email, role: r.role, dispatched: res.invited, reason: res.reason,
       at: new Date().toISOString(),
     }) + '\n')
-    res.invited ? ok++ : fail++
+    if (res.invited) ok++; else fail++
     console.log(`  [${i + 1}/${todo.length}] ${res.invited ? 'dispatched' : 'FAILED    '}  ${r.email}  (${r.restaurant})`)
     if (i < todo.length - 1) await new Promise(s => setTimeout(s, STAGGER_MS))
   }
