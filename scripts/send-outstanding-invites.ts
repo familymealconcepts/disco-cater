@@ -22,11 +22,21 @@ const STAGGER_MS = 30_000
 const APPLY = process.argv.includes('--apply')
 const DAY = Number((process.argv.find(a => a.startsWith('--day=')) || '--day=1').split('=')[1])
 
-// Mailgun shows these hard-bouncing on 2026-09-09. Sending again spends
-// reputation for nothing; they need a different contact.
+// Addresses Mailgun will not deliver to. Sending again spends nothing at the
+// receiving end — Mailgun blocks it locally — but it records a false dispatch
+// and these people still need a different contact.
+//
+// The first six are the 2026-09-09 hard bounces. The last three came from
+// Mailgun's own SUPPRESSION LISTS (/bounces on both domains), which the
+// event-log sweep missed: a suppressed send returns accepted-then-failed with
+// reason `suppress-bounce`, so it looks dispatched. fhunter@ proved this the
+// hard way on this very run. Always reconcile the suppression list, not just
+// recent events — events age out after ~4-5 days, suppressions do not.
 const HARD_BOUNCED = new Set([
   'eat@bingebiryani.com', 'alvin@brooklyndumpling.com', 'store042@gmail.com',
   'ido@landwercafe.com', 'jackson@eatcops.com', 'justin@eatcops.com',
+  // from Mailgun's bounce suppression lists, 2026-09-10
+  'fhunter@burgerfi.com', 'anthie@thenccgroup.com', 'chef+30@gmail.com',
 ])
 // Delivered 2026-09-09 17:54:29, token cleared and password set 18:18 — the
 // signature of an ACCEPTED invite (acceptInvite nulls the token and writes
