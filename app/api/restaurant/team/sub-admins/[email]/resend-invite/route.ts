@@ -3,6 +3,7 @@ import { getRestaurantAuthContext } from '../../../../../../../lib/restaurant-au
 import { runDiscoOrderMigrations, sql } from '../../../../../../../lib/db'
 import { setInviteToken } from '../../../../../../../lib/disco-restaurant-auth'
 import { sendTeamMemberInvite } from '../../../../../../../lib/email/notifications'
+import { assertManagedUser, loadManagedTarget } from '../../../../../../../lib/team-management-scope'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -24,14 +25,26 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ em
 
   try {
     await runDiscoOrderMigrations()
+    // FM's analogue is UserServiceImpl.resetPassword, which calls
+    // findManagedUserByReference and NOTHING ELSE — notably it does NOT call
+    // validateFirstSystemAdmin, so the first System Admin CAN be re-invited
+    // even though they cannot be edited or removed. That asymmetry is FM's,
+    // and it is deliberately reproduced here.
+    //
+    // The old test was `created_by = ctx.email`. Every FM-synced account has
+    // created_by = NULL, so this 403'd for every viewer against every target
+    // and nobody at Atlanta Bread could be re-invited at all.
+    const target = await loadManagedTarget(subEmail)
+    if (!target) return NextResponse.json({ error: 'No such user' }, { status: 404 })
+    const managed = await assertManagedUser(ctx, target)
+    if (!managed.ok) return NextResponse.json({ error: managed.error }, { status: managed.status })
+
     const rows = (await sql`
       SELECT email, first_name, restaurant_reference
-      FROM disco_restaurant_accounts
-      WHERE email = ${subEmail} AND created_by = ${ctx.email}
-      LIMIT 1
+      FROM disco_restaurant_accounts WHERE email = ${subEmail} LIMIT 1
     `) as Array<{ email: string; first_name: string | null; restaurant_reference: string | null }>
     const sub = rows[0]
-    if (!sub) return NextResponse.json({ error: 'Not your sub admin' }, { status: 403 })
+    if (!sub) return NextResponse.json({ error: 'No such user' }, { status: 404 })
 
     const token = await setInviteToken(subEmail)
     const nameRows = (await sql`

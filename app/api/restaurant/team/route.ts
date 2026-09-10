@@ -96,8 +96,18 @@ export async function GET() {
         .sort((a, b) => (a.name || '\uffff').localeCompare(b.name || '\uffff'))
     }
 
-    // AUTHORIZED USERS = everyone with a grant on a location this viewer can
-    // reach. NOT `created_by = ctx.email`, which is what this used to be.
+    // AUTHORIZED USERS — Disco's mirror of FM's
+    // SystemAdminUserSpecification.getManagedUsersByManagedRestaurants, whose
+    // own Javadoc reads: "Returns system admins who share managed restaurants
+    // and restaurant admins whose restaurant is in the provided set."
+    //
+    // CONFIRMED AGAINST FM, NOT ASSUMED: that specification has no creator
+    // predicate, and FM records no creator to have one — BaseEntity's
+    // created_by column has its @CreatedBy annotation commented out, nothing
+    // calls setCreatedBy for a user, and AdminUserResponseDto omits the field.
+    // So "the users I created" is not a rule FM implements, and the reach-based
+    // rule below is the correct mirror. NOT `created_by = ctx.email`, which is
+    // what this used to be.
     //
     // That old filter meant "people I personally invited", so anyone who arrived
     // by the FM sync was invisible: Basil at Atlanta Bread saw a team of one
@@ -119,9 +129,15 @@ export async function GET() {
                  a.email, a.first_name, a.last_name, a.role, a.invite_token,
                  a.restaurant_reference AS anchor,
                  a.created_at::text AS created_at, a.created_by, a.id
-          FROM disco_restaurant_location_access la
-          JOIN disco_restaurant_accounts a ON a.email = la.account_email
-          WHERE la.restaurant_reference = ANY(${refs}::text[])
+          FROM disco_restaurant_accounts a
+          LEFT JOIN disco_restaurant_location_access la
+            ON la.account_email = a.email AND la.restaurant_reference = ANY(${refs}::text[])
+          WHERE (
+              -- FM's two arms, exactly: a SYSTEM_ADMIN through any SHARED
+              -- managed location, an ADMIN through their single assigned one.
+              (UPPER(COALESCE(a.role, 'ADMIN')) = 'SYSTEM_ADMIN' AND la.restaurant_reference IS NOT NULL)
+              OR (UPPER(COALESCE(a.role, 'ADMIN')) <> 'SYSTEM_ADMIN' AND a.restaurant_reference = ANY(${refs}::text[]))
+            )
             AND a.archived_at IS NULL
             AND a.email <> ${ctx.email}
             AND a.email NOT LIKE 'stripe-import+%'
