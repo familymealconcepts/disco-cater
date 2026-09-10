@@ -92,8 +92,65 @@ export async function upsertDiscoCustomer(data: {
       fm_customer_number = COALESCE(EXCLUDED.fm_customer_number, disco_customers.fm_customer_number),
       fm_reference = COALESCE(EXCLUDED.fm_reference, disco_customers.fm_reference),
       needs_password_reset = false,
+      -- Setting a password invalidates any reset in flight; this upsert writes
+      -- password_hash, so it must clear the token too or a stale link would
+      -- still work against the new credential.
+      reset_token = NULL,
+      reset_token_expires_at = NULL,
       updated_at = NOW()
   `
+}
+
+// ── Password reset (token) ───────────────────────────────────────────────────
+// Deliberately mirrors setResetToken in lib/disco-restaurant-auth.ts: 32 random
+// bytes, one hour. Same shape, same lifetime — a diner's reset should not
+// silently behave differently from a restaurant user's.
+
+export async function setCustomerResetToken(email: string): Promise<string> {
+  const token = randomBytes(32).toString('hex')
+  await sql`
+    UPDATE disco_customers
+    SET reset_token = ${token},
+        reset_token_expires_at = NOW() + INTERVAL '1 hour',
+        updated_at = NOW()
+    WHERE lower(email) = lower(${email})
+  `
+  return token
+}
+
+export interface CustomerResetAccount { email: string; first_name: string | null }
+
+/** The customer a non-expired reset token belongs to, or null. */
+export async function getCustomerByResetToken(token: string): Promise<CustomerResetAccount | null> {
+  if (!token) return null
+  const rows = (await sql`
+    SELECT email, first_name FROM disco_customers
+    WHERE reset_token = ${token} AND reset_token_expires_at > NOW()
+    LIMIT 1
+  `) as CustomerResetAccount[]
+  return rows[0] ?? null
+}
+
+/**
+ * Consume the token and set the new password in ONE statement. There are no
+ * transactions here (neon HTTP), so a check-then-write pair could let the same
+ * token set a password twice; the WHERE clause re-validates it at write time
+ * and the same statement clears it. Returns the email on success, null if the
+ * token was already used or expired.
+ */
+export async function setCustomerPasswordByResetToken(token: string, passwordHash: string): Promise<string | null> {
+  if (!token) return null
+  const rows = (await sql`
+    UPDATE disco_customers
+    SET password_hash = ${passwordHash},
+        reset_token = NULL,
+        reset_token_expires_at = NULL,
+        needs_password_reset = false,
+        updated_at = NOW()
+    WHERE reset_token = ${token} AND reset_token_expires_at > NOW()
+    RETURNING email
+  `) as Array<{ email: string }>
+  return rows[0]?.email ?? null
 }
 
 // Create a 30-day session row, storing the FM JWT/refresh when available.

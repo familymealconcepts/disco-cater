@@ -569,6 +569,43 @@ ${button('Reset password', redirectUrl)}
   }
 }
 
+/**
+ * Diner password reset — TOKEN link.
+ *
+ * Separate from sendCustomerPasswordReset above, which is not a substitute: that
+ * one is built for FM's temporary-password model (it emails a plaintext temp
+ * password and asks the diner to type it in). This flow issues a one-time token
+ * instead, so there is no temporary credential to email at all.
+ *
+ * Separate from sendPasswordReset (restaurant staff) too, which addresses the
+ * reader as an operator — "your {restaurant} account" — and points at the
+ * staff set-password page. Same layout(), so the logo image on white and the
+ * button styling are shared with every other transactional email.
+ */
+export async function sendCustomerPasswordResetLink(params: {
+  to: string
+  firstName?: string
+  resetUrl: string
+}): Promise<{ success: boolean }> {
+  try {
+    const content = `
+<p>Hi ${escapeHtml((params.firstName || '').trim() || 'there')},</p>
+<p>We received a request to reset the password for your Disco Cater account. Click below to choose a new one.</p>
+${button('Reset your password', params.resetUrl)}
+<p style="color:#888;font-size:13px;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email — your password won't change. Questions? <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
+<p>Thanks,<br/>The Disco Cater Team</p>
+`
+    return await sendEmail({
+      to: params.to,
+      subject: 'Reset your Disco Cater password',
+      html: layout(content),
+    })
+  } catch (err) {
+    console.error('[email/notifications] sendCustomerPasswordResetLink failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
 // ── 6. Welcome (user-registered-notification.ftl) ────────────────────────────
 
 export async function sendCustomerWelcome(params: {

@@ -16,20 +16,30 @@ export default function ResetPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState(false)
+  // Token mode: the diner arrived from a Disco reset email (?token=…). Disco
+  // owns disco_customers.password_hash, so this sets it directly — no
+  // temporary password, no FM. Without a token the legacy temp-password form
+  // below is kept for any FM-originated link still in an inbox.
+  const [token, setToken] = useState('')
 
   // Pre-fill the email from a ?email= link param (FM may include it). Read from
   // window so we don't need a Suspense boundary for useSearchParams.
   useEffect(() => {
     try {
-      const e = new URLSearchParams(window.location.search).get('email')
+      const p = new URLSearchParams(window.location.search)
+      const e = p.get('email')
       if (e) setEmail(e)
+      const t = p.get('token')
+      if (t) setToken(t)
     } catch { /* noop */ }
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (!email || !temporaryPassword || !newPassword || !confirmPassword) {
+    if (token) {
+      if (!newPassword || !confirmPassword) { setError('Please fill in all fields.'); return }
+    } else if (!email || !temporaryPassword || !newPassword || !confirmPassword) {
       setError('Please fill in all fields.'); return
     }
     if (newPassword.length < 8) {
@@ -40,7 +50,13 @@ export default function ResetPasswordPage() {
     }
     setLoading(true)
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const res = token
+        ? await fetch('/api/auth/customer-set-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, newPassword }),
+          })
+        : await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, temporaryPassword, newPassword }),
@@ -84,12 +100,14 @@ export default function ResetPasswordPage() {
             <>
               <h1 style={{ fontSize: 22, fontWeight: 800, color: DARK, margin: '0 0 6px', letterSpacing: '-0.02em' }}>Reset your password</h1>
               <p style={{ fontSize: 13, color: '#727272', lineHeight: 1.5, margin: '0 0 20px' }}>
-                Enter the temporary password from your email, then choose a new one.
+                {token
+                  ? 'Choose a new password for your account.'
+                  : 'Enter the temporary password from your email, then choose a new one.'}
               </p>
 
               <form onSubmit={handleSubmit}>
-                <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@example.com" />
-                <Field label="Temporary password" type="password" value={temporaryPassword} onChange={setTemporaryPassword} autoComplete="one-time-code" placeholder="From your email" />
+                {!token && <Field label="Email" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="you@example.com" />}
+                {!token && <Field label="Temporary password" type="password" value={temporaryPassword} onChange={setTemporaryPassword} autoComplete="one-time-code" placeholder="From your email" />}
                 <Field label="New password" type="password" value={newPassword} onChange={setNewPassword} autoComplete="new-password" placeholder="At least 8 characters" />
                 <Field label="Confirm new password" type="password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Re-enter new password" />
 

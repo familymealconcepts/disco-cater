@@ -1,6 +1,7 @@
 import { sql } from './db'
 import { setResetToken } from './disco-restaurant-auth'
-import { sendPasswordReset } from './email/notifications'
+import { setCustomerResetToken } from './customer-auth'
+import { sendPasswordReset, sendCustomerPasswordResetLink } from './email/notifications'
 import { logAdminAction } from './admin-audit'
 
 const SITE_URL = 'https://www.discocater.com'
@@ -30,6 +31,9 @@ const SITE_URL = 'https://www.discocater.com'
  */
 
 export interface ResetTarget {
+  // Which credential store owns this login. Both are Disco's; they differ only
+  // in which table holds the hash + token and which page the link lands on.
+  kind: 'restaurant' | 'customer'
   email: string
   firstName: string | null
   restaurantName: string | null
@@ -79,6 +83,7 @@ export async function resolveResetEligibility(email: string): Promise<ResetEligi
     return {
       eligible: true,
       target: {
+        kind: 'restaurant',
         email: acct.email,
         firstName: acct.first_name,
         restaurantName: acct.restaurant_name,
@@ -88,16 +93,29 @@ export async function resolveResetEligibility(email: string): Promise<ResetEligi
     }
   }
 
-  // Diners. Their password_hash lives in disco_customers and IS what
-  // /api/fm-auth verifies (unless it is the FM_MIGRATED sentinel), so Disco does
-  // own the credential — but there is no Disco reset flow for them:
-  // disco_customers has no reset-token column and there is no customer-facing
-  // set-password page. Offering the button here would mean inventing a second
-  // flow, so it is disabled and says so.
+  // Diners. password_hash lives in disco_customers and IS what /api/fm-auth
+  // verifies, so Disco owns the credential and resets it itself. The one shape
+  // it cannot reset is the FM_MIGRATED sentinel: that row has no real hash yet
+  // and the diner is still verified against FM until their first login
+  // migrates them, so FM genuinely owns that login for now.
   const cust = (await sql`
-    SELECT 1 FROM disco_customers WHERE lower(email) = lower(${e}) LIMIT 1
-  `) as unknown[]
-  if (cust.length) return { eligible: false, reason: 'No Disco reset flow for diner accounts yet.' }
+    SELECT email, first_name, (password_hash = 'FM_MIGRATED') AS sentinel
+    FROM disco_customers WHERE lower(email) = lower(${e}) LIMIT 1
+  `) as Array<{ email: string; first_name: string | null; sentinel: boolean }>
+  if (cust.length) {
+    if (cust[0].sentinel) return { eligible: false, reason: 'FamilyMeal owns this login until their next sign-in.' }
+    return {
+      eligible: true,
+      target: {
+        kind: 'customer',
+        email: cust[0].email,
+        firstName: cust[0].first_name,
+        restaurantName: null,
+        restaurantReference: null,
+        role: 'USER',
+      },
+    }
+  }
 
   return { eligible: false, reason: 'No Disco account for this email.' }
 }
@@ -151,16 +169,26 @@ export async function sendPasswordResetTo(
     }
   }
 
-  const token = await setResetToken(target.email)
   // Addressed to the ACCOUNT, never to whoever triggered it. The token is
   // returned to this function and goes straight into the email — it is never
   // put in an API response or shown in the admin UI.
-  const sent = await sendPasswordReset({
-    to: target.email,
-    firstName: target.firstName || undefined,
-    restaurantName: target.restaurantName || undefined,
-    resetUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
-  })
+  //
+  // The branch is only over WHERE the token lives, WHICH page consumes it and
+  // WHICH wording the reader gets. Everything that makes this one flow — the
+  // cooldown, the audit row, the "success means dispatched" contract — is
+  // above and below it, shared.
+  const sent = target.kind === 'customer'
+    ? await sendCustomerPasswordResetLink({
+        to: target.email,
+        firstName: target.firstName || undefined,
+        resetUrl: `${SITE_URL}/reset-password?token=${await setCustomerResetToken(target.email)}`,
+      })
+    : await sendPasswordReset({
+        to: target.email,
+        firstName: target.firstName || undefined,
+        restaurantName: target.restaurantName || undefined,
+        resetUrl: `${SITE_URL}/restaurant/accept-invite?token=${await setResetToken(target.email)}`,
+      })
   if (!sent.success) {
     return { ok: false, code: 'send-failed', message: 'The reset email could not be sent.' }
   }

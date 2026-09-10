@@ -15,10 +15,11 @@ const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 // POST /api/auth/forgot-password  { email }
 // Two purely-additive paths, both ending in the SAME uniform 200 { success: true }
 // (anti-enumeration — never reveal whether an account exists):
-//   · Disco-native restaurant account → issue a one-time reset token, email a Disco
-//     reset link (set new password at /restaurant/accept-invite). Zero FM.
-//   · Everyone else (customer / FM-backed restaurant) → the existing FM proxy,
-//     COMPLETELY UNCHANGED.
+//   · Any DISCO-OWNED login → one-time token + a Disco reset link. Restaurant
+//     staff set their password at /restaurant/accept-invite, diners at
+//     /reset-password?token=…. Zero FM.
+//   · FM-owned logins only (FM-backed restaurant accounts, and diners still on
+//     the FM_MIGRATED sentinel) → the FM proxy, unchanged.
 export async function POST(req: NextRequest) {
   let email = ''
   try {
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
 
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
   if (valid) {
-    // ── Disco-native branch (additive) ──────────────────────────────────────
+    // ── Disco branch: native restaurant accounts AND diners ─────────────────
     // Errors stay swallowed HERE and only here: this endpoint is unauthenticated
     // and must not leak whether an account exists, so every path below returns
     // the same 200. The admin caller of the same function does the opposite and
@@ -47,10 +48,20 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error('[forgot-password] native reset failed:', err instanceof Error ? err.message : err)
     }
-    // Native handled — do NOT also hit FM (native accounts have no FM record).
+    // Handled by Disco — do NOT also hit FM.
+    //
+    // For diners this is the fix, not just an optimisation. Disco owns
+    // disco_customers.password_hash and /api/fm-auth verifies against it, so
+    // proxying to FM changed FM's password and left the real credential alone:
+    // the diner was told the reset worked and still could not log in. All 107
+    // diners have a real bcrypt hash here, so FM's reset helped none of them.
     if (handledNatively) return NextResponse.json({ success: true })
 
-    // ── FM proxy (UNCHANGED — customers + FM-backed restaurants) ─────────────
+    // ── FM proxy — FM-BACKED LOGINS ONLY ────────────────────────────────────
+    // Reached only when resolveResetEligibility found no Disco-owned credential:
+    // an FM-backed restaurant account, or a diner still on the FM_MIGRATED
+    // sentinel (no real hash yet, still verified against FM until their next
+    // sign-in migrates them). Diners with a real hash never reach this.
     try {
       const res = await fetch(`${FM}/forgotPassword?email=${encodeURIComponent(email)}`, {
         method: 'POST',

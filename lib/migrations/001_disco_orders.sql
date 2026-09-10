@@ -763,3 +763,13 @@ CREATE TABLE IF NOT EXISTS disco_conversions (
 ALTER TABLE disco_conversions ALTER COLUMN restaurant_reference TYPE TEXT;
 CREATE INDEX IF NOT EXISTS disco_conversions_ref_idx ON disco_conversions (restaurant_reference, converted_at DESC);
 CREATE INDEX IF NOT EXISTS disco_conversions_at_idx ON disco_conversions (converted_at DESC);
+
+-- Diner password reset (2026-09-10). Disco owns every diner credential —
+-- /api/fm-auth verifies against disco_customers.password_hash — but the only
+-- reset path was a proxy to FM's /forgotPassword, which changes FM's password
+-- and leaves this hash untouched. Diners completed a reset, were told it
+-- worked, and still could not log in. Same shape as the restaurant token on
+-- disco_restaurant_accounts: 32 random bytes, one hour.
+ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS reset_token TEXT;
+ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_disco_customers_reset_token ON disco_customers (reset_token) WHERE reset_token IS NOT NULL;
