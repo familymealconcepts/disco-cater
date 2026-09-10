@@ -41,11 +41,28 @@ async function main() {
       const ev = e as { timestamp: number; message?: { headers?: { subject?: string } } }
       return INVITE_RE.test(String(ev.message?.headers?.subject ?? '')) && ev.timestamp * 1000 >= new Date(s.at).getTime() - 120_000
     })
-    const kinds = [...new Set(mine.map(e => String((e as { event: string }).event).toLowerCase()))]
+    // Order matters, and priority-ranking the event TYPES gets it wrong.
+    // dominic@dechecos.com failed with `4.4.2 timeout exceeded` and then
+    // DELIVERED on Mailgun's retry ten minutes later; ranking `failed` above
+    // `delivered` reported that as a bounce. Use the LAST terminal event, and
+    // separate a permanent 5.x rejection from a transient 4.x that retried.
+    const terminal = mine
+      .map(e => e as { event: string; timestamp: number; reason?: string; 'delivery-status'?: { code?: number; message?: string } })
+      .filter(e => ['delivered', 'failed', 'rejected'].includes(String(e.event).toLowerCase()))
+      .sort((a, b) => a.timestamp - b.timestamp)
+    const last = terminal[terminal.length - 1]
     let verdict = 'NO MAILGUN RECORD'
-    if (kinds.includes('failed') || kinds.includes('rejected')) verdict = 'BOUNCED'
-    else if (kinds.includes('delivered')) verdict = 'DELIVERED'
-    else if (kinds.includes('accepted')) verdict = 'ACCEPTED (not yet delivered)'
+    if (last) {
+      const ev = String(last.event).toLowerCase()
+      if (ev === 'delivered') verdict = 'DELIVERED'
+      else if (last.reason === 'suppress-bounce') verdict = 'SUPPRESSED'
+      else {
+        const msg = String(last['delivery-status']?.message ?? '')
+        verdict = /^\s*4\./.test(msg) ? 'SOFT-FAILED (may still retry)' : 'BOUNCED'
+      }
+    } else if (mine.some(e => String((e as { event: string }).event).toLowerCase() === 'accepted')) {
+      verdict = 'ACCEPTED (not yet delivered)'
+    }
     ;(out[verdict] ??= []).push(`${s.email} | ${s.restaurant} | day ${s.day}`)
   }
   console.log('\n=== RECONCILED DELIVERY ===')
