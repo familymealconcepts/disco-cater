@@ -3,6 +3,7 @@ import { sql } from './db'
 import { getNativeLinkBySlug } from './multi-unit-links'
 import { getLinkGradient, cacheAutoGradient } from './location-links'
 import { stateFromAddress, stateFullName } from './us-states'
+import { formatDisplayAddress } from './address-display'
 
 // Resolves a restaurant-portal "Links" shareable slug (discocater.com/locations/
 // {slug}) to the underlying FM locations and their Disco ordering pages.
@@ -159,16 +160,24 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
   if (nativeLink) {
     if (!nativeLink.memberRefs.length) return null
     const rows = (await sql`
-      SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.state
+      SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.state,
+             c.address_line1, c.address_line2, c.city, c.zipcode
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE c.restaurant_reference = ANY(${nativeLink.memberRefs}) AND c.is_live = true AND o.archived_at IS NULL
-    `.catch(() => [])) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; state: string | null }[]
+    `.catch(() => [])) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; state: string | null;
+           address_line1: string | null; address_line2: string | null; city: string | null; zipcode: string | null }[]
     if (!rows.length) return null
     const locations: LocationItem[] = rows.map(r => ({
       restaurantReference: r.restaurant_reference,
       businessName: r.name || 'Restaurant',
-      address: r.address || r.location || '',
+      // DISPLAY ONLY. The stored c.address repeats its own city/state/zip tail
+      // (see lib/address-display.ts); this renders the single clean copy. The
+      // column itself is untouched — the state parse below still reads it.
+      address: formatDisplayAddress({
+        addressLine1: r.address_line1, addressLine2: r.address_line2,
+        city: r.city, state: r.state, zipcode: r.zipcode,
+      }) || r.address || r.location || '',
       // The STRUCTURED column first. disco_restaurant_cache.state is the field
       // `address` is assembled from, so it is the source and the string is the
       // derivative — parsing the string to recover it was always backwards.
