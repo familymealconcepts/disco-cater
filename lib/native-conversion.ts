@@ -490,6 +490,39 @@ export interface InviteResult {
 // to manage it. Fetches the restaurant's REAL admin identity from FM (never reuses
 // the sentinel's fake email) and sends the same "set your password" invite already
 // used for sub-admins. Best-effort — never blocks or fails the conversion itself.
+/**
+ * Mint a fresh invite token for ONE account and send the invite email.
+ *
+ * Extracted from ensureRestaurantLoginInvited (below), which still calls it —
+ * one implementation of "mint then send", not two. It exists as its own export
+ * because that function is RESTAURANT-scoped: it resolves a single account per
+ * restaurant (`ORDER BY created_at ASC LIMIT 1`) and skips anyone holding a
+ * live token. Both are right for conversion, and both are wrong for a bulk
+ * re-invite that must reach EVERY account at a restaurant and must mint
+ * unconditionally — a resend that reuses a stored token can send a link that is
+ * already expired, which looks like a successful send and lands the user on an
+ * invalid-token page.
+ *
+ * ALWAYS mints. Callers that need the skip-if-usable behaviour check first;
+ * see hasUsableLogin.
+ */
+export async function inviteAccountByEmail(
+  email: string,
+  restaurantName: string | null,
+): Promise<{ invited: boolean; email: string; reason: string }> {
+  const token = await setInviteToken(email)
+  const sent = await sendTeamMemberInvite({
+    to: email,
+    inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
+    restaurantName: restaurantName || undefined,
+  })
+  return {
+    invited: sent.success,
+    email,
+    reason: sent.success ? 'Invite dispatched (fresh token).' : 'Invite email failed to send.',
+  }
+}
+
 export async function ensureRestaurantLoginInvited(ref: string, restaurantName: string | null): Promise<InviteResult> {
   const existing = (await sql`
     SELECT email, invite_token, invite_token_expires_at FROM disco_restaurant_accounts
@@ -509,15 +542,10 @@ export async function ensureRestaurantLoginInvited(ref: string, restaurantName: 
     // it. Don't route this through the FM-lookup/upgrade path below, which
     // would re-fetch and overwrite an email that's already correct.
     if (!SENTINEL_EMAIL_RE.test(row.email)) {
-      const token = await setInviteToken(row.email)
-      const sent = await sendTeamMemberInvite({
-        to: row.email,
-        inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
-        restaurantName: restaurantName || undefined,
-      })
+      const r = await inviteAccountByEmail(row.email, restaurantName)
       return {
-        invited: sent.success, email: row.email,
-        reason: sent.success ? 'Invited — a real email was attached to this account but never invited.' : 'Invite email failed to send (account already existed).',
+        invited: r.invited, email: row.email,
+        reason: r.invited ? 'Invited — a real email was attached to this account but never invited.' : 'Invite email failed to send (account already existed).',
       }
     }
     // else: still the raw sentinel placeholder email — fall through to the
