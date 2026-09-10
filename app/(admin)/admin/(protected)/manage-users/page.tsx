@@ -61,6 +61,56 @@ export default function AdminUsersPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Which of the listed accounts Disco can actually reset. Resolved server-side
+  // (lib/password-reset.ts) rather than guessed from the FM-sourced role here:
+  // the deciding factor is whether the restaurant is native AND the account has
+  // a Disco password_hash, neither of which this row carries.
+  const [resetElig, setResetElig] = useState<Record<string, { eligible: boolean; reason?: string }>>({})
+  const [resetBusy, setResetBusy] = useState('')
+  useEffect(() => {
+    const emails = rows.map(r => r.email).filter(Boolean)
+    if (!emails.length) { setResetElig({}); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/admin/users/reset-password?emails=${encodeURIComponent(emails.join(','))}`)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const d = await res.json()
+        if (!cancelled) setResetElig(d.eligibility || {})
+      } catch (e) {
+        // Unknown eligibility must not render as "resettable" — leaving the map
+        // empty disables every button, which is the safe direction.
+        console.error('[manage-users] reset eligibility lookup failed:', e)
+        if (!cancelled) setResetElig({})
+      }
+    })()
+    return () => { cancelled = true }
+  }, [rows])
+
+  // Send the same email the user would get from "Forgot password". Success is
+  // shown ONLY on a 2xx — the route reports the real dispatch outcome, and a
+  // failure surfaces its message rather than a generic "sent".
+  async function sendReset(u: User) {
+    const el = resetElig[u.email]
+    if (!el?.eligible || resetBusy) return
+    if (!confirm(`Send a password reset email to ${u.email}?\n\nThe link goes to that address, not to you. It expires in 1 hour.`)) return
+    setResetBusy(u.email)
+    try {
+      const res = await fetch('/api/admin/users/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: u.email }),
+      })
+      const d = await res.json().catch(() => null)
+      if (!res.ok) { alert(d?.error || `Could not send the reset (HTTP ${res.status}).`); return }
+      alert(d?.warning ? `Password reset email sent to ${u.email}.\n\nWarning: ${d.warning}` : `Password reset email sent to ${u.email}.`)
+    } catch (e) {
+      alert(`Could not send the reset: ${e instanceof Error ? e.message : 'request failed'}`)
+    } finally {
+      setResetBusy('')
+    }
+  }
+
   async function toggleEnabled(u: User) {
     const next = !u.enabled
     setRows(prev => prev.map(x => x.reference === u.reference ? { ...x, enabled: next } : x))
@@ -118,7 +168,21 @@ export default function AdminUsersPage() {
                     {u.enabled ? 'Enabled' : 'Disabled'}
                   </button>
                 </td>
-                <td style={{ ...cell, textAlign: 'right' }}>
+                <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {(() => {
+                    const el = resetElig[u.email]
+                    const can = !!el?.eligible
+                    const busy = resetBusy === u.email
+                    return (
+                      <button
+                        onClick={() => sendReset(u)}
+                        disabled={!can || busy}
+                        title={can ? 'Send the standard password reset email to this account' : (el?.reason || 'Checking…')}
+                        style={{ ...linkBtn, color: can ? BLUE : '#aaa', cursor: can && !busy ? 'pointer' : 'default', marginRight: 12 }}>
+                        {busy ? 'Sending…' : 'Reset password'}
+                      </button>
+                    )
+                  })()}
                   <button onClick={() => deleteUser(u)} style={{ ...linkBtn, color: '#E76F51' }}>Delete</button>
                 </td>
               </tr>

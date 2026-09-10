@@ -1,44 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sql } from '../../../../lib/db'
-import { setResetToken } from '../../../../lib/disco-restaurant-auth'
-import { sendPasswordReset } from '../../../../lib/email/notifications'
+import { resolveResetEligibility, sendPasswordResetTo } from '../../../../lib/password-reset'
 
 export const runtime = 'nodejs'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
-const SITE_URL = 'https://www.discocater.com'
 
-// Resolve a Disco-native restaurant account for this email, or null. Native accounts
-// live in disco_restaurant_accounts and log in against their own password_hash —
-// they have no FM record, so FM's reset can't help them. A non-native email
-// (customer, or FM-backed restaurant) returns null → FM path.
-//
-// Checks disco_restaurant_cache.is_disco_native (the authoritative flag every
-// other native-routing check uses — see lib/order/native-checkout.ts's
-// isDiscoNativeRestaurant), NOT disco_restaurant_accounts.is_disco_native: the
-// latter is only ever set at account-row creation time (lib/native-conversion.ts)
-// and is never updated when an already-existing account's restaurant later
-// converts to native, so it silently goes stale. Confirmed for real: Concierge
-// Test (created via create-restaurant, converted afterward) plus 2 other
-// restaurants had cache.is_disco_native=true but accounts.is_disco_native still
-// false — "Forgot Password" for all three fell through to the legacy FM proxy
-// path (wrong branding, and FM's password doesn't even control Disco login for
-// a native restaurant) instead of ever generating a Disco reset token.
-async function findNativeAccount(email: string): Promise<{ email: string; first_name: string | null; restaurant_name: string | null } | null> {
-  try {
-    const rows = (await sql`
-      SELECT a.email, a.first_name, a.restaurant_name
-      FROM disco_restaurant_accounts a
-      JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference
-      WHERE lower(a.email) = lower(${email}) AND c.is_disco_native = true AND a.password_hash IS NOT NULL
-      LIMIT 1
-    `) as Array<{ email: string; first_name: string | null; restaurant_name: string | null }>
-    return rows[0] ?? null
-  } catch (err) {
-    console.error('[forgot-password] native lookup failed:', err instanceof Error ? err.message : err)
-    return null
-  }
-}
+// The native branch's account lookup, token issue and email send now live in
+// lib/password-reset.ts, shared with the super-admin Users screen's reset
+// button. Behaviour here is unchanged — same predicate for "is this a Disco
+// login", same 1-hour token, same email — it is just no longer the only copy.
+// See that file for why is_disco_native is read off the CACHE, not off the
+// account row.
 
 // POST /api/auth/forgot-password  { email }
 // Two purely-additive paths, both ending in the SAME uniform 200 { success: true }
@@ -60,22 +32,23 @@ export async function POST(req: NextRequest) {
   const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
   if (valid) {
     // ── Disco-native branch (additive) ──────────────────────────────────────
-    const native = await findNativeAccount(email)
-    if (native) {
-      try {
-        const token = await setResetToken(native.email)
-        await sendPasswordReset({
-          to: native.email,
-          firstName: native.first_name || undefined,
-          restaurantName: native.restaurant_name || undefined,
-          resetUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
-        })
-      } catch (err) {
-        console.error('[forgot-password] native reset failed:', err instanceof Error ? err.message : err)
+    // Errors stay swallowed HERE and only here: this endpoint is unauthenticated
+    // and must not leak whether an account exists, so every path below returns
+    // the same 200. The admin caller of the same function does the opposite and
+    // surfaces the real outcome.
+    let handledNatively = false
+    try {
+      const elig = await resolveResetEligibility(email)
+      if (elig.eligible) {
+        handledNatively = true
+        const out = await sendPasswordResetTo(elig.target, { source: 'self-service', actorEmail: null })
+        if (!out.ok) console.error('[forgot-password] native reset not sent:', out.code, out.message)
       }
-      // Native handled — do NOT also hit FM (native accounts have no FM record).
-      return NextResponse.json({ success: true })
+    } catch (err) {
+      console.error('[forgot-password] native reset failed:', err instanceof Error ? err.message : err)
     }
+    // Native handled — do NOT also hit FM (native accounts have no FM record).
+    if (handledNatively) return NextResponse.json({ success: true })
 
     // ── FM proxy (UNCHANGED — customers + FM-backed restaurants) ─────────────
     try {

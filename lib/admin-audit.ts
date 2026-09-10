@@ -33,6 +33,10 @@ export type AdminAuditAction =
   // admin portal — settings
   | 'money_flow_update' | 'payout_schedule_update'
   | 'admin_overrides_update' | 'admin_cache_update'
+  // credentials — a reset triggered on someone else's account (and the storage
+  // the per-target cooldown in lib/password-reset.ts reads). actor_email is the
+  // super admin who clicked, or null for a self-service reset.
+  | 'password_reset_sent'
 
 let auditTableEnsured = false
 async function ensureAuditTable(): Promise<void> {
