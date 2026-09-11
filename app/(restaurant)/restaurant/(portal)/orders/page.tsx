@@ -624,8 +624,19 @@ function RefundModal({ order, orderRef, onClose, onSaved }: { order: Order; orde
           Use full amount ({fmt(maxAmt)})
         </label>
         {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '8px 12px', marginBottom: 12, color: '#DC2626', fontSize: 12 }}>{error}</div>}
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
           <button onClick={onClose} style={{ padding: '8px 16px', border: '1px solid #ddd', borderRadius: 8, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: F }}>Cancel</button>
+          {/* NO REFUND — closes this dialog and nothing else.
+              It calls onClose, the same handler as the Cancel button beside it.
+              It does NOT call save(), so it never reaches PUT .../refund, which is
+              the only Stripe path this component has. It issues no refund record,
+              does not touch the amount or the full-amount checkbox, and leaves the
+              order exactly as it was — which, when this dialog was opened by the
+              Cancel button, means cancelled with the payment untouched. */}
+          <button onClick={onClose} disabled={saving}
+            style={{ padding: '8px 16px', border: '1px solid #d8d8e4', borderRadius: 8, background: '#fff', color: DARK, fontSize: 13, cursor: saving ? 'default' : 'pointer', fontFamily: F, fontWeight: 600 }}>
+            No Refund
+          </button>
           <button onClick={save} disabled={saving || invalid} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: '#E53935', color: '#fff', fontSize: 13, cursor: saving || invalid ? 'default' : 'pointer', opacity: saving || invalid ? 0.5 : 1, fontFamily: F, fontWeight: 600 }}>
             Refund
           </button>
@@ -732,21 +743,51 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
     return () => { cancelled = true }
   }, [orderRef])
 
-  async function updateStatus(status: string) {
-    await fetch(`/api/restaurant/orders/${orderRef}/status?orderStatus=${status}`, { method: 'PUT' })
+  // Returns whether the write actually landed. It used to ignore the response
+  // entirely, so a 4xx/5xx looked identical to success — which matters now that
+  // Cancel chains the Refund dialog off the result.
+  async function updateStatus(status: string): Promise<boolean> {
+    let ok = false
+    try {
+      const res = await fetch(`/api/restaurant/orders/${orderRef}/status?orderStatus=${status}`, { method: 'PUT' })
+      ok = res.ok
+      if (!ok) {
+        const d = await res.json().catch(() => ({}))
+        toast(d?.error || `Could not update the order (HTTP ${res.status}).`, { kind: 'error' })
+      }
+    } catch (e) {
+      toast(`Could not update the order: ${e instanceof Error ? e.message : 'request failed'}`, { kind: 'error' })
+    }
     onOrderUpdated()
     loadOrder()
+    return ok
   }
 
   function handleStatusChange(status: string) {
     if (status === 'CANCELED' || status === 'VOIDED') {
       setConfirm({
         msg: 'Do you want to cancel? Order status will be changed and customer will be notified.',
-        action: () => updateStatus(status),
+        action: () => { void updateStatus(status) },
       })
     } else {
-      updateStatus(status)
+      void updateStatus(status)
     }
+  }
+
+  // Cancel button. Reuses the EXISTING cancel path exactly — the same confirm
+  // copy and the same updateStatus('CANCELED') the Change Status dropdown used,
+  // so the customer notification, the FM best-effort proxy and the
+  // STATUS_CHANGED event row all still happen, unchanged.
+  //
+  // Then, and only if the cancel actually landed, the Refund dialog opens so the
+  // money decision is made deliberately rather than assumed. Cancelling issues
+  // no refund by itself (see the status route) — that separation is what makes
+  // the dialog's "No Refund" a genuine no-op rather than an undo.
+  function handleCancelOrder() {
+    setConfirm({
+      msg: 'Do you want to cancel? Order status will be changed and customer will be notified.',
+      action: async () => { if (await updateStatus('CANCELED')) setModal('refund') },
+    })
   }
 
   // FM totals derivation (shared/order-details mappingOrderDetails lines 78-93)
@@ -807,22 +848,10 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               </span>
             </div>
 
-            {/* Status change */}
-            {!TERMINAL.has(order.orderStatus) && order.orderStatusesToChange?.length > 0 && (
-              <div style={{ marginBottom: 16 }} className="order-drawer-chrome">
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#666', display: 'block', marginBottom: 6 }}>Change Status</label>
-                <select
-                  value=""
-                  onChange={e => { if (e.target.value) handleStatusChange(e.target.value) }}
-                  style={{ width: '100%', border: '1.5px solid #e0e0e0', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: F, background: '#fff', outline: 'none' }}
-                >
-                  <option value="">Select new status…</option>
-                  {[...new Set(order.orderStatusesToChange)].map(s => (
-                    <option key={s} value={s}>{STATUS_LABEL[s] || s}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {/* Change Status dropdown removed — the bottom action buttons
+                (Complete / Cancel / Refund) set the status instead.
+                handleStatusChange is still the single status entry point they
+                all call, so the confirm copy and the cancel path are unchanged. */}
 
             {/* ORDER DETAILS table — store info */}
             <SectionHeader>Order Details</SectionHeader>
@@ -1005,14 +1034,18 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                   Refund
                 </button>
               )}
-              {/* Void is only offered once the pickup/delivery datetime has
-                  passed — it records "food prepared, not fulfilled". */}
-              {!TERMINAL.has(order.orderStatus) && isPastPickup(order) && (
-                <button onClick={() => setModal('void')}
-                  style={{ padding: '8px 14px', background: '#6B7280', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                  Void
-                </button>
-              )}
+              {/* Cancel — available on EVERY order regardless of status, so it is
+                  deliberately not gated on TERMINAL or on a charge existing.
+                  Pink rather than Refund's red: destructive, visibly not the
+                  same action as moving money. */}
+              <button onClick={handleCancelOrder}
+                style={{ padding: '8px 14px', background: '#F0468A', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                Cancel
+              </button>
+              {/* Void BUTTON removed from the panel. The functionality is
+                  deliberately left in place — VoidModal below, the PUT
+                  .../void route, and isPastPickup are all untouched — so this
+                  is a hidden control, not a deleted feature. */}
               <button onClick={() => setModal('note')}
                 style={{ padding: '8px 14px', background: '#F59E0B', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
                 Add notes
