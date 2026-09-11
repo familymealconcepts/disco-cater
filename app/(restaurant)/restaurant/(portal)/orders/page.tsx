@@ -151,6 +151,11 @@ const HISTORY_STATUSES = ['COMPLETED', 'REOPEN', 'CANCELED', 'EXPIRED', 'RESERVE
 const COUNTS_STATUSES = ['COMPLETED', 'DUE']
 const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'PARTIAL_REFUND', 'CANCELED', 'VOID', 'VOIDED'])
 
+// Both spellings are live in disco_orders (the status route's ALLOWED set and
+// normStatus carry CANCELED and CANCELLED), so anything keyed on "is this order
+// cancelled" must read both or the Due button would miss half of them.
+const CANCELLED_STATUSES = new Set(['CANCELED', 'CANCELLED'])
+
 // RESERVED/EXPIRED/CART/SELECTED get funnel-stage wording instead of the raw
 // FM enum name — "Reserved"/"Expired" don't say where in checkout an order
 // actually got to. CART/SELECTED are rarely seen here (FM hard-deletes them
@@ -769,6 +774,15 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
         msg: 'Do you want to cancel? Order status will be changed and customer will be notified.',
         action: () => { void updateStatus(status) },
       })
+    } else if (status === 'DUE') {
+      // Reinstating a cancelled order. The copy says the customer is NOT
+      // notified because the status route genuinely does not email on DUE —
+      // sendOrderCancellationEmail is its only send and it is gated to
+      // CANCELED/CANCELLED. No reinstatement email exists, and none was added.
+      setConfirm({
+        msg: 'Reinstate this order? It will move back to Due. The customer is not notified — tell them yourself if they need to know.',
+        action: () => { void updateStatus(status) },
+      })
     } else {
       void updateStatus(status)
     }
@@ -1034,14 +1048,33 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
                   Refund
                 </button>
               )}
-              {/* Cancel — available on EVERY order regardless of status, so it is
-                  deliberately not gated on TERMINAL or on a charge existing.
-                  Pink rather than Refund's red: destructive, visibly not the
-                  same action as moving money. */}
-              <button onClick={handleCancelOrder}
-                style={{ padding: '8px 14px', background: '#F0468A', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
-                Cancel
-              </button>
+              {/* Cancel and Due SWAP — never both. Cancel stays ungated on
+                  TERMINAL and on whether a charge exists; it is gated only on
+                  the order not ALREADY being cancelled. Pink rather than
+                  Refund's red: destructive, visibly not the same action as
+                  moving money. A cancelled order showing Cancel would re-apply
+                  the status it already has, and an order that is not cancelled
+                  has nothing to reinstate. */}
+              {!CANCELLED_STATUSES.has(order.orderStatus) && (
+                <button onClick={handleCancelOrder}
+                  style={{ padding: '8px 14px', background: '#F0468A', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  Cancel
+                </button>
+              )}
+              {/* Due — reinstate. Routed through handleStatusChange, the same
+                  single status entry point every other button uses, so it gets
+                  the confirm and the PUT .../status write with no separate
+                  route. Purple: restorative, matching Reopen (the other
+                  move-back-to-Due action) and distinct from Cancel's pink and
+                  Refund's red. Deliberately NOT gated on whether a refund
+                  exists — a cancelled-and-refunded order may be reinstated like
+                  any other (product decision, 2026-09-11). */}
+              {CANCELLED_STATUSES.has(order.orderStatus) && (
+                <button onClick={() => handleStatusChange('DUE')}
+                  style={{ padding: '8px 14px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  Due
+                </button>
+              )}
               {/* Void BUTTON removed from the panel. The functionality is
                   deliberately left in place — VoidModal below, the PUT
                   .../void route, and isPastPickup are all untouched — so this
