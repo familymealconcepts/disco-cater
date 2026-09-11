@@ -108,6 +108,21 @@ const PINK = '#F0468A'
 const GOLD = '#EFB84A'
 const BRAND_RING = [PURPLE, MAGENTA, PINK, INDIGO, GOLD]
 
+// The avatar edge, shared by the grid avatars, the +N chip and the agenda
+// avatars so the three cannot drift apart. TWO layers, because one cannot do
+// both jobs:
+//   · a white gap, so overlapping circles in a stack read as separate discs and
+//     so the edge stays visible over today's filled indigo day-disc beside it;
+//   · a soft purple hairline outside it (brand #6B6EF9 at 22%), so a logo with a
+//     white or near-white background still has a boundary against the cell.
+// Translucent and only 1px wide on purpose — at full strength it reads as an
+// outline drawn around the logo rather than a separation from the background,
+// and it stays soft over the white cell, the #fbfaff hover tint and the
+// #f7f6ff today tint alike.
+function avatarRing(gap = '#fff'): string {
+  return `0 0 0 1.5px ${gap}, 0 0 0 2.5px rgba(107,110,249,0.22), 0 1px 3px rgba(26,16,40,0.18)`
+}
+
 // A restaurant with no logo gets a monogram, never a broken image and never an
 // empty circle. The color is picked from the name so the same restaurant keeps
 // the same one across months and cells rather than shuffling on re-render.
@@ -127,7 +142,7 @@ function RestaurantAvatar({ name, logo, size = 20, ring = '#fff' }: {
   const [broken, setBroken] = useState(false)
   const common: React.CSSProperties = {
     width: size, height: size, borderRadius: '50%', flexShrink: 0,
-    boxShadow: `0 0 0 1.5px ${ring}, 0 1px 3px rgba(26,16,40,0.18)`,
+    boxShadow: avatarRing(ring),
     display: 'block', objectFit: 'cover', background: '#fff',
   }
   if (logo && !broken) {
@@ -159,7 +174,7 @@ function AvatarStack({ names, logos, size = 20, max = 3 }: {
           width: size, height: size, borderRadius: '50%', background: DARK, color: '#fff',
           fontSize: Math.round(size * 0.4), fontWeight: 700, fontFamily: F, display: 'flex',
           alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          boxShadow: '0 0 0 1.5px #fff, 0 1px 3px rgba(26,16,40,0.18)',
+          boxShadow: avatarRing(),
         }}>+{extra}</div>
       )}
       {/* row-reverse + negative margin puts the FIRST avatar on top of the pile */}
