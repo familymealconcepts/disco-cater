@@ -100,6 +100,98 @@ function statusPill(status?: string): { label: string; bg: string; color: string
   return { label: 'Upcoming', bg: '#EEEDFE', color: '#3C3489' }
 }
 
+// ── Restaurant avatars ───────────────────────────────────────────────────────
+// Brand palette (the only colors used here).
+const PURPLE = '#6B6EF9'
+const MAGENTA = '#C044C8'
+const PINK = '#F0468A'
+const GOLD = '#EFB84A'
+const BRAND_RING = [PURPLE, MAGENTA, PINK, INDIGO, GOLD]
+
+// A restaurant with no logo gets a monogram, never a broken image and never an
+// empty circle. The color is picked from the name so the same restaurant keeps
+// the same one across months and cells rather than shuffling on re-render.
+function brandColorFor(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return BRAND_RING[h % BRAND_RING.length]
+}
+function initialFor(name: string): string {
+  const c = (name.trim().match(/[A-Za-z0-9]/) || ['?'])[0]
+  return c.toUpperCase()
+}
+
+function RestaurantAvatar({ name, logo, size = 20, ring = '#fff' }: {
+  name: string; logo?: string; size?: number; ring?: string
+}) {
+  const [broken, setBroken] = useState(false)
+  const common: React.CSSProperties = {
+    width: size, height: size, borderRadius: '50%', flexShrink: 0,
+    boxShadow: `0 0 0 1.5px ${ring}, 0 1px 3px rgba(26,16,40,0.18)`,
+    display: 'block', objectFit: 'cover', background: '#fff',
+  }
+  if (logo && !broken) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={logo} alt={name} title={name} style={common} onError={() => setBroken(true)} />
+  }
+  const bg = brandColorFor(name)
+  return (
+    <div title={name} aria-label={name} style={{
+      ...common, background: bg, color: '#fff', display: 'flex', alignItems: 'center',
+      justifyContent: 'center', fontSize: Math.round(size * 0.46), fontWeight: 700,
+      fontFamily: F, letterSpacing: '-0.02em', userSelect: 'none',
+    }}>{initialFor(name)}</div>
+  )
+}
+
+// Overlapping stack, newest-first, capped with a +N chip. Overlap keeps four
+// avatars inside ~56px so they still fit a narrow grid cell.
+function AvatarStack({ names, logos, size = 20, max = 3 }: {
+  names: string[]; logos: Record<string, string>; size?: number; max?: number
+}) {
+  const shown = names.slice(0, max)
+  const extra = names.length - shown.length
+  const overlap = Math.round(size * 0.32)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', flexDirection: 'row-reverse' }}>
+      {extra > 0 && (
+        <div style={{
+          width: size, height: size, borderRadius: '50%', background: DARK, color: '#fff',
+          fontSize: Math.round(size * 0.4), fontWeight: 700, fontFamily: F, display: 'flex',
+          alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          boxShadow: '0 0 0 1.5px #fff, 0 1px 3px rgba(26,16,40,0.18)',
+        }}>+{extra}</div>
+      )}
+      {/* row-reverse + negative margin puts the FIRST avatar on top of the pile */}
+      {shown.slice().reverse().map((n, i) => (
+        <div key={n + i} style={{ marginLeft: -overlap, position: 'relative', zIndex: i + 1 }}>
+          <RestaurantAvatar name={n} logo={logos[n.toLowerCase()]} size={size} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// One logo lookup for a set of restaurant names. Both the desktop grid (per
+// visible month) and the mobile agenda (per loaded page of orders) use this, so
+// there is a single fetch shape and a single cache key — never one call per
+// order or per cell.
+function useRestaurantLogos(names: string[]): Record<string, string> {
+  const key = names.join('|')
+  const [logos, setLogos] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (!key) return
+    let cancelled = false
+    fetch(`/api/customer/restaurant-logos?names=${encodeURIComponent(key)}`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : { logos: {} }))
+      .then(d => { if (!cancelled) setLogos(prev => ({ ...prev, ...(d.logos || {}) })) })
+      // Logos are decoration; a failed lookup leaves every bubble a monogram.
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [key])
+  return logos
+}
+
 // ── Calendar ─────────────────────────────────────────────────────────────────
 
 function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[]; onOpenOrder: (ref: string) => void; onEmptyDateClick: (iso: string) => void }) {
@@ -118,7 +210,8 @@ function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[
 
   function chM(dir: number) { let m = mo + dir, y = yr; if (m > 11) { m = 0; y++ } if (m < 0) { m = 11; y-- } setMo(m); setYr(y) }
 
-  // Build calendar events from real orders
+  // Build calendar events from real orders. UNCHANGED grouping — this reads the
+  // same fields into the same per-day buckets; only the avatar list below is new.
   const calEvs: Record<number, { label: string; ref: string; status: string }[]> = {}
   orders.forEach(o => {
     const dateStr = o.orderDate || o.deliveryDate || o.date || o.createdAt || ''
@@ -131,6 +224,23 @@ function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[
       calEvs[day].push({ label: o.restaurantName || o.restaurant?.name || 'Order', ref, status: o.status || '' })
     }
   })
+
+  // DISTINCT restaurants per day, in first-seen order: two orders from one
+  // restaurant is one bubble, two restaurants is two.
+  const dayRestaurants: Record<number, string[]> = {}
+  for (const [day, evs] of Object.entries(calEvs)) {
+    dayRestaurants[Number(day)] = [...new Set(evs.map(e => e.label))]
+  }
+
+  // ONE logo lookup per visible month, keyed on the month's distinct restaurant
+  // names — not one request per order, and not one per cell. Re-runs only when
+  // the month changes or the order list does.
+  const monthNames = useMemo(
+    () => [...new Set(Object.values(dayRestaurants).flat())].sort(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [orders, yr, mo],
+  )
+  const logos = useRestaurantLogos(monthNames)
 
   function evStyle(status: string): React.CSSProperties {
     const s = (status || '').toUpperCase()
@@ -161,9 +271,13 @@ function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[
           <button onClick={() => chM(1)} style={navBtn}>›</button>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', border: '1px solid #e8e8e8', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(7,1fr)',
+        border: '1px solid #ece9f6', borderRadius: 14, overflow: 'hidden', background: '#fff',
+        boxShadow: '0 1px 2px rgba(26,16,40,0.04), 0 8px 24px -12px rgba(26,16,40,0.14)',
+      }}>
         {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
-          <div key={d} style={{ background: '#efefef', textAlign: 'center', fontSize: 9, color: '#666', padding: '7px 2px', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: '1px solid #f0f0f0' }}>{d}</div>
+          <div key={d} style={{ background: '#faf9ff', textAlign: 'center', fontSize: 9, color: '#8b86a8', padding: '9px 2px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', borderBottom: '1px solid #ece9f6' }}>{d}</div>
         ))}
         {cells.map((cell, i) => {
           const evs = cell.cur ? (calEvs[cell.d] || []) : []
@@ -171,6 +285,8 @@ function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[
             ? `${yr}-${String(mo + 1).padStart(2, '0')}-${String(cell.d).padStart(2, '0')}`
             : ''
           const clickable = cell.cur  // empty current-month cells start a new order
+          const rests = cell.cur ? (dayRestaurants[cell.d] || []) : []
+          const base = cell.today ? '#f7f6ff' : '#fff'
           return (
             <div key={i}
               onClick={() => {
@@ -178,15 +294,27 @@ function Calendar({ orders, onOpenOrder, onEmptyDateClick }: { orders: ApiOrder[
                 if (evs.length) onOpenOrder(evs[0].ref)
                 else onEmptyDateClick(cellIso)
               }}
-              style={{ background: cell.today ? '#f0f0ff' : '#fff', minHeight: 72, padding: 6, cursor: clickable ? 'pointer' : 'default', borderRight: '0.5px solid #f5f5f5', borderBottom: '0.5px solid #f5f5f5', opacity: cell.cur ? 1 : 0.3, transition: 'background 0.1s' }}
-              onMouseOver={e => { if (clickable) (e.currentTarget as HTMLElement).style.background = '#fafafa' }}
-              onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = cell.today ? '#f0f0ff' : '#fff' }}
+              style={{ position: 'relative', background: base, minHeight: 84, padding: '6px 6px 7px', cursor: clickable ? 'pointer' : 'default', borderRight: '0.5px solid #f3f1fa', borderBottom: '0.5px solid #f3f1fa', opacity: cell.cur ? 1 : 0.32, transition: 'background 0.12s ease, box-shadow 0.12s ease' }}
+              onMouseOver={e => { if (clickable) { const t = e.currentTarget as HTMLElement; t.style.background = cell.today ? '#f2f0ff' : '#fbfaff'; t.style.boxShadow = 'inset 0 0 0 1.5px rgba(107,110,249,0.28)' } }}
+              onMouseOut={e => { const t = e.currentTarget as HTMLElement; t.style.background = base; t.style.boxShadow = 'none' }}
             >
-              <div style={{ fontSize: 10, fontWeight: cell.today ? 700 : 600, color: cell.today ? INDIGO : '#727272', marginBottom: 3 }}>{cell.d}</div>
+              {/* Header row: day number left, restaurant avatars top-RIGHT. Kept
+                  in normal flow (not absolute) so the avatars always reserve
+                  their own height and can never sit on top of the first pill. */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4, minHeight: 20, marginBottom: 4 }}>
+                <div style={{
+                  fontSize: 11, fontWeight: cell.today ? 800 : 600, lineHeight: '18px',
+                  color: cell.today ? '#fff' : '#6f6a85', flexShrink: 0,
+                  width: 18, height: 18, textAlign: 'center', borderRadius: '50%',
+                  background: cell.today ? INDIGO : 'transparent',
+                }}>{cell.d}</div>
+                {rests.length > 0 && <AvatarStack names={rests} logos={logos} size={20} max={3} />}
+              </div>
               {evs.map((ev, j) => (
                 <div key={j}
                   onClick={e => { e.stopPropagation(); onOpenOrder(ev.ref) }}
-                  style={{ fontSize: 9, padding: '2px 5px', borderRadius: 3, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, cursor: 'pointer', ...evStyle(ev.status) }}
+                  title={ev.label}
+                  style={{ fontSize: 9, padding: '3px 6px 3px 7px', borderRadius: 5, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, cursor: 'pointer', borderLeft: '2.5px solid currentColor', ...evStyle(ev.status) }}
                 >
                   {ev.label}
                 </div>
@@ -255,6 +383,15 @@ function MonthAgenda({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder:
     return arr
   }, [orders])
 
+  // Same single lookup as the grid — the agenda is the MOBILE rendering of this
+  // calendar (the 7-column grid is hidden below 768px), so it gets the same
+  // avatars rather than staying plain text on phones.
+  const agendaNames = useMemo(
+    () => [...new Set(orders.map(o => o.restaurantName || o.restaurant?.name || '').filter(Boolean))].sort(),
+    [orders],
+  )
+  const logos = useRestaurantLogos(agendaNames)
+
   return (
     <div>
       {groups.map(g => (
@@ -272,6 +409,7 @@ function MonthAgenda({ orders, onOpenOrder }: { orders: ApiOrder[]; onOpenOrder:
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px', borderBottom: i < g.items.length - 1 ? '1px solid #f5f5f5' : 'none', cursor: 'pointer' }}
                 >
                   <div style={{ width: 46, flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#111', textAlign: 'center', lineHeight: 1.3 }}>{fmtDayMonth(dateStr)}</div>
+                  <RestaurantAvatar name={name} logo={logos[name.toLowerCase()]} size={28} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}{getOrderSourceBadge(o.sourceoforder || '')}</div>
                     <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
