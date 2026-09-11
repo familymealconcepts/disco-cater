@@ -21,6 +21,14 @@ const LOG = 'data/conversion-invites.jsonl'
 const STAGGER_MS = 30_000
 const APPLY = process.argv.includes('--apply')
 const DAY = Number((process.argv.find(a => a.startsWith('--day=')) || '--day=1').split('=')[1])
+// Restrict the batch to specific addresses. Added to send ONE account that a
+// mid-run change to HARD_BOUNCED shifted between partitions: day 1 picks each
+// restaurant's FIRST eligible account, so excluding fhunter@burgerfi.com after
+// day 1 had already run promoted gcutie@burgerfi.com from day 2 into day 1 —
+// a batch that was already finished — and day 2 then skipped it. Re-running a
+// partition is safe (the log dedupes), but it would also sweep in accounts
+// created since the cohort was frozen, which are out of scope.
+const ONLY = new Set((process.argv.find(a => a.startsWith('--only=')) || '--only=').split('=')[1].split(',').map(x => x.trim().toLowerCase()).filter(Boolean))
 
 // Addresses Mailgun will not deliver to. Sending again spends nothing at the
 // receiving end — Mailgun blocks it locally — but it records a false dispatch
@@ -80,7 +88,9 @@ async function main() {
     if (!l.trim()) continue
     try { const j = JSON.parse(l); if (j.run === 'outstanding-2026-09-10') already.add(String(j.email).toLowerCase()) } catch {}
   }
-  const todo = batch.filter(r => !already.has(r.email.toLowerCase()))
+  const todo = batch
+    .filter(r => !already.has(r.email.toLowerCase()))
+    .filter(r => !ONLY.size || ONLY.has(r.email.toLowerCase()))
 
   console.log(`eligible ${eligible.length} | day1 ${day1.length} | day2 ${day2.length} | skipped ${skipped.length}`)
   console.log(`DAY ${DAY}: ${batch.length} in batch, ${already.size} already sent this run, ${todo.length} to send`)
