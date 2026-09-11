@@ -529,7 +529,11 @@ export default function MenuForm({ menuRef }: { menuRef?: string }) {
         <div style={card}>
           <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 4 }}>Blackout Dates</div>
           <div style={{ fontSize: 12, color: '#999', marginBottom: 14 }}>Dates this menu is unavailable (holidays, closures). Block the whole day, or just a range of hours — the rest of that day stays orderable. For restaurant-wide closures, use Closed Days.</div>
-          <SkippedDaysEditor value={skippedDays} onChange={setSkippedDays} inputStyle={inputStyle} labelStyle={label} requireName={false} />
+          {/* editable ONLY here. This form PUTs /api/restaurant/disco-menus/{ref},
+              which writes disco_menus.skipped_days in Neon — no FamilyMeal on
+              this path. manage-v2's copy of this list proxies FM, so it stays
+              read-only (see the `editable` prop's note). */}
+          <SkippedDaysEditor value={skippedDays} onChange={setSkippedDays} inputStyle={inputStyle} labelStyle={label} requireName={false} editable />
         </div>
 
         {/* Visible */}

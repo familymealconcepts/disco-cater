@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { TimeSelect } from './TimeSelect'
+import { TimeSelect, normalizeTime } from './TimeSelect'
 import { formatTime12, formatTimeRange12 } from '../../../../../lib/utils/time'
 
 // Lifted verbatim (behaviour-wise) out of manage-v2/menus/MenuSettingsDialog, which
@@ -46,38 +46,148 @@ export function describeSkippedDay(d: SkippedDay): string {
   return ivs.map(iv => formatTimeRange12(iv.fromTime, iv.toTime)).join(', ')
 }
 
-export function SkippedDaysEditor({ value, onChange, inputStyle, labelStyle, requireName = true }: {
+// A blackout being composed — by the Add panel or by an inline row edit. One
+// shape, one validator, one form body, so the two cannot drift.
+interface Draft { name: string; from: string; to: string; custom: boolean; fromTime: string; toTime: string }
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+function dateOk(d: string): boolean {
+  if (!ISO_DATE.test(d)) return false
+  const [y, m, day] = d.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, day))
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === day
+}
+
+/**
+ * The first problem with a draft, or null when it is saveable.
+ *
+ * Validated BEFORE save on purpose: importFmMenuFaithfully skips any blackout
+ * row with no name or no parseable date and counts nothing, so a malformed row
+ * saved here would not fail loudly — it would simply be absent after the next
+ * import, which is far harder to notice than a refused save.
+ */
+function draftProblem(d: Draft, requireName: boolean): string | null {
+  if (requireName && !d.name.trim()) return 'Give the blackout a name.'
+  if (!d.from || !d.to) return 'Pick both dates.'
+  if (!dateOk(d.from) || !dateOk(d.to)) return 'That date is not a real calendar date.'
+  if (d.to < d.from) return 'The end date must be on or after the start date.'
+  if (d.custom && !(d.fromTime < d.toTime)) return 'The end time must be after the start time.'
+  return null
+}
+
+function draftToDay(d: Draft): SkippedDay {
+  return {
+    ...(d.name.trim() ? { name: d.name.trim() } : {}),
+    fromDate: d.from,
+    toDate: d.to || d.from,
+    // Only attach intervals for custom hours. An empty array and an absent field
+    // mean the same thing, and omitting it keeps whole-day entries byte-identical
+    // to what the importer and every pre-existing row look like.
+    ...(d.custom ? { intervals: [{ fromTime: d.fromTime, toTime: d.toTime }] } : {}),
+  }
+}
+
+function dayToDraft(d: SkippedDay): Draft {
+  const iv = (d.intervals ?? [])[0]
+  return {
+    name: d.name ?? '',
+    from: d.fromDate,
+    to: d.toDate || d.fromDate,
+    custom: !!iv,
+    // Seeded from the existing interval when there is one, so toggling
+    // all-day → range → all-day never loses the hours the row already had.
+    fromTime: normalizeTime(iv?.fromTime) || '09:00',
+    toTime: normalizeTime(iv?.toTime) || '17:00',
+  }
+}
+
+// The add panel and the row editor render THIS — same fields, same order, same
+// validation message, so an edited blackout cannot end up shaped differently
+// from an added one.
+function BlackoutFields({ draft, set, requireName, inputStyle, labelStyle }: {
+  draft: Draft; set: (d: Draft) => void; requireName: boolean
+  inputStyle: React.CSSProperties; labelStyle: React.CSSProperties
+}) {
+  const problem = draftProblem(draft, requireName)
+  return (
+    <>
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Name{requireName ? '' : ' (optional)'}</label>
+        <input style={inputStyle} value={draft.name} onChange={e => set({ ...draft, name: e.target.value })} placeholder="e.g. Thanksgiving" />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+        <div><label style={labelStyle}>From date</label><input type="date" style={inputStyle} value={draft.from} onChange={e => set({ ...draft, from: e.target.value })} /></div>
+        <div><label style={labelStyle}>To date</label><input type="date" style={inputStyle} value={draft.to} onChange={e => set({ ...draft, to: e.target.value })} /></div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: draft.custom ? 12 : 0 }}>
+        {/* Toggling either way keeps name and dates — only `custom` changes. */}
+        <ModeBtn active={!draft.custom} onClick={() => set({ ...draft, custom: false })}>Closed all day</ModeBtn>
+        <ModeBtn active={draft.custom} onClick={() => set({ ...draft, custom: true })}>Custom hours</ModeBtn>
+      </div>
+      {draft.custom && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {/* TimeSelect, never <input type="time"> — the native picker renders
+              24-hour on many systems. These options are labelled 12-hour. */}
+          <div><label style={labelStyle}>From</label><TimeSelect style={inputStyle} value={draft.fromTime} onChange={v => set({ ...draft, fromTime: v })} /></div>
+          <div><label style={labelStyle}>To</label><TimeSelect style={inputStyle} value={draft.toTime} onChange={v => set({ ...draft, toTime: v })} /></div>
+        </div>
+      )}
+      <div style={{ fontSize: 12, color: problem ? '#E24B4A' : '#888', marginTop: 8 }}>
+        {problem ?? (draft.custom
+          ? `Orders between ${formatTime12(draft.fromTime)} and ${formatTime12(draft.toTime)} are blocked, including both times. The rest of the day stays open.`
+          : 'The whole day is blocked.')}
+      </div>
+    </>
+  )
+}
+
+const EMPTY_DRAFT: Draft = { name: '', from: '', to: '', custom: false, fromTime: '09:00', toTime: '17:00' }
+
+export function SkippedDaysEditor({ value, onChange, inputStyle, labelStyle, requireName = true, editable = false }: {
   value: SkippedDay[]
   onChange: (v: SkippedDay[]) => void
   inputStyle: React.CSSProperties
   labelStyle: React.CSSProperties
   /** manage-v2 requires a name (FM does); the native form treats it as optional. */
   requireName?: boolean
+  /**
+   * Allow clicking a row to edit it. OFF by default, and deliberately so.
+   *
+   * This component is shared by two screens that save to DIFFERENT systems:
+   * menu-manager/_MenuForm PUTs /api/restaurant/disco-menus/{ref}, which writes
+   * disco_menus.skipped_days in NEON; manage-v2/menus/MenuSettingsDialog PUTs
+   * /api/restaurant/menus/{ref}, which proxies FamilyMeal. Editing is enabled
+   * only by the native form, so this feature can never become a new way to
+   * write a blackout into FM. The FM-backed screen keeps today's read-only rows.
+   */
+  editable?: boolean
 }) {
   const [adding, setAdding] = useState(false)
-  const [name, setName] = useState('')
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [custom, setCustom] = useState(false)
-  const [fromTime, setFromTime] = useState('09:00')
-  const [toTime, setToTime] = useState('17:00')
+  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT)
+  // Index of the row being edited, and its own draft — separate from the add
+  // draft so opening one never disturbs the other.
+  const [editIdx, setEditIdx] = useState<number | null>(null)
+  const [editDraft, setEditDraft] = useState<Draft>(EMPTY_DRAFT)
 
-  const timesValid = !custom || fromTime < toTime
-  const canAdd = (!requireName || !!name.trim()) && !!from && !!to && timesValid
+  const addProblem = draftProblem(draft, requireName)
+  const editProblem = draftProblem(editDraft, requireName)
 
-  function reset() { setName(''); setFrom(''); setTo(''); setCustom(false); setFromTime('09:00'); setToTime('17:00'); setAdding(false) }
+  function reset() { setDraft(EMPTY_DRAFT); setAdding(false) }
   function add() {
-    if (!canAdd) return
-    onChange([...value, {
-      ...(name.trim() ? { name: name.trim() } : {}),
-      fromDate: from,
-      toDate: to || from,
-      // Only attach intervals when custom hours were chosen. An empty array and an
-      // absent field mean the same thing, and omitting it keeps whole-day entries
-      // byte-identical to what the importer and every pre-existing row look like.
-      ...(custom ? { intervals: [{ fromTime, toTime }] } : {}),
-    }])
+    if (addProblem) return
+    onChange([...value, draftToDay(draft)])
     reset()
+  }
+  function openEdit(i: number) {
+    setAdding(false)
+    setEditIdx(i)
+    setEditDraft(dayToDraft(value[i]))
+  }
+  function cancelEdit() { setEditIdx(null); setEditDraft(EMPTY_DRAFT) }
+  function saveEdit() {
+    if (editIdx === null || editProblem) return
+    onChange(value.map((d, j) => (j === editIdx ? draftToDay(editDraft) : d)))
+    cancelEdit()
   }
 
   return (
@@ -85,48 +195,46 @@ export function SkippedDaysEditor({ value, onChange, inputStyle, labelStyle, req
       {value.length > 0 && (
         <div style={{ marginBottom: 12 }}>
           {value.map((d, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', border: '1px solid #eee', borderRadius: 8, marginBottom: 6, background: '#fafafe' }}>
+            editIdx === i ? (
+              <div key={i} style={{ border: '1px solid ' + INDIGO, borderRadius: 10, padding: 14, marginBottom: 6, background: '#fff' }}>
+                <BlackoutFields draft={editDraft} set={setEditDraft} requireName={requireName} inputStyle={inputStyle} labelStyle={labelStyle} />
+                <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                  <button type="button" onClick={saveEdit} disabled={!!editProblem}
+                    style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: editProblem ? 'default' : 'pointer', fontFamily: F, opacity: editProblem ? 0.5 : 1 }}>Save</button>
+                  <button type="button" onClick={cancelEdit}
+                    style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, color: '#555' }}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+            <div key={i}
+              onClick={editable ? () => openEdit(i) : undefined}
+              role={editable ? 'button' : undefined}
+              tabIndex={editable ? 0 : undefined}
+              onKeyDown={editable ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(i) } }) : undefined}
+              title={editable ? 'Edit this blackout' : undefined}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', border: '1px solid #eee', borderRadius: 8, marginBottom: 6, background: '#fafafe', cursor: editable ? 'pointer' : 'default', transition: 'border-color 0.12s ease, background 0.12s ease' }}
+              onMouseOver={editable ? (e => { const t = e.currentTarget as HTMLElement; t.style.borderColor = INDIGO; t.style.background = '#f6f5ff' }) : undefined}
+              onMouseOut={editable ? (e => { const t = e.currentTarget as HTMLElement; t.style.borderColor = '#eee'; t.style.background = '#fafafe' }) : undefined}
+            >
               <div style={{ fontSize: 13, color: DARK }}>
-                {d.name && <span style={{ fontWeight: 600 }}>{d.name}</span>}
+                {d.name && <span style={{ fontWeight: 600, textDecoration: editable ? 'underline' : 'none', textDecorationColor: '#d5d3ea', textUnderlineOffset: 3 }}>{d.name}</span>}
                 <span style={{ color: '#888' }}>{d.name ? ' · ' : ''}{d.fromDate}{d.toDate !== d.fromDate ? ` → ${d.toDate}` : ''} · {describeSkippedDay(d)}</span>
               </div>
-              <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} aria-label="Remove blackout"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E24B4A', fontSize: 18, lineHeight: 1 }}>×</button>
+              {/* stopPropagation so the X deletes without ALSO opening the editor. */}
+              <button type="button" onClick={e => { e.stopPropagation(); if (editIdx === i) cancelEdit(); onChange(value.filter((_, j) => j !== i)) }} aria-label="Remove blackout"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E24B4A', fontSize: 18, lineHeight: 1, flexShrink: 0, marginLeft: 10 }}>×</button>
             </div>
+            )
           ))}
         </div>
       )}
 
       {adding ? (
         <div style={{ border: '1px dashed #d8d8e4', borderRadius: 10, padding: 14 }}>
-          <div style={{ marginBottom: 12 }}>
-            <label style={labelStyle}>Name{requireName ? '' : ' (optional)'}</label>
-            <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Thanksgiving" />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div><label style={labelStyle}>From date</label><input type="date" style={inputStyle} value={from} onChange={e => setFrom(e.target.value)} /></div>
-            <div><label style={labelStyle}>To date</label><input type="date" style={inputStyle} value={to} onChange={e => setTo(e.target.value)} /></div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: custom ? 12 : 0 }}>
-            <ModeBtn active={!custom} onClick={() => setCustom(false)}>Closed all day</ModeBtn>
-            <ModeBtn active={custom} onClick={() => setCustom(true)}>Custom hours</ModeBtn>
-          </div>
-          {custom && (
-            <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div><label style={labelStyle}>From</label><TimeSelect style={inputStyle} value={fromTime} onChange={setFromTime} /></div>
-                <div><label style={labelStyle}>To</label><TimeSelect style={inputStyle} value={toTime} onChange={setToTime} /></div>
-              </div>
-              <div style={{ fontSize: 12, color: timesValid ? '#888' : '#E24B4A', marginTop: 8 }}>
-                {timesValid
-                  ? `Orders between ${formatTime12(fromTime)} and ${formatTime12(toTime)} are blocked, including both times. The rest of the day stays open.`
-                  : 'The end time must be after the start time.'}
-              </div>
-            </>
-          )}
+          <BlackoutFields draft={draft} set={setDraft} requireName={requireName} inputStyle={inputStyle} labelStyle={labelStyle} />
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-            <button type="button" onClick={add} disabled={!canAdd}
-              style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: canAdd ? 'pointer' : 'default', fontFamily: F, opacity: canAdd ? 1 : 0.5 }}>Add</button>
+            <button type="button" onClick={add} disabled={!!addProblem}
+              style={{ background: BLUE, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: addProblem ? 'default' : 'pointer', fontFamily: F, opacity: addProblem ? 0.5 : 1 }}>Add</button>
             <button type="button" onClick={reset}
               style={{ background: 'transparent', border: '1px solid #ddd', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F, color: '#555' }}>Cancel</button>
           </div>
