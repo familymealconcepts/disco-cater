@@ -515,21 +515,26 @@ export async function sendCustomerOrderCancellation(
       ? ` (order #${escapeHtml(p.orderNumber)})`
       : ''
 
-    // Three states, and the wording differs because the customer's next action
-    // differs. Promising a refund that has not happened is the one thing this
-    // email must never do.
+    // A refund that HAS been issued is still stated, because it is the one thing
+    // the customer needs from this email and promising it when it has not
+    // happened is the only thing this email must never do.
+    //
+    // p.wasCharged is deliberately NO LONGER RENDERED (2026-09-12). It used to
+    // add "Your card was charged for this order…"; that paragraph was removed by
+    // product decision. The flag is still computed and passed by
+    // lib/order/cancellation-email.ts and is left in place so restoring the
+    // sentence is a one-line change, but nothing prints it today.
     let moneyLine = ''
     if (p.refundedAmount != null && p.refundedAmount > 0.005) {
       moneyLine = `<p>A refund of <strong>${money(p.refundedAmount)}</strong> has been issued. Please allow a few days for the credit to reach your account, depending on your bank.</p>`
-    } else if (p.wasCharged) {
-      moneyLine = `<p>Your card was charged for this order. ${escapeHtml(p.businessName)} will be in touch about the charge — if you don't hear from them, contact them using the details below.</p>`
     }
 
     const content = `
 <p>${name ? `${name},` : 'Hi,'}</p>
 <p>Your order${orderLine} with ${escapeHtml(p.businessName)} has been canceled.</p>
 ${moneyLine}
-<p style="margin-top:28px;">ANY QUESTIONS?<br/>${escapeHtml(p.businessName)}${phone ? ` - ${escapeHtml(phone)}` : ''}</p>
+<p>Please reach out if you have any questions.</p>
+<p style="margin-top:28px;">${escapeHtml(p.businessName)}${phone ? ` - ${escapeHtml(phone)}` : ''}</p>
 `
     return await sendEmail({
       to: p.to,
