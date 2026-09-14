@@ -8,7 +8,8 @@ import { getCallerScopeRefs } from '../../../../../lib/order/order-scope'
 import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 import { placeNativeCheckout, placeNativeInvoiceCheckout } from '../../../../../lib/order/native-place-checkout'
 import { sanitizePhoneFields } from '../../../../../lib/utils/phone'
-import { assertRestaurantAcceptsDirectEntry, orderableErrorBody } from '../../../../../lib/restaurant-orderable'
+import { assertRestaurantAcceptsDirectEntry, orderableErrorBody, staffPaymentNotConfiguredBody } from '../../../../../lib/restaurant-orderable'
+import { NativePaymentNotConfiguredError } from '../../../../../lib/order/native-checkout'
 import { sql } from '../../../../../lib/db'
 
 export const runtime = 'nodejs'
@@ -237,6 +238,16 @@ export async function POST(req: NextRequest) {
         inv = await placeNativeInvoiceCheckout(sharedParams)
       } catch (e) {
         console.error('[restaurant/orders/place] native invoice placement threw:', restaurantRef, e instanceof Error ? (e.stack || e.message) : e)
+        // A restaurant with no connected account is a CONFIGURATION state, not a
+        // server fault, so it answers 409 with plain copy — never the assert's
+        // internal sentence, which names Stripe and carries a restaurant UUID.
+        // That detail stays in the server log above. In practice
+        // assertRestaurantAcceptsDirectEntry already answers 409 before we get
+        // here; this keeps the raw message from leaking if that ever changes.
+        if (e instanceof NativePaymentNotConfiguredError) {
+          const { body: errBody, status } = staffPaymentNotConfiguredBody()
+          return NextResponse.json(errBody, { status })
+        }
         return NextResponse.json({ error: 'Failed to create invoice order', detail: e instanceof Error ? e.message : String(e) }, { status: 500 })
       }
       if (!inv.ok) return NextResponse.json({ error: inv.error }, { status: inv.status })
@@ -258,6 +269,12 @@ export async function POST(req: NextRequest) {
       // Never swallow a native-placement failure — surface it so a live failure is
       // diagnosable instead of a bare 500 (RM4 debugging).
       console.error('[restaurant/orders/place] native placement threw:', restaurantRef, e instanceof Error ? (e.stack || e.message) : e)
+      // Same configuration state as the invoice branch above — the CARD path hits
+      // the identical assert, so it gets the identical 409 and the identical copy.
+      if (e instanceof NativePaymentNotConfiguredError) {
+        const { body: errBody, status } = staffPaymentNotConfiguredBody()
+        return NextResponse.json(errBody, { status })
+      }
       return NextResponse.json({ error: 'Failed to place order', detail: e instanceof Error ? e.message : String(e) }, { status: 500 })
     }
     if (!outcome.ok) return NextResponse.json({ error: outcome.error }, { status: outcome.status })

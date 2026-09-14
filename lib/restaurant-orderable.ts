@@ -108,8 +108,26 @@ const MESSAGES: Record<OrderableReason, string> = {
   'unknown-restaurant': 'We could not find this restaurant.',
 }
 
+// STAFF-facing wording for the same reasons, used by the direct-entry gate.
+// MESSAGES above is written for a DINER on the public checkout — "contact them
+// directly to place an order" is right for a customer and nonsense for the
+// restaurant's own staff, who were being told to contact themselves. Same gate,
+// same reasons, same status codes; only the audience of the sentence changes.
+// Anything not overridden here falls back to the customer wording.
+const STAFF_MESSAGES: Partial<Record<OrderableReason, string>> = {
+  'payment-not-configured':
+    'This location can’t take payments yet, so orders can’t be created here. Disco Cater still needs to finish setting up your payouts — email concierge@discocater.com and we’ll take care of it.',
+  'ordering-disabled': 'Online ordering is switched off for this location.',
+  archived: 'This location is no longer active on Disco Cater. Email concierge@discocater.com if that’s not right.',
+  'unknown-restaurant': 'We couldn’t find this location. Email concierge@discocater.com and we’ll look into it.',
+}
+
 function result(reason: OrderableReason): OrderableResult {
   return { orderable: reason === 'ok', reason, message: MESSAGES[reason] }
+}
+
+function staffResult(reason: OrderableReason): OrderableResult {
+  return { orderable: reason === 'ok', reason, message: STAFF_MESSAGES[reason] ?? MESSAGES[reason] }
 }
 
 interface OrderableState {
@@ -201,18 +219,18 @@ export async function assertRestaurantOrderable(ref: string): Promise<OrderableR
  * anyway, so a direct-entry order against one is never intended.
  */
 export async function assertRestaurantAcceptsDirectEntry(ref: string): Promise<OrderableResult> {
-  if (!ref) return result('unknown-restaurant')
+  if (!ref) return staffResult('unknown-restaurant')
   const s = await readOrderableState(ref)
-  if (!s) return result('unknown-restaurant')
-  if (s.archived) return result('archived')
+  if (!s) return staffResult('unknown-restaurant')
+  if (s.archived) return staffResult('archived')
   // Gated here TOO, unlike online_ordering_enabled. That flag is about which
   // channel is open; this one is about whether the money can reach the
   // restaurant at all, and a direct-entry order charges a real card exactly the
   // same way a web order does. This path uses its own policy function rather
   // than the customer gate, so it would otherwise be an unguarded route to the
   // same PaymentIntent.
-  if (nativePaymentUnconfigured(s)) return result('payment-not-configured')
-  return result('ok')
+  if (nativePaymentUnconfigured(s)) return staffResult('payment-not-configured')
+  return staffResult('ok')
 }
 
 /**
@@ -225,4 +243,15 @@ export function orderableErrorBody(r: OrderableResult): { body: { error: string;
     body: { error: r.message, reason: r.reason },
     status: r.reason === 'unknown-restaurant' ? 404 : 409,
   }
+}
+
+
+/**
+ * The 409 body for a staff direct-entry attempt against a restaurant whose
+ * payouts are not configured. Exposed so the place route's catch can answer with
+ * exactly the copy and status the gate itself uses, instead of inventing a
+ * second wording for the same situation.
+ */
+export function staffPaymentNotConfiguredBody(): { body: { error: string; reason: OrderableReason }; status: number } {
+  return orderableErrorBody(staffResult('payment-not-configured'))
 }

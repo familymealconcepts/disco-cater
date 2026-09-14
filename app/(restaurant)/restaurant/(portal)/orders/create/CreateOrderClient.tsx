@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 const F = "'DM Sans', sans-serif"
 const BLUE = '#5B6FE8'
 const DARK = '#1A1028'
+const PURPLE = '#6B6EF9'
+const MAGENTA = '#C044C8'
 
 type PaymentMethod = 'PAYMENT' | 'INVOICE'
 
@@ -40,12 +42,25 @@ export default function CreateOrderMethodModal({ fmSlug, restaurantName }: { fmS
         <div style={{ fontSize: 11.5, color: '#8a8a8a', marginTop: 8 }}>Not the right restaurant? <a href="/restaurant/select-location" style={{ color: BLUE, fontWeight: 600, textDecoration: 'none' }}>Switch location</a> before continuing.</div>
       </div>
 
+      {/* No ordering page for this location. The old copy blamed the online-
+          ordering toggle, which has nothing to do with it — the page simply has
+          not been set up yet, and only Disco Cater can do that. This card
+          replaces the method chooser entirely (see the !fmSlug guard below), so
+          a location in this state never also sees a payment-setup error: it can
+          never get as far as placing an order. */}
       {!fmSlug && (
-        <div style={{ ...card, background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', fontSize: 13 }}>
-          Couldn’t find this restaurant’s ordering page. Make sure online ordering is enabled, then try again.
+        <div style={{ ...card, background: 'rgba(240,70,138,0.06)', border: '1px solid rgba(240,70,138,0.35)', maxWidth: 460 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: MAGENTA, marginBottom: 6 }}>Ordering page not set up yet</div>
+          <div style={{ fontSize: 13, color: DARK, lineHeight: 1.55 }}>
+            This location doesn’t have an ordering page yet, so orders can’t be created for it.
+            It’s something we set up on our end — email{' '}
+            <a href="mailto:concierge@discocater.com" style={{ color: PURPLE, fontWeight: 600, textDecoration: 'none' }}>concierge@discocater.com</a>{' '}
+            and we’ll get this location ready for you.
+          </div>
         </div>
       )}
 
+      {fmSlug && (
       <div style={card}>
         {([['PAYMENT', 'Payment Method', 'Enter the customer’s details and pay by card now.'], ['INVOICE', 'Invoice Method', 'Create an unpaid order and email the customer a payment link. No card required.']] as const).map(([val, title, desc]) => (
           <label key={val} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 0', cursor: 'pointer', borderBottom: val === 'PAYMENT' ? '1px solid #f3f3f3' : 'none' }}>
@@ -57,10 +72,13 @@ export default function CreateOrderMethodModal({ fmSlug, restaurantName }: { fmS
           </label>
         ))}
       </div>
+      )}
 
       <div style={{ display: 'flex', gap: 10 }}>
-        <button onClick={() => router.push('/restaurant/orders')} style={{ padding: '10px 18px', background: '#f0f0f0', color: DARK, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>Cancel</button>
-        <button onClick={go} disabled={!fmSlug} style={{ padding: '10px 22px', background: fmSlug ? BLUE : '#ccc', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: fmSlug ? 'pointer' : 'not-allowed', fontFamily: F }}>Continue →</button>
+        <button onClick={() => router.push('/restaurant/orders')} style={{ padding: '10px 18px', background: '#f0f0f0', color: DARK, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>{fmSlug ? 'Cancel' : 'Back to Orders'}</button>
+        {fmSlug && (
+          <button onClick={go} style={{ padding: '10px 22px', background: BLUE, color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>Continue →</button>
+        )}
       </div>
     </div>
   )
