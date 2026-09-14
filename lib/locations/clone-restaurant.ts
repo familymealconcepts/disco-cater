@@ -76,7 +76,50 @@ export async function cloneDiscoRestaurantMenus(sourceRef: string, newRef: strin
     }
   }
 
-  // 8. Restaurant-wide closed days / holidays
+  // 8. Operating settings (disco_restaurant_overrides).
+  //
+  // This was missing entirely, so a duplicated native restaurant had NO overrides
+  // row at all — not an empty one, none — and with no tax config its checkout
+  // refuses every order. Both existing native copies are in that state.
+  //
+  // DELIBERATELY NOT COPIED:
+  //   • stripe_account_id (and the stripe_* status columns). A duplicate must
+  //     never inherit another restaurant's payout destination — that would route
+  //     one restaurant's money into another's account. The duplicate starts with
+  //     no connected account and onboards its own.
+  //   • promo codes. They live in their own table and duplicating live discount
+  //     codes is not wanted.
+  //   • money_flow. Payout-adjacent; left at the column default rather than
+  //     inherited on a guess.
+  // visible is forced FALSE: a duplicate is a draft, never silently listed.
+  const src = (await sql`
+    SELECT tax_rates, notification_emails, notification_sms_numbers, text_notifications_enabled,
+           order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
+           lead_gen_one_pct, lead_gen_two_pct, online_ordering_enabled
+    FROM disco_restaurant_overrides WHERE restaurant_reference = ${sourceRef}::uuid LIMIT 1
+  `) as Record<string, unknown>[]
+  const ov = src[0]
+  await sql`
+    INSERT INTO disco_restaurant_overrides (
+      restaurant_reference, visible, tax_rates, notification_emails, notification_sms_numbers,
+      text_notifications_enabled, order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
+      lead_gen_one_pct, lead_gen_two_pct, online_ordering_enabled
+    ) VALUES (
+      ${newRef}::uuid, false,
+      ${ov?.tax_rates ? JSON.stringify(ov.tax_rates) : null}::jsonb,
+      ${(ov?.notification_emails as string) ?? null},
+      ${(ov?.notification_sms_numbers as string) ?? null},
+      ${(ov?.text_notifications_enabled as boolean) ?? null},
+      ${(ov?.order_reminder_emails_enabled as boolean) ?? null},
+      ${(ov?.admin_order_reminder_emails_enabled as boolean) ?? null},
+      ${(ov?.lead_gen_one_pct as string) ?? null},
+      ${(ov?.lead_gen_two_pct as string) ?? null},
+      ${(ov?.online_ordering_enabled as boolean) ?? null}
+    )
+    ON CONFLICT (restaurant_reference) DO NOTHING
+  `
+
+  // 9. Restaurant-wide closed days / holidays
   const closed = (await sql`SELECT name, holiday, from_date, to_date FROM disco_restaurant_closed_days WHERE restaurant_reference = ${sourceRef}::uuid`) as Record<string, unknown>[]
   for (const cd of closed) {
     await sql`INSERT INTO disco_restaurant_closed_days (restaurant_reference, name, holiday, from_date, to_date) VALUES (${newRef}::uuid, ${cd.name}, ${cd.holiday}, ${cd.from_date}, ${cd.to_date})`
