@@ -41,6 +41,7 @@ import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { priceNativeOrderAtSubtotal, type Fulfillment, type FrozenEditContext } from '../../../../../../lib/pricing/native-order'
 import type { Breakdown } from '../../../../../../lib/promo-pricing'
 import { formatTime12 } from '../../../../../../lib/utils/time'
+import { cartSubtotal } from '../../../../../../lib/pricing/cart'
 
 // Shared 12-hour formatter (lib/utils/time.ts). Local alias keeps call sites unchanged.
 const fmtTime = formatTime12
@@ -177,17 +178,39 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   // charge/refund below can route it through Connect. Non-native (FM-backed)
   // orders keep the original flat-rate/blended-tax-rate math unchanged — this
   // route's Stripe logic was never wired to FM's own PaymentIntents anyway.
-  // Add-ons count toward the subtotal too — an item whose real price lives
-  // entirely on an add-on (base price $0.00, e.g. #900000086's "jojos") would
-  // otherwise recompute to $0 here, understating the charge/refund delta below
-  // by the exact amount the item-only formula used to miss.
-  const newSubtotal = round2(activeLines.reduce((a, l) => {
-    const lineBase = (Number(l.price) || 0) * (Number(l.quantity) || 0)
-    const lineAddOns = Array.isArray(l.addOns)
-      ? l.addOns.reduce((s, ao) => s + (Number(ao.price) || 0) * Math.max(1, Math.trunc(Number(ao.quantity ?? ao.count) || 1)), 0)
-      : 0
-    return a + lineBase + lineAddOns
-  }, 0))
+  // THE canonical line rule, from lib/pricing/cart.ts:
+  //
+  //   lineTotal = (basePrice + Σ(modifier.price × modifier.count)) × quantity
+  //
+  // Quantity multiplies the base price AND every modifier on it, because the
+  // modifiers are part of what ONE unit costs. Two trays of pasta at $50 with
+  // two $10 chicken modifiers each is (50 + 20) × 2 = $140 — the diner receives
+  // the chicken twice.
+  //
+  // This route used to compute Σ(price × quantity) + addOnTotal, adding the
+  // modifiers ONCE PER LINE. It was the only implementation that disagreed with
+  // checkout, the customer cart and this feature's own edit screen — and its
+  // figure is what gets written and what drives the Stripe delta below, so the
+  // restaurant saw the right number, saved, and the server committed a lower one
+  // and refunded the difference. Verified on #900000151: stored $216.00, this
+  // route computed $208.00, delta −$9.10 refunded and −$8.59 reversed out of the
+  // restaurant's payout, on an edit that changed nothing.
+  //
+  // Calling the shared helper rather than fixing the formula in place is the
+  // point: one implementation of this rule, not two that agree today.
+  //
+  // The map is a WIRE-SHAPE adapter, not arithmetic. EditOrderClient sends each
+  // add-on as `quantity` (it holds them as `count` internally and renames on the
+  // way out), while CartAddOn reads `count` — passing the payload straight in
+  // would silently score every modifier as 0.
+  const newSubtotal = round2(cartSubtotal(activeLines.map(l => ({
+    price: Number(l.price) || 0,
+    count: Number(l.quantity) || 0,
+    addOns: (l.addOns ?? []).map(ao => ({
+      price: Number(ao.price) || 0,
+      count: Math.max(1, Math.trunc(Number(ao.quantity ?? ao.count) || 1)),
+    })),
+  }))))
   let newTaxes: number, newFee: number, newTotal: number, delta: number
   let nativeTransferDelta = 0
   let nativeBreakdown: Breakdown | null = null
