@@ -21,7 +21,7 @@ import bcrypt from 'bcryptjs'
 import { randomUUID } from 'crypto'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
 import { evaluateMarketplaceReadiness } from './marketplace-visibility'
-import { readWalledFieldsForRestaurants, type FmWalledFieldsResult } from './fm-master-admin-read'
+import { readWalledFieldsForRestaurants, type FmWalledFieldsResult, readUserAssignment } from './fm-master-admin-read'
 import { verifyAccountReusable } from './stripe-connect'
 import { syncRestaurantOrders } from './fm-orders-sync'
 import { setInviteToken, grantLocationAccess } from './disco-restaurant-auth'
@@ -648,32 +648,12 @@ export interface AuthorizedUserInviteResult {
  * restaurant). Returns null rather than throwing — a lookup failure must hold
  * grants, never widen them.
  */
-async function designatedAdminEmailFor(ref: string): Promise<string | null> {
-  const cached = (await sql`
-    SELECT LOWER(raw->'admin'->>'email') AS email, raw->'admin'->>'enabled' AS enabled
-    FROM disco_restaurant_admin_list_cache WHERE restaurant_reference = ${ref} LIMIT 1
-  `.catch(() => [])) as { email: string | null; enabled: string | null }[]
-  if (cached.length) {
-    if (cached[0].enabled === 'false') return null
-    return cached[0].email || null
-  }
-  try {
-    const auth = await getFmServiceAuthHeader()
-    const res = await fetch(`${FM}/api/admin/restaurants/${ref}`, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' })
-    if (!res.ok) return null
-    const d = await res.json().catch(() => null) as { admin?: { email?: string; enabled?: boolean } } | null
-    if (!d?.admin?.email || d.admin.enabled === false) return null
-    return d.admin.email.trim().toLowerCase()
-  } catch {
-    return null
-  }
-}
 
 export async function inviteFmAuthorizedUsersFor(
   ref: string,
   restaurantName: string | null,
   walled?: FmWalledFieldsResult,
-  opts?: { actorEmail?: string | null },
+  opts?: { actorEmail?: string | null; skipInvites?: boolean },
 ): Promise<AuthorizedUserInviteResult[]> {
   if (!walled?.ok) {
     return [{ email: '', invited: false, grantedRefs: [], grantHeld: 'No FM read.', reason: walled?.reason || 'No master-password read available — cannot read FM’s Authorized Users list for this restaurant.' }]
@@ -690,32 +670,32 @@ export async function inviteFmAuthorizedUsersFor(
 
   const covering = walled.authorizedUsers.filter(a => a.enabled !== false && !!a.email)
 
-  // ── THE GRANT FILTER (interim rule, Peter 2026-09-01) ─────────────────────
-  // INVITE everyone FM returns; GRANT only this restaurant's designated admin.
+  // ── THE GRANT FILTER (supersedes the interim designated-admin rule, 509fae4) ──
+  // INVITE everyone FM returns; GRANT per person, from FM's OWN assignment.
   //
   // FM's Authorized Users endpoint OVER-REPORTS: it returns the whole CHAIN's
   // users for every location, not that location's. Proven — for Atlanta Bread
   // Alpharetta it returns 7 users and ZERO of them are assigned to Alpharetta
   // in FM's own tbl_system_admin_restaurants. Believing it is what produced 84
-  // excess grant rows across 16 people, 52% of the whole grant table.
+  // excess grant rows across 16 people, 52% of the whole grant table. So
+  // `covering` still decides only WHO TO ASK ABOUT — never who belongs here.
   //
-  // Note what this does NOT do: it does not grant on `a.role === 'ADMIN'`.
-  // That reads like it would satisfy "FM names them as its ADMIN", but the list
-  // is chain-wide, so an ADMIN-role entry is not FM naming them as THIS
-  // restaurant's admin — southcobb@atlantabread.com is exactly that case. He is
-  // a real ADMIN of Smyrna alone, yet appears in all eight Atlanta Bread reads,
-  // and granting on role is precisely how he ended up with 8 grants. The
-  // designated `admin` field is the only per-restaurant naming FM exposes live,
-  // so it is the only thing used here.
+  // The interim rule answered that by granting only FM's designated `admin`
+  // field. That was safe but far too narrow: it grants at most ONE person per
+  // restaurant, so five of Purslane's six FM-assigned system admins would have
+  // been left without reach even on a normal run.
   //
-  // Holding a grant costs an ADMIN nothing: role gates reach, and an ADMIN's
-  // reach is their own location via disco_restaurant_accounts.restaurant_reference
+  // readUserAssignment is the right answer and was already the one in use:
+  // it reads tbl_system_admin_restaurants (SYSTEM_ADMIN) or the JWT restaurant
+  // claim (ADMIN) — both PER PERSON and not chain-wide, so it is not subject to
+  // the over-reporting at all. scripts/send-conversion-invites.ts has granted
+  // this way since 2026-09-09 and wrote 215 of the grants in the table; this
+  // brings conversion in line with the path that was already correct.
+  //
+  // Unreadable assignment HOLDS the grant rather than widening it, same as before.
+  // Holding costs an ADMIN nothing: role gates reach, and an ADMIN's reach is
+  // their own location via disco_restaurant_accounts.restaurant_reference
   // regardless of grant rows (see CLAUDE.md, "Who can see which restaurants").
-  // SYSTEM_ADMIN grants are held for explicit assignment — a super admin on
-  // /admin/manage-admins, or an existing SYSTEM_ADMIN on the portal's Authorized
-  // Users page assigning locations they themselves hold. See the runbook's
-  // "Grants at conversion" and "Who assigns SYSTEM_ADMIN locations" sections.
-  const designatedAdmin = await designatedAdminEmailFor(ref)
 
   const results: AuthorizedUserInviteResult[] = []
   for (const a of covering) {
@@ -759,15 +739,19 @@ export async function inviteFmAuthorizedUsersFor(
         // existence used to be treated as "already invited"). Send a fresh
         // invite to the existing email rather than silently treating a
         // dead/never-invited row as done.
-        const token = await setInviteToken(email)
-        const sent = await sendTeamMemberInvite({
-          to: email,
-          firstName: a.firstName,
-          inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
-          restaurantName: restaurantName || undefined,
-        })
-        invited = sent.success
-        reason = sent.success ? 'Existing account had never been invited — invited now.' : 'Existing account found; invite email failed to send.'
+        if (opts?.skipInvites) {
+          reason = 'Existing account had never been invited — invite suppressed for this run; location access still synced.'
+        } else {
+          const token = await setInviteToken(email)
+          const sent = await sendTeamMemberInvite({
+            to: email,
+            firstName: a.firstName,
+            inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
+            restaurantName: restaurantName || undefined,
+          })
+          invited = sent.success
+          reason = sent.success ? 'Existing account had never been invited — invited now.' : 'Existing account found; invite email failed to send.'
+        }
       } else {
         const sentinelHash = bcrypt.hashSync(randomUUID(), 10) // overwritten when the invite is accepted
         // created_by records WHAT caused this account to exist. It was never set
@@ -790,31 +774,51 @@ export async function inviteFmAuthorizedUsersFor(
           INSERT INTO disco_restaurant_accounts (email, password_hash, restaurant_reference, fm_restaurant_reference, first_name, last_name, restaurant_name, role, created_by)
           VALUES (${email}, ${sentinelHash}, ${ref}, ${ref}, ${a.firstName || null}, ${a.lastName || null}, ${restaurantName}, ${a.role || 'ADMIN'}, ${CREATED_BY_CONVERSION})
         `
-        const token = await setInviteToken(email)
-        const sent = await sendTeamMemberInvite({
-          to: email,
-          firstName: a.firstName,
-          inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
-          restaurantName: restaurantName || undefined,
-        })
-        invited = sent.success
-        reason = sent.success
-          ? `Invited — FM Authorized User (${a.role || 'ADMIN'}) on this restaurant${opts?.actorEmail ? `, by ${opts.actorEmail}` : ''}.`
-          : 'Account created; invite email failed to send.'
+        if (opts?.skipInvites) {
+          reason = `Account created; invite suppressed for this run — location access still synced (FM Authorized User, ${a.role || 'ADMIN'}).`
+        } else {
+          const token = await setInviteToken(email)
+          const sent = await sendTeamMemberInvite({
+            to: email,
+            firstName: a.firstName,
+            inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
+            restaurantName: restaurantName || undefined,
+          })
+          invited = sent.success
+          reason = sent.success
+            ? `Invited — FM Authorized User (${a.role || 'ADMIN'}) on this restaurant${opts?.actorEmail ? `, by ${opts.actorEmail}` : ''}.`
+            : 'Account created; invite email failed to send.'
+        }
       }
 
       // Only THIS restaurant, and only its designated admin — see the grant
       // filter above.
-      const isDesignated = !!designatedAdmin && email === designatedAdmin
+      // GRANT FROM FM'S OWN ASSIGNMENT, PER PERSON (supersedes the designated-admin
+      // rule of 509fae4). That rule existed because FM's Authorized Users list is
+      // chain-wide and believing it produced 84 excess grants — but
+      // readUserAssignment reads tbl_system_admin_restaurants / the JWT restaurant
+      // claim, which is per-person and NOT chain-wide, so it already solves the
+      // problem the restriction was defending against. scripts/send-conversion-
+      // invites.ts has granted this way since 2026-09-09 (it, not conversion, wrote
+      // the 215 existing sentinel grants), so this aligns conversion with the path
+      // that has been correct in production all along.
+      //
+      // Membership NEVER comes from `covering` alone — that list is the chain-wide
+      // one. It decides WHO to ask about; FM decides whether they belong here.
       let grantedRefs: string[] = []
       let grantHeld: string | null = null
-      if (isDesignated) {
-        await grantLocationAccess(email, ref, 'fm-authorized-users-sync')
-        grantedRefs = [ref]
-      } else if (!designatedAdmin) {
-        grantHeld = 'FM names no enabled designated admin for this restaurant — no grant written. Assign explicitly if this person needs multi-location reach.'
-      } else {
-        grantHeld = `Not this restaurant's designated admin (FM names ${designatedAdmin}). FM's Authorized Users list is chain-wide, so appearing in it is not per-restaurant membership — grant held for explicit assignment.`
+      try {
+        const assignment = await readUserAssignment(email, a.role || 'ADMIN')
+        if (!assignment.source) {
+          grantHeld = `FM assignment unreadable (${assignment.reason || 'no source'}) — no grant written rather than guessed.`
+        } else if (assignment.restaurantReferences.includes(ref)) {
+          await grantLocationAccess(email, ref, CREATED_BY_CONVERSION)
+          grantedRefs = [ref]
+        } else {
+          grantHeld = `FM does not assign this person to this restaurant (${assignment.restaurantReferences.length} other assignment(s)) — chain-wide Authorized Users membership is not per-restaurant membership.`
+        }
+      } catch (e) {
+        grantHeld = `FM assignment read threw (${e instanceof Error ? e.message : e}) — no grant written rather than guessed.`
       }
 
       results.push({ email, invited, grantedRefs, grantHeld, reason })
@@ -1516,14 +1520,22 @@ export async function convertToNative(
   // per-restaurant admin field or SYSTEM_ADMIN-role coverage. A failure here
   // must never affect `invite` above, the conversion itself, or any other
   // step below.
+  // Runs ALWAYS, including under skipInvites. Grants are REACH, not credentials:
+  // suppressing invite emails must never silently suppress access. Previously this
+  // whole step sat behind `if (!opts?.skipInvites)`, and since it is the only place
+  // conversion writes location access, a suppressed run converted a restaurant that
+  // none of its FM-assigned admins could see — Purslane, with 11 live orders, was
+  // exactly that. skipInvites is now passed through and gates only the emails.
   let authorizedUserInvites: AuthorizedUserInviteResult[] = []
-  if (!opts?.skipInvites) {
-    try {
-      const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
-      authorizedUserInvites = await inviteFmAuthorizedUsersFor(readiness.restaurantReference, nameRow[0]?.name ?? null, walled, { actorEmail: opts?.actorEmail ?? null })
-    } catch (e) {
-      console.error(`[convertToNative] authorized-users invite step threw: ${e instanceof Error ? e.message : e}`)
-    }
+  try {
+    const nameRow = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${readiness.restaurantReference} LIMIT 1`) as { name: string | null }[]
+    authorizedUserInvites = await inviteFmAuthorizedUsersFor(readiness.restaurantReference, nameRow[0]?.name ?? null, walled, {
+      actorEmail: opts?.actorEmail ?? null,
+      skipInvites: opts?.skipInvites === true,
+    })
+  } catch (e) {
+    console.error(`[convertToNative] authorized-users step threw: ${e instanceof Error ? e.message : e}`)
+    authorizedUserInvites = [{ email: '', invited: false, grantedRefs: [], grantHeld: 'Step threw.', reason: e instanceof Error ? e.message : String(e) }]
   }
 
   let taxRates: TaxRatesCarryOverResult
@@ -1599,6 +1611,18 @@ export async function convertToNative(
     promoCodes: { carried: promoCodes.carried, reason: promoCodes.reason ?? null },
     profileFields: { iconUrl: profileFields.iconUrlCarried, imageUrl: profileFields.imageUrlCarried, phone: profileFields.phoneCarried },
     invite: invite ? { sent: (invite as { sent?: boolean }).sent ?? null } : null,
+    // Persisted so a conversion record can answer "who got reach, and who didn't,
+    // and why". This was omitted entirely, which is why outcome.authorizedUserInvites
+    // is null on all 161 existing records and the Purslane gap could only be found
+    // by correlating grant dates against conversion dates.
+    authorizedUserInvites: authorizedUserInvites.map(r => ({
+      email: r.email || null,
+      invited: r.invited,
+      grantedRefs: r.grantedRefs,
+      grantHeld: r.grantHeld ?? null,
+      reason: r.reason ?? null,
+    })),
+    invitesSuppressed: opts?.skipInvites === true,
     orderStats: { before: orderStatsBefore, after: orderStatsAfter },
   })
 
