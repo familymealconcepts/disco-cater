@@ -62,6 +62,7 @@
 // what it did.
 
 import { config } from 'dotenv'
+import { transactionStatusForOrder } from '../lib/order/transaction-status'
 config({ path: '.env.local', quiet: true })
 import { neon } from '@neondatabase/serverless'
 import { Client, types } from 'pg'
@@ -340,7 +341,7 @@ async function executeChunk(fm: Client, batch: Candidate[]): Promise<{ txnRows: 
     tipsInPrice: [] as (number | null)[], thirdPartyTips: [] as (number | null)[],
     ownDeliveryFee: [] as (number | null)[], thirdPartyDeliveryFee: [] as (number | null)[], thirdPartySubsiding: [] as (number | null)[],
     discount: [] as (number | null)[], leadGenOne: [] as (number | null)[], leadGenTwo: [] as (number | null)[],
-    txnType: [] as string[],
+    txnType: [] as string[], txnStatus: [] as string[],
   }
   // Every order reaching this point (EXCLUDED_ORDER_IDS already filtered out
   // upstream) has at most one ORIGINAL row in fm_backup — verified: exactly 10
@@ -385,6 +386,17 @@ async function executeChunk(fm: Client, batch: Candidate[]): Promise<{ txnRows: 
     txnCols.txnType.push(type)
   }
   if (txnCols.orderId.length) {
+    // Payment status per row, derived from each order's real status via the ONE
+    // shared mapping (lib/order/transaction-status.ts) rather than the literal
+    // 'PAID' this used to insert. Resolved in JS and passed as a parallel array
+    // because the neon tagged template parameterizes — raw SQL cannot be spliced
+    // in, and a hand-written CASE here would be a second copy of the mapping.
+    const statusRows = (await sql`
+      SELECT id, order_status FROM disco_orders WHERE id = ANY(${txnCols.orderId}::bigint[])
+    `) as { id: number; order_status: string | null }[]
+    const statusById = new Map(statusRows.map(r => [Number(r.id), r.order_status]))
+    txnCols.txnStatus = txnCols.orderId.map(id => transactionStatusForOrder(statusById.get(Number(id))))
+
     await sql`
       INSERT INTO disco_sale_transactions (
         order_id, transaction_status, transaction_type, subtotal, total, fee, service_charge, stripe_fee,
@@ -392,16 +404,16 @@ async function executeChunk(fm: Client, batch: Candidate[]): Promise<{ txnRows: 
         own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
         lead_gen_one_disco_fee, lead_gen_two_disco_fee, source
       )
-      SELECT o, 'PAID', t, sub, tot, fee, sc, sf, st, lt, ot, tip, tpt, odf, tpdf, tps, disc, lg1, lg2, 'FM_BACKFILL'
+      SELECT u.o, u.tstat, u.t, u.sub, u.tot, u.fee, u.sc, u.sf, u.st, u.lt, u.ot, u.tip, u.tpt, u.odf, u.tpdf, u.tps, u.disc, u.lg1, u.lg2, 'FM_BACKFILL'
       FROM unnest(
-        ${txnCols.orderId}::bigint[], ${txnCols.txnType}::text[],
+        ${txnCols.orderId}::bigint[], ${txnCols.txnStatus}::text[], ${txnCols.txnType}::text[],
         ${txnCols.subtotal}::numeric[], ${txnCols.total}::numeric[], ${txnCols.fee}::numeric[],
         ${txnCols.serviceCharge}::numeric[], ${txnCols.stripeFee}::numeric[],
         ${txnCols.stateTax}::numeric[], ${txnCols.localTax}::numeric[], ${txnCols.otherTax}::numeric[],
         ${txnCols.tipsInPrice}::numeric[], ${txnCols.thirdPartyTips}::numeric[],
         ${txnCols.ownDeliveryFee}::numeric[], ${txnCols.thirdPartyDeliveryFee}::numeric[], ${txnCols.thirdPartySubsiding}::numeric[],
         ${txnCols.discount}::numeric[], ${txnCols.leadGenOne}::numeric[], ${txnCols.leadGenTwo}::numeric[]
-      ) AS u(o, t, sub, tot, fee, sc, sf, st, lt, ot, tip, tpt, odf, tpdf, tps, disc, lg1, lg2)
+      ) AS u(o, tstat, t, sub, tot, fee, sc, sf, st, lt, ot, tip, tpt, odf, tpdf, tps, disc, lg1, lg2)
     `
   }
 

@@ -10,6 +10,7 @@
 //   • An un-edited FM-origin row is fully refreshed from FM.
 
 import { sql } from './db'
+import { transactionStatusForOrder } from './order/transaction-status'
 import { getFmServiceAuthHeader } from './fm-service-auth'
 import { loadFmOrderDetails, parseFmOrder, fmDateToIso, isUuid } from './order-edit'
 import { fmFetch } from './fm-fetch'
@@ -297,6 +298,18 @@ async function syncSaleTransactionFromDetails(orderId: number, details: Record<s
     tipsInPrice: null, rawTips: rawTips > 0 ? rawTips : null, tipsType: s(order.tipsType) || null,
   })
 
+  // Payment status derived from the order, never hardcoded. This row used to be
+  // written as a literal 'PAID' whatever the order actually was, which is how 29
+  // uncollected invoice orders ended up with a PAID payments record. Prefer the
+  // FM DTO's own status; fall back to the Neon row when the payload omits it.
+  let statusSource = (s(order.orderStatus) || s(order.status) || '').toUpperCase()
+  if (!statusSource) {
+    const cur = (await sql`SELECT order_status FROM disco_orders WHERE id = ${orderId} LIMIT 1`
+      .catch(() => [])) as { order_status: string | null }[]
+    statusSource = String(cur[0]?.order_status || '').toUpperCase()
+  }
+  const txnStatus = transactionStatusForOrder(statusSource)
+
   await sql`DELETE FROM disco_sale_transactions WHERE order_id = ${orderId} AND source = 'FM_SYNC'`
   await sql`
     INSERT INTO disco_sale_transactions (
@@ -305,7 +318,7 @@ async function syncSaleTransactionFromDetails(orderId: number, details: Record<s
       own_delivery_fee, third_party_delivery_fee, third_party_delivery_subsiding, discount,
       lead_gen_one_disco_fee, lead_gen_two_disco_fee, source
     ) VALUES (
-      ${orderId}, 'PAID', 'ORIGINAL', ${fields.subtotal}, ${fields.total}, ${fields.fee}, ${fields.serviceCharge}, ${fields.stripeFee},
+      ${orderId}, ${txnStatus}, 'ORIGINAL', ${fields.subtotal}, ${fields.total}, ${fields.fee}, ${fields.serviceCharge}, ${fields.stripeFee},
       ${fields.stateTax}, ${fields.localTax}, ${fields.otherTax}, ${fields.tipsInPrice}, ${fields.thirdPartyDeliveryTips},
       ${fields.ownDeliveryFee}, ${fields.thirdPartyDeliveryFee}, ${fields.thirdPartyDeliverySubsiding}, ${fields.discount},
       ${fields.leadGenOne}, ${fields.leadGenTwo}, 'FM_SYNC'
