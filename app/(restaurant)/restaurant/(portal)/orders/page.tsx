@@ -1101,6 +1101,13 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
   )
 }
 
+// Item totals include the value of each line's modifiers (the shared rule:
+// (base + Σ modifier.price × modifier.count) × quantity). The Modifiers table
+// therefore BREAKS DOWN revenue already counted in Items — adding the two would
+// double-count. One sentence, shared by the tab, the CSV and the PDF so the
+// three can't drift.
+const MODIFIER_NOTE = 'Already included in the item totals above — this is a breakdown of that revenue, not an addition to it.'
+
 // ─── Order Counts Tab ─────────────────────────────────────────────────────────
 
 function OrderCountsTab() {
@@ -1108,7 +1115,7 @@ function OrderCountsTab() {
   const plus6 = new Date(Date.now() + 6 * 86400000).toISOString().split('T')[0]
   const [fromDate, setFromDate] = useState(today)
   const [toDate, setToDate] = useState(plus6)
-  const [data, setData] = useState<{ mealPackages: SalesStatItem[]; addOns: SalesStatItem[] } | null>(null)
+  const [data, setData] = useState<{ mealPackages: SalesStatItem[]; addOns: SalesStatItem[]; itemsTotal: number; modifiersIncluded: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -1121,15 +1128,18 @@ function OrderCountsTab() {
       const res = await fetch(`/api/restaurant/orders/sale-stats?${params}`)
       if (res.ok) {
         const d = await res.json()
-        setData({ mealPackages: d?.mealPackages || [], addOns: d?.addOns || [] })
+        setData({
+          mealPackages: d?.mealPackages || [], addOns: d?.addOns || [],
+          itemsTotal: Number(d?.itemsTotal) || 0, modifiersIncluded: Number(d?.modifiersIncluded) || 0,
+        })
       } else {
         const d = await res.json().catch(() => null)
         setError(d?.error || `Failed to load (HTTP ${res.status})`)
-        setData({ mealPackages: [], addOns: [] })
+        setData({ mealPackages: [], addOns: [], itemsTotal: 0, modifiersIncluded: 0 })
       }
     } catch {
       setError('Unable to reach server')
-      setData({ mealPackages: [], addOns: [] })
+      setData({ mealPackages: [], addOns: [], itemsTotal: 0, modifiersIncluded: 0 })
     }
     setLoading(false)
   }, [fromDate, toDate])
@@ -1153,10 +1163,13 @@ function OrderCountsTab() {
     lines.push('Items')
     lines.push(['Item', 'Count', 'Price', 'Total'].join(','))
     data.mealPackages.forEach(it => lines.push([q(it.mealPackageName || it.addOnName || ''), it.count, num(it.price), num(it.total)].join(',')))
+    lines.push(['Items Total', '', '', num(data.itemsTotal)].join(','))
     lines.push('')
     lines.push('Modifiers')
+    lines.push(q(MODIFIER_NOTE))
     lines.push(['Modifier', 'Item', 'Count', 'Price', 'Total'].join(','))
     data.addOns.forEach(it => lines.push([q(it.addOnName || ''), q(it.mealPackageName || ''), it.count, num(it.price), num(it.total)].join(',')))
+    lines.push(['Included in Items Total', '', '', '', num(data.modifiersIncluded)].join(','))
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -1183,14 +1196,19 @@ function OrderCountsTab() {
   th { text-align: left; text-transform: uppercase; font-size: 11px; color: #888; padding: 8px 10px; border-bottom: 2px solid #eee; }
   td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
   .r { text-align: right; }
+  .tot { font-weight: 700; border-top: 2px solid #eee; }
+  .note { color: #6B6EF9; font-size: 12px; margin: 0 0 10px; }
   @media print { body { margin: 0; } }
 </style></head><body>
   <h1>Disco Cater — Order Counts</h1>
   <p class="sub">${esc(fromDate)} to ${esc(toDate)}</p>
   <h2>Items</h2>
-  <table><thead><tr><th>Item</th><th class="r">Count</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>${itemRows || '<tr><td colspan="4" style="text-align:center;color:#aaa">No items</td></tr>'}</tbody></table>
+  <table><thead><tr><th>Item</th><th class="r">Count</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>${itemRows || '<tr><td colspan="4" style="text-align:center;color:#aaa">No items</td></tr>'}</tbody>
+  <tfoot><tr><td class="tot">Items Total</td><td></td><td></td><td class="r tot">${money(data.itemsTotal)}</td></tr></tfoot></table>
   <h2>Modifiers</h2>
-  <table><thead><tr><th>Modifier</th><th>Item</th><th class="r">Count</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>${modRows || '<tr><td colspan="5" style="text-align:center;color:#aaa">No modifiers</td></tr>'}</tbody></table>
+  <p class="note">${esc(MODIFIER_NOTE)}</p>
+  <table><thead><tr><th>Modifier</th><th>Item</th><th class="r">Count</th><th class="r">Price</th><th class="r">Total</th></tr></thead><tbody>${modRows || '<tr><td colspan="5" style="text-align:center;color:#aaa">No modifiers</td></tr>'}</tbody>
+  <tfoot><tr><td class="tot">Included in Items Total</td><td></td><td></td><td></td><td class="r tot">${money(data.modifiersIncluded)}</td></tr></tfoot></table>
   <script>window.onload = function(){ window.print() }<\/script>
 </body></html>`
     const w = window.open('', '_blank', 'width=900,height=700')
@@ -1240,10 +1258,18 @@ function OrderCountsTab() {
               <tr><td colSpan={4} style={{ ...cell, color: '#aaa', textAlign: 'center' }}>No completed or due orders in this date range.</td></tr>
             )}
           </tbody>
+          {!!data?.mealPackages?.length && (
+            <tfoot><tr style={{ background: '#F7F8FC' }}>
+              <td style={{ ...cell, fontWeight: 700 }}>Items Total</td>
+              <td style={cell} /><td style={cell} />
+              <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>{fmt(data.itemsTotal)}</td>
+            </tr></tfoot>
+          )}
         </table>
       </div>
 
-      <h3 style={{ fontSize: 14, fontWeight: 700, color: DARK, margin: '0 0 12px' }}>Modifiers</h3>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: DARK, margin: '0 0 4px' }}>Modifiers</h3>
+      <p style={{ fontSize: 12, color: '#6B6EF9', margin: '0 0 12px' }}>{MODIFIER_NOTE}</p>
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr style={{ background: '#F7F8FC' }}>
@@ -1267,6 +1293,13 @@ function OrderCountsTab() {
               <tr><td colSpan={5} style={{ ...cell, color: '#aaa', textAlign: 'center' }}>No modifiers in this date range.</td></tr>
             )}
           </tbody>
+          {!!data?.addOns?.length && (
+            <tfoot><tr style={{ background: '#F7F8FC' }}>
+              <td style={{ ...cell, fontWeight: 700 }}>Included in Items Total</td>
+              <td style={cell} /><td style={cell} /><td style={cell} />
+              <td style={{ ...cell, textAlign: 'right', fontWeight: 700 }}>{fmt(data.modifiersIncluded)}</td>
+            </tr></tfoot>
+          )}
         </table>
       </div>
     </div>
