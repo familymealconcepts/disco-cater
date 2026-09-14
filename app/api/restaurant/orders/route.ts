@@ -386,6 +386,16 @@ export async function GET(req: NextRequest) {
       number: page,
       size,
       restaurantExists,
+      // THE SCOPE THIS RESPONSE WAS ACTUALLY BUILT FROM. The client used to infer
+      // it from localStorage while this route inferred it from the cookie, so the
+      // two could disagree — cookie set, localStorage evicted (iOS Safari does
+      // this under ITP well before a 30-day cookie expires) and the page showed
+      // ONE location's orders under a banner claiming all of them. Now the answer
+      // ships with the data it describes and cannot drift from it.
+      scope: {
+        mode: (groupRefs && groupRefs.length > 0 && !scopeRef) ? 'aggregate' : 'single',
+        refs: (groupRefs && groupRefs.length > 0 && !scopeRef) ? groupRefs : (scopeRef ? [scopeRef] : []),
+      },
     })
   } catch (err) {
     console.error('restaurant/orders GET error:', err)

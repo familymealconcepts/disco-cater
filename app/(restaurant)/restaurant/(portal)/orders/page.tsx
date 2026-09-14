@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import OrdersCalendar from './_components/OrdersCalendar'
 import { fulfillmentLabel } from '../../../../../lib/order/fulfillment-label'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import GenerateReportButton from '../_components/GenerateReportButton'
@@ -1328,6 +1329,8 @@ function OrdersContent() {
   // orders), not a "pick a location" prompt. `aggregating` drives the
   // Restaurant column + the info banner.
   const [aggregating, setAggregating] = useState(false)
+  // The refs the current list was actually built from, straight from the API.
+  const [scopeRefs, setScopeRefs] = useState<string[]>([])
   // Whether the scoped restaurant exists in disco_restaurant_cache (from the
   // orders API). Defaults true so a brand-new ADMIN sees the friendly empty state
   // immediately rather than a flash of "No orders found".
@@ -1344,9 +1347,9 @@ function OrdersContent() {
       const raw = localStorage.getItem('restaurant_user')
       const r = raw ? (JSON.parse(raw).role || '') : ''
       setRole(r)
-      const sel = localStorage.getItem('selectedRestaurant')
-      const isMulti = r === 'SYSTEM_ADMIN' || r === 'SUPER_ADMIN'
-      setAggregating(isMulti && !sel)
+      // NOTE: `aggregating` is NOT seeded from localStorage any more. The orders
+      // response carries the scope it was actually built from (see the fetch
+      // below) — the only source that cannot drift from the rows on screen.
     } catch {}
   }, [])
 
@@ -1385,7 +1388,7 @@ function OrdersContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const tab = (searchParams.get('tab') || 'active') as 'active' | 'history' | 'counts'
+  const tab = (searchParams.get('tab') || 'active') as 'active' | 'history' | 'counts' | 'calendar'
   const [orders, setOrders] = useState<Order[]>([])
   // orderReference → number of disco_order_edits rows (drives the edit-history icon).
   const [editCounts, setEditCounts] = useState<Record<string, number>>({})
@@ -1447,7 +1450,9 @@ function OrdersContent() {
   }
 
   const loadOrders = useCallback(async (resetPage?: boolean, background?: boolean) => {
-    if (tab === 'counts') return
+    // Counts and Calendar each fetch their own data — don't also run the table's
+    // list query behind them.
+    if (tab === 'counts' || tab === 'calendar') return
     // Skeleton ONLY on the very first load (nothing on screen yet). A background
     // auto-refresh never touches `loading`, so the list never flashes.
     if (background) setBackgroundRefreshing(true)
@@ -1481,6 +1486,14 @@ function OrdersContent() {
       // Whether this restaurant exists in the cache — drives the friendly
       // "No orders yet" empty state vs the generic "No orders found".
       if (typeof d.restaurantExists === 'boolean') setRestaurantExists(d.restaurantExists)
+      // THE BANNER FOLLOWS THE DATA. `scope` describes the very rows in `content`,
+      // so the two cannot disagree. This used to be derived from localStorage while
+      // the API scoped from the cookie — evict one and the page claimed to show all
+      // locations while showing one.
+      if (d.scope && typeof d.scope.mode === 'string') {
+        setAggregating(d.scope.mode === 'aggregate')
+        setScopeRefs(Array.isArray(d.scope.refs) ? d.scope.refs : [])
+      }
       if (background) {
         // Genuinely new orders = order numbers not already on screen.
         const currentNums = new Set(ordersRef.current.map(o => o.orderNumber))
@@ -1642,7 +1655,7 @@ function OrdersContent() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e8e8e8', marginBottom: 20 }}>
-        {[['active', 'Active'], ['history', 'Order History'], ['counts', 'Order Counts']].map(([key, label]) => (
+        {[['active', 'Active'], ['history', 'Order History'], ['counts', 'Order Counts'], ['calendar', 'Calendar']].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             style={{
               padding: '10px 20px', background: 'none', border: 'none', borderBottom: tab === key ? `2px solid ${BLUE}` : '2px solid transparent',
@@ -1656,6 +1669,13 @@ function OrdersContent() {
 
       {tab === 'counts' ? (
         <OrderCountsTab />
+      ) : tab === 'calendar' ? (
+        // Upcoming-orders calendar. It scopes itself through /api/restaurant/orders
+        // (same access resolution, same role gating) and reads that response's
+        // `scope` rather than localStorage, so it can never disagree with the
+        // Orders tab about which locations are in view. Clicking an order opens
+        // the SAME OrderDrawer the table uses — there is no second detail view.
+        <OrdersCalendar onOpenOrder={ref => setDrawerRef(ref)} />
       ) : (
         <>
           {/* Track 1 — aggregated-locations banner for SYSTEM_ADMIN with

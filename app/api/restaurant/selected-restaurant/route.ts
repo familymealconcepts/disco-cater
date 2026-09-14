@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import {
   getRestaurantAuthHeader,
   getRestaurantHomeRef,
@@ -92,6 +93,21 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'FamilyMeal rejected this restaurant selection' }, { status: 502 })
   }
   return setSelection(ref)
+}
+
+// The server's answer to "which location is selected right now", so the client
+// never has to infer it from its own storage. The cookie is the only store the
+// scoping reads (resolveDiscoScopeRef, the orders route, sale-stats, customers,
+// promo codes), so this is the authority.
+//
+// This exists because the portal used to answer that question from localStorage
+// while every API answered it from the cookie. The two drift — iOS Safari evicts
+// localStorage under ITP long before a 30-day cookie expires — and when they did,
+// a SYSTEM_ADMIN saw one location's orders under a banner claiming all of them.
+export async function GET() {
+  const store = await cookies()
+  const ref = store.get(SELECTED_RESTAURANT_COOKIE)?.value || null
+  return NextResponse.json({ ref }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function DELETE() {

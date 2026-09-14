@@ -63,10 +63,22 @@ function SelectLocationContent() {
         { method: 'PUT', credentials: 'include' }
       )
       if (!res.ok) throw new Error('Could not select that location.')
+      // The COOKIE set above is the real selection — every API scopes by it, and
+      // the portal now reads it back from the server
+      // (GET /api/restaurant/selected-restaurant). localStorage is only an
+      // optimistic copy so the sidebar paints without a flash.
+      //
+      // It used to be the other way round: this write was the one the UI trusted,
+      // inside a silent catch, so when it failed (iOS private browsing throws;
+      // ITP evicts) the page went on claiming a scope the server did not have.
+      // A failure here is now harmless — but it is no longer silent, because a
+      // browser that cannot write it is worth knowing about.
       try {
         localStorage.setItem('selectedRestaurant', loc.reference)
         localStorage.setItem('selectedRestaurantName', loc.businessName)
-      } catch {}
+      } catch (e) {
+        console.warn('[select-location] localStorage unavailable; selection still applied server-side:', e instanceof Error ? e.message : e)
+      }
       router.push(nextUrl)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not select that location.')

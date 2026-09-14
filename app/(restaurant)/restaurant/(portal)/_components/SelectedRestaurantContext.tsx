@@ -54,7 +54,14 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
   const [name, setName] = useState<string>('')
   const [viewMode, setViewModeState] = useState<ViewMode>('SYSTEM_ADMIN')
 
-  // Initial hydrate from localStorage.
+  // Hydrate in two steps: localStorage FIRST so the sidebar paints without a
+  // flash, then the SERVER, which is the authority and overrides it.
+  //
+  // localStorage alone was the bug. The cookie is the only store any API scopes
+  // by, and iOS Safari evicts localStorage under ITP long before a 30-day cookie
+  // expires — so a phone could show "All Locations" in the sidebar while every
+  // screen's data was scoped to one, or the reverse. The optimistic read is kept
+  // only to avoid a flash; it is never the final word.
   useEffect(() => {
     try {
       const r = localStorage.getItem(STORAGE_REF)
@@ -63,7 +70,26 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
       if (r) setRef(r)
       if (n) setName(n)
       if (v === 'RESTAURANT_USER' || v === 'SYSTEM_ADMIN') setViewModeState(v)
-    } catch {}
+    } catch { /* storage blocked/evicted — the server read below is what matters */ }
+
+    let alive = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/restaurant/selected-restaurant', { credentials: 'include', cache: 'no-store' })
+        if (!res.ok || !alive) return
+        const d = await res.json() as { ref?: string | null }
+        const serverRef = d?.ref || null
+        setRef(serverRef)
+        // Realign the optimistic copy so the next paint starts correct, and clear
+        // a stale name when the server says nothing is selected.
+        try {
+          if (serverRef) localStorage.setItem(STORAGE_REF, serverRef)
+          else { localStorage.removeItem(STORAGE_REF); localStorage.removeItem(STORAGE_NAME) }
+        } catch { /* optimistic copy only — the server read already applied */ }
+        if (!serverRef) setName('')
+      } catch { /* offline — keep the optimistic value rather than blanking the UI */ }
+    })()
+    return () => { alive = false }
   }, [])
 
   // Same-tab broadcast (so changes in one consumer reach others) +
