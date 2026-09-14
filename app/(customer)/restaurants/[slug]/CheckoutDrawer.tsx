@@ -1299,11 +1299,23 @@ export default function CheckoutDrawer({
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
               <span>Tip</span><span>{fmt$(displayTips || 0)}</span>
             </div>
+            {/* Taxes and the platform fee are shown as their own lines (they used
+                to be bucketed into one "Taxes & Fees" row) so this matches the
+                receipt and the restaurant's order view. taxesAndFees is still the
+                sum of exactly these two — no amount changes. */}
             {taxesAndFees !== null && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
-                <span title={`Includes applicable sales tax and a small service fee.${taxExemptApplied ? ' (tax exempt)' : ''}`}>Taxes &amp; Fees</span>
-                <span>{fmt$(taxesAndFees)}</span>
-              </div>
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
+                  <span title={`Applicable sales tax.${taxExemptApplied ? ' (tax exempt)' : ''}`}>Taxes</span>
+                  <span>{fmt$(displayTax ?? 0)}</span>
+                </div>
+                {(displayFee ?? 0) > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#666', marginBottom: 5 }}>
+                    <span title="A small platform fee. This allows us to be free for restaurants.">Fees</span>
+                    <span>{fmt$(displayFee ?? 0)}</span>
+                  </div>
+                )}
+              </>
             )}
             {taxExemptApplied && (
               <div style={{ fontSize: 11, color: '#22C55E', textAlign: 'right', marginBottom: 5 }}>Tax exempt applied</div>

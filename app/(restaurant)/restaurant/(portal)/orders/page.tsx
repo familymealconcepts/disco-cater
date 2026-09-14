@@ -945,14 +945,14 @@ function OrderDrawer({ orderRef, onClose, onOrderUpdated }: { orderRef: string; 
               <TotalRow label="Subtotal" value={totals.subtotal} />
               {(order.serviceCharge ?? 0) > 0 && (
                 <TotalRow
-                  label={order.restaurant?.feeCategories?.[0]?.displayFeeCategoriesName || 'Service Charge'}
+                  label={order.restaurant?.feeCategories?.[0]?.displayFeeCategoriesName || 'Service charge'}
                   value={order.serviceCharge ?? 0}
                 />
               )}
               <TotalRow label={isTaxExempt ? 'Taxes (Tax Exempt)' : 'Taxes'} value={isTaxExempt ? 0 : totals.tax} />
-              {(order.fee ?? order.fees ?? 0) > 0 && <TotalRow label="Platform Fee" value={order.fee ?? order.fees ?? 0} />}
-              {totals.tips > 0 && <TotalRow label="Tip" value={totals.tips} />}
+              {(order.fee ?? order.fees ?? 0) > 0 && <TotalRow label="Fees" value={order.fee ?? order.fees ?? 0} />}
               {totals.delivery > 0 && <TotalRow label="Delivery Fee" value={totals.delivery} />}
+              {totals.tips > 0 && <TotalRow label="Tip" value={totals.tips} />}
               {(order.discount ?? 0) > 0 && <TotalRow label="Discount" value={-(order.discount ?? 0)} color="#1D9E75" />}
               {/* Refunded: show what was charged, the refund (red), and the net.
                   Otherwise just the Total. The total reconciles with the lines. */}

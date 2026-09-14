@@ -35,6 +35,21 @@ interface DiscoFull {
   fee: string | null
   delivery_time_window: string | null
 }
+
+// The per-order financial breakdown. disco_orders stores only subtotal/total/
+// fee; the split (tax, service charge, delivery fee, tip) lives in
+// disco_sale_transactions. Same flat FM key names the receipt already consumes.
+type SaleTxn = {
+  service_charge: string | null
+  state_tax: string | null
+  local_tax: string | null
+  other_tax: string | null
+  tips_in_price: string | null
+  third_party_delivery_tips: string | null
+  own_delivery_fee: string | null
+  third_party_delivery_fee: string | null
+  discount: string | null
+}
 function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
@@ -62,6 +77,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   // Neon order + items.
   let disco: DiscoFull | null = null
   let items: OrderItemWithAddOns[] = []
+  let txn: SaleTxn | null = null
   if (isUuid(ref)) {
     const rows = (await sql`
       SELECT id, reference, fm_order_reference, order_number, order_status, order_type,
@@ -79,6 +95,12 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
       // no idea the old items had add-ons, silently orphaning that money (see
       // lib/order-items.ts's header comment).
       items = await loadOrderItemsWithAddOns(disco.id)
+      const txnRows = (await sql`
+        SELECT service_charge, state_tax, local_tax, other_tax, tips_in_price,
+               third_party_delivery_tips, own_delivery_fee, third_party_delivery_fee, discount
+        FROM disco_sale_transactions WHERE order_id = ${disco.id} LIMIT 1
+      `.catch(() => [])) as SaleTxn[]
+      txn = txnRows[0] ?? null
     }
   }
 
@@ -125,6 +147,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (d.subtotal != null) order.subtotal = num(d.subtotal)
   if (d.total != null) { order.total = num(d.total); order.transactionsTotal = num(d.total) }
   if (d.fee != null) order.fee = num(d.fee)
+  // Financial breakdown — without this a native order reaches the edit screen
+  // with tax/tip/delivery all absent, and the screen's
+  // `total - subtotal - tip - delivery` residual swallows every one of them
+  // into a single "Taxes & Fees" line. Same flat key names FM's
+  // OrderPublicResponseDto uses, so extractFmMoney reads them unchanged.
+  if (txn) {
+    order.serviceCharge = num(txn.service_charge)
+    order.stateSalesTaxInPrice = num(txn.state_tax)
+    order.localSalesTaxInPrice = num(txn.local_tax)
+    order.otherSalesTaxInPrice = num(txn.other_tax)
+    order.tipsInPrice = num(txn.tips_in_price)
+    order.thirdPartyDeliveryTipsInPrice = num(txn.third_party_delivery_tips)
+    order.ownDeliveryFee = num(txn.own_delivery_fee)
+    order.thirdPartyDeliveryFee = num(txn.third_party_delivery_fee)
+    order.discount = num(txn.discount)
+  }
 
   // Items: Neon is the source of truth when present; else keep FM's.
   if (items.length) {

@@ -96,6 +96,8 @@ const TIME_SLOTS: { value: string; label: string }[] = (() => {
   return out
 })()
 
+const round2 = (n: number) => Math.round(n * 100) / 100
+
 // Pull canonical money fields out of an FM re-price / order response. FM may
 // nest them under checkoutPublicResponseDto or return them flat.
 function extractFmMoney(resp: AnyRec | null) {
@@ -112,10 +114,11 @@ function extractFmMoney(resp: AnyRec | null) {
   // Combined value preserved for the commit payload's tip encoding (buildPayload).
   const tips = tipsInPrice || tipsRaw
   const fee = num(d.fee) || num(d.fees)
+  const serviceCharge = num(d.serviceCharge)
   const discount = num(d.discount)
   const subtotal = typeof d.subtotal === 'number' ? d.subtotal : null
   const total = typeof d.total === 'number' ? d.total : (typeof d.transactionsTotal === 'number' ? d.transactionsTotal : null)
-  return { subtotal, tax, delivery, tips, tipsType, tipsRaw, tipsInPrice, fee, discount, total }
+  return { subtotal, tax, delivery, tips, tipsType, tipsRaw, tipsInPrice, fee, serviceCharge, discount, total }
 }
 
 // Resolve the actual DOLLAR tip from FM's fields. FM's priced tipsInPrice wins
@@ -166,7 +169,7 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   const [orderTime, setOrderTime] = useState('')   // HH:mm:ss
   const [deliveryAddress, setDeliveryAddress] = useState<DeliveryAddr | null>(null)
   const [origTotal, setOrigTotal] = useState(0)
-  const [origMoney, setOrigMoney] = useState({ subtotal: 0, tax: 0, delivery: 0, tips: 0, dollarTip: 0, fee: 0, discount: 0, total: 0 })
+  const [origMoney, setOrigMoney] = useState({ subtotal: 0, tax: 0, delivery: 0, tips: 0, dollarTip: 0, fee: 0, serviceCharge: 0, discount: 0, total: 0 })
   const [taxExempt, setTaxExempt] = useState(false)
   const [orderNumber, setOrderNumber] = useState('')
 
@@ -333,7 +336,8 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
         const dollarTip = computeDollarTip(money.tipsType, money.tipsRaw, money.tipsInPrice, money.subtotal ?? 0)
         setOrigMoney({
           subtotal: money.subtotal ?? 0, tax: money.tax, delivery: money.delivery,
-          tips: money.tips, dollarTip, fee: money.fee, discount: money.discount, total: money.total ?? 0,
+          tips: money.tips, dollarTip, fee: money.fee, serviceCharge: money.serviceCharge,
+          discount: money.discount, total: money.total ?? 0,
         })
         setOrigTotal(money.total ?? num(order.transactionsTotal))
 
@@ -407,6 +411,27 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
   const tip = cartEmpty ? 0 : origTip
   const newTotal = cartEmpty ? 0 : newSubtotal + taxesFees + delivery + tip
   const delta = newTotal - origTotal
+
+  // Break `taxesFees` back out into the lines the receipt shows (Taxes /
+  // Platform Fee / Service Charge) instead of one bucketed row. Display only:
+  // the parts are scaled by the same ratio the bucket was, and Taxes absorbs
+  // the rounding residual, so the rows always sum to exactly `taxesFees` and
+  // `newTotal` is bit-for-bit what it was before this split.
+  const origComponents = origMoney.tax + origMoney.fee + origMoney.serviceCharge
+  const feeSplitKnown = origComponents > 0 && Number.isFinite(taxesFees)
+  const [rowTax, rowFee, rowServiceCharge] = (() => {
+    if (!feeSplitKnown) return [0, 0, 0]
+    const src = [origMoney.tax, origMoney.fee, origMoney.serviceCharge]
+    const scale = taxesFees / origComponents
+    const parts = src.map(v => round2(v * scale))
+    // The residual lands on the LARGEST component, never blindly on Taxes —
+    // otherwise an order with $0.00 tax (tax-exempt, or a 0% rate, which is a
+    // real configuration) renders a nonsense "-$0.01" Taxes line.
+    let biggest = 0
+    for (let i = 1; i < src.length; i++) if (src[i] > src[biggest]) biggest = i
+    parts[biggest] = round2(parts[biggest] + (taxesFees - parts.reduce((a, b) => a + b, 0)))
+    return parts
+  })()
 
   // ─── Cart mutations ───────────────────────────────────────────────────────
   function changeQty(lineId: string, dir: 1 | -1) {
@@ -735,8 +760,20 @@ export default function EditOrderClient({ orderRef, context = 'restaurant' }: { 
             <div style={{ height: 1, background: '#eee', margin: '14px 0' }} />
 
             <Row label="Subtotal" value={formatCurrency(newSubtotal)} />
-            <Row label="Taxes & Fees" value={formatCurrency(taxesFees)} />
-            {delivery > 0 && <Row label="Delivery" value={formatCurrency(delivery)} />}
+            {/* Same lines, same names, same order as the receipt (the order
+                drawer on /restaurant/orders) so a restaurant reads one story in
+                both places. Falls back to the old combined row only when the
+                order carries no breakdown to split. */}
+            {feeSplitKnown ? (
+              <>
+                {rowServiceCharge > 0 && <Row label="Service charge" value={formatCurrency(rowServiceCharge)} />}
+                <Row label="Taxes" value={formatCurrency(rowTax)} />
+                {rowFee > 0 && <Row label="Fees" value={formatCurrency(rowFee)} />}
+              </>
+            ) : (
+              <Row label="Taxes & Fees" value={formatCurrency(taxesFees)} />
+            )}
+            {delivery > 0 && <Row label="Delivery Fee" value={formatCurrency(delivery)} />}
             <Row label="Tip" value={formatCurrency(tip)} />
             <div style={{ height: 1, background: '#eee', margin: '14px 0' }} />
             <Row label="Total" value={formatCurrency(newTotal)} bold />

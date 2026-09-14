@@ -1112,8 +1112,9 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cartKey, selDate, selTime, orderType, addrValidated, addr.line1, addr.lat, addr.lng, summaryPromo?.code, summaryPromo?.fundedBy])
 
-  // Derived display values. Taxes & Fees = FM fee + tax (mirrors the drawer's
-  // combined line, already priced off the discounted subtotal once a
+  // Derived display values. previewTaxesFees = FM fee + tax; it still backs the
+  // total, but the two are now SHOWN as separate Taxes / Fees rows (mirroring the
+  // drawer and the receipt), already priced off the discounted subtotal once a
   // restaurant-funded promo is applied — see previewPricing's DTO above). Total
   // is built from parts + the LIVE tip so changing the tip updates it instantly
   // without re-firing init. discountedSubtotal (not pricingPreview.subtotal,
@@ -1617,10 +1618,20 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(svcAmt)}</span>
                 </div>
               )}
-              {/* Taxes & Fees with tooltip */}
+              {/* Taxes and the platform fee each get their own line (they used to
+                  be one bucketed "Taxes & Fees" row whose tooltip held the split).
+                  Display only — the two still sum to previewTaxesFees. */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: 6 }}>
+                <span style={{ color: '#555' }}>Taxes</span>
+                {previewLoading
+                  ? priceSkeleton
+                  : pricingPreview
+                    ? <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(pricingPreview.tax)}</span>
+                    : <span style={{ color: '#727272', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, marginBottom: previewDelivery != null && orderType === 'DELIVERY' ? 6 : 14 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#555' }}>
-                  Taxes &amp; Fees
+                  Fees
                   <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                     <span
                       onMouseEnter={() => setTaxTooltip(true)}
@@ -1630,17 +1641,6 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                     </span>
                     {taxTooltip && (
                       <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)', background: '#fff', border: '1px solid #e8e8e8', borderRadius: 8, padding: '10px 13px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', whiteSpace: 'nowrap', zIndex: 20, pointerEvents: 'none' as const, minWidth: 200 }}>
-                        {pricingPreview ? (
-                          <>
-                            <div style={{ fontSize: 12, color: DARK, marginBottom: 3 }}>Tax: {formatPrice(pricingPreview.tax)}</div>
-                            <div style={{ fontSize: 12, color: DARK, marginBottom: 8 }}>Platform fee: {formatPrice(pricingPreview.fee)}</div>
-                          </>
-                        ) : (
-                          <>
-                            <div style={{ fontSize: 12, color: DARK, marginBottom: 3 }}>Tax: Calculated at checkout</div>
-                            <div style={{ fontSize: 12, color: DARK, marginBottom: 8 }}>Platform fee included at checkout</div>
-                          </>
-                        )}
                         <div style={{ fontSize: 11, color: '#727272', fontStyle: 'italic', lineHeight: 1.4 }}>This allows us to be free for restaurants.</div>
                       </div>
                     )}
@@ -1648,8 +1648,8 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                 </span>
                 {previewLoading
                   ? priceSkeleton
-                  : previewTaxesFees != null
-                    ? <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(previewTaxesFees)}</span>
+                  : pricingPreview
+                    ? <span style={{ color: DARK, fontWeight: 600 }}>{formatPrice(pricingPreview.fee)}</span>
                     : <span style={{ color: '#727272', fontSize: 12, fontStyle: 'italic' }}>Calculated at checkout</span>}
               </div>
               {/* Delivery fee — only for delivery, once FM has priced it. */}
