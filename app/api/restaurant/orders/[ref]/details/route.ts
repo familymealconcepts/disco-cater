@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
-import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
-import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
+import { resolveOrderAccess } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { loadFmOrderDetails, isoToFmDate, isUuid } from '../../../../../../lib/order-edit'
 import { loadOrderItemsWithAddOns, type OrderItemWithAddOns } from '../../../../../../lib/order-items'
@@ -55,16 +53,10 @@ function num(v: unknown): number { const x = typeof v === 'number' ? v : parseFl
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
   // Admin portal (fm_admin_token) can load order details for the full edit page.
-  const ctx = await getRestaurantAuthContext()
-  if (!ctx) {
-    try { await getAdminAuthHeader() }
-    catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
-  } else {
-    // Restaurant session: scope to its own orders. (Admin portal — no ctx — is
-    // exempt: it legitimately loads any order for the full edit page.)
-    const scope = await assertOrderInScope(ref, ctx)
-    if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
-  }
+  // Admin auth is checked independently of any restaurant cookie — see
+  // resolveOrderAccess. A restaurant session stays scoped to its own orders.
+  const access = await resolveOrderAccess(ref)
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status as number })
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 
   // FM details (best-effort) — the rich base the edit client already understands.

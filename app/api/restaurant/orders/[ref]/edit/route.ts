@@ -20,10 +20,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
-import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
-import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
+import { resolveOrderAccess } from '../../../../../../lib/order/order-scope'
 import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
-import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import {
   getDiscoOrder, loadOrderBaseline,
   hoursUntil, isEditableStatus, MAX_EDITS, syncExpediteOnEdit, type FmOrderItem,
@@ -83,19 +81,14 @@ function fmtDate(iso: string): string {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
   // Admin portal (fm_admin_token) gets the same full edit as a restaurant
-  // SUPER_ADMIN: when there's no restaurant session, fall back to admin auth and
-  // resolve the order's restaurant from the order row itself (not the session).
-  const ctx = await getRestaurantAuthContext()
-  let isAdminEdit = false
-  if (!ctx) {
-    try { await getAdminAuthHeader(); isAdminEdit = true }
-    catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
-  } else {
-    // Restaurant session: only edit (and charge/refund) its own order. Admin
-    // portal (isAdminEdit) is exempt — it resolves the restaurant from the order.
-    const scope = await assertOrderInScope(ref, ctx)
-    if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
-  }
+  // SUPER_ADMIN, and is detected independently of any restaurant cookie (see
+  // resolveOrderAccess); it resolves the order's restaurant from the order row
+  // itself, not the session. A restaurant session may only edit (and
+  // charge/refund) an order inside its own scope.
+  const access = await resolveOrderAccess(ref)
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status as number })
+  const ctx = access.ctx
+  const isAdminEdit = access.isAdmin
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 
   let body: { activeLines?: ActiveLine[]; orderDate?: string; orderTime?: string; editorEmail?: string }

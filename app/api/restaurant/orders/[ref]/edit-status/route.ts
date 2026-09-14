@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
-import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
-import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
+import { resolveOrderAccess } from '../../../../../../lib/order/order-scope'
 import { getRestaurantRole } from '../../../../../../lib/restaurant-auth'
-import { getAdminAuthHeader } from '../../../../../../lib/admin-auth'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
 import {
   getDiscoOrder, loadFmOrderDetails, parseFmOrder, hoursUntil, isEditableStatus, MAX_EDITS, applyPendingEdit,
@@ -27,18 +25,14 @@ function stripeClient(): Stripe | null {
 //   → { editCount, canEdit, reason, editStatus, pendingPayment }
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
-  // Admin portal (fm_admin_token) can read eligibility too — treated as SUPER_ADMIN.
-  const ctx = await getRestaurantAuthContext()
-  let isAdminEdit = false
-  if (!ctx) {
-    try { await getAdminAuthHeader(); isAdminEdit = true }
-    catch { return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }) }
-  } else {
-    // Restaurant session: scope to its own order (this GET can auto-apply a
-    // pending edit + settle a Stripe invoice). Admin portal is exempt.
-    const scope = await assertOrderInScope(ref, ctx)
-    if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
-  }
+  // Admin portal (fm_admin_token) can read eligibility too — treated as
+  // SUPER_ADMIN, and detected independently of any restaurant cookie (see
+  // resolveOrderAccess). A restaurant session stays scoped to its own order
+  // (this GET can auto-apply a pending edit + settle a Stripe invoice).
+  const access = await resolveOrderAccess(ref)
+  if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status as number })
+  const ctx = access.ctx
+  const isAdminEdit = access.isAdmin
 
   try { await runDiscoOrderMigrations() } catch { /* best-effort */ }
 

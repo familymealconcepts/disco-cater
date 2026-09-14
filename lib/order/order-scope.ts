@@ -1,5 +1,6 @@
 import { sql } from '../db'
-import type { RestaurantAuthContext } from '../restaurant-auth-context'
+import { getRestaurantAuthContext, type RestaurantAuthContext } from '../restaurant-auth-context'
+import { getAdminAuthHeader } from '../admin-auth'
 import { getRestaurantRef } from '../restaurant-auth'
 import { resolveDiscoAccessScope } from '../restaurant-write-scope'
 
@@ -86,4 +87,49 @@ export async function assertOrderInScope(
 
   if (!owner) return { ok: false }
   return scope.has(owner) ? { ok: true, restaurantRef: owner } : { ok: false }
+}
+
+
+export interface OrderAccess {
+  ok: boolean
+  /** Status to return when !ok — 401 (no credentials) or 404 (out of scope). */
+  status: 401 | 404 | null
+  error: string | null
+  /** True when the caller holds an admin token, regardless of any restaurant cookie. */
+  isAdmin: boolean
+  ctx: RestaurantAuthContext | null
+  /** The order's owning restaurant_reference — only for a scoped restaurant caller. */
+  restaurantRef?: string
+}
+
+// Single entry point for "may this caller act on this order?", shared by the
+// [ref] routes the super-admin edit page drives (details, edit-status, edit).
+//
+// Admin credentials are resolved INDEPENDENTLY of whether a restaurant cookie
+// happens to be present. Each of those routes used to key the admin exemption
+// off `!ctx` — "no restaurant session, therefore this must be the admin portal".
+// That assumption broke the moment an admin's browser also held a restaurant
+// cookie: getRestaurantAuthContext() returned that session, the admin branch was
+// never reached, and the admin was silently demoted to that restaurant's scope,
+// 404ing every order outside it (e2ae0c6 introduced this; it made super-admin
+// order editing fail on 100% of orders for any admin logged into a non-
+// SUPER_ADMIN restaurant account).
+//
+// The trust model is unchanged: a valid admin token still means admin, exactly
+// as the old admin branch treated it. Only the TIMING of the check moved. A
+// caller without an admin token takes a path byte-for-byte identical to before,
+// including 404 (never 403) on a foreign reference, so a probe cannot confirm
+// an order exists.
+export async function resolveOrderAccess(ref: string): Promise<OrderAccess> {
+  const ctx = await getRestaurantAuthContext()
+
+  let isAdmin = false
+  try { await getAdminAuthHeader(); isAdmin = true } catch { /* not an admin caller */ }
+  if (isAdmin) return { ok: true, status: null, error: null, isAdmin: true, ctx }
+
+  if (!ctx) return { ok: false, status: 401, error: 'Not authenticated', isAdmin: false, ctx: null }
+
+  const scope = await assertOrderInScope(ref, ctx)
+  if (!scope.ok) return { ok: false, status: 404, error: 'Order not found', isAdmin: false, ctx }
+  return { ok: true, status: null, error: null, isAdmin: false, ctx, restaurantRef: scope.restaurantRef }
 }
