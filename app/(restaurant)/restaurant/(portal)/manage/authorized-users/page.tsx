@@ -474,8 +474,23 @@ function FmUsers() {
   }
   async function resetPassword(u: AuthUser) {
     if (!(await confirmDialog(`Send password reset email to ${u.email}?`, { title: 'Reset password', confirmText: 'Send email' }))) return
-    await fetch(`/api/restaurant/authorized-users/${u.reference}/reset-password`, { method: 'PUT' })
-    toast('Password reset email sent.', { kind: 'success' })
+    // The email is what identifies a NATIVE login — this route is keyed by FM's
+    // user reference, which a native account does not have. Without it the reset
+    // falls through to FM and the recipient is sent to FamilyMeal to set a
+    // password that does not work here.
+    const res = await fetch(`/api/restaurant/authorized-users/${u.reference}/reset-password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: u.email }),
+    })
+    // This used to toast success unconditionally, without looking at the response,
+    // so a failed reset looked identical to a sent one.
+    if (res.ok) {
+      toast('Password reset email sent.', { kind: 'success' })
+    } else {
+      const d = await res.json().catch(() => null)
+      toast(d?.error || 'Could not send the password reset email.', { kind: 'error' })
+    }
   }
   async function deleteUser(u: AuthUser) {
     if (!(await confirmDialog(`Delete ${u.firstName} ${u.lastName || ''}? All data of this user will be lost.`, { title: 'Delete user', confirmText: 'Delete', danger: true }))) return

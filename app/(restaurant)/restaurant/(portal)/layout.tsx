@@ -170,12 +170,20 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
     ? (viewMode === 'RESTAURANT_USER' && !!selectedRestaurant)
     : true
 
-  // Mode A header shows the account/group name; Mode B shows the
-  // specific location. Per spec, the name appears exactly once — under
-  // the logo. No secondary callouts anywhere.
+  // The label under the logo names THE SCOPE THE PORTAL IS ACTUALLY IN, because
+  // it is the only persistent indicator of that scope on every screen.
+  //
+  // Mode B (one location picked, or a plain ADMIN) → that location's name.
+  // Mode A for a multi-location admin → "All Locations". It used to show the
+  // group/account name here, which reads as a location: a SYSTEM_ADMIN across
+  // nine Apollo Bagels sites saw "Apollo Bagels - East Village" under the logo
+  // while Orders was showing all nine. One label, computed once in the layout,
+  // so Orders and Reporting can never disagree about it.
   const headerName = inRestaurantUserView
     ? (selectedRestaurantName || '')
-    : (user?.groupName || user?.businessName || `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim())
+    : isSystemAdmin
+      ? 'All Locations'
+      : (user?.groupName || user?.businessName || `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim())
 
   const baseNav: NavItem[] = inRestaurantUserView ? RESTAURANT_USER_NAV : SYSTEM_ADMIN_NAV
   // Disco-native restaurants have no FM record, so the FM-backed manage-v2 menu

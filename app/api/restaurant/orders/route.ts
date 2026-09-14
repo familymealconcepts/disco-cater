@@ -192,6 +192,36 @@ export async function GET(req: NextRequest) {
   // not literally every restaurant's orders — a true platform-wide view would
   // need a real list-all query, not built. With neither, this returns an
   // empty order list below (never an error, never another owner's orders).
+  // ── Sorting ───────────────────────────────────────────────────────────────
+  // The Orders table has sent `?sort=<field>,<dir>` since it was built, and this
+  // route ignored it entirely — ORDER BY was hardcoded, so clicking a column
+  // header flipped its arrow and changed nothing. Sorting is applied HERE, in
+  // SQL, not on the client: the list is server-paginated, so a client-side sort
+  // would only reorder the 20 rows on screen and silently lie about the rest.
+  //
+  // Strict allowlist, mapped to real columns — the request never reaches the
+  // ORDER BY as text. An unknown field falls back to the original default rather
+  // than erroring, so an old or hand-edited URL still returns a sensible list.
+  const SORTABLE: Record<string, string[]> = {
+    order_date: ['order_date', 'order_time'],
+    order_time: ['order_date', 'order_time'],
+    first_name: ['customer_first_name', 'customer_last_name'],
+    last_name: ['customer_last_name', 'customer_first_name'],
+    transactions_total: ['total'],
+    created_at: ['created_at'],
+    order_number: ['order_number'],
+    order_status: ['order_status'],
+  }
+  const sortParams = req.nextUrl.searchParams.getAll('sort')
+  const firstSort = (sortParams[0] || '').split(',')
+  const sortCols = SORTABLE[firstSort[0]] ?? SORTABLE.order_date
+  const sortDir = (firstSort[1] || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC'
+  // order_number is text holding digits of differing length, so a plain sort puts
+  // #9 after #10000. Sort it numerically where it is numeric.
+  const orderBySql = sortCols
+    .map(c => (c === 'order_number' ? `NULLIF(regexp_replace(${c}, '\\D', '', 'g'), '')::numeric ${sortDir} NULLS LAST` : `${c} ${sortDir} NULLS LAST`))
+    .join(', ')
+
   let groupRefs: string[] | null = null
   if (!scopeRef && isSA) {
     let accessRefs: string[] = []
@@ -344,7 +374,7 @@ export async function GET(req: NextRequest) {
        ) sp ON sp.order_reference = disco_orders.reference
        LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = disco_orders.restaurant_reference::text
        WHERE ${whereSql}
-       ORDER BY order_date DESC, order_time DESC
+       ORDER BY ${orderBySql}
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       listParams,
     )) as OrderRow[]
