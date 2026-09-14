@@ -367,14 +367,29 @@ export async function POST(request: NextRequest) {
         // order-edit / subscription invoices are untouched.
         if (invoice.metadata?.kind === 'native_order_invoice') {
           // First payment only — the guard makes retries a no-op.
-          await sql`UPDATE disco_orders SET order_status = 'DUE', updated_at = NOW() WHERE id = ${order.id} AND order_status = 'UNPAID'`
+          const flipped = (await sql`
+            UPDATE disco_orders SET order_status = 'DUE', updated_at = NOW()
+            WHERE id = ${order.id} AND order_status = 'UNPAID'
+            RETURNING id
+          `) as { id: number }[]
 
           const transferDollars = Number(invoice.metadata?.transferDollars || 0)
           const connectedAccountId = String(invoice.metadata?.connectedAccountId || '')
           const withhold = invoice.metadata?.withholdPayouts === '1'
           const invCharge = (invoice as unknown as { charge?: string | { id?: string } | null }).charge
           const chargeId = typeof invCharge === 'string' ? invCharge : (invCharge?.id ?? null)
-          if (!withhold && connectedAccountId && transferDollars > 0) {
+          // The payout is gated on the status ACTUALLY having flipped. It used to
+          // fire unconditionally, so a payment landing on an order that was no
+          // longer UNPAID — cancelled, or already settled by a webhook retry —
+          // still paid the restaurant out while the order sat CANCELED. No row
+          // flipped means this payment does not belong to a live unpaid order, so
+          // no money moves and a human is told instead.
+          if (flipped.length === 0) {
+            console.error('[Webhook] native invoice paid but order was not UNPAID — no payout:', order.reference, invoice.id)
+            await alertOps('native invoice paid on an order that was not UNPAID — payout withheld', {
+              invoiceId: invoice.id, orderReference: order.reference,
+            })
+          } else if (!withhold && connectedAccountId && transferDollars > 0) {
             try {
               // idempotencyKey → a webhook retry can't double-pay the restaurant.
               await stripe.transfers.create({

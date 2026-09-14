@@ -4,6 +4,8 @@ import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
 import { fmFetch } from '../../../../../../lib/fm-fetch'
 import { sendOrderCancellationEmail } from '../../../../../../lib/order/cancellation-email'
+import { voidUnpaidOrderInvoice } from '../../../../../../lib/order/invoice-void'
+import Stripe from 'stripe'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,11 +31,22 @@ function normStatus(s: string): string {
 
 // PUT /api/restaurant/orders/{ref}/status?orderStatus=...
 //
-// STATUS ONLY — THIS DELIBERATELY DOES NOT TOUCH STRIPE, including on CANCEL.
+// STATUS ONLY — THIS DELIBERATELY DOES NOT TOUCH STRIPE, including on CANCEL,
+// with ONE narrow exception documented immediately below.
 // Cancelling and refunding are two separate deliberate actions, available in either
 // order: cancel here, refund with the Refund button. A refund-on-cancel coupling was
 // built and then reverted on purpose — moving a customer's money as a side effect of
 // a status change is not something a restaurant should trigger without choosing it.
+//
+// THE ONE EXCEPTION — voiding an open invoice on an UNPAID order. This does not
+// move money and is not a refund; it withdraws a bill that must never be paid.
+// Without it, cancelling left the Stripe invoice payable, and a customer paying a
+// cancelled order triggered the payout transfer while the order stayed CANCELED.
+// It fires ONLY for CANCEL + order_status UNPAID + an invoice still stored 'open'
+// (see lib/order/invoice-void.ts). Every other cancel, including every card order,
+// still touches nothing in Stripe. If the void fails, the cancel is REFUSED rather
+// than reported as successful — a cancelled order with a live invoice is the exact
+// state this exists to prevent.
 //
 // What makes that safe is elsewhere, and must stay:
 //   • CANCELED/CANCELLED and VOID/VOIDED are in REFUNDABLE (app/api/restaurant/
@@ -62,6 +75,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // Ownership: enforce BEFORE the FM proxy so a foreign ref can't mutate FM state either.
   const scope = await assertOrderInScope(ref, ctx)
   if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+
+  // ── Void an open invoice BEFORE cancelling (see THE ONE EXCEPTION above) ──
+  // Order matters: void first, then flip the status. If the void succeeds but the
+  // status write fails we are left with an un-payable invoice on a still-UNPAID
+  // order — recoverable. The reverse (cancelled order, live invoice) is the money
+  // bug itself, so it must never be reachable.
+  if (status === 'CANCELED' || status === 'CANCELLED') {
+    const key = process.env.STRIPE_SECRET_KEY
+    const stripe = key ? new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1]) : null
+    const voided = await voidUnpaidOrderInvoice(ref, stripe)
+    if (voided.action === 'failed') {
+      console.error('[orders/status] invoice void failed — refusing to cancel:', ref, voided.invoiceId, voided.error)
+      return NextResponse.json({
+        error: `This order was not cancelled: its invoice could not be voided, so the customer could still pay it. ${voided.error}`,
+      }, { status: 502 })
+    }
+    if (voided.action === 'voided') {
+      console.log('[orders/status] voided invoice before cancel:', ref, voided.invoiceId)
+    }
+  }
 
   // Best-effort FM proxy (FM-synced orders). Uses the user's FM token when present,
   // else the SUPER_ADMIN service account. Never fatal.

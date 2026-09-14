@@ -844,6 +844,28 @@ ${p.invoiceUrl ? button('Pay invoice', p.invoiceUrl) : ''}
 }
 
 // 3. order-edit-payment-confirmed (customer)
+// Invoice reminder (customer) — 2 days after a native invoice order was placed
+// and still unpaid. Sent by cron/order-reminders PASS 3, which re-checks Stripe
+// immediately before calling this, so a paid or voided invoice never reaches here.
+export async function sendCustomerInvoiceReminder(params: {
+  to: string; firstName?: string; orderNumber: string | number; businessName: string
+  amountDue: number; orderDate?: string; invoiceUrl?: string
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const content = `
+<p style="margin:0 0 12px 0;">${p.firstName ? `Hi ${escapeHtml(p.firstName)},` : 'Hi,'}</p>
+<p style="margin:0 0 12px 0;">This is a reminder that your order <strong>#${escapeHtml(p.orderNumber)}</strong> with ${escapeHtml(p.businessName)}${p.orderDate ? ` for ${escapeHtml(p.orderDate)}` : ''} is still awaiting payment of <strong>${money(p.amountDue)}</strong>.</p>
+<p style="margin:0;">Please pay the invoice below so ${escapeHtml(p.businessName)} can confirm your order.</p>
+${p.invoiceUrl ? button('Pay invoice', p.invoiceUrl) : ''}
+`
+    return await sendEmail({ to: p.to, subject: `Reminder: payment due for order #${p.orderNumber} | Disco Cater`, html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendCustomerInvoiceReminder failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
 export async function sendOrderEditPaymentConfirmed(params: {
   to: string; firstName?: string; orderNumber: string | number; businessName: string
   orderDate?: string; orderTime?: string; items?: EditItem[]; newTotal?: number

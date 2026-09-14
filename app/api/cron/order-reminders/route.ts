@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { fulfillmentLabel } from '../../../../lib/order/fulfillment-label'
 import { sql, runMigrations } from '../../../../lib/db'
 import {
-  sendCustomerOrderReminder, sendRestaurantOrderReminder, type OrderMealPackage,
+  sendCustomerOrderReminder, sendRestaurantOrderReminder, sendCustomerInvoiceReminder,
+  type OrderMealPackage,
 } from '../../../../lib/email/notifications'
+import Stripe from 'stripe'
 import { formatTimeWindow } from '../../../../lib/utils/deliveryTimeWindow'
 import { loadOrderItemsWithAddOns } from '../../../../lib/order-items'
 
@@ -101,6 +103,95 @@ async function claimAdminReminder(orderId: number): Promise<boolean> {
     console.error('[cron/order-reminders] admin claim failed (skipping to avoid dup):', err instanceof Error ? err.message : err)
     return false
   }
+}
+
+// Atomically claim the one-time INVOICE reminder for an order.
+async function claimInvoiceReminder(orderReference: string): Promise<boolean> {
+  try {
+    const rows = (await sql`
+      INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
+      SELECT ${orderReference}::uuid, 'INVOICE_REMINDER_SENT', '{}'::jsonb, 'cron/order-reminders'
+      WHERE NOT EXISTS (
+        SELECT 1 FROM disco_order_events
+        WHERE order_reference = ${orderReference}::uuid AND event_type = 'INVOICE_REMINDER_SENT'
+      )
+      RETURNING id
+    `) as { id: number }[]
+    return rows.length > 0
+  } catch (err) {
+    console.error('[cron/order-reminders] invoice claim failed (skipping to avoid dup):', err instanceof Error ? err.message : err)
+    return false
+  }
+}
+
+// PASS 3 — unpaid native invoice orders, 2 days after placement.
+//
+// Stripe's own automatic invoice reminders were evaluated first and rejected:
+// they are configured only in the Dashboard (the account API exposes no reminder
+// settings — settings.invoices carries just default_account_tax_ids and
+// hosted_payment_method_save), they apply to EVERY invoice on the platform
+// account, which would start emailing Stripe-branded reminders for order-edit
+// invoices that already have their own email flow, and nothing about them can be
+// asserted from code. This pass is scoped to native order invoices only.
+//
+// Three independent guards stop a reminder on a paid, voided, or cancelled order:
+//   1. order_status = 'UNPAID'      — the webhook flips paid orders to DUE, and a
+//                                     cancelled order is CANCELED, so both drop out.
+//   2. stripe_invoice_status='open' — the webhook writes 'paid', the cancel path
+//                                     writes 'void' (lib/order/invoice-void.ts).
+//   3. a live Stripe retrieve       — re-checked per order immediately before
+//                                     sending, so Stripe, not Neon, has the final
+//                                     word and a race cannot slip through.
+async function runInvoiceReminders(): Promise<{ candidates: number; sent: number; skipped: number }> {
+  const key = process.env.STRIPE_SECRET_KEY
+  const stripe = key ? new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1]) : null
+  const rows = (await sql`
+    SELECT o.id, o.reference, o.order_number, o.customer_email, o.customer_first_name,
+           o.total::text AS total, o.order_date::text AS order_date, o.stripe_invoice_id,
+           COALESCE(c.name, o.restaurant_name) AS business_name
+    FROM disco_orders o
+    LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference
+    WHERE o.order_status = 'UNPAID'
+      AND o.stripe_invoice_id IS NOT NULL
+      AND LOWER(COALESCE(o.stripe_invoice_status, '')) = 'open'
+      AND o.customer_email IS NOT NULL
+      AND o.created_at <= NOW() - INTERVAL '2 days'
+      AND o.created_at >  NOW() - INTERVAL '9 days'
+  `.catch(() => [])) as Array<Record<string, string | number | null>>
+
+  let sent = 0, skipped = 0
+  for (const o of rows) {
+    const invoiceId = String(o.stripe_invoice_id || '')
+    let invoiceUrl: string | undefined
+    // Guard 3 — Stripe is the authority. Anything not still 'open' is skipped
+    // WITHOUT claiming, so it can never be marked as reminded.
+    if (!stripe) { skipped++; continue }
+    try {
+      const live = await stripe.invoices.retrieve(invoiceId)
+      if (live.status !== 'open') {
+        console.log('[cron/order-reminders] invoice no longer open, skipping:', invoiceId, live.status)
+        skipped++
+        continue
+      }
+      invoiceUrl = (live.hosted_invoice_url as string) || undefined
+    } catch (err) {
+      console.error('[cron/order-reminders] invoice retrieve failed, skipping:', invoiceId, err instanceof Error ? err.message : err)
+      skipped++
+      continue
+    }
+    if (!(await claimInvoiceReminder(String(o.reference)))) { skipped++; continue }
+    const res = await sendCustomerInvoiceReminder({
+      to: String(o.customer_email),
+      firstName: o.customer_first_name ? String(o.customer_first_name) : undefined,
+      orderNumber: o.order_number as string | number,
+      businessName: String(o.business_name || 'the restaurant'),
+      amountDue: num(o.total),
+      orderDate: o.order_date ? fmtDate(String(o.order_date)) : undefined,
+      invoiceUrl,
+    })
+    if (res.success) sent++; else skipped++
+  }
+  return { candidates: rows.length, sent, skipped }
 }
 
 // Line items for an order's reminder body.
@@ -270,10 +361,17 @@ export async function GET(req: NextRequest) {
       if (anySent) adminSent++
     }
 
+    // PASS 3 — unpaid native invoice reminders. Isolated so a failure here can
+    // never take down the two 24h passes above.
+    let invoice = { candidates: 0, sent: 0, skipped: 0 }
+    try { invoice = await runInvoiceReminders() }
+    catch (err) { console.error('[cron/order-reminders] invoice pass failed (non-fatal):', err instanceof Error ? err.message : err) }
+
     return NextResponse.json({
       ok: true,
       customer: { candidates: custOrders.length, sent: customerSent, skipped: customerSkipped },
       restaurant: { candidates: adminOrders.length, sent: adminSent, skipped: adminSkipped },
+      invoice,
     })
   } catch (err) {
     console.error('[cron/order-reminders] failed:', err instanceof Error ? err.message : err)

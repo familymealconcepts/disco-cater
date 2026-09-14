@@ -68,6 +68,13 @@ export interface NativePlaceInput extends NativeCheckoutInput {
   // native invoice flow (M7) passes 'UNPAID' — the order exists with no charge and
   // is settled later via a Stripe invoice.
   orderStatus?: string
+  // disco_sale_transactions.money_flow. Defaults to DIRECT, which asserts the
+  // RESTAURANT is merchant-of-record — true for the card path, which is a
+  // destination charge with on_behalf_of. It is FALSE for the invoice path: the
+  // platform collects the whole total on its own account and transfers the
+  // restaurant's share afterwards, so that path passes FAMILY_MEAL. Getting this
+  // wrong misleads the money-flow reconciler about who held the funds.
+  moneyFlow?: 'DIRECT' | 'FAMILY_MEAL'
 }
 
 // Whether a restaurant reference is a Disco-native restaurant (no FM record).
@@ -855,7 +862,7 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
       ${order.id}, 'INITIATED', 'ORIGINAL', ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${b.serviceCharge}, ${b.stripeFee},
       ${b.stateTax}, ${b.localTax}, ${b.otherTax}, ${b.tipsInPrice}, ${b.thirdPartyDeliveryTips},
       ${ownDeliveryFee}, ${thirdPartyDeliveryFee}, ${thirdPartyDeliverySubsiding}, ${b.discount},
-      ${b.leadGenTier === 1 ? b.leadGen : 0}, ${b.leadGenTier === 2 ? b.leadGen : 0}, 'DIRECT', 'NATIVE_CHECKOUT', NOW(), NOW()
+      ${b.leadGenTier === 1 ? b.leadGen : 0}, ${b.leadGenTier === 2 ? b.leadGen : 0}, ${input.moneyFlow ?? 'DIRECT'}, 'NATIVE_CHECKOUT', NOW(), NOW()
     )
   `
 
@@ -1016,7 +1023,10 @@ export interface NativeInvoiceResult extends NativePlaceResult {
 export async function placeNativeInvoiceOrder(input: NativePlaceInput, stripe: Stripe): Promise<NativeInvoiceResult> {
   const pay = await getRestaurantPayoutConfig(input.restaurantReference)
   assertNativePaymentConfigured(pay, input.restaurantReference)
-  const placed = await placeNativeOrder({ ...input, orderStatus: 'UNPAID' })
+  // FAMILY_MEAL money flow: on this path the PLATFORM is merchant-of-record (it
+  // collects the full total via its own invoice, then transfers the restaurant's
+  // share). The card path stays DIRECT.
+  const placed = await placeNativeOrder({ ...input, orderStatus: 'UNPAID', moneyFlow: 'FAMILY_MEAL' })
   const total = placed.breakdown.total
   const transfer = placed.breakdown.transfer
 
@@ -1032,7 +1042,11 @@ export async function placeNativeInvoiceOrder(input: NativePlaceInput, stripe: S
     const invoice = await stripe.invoices.create({
       customer: customerId,
       collection_method: 'send_invoice',
-      days_until_due: 7,
+      // Due the day it is sent. Stripe accepts days_until_due: 0 and resolves it
+      // to end-of-day in the account's timezone (verified against the API), which
+      // is what "due today" should mean — an explicit due_date of NOW() would read
+      // as overdue the instant it arrived.
+      days_until_due: 0,
       auto_advance: false,
       description: `Disco Cater order #${placed.orderNumber}`,
       metadata: {
