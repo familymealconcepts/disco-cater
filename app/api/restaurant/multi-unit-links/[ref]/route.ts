@@ -4,7 +4,7 @@ import { buildForwardForm } from '../../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { resolveDiscoAccessScope, discoRefAllowed } from '../../../../../lib/restaurant-write-scope'
-import { updateNativeLink, deleteNativeLink, slugTaken, nativeLinkExists, resolveLinkEditScope } from '../../../../../lib/multi-unit-links'
+import { updateNativeLink, deleteNativeLink, slugTaken, nativeLinkExists, resolveLinkEditScope, linkCreator } from '../../../../../lib/multi-unit-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -14,17 +14,38 @@ type Ctx = NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>
 
 async function nativeUpdate(ctx: Ctx, ref: string, req: NextRequest) {
   if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'System admin only' }, { status: 403 })
-  // REACH, NOT OWNERSHIP — see resolveLinkEditScope for the rule and why the old
-  // `owner_email === ctx.email` check made 22 of 25 links uneditable by the people
-  // who run them.
+  // ── SHARED VIEW, CREATOR EDIT ──────────────────────────────────────────────
+  // Anyone who can reach a member SEES the link (the GET listing, unchanged).
+  // Only the person who created it may change it. Reach is not enough: a link is
+  // one shared public page, and two system admins curating the same page against
+  // each other — each able to remove the other's locations — is worse than one
+  // owner and a conversation.
+  //
+  // 403 and NOT 404, deliberately: the viewer can already see this link in their
+  // Links tab, so pretending it does not exist would be a lie they can disprove
+  // by looking. It names the creator instead, which is the actual next step.
+  //
+  // SUPER_ADMIN BYPASSES THIS. Support has to be able to fix any link, and a
+  // support case must never be blocked because a restaurant's system admin
+  // happened to create it.
+  const creator = await linkCreator(ref)
+  const isSuperAdmin = ctx.role === 'SUPER_ADMIN'
+  if (!isSuperAdmin && (!creator?.email || creator.email !== ctx.email)) {
+    return NextResponse.json({
+      error: 'Only the creator can edit this link',
+      description: creator?.name
+        ? `This link was created by ${creator.name}. Ask them to make the change, or create your own link.`
+        : 'This link was created by someone else. Ask them to make the change, or create your own link.',
+      createdBy: creator?.name ?? null,
+    }, { status: 403 })
+  }
+
+  // Reach still bounds WHAT a creator may do, even though it no longer decides
+  // WHO may act: they cannot add a location outside their reach, and members
+  // outside it are preserved rather than dropped. A creator whose reach later
+  // narrowed must not be able to strip locations they no longer run.
   const scope = await resolveDiscoAccessScope(ctx)
   const editScope = await resolveLinkEditScope(ref, scope)
-  if (!editScope.allowed) {
-    return NextResponse.json({
-      error: 'Not found',
-      description: 'You can only edit a link that includes at least one location you have access to.',
-    }, { status: 404 })
-  }
   const fd = await req.formData()
   const raw = fd.get('request')
   let json: Record<string, unknown> = {}
@@ -67,13 +88,23 @@ async function nativeUpdate(ctx: Ctx, ref: string, req: NextRequest) {
 
 async function nativeDelete(ctx: Ctx, ref: string) {
   if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'System admin only' }, { status: 403 })
-  // Deleting removes the page for EVERY member, including any the viewer cannot
-  // reach, so it needs more than the edit rule: the viewer must reach the link in
-  // full. A partial-reach admin can curate their own slice (nativeUpdate) but
-  // cannot delete a page other people's locations are on.
+  // Creator only, SUPER_ADMIN excepted — same rule as edit. See nativeUpdate.
+  const creator = await linkCreator(ref)
+  const isSuperAdmin = ctx.role === 'SUPER_ADMIN'
+  if (!isSuperAdmin && (!creator?.email || creator.email !== ctx.email)) {
+    return NextResponse.json({
+      error: 'Only the creator can delete this link',
+      description: creator?.name
+        ? `This link was created by ${creator.name}. Ask them to delete it.`
+        : 'This link was created by someone else.',
+      createdBy: creator?.name ?? null,
+    }, { status: 403 })
+  }
+  // Deleting removes the page for EVERY member, so even the creator cannot delete
+  // one that still carries locations they cannot reach. SUPER_ADMIN is
+  // unrestricted and so is never caught by this.
   const scope = await resolveDiscoAccessScope(ctx)
   const editScope = await resolveLinkEditScope(ref, scope)
-  if (!editScope.allowed) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (editScope.retained.length) {
     return NextResponse.json({
       error: 'Not allowed',

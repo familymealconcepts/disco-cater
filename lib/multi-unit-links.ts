@@ -13,6 +13,18 @@ export interface NativeLinkRow {
   numberOfLocations: number
   restaurantReferences: string[]
   urlFrom: 'Links'
+  /** Who created this link. Email is the identity; name is for display only. */
+  createdByEmail: string | null
+  /**
+   * Resolved from disco_restaurant_accounts.first_name/last_name for the creator's
+   * email, falling back to the email itself. Internal accounts (peter@familymeal.com)
+   * have no disco_restaurant_accounts row at all — there is no other user table in
+   * this database — so they display as the address, which is still an answer to
+   * "who do I ask".
+   */
+  createdByName: string | null
+  /** Whether THIS viewer may edit it. Shared view, creator edit. */
+  canEdit: boolean
 }
 
 let ensured = false
@@ -48,6 +60,21 @@ export async function slugTaken(slug: string, exceptRef?: string): Promise<boole
     LIMIT 1
   `) as unknown[]
   return rows.length > 0
+}
+
+/**
+ * Display name for a link's creator. Resolved from the restaurant-accounts table,
+ * which is the only place in this database that holds a person's name against an
+ * email. Falls back to the email when there is no row — internal/super-admin
+ * accounts do not have one, and an address still tells you who to ask.
+ */
+export async function resolveCreatorName(email: string | null): Promise<string | null> {
+  if (!email) return null
+  const rows = (await sql`
+    SELECT first_name, last_name FROM disco_restaurant_accounts WHERE email = ${email} LIMIT 1
+  `.catch(() => [])) as { first_name: string | null; last_name: string | null }[]
+  const n = [rows[0]?.first_name, rows[0]?.last_name].filter(Boolean).join(' ').trim()
+  return n || email
 }
 
 async function membersOf(reference: string): Promise<string[]> {
@@ -96,41 +123,44 @@ async function setMembers(reference: string, memberRefs: string[]): Promise<void
  */
 export async function listReachableNativeLinks(
   scope: { unrestricted: boolean; refs: Set<string> },
+  viewer?: { email: string | null; isSuperAdmin?: boolean },
 ): Promise<NativeLinkRow[]> {
   await ensureMultiUnitTables()
   if (!scope.unrestricted && scope.refs.size === 0) return []
 
   const links = (await sql`
-    SELECT reference, slug, title FROM disco_multi_unit_links ORDER BY created_at DESC, id DESC
-  `) as { reference: string; slug: string; title: string }[]
+    SELECT reference, slug, title, owner_email FROM disco_multi_unit_links ORDER BY created_at DESC, id DESC
+  `) as { reference: string; slug: string; title: string; owner_email: string | null }[]
 
+  const nameCache = new Map<string, string | null>()
   const out: NativeLinkRow[] = []
   for (const l of links) {
     const refs = await membersOf(l.reference)
     // Intersection, not containment: a SYSTEM_ADMIN who reaches 18 of a chain's
-    // 19 locations still needs that chain's link.
+    // 19 locations still needs that chain's link. SEEING IS SHARED — this rule is
+    // unchanged; only editing is narrowed to the creator.
     if (!scope.unrestricted && !refs.some(r => scope.refs.has(r))) continue
-    out.push({ reference: l.reference, url: l.slug, header: l.title, numberOfLocations: refs.length, restaurantReferences: refs, urlFrom: 'Links' })
+    const owner = l.owner_email ?? null
+    if (owner && !nameCache.has(owner)) nameCache.set(owner, await resolveCreatorName(owner))
+    out.push({
+      reference: l.reference, url: l.slug, header: l.title,
+      numberOfLocations: refs.length, restaurantReferences: refs, urlFrom: 'Links',
+      createdByEmail: owner,
+      createdByName: owner ? (nameCache.get(owner) ?? owner) : null,
+      // Computed server-side so the UI never has to re-derive the rule and cannot
+      // disagree with what PUT/DELETE will actually allow.
+      canEdit: !!viewer?.isSuperAdmin || (!!viewer?.email && !!owner && viewer.email === owner),
+    })
   }
   return out
 }
 
-// All links owned by an SA (FM lists by userReference + urlFrom='Links').
-// RETAINED for callers that genuinely mean ownership. It is NOT the listing rule
-// any more — see listReachableNativeLinks above for why ownership was the bug.
-export async function listNativeLinks(ownerEmail: string): Promise<NativeLinkRow[]> {
-  await ensureMultiUnitTables()
-  const links = (await sql`
-    SELECT reference, slug, title FROM disco_multi_unit_links
-    WHERE owner_email = ${ownerEmail} ORDER BY created_at DESC, id DESC
-  `) as { reference: string; slug: string; title: string }[]
-  const out: NativeLinkRow[] = []
-  for (const l of links) {
-    const refs = await membersOf(l.reference)
-    out.push({ reference: l.reference, url: l.slug, header: l.title, numberOfLocations: refs.length, restaurantReferences: refs, urlFrom: 'Links' })
-  }
-  return out
-}
+// listNativeLinks was REMOVED here. It listed links by `owner_email = the viewer`,
+// which was the listing bug: a link is created by whoever ran the conversion, so
+// ownership answers "did you make this", not "does this describe locations you
+// run". Its last caller went away when the tab moved to reach-scoping, and a dead
+// ownership-based lister is exactly the thing someone reinstates by accident.
+// Ownership still decides EDITING — see linkCreator / the route's creator gate.
 
 export async function createNativeLink(input: { slug: string; title: string; ownerEmail: string; memberRefs: string[] }): Promise<{ reference: string }> {
   await ensureMultiUnitTables()
@@ -235,6 +265,18 @@ export interface LinkEditScope {
   allowed: boolean
   /** Existing members outside the viewer's reach — always retained on write. */
   retained: string[]
+}
+
+/**
+ * Who created this link, with a display name. The identity is the EMAIL; the name
+ * is only for telling a viewer who to ask.
+ */
+export async function linkCreator(reference: string): Promise<{ email: string | null; name: string | null } | null> {
+  await ensureMultiUnitTables()
+  const rows = (await sql`SELECT owner_email FROM disco_multi_unit_links WHERE reference = ${reference}::uuid LIMIT 1`) as { owner_email: string | null }[]
+  if (!rows.length) return null
+  const email = rows[0].owner_email ?? null
+  return { email, name: await resolveCreatorName(email) }
 }
 
 export async function resolveLinkEditScope(

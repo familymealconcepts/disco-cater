@@ -42,7 +42,9 @@ async function readRequestPart(req: NextRequest): Promise<Record<string, unknown
 // changing who may create a link is not part of this.
 async function nativeList(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>) {
   const scope = await resolveDiscoAccessScope(ctx)
-  const nativeLinks = await listReachableNativeLinks(scope)
+  // viewer is passed so canEdit is computed server-side — the UI must not
+  // re-derive the rule and disagree with what PUT/DELETE will allow.
+  const nativeLinks = await listReachableNativeLinks(scope, { email: ctx.email || null, isSuperAdmin: ctx.role === 'SUPER_ADMIN' })
   const neonLinks = ctx.restaurantReference ? await getRestaurantLocationLinks(ctx.restaurantReference) : []
   const seen = new Set(nativeLinks.map(l => l.url))
   const content = [...nativeLinks, ...neonLinks.filter(l => !seen.has(l.url))]
@@ -90,7 +92,7 @@ export async function GET(req: NextRequest) {
   if (ctx) {
     const scope = await resolveDiscoAccessScope(ctx)
     if (scope.unrestricted || scope.refs.size) {
-      const reachable = await listReachableNativeLinks(scope)
+      const reachable = await listReachableNativeLinks(scope, { email: ctx.email || null, isSuperAdmin: ctx.role === 'SUPER_ADMIN' })
       if (reachable.length) return nativeList(ctx)
     }
   }

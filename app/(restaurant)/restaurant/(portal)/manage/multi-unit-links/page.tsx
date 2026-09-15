@@ -31,6 +31,9 @@ interface MultiLink {
   image?: { reference?: string }
   urlFrom?: string                       // 'Dashboard' | 'Links' | undefined
   multiUnitLinksReference?: string | null
+  createdByEmail?: string | null
+  createdByName?: string | null          // person's name where one exists, else the email
+  canEdit?: boolean                      // computed server-side; never re-derived here
 }
 
 interface LocationOption {
@@ -468,6 +471,7 @@ export default function MultiUnitLinksPage() {
             <th style={colHead}>Title</th>
             <th style={{ ...colHead, width: 110, textAlign: 'right' }}># Locations</th>
             <th style={{ ...colHead, width: 60, textAlign: 'center' }}>Open</th>
+            <th style={{ ...colHead, width: 160 }}>Created by</th>
             <th style={{ ...colHead, width: 140, textAlign: 'right' }}>Actions</th>
           </tr></thead>
           <tbody>
@@ -527,10 +531,30 @@ export default function MultiUnitLinksPage() {
                   <td style={{ ...cell, textAlign: 'center' }}>
                     <a href={discoUrl} target="_blank" rel="noreferrer" title="Open" style={{ color: INDIGO, textDecoration: 'none', fontSize: 16 }}>↗</a>
                   </td>
+                  {/* WHO CREATED IT. Shared view, creator edit — anyone who can reach a
+                      member sees the link, only its creator can change it, so the page
+                      has to say who to ask. */}
+                  <td style={{ ...cell, color: '#666', whiteSpace: 'nowrap' }}>
+                    {l.createdByName || <span style={{ color: '#bbb' }}>—</span>}
+                  </td>
                   <td style={{ ...cell, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button onClick={() => openDialog(l)} style={btnLink}>Edit</button>
-                    {!protectedRow && (
-                      <button onClick={() => deleteLink(l)} style={{ ...btnLink, color: '#E76F51' }}>Delete</button>
+                    {/* canEdit comes from the server so this can never offer a control
+                        that PUT/DELETE would reject. A viewer who cannot edit sees the
+                        reason, not a button that fails when clicked. */}
+                    {l.canEdit === false ? (
+                      <span
+                        style={{ fontSize: 12, color: '#999' }}
+                        title={l.createdByName ? `Only ${l.createdByName} can edit this link` : 'Only the creator can edit this link'}
+                      >
+                        View only
+                      </span>
+                    ) : (
+                      <>
+                        <button onClick={() => openDialog(l)} style={btnLink}>Edit</button>
+                        {!protectedRow && (
+                          <button onClick={() => deleteLink(l)} style={{ ...btnLink, color: '#E76F51' }}>Delete</button>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>
