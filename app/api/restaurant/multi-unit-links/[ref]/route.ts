@@ -3,8 +3,8 @@ import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/re
 import { buildForwardForm } from '../../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
-import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../lib/restaurant-write-scope'
-import { updateNativeLink, deleteNativeLink, slugTaken, linkOwnerEmail } from '../../../../../lib/multi-unit-links'
+import { resolveDiscoAccessScope, discoRefAllowed } from '../../../../../lib/restaurant-write-scope'
+import { updateNativeLink, deleteNativeLink, slugTaken, nativeLinkExists, resolveLinkEditScope } from '../../../../../lib/multi-unit-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -14,8 +14,17 @@ type Ctx = NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>
 
 async function nativeUpdate(ctx: Ctx, ref: string, req: NextRequest) {
   if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'System admin only' }, { status: 403 })
-  // Only the SA who owns the link may edit it.
-  if ((await linkOwnerEmail(ref)) !== ctx.email) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // REACH, NOT OWNERSHIP — see resolveLinkEditScope for the rule and why the old
+  // `owner_email === ctx.email` check made 22 of 25 links uneditable by the people
+  // who run them.
+  const scope = await resolveDiscoAccessScope(ctx)
+  const editScope = await resolveLinkEditScope(ref, scope)
+  if (!editScope.allowed) {
+    return NextResponse.json({
+      error: 'Not found',
+      description: 'You can only edit a link that includes at least one location you have access to.',
+    }, { status: 404 })
+  }
   const fd = await req.formData()
   const raw = fd.get('request')
   let json: Record<string, unknown> = {}
@@ -26,18 +35,51 @@ async function nativeUpdate(ctx: Ctx, ref: string, req: NextRequest) {
   if (!title) return NextResponse.json({ error: 'Title is required', description: 'Title is required' }, { status: 400 })
   if (!SLUG_RE.test(slug)) return NextResponse.json({ error: 'Invalid URL', description: 'URL may contain only lowercase letters, numbers, and hyphens.' }, { status: 400 })
   if (!memberRefs.length) return NextResponse.json({ error: 'Pick at least one location', description: 'Choose at least one location.' }, { status: 400 })
-  const allow = await resolveDiscoGroupScope(ctx)
-  const members = memberRefs.filter(r => discoRefAllowed(allow, r))
-  if (!members.length) return NextResponse.json({ error: 'Locations not in your group', description: 'Those locations are not in your group.' }, { status: 403 })
+  // TELL THE ADMIN WHAT WAS REJECTED. This used to silently filter out-of-reach
+  // locations and report success, so submitting nine with three outside your reach
+  // saved six and said "saved" — a quiet partial write with no way to tell it from
+  // a complete one.
+  const accepted = memberRefs.filter(r => discoRefAllowed(scope, r))
+  const rejected = memberRefs.filter(r => !discoRefAllowed(scope, r))
+  if (!accepted.length) {
+    return NextResponse.json({
+      error: 'Locations not in your group',
+      description: 'None of those locations are ones you have access to.',
+      rejected,
+    }, { status: 403 })
+  }
+  // Members outside this viewer's reach are RETAINED — they were never theirs to
+  // remove. See resolveLinkEditScope.
+  const members = [...new Set([...accepted, ...editScope.retained])]
   if (await slugTaken(slug, ref)) return NextResponse.json({ error: 'URL already in use', description: 'That URL is already in use — pick another.' }, { status: 409 })
   const okUpd = await updateNativeLink(ref, { slug, title, memberRefs: members })
   if (!okUpd) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json({ reference: ref, url: slug, header: title })
+  return NextResponse.json({
+    reference: ref, url: slug, header: title,
+    saved: members.length,
+    rejected,
+    retained: editScope.retained,
+    ...(rejected.length ? {
+      warning: `${rejected.length} location(s) were not saved because you do not have access to them.`,
+    } : {}),
+  })
 }
 
 async function nativeDelete(ctx: Ctx, ref: string) {
   if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'System admin only' }, { status: 403 })
-  if ((await linkOwnerEmail(ref)) !== ctx.email) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // Deleting removes the page for EVERY member, including any the viewer cannot
+  // reach, so it needs more than the edit rule: the viewer must reach the link in
+  // full. A partial-reach admin can curate their own slice (nativeUpdate) but
+  // cannot delete a page other people's locations are on.
+  const scope = await resolveDiscoAccessScope(ctx)
+  const editScope = await resolveLinkEditScope(ref, scope)
+  if (!editScope.allowed) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (editScope.retained.length) {
+    return NextResponse.json({
+      error: 'Not allowed',
+      description: `This link includes ${editScope.retained.length} location(s) you do not have access to, so it cannot be deleted. Remove your locations from it instead.`,
+    }, { status: 403 })
+  }
   await deleteNativeLink(ref)
   return NextResponse.json({ ok: true })
 }
@@ -48,7 +90,12 @@ async function nativeDelete(ctx: Ctx, ref: string) {
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') return nativeUpdate(ctx, ref, req)
+  // BRANCH ON WHAT THE LINK IS, NOT ON HOW THE CALLER LOGGED IN. This used to test
+  // `ctx?.authType === 'disco'`, so a SYSTEM_ADMIN holding an fm_restaurant_token
+  // edited FM's link instead of the native one — the same defect shape as the
+  // clone route and the password reset. A native link is edited natively whatever
+  // session the caller happens to hold.
+  if (ctx && await nativeLinkExists(ref)) return nativeUpdate(ctx, ref, req)
 
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
@@ -85,7 +132,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
 export async function DELETE(_req: Request, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') return nativeDelete(ctx, ref)
+  // Same rule as PUT: what the link IS decides, not the session type.
+  if (ctx && await nativeLinkExists(ref)) return nativeDelete(ctx, ref)
 
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {

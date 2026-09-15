@@ -58,12 +58,24 @@ async function nativeCreate(ctx: NonNullable<Awaited<ReturnType<typeof getRestau
   if (!title) return NextResponse.json({ error: 'Title is required', description: 'Title is required' }, { status: 400 })
   if (!SLUG_RE.test(slug)) return NextResponse.json({ error: 'Invalid URL slug', description: 'URL may contain only lowercase letters, numbers, and hyphens.' }, { status: 400 })
   if (!memberRefs.length) return NextResponse.json({ error: 'Pick at least one location', description: 'Choose at least one location.' }, { status: 400 })
-  const allow = await resolveDiscoGroupScope(ctx)
+  // Reach, and SAY WHAT WAS REJECTED rather than silently saving a subset — the
+  // same change made on the edit path.
+  const allow = await resolveDiscoAccessScope(ctx)
   const members = memberRefs.filter(r => discoRefAllowed(allow, r))
-  if (!members.length) return NextResponse.json({ error: 'Locations not in your group', description: 'Those locations are not in your group.' }, { status: 403 })
+  const rejected = memberRefs.filter(r => !discoRefAllowed(allow, r))
+  if (!members.length) {
+    return NextResponse.json({
+      error: 'Locations not in your group',
+      description: 'None of those locations are ones you have access to.',
+      rejected,
+    }, { status: 403 })
+  }
   if (await slugTaken(slug)) return NextResponse.json({ error: 'URL already in use', description: 'That URL is already in use — pick another.' }, { status: 409 })
   const { reference } = await createNativeLink({ slug, title, ownerEmail: ctx.email, memberRefs: members })
-  return NextResponse.json({ reference, url: slug, header: title })
+  return NextResponse.json({
+    reference, url: slug, header: title, saved: members.length, rejected,
+    ...(rejected.length ? { warning: `${rejected.length} location(s) were not saved because you do not have access to them.` } : {}),
+  })
 }
 
 // Mirrors FM's getLinksData(): the listing call carries page/size/sort PLUS
@@ -72,6 +84,16 @@ async function nativeCreate(ctx: NonNullable<Awaited<ReturnType<typeof getRestau
 // the same token, and the client (httpOnly cookie) can't decode it.
 export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
+  // Branch on whether there is anything NATIVE to show, not on the session type.
+  // A SYSTEM_ADMIN holding an fm_restaurant_token over native restaurants used to
+  // be sent to FM's listing and never saw their own links at all.
+  if (ctx) {
+    const scope = await resolveDiscoAccessScope(ctx)
+    if (scope.unrestricted || scope.refs.size) {
+      const reachable = await listReachableNativeLinks(scope)
+      if (reachable.length) return nativeList(ctx)
+    }
+  }
   if (ctx?.authType === 'disco') return nativeList(ctx)
 
   let h: Record<string, string>

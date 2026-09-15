@@ -27,7 +27,12 @@ const PROBE_TIMEOUT_MS = 8000
 export type MultiUnitLinkOutcome =
   | { status: 'created'; slug: string; linkReference: string; title: string; members: number; banner: BannerReport; divergence: Divergence }
   | { status: 'grown'; slug: string; linkReference: string; title: string; members: number; banner: BannerReport; divergence: Divergence }
-  | { status: 'already-member'; slug: string; linkReference: string; members: number }
+  // Now the outcome for EVERY existing link, not just one the converting location
+  // was already in: an existing link is never modified, so "already-member" is the
+  // only thing a re-sync can report. `divergence` is kept and is now purely
+  // INFORMATIONAL — it says how the operator's membership differs from FM's group
+  // without anything acting on that difference.
+  | { status: 'already-member'; slug: string; linkReference: string; title: string; members: number; banner: BannerReport; divergence: Divergence }
   | { status: 'not-a-chain'; detail: string }
   | { status: 'not-converted'; detail: string }
   | { status: 'needs-slug'; detail: string; candidatesTried: string[] }
@@ -252,7 +257,13 @@ export async function ensureMultiUnitLink(
     `) as { reference: string; title: string }[]
 
     const fmMeta = await fetchFmLinkMeta(slug)
-    const title = fmMeta.header || existing[0]?.title || (restaurantName || '').split(' - ')[0].trim() || slug
+    // A STORED TITLE ALWAYS WINS. This used to read `fmMeta.header || existing.title`,
+    // so FM's group name overwrote whatever a system admin had renamed the page to,
+    // every time any location in the chain converted. FM now only names a link that
+    // has no name of its own. Kealoha renamed Atlanta Bread to "Atlanta Bread
+    // Catering" on 2026-09-09 and it survived purely because FM happens to hold the
+    // identical string; any title FM did not hold would have been reverted.
+    const title = existing[0]?.title || fmMeta.header || (restaurantName || '').split(' - ')[0].trim() || slug
 
     if (existing.length) {
       const linkReference = existing[0].reference
@@ -261,32 +272,41 @@ export async function ensureMultiUnitLink(
       `) as { restaurant_reference: string }[]).map(r => r.restaurant_reference)
       const before = await memberRefs()
 
-      // SYNC TO FM, don't grow. This used to add only the converting location
-      // and never remove, which was right while the link was a Disco-authored
-      // per-brand set. Now the link mirrors FM's group, so FM's membership wins
-      // in BOTH directions: locations FM added appear, and locations FM's group
-      // does not hold are removed.
-      const addRefs = fmRefs.filter(r => !before.includes(r))
-      const dropRefs = before.filter(r => !fmRefs.includes(r))
-      for (const r of addRefs) {
-        await sql`
-          INSERT INTO disco_multi_unit_link_members (link_reference, restaurant_reference)
-          VALUES (${linkReference}::uuid, ${r}) ON CONFLICT DO NOTHING`
-      }
-      if (dropRefs.length) {
-        await sql`
-          DELETE FROM disco_multi_unit_link_members
-          WHERE link_reference = ${linkReference}::uuid AND restaurant_reference = ANY(${dropRefs})`
-      }
-      // Title follows FM too — the group's name is the page's name.
-      if (title && title !== existing[0].title) {
-        await sql`UPDATE disco_multi_unit_links SET title = ${title}, updated_at = NOW() WHERE reference = ${linkReference}::uuid`
-      }
-      const after = await memberRefs()
-      const banner = await attachBanner(slug, title, ref)
-      const unchanged = addRefs.length === 0 && dropRefs.length === 0
+      // ── AN EXISTING LINK IS THE SYSTEM ADMIN'S. FM DOES NOT TOUCH IT. ──────
+      //
+      // FM's group is a SEED, applied once when the link is created below, and
+      // nothing after that. This branch now reads membership and returns; it adds
+      // nothing, removes nothing, and renames nothing.
+      //
+      // WHAT IT USED TO DO, and why this is urgent rather than tidy: it synced
+      // membership to FM's public group in BOTH directions, deleting every member
+      // FM's group did not list. Measured against the exact endpoint it reads
+      // (/public-api/restaurants/group/{slug}), the next conversion in each chain
+      // would have removed:
+      //
+      //     eggbred 19 -> 7      brooklyndumplingshop 9 -> 2
+      //     burgerfi 11 -> 5     cafelandwer 5 -> 1
+      //     apollobagels 9 -> 7  almosthome 4 -> 3
+      //     bingebiryani 2 -> 1  graciousbakery 3 -> 2   gv4ykr 2 -> 1
+      //
+      // Nine links, silently, with no audit row and no warning — triggered by an
+      // unrelated location converting days or weeks later.
+      //
+      // ADDING WAS REMOVED TOO, NOT JUST DELETING, and that is deliberate. An
+      // additive-only sync still overrides a human decision: a system admin who
+      // deliberately REMOVES a location from their link would have FM put it back
+      // on the next conversion, with no way to make the removal stick. "Only adds"
+      // sounds safe and is really just a slower overwrite. The link is either the
+      // operator's or FM's; it cannot be both, and Peter's model says it is theirs.
+      //
+      // The practical cost is that a newly-converted sister location is no longer
+      // auto-added to an existing link — a system admin adds it from the Links tab,
+      // which is now possible for them (the ownership gate was replaced by reach).
+      // That is one deliberate click instead of an invisible rewrite.
+      const after = before
+      const banner = await attachBanner(slug, existing[0].title || title, ref)
       return {
-        status: unchanged ? 'already-member' : 'grown',
+        status: 'already-member',
         slug, linkReference, title, members: after.length, banner,
         divergence: describeDivergence(fmRefs, after),
       }
