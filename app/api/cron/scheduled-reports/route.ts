@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendEmail } from '../../../../lib/email/send'
-import { buildReport, isReportDue, reportPeriod, type ScheduledReportConfig } from '../../../../lib/reports/native-reports'
+import { buildReport, isReportDue, reportPeriod, ReportReconciliationError, type ScheduledReportConfig } from '../../../../lib/reports/native-reports'
+import { alertOps } from '../../../../lib/ops-alert'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -75,6 +76,20 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       status = 'FAILED'; error = e instanceof Error ? e.message : String(e)
       console.error('[cron/scheduled-reports]', r.reference, error)
+      // A PAYOUT THAT DOES NOT RECONCILE IS NOT AN ORDINARY FAILURE. buildReport
+      // throws BEFORE sendEmail, so nothing goes out — but a scheduled report
+      // that silently stops arriving is its own problem, and the restaurant is
+      // not watching. This is the one send path where a wrong number would reach
+      // someone with nobody looking, so it is alerted rather than merely logged.
+      //
+      // alertOps (not alertOnce): each scheduled run is a distinct event, and a
+      // report that fails two weeks running should say so twice.
+      if (e instanceof ReportReconciliationError) {
+        await alertOps('scheduled report WITHHELD — the payout figures did not reconcile, so no email was sent', {
+          report: r.name, reference: r.reference, restaurantReference: r.restaurant_reference,
+          recipients: recipients.length, failures: e.failures.slice(0, 5),
+        })
+      }
     }
     await sql`
       INSERT INTO disco_report_runs (scheduled_report_reference, restaurant_reference, report_name, file_type, run_status, row_count)

@@ -4,25 +4,41 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib'
 import { sql } from '../db'
 import { displayEmail } from '../customer-email-guard'
+import {
+  ORDER_REPORT_COLUMNS, LOCATION_COLUMN, buildOrderReportRows, totalsRow,
+  subsidyShouldShow, reconcileRow, type OrderReportRow,
+} from './order-report-rows'
 
 export interface ReportColumn { category: string; key: string; displayLabel: string }
 
-// The columns a restaurant can include in a scheduled report. `key` is what the
-// payload stores; the generator maps each to a value below.
+// ── ONE CATALOGUE, SHARED WITH THE ON-DEMAND EXPORT ──────────────────────────
+// The old 12-column catalogue is GONE. It ended in "Total" — the customer charge
+// — with no payout column, so a scheduled report emailed the same misleading
+// figure the download had, except nobody is watching when it arrives and a
+// restaurant may act on it.
+//
+// These are the same ReportColumnDef objects the on-demand CSV/XLS/PDF render,
+// imported rather than restated: two implementations of a payout figure drifting
+// apart is precisely the failure this work exists to prevent. A column named here
+// therefore cannot mean something different in the download.
+//
+// `Location` is offered too, for a report covering several restaurants.
 export const REPORT_COLUMNS: ReportColumn[] = [
-  { category: 'Order', key: 'orderNumber', displayLabel: 'Order #' },
-  { category: 'Order', key: 'orderDate', displayLabel: 'Order Date' },
-  { category: 'Order', key: 'createdDate', displayLabel: 'Created Date' },
-  { category: 'Order', key: 'orderType', displayLabel: 'Order Type' },
-  { category: 'Order', key: 'deliveryType', displayLabel: 'Delivery Type' },
-  { category: 'Order', key: 'orderStatus', displayLabel: 'Status' },
-  { category: 'Customer', key: 'customerName', displayLabel: 'Customer' },
-  { category: 'Customer', key: 'customerEmail', displayLabel: 'Email' },
-  { category: 'Customer', key: 'customerPhone', displayLabel: 'Phone' },
-  { category: 'Financials', key: 'subtotal', displayLabel: 'Subtotal' },
-  { category: 'Financials', key: 'tax', displayLabel: 'Tax' },
-  { category: 'Financials', key: 'total', displayLabel: 'Total' },
+  { category: 'Restaurant', key: LOCATION_COLUMN.key, displayLabel: LOCATION_COLUMN.label },
+  ...ORDER_REPORT_COLUMNS.map(c => ({
+    category: c.financial ? 'Financials' : 'Order',
+    key: c.key,
+    displayLabel: c.label,
+  })),
 ]
+
+// TOTAL DISTRIBUTED IS NOT REMOVABLE. The picker stays — a restaurant choosing
+// which columns it receives is fine — but the payout is the one column whose
+// absence created this problem, and a money report without it is the thing we
+// just fixed. It is force-appended to whatever the picker stores, so an old
+// saved config or a hand-edited payload cannot produce a report without it.
+const ALWAYS_INCLUDED = 'totalDistributed'
+
 const COLUMN_LABEL: Record<string, string> = Object.fromEntries(REPORT_COLUMNS.map(c => [c.key, c.displayLabel]))
 
 export interface ReportFilter {
@@ -58,84 +74,100 @@ export function reportPeriod(frequency: string, now: Date): { from: string; to: 
   return { from, to }
 }
 
-const MONEY_KEYS = new Set(['subtotal', 'tax', 'total'])
+// Money keys come from the SHARED column set, so a column added there formats as
+// currency here without a second list to remember to update. The old hand-written
+// set (subtotal/tax/total) silently left every new financial column unformatted
+// and produced an EMPTY totals row.
+const MONEY_KEYS = new Set(ORDER_REPORT_COLUMNS.filter(c => c.financial).map(c => c.key))
 
 // Fetch the report rows + resolved column list from disco_orders for the given
 // config + period. Shared by both the CSV and PDF generators so the two formats
 // always contain identical data.
+/**
+ * Rows for a scheduled report, from the SHARED builder.
+ *
+ * Every rule the on-demand export applies applies here identically, because it is
+ * the same function: the settlement branch on disco_sale_transactions.source
+ * (never source_of_order), the split tips, and the verified Total Distributed.
+ */
 async function fetchReportRows(
   cfg: ScheduledReportConfig,
   period: { from: string; to: string },
-): Promise<{ rows: OrderRow[]; useCols: string[] }> {
-  const cols = (cfg.columns || []).filter(k => COLUMN_LABEL[k])
-  const useCols = cols.length ? cols : REPORT_COLUMNS.map(c => c.key)
-
-  // Scope the orders to the report's restaurant(s): the explicit location filter
-  // if the user set one, otherwise the report's own restaurant. Never falls back
-  // to ownerReferences (that's a USER ref and would match no orders — RM8).
+): Promise<{ rows: OrderReportRow[]; useCols: string[]; totals: Partial<OrderReportRow> }> {
+  // Scope to the report's restaurant(s): the explicit location filter if set,
+  // otherwise the report's own restaurant. NEVER ownerReferences — that is a USER
+  // ref and would match no orders (RM8).
   const locFilter = (cfg.filter?.locationReferenceIds || []).filter(Boolean)
   const scopeRefs = (locFilter.length ? locFilter : [cfg.restaurantReference]).filter(Boolean)
-  if (!scopeRefs.length) return { rows: [], useCols }
 
-  const byCreated = cfg.filter?.dateType === 'createdDate'
-  const statuses = (cfg.filter?.orderStatuses || []).filter(Boolean)
-  const deliveryTypes = (cfg.filter?.deliveryTypes || []).filter(Boolean)
+  const chosen = (cfg.columns || []).filter(k => COLUMN_LABEL[k])
+  let useCols = chosen.length ? chosen : ORDER_REPORT_COLUMNS.map(c => c.key)
+  if (!useCols.includes(ALWAYS_INCLUDED)) useCols = [...useCols, ALWAYS_INCLUDED]
 
-  // byCreated bucket: COALESCE(placed_at, created_at) — placed_at is FM's real
-  // order-creation timestamp (backfilled for pre-freeze orders, populated going
-  // forward by the fixed sync); created_at is Neon sync time, which for
-  // FM-mirrored orders can trail real placement by hours to years. Also now
-  // timezone-aware (AT TIME ZONE the order's own restaurant's tz before the
-  // ::date cast) — previously this cast used the UTC day boundary directly, the
-  // same bug already fixed elsewhere (orders list, reporting cards) but missed
-  // here.
-  const rows = (await sql`
-    SELECT o.order_number AS "orderNumber",
-           to_char(o.order_date, 'YYYY-MM-DD') AS "orderDate",
-           to_char(COALESCE(o.placed_at, o.created_at), 'YYYY-MM-DD') AS "createdDate",
-           o.order_type AS "orderType",
-           o.delivery_type AS "deliveryType",
-           o.order_status AS "orderStatus",
-           TRIM(COALESCE(o.customer_first_name,'') || ' ' || COALESCE(o.customer_last_name,'')) AS "customerName",
-           o.customer_email AS "customerEmail",
-           o.customer_phone AS "customerPhone",
-           o.subtotal AS "subtotal",
-           o.total AS "total",
-           COALESCE((SELECT SUM(st.state_tax + st.local_tax + st.other_tax)
-                     FROM disco_sale_transactions st
-                     WHERE st.order_id = o.id AND st.transaction_type = 'ORIGINAL'), 0) AS "tax"
-    FROM disco_orders o
-    LEFT JOIN disco_restaurant_cache rc ON rc.restaurant_reference = o.restaurant_reference::text
-    WHERE o.restaurant_reference = ANY(${scopeRefs}::uuid[])
-      AND (CASE WHEN ${byCreated}
-             THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))::date
-             ELSE o.order_date
-           END) >= ${period.from}::date
-      AND (CASE WHEN ${byCreated}
-             THEN (COALESCE(o.placed_at, o.created_at) AT TIME ZONE COALESCE(rc.timezone, 'America/New_York'))::date
-             ELSE o.order_date
-           END) <= ${period.to}::date
-      AND (${statuses.length === 0} OR o.order_status = ANY(${statuses}))
-      AND (${deliveryTypes.length === 0} OR o.delivery_type = ANY(${deliveryTypes}))
-    ORDER BY o.order_date DESC NULLS LAST, o.created_at DESC
-  `) as OrderRow[]
+  if (!scopeRefs.length) return { rows: [], useCols, totals: {} }
 
-  // Never surface the synthetic missing-row-backfill placeholder as a real
-  // email — a report the restaurant downloads is exactly a DISPLAY path.
-  for (const r of rows) r.customerEmail = displayEmail(r.customerEmail as string | null) || null
+  const rows = await buildOrderReportRows({
+    refs: scopeRefs,
+    from: period.from,
+    to: period.to,
+    dateField: cfg.filter?.dateType === 'createdDate' ? 'created_at' : 'order_date',
+    orderStatuses: cfg.filter?.orderStatuses,
+    deliveryTypes: cfg.filter?.deliveryTypes,
+  })
 
-  return { rows, useCols }
+  // Subsidy: hidden unless a row actually carries one, exactly as the download
+  // behaves. Without it Total Distributed cannot be derived from the visible
+  // columns; permanently on, it is a zero column on every report ever sent.
+  const showSubsidy = subsidyShouldShow(rows)
+  if (!showSubsidy) useCols = useCols.filter(k => k !== 'thirdPartySubsidy')
+  else if (!useCols.includes('thirdPartySubsidy')) {
+    const at = useCols.indexOf(ALWAYS_INCLUDED)
+    useCols = at >= 0 ? [...useCols.slice(0, at), 'thirdPartySubsidy', ...useCols.slice(at)] : [...useCols, 'thirdPartySubsidy']
+  }
+  // Only ever offer Location when the report genuinely spans several.
+  if (new Set(rows.map(r => r.location)).size <= 1) useCols = useCols.filter(k => k !== 'location')
+
+  return { rows, useCols, totals: totalsRow(rows) }
 }
 
-// Generate the report CSV from disco_orders for the given config + period.
+/**
+ * Thrown when a row's payout does not reconcile against its own visible
+ * components. The caller MUST NOT send the email — see the cron.
+ *
+ * An emailed report is worse than a failed download: nobody is watching when it
+ * sends, and a restaurant may act on a wrong payout before anyone notices. The
+ * subsidy subtraction in particular has never been exercised by a real order.
+ */
+export class ReportReconciliationError extends Error {
+  readonly failures: { orderId: string; expected: number; got: number; delta: number }[]
+  constructor(failures: { orderId: string; expected: number; got: number; delta: number }[]) {
+    super(`payout failed to reconcile on ${failures.length} row(s) — first #${failures[0]?.orderId}`)
+    this.name = 'ReportReconciliationError'
+    this.failures = failures
+  }
+}
+
+function assertReconciled(rows: OrderReportRow[]): void {
+  const failures = rows.map(r => ({ r, c: reconcileRow(r) })).filter(x => !x.c.ok)
+    .map(x => ({ orderId: x.r.orderId, expected: x.c.expected, got: x.r.totalDistributed, delta: x.c.delta }))
+  if (failures.length) throw new ReportReconciliationError(failures)
+}
+
+const cellOf = (r: Partial<OrderReportRow>, key: string): unknown => (r as Record<string, unknown>)[key]
+
 export async function generateReportCsv(
   cfg: ScheduledReportConfig,
   period: { from: string; to: string },
 ): Promise<{ csv: string; rowCount: number }> {
-  const { rows, useCols } = await fetchReportRows(cfg, period)
+  const { rows, useCols, totals } = await fetchReportRows(cfg, period)
+  assertReconciled(rows)
   const header = useCols.map(k => csvCell(COLUMN_LABEL[k])).join(',')
-  const lines = rows.map(r => useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(r[k]) : r[k])).join(','))
-  return { csv: [header, ...lines].join('\n'), rowCount: rows.length }
+  const lines = rows.map(r => useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(cellOf(r, k)) : cellOf(r, k))).join(','))
+  // Totals row, as the download has and as FM does.
+  const t = useCols.map(k => csvCell(MONEY_KEYS.has(k) ? money(cellOf(totals, k)) : ''))
+  const labelAt = useCols.findIndex(k => !MONEY_KEYS.has(k))
+  if (labelAt >= 0) t[labelAt] = csvCell('TOTAL')
+  return { csv: [header, ...lines, t.join(',')].join('\n'), rowCount: rows.length }
 }
 
 // ── PDF generation (pure-JS via pdf-lib — no native deps, serverless-safe; same
@@ -166,7 +198,8 @@ export async function generateReportPdf(
   cfg: ScheduledReportConfig,
   period: { from: string; to: string },
 ): Promise<{ pdf: Uint8Array; rowCount: number }> {
-  const { rows, useCols } = await fetchReportRows(cfg, period)
+  const { rows, useCols, totals } = await fetchReportRows(cfg, period)
+  assertReconciled(rows)
   const doc = await PDFDocument.create()
   const font = await doc.embedFont(StandardFonts.Helvetica)
   const bold = await doc.embedFont(StandardFonts.HelveticaBold)
@@ -208,11 +241,25 @@ export async function generateReportPdf(
     if (idx % 2 === 1) page.drawRectangle({ x: M, y: y - 4, width: availW, height: ROW_H, color: PDF_ZEBRA })
     useCols.forEach((k, i) => {
       const isMoney = MONEY_KEYS.has(k)
-      const raw = isMoney ? (r[k] == null || r[k] === '' ? '' : `$${Number(r[k]).toFixed(2)}`) : String(r[k] ?? '')
+      const v = cellOf(r, k)
+      const raw = isMoney ? (v == null || v === '' ? '' : `$${Number(v).toFixed(2)}`) : String(v ?? '')
       cell(raw, i, y, { align: isMoney ? 'r' : 'l' })
     })
     y -= ROW_H
   })
+  // Totals row — same as the download, same as FM.
+  if (rows.length) {
+    if (y < BOTTOM) { page = doc.addPage([W, H]); y = H - M; drawTableHead() }
+    page.drawRectangle({ x: M, y: y - 4, width: availW, height: ROW_H, color: PDF_ZEBRA })
+    const labelAt = useCols.findIndex(k => !MONEY_KEYS.has(k))
+    useCols.forEach((k, i) => {
+      const isMoney = MONEY_KEYS.has(k)
+      const v = cellOf(totals, k)
+      const raw = i === labelAt ? 'TOTAL' : isMoney ? (v == null ? '' : `$${Number(v).toFixed(2)}`) : ''
+      cell(raw, i, y, { align: isMoney ? 'r' : 'l', font: bold })
+    })
+    y -= ROW_H
+  }
   if (!rows.length) page.drawText('No data for this period.', { x: M, y: y - 4, size: 10, font, color: PDF_GREY })
 
   return { pdf: await doc.save(), rowCount: rows.length }

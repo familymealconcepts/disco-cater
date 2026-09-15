@@ -122,6 +122,9 @@ export interface OrderReportRow {
   totalDistributed: number
   /** Which settlement produced totalDistributed. Not a column; used for diagnostics. */
   settlement: 'native' | 'fm'
+  /** Not columns — carried so callers can filter without a second query. */
+  orderStatus: string
+  deliveryType: string | null
 }
 
 const n = (v: unknown): number => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
@@ -161,14 +164,35 @@ export function subsidyShouldShow(rows: OrderReportRow[]): boolean {
   return rows.some(r => Math.abs(r.thirdPartySubsidy) > 0.001)
 }
 
-export interface BuildOptions { refs: string[]; from: string; to: string; dateField?: 'order_date' | 'created_at' }
+export interface BuildOptions {
+  refs: string[]
+  from: string
+  to: string
+  dateField?: 'order_date' | 'created_at'
+  /** Optional filters, used by scheduled reports. Empty/absent = no filter. */
+  orderStatuses?: string[]
+  deliveryTypes?: string[]
+}
 
 export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderReportRow[]> {
-  const dateCol = opts.dateField === 'created_at' ? 'created_at' : 'order_date'
+  const byCreated = opts.dateField === 'created_at'
+  const statuses = (opts.orderStatuses ?? []).filter(Boolean)
+  const deliveryTypes = (opts.deliveryTypes ?? []).filter(Boolean)
+
+  // COALESCE(placed_at, created_at) FOR "CREATED DATE", NOT created_at ALONE.
+  // placed_at is FM's real order-creation timestamp (backfilled for pre-freeze
+  // orders, populated going forward by the fixed sync); created_at is NEON SYNC
+  // TIME, which for FM-mirrored orders can trail real placement by hours to
+  // years. "Created Date" means when the order was actually placed.
+  //
+  // This was briefly regressed when the column set moved here — the first
+  // version of this query used bare created_at and would have mis-dated every
+  // FM-mirrored row, both in the scheduled report and the on-demand export.
   const rows = (await sql`
     SELECT o.order_number, o.restaurant_name, o.customer_first_name, o.customer_last_name,
-           o.created_at, o.order_date::text AS order_date, o.order_time::text AS order_time,
-           o.delivery_type, o.refund, o.source_of_order,
+           COALESCE(o.placed_at, o.created_at) AS created_at,
+           o.order_date::text AS order_date, o.order_time::text AS order_time,
+           o.delivery_type, o.order_status, o.refund, o.source_of_order,
            t.source, t.subtotal, t.state_tax, t.local_tax, t.other_tax,
            t.own_delivery_fee, t.third_party_delivery_fee, t.tips_in_price, t.third_party_delivery_tips,
            t.service_charge, t.discount, t.lead_gen_one_disco_fee, t.lead_gen_two_disco_fee,
@@ -178,8 +202,10 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
         ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
      WHERE o.restaurant_reference = ANY(${opts.refs}::uuid[])
        AND o.is_deleted = false
-       AND (CASE WHEN ${dateCol} = 'created_at' THEN o.created_at::date ELSE o.order_date END)
+       AND (CASE WHEN ${byCreated} THEN COALESCE(o.placed_at, o.created_at)::date ELSE o.order_date END)
            BETWEEN ${opts.from}::date AND ${opts.to}::date
+       AND (${statuses.length === 0} OR o.order_status = ANY(${statuses}))
+       AND (${deliveryTypes.length === 0} OR COALESCE(o.delivery_type, 'PICKUP') = ANY(${deliveryTypes}))
      ORDER BY o.order_date, o.order_time, o.order_number
   `.catch(() => [])) as Record<string, unknown>[]
 
@@ -214,6 +240,8 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       thirdPartySubsidy: n(row.third_party_delivery_subsiding),
       totalDistributed,
       settlement: isNative ? 'native' : 'fm',
+      orderStatus: String(row.order_status ?? ''),
+      deliveryType: (row.delivery_type as string) ?? null,
     }
   })
 }
