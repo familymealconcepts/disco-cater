@@ -401,14 +401,56 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
     }
     if (withItems && inserted[0]?.id) await syncOrderDetail(inserted[0].id, o.fmRef)
 
+    // ── ITEMS FOR ANY UPCOMING ORDER, WHATEVER ITS SOURCE ──────────────────────
+    // This used to live inside the DISCO-only confirmation block below, as a
+    // side effect of needing line items for the email. That made the item write
+    // conditional on who sent the order, which is not what decides whether a
+    // kitchen needs to know what to cook.
+    //
+    // The consequence was measured, not theoretical: 17 upcoming orders across
+    // Apollo Bagels (Kips Bay/Hoboken/Industry City), Supernatural, Purslane and
+    // Namkeen — $9,900 of food, one of them due the same morning — sat in Neon
+    // with a full header and ZERO items and ZERO sale transaction, because they
+    // were source FAMILYMEAL and this rescue never fired for them. Every one had
+    // its items sitting in FM the whole time. Restaurants saw an empty item list
+    // and "Unavailable" money in Edit Order, the PDF and the confirmation email.
+    //
+    // So the item fetch is now separated from the notification and gated only on
+    // "is this order still ahead of us". `!withItems` because the withItems:true
+    // path already fetched detail above — this is specifically the rescue for the
+    // withItems:false pulls (syncNonCacheRestaurantOrders and the reconcile
+    // mismatch branch) that create headers without contents.
+    //
+    // COST, measured fleet-wide over the last 14 days: ~9.5 FM orders per day are
+    // inserted with a future date, so at ~250ms per detail fetch this adds about
+    // 2.4 SECONDS OF WORK PER DAY across the whole fleet. It is bounded by
+    // upcoming orders only — historical rows, which are the overwhelming bulk of
+    // any full pull, are untouched and keep their cheap header-only path. There
+    // is no timeout risk here.
+    if (inserted[0]?.id && !withItems && isUpcomingIso(o.dateIso)) {
+      try {
+        await syncOrderDetail(inserted[0].id, o.fmRef)
+      } catch (e) {
+        console.error('[fm-orders-sync] upcoming-order detail fetch failed:',
+          o.orderNumber ?? o.fmRef, e instanceof Error ? e.message : e)
+      }
+    }
+
     // Backfill notification: this DISCO order was pulled by the sync, meaning the
     // real-time mirror missed it (an already-mirrored DISCO order has an existing
     // row and is skipped below). Fire Disco's confirmation for UPCOMING orders only
     // (idempotent via claimConfirmationSend, so a later real-time retry can't double
-    // it). FAMILYMEAL-source orders are excluded — FamilyMeal notifies those itself.
+    // it).
+    //
+    // STILL DISCO-ONLY, AND THAT MUST NOT CHANGE: FamilyMeal sends its own
+    // confirmations for FAMILYMEAL-source orders, so firing Disco's here would
+    // double-notify the customer. Only the ITEM WRITE above was widened — the
+    // notification deliberately was not.
     if (inserted[0]?.id && o.source === 'DISCO' && isUpcomingIso(o.dateIso)) {
       try {
-        if (!withItems) await syncOrderDetail(inserted[0].id, o.fmRef) // ensure the email has line items
+        // No syncOrderDetail here any more — the block above already fetched it for
+        // EVERY upcoming order, DISCO included. Calling it again would be a second
+        // FM round trip and a second atomic item replace for the same row.
         await dispatchOrderConfirmations(inserted[0].id, 'FM_SYNC_BACKFILL')
       } catch (e) {
         await alertOps('fm-orders-sync: backfill confirmation failed', {
@@ -554,16 +596,46 @@ export async function repairBareOrderDetail(
   const bareBefore = countRows[0]?.n ?? 0
   if (bareBefore === 0) return { bareBefore, repaired: 0 }
 
-  const bareRows = (await sql`
+  // ── PRIORITY: SOONEST DELIVERED, NOT MOST RECENTLY PLACED ──────────────────
+  // This used to be `ORDER BY o.placed_at DESC LIMIT 20`, which sorts by when the
+  // order was TAKEN. That is the wrong clock. An order placed months ago for
+  // tomorrow's breakfast is urgent; one placed yesterday for December is not.
+  //
+  // Measured on Apollo Bagels - Kips Bay: 51 bare orders, 8 of them upcoming, and
+  // THREE of those upcoming ones ranked 23, 24 and 31 by placed_at — outside the
+  // cap of 20 entirely. They could never be reached, at any rotation frequency,
+  // because older already-past bare rows permanently outranked them.
+  //
+  // UPCOMING ORDERS ARE NOW TAKEN FIRST AND ARE NOT SUBJECT TO THE CAP. They are
+  // the ones a kitchen still has to cook, they are naturally few (fleet-wide there
+  // was exactly ONE at the time of writing), and capping them is what produced the
+  // failure above. Past bare rows then fill the remaining budget, still newest-
+  // first, so the historical backlog keeps draining at the same rate as before.
+  const upcomingRows = (await sql`
     SELECT o.id, o.fm_order_reference::text AS fm_ref
     FROM disco_orders o
     LEFT JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
     WHERE o.restaurant_reference = ${restaurantReference}::uuid
       AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
       AND o.is_deleted = false AND t.id IS NULL
-    ORDER BY o.placed_at DESC NULLS LAST
-    LIMIT ${cap}
+      AND o.order_date >= CURRENT_DATE
+    ORDER BY o.order_date ASC, o.order_time ASC NULLS LAST
   `.catch(() => [])) as { id: number; fm_ref: string }[]
+
+  const remaining = Math.max(0, cap - upcomingRows.length)
+  const pastRows = remaining === 0 ? [] : (await sql`
+    SELECT o.id, o.fm_order_reference::text AS fm_ref
+    FROM disco_orders o
+    LEFT JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
+    WHERE o.restaurant_reference = ${restaurantReference}::uuid
+      AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
+      AND o.is_deleted = false AND t.id IS NULL
+      AND o.order_date < CURRENT_DATE
+    ORDER BY o.placed_at DESC NULLS LAST
+    LIMIT ${remaining}
+  `.catch(() => [])) as { id: number; fm_ref: string }[]
+
+  const bareRows = [...upcomingRows, ...pastRows]
 
   let repaired = 0
   for (const r of bareRows) {
@@ -730,6 +802,47 @@ export async function syncAllRestaurantOrders(
   const bareRepairs: { restaurantReference: string; bareBefore: number; repaired: number }[] = []
   let auth: Record<string, string> | null = null
 
+  // ── TARGETED PRE-PASS: RESTAURANTS WITH UPCOMING BARE ORDERS, WHEREVER THEY SIT
+  //    IN THE ROTATION ─────────────────────────────────────────────────────────
+  // The rotation is even, not urgent. At BATCH=50 over 4,096 cached restaurants a
+  // full pass takes 82 hourly runs — about 3.4 DAYS — so whether a bare order is
+  // repaired before its delivery date is decided by where its restaurant happens
+  // to sort by UUID. Measured during the incident that prompted this: an order due
+  // that same morning belonged to a restaurant 28 runs away (~1.2 days), and
+  // another sat 58 runs out (~2.4 days). Both would have passed their dates first.
+  //
+  // So before the rotation batch, find every restaurant that has an UPCOMING bare
+  // order and repair those first, regardless of rotation position. This is not a
+  // second rotation — it is a small, exactly-targeted list, soonest-due first.
+  //
+  // COST: one indexed aggregate over disco_orders per run, then repairs only where
+  // there is genuinely something to fix. Fleet-wide at the time of writing that
+  // query returned ONE restaurant with one upcoming bare order; on a healthy fleet
+  // it returns none and costs a single query. Capped so a pathological day cannot
+  // turn the hourly sync into an unbounded job.
+  const URGENT_RESTAURANT_CAP = 25
+  const urgentRows = (await sql`
+    SELECT o.restaurant_reference::text AS ref, COUNT(*)::int AS n, MIN(o.order_date)::text AS soonest
+    FROM disco_orders o
+    LEFT JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
+    WHERE t.id IS NULL AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
+      AND o.is_deleted = false AND o.order_date >= CURRENT_DATE
+    GROUP BY 1
+    ORDER BY MIN(o.order_date) ASC
+    LIMIT ${URGENT_RESTAURANT_CAP}
+  `.catch(() => [])) as { ref: string; n: number; soonest: string }[]
+
+  const urgentDone = new Set<string>()
+  for (const u of urgentRows) {
+    if (!isUuid(u.ref)) continue
+    const res = await repairBareOrderDetail(u.ref)
+    urgentDone.add(u.ref)
+    if (res.bareBefore > 0) {
+      console.warn(`[fm-orders-sync] URGENT bare-order repair: restaurant=${u.ref} upcomingBare=${u.n} soonest=${u.soonest} bareBefore=${res.bareBefore} repaired=${res.repaired}`)
+      bareRepairs.push({ restaurantReference: u.ref, ...res })
+    }
+  }
+
   for (const ref of refs) {
     let stopAtKnownDate = opts.stopAtKnownDate
     let maxPages = opts.maxPages ?? 3
@@ -762,7 +875,8 @@ export async function syncAllRestaurantOrders(
     // Bare-order detail repair — unconditional (not gated behind reconcile):
     // cheap when there's no backlog (one COUNT query), and "no FM order sits
     // bare indefinitely" shouldn't depend on an opt-in flag.
-    const bareResult = await repairBareOrderDetail(ref)
+    // Skipped when the urgent pre-pass above already handled this restaurant this run.
+    const bareResult = urgentDone.has(ref) ? { bareBefore: 0, repaired: 0 } : await repairBareOrderDetail(ref)
     if (bareResult.bareBefore > 0) {
       console.warn(`[fm-orders-sync] bare-order repair: restaurant=${ref} bareBefore=${bareResult.bareBefore} repaired=${bareResult.repaired}`)
       bareRepairs.push({ restaurantReference: ref, ...bareResult })
