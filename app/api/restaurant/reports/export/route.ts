@@ -12,7 +12,18 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const num = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 const money = (n: number) => `$${n.toFixed(2)}`
 
-const COLUMNS = ['Order #', 'Order Date', 'Created Date', 'Customer', 'Type', 'Status', 'Source', 'Subtotal', 'Tips', 'Total'] as const
+// 'Gross', NOT 'Total'. This column is the CUSTOMER CHARGE, and a restaurant reads
+// a column called "Total" as its revenue. On order #900000142 it says $1,159.00
+// while $1,011.29 actually reached Apollo Bagels - Kips Bay — the difference being
+// the third-party delivery fee and the platform fee, neither of which the
+// restaurant receives. FamilyMeal has never had this problem: its equivalent
+// column is labelled "Gross" and sits beside "Total Distributed", the payout.
+//
+// Renaming is the immediate half of the fix and deliberately ships ahead of the
+// payout column: it costs one word and stops the export asserting something
+// untrue in the meantime. All three formats (CSV, XLS, PDF) render from this one
+// list, so the rename reaches every one of them.
+const COLUMNS = ['Order #', 'Order Date', 'Created Date', 'Customer', 'Type', 'Status', 'Source', 'Subtotal', 'Tips', 'Gross'] as const
 
 interface Row { number: string; orderDate: string; createdDate: string; customer: string; type: string; status: string; source: string; subtotal: string; tips: string; total: string }
 
