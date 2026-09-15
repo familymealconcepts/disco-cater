@@ -657,3 +657,20 @@ export async function runAlertDedupMigrations(): Promise<void> {
   for (const s of statements) await sql.query(s)
   alertDedupMigrated = true
 }
+
+// ── Stripe capability snapshot ────────────────────────────────────────────────
+// Backs lib/stripe-capability-refresh.ts. See that file for why the answer is
+// stored rather than asked live on every render.
+let stripeCapabilityMigrated = false
+export async function runStripeCapabilityMigrations(): Promise<void> {
+  if (stripeCapabilityMigrated) return
+  const statements = [
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_charges_enabled BOOLEAN`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_payouts_enabled BOOLEAN`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_status TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_status_reason TEXT`,
+    `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS stripe_status_checked_at TIMESTAMPTZ`,
+  ]
+  for (const s of statements) await sql.query(s)
+  stripeCapabilityMigrated = true
+}

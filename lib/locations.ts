@@ -189,6 +189,24 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
         AND o.archived_at IS NULL
         AND o.online_ordering_enabled = true
         AND o.stripe_account_id IS NOT NULL
+        -- ── AND STRIPE MUST NOT HAVE RESTRICTED IT ─────────────────────────
+        -- An attached account is not the same as a working one. A restricted
+        -- account passes the id check above and still cannot take the customer's
+        -- money, which is the precise failure this filter exists to prevent.
+        --
+        -- CHARGES, NOT PAYOUTS, and the distinction is deliberate. charges_enabled
+        -- = false means the order cannot complete, so hide it. An account that
+        -- charges but cannot pay out stays VISIBLE: the order succeeds, the
+        -- customer is served, and Stripe holds the money until the restaurant
+        -- clears whatever is outstanding — recoverable, not lost. Three accounts
+        -- are in that state today and hiding them would cancel completable orders
+        -- over a problem no customer experiences.
+        --
+        -- IS NOT FALSE rather than = true, so NULL does not hide anyone. NULL
+        -- means the snapshot has not been taken yet or Stripe could not be read —
+        -- an open question, not a restriction. Taking a working storefront offline
+        -- over a network blip would be a worse failure than the one being fixed.
+        AND o.stripe_charges_enabled IS NOT FALSE
     `.catch(() => [])) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; state: string | null;
            address_line1: string | null; address_line2: string | null; city: string | null; zipcode: string | null }[]
     if (!rows.length) return null
