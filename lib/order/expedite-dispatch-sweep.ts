@@ -72,11 +72,26 @@
  * to telephone the restaurant.
  */
 import { sql } from '../db'
-import { alertOps } from '../ops-alert'
+import { alertOps, alertOnce } from '../ops-alert'
 import { buildPayloadFromNeon, dispatchExpediteForOrder, nativeDispatchEnabled } from '../expedite'
 
 /** Minimum runway between now and pickup for a dispatch to be worth making. See the header. */
 export const DISPATCH_MARGIN_MINUTES = 20
+
+/**
+ * How far past pickup an order stays worth alerting about.
+ *
+ * TWO HOURS. Inside that, a missed delivery is still a live problem someone can act on — the
+ * kitchen may still have the food, the customer can be called, a remake or a refund conversation
+ * is in front of you rather than behind. Beyond it the meal window is simply gone: the event is a
+ * post-mortem, and a post-mortem does not belong in an alerting channel at all. It belongs in the
+ * query that produced this number.
+ *
+ * Past the cutoff the sweep skips SILENTLY — not "quietly logs a warning", silently. The four
+ * orders that made this necessary (#900000139/142/146/151) were each hours past pickup and each
+ * re-announced every fifteen minutes.
+ */
+export const ALERT_CUTOFF_MINUTES_PAST_PICKUP = 120
 
 /**
  * The whole scheduling decision, as a pure function, so it can be tested exhaustively without a
@@ -126,13 +141,15 @@ export interface SweepSummary {
   dispatched: SweepCandidate[]
   failed: SweepCandidate[]
   tooLate: SweepCandidate[]
+  /** Past the alert cutoff — counted, never alerted. */
+  silentlyStale: SweepCandidate[]
   unbuildable: SweepCandidate[]
   skippedDisabled: boolean
 }
 
 export async function sweepFailedExpediteDispatches(now: Date = new Date()): Promise<SweepSummary> {
   const summary: SweepSummary = {
-    scanned: 0, dispatched: [], failed: [], tooLate: [], unbuildable: [], skippedDisabled: false,
+    scanned: 0, dispatched: [], failed: [], tooLate: [], silentlyStale: [], unbuildable: [], skippedDisabled: false,
   }
 
   // Same flag the live path is gated on. If native dispatch is off, this must not quietly become
@@ -177,9 +194,11 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
     const payload = await buildPayloadFromNeon(row.reference)
     if (!payload) {
       summary.unbuildable.push(base)
-      await alertOps('expedite sweep: could not build a payload for an order with no courier', {
-        orderNumber: row.order_number, reference: row.reference, restaurant: row.restaurant_name,
-      })
+      await alertOnce(
+        `expedite-sweep:unbuildable:${row.reference}`,
+        'expedite sweep: could not build a payload for an order with no courier',
+        { orderNumber: row.order_number, reference: row.reference, restaurant: row.restaurant_name },
+      )
       continue
     }
 
@@ -189,13 +208,31 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
 
     if (decision !== 'dispatch') {
       // Too close, or already gone. Dispatching here books a courier to collect from a window that
-      // has closed — they arrive at nothing and may still charge. Alert instead, urgently: if the
-      // pickup is merely close rather than past, a phone call can still save the order.
+      // has closed — they arrive at nothing and may still charge.
       summary.tooLate.push(candidate)
-      await alertOps(
+
+      // Long past pickup: nothing anyone can do, so say nothing. See
+      // ALERT_CUTOFF_MINUTES_PAST_PICKUP for why silence is the right behaviour and not a gap.
+      if (minutes < -ALERT_CUTOFF_MINUTES_PAST_PICKUP) {
+        summary.silentlyStale.push(candidate)
+        continue
+      }
+
+      // AT RISK and MISSED are separated deliberately, and they are different alerts because they
+      // ask for different things. AT RISK means pickup is still ahead but inside the dispatch
+      // margin: the order is SAVABLE BY A PHONE CALL right now, and that is the most valuable
+      // message this sweep can send. MISSED means pickup has passed: the delivery is gone and the
+      // job is damage control with the customer. Collapsing them would bury the one that is
+      // actionable underneath the ones that are not.
+      //
+      // Distinct alert keys, so an order that is first seen AT RISK and later seen MISSED raises
+      // both once — the escalation is real information, not a repeat.
+      const phase = decision === 'missed' ? 'missed' : 'at-risk'
+      await alertOnce(
+        `expedite-sweep:${phase}:${row.reference}`,
         decision === 'missed'
           ? 'expedite sweep: DELIVERY MISSED — order has no courier and its pickup time has passed'
-          : 'expedite sweep: DELIVERY AT RISK — order has no courier and pickup is too close to dispatch',
+          : 'expedite sweep: DELIVERY AT RISK — no courier and pickup is minutes away; a phone call can still save this',
         {
           orderNumber: row.order_number, restaurant: row.restaurant_name, total: row.total,
           pickupAt, minutesToPickup: minutes, marginMinutes: DISPATCH_MARGIN_MINUTES,

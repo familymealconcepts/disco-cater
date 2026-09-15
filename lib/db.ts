@@ -629,3 +629,31 @@ export async function runRestaurantAdminListCacheMigrations(): Promise<void> {
   for (const s of statements) await sql.query(s)
   restaurantAdminListCacheMigrated = true
 }
+
+// ── Ops-alert deduplication ───────────────────────────────────────────────────
+// Backs alertOnce() in lib/ops-alert.ts. See that file for the rule this exists
+// to enforce; the short version is that an alert fires when a condition NEWLY
+// becomes true, and this table is the memory that makes "newly" meaningful
+// across stateless lambda invocations.
+//
+// Keyed on a caller-chosen string so the grain is the caller's decision — one
+// row per order per alert kind, per restaurant, per whatever the condition is
+// actually about. times_seen/last_seen_at are kept because "this has been true
+// for 300 consecutive checks" is genuinely useful when reading back, and costs
+// one UPDATE on a primary-key hit.
+let alertDedupMigrated = false
+export async function runAlertDedupMigrations(): Promise<void> {
+  if (alertDedupMigrated) return
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS disco_alert_dedup (
+      alert_key TEXT PRIMARY KEY,
+      first_alerted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      times_seen INTEGER NOT NULL DEFAULT 1,
+      note TEXT
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_disco_alert_dedup_first ON disco_alert_dedup(first_alerted_at DESC)`,
+  ]
+  for (const s of statements) await sql.query(s)
+  alertDedupMigrated = true
+}

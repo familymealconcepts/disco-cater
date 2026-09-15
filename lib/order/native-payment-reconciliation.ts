@@ -24,7 +24,7 @@
 import Stripe from 'stripe'
 import { sql } from '../db'
 import { recordOrderEvent, handleNativePaymentIntentSucceeded } from './native-payment-succeeded'
-import { alertOps } from '../ops-alert'
+import { alertOnce } from '../ops-alert'
 
 export const DEFAULT_RECONCILIATION_LOOKBACK_HOURS = 26 // > the hourly cadence, so a missed run can't create a gap
 
@@ -236,7 +236,11 @@ export async function reconcileNativePayments(
     // cases (no order to attach to, auto-reconcile itself failed, or a local-
     // says-paid/Stripe-disagrees dispute) read as still-needing-action.
     const label = m.autoReconciled ? 'AUTO-RECONCILED' : 'NEEDS ATTENTION'
-    await alertOps(
+    // alertOnce, keyed on the PaymentIntent and direction. This sweep runs hourly over a 26-hour
+    // lookback, so an unresolved mismatch is re-detected on ~26 consecutive runs — with alertOps
+    // that was 26 identical messages for one problem. The condition is the mismatch, not the check.
+    await alertOnce(
+      `payment-reconciliation:${m.direction}:${m.paymentIntentId}`,
       `PAYMENT RECONCILIATION MISMATCH — ${label} (${m.direction}): PaymentIntent ${m.paymentIntentId} ($${dollars}), ` +
       `order ${m.orderNumber ?? 'UNKNOWN'} (${m.orderReference ?? 'no reference'}), status=${m.orderStatus ?? 'n/a'}. ${m.detail}`,
     )

@@ -28,7 +28,7 @@ function hasCronSecret(req: NextRequest): boolean {
 async function handle(): Promise<NextResponse> {
   try {
     const result = await checkBareOrderIntegrity()
-    console.log('[check-bare-orders] done:', JSON.stringify({ count: result.count }))
+    console.log('[check-bare-orders] done:', JSON.stringify({ total: result.count, actionable: result.actionableCount, alerted: result.alerted }))
     return NextResponse.json({ success: true, ...result })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)

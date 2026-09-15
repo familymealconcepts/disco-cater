@@ -62,11 +62,38 @@ function fmtSlackDate(iso: string): string {
   return `${m}/${String(d).padStart(2, '0')}/${String(y).slice(-2)}`
 }
 
-// Posts THE single new-order notification to the Disco Slack channel, in the
-// canonical format:
-//   [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - ([P|D])
-// 1P = FAMILYMEAL, 3P = DISCO · P = PICKUP, D = DELIVERY. Never throws; skips
-// silently when SLACK_NEW_ORDER_WEBHOOK_URL is unset.
+// Posts THE single new-order notification to the Disco Slack channel:
+//   [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - ([service type])
+//
+// TWO DIFFERENT FACTS, AND THEY ARE NOT THE SAME THING — this message used to
+// collapse them and the abbreviations collide, which is how a Third-Party
+// Delivery got read as a pickup:
+//
+//   SOURCE (the 1P/3P tag) — where the order came from and what it costs us.
+//     1P = /order/{slug}, sourceoforder FAMILYMEAL, NO lead-gen fee.
+//     3P = /restaurants/{slug}, sourceoforder DISCO, lead-gen fee APPLIES.
+//     This has real financial consequences and is unchanged here.
+//
+//   SERVICE TYPE (the trailing tag) — how the food actually gets to the
+//     customer: Pickup, Self-Delivery, or Third-Party Delivery.
+//
+// THE SERVICE TYPE IS NOW SPELLED OUT, NOT ABBREVIATED. It used to render as a
+// single letter, (P) or (D), one character away from the 1P/3P source tag in the
+// same message. Order 900000162 — a Third-Party Delivery that dispatched to
+// Expedite correctly — posted as "... 1P, 9/18/26 - (P)" and was read as a
+// pickup. Two abbreviations that collide in a message read at a glance are worth
+// more characters, so the full label goes out.
+//
+// THE BUG, precisely, because it is an instructive one. `orderService` is
+// already the HUMAN LABEL from fulfillmentLabel() — "Third-Party Delivery" —
+// built at the top of dispatchOrderConfirmations. This function then tested
+// `=== 'DELIVERY'` against it, which is never true for ANY of the three labels,
+// so every order silently fell through to 'P'. Pickups looked right by accident.
+// fulfillment-label.ts's own header warns about exactly this: feeding a human
+// label into a test written for the raw enum. The fix is not a better test — it
+// is to stop re-deriving a fact the shared module already decided, and print it.
+//
+// Never throws; skips silently when SLACK_NEW_ORDER_WEBHOOK_URL is unset.
 async function sendNewOrderSlack(o: {
   sourceOfOrder: string
   restaurantName: string
@@ -74,16 +101,18 @@ async function sendNewOrderSlack(o: {
   state: string
   total: number
   orderDateIso: string
-  orderType: string
+  /** The human service-type label from fulfillmentLabel(). Printed verbatim. */
+  serviceLabel: string
 }): Promise<void> {
   const url = process.env.SLACK_NEW_ORDER_WEBHOOK_URL
   if (!url) return
   try {
-    const tag = o.sourceOfOrder === 'DISCO' ? '3P' : '1P'
-    const svc = String(o.orderType).toUpperCase() === 'DELIVERY' ? 'D' : 'P'
+    const tag = o.sourceOfOrder === 'DISCO' ? '3P' : '1P'   // SOURCE — see header
+    // SERVICE TYPE — printed verbatim from the shared label. No re-derivation.
+    const svc = String(o.serviceLabel || '').trim() || 'Unknown'
     const amount = `$${(Number.isFinite(o.total) ? o.total : 0).toFixed(2)}`
     const loc = [o.city, o.state].filter(Boolean).join(', ')
-    // [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - ([P|D])
+    // [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - ([service type])
     // filter(Boolean) so a missing city/state doesn't leave a stray comma.
     const text = [o.restaurantName, loc, `(${amount})`, tag, `${fmtSlackDate(o.orderDateIso)} - (${svc})`]
       .filter(Boolean)
@@ -591,7 +620,7 @@ export async function dispatchOrderConfirmations(
         state: locParts[1] || '',
         total: totalPrice,
         orderDateIso: normDateStr(o.order_date),
-        orderType: shared.orderService,
+        serviceLabel: shared.orderService,
       })
     } else {
       console.log('[order-notifications] Slack already notified, skipping:', reference)

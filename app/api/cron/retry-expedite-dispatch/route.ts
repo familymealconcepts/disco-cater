@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
 
     console.log(
       `[cron/retry-expedite-dispatch] scanned=${s.scanned} dispatched=${s.dispatched.length} ` +
-      `tooLate=${s.tooLate.length} failed=${s.failed.length} unbuildable=${s.unbuildable.length} ` +
+      `tooLate=${s.tooLate.length} silentlyStale=${s.silentlyStale.length} failed=${s.failed.length} unbuildable=${s.unbuildable.length} ` +
       `(margin=${DISPATCH_MARGIN_MINUTES}m)`,
     )
     return NextResponse.json({
@@ -59,6 +59,7 @@ export async function GET(req: NextRequest) {
       scanned: s.scanned,
       dispatched: s.dispatched.map(c => c.orderNumber),
       tooLate: s.tooLate.map(c => ({ order: c.orderNumber, minutesToPickup: c.minutesToPickup })),
+      silentlyStale: s.silentlyStale.map(c => c.orderNumber),
       failed: s.failed.map(c => c.orderNumber),
       unbuildable: s.unbuildable.map(c => c.orderNumber),
     })
