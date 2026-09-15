@@ -159,12 +159,36 @@ export const getLocationLink = cache(async (slug: string): Promise<LocationLink 
   const nativeLink = await getNativeLinkBySlug(slug).catch(() => null)
   if (nativeLink) {
     if (!nativeLink.memberRefs.length) return null
+    // ── MEMBERSHIP IS STORED; DISPLAY IS COMPUTED HERE ────────────────────────
+    // A system admin's link membership is their choice and it persists untouched.
+    // What renders is decided at READ time, every time, from the two things that
+    // actually determine whether a customer can place an order:
+    //
+    //     online ordering is ON      (disco_restaurant_overrides.online_ordering_enabled)
+    //     a Stripe account is attached (disco_restaurant_overrides.stripe_account_id)
+    //
+    // plus not archived. Those are exactly the conditions lib/restaurant-orderable.ts
+    // gates checkout on, so the page can no longer show a location whose Order
+    // button would immediately refuse. A member failing either is hidden SILENTLY
+    // and stays a member; when it later meets both it reappears on its own, with
+    // nobody doing anything.
+    //
+    // THIS REPLACES `c.is_live = true`, WHICH MEANT SOMETHING DIFFERENT. is_live is
+    // a STORED marketplace-readiness flag, written at conversion and by admin
+    // toggles — not a live statement about whether ordering works. It drifts:
+    // EggBred - Brentwood is is_live = true with online ordering on and NO Stripe
+    // account, so it rendered on the page and its Order button failed. The old
+    // filter asked "was this marked live at some point", the new one asks "can a
+    // customer order from it right now".
     const rows = (await sql`
       SELECT c.restaurant_reference, c.name, c.slug, c.address, c.location, c.state,
              c.address_line1, c.address_line2, c.city, c.zipcode
       FROM disco_restaurant_cache c
-      LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
-      WHERE c.restaurant_reference = ANY(${nativeLink.memberRefs}) AND c.is_live = true AND o.archived_at IS NULL
+      JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+      WHERE c.restaurant_reference = ANY(${nativeLink.memberRefs})
+        AND o.archived_at IS NULL
+        AND o.online_ordering_enabled = true
+        AND o.stripe_account_id IS NOT NULL
     `.catch(() => [])) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; state: string | null;
            address_line1: string | null; address_line2: string | null; city: string | null; zipcode: string | null }[]
     if (!rows.length) return null

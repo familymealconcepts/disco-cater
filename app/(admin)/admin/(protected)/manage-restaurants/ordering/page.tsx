@@ -195,11 +195,55 @@ function Toggle({ checked, onChange, disabled, color = BLUE }: { checked: boolea
 
 // Stripe Connect status per row. Never-checked (checkedAt === null) shows
 // "Unknown"; a row mid-check shows "Checking…". Green = connected, grey = not.
-function StripeStatus({ status, checking }: { status?: { connected: boolean; checkedAt: string | null; hasStripeAccount?: boolean }; checking?: boolean }) {
+function StripeStatus({ status, live, checking }: {
+  status?: { connected: boolean; checkedAt: string | null; hasStripeAccount?: boolean }
+  live?: { state: string; reason: string | null; chargeCapable: boolean }
+  checking?: boolean
+}) {
   if (checking) return <span style={{ color: '#9CA3AF', fontSize: 12, whiteSpace: 'nowrap' }}>Checking…</span>
   const dot = (color: string) => (
     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 6, verticalAlign: 'middle' }} />
   )
+
+  // ── LIVE STRIPE STATE WINS WHEN WE HAVE IT ────────────────────────────────
+  // The stored flags below can only say connected / not connected, which collapses
+  // two situations needing OPPOSITE actions: no account exists at all (someone must
+  // onboard or attach one) versus an account exists and Stripe has restricted it
+  // (usually the restaurant must supply a document). Reading "Not connected" against
+  // a restricted account sends you hunting for an account that is already there.
+  //
+  // Colours are deliberately far apart: red for restricted (broken now), amber for
+  // at-risk (working, on a clock), green for healthy, grey for absent. The reason
+  // is on hover because it decides who can act — a past-due requirement is the
+  // restaurant's to fix; an account under Stripe review is nobody's.
+  if (live) {
+    if (live.state === 'restricted') {
+      return (
+        <span title={live.reason ?? 'Stripe has restricted this account.'}
+          style={{ fontSize: 12, color: '#C62828', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'help' }}>
+          {dot('#C62828')}Restricted
+          {live.chargeCapable ? <span style={{ fontWeight: 400, color: '#8a8a8a' }}> · payouts</span> : null}
+        </span>
+      )
+    }
+    if (live.state === 'at-risk') {
+      return (
+        <span title={live.reason ?? 'A Stripe requirement is past due.'}
+          style={{ fontSize: 12, color: '#B26A00', whiteSpace: 'nowrap', cursor: 'help' }}>
+          {dot('#E8A33D')}At risk
+        </span>
+      )
+    }
+    if (live.state === 'connected') {
+      return <span style={{ fontSize: 12, color: '#1D9E75', whiteSpace: 'nowrap' }}>{dot('#1D9E75')}Connected</span>
+    }
+    if (live.state === 'unknown') {
+      return <span title={live.reason ?? ''} style={{ color: '#9CA3AF', fontSize: 12, cursor: 'help' }}>Unknown</span>
+    }
+    // live.state === 'no-account' falls through to the stored-flag logic below,
+    // which already distinguishes never-checked from checked-and-absent.
+  }
+
   // A disco Stripe account (connected during Disco onboarding) is authoritative and
   // needs no FM probe. Otherwise fall back to the probed status (stripe_connected),
   // which only means anything once it's been checked (checkedAt set).
@@ -700,6 +744,10 @@ export default function RestaurantsOrderingPage() {
   // True once the cached Stripe statuses have loaded — gates the background check
   // so we don't treat everything as "never checked" before the cache arrives.
   const [stripeLoaded, setStripeLoaded] = useState(false)
+  // Live Stripe state, keyed by restaurant reference. Fetched for the rows actually
+  // on screen (see the effect below) rather than for the whole fleet, because it is
+  // one Stripe read per account and 190 accounts have one attached.
+  const [liveStripe, setLiveStripe] = useState<Record<string, { state: string; reason: string | null; chargeCapable: boolean }>>({})
   // References currently being background-checked (drives the row "Checking…").
   const [checkingRefs, setCheckingRefs] = useState<Set<string>>(new Set())
   // References we've already kicked off a background check for this session, so a
@@ -783,6 +831,28 @@ export default function RestaurantsOrderingPage() {
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize))
   const pageRows = useMemo(() => visibleRows.slice(page * pageSize, (page + 1) * pageSize), [visibleRows, page, pageSize])
+
+  // Fetch LIVE Stripe state for the rows currently on screen. Scoped to the page
+  // because each row is one Stripe read; asking for the whole fleet would be ~190
+  // sequential calls on every load. Rows already fetched are skipped, so paging
+  // back and forth costs nothing.
+  useEffect(() => {
+    const need = pageRows.map(r => r.reference).filter(ref => ref && !(ref in liveStripe))
+    if (!need.length) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/admin/stripe-account-status', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ references: need }),
+        })
+        if (!res.ok || cancelled) return
+        const d = await res.json()
+        if (d?.statuses && !cancelled) setLiveStripe(prev => ({ ...prev, ...d.statuses }))
+      } catch { /* the stored-flag fallback still renders */ }
+    })()
+    return () => { cancelled = true }
+  }, [pageRows, liveStripe])
 
   const loadStripeMap = useCallback(async () => {
     try {
@@ -1238,7 +1308,7 @@ export default function RestaurantsOrderingPage() {
                         : '—'
                     })()}
                   </td>
-                  <td style={cell}><StripeStatus status={stripeStatusFor(r)} checking={checkingRefs.has(r.reference)} /></td>
+                  <td style={cell}><StripeStatus status={stripeStatusFor(r)} live={liveStripe[r.reference]} checking={checkingRefs.has(r.reference)} /></td>
                   {/* Online Ordering: FM onlineOrderingAllowed boolean. Disabled
                       until Stripe is connected (can't accept orders without payouts). */}
                   <td style={cell}>
