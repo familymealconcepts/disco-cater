@@ -6,7 +6,7 @@ import { getLocationAccessRefs, grantLocationAccess } from '../../../../../../li
 import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
 import { getCallerScopeRefs } from '../../../../../../lib/order/order-scope'
 import { sql, runMigrations, runDiscoOrderMigrations } from '../../../../../../lib/db'
-import { cloneDiscoRestaurantMenus } from '../../../../../../lib/locations/clone-restaurant'
+import { cloneDiscoRestaurantMenus, cloneDiscoRestaurantOverrides } from '../../../../../../lib/locations/clone-restaurant'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -73,6 +73,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
       for (const r of toGrant) await grantLocationAccess(ctx.email, r, ctx.email).catch(() => {})
     }
     await cloneDiscoRestaurantMenus(ref, newRef)
+    // The settings row, WITHOUT the Stripe account — see cloneDiscoRestaurantOverrides.
+    // Without this the duplicate has no tax config and checkout refuses every order,
+    // which is how both existing native copies ended up unable to transact.
+    await cloneDiscoRestaurantOverrides(ref, newRef)
     return NextResponse.json({ ok: true, reference: newRef })
   }
 

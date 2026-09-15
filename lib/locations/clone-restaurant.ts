@@ -125,3 +125,80 @@ export async function cloneDiscoRestaurantMenus(sourceRef: string, newRef: strin
     await sql`INSERT INTO disco_restaurant_closed_days (restaurant_reference, name, holiday, from_date, to_date) VALUES (${newRef}::uuid, ${cd.name}, ${cd.holiday}, ${cd.from_date}, ${cd.to_date})`
   }
 }
+
+/**
+ * Copy the source restaurant's OPERATIONAL SETTINGS row into the clone.
+ *
+ * ── WHY THIS EXISTS ───────────────────────────────────────────────────────────
+ * cloneDiscoRestaurantMenus copies the menu tree faithfully and nothing else, so
+ * a native duplicate was created with NO disco_restaurant_overrides ROW AT ALL.
+ * Verified on both existing native copies (Tom Toms Italian (Copy), Apollo Bagels
+ * - Kips Bay (Copy)): full menu trees, zero overrides rows.
+ *
+ * The practical consequence is that the duplicate CANNOT TAKE AN ORDER. Checkout
+ * reads tax through lib/pricing/tax-config.ts, and with no row there is no
+ * tax_rates at all — not a 0% rate, which is a real and valid answer, but the
+ * absence of an answer — so the order is refused. A duplicate that looks complete
+ * in the portal and silently cannot transact is worse than one that is obviously
+ * unfinished.
+ *
+ * ── WHAT IS DELIBERATELY NOT COPIED ───────────────────────────────────────────
+ * stripe_account_id AND stripe_onboarding_complete. A duplicate must never
+ * inherit another restaurant's payout destination: that would route one
+ * restaurant's money into another restaurant's bank account, which is the single
+ * most damaging thing this function could do. The clone starts with no payment
+ * destination and is not orderable until someone attaches its own — which is the
+ * correct, visible, blocking state rather than a silent misdirection.
+ *
+ * Promo codes are not copied either (they live in their own table and are a
+ * marketing decision, not a setting), and `visible` is forced to false so a
+ * half-configured duplicate can never appear on the marketplace on its own.
+ *
+ * Everything carried is a SETTING the operator would otherwise retype: tax
+ * rates, who gets notified, the lead-gen percentages, and whether online
+ * ordering is on.
+ */
+export async function cloneDiscoRestaurantOverrides(sourceRef: string, newRef: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT tax_rates, notification_emails, notification_sms_numbers,
+           order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
+           text_notifications_enabled, lead_gen_one_pct, lead_gen_two_pct,
+           online_ordering_enabled, delivery_order_time_windows, enable_menu_search,
+           nash_allowed, shipday_enabled, money_flow
+      FROM disco_restaurant_overrides WHERE restaurant_reference = ${sourceRef} LIMIT 1
+  `) as Record<string, unknown>[]
+
+  // No source row is not an error — plenty of restaurants have none — but the
+  // clone still needs a row so it is configurable, so insert the defaults.
+  const s = rows[0] ?? {}
+
+  await sql`
+    INSERT INTO disco_restaurant_overrides (
+      restaurant_reference, visible,
+      tax_rates, notification_emails, notification_sms_numbers,
+      order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
+      text_notifications_enabled, lead_gen_one_pct, lead_gen_two_pct,
+      online_ordering_enabled, delivery_order_time_windows, enable_menu_search,
+      nash_allowed, shipday_enabled, money_flow
+      -- stripe_account_id / stripe_onboarding_complete intentionally absent; see header.
+    ) VALUES (
+      ${newRef}, false,
+      ${s.tax_rates ? JSON.stringify(s.tax_rates) : null}::jsonb,
+      ${(s.notification_emails as string) ?? null},
+      ${(s.notification_sms_numbers as string) ?? null},
+      ${(s.order_reminder_emails_enabled as boolean) ?? null},
+      ${(s.admin_order_reminder_emails_enabled as boolean) ?? null},
+      ${(s.text_notifications_enabled as boolean) ?? null},
+      ${(s.lead_gen_one_pct as string) ?? null},
+      ${(s.lead_gen_two_pct as string) ?? null},
+      ${(s.online_ordering_enabled as boolean) ?? null},
+      ${(s.delivery_order_time_windows as string) ?? null},
+      ${(s.enable_menu_search as boolean) ?? null},
+      ${(s.nash_allowed as boolean) ?? null},
+      ${(s.shipday_enabled as boolean) ?? null},
+      ${(s.money_flow as string) ?? null}
+    )
+    ON CONFLICT (restaurant_reference) DO NOTHING
+  `
+  return rows.length > 0
+}
