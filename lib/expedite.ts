@@ -75,6 +75,13 @@ export interface DiscoOrder {
   // third-party-only rule on the commissary itself rather than trusting its
   // caller. See the defence-in-depth block in buildDeliveryPayload.
   order_type: string | null
+  /**
+   * The customer's own delivery instructions, typed into the "Delivery instructions (optional)"
+   * box at checkout (CheckoutDrawer.tsx) and rendered verbatim in the order PDF's "Delivery
+   * Instructions:" box (lib/order/order-pdf.ts). Carried here so the COURIER sees the same text —
+   * see the dropoff task below for why it had never reached them.
+   */
+  delivery_instructions?: string | null
   customer_first_name: string | null
   customer_last_name: string | null
   customer_phone: string | null
@@ -129,12 +136,27 @@ function num(v: unknown): number {
 // dispatch with a key dlivrd had never seen, and six consecutive real deliveries
 // failed 401 "Auth failure. Hash mismatch" before anyone noticed. One shared
 // variable for two opposite directions is why. Never merge them again.
-export function buildExpediteHeaders(body: object): Record<string, string> {
+export function buildExpediteHeaders(body: object | string): Record<string, string> {
   const token = process.env.EXPEDITE_TOKEN || ''
   const secret = process.env.EXPEDITE_DISPATCH_SECRET || ''
   const timestamp = Math.floor(Date.now() / 1000).toString()
-  const signed = `${timestamp}.${JSON.stringify(body)}`
-  const signature = `${timestamp}.${createHmac('sha256', secret).update(signed).digest('hex')}`
+  // ACCEPTS AN ALREADY-SERIALIZED STRING, and post() always passes one.
+  //
+  // THE STRING SIGNED HERE MUST BE BYTE-IDENTICAL TO THE REQUEST BODY, because dlivrd verifies
+  // the HMAC over the bytes it receives. Taking the object and stringifying it a second time —
+  // which is what this did, with post() stringifying the same object again for the body — means
+  // the signature is computed over a DIFFERENT string object than the one sent. In JavaScript
+  // those two happen to be identical (JSON.stringify is deterministic for a given object), so it
+  // was correct; it was correct by coincidence rather than by construction.
+  //
+  // FamilyMeal learned this the expensive way. Their Java code serialized the DTO once for the
+  // signature and let RestTemplate serialize it again for the body, the two disagreed, and every
+  // dispatch failed "Auth failure. Hash mismatch". Their fix is commented `// serialize only
+  // once` and `// send raw JSON string, not Java object`. Same lesson, applied here before it
+  // can bite: one string, signed and sent.
+  const serialized = typeof body === 'string' ? body : JSON.stringify(body)
+  const signed = `${timestamp}.${serialized}`
+  const signature = `${timestamp}.${createHmac('sha256', secret).update(signed, 'utf8').digest('hex')}`
   return {
     'Content-Type': 'application/json',
     'X-Expedite-Token': token,
@@ -304,12 +326,36 @@ export function buildDeliveryPayload(
     items: taskItems,
   }
 
+  // ── DROPOFF INSTRUCTIONS ───────────────────────────────────────────────────
+  // `instructions` has been declared on ExpediteTask since the integration landed and was NEVER
+  // POPULATED ANYWHERE, so the courier has never received a single delivery instruction. The text
+  // was captured from the customer, stored, mirrored to FM and printed on the order PDF — every
+  // surface except the one person who has to find the door. Order 900000160 carries "Text me when
+  // you leave and I'll meet you"; the driver could not see it.
+  //
+  // SOURCE IS disco_orders.delivery_instructions AND ONLY THAT. It is the exact string the
+  // customer typed (CheckoutDrawer's "Delivery instructions (optional)" input -> deliveryNotes ->
+  // deliveryInstructions) and the exact string the PDF prints in its "Delivery Instructions:" box
+  // (order-pdf.ts). Two other instruction-like fields exist and are deliberately NOT sent:
+  //   * disco_orders.note          — an order-level note, printed under its own "Note:" heading.
+  //                                  Not addressed to the driver and often internal.
+  //   * disco_order_items.notes    — per-item preparation notes, for the kitchen, not the courier.
+  // They are not concatenated: pushing kitchen or back-office text into a driver-facing field is
+  // how a courier ends up reading something meant for someone else.
+  //
+  // DROPOFF ONLY. These are instructions for reaching the customer; putting them on the pickup
+  // task would show the restaurant a stranger's gate code.
+  //
+  // Trimmed, and omitted entirely when blank so the key is absent rather than empty-string.
+  const dropoffInstructions = (order.delivery_instructions || '').trim() || undefined
+
   const dropoff: ExpediteTask = {
     type: 'dropoff',
     event_at: dropoffIso,
     timezone_identifier: tz,
     location_name: customerName,
     recipient_name: customerName,
+    instructions: dropoffInstructions,
     phone: dropoffPhone,
     street1: order.delivery_address_line1 || '',
     street2: order.delivery_address_line2 || undefined,
@@ -349,8 +395,19 @@ function configured(): boolean {
 }
 
 async function post(event: string, payload: object): Promise<{ ok: boolean; status: number; body: string }> {
-  const headers = { ...buildExpediteHeaders(payload), 'X-Expedite-Event': event }
-  const res = await fetch(BASE_URL, { method: 'POST', headers, body: JSON.stringify(payload) })
+  // Serialize ONCE. `wire` is the exact string that is both signed and sent — see
+  // buildExpediteHeaders for why that identity is the whole ballgame.
+  //
+  // WHAT GOES ON THE WIRE: this string, verbatim, UTF-8 encoded. Non-ASCII characters are sent
+  // RAW (a curly apostrophe goes out as U+2019, not as a \u2019 escape), and the HMAC is computed
+  // over those same UTF-8 bytes. Verified against live dlivrd on 2026-09-15 with a curly
+  // apostrophe, an en-dash, an accented character and an astral emoji — all four returned 404
+  // "unknown delivery id", i.e. the signature was ACCEPTED in every case. Escaping non-ASCII the
+  // way FM's Jackson config does is therefore unnecessary here, and doing it on one side only
+  // would break signing outright.
+  const wire = JSON.stringify(payload)
+  const headers = { ...buildExpediteHeaders(wire), 'X-Expedite-Event': event }
+  const res = await fetch(BASE_URL, { method: 'POST', headers, body: wire })
   const body = await res.text().catch(() => '')
   return { ok: res.ok, status: res.status, body }
 }
@@ -597,7 +654,7 @@ export async function buildPayloadFromNeon(orderRef: string): Promise<ExpediteOr
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, delivery_type, order_type,
              customer_first_name, customer_last_name, customer_phone,
              delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-             delivery_lat, delivery_lng, subtotal, tips, id
+             delivery_lat, delivery_lng, subtotal, tips, delivery_instructions, id
       FROM disco_orders
       WHERE reference = ${orderRef}::uuid OR fm_order_reference = ${orderRef}::uuid
       LIMIT 1
