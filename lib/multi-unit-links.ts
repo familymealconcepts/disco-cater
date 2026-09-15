@@ -63,7 +63,61 @@ async function setMembers(reference: string, memberRefs: string[]): Promise<void
   }
 }
 
+/**
+ * Links the viewer can REACH — the ones with at least one member location the
+ * viewer has access to.
+ *
+ * THIS REPLACED OWNERSHIP AS THE LISTING RULE, and the distinction is the whole
+ * bug. listNativeLinks (below) filters on `owner_email = the viewer`, which asks
+ * "did you create this link", not "does this link describe locations you run".
+ * Those are different questions and the first one is almost never true for the
+ * person who needs the answer: a link is created by whoever ran the conversion,
+ * so it belongs to an internal account, while the people who need to share the
+ * page are the restaurant's own staff.
+ *
+ * Measured before the fix: 22 of 25 links fleet-wide — covering 185 restaurant
+ * memberships — were owned by peter@familymeal.com and therefore invisible to
+ * every single person who could reach their locations. EggBred's six
+ * SYSTEM_ADMINs each reach 18 locations and saw "No links yet" on a page whose
+ * link holds all 19 of them.
+ *
+ * The three that DID work (Atlanta Bread, Gracious, Two Hands) worked only
+ * because someone had hand-edited owner_email on those rows. That is a data
+ * workaround for a code bug, it fixes one restaurant at a time, and it is not
+ * repeated here — ownership is left exactly as it is on all 25 rows.
+ *
+ * SCOPE COMES FROM THE CALLER, already role-gated: a SUPER_ADMIN is
+ * unrestricted, a SYSTEM_ADMIN reaches its granted locations, and anyone else
+ * reaches its anchor only — regardless of how many grant rows happen to exist.
+ * That gate lives in resolveDiscoAccessScope and is not re-implemented here.
+ *
+ * A viewer must never see a link for locations they cannot reach, so a link with
+ * no intersecting member is excluded outright rather than returned empty.
+ */
+export async function listReachableNativeLinks(
+  scope: { unrestricted: boolean; refs: Set<string> },
+): Promise<NativeLinkRow[]> {
+  await ensureMultiUnitTables()
+  if (!scope.unrestricted && scope.refs.size === 0) return []
+
+  const links = (await sql`
+    SELECT reference, slug, title FROM disco_multi_unit_links ORDER BY created_at DESC, id DESC
+  `) as { reference: string; slug: string; title: string }[]
+
+  const out: NativeLinkRow[] = []
+  for (const l of links) {
+    const refs = await membersOf(l.reference)
+    // Intersection, not containment: a SYSTEM_ADMIN who reaches 18 of a chain's
+    // 19 locations still needs that chain's link.
+    if (!scope.unrestricted && !refs.some(r => scope.refs.has(r))) continue
+    out.push({ reference: l.reference, url: l.slug, header: l.title, numberOfLocations: refs.length, restaurantReferences: refs, urlFrom: 'Links' })
+  }
+  return out
+}
+
 // All links owned by an SA (FM lists by userReference + urlFrom='Links').
+// RETAINED for callers that genuinely mean ownership. It is NOT the listing rule
+// any more — see listReachableNativeLinks above for why ownership was the bug.
 export async function listNativeLinks(ownerEmail: string): Promise<NativeLinkRow[]> {
   await ensureMultiUnitTables()
   const links = (await sql`

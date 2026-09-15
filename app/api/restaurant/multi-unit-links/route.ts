@@ -3,8 +3,8 @@ import { getRestaurantAuthHeader, getRestaurantUserRef, getRestaurantRef } from 
 import { buildForwardForm } from '../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow, getRestaurantLocationLinks } from '../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
-import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../lib/restaurant-write-scope'
-import { listNativeLinks, createNativeLink, slugTaken } from '../../../../lib/multi-unit-links'
+import { resolveDiscoGroupScope, resolveDiscoAccessScope, discoRefAllowed } from '../../../../lib/restaurant-write-scope'
+import { listReachableNativeLinks, createNativeLink, slugTaken } from '../../../../lib/multi-unit-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -20,13 +20,29 @@ async function readRequestPart(req: NextRequest): Promise<Record<string, unknown
   return {}
 }
 
-// Disco-native listing: the SA's own multi-unit links (SYSTEM_ADMIN) PLUS the
+// Disco-native listing: every multi-unit link the viewer can REACH, plus the
 // restaurant's own shareable location links from the Neon mirror (where
-// single-restaurant /locations/{slug} links live). Merged + deduped by slug so a
-// Disco-native ADMIN sees its links instead of an empty page — and nothing ever
-// calls FamilyMeal for a restaurant that has no FM record.
+// single-restaurant /locations/{slug} links live). Merged + deduped by slug, and
+// nothing ever calls FamilyMeal for a restaurant that has no FM record.
+//
+// SCOPED BY REACH, NOT OWNERSHIP. This used to call listNativeLinks(ctx.email),
+// which lists links the viewer CREATED, and only for SYSTEM_ADMINs. A link is
+// created by whoever ran the conversion — an internal account — so 22 of 25
+// links fleet-wide (185 restaurant memberships) were invisible to every person
+// who could actually reach their locations. See listReachableNativeLinks.
+//
+// resolveDiscoAccessScope rather than resolveDiscoGroupScope, deliberately: it
+// reads disco_restaurant_location_access, the explicit ACL, and its own comment
+// names multi-unit-links as an intended call site. resolveDiscoGroupScope
+// derives its set from businessName, which would put a NAME MATCH back into a
+// permission decision. The role gate is identical in both (SUPER_ADMIN
+// unrestricted; SYSTEM_ADMIN its grants; anyone else its anchor).
+//
+// The WRITE path below still uses resolveDiscoGroupScope and is untouched —
+// changing who may create a link is not part of this.
 async function nativeList(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>) {
-  const nativeLinks = (ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN') ? await listNativeLinks(ctx.email) : []
+  const scope = await resolveDiscoAccessScope(ctx)
+  const nativeLinks = await listReachableNativeLinks(scope)
   const neonLinks = ctx.restaurantReference ? await getRestaurantLocationLinks(ctx.restaurantReference) : []
   const seen = new Set(nativeLinks.map(l => l.url))
   const content = [...nativeLinks, ...neonLinks.filter(l => !seen.has(l.url))]
