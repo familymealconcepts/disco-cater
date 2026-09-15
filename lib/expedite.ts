@@ -7,9 +7,9 @@
 // Auth (per Expedite's webhook scheme) — every POST sends:
 //   X-Expedite-Token      = EXPEDITE_TOKEN
 //   X-Expedite-Event      = the event name (e.g. "delivery_created")
-//   X-Expedite-Signature  = "<timestamp>.<HMAC-SHA256(EXPEDITE_SECRET, "<timestamp>.<body>")>"
+//   X-Expedite-Signature  = "<timestamp>.<HMAC-SHA256(EXPEDITE_DISPATCH_SECRET, "<timestamp>.<body>")>"
 //
-// REQUIRED ENV (Vercel): EXPEDITE_TOKEN, EXPEDITE_SECRET. When either is missing
+// REQUIRED ENV (Vercel): EXPEDITE_TOKEN, EXPEDITE_DISPATCH_SECRET. When either is missing
 // we skip silently (logged) — the integration is optional.
 
 import { createHmac } from 'crypto'
@@ -119,9 +119,19 @@ function num(v: unknown): number {
 }
 
 // Auth headers for a given JSON body. Caller adds X-Expedite-Event.
+// OUTBOUND ONLY. The secret here is the one DLIVRD ISSUED US, for signing calls
+// we make TO them. It is NOT the secret we generated and gave them for signing
+// calls they make to us — that one lives in EXPEDITE_WEBHOOK_SECRET and is read
+// only by app/api/webhooks/expedite.
+//
+// These were the SAME variable (EXPEDITE_SECRET) until 2026-09-15. Regenerating
+// it on 2026-09-10 for the inbound receiver silently re-signed every outbound
+// dispatch with a key dlivrd had never seen, and six consecutive real deliveries
+// failed 401 "Auth failure. Hash mismatch" before anyone noticed. One shared
+// variable for two opposite directions is why. Never merge them again.
 export function buildExpediteHeaders(body: object): Record<string, string> {
   const token = process.env.EXPEDITE_TOKEN || ''
-  const secret = process.env.EXPEDITE_SECRET || ''
+  const secret = process.env.EXPEDITE_DISPATCH_SECRET || ''
   const timestamp = Math.floor(Date.now() / 1000).toString()
   const signed = `${timestamp}.${JSON.stringify(body)}`
   const signature = `${timestamp}.${createHmac('sha256', secret).update(signed).digest('hex')}`
@@ -332,7 +342,10 @@ export function buildDeliveryPayload(
 // ── HTTP calls (best-effort) ─────────────────────────────────────────────────
 
 function configured(): boolean {
-  return !!(process.env.EXPEDITE_TOKEN && process.env.EXPEDITE_SECRET)
+  // Deliberately NO fallback to the old EXPEDITE_SECRET: falling back is exactly
+  // how the two directions got coupled. If the dispatch secret is absent, dispatch
+  // no-ops loudly rather than signing with the wrong key and 401ing per order.
+  return !!(process.env.EXPEDITE_TOKEN && process.env.EXPEDITE_DISPATCH_SECRET)
 }
 
 async function post(event: string, payload: object): Promise<{ ok: boolean; status: number; body: string }> {

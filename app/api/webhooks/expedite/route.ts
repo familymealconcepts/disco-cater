@@ -11,14 +11,18 @@ console.log('[expedite-webhook] endpoint active at /api/webhooks/expedite')
 
 // POST /api/webhooks/expedite
 // Receives delivery status updates from Expedite. Verifies the
-// X-Expedite-Signature ("<timestamp>.<HMAC-SHA256(EXPEDITE_SECRET, timestamp + '.' + rawBody)>"),
+// X-Expedite-Signature ("<timestamp>.<HMAC-SHA256(EXPEDITE_WEBHOOK_SECRET, timestamp + '.' + rawBody)>"),
 // updates disco_orders.expedite_status, logs an event, and returns 200 fast.
 export async function POST(req: NextRequest) {
   // Read the raw body for signature verification (must hash the exact bytes).
   const raw = await req.text().catch(() => '')
 
   // Verify signature when a secret is configured.
-  const secret = process.env.EXPEDITE_SECRET
+  // INBOUND ONLY. This is the secret WE generated and gave dlivrd, used to verify
+  // calls they make to us. It is NOT the credential we sign outbound dispatches
+  // with (EXPEDITE_DISPATCH_SECRET, see lib/expedite.ts) — sharing one variable
+  // across both directions broke six live deliveries on 2026-09-11.
+  const secret = process.env.EXPEDITE_WEBHOOK_SECRET
   if (secret) {
     const header = req.headers.get('x-expedite-signature') || ''
     const dot = header.indexOf('.')
@@ -36,7 +40,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'invalid signature' }, { status: 401 })
     }
   } else {
-    console.warn('[webhooks/expedite] EXPEDITE_SECRET not set — accepting without verification')
+    console.warn('[webhooks/expedite] EXPEDITE_WEBHOOK_SECRET not set — accepting without verification')
   }
 
   let data: Record<string, unknown> = {}
