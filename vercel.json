@@ -93,6 +93,10 @@
     {
       "path": "/api/cron/reconcile-promo-codes",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/retry-expedite-dispatch",
+      "schedule": "7,22,37,52 * * * *"
     }
   ]
 }
