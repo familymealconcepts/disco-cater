@@ -429,7 +429,10 @@ export default function AdminDashboard() {
         <SaleCard title="Tax Amount" value={taxAmount} />
         <SaleCard title="Own Tips" value={saleRaw.tipsInPrice} />
         <SaleCard title="Own Delivery" value={saleRaw.ownDeliveryPriceSum} />
-        <SaleCard title={`${dpKind} Tips`} value={dpTips} />
+        {/* "(not paid out)" — third-party tips are excluded from the restaurant's
+            transfer, so the super-admin view must not read as restaurant revenue
+            either. Same wording as the restaurant dashboard and the report. */}
+        <SaleCard title={`${dpKind} Tips (not paid out)`} value={dpTips} />
         <SaleCard title={`${dpKind} Delivery`} value={dpDelivery} />
         <SaleCard title="Stripe Fees" value={saleRaw.stripeFeeSum} />
         <SaleCard title="Refunds" value={saleRaw.refundSum} />

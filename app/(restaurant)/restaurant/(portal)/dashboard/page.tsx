@@ -424,7 +424,13 @@ export default function DashboardPage() {
   const deliveryTips = isDoorDash
     ? saleStats.doordashTipsOrdersSum
     : saleStats.thirdPartyDeliveryTipsOrdersSum
-  const deliveryTipsTitle = isDoorDash ? 'DoorDash Tips' : 'Third-Party Tips'
+  // "(not paid out)" is load-bearing, not decoration. A third-party delivery tip
+  // routes to third_party_delivery_tips and is EXCLUDED from the restaurant's
+  // transfer — verified on real money (#900000162 $26.80, #900000160 $67.20 both
+  // settled with the tip excluded from transfer_data.amount). A card headed just
+  // "Third-Party Tips" on the restaurant's own dashboard reads as money they are
+  // owed. The same wording is used in the Orders report column.
+  const deliveryTipsTitle = isDoorDash ? 'DoorDash Tips (not paid out)' : 'Third-Party Tips (not paid out)'
   const hasServiceCharge = restaurant.feeCategories && restaurant.feeCategories.length > 0
   const serviceChargeTitle = hasServiceCharge
     ? restaurant.feeCategories![0].displayFeeCategoriesName
@@ -616,9 +622,27 @@ function ExportPanel() {
   const [from, setFrom] = useState(() => new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10))
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10))
   const [dateField, setDateField] = useState<'order' | 'created'>('order')
+  // ── SUBSIDY COLUMN ──────────────────────────────────────────────────────────
+  // Off by default because it is zero on every order ever placed, and a
+  // permanently-zero money column is noise on a 22-column sheet. The server
+  // AUTO-SHOWS it whenever any row is non-zero regardless of this box, so the
+  // arithmetic behind Total Distributed is never invisible — this only forces a
+  // zero column visible for someone who wants to see it is there.
+  //
+  // Persisted in localStorage so the choice survives a reload; wrapped because
+  // storage throws in private windows and a report download must not depend on it.
+  const [showSubsidy, setShowSubsidy] = useState(false)
+  useEffect(() => {
+    try { setShowSubsidy(localStorage.getItem('disco.report.showSubsidy') === '1') } catch { /* no storage */ }
+  }, [])
+  const toggleSubsidy = (v: boolean) => {
+    setShowSubsidy(v)
+    try { localStorage.setItem('disco.report.showSubsidy', v ? '1' : '0') } catch { /* no storage */ }
+  }
   const download = (format: 'csv' | 'xls' | 'pdf') => {
     if (!from || !to) return
     const qs = new URLSearchParams({ from, to, dateField, format })
+    if (showSubsidy) qs.set('showSubsidy', '1')
     const a = document.createElement('a')
     a.href = `/api/restaurant/reports/export?${qs.toString()}`
     a.rel = 'noopener'
@@ -638,6 +662,11 @@ function ExportPanel() {
             <option value="order">Order date</option>
             <option value="created">Created date</option>
           </select>
+        </label>
+        <label style={{ fontSize: 12, color: '#555', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
+          title="Only relevant where a location covers part of the third-party delivery fee itself. Shown automatically whenever any order has one.">
+          <input type="checkbox" checked={showSubsidy} onChange={e => toggleSubsidy(e.target.checked)} />
+          Show third-party subsidy column
         </label>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => download('csv')} style={fmtBtn('#16A34A')}>CSV</button>
