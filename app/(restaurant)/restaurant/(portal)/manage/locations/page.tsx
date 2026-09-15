@@ -7,6 +7,13 @@ import { useSelectedRestaurant } from '../../_components/SelectedRestaurantConte
 const F = "'DM Sans', sans-serif"
 const DARK = '#1A1028'
 const BLUE = '#6B6EF9'
+// Brand palette only. Stripe states are carried by the two brand colours that
+// already mean "attention" and "stop" elsewhere in the product — gold for a
+// warning that is still working, magenta for one that is not — rather than the
+// conventional amber/red, which are not ours.
+const GOLD = '#EFB84A'        // At risk: charges still work, a deadline is running
+const MAGENTA = '#C044C8'     // Restricted: Stripe has stopped it
+const AUBERGINE = '#1A1028'   // Connected: healthy, reads as ordinary text weight
 const INDICATOR = '#5B6FE8'
 const PAGE_BG = '#F7F8FC'
 // 1st-party (commission-free) ordering link — restaurants are always pointed at
@@ -26,6 +33,8 @@ interface Location {
   createdDate?: string
   blocked?: boolean
   archived?: boolean
+  /** Stored Stripe snapshot, from the shared resolver. Never a live Stripe call. */
+  stripe?: { state: string; reason: string | null; chargeCapable: boolean; accountId: string | null } | null
 }
 
 function fmtRegDate(d?: string) {
@@ -405,11 +414,12 @@ export default function LocationsPage() {
             <th style={colHead}>ADDRESS:</th>
             <th style={colHead}>REGISTRATION:</th>
             <th style={colHead}>CHECKOUT:</th>
+            <th style={colHead}>STRIPE:</th>
             <th style={colHead}></th>
           </tr></thead>
           <tbody>
             {loading && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !locations.length && <tr><td colSpan={7} style={{ ...cell, textAlign: 'center', color: '#999' }}>No locations.</td></tr>}
+            {!loading && !locations.length && <tr><td colSpan={8} style={{ ...cell, textAlign: 'center', color: '#999' }}>No locations.</td></tr>}
             {!loading && locations.map((loc, i) => (
               <LocationRow
                 key={loc.reference}
@@ -520,6 +530,50 @@ const pageBtn: React.CSSProperties = {
   padding: '4px 10px', cursor: 'pointer', fontSize: 12, fontFamily: F, color: DARK,
 }
 
+/**
+ * Stripe status pill for one location.
+ *
+ * Wording is copied from the super-admin Ordering column deliberately — the same
+ * restaurant must read the same word in both places, or a system admin and
+ * Kealoha end up describing different problems to each other.
+ *
+ * `title` carries the reason, which is what makes the column actionable: a
+ * past-due requirement is the restaurant's own to clear, while an account under
+ * Stripe review is nobody's and they should stop chasing it.
+ */
+function StripeCell({ stripe }: { stripe?: Location['stripe'] }) {
+  const dot = (color: string) => (
+    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 6, verticalAlign: 'middle' }} />
+  )
+  const base: React.CSSProperties = { fontSize: 12, whiteSpace: 'nowrap', fontFamily: "'DM Sans', sans-serif" }
+  const state = stripe?.state
+  if (state === 'restricted') {
+    return (
+      <span title={stripe?.reason || 'Stripe has restricted this account.'}
+        style={{ ...base, color: MAGENTA, fontWeight: 600, cursor: 'help' }}>
+        {dot(MAGENTA)}Restricted
+        {stripe?.chargeCapable ? <span style={{ fontWeight: 400, color: '#8a8a8a' }}> · payouts</span> : null}
+      </span>
+    )
+  }
+  if (state === 'at-risk') {
+    return (
+      <span title={stripe?.reason || 'A Stripe requirement is past due.'}
+        style={{ ...base, color: '#8A6510', cursor: 'help' }}>
+        {dot(GOLD)}At risk
+      </span>
+    )
+  }
+  if (state === 'connected') {
+    return <span style={{ ...base, color: AUBERGINE }}>{dot(BLUE)}Connected</span>
+  }
+  if (state === 'unknown') {
+    return <span title={stripe?.reason || ''} style={{ ...base, color: '#999', cursor: 'help' }}>Unknown</span>
+  }
+  // no-account, or no snapshot handed down at all.
+  return <span style={{ ...base, color: '#999' }}>{dot('#D8D8DE')}Not connected</span>
+}
+
 interface LocationCellsProps {
   loc: Location
   switching: boolean
@@ -577,6 +631,21 @@ function LocationCells({ loc, switching, dragHandle, widths, onToggleStatus, onS
             <IconOpenInNew />
           </a>
         ) : <span style={{ color: '#bbb' }}>—</span>}
+      </td>
+      {/* ── STRIPE ────────────────────────────────────────────────────────────
+          Reads the STORED snapshot handed down by /api/restaurant/locations,
+          resolved through the shared stripeStatusByReference so this column and
+          the super-admin Ordering column cannot disagree about the same
+          restaurant. Never a live Stripe call from here.
+
+          Four states, matching super admin word for word: Connected, At risk,
+          Restricted, Not connected. The distinction that matters to a system
+          admin is Restricted vs Not connected — one means Stripe stopped an
+          account that exists, the other means there is no account at all, and
+          they need completely different things done about them. The reason is on
+          hover so they can see what Stripe wants without asking us. */}
+      <td style={{ ...cell, ...w(6) }}>
+        <StripeCell stripe={loc.stripe} />
       </td>
       <td style={{ ...cell, ...w(6), textAlign: 'right' }}>
         <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>

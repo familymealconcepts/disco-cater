@@ -121,3 +121,72 @@ export function classifyStripeAccount(a: Stripe.Account): StripeAccountStatus {
 
   return { state: 'connected', reason: null, chargeCapable: true, accountId: id }
 }
+
+/**
+ * The stored Stripe status for a set of restaurant references, keyed so EITHER
+ * reference resolves.
+ *
+ * ── THE ONE RESOLVER, AND WHY IT IS SHARED ────────────────────────────────────
+ * A restaurant can be addressed two ways and the callers do not agree on which
+ * they hold. The super-admin Ordering list and the restaurant portal's Locations
+ * list both come from FM's endpoints, so a CONVERTED restaurant's row carries its
+ * FM reference, while its disco_restaurant_overrides row — where the Stripe
+ * snapshot lives — is keyed on its DISCO reference. Fifteen restaurants have
+ * differing references, Lee's Chinese Food among them.
+ *
+ * Getting that wrong does not fail loudly. The lookup simply finds nothing, the
+ * caller concludes "no account", and a genuinely restricted restaurant renders as
+ * Connected — which is exactly what happened on the super-admin screen. So the
+ * bridge lives here once rather than being re-derived per caller, and every
+ * surface that shows Stripe status goes through it.
+ *
+ * disco_restaurant_accounts carries both references, so it is the bridge. Results
+ * are keyed under BOTH, so a caller can look up whichever it happens to hold
+ * without knowing which kind it is.
+ *
+ * READS THE STORED SNAPSHOT, never Stripe. cron/refresh-stripe-capabilities keeps
+ * it current hourly. That is what lets the public locations page filter on it for
+ * free, and it is why two screens reading this cannot disagree about the same
+ * restaurant.
+ */
+export async function stripeStatusByReference(
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>,
+  references: string[],
+): Promise<Record<string, StripeAccountStatus>> {
+  const out: Record<string, StripeAccountStatus> = {}
+  const refs = [...new Set(references.filter(Boolean).map(String))]
+  if (!refs.length) return out
+
+  // Every reference starts as "no account attached" — a different state from
+  // restricted, and the distinction the whole column exists to make.
+  for (const r of refs) out[r] = { state: 'no-account', reason: null, chargeCapable: false, accountId: null }
+
+  const rows = (await sql`
+    SELECT o.restaurant_reference, o.stripe_account_id,
+           o.stripe_status, o.stripe_status_reason, o.stripe_charges_enabled,
+           COALESCE(acc.fm_restaurant_reference::text, o.restaurant_reference) AS page_reference
+      FROM disco_restaurant_overrides o
+      LEFT JOIN disco_restaurant_accounts acc ON acc.restaurant_reference = o.restaurant_reference
+     WHERE (o.restaurant_reference = ANY(${refs}) OR acc.fm_restaurant_reference::text = ANY(${refs}))
+       AND o.stripe_account_id IS NOT NULL
+  `) as {
+    restaurant_reference: string; stripe_account_id: string
+    stripe_status: string | null; stripe_status_reason: string | null
+    stripe_charges_enabled: boolean | null; page_reference: string
+  }[]
+
+  for (const row of rows) {
+    const st: StripeAccountStatus = {
+      // A row with an account but no snapshot yet is 'unknown', NOT 'connected' —
+      // the refresh has simply not reached it, and claiming health we have not
+      // established is how a restricted account reads as fine.
+      state: (row.stripe_status as StripeAccountState) ?? 'unknown',
+      reason: row.stripe_status_reason,
+      chargeCapable: row.stripe_charges_enabled === true,
+      accountId: row.stripe_account_id,
+    }
+    out[row.restaurant_reference] = st
+    out[row.page_reference] = st
+  }
+  return out
+}

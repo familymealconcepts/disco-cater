@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runStripeCapabilityMigrations } from '../../../../lib/db'
-import { classifyStripeAccount, type StripeAccountStatus } from '../../../../lib/stripe-account-status'
+import { classifyStripeAccount, stripeStatusByReference, type StripeAccountStatus } from '../../../../lib/stripe-account-status'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 
 export const runtime = 'nodejs'
@@ -74,16 +74,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (!wantLive) {
-    for (const row of rows) {
-      put(row, {
-        state: (row.stripe_status as StripeAccountStatus['state']) ?? 'unknown',
-        reason: row.stripe_status_reason,
-        chargeCapable: row.stripe_charges_enabled === true,
-        accountId: row.stripe_account_id,
-        checkedAt: row.stripe_status_checked_at,
-      })
-    }
-    return NextResponse.json({ statuses, source: 'snapshot' })
+    // The SHARED resolver, not a local copy — the restaurant portal's Locations
+    // column reads through the same function, so the two screens resolve the same
+    // reference the same way by construction rather than by two queries happening
+    // to agree today.
+    const shared = await stripeStatusByReference(sql, refs)
+    return NextResponse.json({ statuses: { ...statuses, ...shared }, source: 'snapshot' })
   }
 
   const stripe = new Stripe(key, { apiVersion: '2024-06-20' as never })

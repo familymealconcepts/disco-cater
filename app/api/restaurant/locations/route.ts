@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { stripeStatusByReference, type StripeAccountStatus } from '../../../../lib/stripe-account-status'
+import { runStripeCapabilityMigrations } from '../../../../lib/db'
 import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
@@ -42,6 +44,11 @@ async function discoLocations(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       AND (${search} = '' OR LOWER(name) LIKE '%' || ${search} || '%' OR LOWER(COALESCE(address, '')) LIKE '%' || ${search} || '%')
     ORDER BY COALESCE(location_position, 999999) ASC, name ASC
   `) as Record<string, string | boolean | null>[]
+  // Stripe status from the SHARED resolver — the same stored snapshot the
+  // super-admin Ordering column reads, so the two screens cannot disagree about
+  // the same restaurant. Never a live Stripe call.
+  await runStripeCapabilityMigrations()
+  const stripeStatus: Record<string, StripeAccountStatus> = await stripeStatusByReference(sql, rows.map(r => String(r.reference))).catch(() => ({}))
   const content = rows.map(r => ({
     reference: r.reference,
     businessName: r.businessName,
@@ -49,6 +56,7 @@ async function discoLocations(ctx: NonNullable<Awaited<ReturnType<typeof getRest
     createdDate: r.createdDate,
     blocked: r.blocked,
     archived: false,
+    stripe: stripeStatus[String(r.reference)] ?? null,
   }))
   return NextResponse.json({ content, totalElements: content.length })
 }
@@ -77,7 +85,21 @@ export async function GET(req: NextRequest) {
       const text = await res.text().catch(() => '')
       return NextResponse.json({ error: 'Failed to fetch locations', status: res.status, raw: text }, { status: res.status })
     }
-    return NextResponse.json(await res.json())
+    const data = await res.json()
+    // FM's rows carry FM references; a converted restaurant's Stripe snapshot is
+    // keyed on its DISCO reference. stripeStatusByReference bridges both, which is
+    // the bug that made Lee's Chinese Food read Connected on the super-admin
+    // screen while being genuinely restricted. Best-effort: a failure here must
+    // leave the locations list working, just without the Stripe column.
+    try {
+      const list = Array.isArray(data?.content) ? data.content : []
+      if (list.length) {
+        await runStripeCapabilityMigrations()
+        const statuses = await stripeStatusByReference(sql, list.map((l: { reference?: unknown }) => String(l?.reference ?? '')))
+        data.content = list.map((l: { reference?: unknown }) => ({ ...l, stripe: statuses[String(l?.reference ?? '')] ?? null }))
+      }
+    } catch { /* leave FM's payload untouched */ }
+    return NextResponse.json(data)
   } catch {
     return NextResponse.json({ error: 'Unable to fetch locations' }, { status: 500 })
   }
