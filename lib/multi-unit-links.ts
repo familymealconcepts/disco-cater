@@ -23,8 +23,10 @@ export interface NativeLinkRow {
    * "who do I ask".
    */
   createdByName: string | null
-  /** Whether THIS viewer may edit it. Shared view, creator edit. */
+  /** Whether THIS viewer may edit it. See linkEditDecision for the two rules. */
   canEdit: boolean
+  /** True when a conversion created this link rather than a person. */
+  createdByConversion: boolean
 }
 
 let ensured = false
@@ -48,6 +50,21 @@ export async function ensureMultiUnitTables(): Promise<void> {
       restaurant_reference TEXT NOT NULL,
       PRIMARY KEY (link_reference, restaurant_reference)
     )`
+  // ── WHO AUTHORED THIS LINK ─────────────────────────────────────────────────
+  // Creator-edit is the right rule for something a PERSON authored. A conversion
+  // link had no author — a script made it while converting a restaurant, and
+  // stamped whoever happened to be running the conversion as its owner. Locking
+  // those to that "creator" would mean an internal account owns 22 of 25 links
+  // and the restaurants whose locations are in them cannot touch their own page.
+  //
+  // So the two kinds are marked apart and gated differently:
+  //   created_by_conversion = true   -> REACH-edit: any system admin who can
+  //                                     reach a member may change it.
+  //   created_by_conversion = false  -> CREATOR-edit: only the person who made it.
+  //
+  // This is a statement about PROVENANCE, not about permission, which is why it
+  // is a column rather than a rule inferred from owner_email at read time.
+  await sql`ALTER TABLE disco_multi_unit_links ADD COLUMN IF NOT EXISTS created_by_conversion BOOLEAN NOT NULL DEFAULT false`
   ensured = true
 }
 
@@ -129,8 +146,9 @@ export async function listReachableNativeLinks(
   if (!scope.unrestricted && scope.refs.size === 0) return []
 
   const links = (await sql`
-    SELECT reference, slug, title, owner_email FROM disco_multi_unit_links ORDER BY created_at DESC, id DESC
-  `) as { reference: string; slug: string; title: string; owner_email: string | null }[]
+    SELECT reference, slug, title, owner_email, created_by_conversion
+      FROM disco_multi_unit_links ORDER BY created_at DESC, id DESC
+  `) as { reference: string; slug: string; title: string; owner_email: string | null; created_by_conversion: boolean }[]
 
   const nameCache = new Map<string, string | null>()
   const out: NativeLinkRow[] = []
@@ -147,9 +165,17 @@ export async function listReachableNativeLinks(
       numberOfLocations: refs.length, restaurantReferences: refs, urlFrom: 'Links',
       createdByEmail: owner,
       createdByName: owner ? (nameCache.get(owner) ?? owner) : null,
-      // Computed server-side so the UI never has to re-derive the rule and cannot
-      // disagree with what PUT/DELETE will actually allow.
-      canEdit: !!viewer?.isSuperAdmin || (!!viewer?.email && !!owner && viewer.email === owner),
+      createdByConversion: l.created_by_conversion === true,
+      // Computed server-side through the SAME helper the API gates use, so the
+      // button a viewer sees and the answer PUT gives cannot disagree.
+      canEdit: linkEditDecision({
+        isSuperAdmin: !!viewer?.isSuperAdmin,
+        viewerEmail: viewer?.email ?? null,
+        ownerEmail: owner,
+        createdByConversion: l.created_by_conversion === true,
+        // Reaching a member is already true here — an unreachable link was skipped above.
+        reachesAMember: true,
+      }).allowed,
     })
   }
   return out
@@ -162,10 +188,10 @@ export async function listReachableNativeLinks(
 // ownership-based lister is exactly the thing someone reinstates by accident.
 // Ownership still decides EDITING — see linkCreator / the route's creator gate.
 
-export async function createNativeLink(input: { slug: string; title: string; ownerEmail: string; memberRefs: string[] }): Promise<{ reference: string }> {
+export async function createNativeLink(input: { slug: string; title: string; ownerEmail: string; memberRefs: string[]; createdByConversion?: boolean }): Promise<{ reference: string }> {
   await ensureMultiUnitTables()
   const rows = (await sql`
-    INSERT INTO disco_multi_unit_links (slug, title, owner_email) VALUES (${input.slug}, ${input.title}, ${input.ownerEmail})
+    INSERT INTO disco_multi_unit_links (slug, title, owner_email, created_by_conversion) VALUES (${input.slug}, ${input.title}, ${input.ownerEmail}, ${input.createdByConversion === true})
     RETURNING reference
   `) as { reference: string }[]
   const reference = rows[0].reference
@@ -271,12 +297,49 @@ export interface LinkEditScope {
  * Who created this link, with a display name. The identity is the EMAIL; the name
  * is only for telling a viewer who to ask.
  */
-export async function linkCreator(reference: string): Promise<{ email: string | null; name: string | null } | null> {
+export async function linkCreator(
+  reference: string,
+): Promise<{ email: string | null; name: string | null; createdByConversion: boolean } | null> {
   await ensureMultiUnitTables()
-  const rows = (await sql`SELECT owner_email FROM disco_multi_unit_links WHERE reference = ${reference}::uuid LIMIT 1`) as { owner_email: string | null }[]
+  const rows = (await sql`
+    SELECT owner_email, created_by_conversion FROM disco_multi_unit_links WHERE reference = ${reference}::uuid LIMIT 1
+  `) as { owner_email: string | null; created_by_conversion: boolean }[]
   if (!rows.length) return null
   const email = rows[0].owner_email ?? null
-  return { email, name: await resolveCreatorName(email) }
+  return { email, name: await resolveCreatorName(email), createdByConversion: rows[0].created_by_conversion === true }
+}
+
+/**
+ * THE ONE PLACE THAT DECIDES WHO MAY CHANGE A LINK. Both the API gates and the
+ * `canEdit` flag the Links tab renders come through here, so the button a viewer
+ * sees and the answer PUT gives cannot disagree.
+ *
+ *   SUPER_ADMIN            — always. Support must be able to fix any link, and a
+ *                            support case must never be blocked because a
+ *                            restaurant's system admin created it.
+ *   conversion-created     — REACH: any system admin who reaches a member. Nobody
+ *                            authored these; a script did. Reach is the honest
+ *                            rule, and it is the only one that covers the five
+ *                            links with no system admin at all (eggstasy,
+ *                            smackbird, stacksncordials, tap42,
+ *                            winfieldstreetcoffee) without inventing an owner.
+ *   person-created         — CREATOR: only the person who made it. A link is one
+ *                            shared public page; two admins curating it against
+ *                            each other is worse than one owner and a conversation.
+ *
+ * Reach still BOUNDS what any of them may do — see resolveLinkEditScope — it just
+ * no longer decides who may act on a person-created link.
+ */
+export function linkEditDecision(input: {
+  isSuperAdmin: boolean
+  viewerEmail: string | null
+  ownerEmail: string | null
+  createdByConversion: boolean
+  reachesAMember: boolean
+}): { allowed: boolean; rule: 'super-admin' | 'conversion-reach' | 'creator' } {
+  if (input.isSuperAdmin) return { allowed: true, rule: 'super-admin' }
+  if (input.createdByConversion) return { allowed: input.reachesAMember, rule: 'conversion-reach' }
+  return { allowed: !!input.viewerEmail && !!input.ownerEmail && input.viewerEmail === input.ownerEmail, rule: 'creator' }
 }
 
 export async function resolveLinkEditScope(

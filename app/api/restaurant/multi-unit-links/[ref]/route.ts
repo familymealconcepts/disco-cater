@@ -4,7 +4,7 @@ import { buildForwardForm } from '../../../../../lib/multi-link-forward'
 import { upsertLocationLink, buildLinkRow } from '../../../../../lib/location-links'
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { resolveDiscoAccessScope, discoRefAllowed } from '../../../../../lib/restaurant-write-scope'
-import { updateNativeLink, deleteNativeLink, slugTaken, nativeLinkExists, resolveLinkEditScope, linkCreator } from '../../../../../lib/multi-unit-links'
+import { updateNativeLink, deleteNativeLink, slugTaken, nativeLinkExists, resolveLinkEditScope, linkCreator, linkEditDecision } from '../../../../../lib/multi-unit-links'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -30,22 +30,28 @@ async function nativeUpdate(ctx: Ctx, ref: string, req: NextRequest) {
   // happened to create it.
   const creator = await linkCreator(ref)
   const isSuperAdmin = ctx.role === 'SUPER_ADMIN'
-  if (!isSuperAdmin && (!creator?.email || creator.email !== ctx.email)) {
+  const scope = await resolveDiscoAccessScope(ctx)
+  const editScope = await resolveLinkEditScope(ref, scope)
+  const decision = linkEditDecision({
+    isSuperAdmin, viewerEmail: ctx.email || null, ownerEmail: creator?.email ?? null,
+    createdByConversion: creator?.createdByConversion === true,
+    reachesAMember: editScope.allowed,
+  })
+  if (!decision.allowed) {
     return NextResponse.json({
-      error: 'Only the creator can edit this link',
-      description: creator?.name
-        ? `This link was created by ${creator.name}. Ask them to make the change, or create your own link.`
-        : 'This link was created by someone else. Ask them to make the change, or create your own link.',
+      error: decision.rule === 'conversion-reach' ? 'Not your locations' : 'Only the creator can edit this link',
+      description: decision.rule === 'conversion-reach'
+        ? 'You can only edit a link that includes at least one location you have access to.'
+        : creator?.name
+          ? `This link was created by ${creator.name}. Ask them to make the change, or create your own link.`
+          : 'This link was created by someone else. Ask them to make the change, or create your own link.',
       createdBy: creator?.name ?? null,
     }, { status: 403 })
   }
 
-  // Reach still bounds WHAT a creator may do, even though it no longer decides
-  // WHO may act: they cannot add a location outside their reach, and members
-  // outside it are preserved rather than dropped. A creator whose reach later
-  // narrowed must not be able to strip locations they no longer run.
-  const scope = await resolveDiscoAccessScope(ctx)
-  const editScope = await resolveLinkEditScope(ref, scope)
+  // Reach still BOUNDS what anyone may do, on either rule: they cannot add a
+  // location outside their reach, and members outside it are preserved rather
+  // than dropped.
   const fd = await req.formData()
   const raw = fd.get('request')
   let json: Record<string, unknown> = {}
@@ -91,20 +97,24 @@ async function nativeDelete(ctx: Ctx, ref: string) {
   // Creator only, SUPER_ADMIN excepted — same rule as edit. See nativeUpdate.
   const creator = await linkCreator(ref)
   const isSuperAdmin = ctx.role === 'SUPER_ADMIN'
-  if (!isSuperAdmin && (!creator?.email || creator.email !== ctx.email)) {
+  const scope = await resolveDiscoAccessScope(ctx)
+  const editScope = await resolveLinkEditScope(ref, scope)
+  const decision = linkEditDecision({
+    isSuperAdmin, viewerEmail: ctx.email || null, ownerEmail: creator?.email ?? null,
+    createdByConversion: creator?.createdByConversion === true,
+    reachesAMember: editScope.allowed,
+  })
+  if (!decision.allowed) {
     return NextResponse.json({
-      error: 'Only the creator can delete this link',
-      description: creator?.name
+      error: decision.rule === 'conversion-reach' ? 'Not your locations' : 'Only the creator can delete this link',
+      description: creator?.name && decision.rule === 'creator'
         ? `This link was created by ${creator.name}. Ask them to delete it.`
-        : 'This link was created by someone else.',
+        : 'You can only delete a link that includes locations you have access to.',
       createdBy: creator?.name ?? null,
     }, { status: 403 })
   }
-  // Deleting removes the page for EVERY member, so even the creator cannot delete
-  // one that still carries locations they cannot reach. SUPER_ADMIN is
-  // unrestricted and so is never caught by this.
-  const scope = await resolveDiscoAccessScope(ctx)
-  const editScope = await resolveLinkEditScope(ref, scope)
+  // Deleting removes the page for EVERY member, so nobody short of a SUPER_ADMIN
+  // may delete one that still carries locations they cannot reach.
   if (editScope.retained.length) {
     return NextResponse.json({
       error: 'Not allowed',

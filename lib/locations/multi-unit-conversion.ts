@@ -312,11 +312,26 @@ export async function ensureMultiUnitLink(
       }
     }
 
-    // CREATE — seeded with FM's ENTIRE group, because the link mirrors it.
+    // CREATE — seeded ONCE with FM's group. From here the link is the operator's;
+    // nothing above this line touches an existing one.
+    //
+    // OWNED BY THE RESTAURANT'S OWN ADMIN, NOT BY WHOEVER RAN THE CONVERSION.
+    // Stamping the operator is how 22 of 25 links came to be owned by an internal
+    // account, which put every restaurant's own page out of their hands. FM names
+    // a per-restaurant admin and disco_restaurant_admin_list_cache already mirrors
+    // it (rebuilt every 15 minutes), so this costs no FM call. Falls back to the
+    // operator only when FM names nobody — the link still works, because it is
+    // also flagged conversion-created below and is therefore reach-editable.
+    const adminRow = (await sql`
+      SELECT admin_email FROM disco_restaurant_admin_list_cache
+      WHERE restaurant_reference = ${ref} LIMIT 1
+    `.catch(() => [])) as { admin_email: string | null }[]
+    const linkOwner = (adminRow[0]?.admin_email || '').trim() || opts?.ownerEmail || null
+
     const linkReference = randomUUID()
     await sql`
-      INSERT INTO disco_multi_unit_links (reference, slug, title, owner_email)
-      VALUES (${linkReference}::uuid, ${slug}, ${title}, ${opts?.ownerEmail ?? null})
+      INSERT INTO disco_multi_unit_links (reference, slug, title, owner_email, created_by_conversion)
+      VALUES (${linkReference}::uuid, ${slug}, ${title}, ${linkOwner}, true)
     `
     for (const r of fmRefs) {
       await sql`
