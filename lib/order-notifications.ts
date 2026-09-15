@@ -10,7 +10,7 @@
 // disco_order_events guarantees the confirmations fire at most once per order.
 
 import { sql } from './db'
-import { fulfillmentLabel } from './order/fulfillment-label'
+import { fulfillmentLabel, fulfillmentTag } from './order/fulfillment-label'
 import {
   sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage,
   sendCustomerItemUnavailableRefund, sendRestaurantItemUnavailableAlert,
@@ -109,7 +109,10 @@ async function sendNewOrderSlack(o: {
   try {
     const tag = o.sourceOfOrder === 'DISCO' ? '3P' : '1P'   // SOURCE — see header
     // SERVICE TYPE — printed verbatim from the shared label. No re-derivation.
-    const svc = String(o.serviceLabel || '').trim() || 'Unknown'
+    // (P) / (SD) / (3D) — the shared tag, mapped off the label rather than
+    // re-derived from the enums. See fulfillmentTag for why, and for why
+    // self-delivery deliberately diverges from FM's (D).
+    const svc = fulfillmentTag(o.serviceLabel) || String(o.serviceLabel || '').trim() || 'Unknown'
     const amount = `$${(Number.isFinite(o.total) ? o.total : 0).toFixed(2)}`
     const loc = [o.city, o.state].filter(Boolean).join(', ')
     // [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - ([service type])

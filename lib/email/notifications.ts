@@ -12,6 +12,7 @@
 // untouched.
 
 import { layout, button } from './layout'
+import { fulfillmentTag } from '../order/fulfillment-label'
 import { sendEmail, type SendResult } from './send'
 import { isThirdPartyFulfillment, isDeliveryFulfillment } from '../order/fulfillment-label'
 
@@ -341,7 +342,11 @@ export async function sendRestaurantOrderNotification(
     const sourceLabel =
       (p.sourceOfOrder === 'DISCO' ? '3P — Disco Cater Marketplace' : '1P') + (p.isDirectEntry ? ' — Direct Entry' : '')
     let timingHtml = ''
-    if (p.orderService) timingHtml += `Order Type: <strong>${escapeHtml(p.orderService)}</strong> ${isDelivery ? '(D)' : '(P)'}<br/>`
+    // The SAME tag the Slack line uses — (P) / (SD) / (3D) — from the shared
+    // mapping. This used to be a binary `isDelivery ? '(D)' : '(P)'`, which
+    // collapsed self-delivery and third-party delivery into one code and printed
+    // (D) beside an "Order Source: 1P" row, two unrelated facts a character apart.
+    if (p.orderService) timingHtml += `Order Type: <strong>${escapeHtml(p.orderService)}</strong> ${fulfillmentTag(p.orderService)}<br/>`
     timingHtml += `Order Source: <strong>${sourceLabel}</strong><br/>`
     // DATE DOMINANT, TIME SECONDARY — the same hierarchy every screen now uses
     // (app/components/FulfillmentDateTime). Applied by hand here rather than shared,

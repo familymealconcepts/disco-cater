@@ -194,3 +194,47 @@ export function deliveryStatusLabel(
   if (id) return 'Booked — no status'
   return '—'
 }
+
+/**
+ * The short service-type tag, for the two places that need one: the Slack
+ * new-order line and the confirmation email's Order Type row.
+ *
+ * ── DERIVED FROM THE LABEL, NOT FROM THE RAW ENUMS ────────────────────────────
+ * Deliberately takes fulfillmentLabel()'s OUTPUT rather than delivery_type /
+ * order_type. Re-deriving the service type a second time from the enums is
+ * exactly what produced the original bug: the Slack builder tested a
+ * human-readable label with `=== 'DELIVERY'`, which is true for none of the three
+ * labels, so EVERY order fell through to the pickup branch and a Third-Party
+ * Delivery posted as (P). One derivation, one mapping off it.
+ *
+ * ── WHY THESE THREE TAGS ──────────────────────────────────────────────────────
+ * FamilyMeal's own backend posts to the same Slack channel, and we cannot change
+ * its side. Its tags (OrderUpdateOrderStatusTaskRunnable.getServiceCode) are:
+ *
+ *     PICKUP                      -> (P)
+ *     DELIVERY + OWN_DELIVERY     -> (D)
+ *     DELIVERY + DLIVRD_DELIVERY  -> (3D)
+ *     anything else               -> no tag at all
+ *
+ * (P) and (3D) match FM exactly, on purpose: two systems announcing into one
+ * channel should not describe the same kind of order differently, or a human
+ * scanning it has to know which system wrote each line before they can read it.
+ *
+ * SELF-DELIVERY DIVERGES, and that is the one deliberate difference. FM uses (D),
+ * which sits one character from the (1P)/(3P) ORDER-SOURCE tag in the same line —
+ * "(1P) … (D)" reads as a pair of related codes when they are unrelated facts:
+ * source is who sent the order and carries the lead-gen fee, service is how the
+ * food travels. (SD) cannot be misread as a source tag and pairs naturally with
+ * (3D). FM has that ambiguity in its own messages; this just does not copy it.
+ *
+ * An unrecognised label returns '' rather than guessing — FM does the same, and a
+ * wrong tag is worse than no tag.
+ */
+export function fulfillmentTag(label: string | null | undefined): string {
+  switch (String(label ?? '').trim()) {
+    case 'Pickup': return '(P)'
+    case 'Self-Delivery': return '(SD)'
+    case 'Third-Party Delivery': return '(3D)'
+    default: return ''
+  }
+}
