@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
+import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -18,7 +19,12 @@ const EMPTY = { unseenByAdmin: 0, newOrdersCount: 0 }
 export async function GET(req: NextRequest) {
   // Disco-native: unseen new orders from Neon (was FM → always 0 for disco).
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') {
+  // KEYED ON THE RESTAURANT, NOT THE SESSION. resolveDiscoScopeRef now answers for
+  // an FM session too, so the scope is resolved first and the branch asks whether
+  // THAT restaurant is native. Our team is always on a master-password FM session,
+  // which is why a native restaurant's data used to be fetched from FamilyMeal.
+  const nativeScopeRef = ctx ? await resolveDiscoScopeRef(ctx) : ''
+  if (ctx && await isDiscoNativeRestaurant(nativeScopeRef)) {
     const ref = await resolveDiscoScopeRef(ctx)
     if (!ref) return NextResponse.json(EMPTY)
     try {

@@ -4,13 +4,19 @@ import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../l
 import { requireWritableRestaurantRef } from '../../../../../lib/restaurant-write-scope'
 import { sanitizeReportFilter } from '../../../../../lib/reports/report-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
+import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export async function GET(req: NextRequest) {
   // Disco-native: the user's scheduled reports from Neon (was FM → 401).
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') {
+  // KEYED ON THE RESTAURANT, NOT THE SESSION. resolveDiscoScopeRef now answers for
+  // an FM session too, so the scope is resolved first and the branch asks whether
+  // THAT restaurant is native. Our team is always on a master-password FM session,
+  // which is why a native restaurant's data used to be fetched from FamilyMeal.
+  const nativeScopeRef = ctx ? await resolveDiscoScopeRef(ctx) : ''
+  if (ctx && await isDiscoNativeRestaurant(nativeScopeRef)) {
     await runDiscoOrderMigrations()
     // Reports are a restaurant-level resource: scope to the selected location, like
     // the runs list — not to the individual creator's email (RM7). So any authorized

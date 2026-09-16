@@ -3,6 +3,7 @@ import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
 import { sql, runMigrations } from '../../../../../../lib/db'
+import { isDiscoNativeRestaurant } from '../../../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -18,7 +19,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // Disco-native: reorder within the SA's group. Pull the current order, move this
   // location to the target index, and renumber location_position across the group.
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') {
+  // KEYED ON THE LOCATION BEING ACTED ON, not on the session. `ref` is the
+  // location in the URL, so its own native flag is the right discriminator —
+  // a master-password FM session used to send a native location's change to
+  // FamilyMeal, which does not own it.
+  if (ctx && await isDiscoNativeRestaurant(ref)) {
     const scope = await resolveDiscoGroupScope(ctx)
     if (!discoRefAllowed(scope, ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     try {

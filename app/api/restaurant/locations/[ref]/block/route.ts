@@ -3,6 +3,7 @@ import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { sql, runMigrations } from '../../../../../../lib/db'
 import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
+import { isDiscoNativeRestaurant } from '../../../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -13,7 +14,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // Disco-native: block/unblock a location = remove/show it on the marketplace
   // (is_live). Scoped to the SA's group.
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') {
+  // KEYED ON THE LOCATION BEING ACTED ON, not on the session. `ref` is the
+  // location in the URL, so its own native flag is the right discriminator —
+  // a master-password FM session used to send a native location's change to
+  // FamilyMeal, which does not own it.
+  if (ctx && await isDiscoNativeRestaurant(ref)) {
     if (!discoRefAllowed(await resolveDiscoGroupScope(ctx), ref)) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
     await runMigrations()
     await sql`UPDATE disco_restaurant_cache SET is_live = ${blocked !== 'true'}, cached_at = NOW() WHERE restaurant_reference = ${ref}`

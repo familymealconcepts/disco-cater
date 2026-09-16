@@ -3,13 +3,19 @@ import { getRestaurantAuthHeader } from '../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../../lib/restaurant-auth-context'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
 import { toClientIso } from '../../../../../lib/utils/timestamp'
+import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export async function GET(req: NextRequest) {
   // Disco-native: report run history from disco_report_runs (was FM → 401).
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') {
+  // KEYED ON THE RESTAURANT, NOT THE SESSION. resolveDiscoScopeRef now answers for
+  // an FM session too, so the scope is resolved first and the branch asks whether
+  // THAT restaurant is native. Our team is always on a master-password FM session,
+  // which is why a native restaurant's data used to be fetched from FamilyMeal.
+  const nativeScopeRef = ctx ? await resolveDiscoScopeRef(ctx) : ''
+  if (ctx && await isDiscoNativeRestaurant(nativeScopeRef)) {
     const scope = await resolveDiscoScopeRef(ctx)
     if (!scope) return NextResponse.json({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 25 })
     await runDiscoOrderMigrations()
