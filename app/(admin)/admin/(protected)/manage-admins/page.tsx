@@ -16,6 +16,9 @@ interface SysAdmin {
   // FM's user-list response embeds the assigned-locations list under
   // managedRestaurants[] — confirmed by UpdateAdminComponent.ts:106-107.
   managedRestaurants?: { reference: string; businessName?: string }[]
+  // Which account system this person lives in. 'DISCO' rows come from
+  // disco_restaurant_accounts and have no FM user to edit or delete.
+  source?: 'FM' | 'DISCO' | 'BOTH'
 }
 
 type FormState = Pick<SysAdmin, 'firstName' | 'lastName' | 'email'> & {
@@ -237,7 +240,17 @@ export default function ManageSystemAdminsPage() {
             {!loading && !displayRows.length && <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#999' }}>No system admins.</td></tr>}
             {!loading && displayRows.map(u => (
               <tr key={u.reference}>
-                <td style={cell}>{u.firstName} {u.lastName || ''}</td>
+                <td style={cell}>
+                  {u.firstName} {u.lastName || ''}
+                  {u.source === 'DISCO' && (
+                    <span title="Disco-native account — managed in the restaurant portal, not in FamilyMeal"
+                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, letterSpacing: 0.3, color: '#6B6EF9', border: '1px solid #6B6EF9', borderRadius: 4, padding: '1px 4px', verticalAlign: 'middle' }}>DISCO</span>
+                  )}
+                  {u.source === 'BOTH' && (
+                    <span title="Exists in both FamilyMeal and Disco — locations shown are the union of the two"
+                      style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, letterSpacing: 0.3, color: '#C044C8', border: '1px solid #C044C8', borderRadius: 4, padding: '1px 4px', verticalAlign: 'middle' }}>BOTH</span>
+                  )}
+                </td>
                 <td style={{ ...cell, color: '#555' }}>{u.email}</td>
                 {/* FM's user-list response embeds the assigned locations under
                     managedRestaurants[] (same field the Edit dialog reads), so
@@ -263,6 +276,15 @@ export default function ManageSystemAdminsPage() {
                   })()}
                 </td>
                 <td style={{ ...cell, textAlign: 'right' }}>
+                  {/* EDIT AND DELETE ARE FM ENDPOINTS. A Disco-native account has no
+                      FM user behind it, so both would 404 against a synthetic
+                      `disco:<email>` reference. Showing the row read-only is the
+                      honest state: the person IS a system admin and their reach is
+                      real, it is simply managed in the restaurant portal. Making
+                      them editable here is a separate piece of work. */}
+                  {u.source === 'DISCO' ? (
+                    <span style={{ fontSize: 12, color: '#999' }} title="Managed in the restaurant portal">Portal-managed</span>
+                  ) : (<>
                   <button onClick={() => setEditing({
                     reference: u.reference,
                     firstName: u.firstName,
@@ -274,6 +296,7 @@ export default function ManageSystemAdminsPage() {
                     restaurantReferences: (u.managedRestaurants || u.restaurants || []).map(r => r.reference),
                   })} style={linkBtn}>Edit</button>
                   <button onClick={() => deleteAdmin(u)} style={{ ...linkBtn, color: '#E76F51' }}>Delete</button>
+                  </>)}
                 </td>
               </tr>
             ))}

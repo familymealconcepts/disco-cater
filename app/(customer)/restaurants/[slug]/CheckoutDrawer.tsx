@@ -268,13 +268,28 @@ export default function CheckoutDrawer({
   const [deliveryNotes, setDeliveryNotes] = useState(() => addr.instructions || '')
   useEffect(() => {
     if (!authUser) return
+    // ── DIRECT ENTRY NEVER INHERITS THE STAFF MEMBER'S IDENTITY ───────────────
+    // authUser is the DINER session. On direct entry the person at the keyboard
+    // is a restaurant or system admin placing an order for somebody else, and if
+    // they happen to be signed in as a diner in the same browser their own name,
+    // email and phone silently became the customer's.
+    //
+    // That is order #900000172: Kealoha placed a $139.15 order for DeCheco's
+    // Munroe Falls and it went out as Kealoha Pomerantz, kealoha@familymeal.com,
+    // her home address -- with an EMPTY phone, because her diner profile has none
+    // and nothing required one.
+    //
+    // FM cannot hit this. Its admin walks the same checkout, but authenticated on
+    // a RESTAURANT token, so there is no diner to pre-fill from; the fields start
+    // blank and the admin types the real customer in. This guard reproduces that.
+    if (isDirectEntry) return
     setContactFirst(p => p || authUser.firstName || '')
     setContactLast(p => p || authUser.lastName || '')
     setContactEmail(p => p || authUser.email || '')
     // Store digits-only internally (display is formatted, FM gets digits).
     setContactPhone(p => p || sanitizePhone(authUser.phoneNumber) || '')
     setContactCompany(p => p || authUser.companyName || '')
-  }, [authUser])
+  }, [authUser, isDirectEntry])
 
   // GA funnel: contact details completed. Fires once when all four contact
   // fields are non-empty; later edits don't re-fire (the ref latches).
@@ -797,6 +812,25 @@ export default function CheckoutDrawer({
     // Customer payment path still requires a logged-in diner; direct entry does
     // not (admin auth is the restaurant cookie).
     if (!isDirectEntry && !authUser) return
+
+    // ── DIRECT ENTRY: THE CUSTOMER IS TYPED, SO IT MUST BE COMPLETE ───────────
+    // The customer flow pre-fills these from the diner's own profile, so they are
+    // effectively always present there. Direct entry has nothing to pre-fill from
+    // (see the guard above), which makes an empty field the DEFAULT rather than an
+    // accident -- and the only validation anywhere was a server-side check on
+    // email alone, which is how #900000172 shipped with no phone at all.
+    if (isDirectEntry) {
+      const missing = [
+        !contactFirst.trim() && 'first name',
+        !contactLast.trim() && 'last name',
+        !contactEmail.trim() && 'email',
+        !sanitizePhone(contactPhone) && 'phone number',
+      ].filter(Boolean) as string[]
+      if (missing.length) {
+        setError(`Enter the customer's ${missing.join(', ')} before placing this order.`)
+        return
+      }
+    }
     setError('')
 
     const isInvoice = isDirectEntry && directEntryMethod === 'invoice'

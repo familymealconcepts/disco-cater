@@ -7,6 +7,7 @@ import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-con
 import { getCallerScopeRefs } from '../../../../../lib/order/order-scope'
 import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 import { placeNativeCheckout, placeNativeInvoiceCheckout } from '../../../../../lib/order/native-place-checkout'
+import { dispatchOrderConfirmations } from '../../../../../lib/order-notifications'
 import { sanitizePhoneFields } from '../../../../../lib/utils/phone'
 import { assertRestaurantAcceptsDirectEntry, orderableErrorBody, staffPaymentNotConfiguredBody } from '../../../../../lib/restaurant-orderable'
 import { NativePaymentNotConfiguredError } from '../../../../../lib/order/native-checkout'
@@ -208,6 +209,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(errBody, { status })
   }
 
+  // ── THE CUSTOMER MUST BE COMPLETE, BOTH PATHS ──────────────────────────────
+  // THIS ROUTE IS the direct-entry route (see the isDirectEntry note below), so
+  // every order reaching it was typed by staff on someone else's behalf. There is
+  // no diner profile behind these values and nothing else supplies them.
+  //
+  // Enforced HERE, above the native/FM split, so it covers both. The only check
+  // that existed was an email test inside the native branch, so an FM-backed
+  // direct entry was unvalidated entirely and a native one could still be placed
+  // with no name and no phone -- which is exactly what #900000172 did.
+  //
+  // Server-side as well as in CheckoutDrawer because the drawer's gate is a
+  // courtesy to the person typing; this is the one that holds.
+  {
+    const cust = (placeBody.customer ?? {}) as Record<string, unknown>
+    const str = (v: unknown) => String(v ?? '').trim()
+    const missing = [
+      !str(cust.firstName) && 'first name',
+      !str(cust.lastName) && 'last name',
+      !str(cust.email) && 'email',
+      !str(cust.phoneNumber).replace(/\D/g, '') && 'phone number',
+    ].filter(Boolean) as string[]
+    if (missing.length) {
+      return NextResponse.json(
+        { error: `Enter the customer's ${missing.join(', ')} before placing this order.` },
+        { status: 400 },
+      )
+    }
+  }
+
   // ── Disco-native Direct Entry: place in Neon/Stripe (zero FM) — RM4. The FM
   // proxy below has no native record and fails; the restaurant admin places on
   // behalf of a walk-in/phone customer, so the customer identity comes from the
@@ -284,6 +314,36 @@ export async function POST(req: NextRequest) {
       }
       if (!inv.ok) return NextResponse.json({ error: inv.error }, { status: inv.status })
       const r = inv.result
+
+      // ── NOTIFY AT PLACEMENT, EXACTLY AS FAMILYMEAL DOES ─────────────────────
+      // FM sends every channel when the INVOICE IS CREATED, not when it is paid.
+      // StripeServiceImpl.createInvoice, in order, after finalize + sendInvoice:
+      //
+      //   emailNotificationService.sendOrderCustomerNotificationForInvoice(order)
+      //       -> sendNotification(customer,   "user-order-confirm.ftl")
+      //       -> sendNotification(restaurant, "restaurant-order-confirm.ftl", pdf)
+      //   sendSlackNotification(order)
+      //   "SEND INVOICE ORDER CONFIRMATION SMS TO RESTAURANT" -> twilioService
+      //
+      // Those are the SAME templates the card path uses, so an invoice order is
+      // not a lesser notification — it is the identical one, sent earlier. The
+      // reason is operational rather than cosmetic: the kitchen has to prepare
+      // the food whether or not the invoice has been settled, and the customer
+      // needs their confirmation regardless of when they pay.
+      //
+      // Order #900000172 is what this fixes. It sent Stripe's invoice email and
+      // NOTHING else -- no customer confirmation, no restaurant email, no SMS,
+      // no Slack -- because the only callers of dispatchOrderConfirmations sat on
+      // payment-succeeded paths and an invoice order never reaches one at
+      // placement. The restaurant had no idea the order existed.
+      //
+      // dispatchOrderConfirmations is claim-guarded (disco_order_events_once_uq),
+      // so the invoice.payment_succeeded webhook calling it later is a no-op and
+      // the customer cannot receive two confirmations for one order. FM's
+      // separate invoice-paid restaurant email is kept and fires there instead --
+      // see dispatchInvoicePaidRestaurantNotification.
+      waitUntil(dispatchOrderConfirmations(r.orderId, 'NATIVE_INVOICE_PLACED'))
+
       return NextResponse.json({
         native: true, invoice: true,
         orderReference: r.orderReference,

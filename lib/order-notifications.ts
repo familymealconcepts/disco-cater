@@ -14,6 +14,7 @@ import { fulfillmentLabel, fulfillmentTag } from './order/fulfillment-label'
 import {
   sendCustomerOrderConfirmation, sendRestaurantOrderNotification, type OrderMealPackage,
   sendCustomerItemUnavailableRefund, sendRestaurantItemUnavailableAlert,
+  sendRestaurantInvoicePaid,
 } from './email/notifications'
 import { buildOrderPdfByReference } from './order/order-pdf'
 import { orderPdfFilename } from './download-filename'
@@ -704,6 +705,71 @@ export async function dispatchOrderConfirmations(
 // instance freezes. This path is WORSE to lose than the happy path — it is the
 // only thing that tells a customer their order was refunded because an item ran
 // out. Silence here reads to them as a charge with no order.
+/**
+ * Tell the restaurant an invoice order has been PAID. Never throws.
+ *
+ * ADDITIONAL TO, NOT INSTEAD OF, the order confirmation. FM sends both: the full
+ * confirmation (customer + restaurant + SMS + Slack) when the invoice is CREATED,
+ * and invoice-paid-notification-to-restaurant.ftl when it settles. Disco now
+ * matches -- dispatchOrderConfirmations fires at placement from the invoice
+ * branch of /api/restaurant/orders/place, and this fires from the
+ * invoice.payment_succeeded webhook.
+ *
+ * Restaurant only. Stripe emails the customer its own receipt for a paid invoice,
+ * and FM sends no customer copy here either.
+ */
+export async function dispatchInvoicePaidRestaurantNotification(orderId: number): Promise<void> {
+  const pending: Promise<unknown>[] = []
+  try {
+    const orders = (await sql`
+      SELECT order_number, order_date, total, restaurant_reference, restaurant_email,
+             customer_first_name, customer_last_name
+      FROM disco_orders WHERE id = ${orderId} LIMIT 1
+    `) as Record<string, unknown>[]
+    if (orders.length === 0) return
+    const o = orders[0]
+    const restRef = String(o.restaurant_reference ?? '')
+
+    // Same restaurant-recipient resolution as dispatchOrderConfirmations and the
+    // inventory path: configured notification_emails -> the order's
+    // restaurant_email -> the account's own email, skipping the never-deliverable
+    // stripe-import sentinel.
+    let recipientList: string[] = []
+    try {
+      const ov = (await sql`SELECT notification_emails FROM disco_restaurant_overrides WHERE restaurant_reference = ${restRef} LIMIT 1`) as { notification_emails: string | null }[]
+      recipientList = String(ov[0]?.notification_emails || '').split(',').map((e) => e.trim()).filter(Boolean)
+    } catch { /* fall back below */ }
+    if (recipientList.length === 0 && o.restaurant_email) recipientList = [String(o.restaurant_email)]
+    if (recipientList.length === 0 && restRef) {
+      try {
+        const acct = (await sql`
+          SELECT email FROM disco_restaurant_accounts
+          WHERE restaurant_reference = ${restRef} AND email IS NOT NULL ORDER BY created_at ASC LIMIT 1
+        `) as { email: string }[]
+        if (acct[0]?.email && !SENTINEL_EMAIL_RE.test(acct[0].email)) recipientList = [acct[0].email]
+      } catch { /* best-effort */ }
+    }
+
+    const customerName = [o.customer_first_name, o.customer_last_name].filter(Boolean).map(String).join(' ').trim()
+    for (const to of Array.from(new Set(recipientList.map((e) => e.toLowerCase())))) {
+      pending.push(sendRestaurantInvoicePaid({
+        to,
+        orderNumber: o.order_number as number,
+        total: num(o.total),
+        customerName: customerName || undefined,
+        orderDate: o.order_date ? fmtDate(o.order_date) : undefined,
+      }).catch((err) => console.error('[order-notifications] invoice-paid restaurant email failed:', err)))
+    }
+  } catch (err) {
+    console.error('[order-notifications] dispatchInvoicePaidRestaurantNotification failed:', err instanceof Error ? err.message : err)
+  } finally {
+    // Awaited for the same reason every other dispatcher here awaits: the caller
+    // hands this to waitUntil, which only keeps the instance alive for the promise
+    // it was given, so unawaited Mailgun POSTs are killed when it freezes.
+    await Promise.allSettled(pending)
+  }
+}
+
 export async function dispatchInventoryUnavailableNotification(orderId: number, itemName: string): Promise<void> {
   const pending: Promise<unknown>[] = []
   try {
