@@ -94,7 +94,7 @@ function fmtSlackDate(iso: string): string {
 // is to stop re-deriving a fact the shared module already decided, and print it.
 //
 // Never throws; skips silently when SLACK_NEW_ORDER_WEBHOOK_URL is unset.
-async function sendNewOrderSlack(o: {
+export type NewOrderSlackInput = {
   sourceOfOrder: string
   restaurantName: string
   city: string
@@ -105,19 +105,32 @@ async function sendNewOrderSlack(o: {
   serviceLabel: string
   /** disco_orders.is_direct_entry — staff placed this on a customer's behalf. */
   isDirectEntry?: boolean
-}): Promise<void> {
-  const url = process.env.SLACK_NEW_ORDER_WEBHOOK_URL
-  if (!url) return
-  try {
+}
+
+/**
+ * Build the new-order line. PURE, and exported so the rendered string can be
+ * asserted without a webhook — scripts/verify-slack-order-tags.ts prints all
+ * eight service x direct-entry combinations from THIS function, so what ships is
+ * what was reviewed. Extracted when the '((P))' double-wrap shipped unnoticed:
+ * the bug was one character in a template nothing could exercise.
+ */
+export function buildNewOrderSlackText(o: NewOrderSlackInput): string {
     const tag = o.sourceOfOrder === 'DISCO' ? '3P' : '1P'   // SOURCE — see header
     // SERVICE TYPE — printed verbatim from the shared label. No re-derivation.
     // (P) / (SD) / (3D) — the shared tag, mapped off the label rather than
     // re-derived from the enums. See fulfillmentTag for why, and for why
     // self-delivery deliberately diverges from FM's (D).
-    const svc = fulfillmentTag(o.serviceLabel) || String(o.serviceLabel || '').trim() || 'Unknown'
+    // ALREADY PARENTHESISED. fulfillmentTag owns the brackets -- it returns
+    // '(P)' / '(SD)' / '(3D)' so its output matches FamilyMeal's vocabulary
+    // byte-for-byte, and the confirmation email interpolates it raw for the same
+    // reason. So this line must produce a FINISHED token and the template below
+    // must not wrap it again. It did, and every Disco-emitted line with a
+    // recognised label posted as '((P))'. The fallback wraps itself here rather
+    // than at the call site, so there is exactly one place that decides.
+    const svc = fulfillmentTag(o.serviceLabel) || `(${String(o.serviceLabel || '').trim() || 'Unknown'})`
     const amount = `$${(Number.isFinite(o.total) ? o.total : 0).toFixed(2)}`
     const loc = [o.city, o.state].filter(Boolean).join(', ')
-    // [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - ([service type])
+    // [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - [service tag]
     // filter(Boolean) so a missing city/state doesn't leave a stray comma.
     // ── PLACEMENT: (DE), CONDITIONALLY ─────────────────────────────────────
     // A third independent fact, alongside SOURCE (1P/3P — who sent it, and
@@ -137,9 +150,17 @@ async function sendNewOrderSlack(o: {
     // therefore disagree on some lines in the same channel — that is FM's
     // behaviour, deliberately not copied, and NOT a Disco bug.
     const de = o.isDirectEntry === true ? ' (DE)' : ''
-    const text = [o.restaurantName, loc, `(${amount})`, tag, `${fmtSlackDate(o.orderDateIso)} - (${svc})${de}`]
+    return [o.restaurantName, loc, `(${amount})`, tag, `${fmtSlackDate(o.orderDateIso)} - ${svc}${de}`]
       .filter(Boolean)
       .join(', ')
+}
+
+// Never throws; skips silently when SLACK_NEW_ORDER_WEBHOOK_URL is unset.
+async function sendNewOrderSlack(o: NewOrderSlackInput): Promise<void> {
+  const url = process.env.SLACK_NEW_ORDER_WEBHOOK_URL
+  if (!url) return
+  try {
+    const text = buildNewOrderSlackText(o)
     // Send as a Slack attachment with a color so the message renders with the
     // green left border (matching the FM notifications) instead of plain text.
     await fetch(url, {
