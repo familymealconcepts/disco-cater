@@ -78,7 +78,56 @@ export async function GET(req: NextRequest) {
       const raw = await res.text().catch(() => '')
       return NextResponse.json({ error: 'Failed to fetch restaurants', status: res.status, raw }, { status: res.status })
     }
-    return NextResponse.json(await res.json())
+    const data = await res.json() as { content?: unknown[]; totalElements?: number; totalPages?: number }
+
+    // ── DISCO-NATIVE RESTAURANTS MUST APPEAR HERE TOO ────────────────────────
+    // A converted restaurant is Disco-native: Disco owns it, and FM may hold no
+    // record of it at all. This list asked FM alone, so a native-only restaurant
+    // was invisible to super admin — the same defect closed for the System Admin
+    // list, one screen over. Peter's "Stacks & Cordials - Royal Oak (Copy)" is the
+    // worked example: created natively, complete, and absent from this page.
+    //
+    // MERGED, NOT SWITCHED. FM-backed restaurants exist only in FM's list, so
+    // dropping the FM call would blank most of the page. Native rows are appended
+    // and de-duplicated on reference, because a converted restaurant legitimately
+    // appears in both and must not be listed twice.
+    try {
+      const fmList = Array.isArray(data.content) ? data.content : []
+      const seen = new Set(fmList.map((r) => String((r as { reference?: unknown })?.reference ?? '').toLowerCase()))
+      const term = (searchTerm || '').trim().toLowerCase()
+      const native = (await sql`
+        SELECT restaurant_reference, name, slug, address, city, state, zipcode, phone, is_live
+          FROM disco_restaurant_cache
+         WHERE is_disco_native = true
+           AND archived_at IS NULL
+           AND (${term} = '' OR LOWER(name) LIKE '%' || ${term} || '%')
+         ORDER BY name ASC
+      `) as Array<Record<string, unknown>>
+      const extra = native
+        .filter((n) => !seen.has(String(n.restaurant_reference).toLowerCase()))
+        .map((n) => ({
+          reference: n.restaurant_reference,
+          businessName: n.name,
+          businessNameWithoutSpaces: n.slug,
+          address: {
+            addressLine1: n.address || '', city: n.city || '', state: n.state || '',
+            zipcode: n.zipcode || '', phoneNumber: n.phone || '',
+          },
+          blocked: !n.is_live,
+          // Flags the row's origin so the screen can tell the two apart, and so a
+          // reader is never left wondering why a restaurant has no FM fields.
+          discoNative: true,
+        }))
+      if (extra.length) {
+        data.content = [...fmList, ...extra]
+        data.totalElements = (data.totalElements ?? fmList.length) + extra.length
+      }
+    } catch (e) {
+      // Never let a Neon failure blank FM's list — a degraded page beats no page.
+      console.error('[admin/restaurants] native merge failed:', e instanceof Error ? e.message : e)
+    }
+
+    return NextResponse.json(data)
   } catch {
     return NextResponse.json({ error: 'Unable to fetch restaurants' }, { status: 500 })
   }
