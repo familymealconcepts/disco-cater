@@ -25,7 +25,9 @@ export default function MenuDetailPage() {
   // Distinct from "loaded, genuinely zero categories" -- an auth failure (401,
   // refresh failed) or any other fetch error sets this so the empty state
   // below can't be mistaken for "this menu just has no categories yet".
-  const [loadError, setLoadError] = useState(false)
+  // The REASON a load failed, not a boolean that could only be rendered as
+  // "your session may have expired" — see the sibling category page.
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -54,10 +56,12 @@ export default function MenuDetailPage() {
             return
           }
         } else {
-          setLoadError(true)
+          setLoadError(res.status === 401 || res.status === 403
+            ? 'Your session has expired. Sign in again to continue.'
+            : (await res.json().catch(() => null))?.error || `Couldn't load categories (error ${res.status}). Try again, or email concierge@discocater.com.`)
         }
       } catch {
-        setLoadError(true)
+        setLoadError('Couldn\u2019t reach the server. Check your connection and try again.')
       }
       setLoading(false)
     }
@@ -83,7 +87,7 @@ export default function MenuDetailPage() {
       <h1 style={{ fontSize: 22, fontWeight: 700, color: DARK, margin: '0 0 8px' }}>{menuName || 'Menu'}</h1>
       {loadError ? (
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #eee', padding: 40, textAlign: 'center' }}>
-          <div style={{ color: '#E53935', fontSize: 13, marginBottom: 16 }}>Couldn&apos;t load categories — your session may have expired.</div>
+          <div style={{ color: '#E53935', fontSize: 13, marginBottom: 16 }}>{loadError}</div>
           <span style={{ color: BLUE, cursor: 'pointer', textDecoration: 'underline', fontSize: 13 }} onClick={() => window.location.reload()}>
             Try again
           </span>

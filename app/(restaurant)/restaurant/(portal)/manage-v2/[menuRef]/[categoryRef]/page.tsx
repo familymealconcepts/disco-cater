@@ -89,7 +89,7 @@ export default function CategoryDetailPage() {
   // sets this instead of silently leaving packages/categories as [], so the
   // page can show a real error rather than a false "No items" empty state.
   const [catsError, setCatsError] = useState(false)
-  const [pkgsError, setPkgsError] = useState(false)
+  const [pkgsError, setPkgsError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null)
   const [catDialog, setCatDialog] = useState<{ initial?: string; ref?: string } | null>(null)
 
@@ -114,17 +114,27 @@ export default function CategoryDetailPage() {
 
   const loadPackages = useCallback(async () => {
     setLoadingPkgs(true)
-    setPkgsError(false)
+    setPkgsError(null)
     try {
       const res = await fetchWithAuthRetry(`/api/restaurant/meal-packages?categoryReference=${categoryRef}&page=0&size=100`)
       if (res.ok) {
         const data = await res.json()
         setPackages(data.content || [])
       } else {
-        setPkgsError(true)
+        // WHY IT FAILED, not a guess. This branch used to set a flag whose only
+        // rendering blamed the session — so a 404 from FamilyMeal, a 409 refusal
+        // and a genuinely expired token all told the operator to log out and back
+        // in, which fixes none of them. 401/403 is the only shape that is
+        // actually about auth; everything else carries the server's own sentence.
+        const body = await res.json().catch(() => null)
+        setPkgsError(
+          res.status === 401 || res.status === 403
+            ? 'Your session has expired. Sign in again to continue.'
+            : body?.error || `Couldn't load items (error ${res.status}). Try again, or email concierge@discocater.com.`,
+        )
       }
     } catch {
-      setPkgsError(true)
+      setPkgsError('Couldn\u2019t reach the server. Check your connection and try again.')
     } finally { setLoadingPkgs(false) }
   }, [categoryRef])
 
@@ -384,7 +394,7 @@ export default function CategoryDetailPage() {
                 <div style={{ padding: 40, textAlign: 'center', color: '#aaa', fontSize: 13 }}>Loading…</div>
               ) : pkgsError ? (
                 <div style={{ padding: 40, textAlign: 'center', color: '#E53935', fontSize: 13 }}>
-                  Couldn&apos;t load items — your session may have expired.{' '}
+                  {pkgsError}{' '}
                   <span style={{ color: BLUE, cursor: 'pointer', textDecoration: 'underline' }} onClick={loadPackages}>
                     Try again
                   </span>

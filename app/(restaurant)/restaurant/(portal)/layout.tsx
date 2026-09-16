@@ -90,6 +90,9 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   // session. Defaults false so an FM (or not-yet-known) session always gets the
   // FM menu UI — we never route an FM restaurant to the Neon menu-manager.
   const [isDiscoSession, setIsDiscoSession] = useState(false)
+  // Is the SELECTED RESTAURANT Disco-native? Distinct from isDiscoSession, and
+  // that distinction is the whole point — see the NAV comment below.
+  const [isNativeRestaurant, setIsNativeRestaurant] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   // Mobile (<768px) sidebar drawer. Closed by default; opened via the hamburger
   // in the mobile top bar. Auto-closes on navigation so a tap-through doesn't
@@ -98,6 +101,18 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
   const { ref: selectedRestaurant, name: selectedRestaurantName, viewMode, setViewMode, clearRestaurant } = useSelectedRestaurant()
 
   useEffect(() => { setSidebarOpen(false) }, [pathname])
+
+  // Ask the server whether the restaurant currently in scope is Disco-native.
+  // Re-runs on every location switch, because the answer is per-restaurant: a
+  // system admin can hold one session across an FM-backed and a native location.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/restaurant/is-native', { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled) setIsNativeRestaurant(d?.native === true) })
+      .catch(() => { if (!cancelled) setIsNativeRestaurant(false) })
+    return () => { cancelled = true }
+  }, [selectedRestaurant])
 
   useEffect(() => {
     let cached: string | null = null
@@ -186,12 +201,23 @@ function PortalLayoutInner({ children }: { children: React.ReactNode }) {
       : (user?.groupName || user?.businessName || `${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim())
 
   const baseNav: NavItem[] = inRestaurantUserView ? RESTAURANT_USER_NAV : SYSTEM_ADMIN_NAV
-  // Disco-native restaurants have no FM record, so the FM-backed manage-v2 menu
-  // UI 404s for them. Route confirmed Disco sessions to the Neon-native
-  // menu-manager instead, and drop the FM-only submenu items (Group / Modifier
-  // libraries) that would 404. FM sessions are untouched (isDiscoSession stays
-  // false unless /me confirms Disco).
-  const NAV: NavItem[] = isDiscoSession
+  // ── KEYED ON THE RESTAURANT, NOT THE SESSION ───────────────────────────────
+  // Disco owns a native restaurant's menus, so its menu UI is the Neon-backed
+  // menu-manager; manage-v2 proxies FamilyMeal and cannot read or write a native
+  // restaurant's menus at all.
+  //
+  // This used to test isDiscoSession ALONE. That is the caller's cookie, not the
+  // thing that matters, and it had a consequence nobody noticed for weeks: the
+  // master password issues an FM session, and the Disco Cater team enters every
+  // restaurant that way — so for us, EVERY converted restaurant's "Manage Menus"
+  // pointed at FamilyMeal's screens. Peter hit it on Stacks & Cordials - Clawson,
+  // whose URL carried FM menu references that do not exist in Disco at all.
+  //
+  // isDiscoSession is KEPT as a second trigger rather than replaced: a Disco
+  // session has no FM record to fall back to, so manage-v2 is wrong for it
+  // regardless of what the restaurant flag says (and it may load before the
+  // per-restaurant answer arrives).
+  const NAV: NavItem[] = (isDiscoSession || isNativeRestaurant)
     ? baseNav.map(item => {
         if (item.title === 'Manage Menus') {
           return {
