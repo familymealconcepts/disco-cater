@@ -63,7 +63,9 @@ export async function PUT(_req: NextRequest, { params }: { params: Promise<{ ref
 
     // Notify the customer their order was canceled (best-effort — never block the void).
     //
-    // Now the SHARED helper, which /status and /reject also call. The inline copy
+    // Now the SHARED helper, which /status also calls. (/reject called it too,
+    // until that route was removed — FM has no reject endpoint and nothing ever
+    // called Disco's.) The inline copy
     // that used to live here had no source filter, so a voided FM-sourced order
     // got a Disco email on top of FM's own — the same duplicate the reminders
     // cron had. It also had no idempotency claim.

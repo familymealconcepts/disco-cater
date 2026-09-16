@@ -3,6 +3,7 @@ import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
+import { orderRestaurantIsNative } from '../../../../../../lib/fm-menu-surface-guard'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -17,7 +18,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
   // Disco-native: reopen a completed order (COMPLETED → DUE) in Neon.
-  if (ctx.authType === 'disco') {
+  // KEYED ON THE ORDER'S RESTAURANT, NOT THE SESSION. See orderRestaurantIsNative:
+  // the master password issues an FM session, so a native order used to take the
+  // FamilyMeal branch below and ask FM about an order it has no record of.
+  if (await orderRestaurantIsNative(ref)) {
     try {
       await runDiscoOrderMigrations()
       const rows = (await sql`

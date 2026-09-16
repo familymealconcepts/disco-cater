@@ -3,6 +3,7 @@ import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../lib/resta
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
 import { isChargesEnabled } from '../../../../lib/stripe-connect'
 import { sql } from '../../../../lib/db'
+import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -25,9 +26,15 @@ export async function GET(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
 
   // ── Disco-native path ──
-  if (ctx?.authType === 'disco') {
+  // KEYED ON THE RESTAURANT. resolveDiscoScopeRef now answers for an FM session
+  // too, so the scope is resolved BEFORE the branch and the branch asks whether
+  // that restaurant is native — not how the caller logged in. Our team is always
+  // on an FM session, so a native restaurant's Stripe status used to be read from
+  // FamilyMeal, which does not hold it.
+  const scopeRef = ctx ? await resolveDiscoScopeRef(ctx) : ''
+  if (await isDiscoNativeRestaurant(scopeRef)) {
     try {
-      const ref = await resolveDiscoScopeRef(ctx)
+      const ref = scopeRef
       if (ref) {
         const rows = (await sql`
           SELECT stripe_account_id, stripe_onboarding_complete
