@@ -17,7 +17,7 @@
  *      at it simultaneously, and exactly one must win. The row is deleted afterwards.
  *
  *   3. THE CANDIDATE QUERY, against live data — that it selects only paid, unbooked,
- *      third-party-delivery orders, and that every status outside PAID_STATUSES is excluded.
+ *      third-party-delivery orders, and that every status outside DISPATCHABLE_STATUSES is excluded.
  *
  * Alerts are silenced for the duration (SLACK_NOTIFICATIONS_WEBHOOK_URL is unset in-process) so a
  * verification run cannot page anyone. alertOps still logs to the console.
@@ -29,7 +29,7 @@ delete process.env.SLACK_NOTIFICATIONS_WEBHOOK_URL
 
 import { randomUUID } from 'crypto'
 import { sql } from '../lib/db'
-import { classifyPickup, DISPATCH_MARGIN_MINUTES, PAID_STATUSES } from '../lib/order/expedite-dispatch-sweep'
+import { classifyPickup, DISPATCH_MARGIN_MINUTES, DISPATCHABLE_STATUSES } from '../lib/order/expedite-dispatch-sweep'
 
 let failures = 0
 const check = (ok: boolean, label: string) => {
@@ -105,20 +105,20 @@ async function main() {
     SELECT order_number::text AS order_number, order_status, order_type, delivery_type, expedite_delivery_id
       FROM disco_orders
      WHERE is_deleted = false AND order_type = 'DELIVERY' AND delivery_type = 'THIRD_PARTY_DELIVERY'
-       AND expedite_delivery_id IS NULL AND order_status = ANY(${PAID_STATUSES})
+       AND expedite_delivery_id IS NULL AND order_status = ANY(${DISPATCHABLE_STATUSES})
        AND order_date >= CURRENT_DATE - 1`) as Array<Record<string, string | null>>
   console.log(`   ${cands.length} candidate(s) right now`)
   check(cands.every(c => c.delivery_type === 'THIRD_PARTY_DELIVERY'), 'every candidate is THIRD_PARTY_DELIVERY')
   check(cands.every(c => c.order_type === 'DELIVERY'), 'every candidate is a DELIVERY order')
   check(cands.every(c => c.expedite_delivery_id === null), 'every candidate has no courier yet')
-  check(cands.every(c => PAID_STATUSES.includes(String(c.order_status))), 'every candidate is in a paid status')
+  check(cands.every(c => DISPATCHABLE_STATUSES.includes(String(c.order_status))), 'every candidate is in a dispatchable status')
 
   const excluded = (await sql`
     SELECT order_status, count(*)::int AS n FROM disco_orders
      WHERE is_deleted = false AND order_type = 'DELIVERY' AND delivery_type = 'THIRD_PARTY_DELIVERY'
-       AND NOT (order_status = ANY(${PAID_STATUSES})) GROUP BY 1`) as Array<{ order_status: string; n: number }>
+       AND NOT (order_status = ANY(${DISPATCHABLE_STATUSES})) GROUP BY 1`) as Array<{ order_status: string; n: number }>
   console.log(`   statuses the sweep will never touch: ${excluded.length ? excluded.map(e => `${e.order_status}=${e.n}`).join(' ') : '(none present)'}`)
-  check(!excluded.some(e => PAID_STATUSES.includes(e.order_status)), 'no paid status landed in the excluded set')
+  check(!excluded.some(e => DISPATCHABLE_STATUSES.includes(e.order_status)), 'no dispatchable status landed in the excluded set')
 
   console.log('\n' + '='.repeat(70))
   console.log(failures === 0 ? 'SWEEP VERIFIED — nothing dispatched, no real order modified' : `${failures} CHECK(S) FAILED`)
