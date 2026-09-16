@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripeStatusByReference, type StripeAccountStatus } from '../../../../lib/stripe-account-status'
 import { runStripeCapabilityMigrations } from '../../../../lib/db'
-import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
 import { resolveDiscoGroupScope } from '../../../../lib/restaurant-write-scope'
@@ -113,24 +113,33 @@ export async function GET(req: NextRequest) {
     // source's link, so a duplicate inherits exactly the audience the original
     // had. No FM lookup is involved in resolving it.
     //
-    // Scoped to the chain of the restaurant the caller is actually in, never a
-    // global native list: reach must still be bounded by what they opened.
+    // ── SEEDED FROM FM'S OWN ANSWER, NOT FROM A COOKIE ───────────────────────
+    // The first version of this asked getRestaurantRef() for a single "home"
+    // reference and looked up that restaurant's chain. That silently did nothing
+    // for the exact session it was written for: getRestaurantRef reads the FM
+    // JWT's `restaurant` claim, and an FM SYSTEM_ADMIN managing a chain does not
+    // necessarily carry one — so homeRef was '' and the whole merge was skipped.
+    // Alexander Karana saw "2 of 2" because FM returned 2 and nothing was added.
+    //
+    // SEEDING FROM FM'S RETURNED REFERENCES fixes that and is better in principle:
+    // FM has already decided which locations this caller may see, so using that
+    // set as the seed inherits FM's authorization exactly, needs no cookie, no
+    // email and no grant, and cannot grant reach the caller did not already have.
+    // For every location FM returned, its Disco-native chain siblings are added.
     try {
-      const homeRef = (await getRestaurantRef()) || ''
-      if (homeRef) {
-        const fmRefs = new Set(
-          (Array.isArray(data?.content) ? data.content : [])
-            .map((l: { reference?: unknown }) => String(l?.reference ?? '').toLowerCase()),
-        )
+      const fmList: Array<{ reference?: unknown }> = Array.isArray(data?.content) ? data.content : []
+      const seedRefs = fmList.map((l) => String(l?.reference ?? '')).filter(Boolean)
+      if (seedRefs.length) {
+        const fmRefs = new Set(seedRefs.map((r) => r.toLowerCase()))
         const siblings = (await sql`
-          SELECT c.restaurant_reference AS reference, c.name AS "businessName",
+          SELECT DISTINCT c.restaurant_reference AS reference, c.name AS "businessName",
                  c.address, c.address_line2, c.city, c.state, c.zipcode, c.phone,
                  to_char(c.cached_at, 'YYYY-MM-DD') AS "createdDate",
                  (NOT COALESCE(c.is_live, false)) AS blocked
-            FROM disco_multi_unit_link_members me
-            JOIN disco_multi_unit_link_members sib ON sib.link_reference = me.link_reference
+            FROM disco_multi_unit_link_members seed
+            JOIN disco_multi_unit_link_members sib ON sib.link_reference = seed.link_reference
             JOIN disco_restaurant_cache c ON c.restaurant_reference = sib.restaurant_reference
-           WHERE me.restaurant_reference = ${homeRef}
+           WHERE seed.restaurant_reference = ANY(${seedRefs}::text[])
              AND c.is_disco_native = true
              AND c.archived_at IS NULL
         `) as Array<Record<string, unknown>>
@@ -151,13 +160,15 @@ export async function GET(req: NextRequest) {
             discoNative: true,
           }))
         if (extra.length) {
-          data.content = [...(Array.isArray(data.content) ? data.content : []), ...extra]
-          data.totalElements = (Number(data.totalElements) || 0) + extra.length
+          data.content = [...fmList, ...extra]
+          data.totalElements = (Number(data.totalElements) || fmList.length) + extra.length
         }
       }
     } catch (e) {
-      // Never let this blank FM's list — a degraded list beats no list.
-      console.error('[restaurant/locations] native sibling merge failed:', e instanceof Error ? e.message : e)
+      // Never let this blank FM's list — a degraded list beats no list. LOGGED
+      // loudly: the previous version failed silently and looked identical to
+      // "there is nothing to add", which is what made this take two attempts.
+      console.error('[restaurant/locations] native sibling merge failed:', e instanceof Error ? (e.stack || e.message) : e)
     }
 
     return NextResponse.json(data)

@@ -21,6 +21,8 @@ const PAGE_BG = '#F7F8FC'
 const DISCO_FRONTEND = 'https://www.discocater.com/order/'
 
 interface Location {
+  // Merged Disco-native row with no FM record (see /api/restaurant/locations).
+  discoNative?: boolean
   reference: string
   businessName: string
   businessNameWithoutSpaces?: string
@@ -469,9 +471,17 @@ export default function LocationsPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
         <div style={{ fontSize: 12, color: '#666' }}>
           Showing {locations.length} of {total} location{total === 1 ? '' : 's'}
+          {/* WAS STATIC, AND IT LIED. This read "this is everything the FM
+              endpoint returns for this account" on every full page — written when
+              FamilyMeal was assumed to be the only source. It kept asserting FM
+              completeness even after Disco-native locations began being merged in,
+              so a missing native row looked authoritatively accounted for. It now
+              describes the response it is actually rendering. */}
           {!loading && total === locations.length && total > 0 && (
             <span style={{ marginLeft: 8, color: '#aaa' }}>
-              · this is everything the FM endpoint returns for this account
+              {locations.some(l => l.discoNative)
+                ? `· includes ${locations.filter(l => l.discoNative).length} Disco-native location${locations.filter(l => l.discoNative).length === 1 ? '' : 's'}`
+                : '· this is every location on this account'}
             </span>
           )}
         </div>
