@@ -97,6 +97,15 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
         error: 'You don’t have access to this location, so it was not duplicated. If you reached it through the master password, open the location first and try again — or email concierge@discocater.com.',
       }, { status: 403 })
     }
+    // ── EVERY THROW BELOW MUST BECOME AN EXPLAINED RESPONSE ──────────────────
+    // This block had no try/catch at all, so a failure escaped the handler, Next
+    // answered with a non-JSON 500, the UI's res.json() threw, body.error was
+    // undefined and the operator saw only the generic fallback. That is precisely
+    // what Kealoha hit: cloneDiscoRestaurantMenus threw
+    //   operator does not exist: text = uuid  (42883)
+    // and nothing anywhere could say so. The message names the step that failed,
+    // and the real error goes to the server log for us.
+    try {
     const s = rows[0]
     const newRef = randomUUID()
     const newSlug = `${(s.slug as string) || 'location'}-copy-${newRef.slice(0, 8)}`
@@ -126,6 +135,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
     // which is how both existing native copies ended up unable to transact.
     await cloneDiscoRestaurantOverrides(ref, newRef)
     return NextResponse.json({ ok: true, reference: newRef })
+    } catch (e) {
+      console.error('[locations/clone] native clone failed:', ref, e instanceof Error ? (e.stack || e.message) : e)
+      return NextResponse.json({
+        error: 'Could not finish duplicating this location. Nothing was charged and no location was created. Email concierge@discocater.com with the location name and we’ll fix it.',
+      }, { status: 500 })
+    }
   }
 
   let h: Record<string, string>
