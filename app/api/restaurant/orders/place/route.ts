@@ -8,6 +8,7 @@ import { getCallerScopeRefs } from '../../../../../lib/order/order-scope'
 import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 import { placeNativeCheckout, placeNativeInvoiceCheckout } from '../../../../../lib/order/native-place-checkout'
 import { dispatchOrderConfirmations } from '../../../../../lib/order-notifications'
+import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../../lib/expedite'
 import { sanitizePhoneFields } from '../../../../../lib/utils/phone'
 import { assertRestaurantAcceptsDirectEntry, orderableErrorBody, staffPaymentNotConfiguredBody } from '../../../../../lib/restaurant-orderable'
 import { NativePaymentNotConfiguredError } from '../../../../../lib/order/native-checkout'
@@ -343,6 +344,42 @@ export async function POST(req: NextRequest) {
       // separate invoice-paid restaurant email is kept and fires there instead --
       // see dispatchInvoicePaidRestaurantNotification.
       waitUntil(dispatchOrderConfirmations(r.orderId, 'NATIVE_INVOICE_PLACED'))
+
+      // ── DISPATCH THE COURIER AT PLACEMENT, EXACTLY AS FAMILYMEAL DOES ───────
+      // FM books dlivrd when the INVOICE IS CREATED, not when it is paid.
+      // StripeServiceImpl.createInvoice, immediately after sendInvoice:
+      //
+      //   // Trigger delivery creation after sending invoice
+      //   RestaurantOrder order = findOrderByReference(...);
+      //   if (OrderType.DELIVERY.equals(order.getOrderType()) &&
+      //       DeliveryType.DLIVRD_DELIVERY.equals(order.getDeliveryType())) {
+      //       var deliveryDto = dlivrdDeliveryService.createDelivery(order);
+      //       dlivrdDeliveryService.createDlivrdDeliveryForOrder(order, deliveryDto);
+      //
+      // There is no payment check there. The invoice is 'open' at that moment and
+      // the courier is booked regardless -- because the delivery has to happen on
+      // the scheduled day whether or not the customer has settled the invoice yet.
+      //
+      // AND THE CONTRAST IS FM'S OWN, in the very next branch of the same block:
+      //   "// Shipday for invoice orders must be created only after the invoice
+      //    becomes PAID."
+      // So third-party dispatches at placement and OWN_DELIVERY waits for payment.
+      // That distinction is deliberate in FM and is reproduced here: this call is
+      // a no-op for anything that is not THIRD_PARTY_DELIVERY, because the claim
+      // inside dispatchExpediteForOrder filters on it.
+      //
+      // Order #900000173 is what this fixes -- a third-party direct entry invoice
+      // order for DeCheco's Munroe Falls that reached no courier at all, because
+      // Disco's only dispatch trigger was the Stripe payment-succeeded path and an
+      // invoice order never reaches one at placement.
+      //
+      // CANNOT DOUBLE-BOOK. dispatchExpediteForOrder's first statement is an
+      // atomic claim -- UPDATE ... SET expedite_delivery_id = 'PENDING' WHERE
+      // expedite_delivery_id IS NULL -- so the later invoice.payment_succeeded
+      // path finds the row already claimed and returns without calling dlivrd.
+      // The claim deliberately does not test order_status, which is why it works
+      // on an order that is still UNPAID.
+      if (nativeDispatchEnabled()) waitUntil(dispatchExpediteForOrder(r.orderId))
 
       return NextResponse.json({
         native: true, invoice: true,

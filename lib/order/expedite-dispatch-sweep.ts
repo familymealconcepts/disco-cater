@@ -43,13 +43,28 @@
  * ── WHAT IT REFUSES TO TOUCH ──────────────────────────────────────────────────────────────────
  *  * Anything that is not THIRD_PARTY_DELIVERY — enforced again inside dispatchExpediteForOrder's
  *    claim, so pickup and own-delivery orders are structurally unreachable.
- *  * Anything not in a PAID status. DUE is what native-payment-succeeded sets on payment (line
- *    121) and is the normal state for an upcoming paid order; PAID is included for completeness.
- *    Everything else is excluded deliberately: RESERVED and UNPAID have not been paid for,
- *    PAYMENT_FAILED and EXPIRED never will be, CANCELED / VOIDED / REFUND / PARTIAL_REFUND are
- *    unwound, and COMPLETED is already over. REOPEN is excluded too — only 12 exist fleet-wide,
- *    none of them native third-party, and booking a courier against an ambiguous status is not a
- *    risk worth taking for a case that does not occur.
+ *  * Anything not in a DISPATCHABLE status. DUE is what native-payment-succeeded sets on payment
+ *    and is the normal state for an upcoming paid order; PAID is included for completeness.
+ *
+ *    UNPAID IS INCLUDED, AND THAT IS A CORRECTION, not a loosening. It was excluded on the
+ *    reasoning that such an order "has not been paid for" — which is true and turns out to be
+ *    beside the point for third-party delivery. FM books the courier when the INVOICE IS
+ *    CREATED, not when it is settled (StripeServiceImpl.createInvoice: "// Trigger delivery
+ *    creation after sending invoice", with no payment check), and draws the contrast itself in
+ *    the very next branch for own-delivery: "Shipday for invoice orders must be created only
+ *    after the invoice becomes PAID." The food has to arrive on the scheduled day whether or not
+ *    the invoice has been settled. Order #900000173 — a direct entry invoice order for DeCheco's
+ *    Munroe Falls — reached no courier at all because both the live trigger and this safety net
+ *    required payment first.
+ *
+ *    Everything else stays excluded deliberately: RESERVED is a half-finished checkout,
+ *    PAYMENT_FAILED and EXPIRED never will be paid, CANCELED / VOIDED / REFUND / PARTIAL_REFUND
+ *    are unwound, and COMPLETED is already over. REOPEN is excluded too — only 12 exist
+ *    fleet-wide, none of them native third-party, and booking a courier against an ambiguous
+ *    status is not a risk worth taking for a case that does not occur.
+ *
+ *    The UNPAID arm cannot resurrect a cancelled order: #900000172 sits on the same restaurant,
+ *    same slot, same total, and is CANCELED/void — it is excluded by this list and must stay so.
  *  * Anything already claimed or booked — `expedite_delivery_id IS NULL` in the query, and then
  *    the atomic claim inside dispatchExpediteForOrder decides for real.
  *
@@ -116,8 +131,14 @@ export function classifyPickup(
   return { decision: 'dispatch', minutesToPickup }
 }
 
-/** Statuses that mean "paid and still expected". See the header for every exclusion. */
-export const PAID_STATUSES = ['DUE', 'PAID']
+/**
+ * Statuses a third-party order may still be dispatched from. See the header for every exclusion
+ * and for why UNPAID belongs here — FM books the courier at invoice creation, not at payment.
+ *
+ * The name is no longer "PAID_STATUSES" because that is no longer what it means; leaving the old
+ * name would make the UNPAID entry read as a bug to the next person.
+ */
+export const DISPATCHABLE_STATUSES = ['DUE', 'PAID', 'UNPAID']
 
 /**
  * How far back to look. An order whose date is already behind us cannot have a future pickup, so
@@ -177,7 +198,7 @@ export async function sweepFailedExpediteDispatches(now: Date = new Date()): Pro
        AND order_type = 'DELIVERY'
        AND delivery_type = 'THIRD_PARTY_DELIVERY'
        AND expedite_delivery_id IS NULL
-       AND order_status = ANY(${PAID_STATUSES})
+       AND order_status = ANY(${DISPATCHABLE_STATUSES})
        AND order_date >= CURRENT_DATE - (${LOOKBACK_DAYS}::int)
      ORDER BY order_date, order_time
   `) as Array<{ id: number; order_number: string; reference: string; restaurant_name: string; total: string }>
