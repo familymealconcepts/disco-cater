@@ -196,7 +196,15 @@ export async function runMigrations(): Promise<void> {
     // Restaurant.leadGenOne/leadGenTwo, but Disco-native restaurants have no FM
     // record, so the native checkout reads them from here. Fee 1 applies to a
     // customer's FIRST paid order from this restaurant; fee 2 to every order after,
-    // forever (per customer↔restaurant pair). Defaults mirror FM's 15% / 5%.
+    // forever (per customer↔restaurant pair).
+    //
+    // THESE DEFAULTS ARE FOR A RESTAURANT CREATED NEW ON DISCO CATER. They are NOT
+    // FamilyMeal's rates — the previous comment claimed they "mirror FM's 15% / 5%"
+    // and that was false: FM stores lead_gen_one/lead_gen_two per restaurant with an
+    // entity default of 0, and across the 188 converted restaurants FM held 0/0 for
+    // 132, 15/3 for 32 and 5/5 for 17. A CONVERTED restaurant carries FM's values
+    // (see lib/fm-lead-gen.ts, called from convertToNative); only a genuinely new
+    // Disco restaurant gets these.
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS lead_gen_one_pct NUMERIC(5,2) DEFAULT 15`,
     `ALTER TABLE disco_restaurant_overrides ADD COLUMN IF NOT EXISTS lead_gen_two_pct NUMERIC(5,2) DEFAULT 5`,
     // Super-admin "withhold payouts" freeze for Disco-native restaurants. When true,

@@ -22,6 +22,7 @@ import { randomUUID } from 'crypto'
 import { checkMarketplaceReadiness } from './marketplace-readiness'
 import { evaluateMarketplaceReadiness } from './marketplace-visibility'
 import { readWalledFieldsForRestaurants, type FmWalledFieldsResult, readUserAssignment } from './fm-master-admin-read'
+import { fmLeadGenRates } from './fm-lead-gen'
 import { verifyAccountReusable } from './stripe-connect'
 import { syncRestaurantOrders } from './fm-orders-sync'
 import { setInviteToken, grantLocationAccess } from './disco-restaurant-auth'
@@ -1169,6 +1170,31 @@ export async function carryOverTaxRates(ref: string, walled?: FmWalledFieldsResu
     VALUES (${ref}, ${JSON.stringify(walled.taxRate)}::jsonb, NOW())
     ON CONFLICT (restaurant_reference) DO UPDATE SET tax_rates = ${JSON.stringify(walled.taxRate)}::jsonb, updated_at = NOW()
   `
+
+  // ── CARRY FM'S LEAD-GEN RATES, alongside its tax rates ────────────────────
+  // Conversion copies FamilyMeal's data; it does not set defaults. These columns
+  // carry DEFAULT 15 / DEFAULT 5, so without this every converted restaurant
+  // inherited Disco's NEW-restaurant rates. 186 of 188 ended up differing from
+  // FM, every one of them charging more.
+  //
+  // Only written when FM actually holds a value. A null means FM's payload
+  // carried no rate — not that the rate is zero — so the existing value is left
+  // alone rather than zeroing a commission on missing data.
+  try {
+    const lg = await fmLeadGenRates(ref)
+    if (lg.one !== null || lg.two !== null) {
+      await sql`
+        INSERT INTO disco_restaurant_overrides (restaurant_reference, lead_gen_one_pct, lead_gen_two_pct, updated_at)
+        VALUES (${ref}, ${lg.one}, ${lg.two}, NOW())
+        ON CONFLICT (restaurant_reference) DO UPDATE SET
+          lead_gen_one_pct = COALESCE(${lg.one}, disco_restaurant_overrides.lead_gen_one_pct),
+          lead_gen_two_pct = COALESCE(${lg.two}, disco_restaurant_overrides.lead_gen_two_pct),
+          updated_at = NOW()
+      `
+    }
+  } catch (e) {
+    console.error('[convertToNative] lead-gen carry failed (non-fatal, rates left as-is):', ref, e instanceof Error ? e.message : e)
+  }
   // The EFFECTIVE rate, not the state percent. Reporting "(state 0%)" for
   // Tenkatori Sawtelle's real 9.75% is how this stayed invisible.
   return { carried: true, reason: `Carried over real tax rates (effective ${effectiveTaxPercent(walled.taxRate)}% — state + local + other) via master-password admin session.` }
