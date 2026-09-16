@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripeStatusByReference, type StripeAccountStatus } from '../../../../lib/stripe-account-status'
 import { runStripeCapabilityMigrations } from '../../../../lib/db'
-import { getRestaurantAuthHeader } from '../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
 import { resolveDiscoGroupScope } from '../../../../lib/restaurant-write-scope'
@@ -99,6 +99,67 @@ export async function GET(req: NextRequest) {
         data.content = list.map((l: { reference?: unknown }) => ({ ...l, stripe: statuses[String(l?.reference ?? '')] ?? null }))
       }
     } catch { /* leave FM's payload untouched */ }
+    // ── NATIVE SIBLINGS, WHICH FM CANNOT KNOW ABOUT ──────────────────────────
+    // A Disco-native location has no FM record, so FM's list can never contain
+    // it — and this branch runs for exactly the session our team uses most: the
+    // master password on an FM-backed chain issues an fm_restaurant_token, where
+    // ctx.email is '' and there is no Disco identity to scope with. That is why
+    // a duplicated Stacks & Cordials location was invisible to Peter here.
+    //
+    // THE AUTHORITY IS THE MULTI-UNIT LINK, which is Disco's own native chain
+    // grouping (disco_multi_unit_link_members). It is keyed on the RESTAURANT,
+    // not on the caller, so it needs no email and no grant — the two things a
+    // master-password session does not have. The clone adds the copy to its
+    // source's link, so a duplicate inherits exactly the audience the original
+    // had. No FM lookup is involved in resolving it.
+    //
+    // Scoped to the chain of the restaurant the caller is actually in, never a
+    // global native list: reach must still be bounded by what they opened.
+    try {
+      const homeRef = (await getRestaurantRef()) || ''
+      if (homeRef) {
+        const fmRefs = new Set(
+          (Array.isArray(data?.content) ? data.content : [])
+            .map((l: { reference?: unknown }) => String(l?.reference ?? '').toLowerCase()),
+        )
+        const siblings = (await sql`
+          SELECT c.restaurant_reference AS reference, c.name AS "businessName",
+                 c.address, c.address_line2, c.city, c.state, c.zipcode, c.phone,
+                 to_char(c.cached_at, 'YYYY-MM-DD') AS "createdDate",
+                 (NOT COALESCE(c.is_live, false)) AS blocked
+            FROM disco_multi_unit_link_members me
+            JOIN disco_multi_unit_link_members sib ON sib.link_reference = me.link_reference
+            JOIN disco_restaurant_cache c ON c.restaurant_reference = sib.restaurant_reference
+           WHERE me.restaurant_reference = ${homeRef}
+             AND c.is_disco_native = true
+             AND c.archived_at IS NULL
+        `) as Array<Record<string, unknown>>
+        const extra = siblings
+          .filter((r) => !fmRefs.has(String(r.reference).toLowerCase()))
+          .map((r) => ({
+            reference: r.reference,
+            businessName: r.businessName,
+            address: {
+              addressLine1: r.address || '', addressLine2: r.address_line2 || '',
+              city: r.city || '', state: r.state || '', zipcode: r.zipcode || '',
+              phoneNumber: r.phone || '',
+            },
+            createdDate: r.createdDate,
+            blocked: r.blocked,
+            archived: false,
+            stripe: null,
+            discoNative: true,
+          }))
+        if (extra.length) {
+          data.content = [...(Array.isArray(data.content) ? data.content : []), ...extra]
+          data.totalElements = (Number(data.totalElements) || 0) + extra.length
+        }
+      }
+    } catch (e) {
+      // Never let this blank FM's list — a degraded list beats no list.
+      console.error('[restaurant/locations] native sibling merge failed:', e instanceof Error ? e.message : e)
+    }
+
     return NextResponse.json(data)
   } catch {
     return NextResponse.json({ error: 'Unable to fetch locations' }, { status: 500 })

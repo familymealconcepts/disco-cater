@@ -20,38 +20,57 @@ export async function GET() {
     // (e.g. sub-admins, or repeated onboarding), which would otherwise duplicate it
     // in the list (and collide on the React key). DISTINCT ON keeps the most recent
     // account per restaurant; the outer query restores created-date ordering.
+    // ── DRIVEN BY THE CACHE, NOT BY ACCOUNTS ─────────────────────────────────
+    // This used to select FROM disco_restaurant_accounts, which silently required
+    // a native restaurant to HAVE an account row. Two consequences, both live:
+    //
+    //   * A DUPLICATED location has no account row at all — the clone writes
+    //     disco_restaurant_cache, disco_restaurant_overrides and the menu tree,
+    //     and nothing else. So "Stacks & Cordials - Royal Oak (Copy)" could never
+    //     appear here however long anyone waited.
+    //   * Native restaurants whose only accounts are stripe-import sentinels, or
+    //     which have none, were invisible too.
+    //
+    // It also keyed on accounts.is_disco_native, which CLAUDE.md records as the
+    // stale, unreliable copy — disco_restaurant_cache.is_disco_native is the
+    // authoritative one (it is what broke the password-reset routing). The cache
+    // row is also the thing the clone actually creates, so driving from it means
+    // the list cannot disagree with what exists.
+    //
+    // Accounts are still joined, for the Admin column — LEFT, and DISTINCT ON so
+    // a restaurant with several accounts yields one row rather than colliding on
+    // the React key. Sentinel stripe-import addresses are not shown as an admin:
+    // they are never deliverable and reading one as a contact is worse than blank.
     const rows = (await sql`
       SELECT * FROM (
-        SELECT DISTINCT ON (a.restaurant_reference)
-               a.restaurant_reference AS reference,
-               a.restaurant_name AS "businessName",
-               a.email AS "adminEmail",
-               -- The ordering page's Admin column reads adminName — this was
-               -- missing entirely (disco_restaurant_accounts has first_name/
-               -- last_name, just never selected), so every orphan tied at ''
-               -- when sorted by Admin, a real shape mismatch against FM rows
-               -- (which always carry a name), not just a missing-data gap.
+        SELECT DISTINCT ON (c.restaurant_reference)
+               c.restaurant_reference AS reference,
+               c.name AS "businessName",
+               c.slug AS "businessNameWithoutSpaces",
+               CASE WHEN a.email LIKE 'stripe-import+%' THEN NULL ELSE a.email END AS "adminEmail",
                NULLIF(TRIM(CONCAT(a.first_name, ' ', a.last_name)), '') AS "adminName",
-               a.created_at AS "createdAtRaw",
+               COALESCE(a.created_at, c.cached_at) AS "createdAtRaw",
                (${sql.unsafe(stripeReadySql('o'))}) AS "stripeConnected",
                COALESCE(a.fm_creation_failed, false) AS "fmCreationFailed",
                a.fm_creation_error AS "fmCreationError",
                COALESCE(c.is_live, false) AS "isLive",
-               -- Neon-backed row toggles so they reflect persisted state on reload (S5)
                COALESCE(o.money_flow, 'DIRECT') AS "moneyFlow",
                COALESCE(o.nash_allowed, false) AS "nashAllowed",
                COALESCE(o.shipday_enabled, false) AS "shipdayEnabled",
-               -- Expose the marketplace + online-ordering flags directly so the admin
-               -- toggles have a source even if a per-row overrides lookup misses.
                COALESCE(o.visible, false) AS "visible",
                o.online_ordering_enabled AS "onlineOrderingEnabled"
-        FROM disco_restaurant_accounts a
-        LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = a.restaurant_reference
-        LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = a.restaurant_reference
-        WHERE a.is_disco_native = true
-          AND a.fm_restaurant_reference IS NULL
-          AND a.restaurant_name IS NOT NULL AND a.restaurant_name <> ''
-        ORDER BY a.restaurant_reference, a.created_at DESC
+        FROM disco_restaurant_cache c
+        LEFT JOIN disco_restaurant_accounts a
+               ON a.restaurant_reference = c.restaurant_reference
+              AND a.archived_at IS NULL
+        LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
+        WHERE c.is_disco_native = true
+          AND c.archived_at IS NULL
+          AND c.name IS NOT NULL AND c.name <> ''
+        -- A real admin sorts ahead of a sentinel, so DISTINCT ON keeps the useful one.
+        ORDER BY c.restaurant_reference,
+                 (a.email LIKE 'stripe-import+%') ASC NULLS LAST,
+                 a.created_at DESC NULLS LAST
       ) sub
       ORDER BY sub."createdAtRaw" DESC
     `) as Record<string, unknown>[]
