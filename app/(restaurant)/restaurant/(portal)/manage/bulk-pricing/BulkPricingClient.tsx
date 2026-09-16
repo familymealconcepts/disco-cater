@@ -28,13 +28,19 @@ interface Row {
   status: 'idle' | 'pending' | 'ok' | 'error'
   error?: string
 }
-interface Group { restaurantRef: string; restaurantName: string; rows: Row[] }
+interface Group { restaurantRef: string; restaurantName: string; source?: 'native' | 'fm'; rows: Row[] }
 interface SearchItem { pkgRef: string; name: string; description: string | null; price: number | null; displayPrice: string | null; serves: string | null }
 interface SearchResp {
   query: string
   totalLocations: number
+  nativeLocations?: number
+  fmLocations?: number
   matchedLocations: number
-  matches: { restaurantRef: string; restaurantName: string; items: SearchItem[] }[]
+  matches: { restaurantRef: string; restaurantName: string; source?: 'native' | 'fm'; items: SearchItem[] }[]
+  // Locations in the group that could NOT be searched, with a reason. Shown
+  // rather than dropped: a short list that looks complete is worse than a short
+  // list that says what is missing.
+  skipped?: { ref: string; name: string; reason: string }[]
 }
 
 export default function BulkPricingClient() {
@@ -87,6 +93,7 @@ export default function BulkPricingClient() {
       setGroups(data.matches.map(m => ({
         restaurantRef: m.restaurantRef,
         restaurantName: m.restaurantName,
+        source: m.source,
         rows: m.items.map(it => ({
           key: `${m.restaurantRef}:${it.pkgRef}`,
           restaurantRef: m.restaurantRef,
@@ -238,6 +245,20 @@ export default function BulkPricingClient() {
         {searchError && <div style={{ marginTop: 10, fontSize: 13, color: '#C0392B' }}>{searchError}</div>}
       </div>
 
+      {/* Locations that could not be searched — always shown, results or not. */}
+      {resp && !searching && !!resp.skipped?.length && (
+        <div style={{ ...card, background: '#FFF8E1', border: '1px solid #FFE082' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: '#8D6E00', marginBottom: 6 }}>
+            {resp.skipped.length} location{resp.skipped.length === 1 ? '' : 's'} could not be searched
+          </div>
+          {resp.skipped.map(sk => (
+            <div key={sk.ref} style={{ fontSize: 12.5, color: '#8D6E00', lineHeight: 1.6 }}>
+              {sk.name || sk.ref} — {sk.reason}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Step 2 — Review */}
       {resp && !searching && (
         groups.length === 0 ? (
@@ -264,7 +285,15 @@ export default function BulkPricingClient() {
 
             {groups.map(g => (
               <div key={g.restaurantRef} style={card}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 8 }}>{g.restaurantName}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: DARK, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {g.restaurantName}
+                  {g.source && (
+                    <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4,
+                      background: g.source === 'native' ? '#E8F5E9' : '#EEF2F7', color: g.source === 'native' ? '#2E7D32' : '#546E7A' }}>
+                      {g.source === 'native' ? 'Disco Cater' : 'FamilyMeal'}
+                    </span>
+                  )}
+                </div>
                 <div style={{ overflowX: 'auto' }}>
                 <table style={{ borderCollapse: 'collapse', minWidth: 1280 }}>
                   <thead><tr>

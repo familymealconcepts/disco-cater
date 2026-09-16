@@ -5,6 +5,8 @@ import { upsertLocationLink, buildLinkRow, getRestaurantLocationLinks } from '..
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { resolveDiscoGroupScope, resolveDiscoAccessScope, discoRefAllowed } from '../../../../lib/restaurant-write-scope'
 import { listReachableNativeLinks, createNativeLink, slugTaken } from '../../../../lib/multi-unit-links'
+import { resolveLocationUniverse, scopeAllows } from '../../../../lib/location-universe'
+import { sql } from '../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -51,8 +53,25 @@ async function nativeList(ctx: NonNullable<Awaited<ReturnType<typeof getRestaura
   return NextResponse.json({ content, totalElements: content.length })
 }
 
-async function nativeCreate(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, req: NextRequest) {
-  if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'System admin only' }, { status: 403 })
+// Create the link in Disco's own store.
+//
+// Reach is passed in rather than re-derived, because this now serves FM sessions
+// too: resolveDiscoAccessScope reads ctx.role, which is null for an FM session,
+// so re-deriving here would reject every member of a chain whose admin signed in
+// through FamilyMeal.
+//
+// A native link may hold FM-BACKED members. disco_multi_unit_link_members keys on
+// restaurant_reference as TEXT and the public /locations/[slug] page renders every
+// member out of disco_restaurant_cache, which mirrors FM restaurants as well — so
+// a half-converted chain gets one working page covering all of its locations
+// instead of being forced to pick a side.
+async function nativeCreate(
+  ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>,
+  req: NextRequest,
+  allows: (ref: string) => boolean,
+  isAdmin: boolean,
+) {
+  if (!isAdmin) return NextResponse.json({ error: 'System admin only' }, { status: 403 })
   const json = await readRequestPart(req)
   const slug = String(json.url || '').trim().toLowerCase()
   const title = String(json.header || '').trim()
@@ -62,9 +81,8 @@ async function nativeCreate(ctx: NonNullable<Awaited<ReturnType<typeof getRestau
   if (!memberRefs.length) return NextResponse.json({ error: 'Pick at least one location', description: 'Choose at least one location.' }, { status: 400 })
   // Reach, and SAY WHAT WAS REJECTED rather than silently saving a subset — the
   // same change made on the edit path.
-  const allow = await resolveDiscoAccessScope(ctx)
-  const members = memberRefs.filter(r => discoRefAllowed(allow, r))
-  const rejected = memberRefs.filter(r => !discoRefAllowed(allow, r))
+  const members = memberRefs.filter(r => allows(r))
+  const rejected = memberRefs.filter(r => !allows(r))
   if (!members.length) {
     return NextResponse.json({
       error: 'Locations not in your group',
@@ -139,7 +157,48 @@ export async function GET(req: NextRequest) {
 // callers keep working.
 export async function POST(req: NextRequest) {
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') return nativeCreate(ctx, req)
+
+  // BRANCH ON THE MEMBERS, NOT THE SESSION. A chain mid-conversion has native and
+  // FM-backed locations at the same time (17 brands / 134 locations on
+  // 2026-09-16). Forwarding such a link to FamilyMeal builds it out of FM records,
+  // which no longer describe the converted members — and FM has no record at all
+  // for a natively-created restaurant, so those members are simply lost.
+  //
+  // So: if ANY member is native, the link is created in Disco's store, which can
+  // hold FM-backed members too. Only an all-FM link still goes to FamilyMeal,
+  // where all of its locations genuinely live.
+  if (ctx) {
+    const cloned = req.clone() as NextRequest
+    let memberRefs: string[] = []
+    try {
+      const json = await readRequestPart(cloned)
+      memberRefs = Array.isArray(json.restaurantReferences) ? (json.restaurantReferences as unknown[]).map(String) : []
+    } catch { /* fall through to the branches below */ }
+
+    let anyNative = false
+    if (memberRefs.length) {
+      try {
+        const rows = (await sql`
+          SELECT 1 FROM disco_restaurant_cache
+           WHERE restaurant_reference::text = ANY(${memberRefs}) AND is_disco_native = true LIMIT 1
+        `) as unknown[]
+        anyNative = rows.length > 0
+      } catch { /* unknown → fall back to the session branch below */ }
+    }
+
+    if (ctx.authType === 'disco' || anyNative) {
+      const universe = await resolveLocationUniverse()
+      // Prefer the union reach (it resolves FM sessions too); fall back to
+      // Disco's ACL when there is no universe to resolve.
+      if (universe) {
+        const isAdmin = universe.role === 'SYSTEM_ADMIN' || universe.isSuperAdmin
+        return nativeCreate(ctx, req, r => scopeAllows(universe, r), isAdmin)
+      }
+      const allow = await resolveDiscoAccessScope(ctx)
+      const isAdmin = ctx.role === 'SYSTEM_ADMIN' || ctx.role === 'SUPER_ADMIN'
+      return nativeCreate(ctx, req, r => discoRefAllowed(allow, r), isAdmin)
+    }
+  }
 
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {

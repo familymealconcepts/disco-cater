@@ -1,5 +1,15 @@
-// Bulk-pricing apply (one item). SYSTEM_ADMIN only. Updates a single meal
-// package's base price (+ optional display price) at a specific location.
+// Bulk-pricing apply (one item). SYSTEM_ADMIN / SUPER_ADMIN only. Updates a
+// single meal package's base price (+ optional display price) at a specific
+// location.
+//
+// ── ROUTED BY THE RESTAURANT, NOT THE SESSION ───────────────────────────────
+// This used to pick its write target from `ctx.authType === 'disco'`. In a
+// mixed, mid-conversion chain (17 brands / 134 locations on 2026-09-16) that was
+// wrong both ways: an FM session wrote a converted location's new price into
+// FamilyMeal — a record nothing reads — and returned ok:true while the live
+// native price never moved; a Disco session refused an unconverted sibling with
+// "Location not in your group". Now the target restaurant's own is_disco_native
+// decides: native → Neon, FM-backed → FamilyMeal.
 //
 // CRITICAL: FM's PUT /api/mealPackages/{ref} is a FULL-OBJECT REPLACE. We GET
 // the current object and PRESERVE it (including its real scheduleOption — real
@@ -18,9 +28,7 @@
 // cookie (the client re-syncs once at the end).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getRestaurantAuthHeader, getRestaurantRole } from '../../../../../lib/restaurant-auth'
-import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
-import { getDiscoGroupAccounts } from '../../../../../lib/disco-restaurant-auth'
+import { resolveLocationUniverse, scopeAllows, refIsNative } from '../../../../../lib/location-universe'
 import { sql, runDiscoMenuMigrations } from '../../../../../lib/db'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
@@ -34,20 +42,8 @@ interface ApplyBody { pkgRef?: string; restaurantRef?: string; price?: number | 
 // price / name / description / serves) at a location in the SA's group. Zero FM.
 // Mirrors the FM path's field semantics: name set only when non-empty; display
 // price set only when non-empty (blank preserves); description/serves may clear.
-async function nativeApply(ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>, body: ApplyBody) {
-  if (ctx.role !== 'SYSTEM_ADMIN' && ctx.role !== 'SUPER_ADMIN') {
-    return NextResponse.json({ ok: false, error: 'System admin only' }, { status: 403 })
-  }
-  const { pkgRef, restaurantRef } = body
-  if (!pkgRef || !restaurantRef) return NextResponse.json({ ok: false, error: 'pkgRef and restaurantRef required' }, { status: 400 })
-  const priceNum = typeof body.price === 'number' ? body.price : parseFloat(String(body.price ?? ''))
-  if (!isFinite(priceNum) || priceNum < 0) return NextResponse.json({ ok: false, error: 'Invalid price' }, { status: 400 })
-
-  // The target location must be inside the SA's own group (never trust the client).
-  const allowed = new Set<string>([ctx.restaurantReference])
-  try { for (const g of await getDiscoGroupAccounts(ctx.businessName, ctx.email)) allowed.add(g.restaurant_reference) } catch { /* home only */ }
-  if (!allowed.has(restaurantRef)) return NextResponse.json({ ok: false, error: 'Location not in your group' }, { status: 403 })
-
+// Role and membership are checked by POST before this is reached.
+async function nativeApply(body: ApplyBody, pkgRef: string, restaurantRef: string, priceNum: number) {
   await runDiscoMenuMigrations()
   const cur = (await sql`
     SELECT name, description, price, display_price, serves FROM disco_menu_items
@@ -100,40 +96,48 @@ export async function POST(req: NextRequest) {
   }
   try { body = await req.json() } catch { return NextResponse.json({ ok: false, error: 'Bad request' }, { status: 400 }) }
 
-  // Disco-native SYSTEM_ADMINs write to Neon — never touch FM.
-  const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') return nativeApply(ctx, body)
-
-  const role = await getRestaurantRole()
-  if (role !== 'SYSTEM_ADMIN' && role !== 'SUPER_ADMIN') {
+  const scope = await resolveLocationUniverse()
+  if (!scope) return NextResponse.json({ ok: false, error: 'Not authenticated' }, { status: 401 })
+  if (scope.role !== 'SYSTEM_ADMIN' && !scope.isSuperAdmin) {
     return NextResponse.json({ ok: false, error: 'System admin only' }, { status: 403 })
   }
-  let h: Record<string, string>
-  try { h = await getRestaurantAuthHeader() } catch { return NextResponse.json({ ok: false, error: 'Not authenticated' }, { status: 401 }) }
 
   const { pkgRef, restaurantRef } = body
   if (!pkgRef || !restaurantRef) return NextResponse.json({ ok: false, error: 'pkgRef and restaurantRef required' }, { status: 400 })
   const priceNum = typeof body.price === 'number' ? body.price : parseFloat(String(body.price ?? ''))
   if (!isFinite(priceNum) || priceNum < 0) return NextResponse.json({ ok: false, error: 'Invalid price' }, { status: 400 })
 
-  // DEFERRED RISK (FM-session only, not fixed): `restaurantRef` here is a raw
-  // client-supplied value with NO membership check against this caller's FM
-  // locations before being used to move FM's own "current restaurant" pointer
-  // below — unlike every other FM switch, this one bypasses the validated
-  // /api/restaurant/selected-restaurant route entirely and calls FM directly.
-  // If FM's own backend doesn't independently enforce that this SYSTEM_ADMIN/
-  // SUPER_ADMIN actually manages restaurantRef (unconfirmed), this is the same
-  // cross-tenant vulnerability class Steps 1-3 closed, reachable through an
-  // unaudited route, and it would let the caller write a price change (step 4
-  // below) to a restaurant outside their own scope. Deliberately deferred:
-  // all restaurants convert to disco-native within weeks and admins move to
-  // the Disco Cater portal, so FM-session code paths here have a short shelf
-  // life and are not worth hardening now. Also leaves FM's global "current
-  // restaurant" pointer moved for the DURATION of a bulk-pricing batch (the
-  // frontend restores it once at the end, not per-item, not in a try/finally
-  // — see BulkPricingClient.tsx's apply()) — a live correctness issue for any
-  // OTHER FM-session request that races this pointer mid-batch, separate
-  // from the security question above.
+  // MEMBERSHIP, CHECKED HERE, FOR BOTH STORES. `restaurantRef` is a raw
+  // client-supplied value and used to be forwarded to FM with no check of any
+  // kind — it moved FM's own "current restaurant" pointer (below) and then wrote
+  // a price, bypassing the validated /api/restaurant/selected-restaurant route
+  // entirely. That was the same cross-tenant shape Steps 1-3 closed, reachable
+  // through an unaudited route. It is now gated on the caller's resolved reach
+  // before either branch runs.
+  if (!scopeAllows(scope, restaurantRef)) {
+    return NextResponse.json({ ok: false, error: 'You do not have access to that location' }, { status: 403 })
+  }
+
+  // THE BRANCH: the target restaurant decides, not how the caller signed in.
+  if (await refIsNative(restaurantRef)) return nativeApply(body, pkgRef, restaurantRef, priceNum)
+
+  // FM-backed from here. Needs a FamilyMeal token; a Disco-native session has
+  // none, so say that rather than failing obscurely.
+  const h = scope.fmAuth
+  if (!h) {
+    return NextResponse.json({
+      ok: false,
+      error: 'That location is still on FamilyMeal and this session has no FamilyMeal access. Sign in through FamilyMeal to change its price, or convert the location.',
+    }, { status: 409 })
+  }
+
+  // STILL DEFERRED (FM-session only): scoping FM to the target location leaves
+  // FM's global "current restaurant" pointer moved for the DURATION of a
+  // bulk-pricing batch — the frontend restores it once at the end, not per-item
+  // and not in a try/finally (see BulkPricingClient.tsx's apply()). That is a
+  // live correctness issue for any OTHER FM-session request racing the pointer
+  // mid-batch. Not fixed here: it is FM's own session model, and the surface
+  // disappears as locations convert.
   //
   // 1. Scope FM to the target location (best-effort).
   try {
