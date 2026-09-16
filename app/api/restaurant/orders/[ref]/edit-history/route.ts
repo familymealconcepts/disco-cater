@@ -4,6 +4,7 @@ import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { toClientIso } from '../../../../../../lib/utils/timestamp'
+import { orderRestaurantIsNative } from '../../../../../../lib/fm-menu-surface-guard'
 
 const FM_BASE = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -27,7 +28,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ ref
   if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
   // Disco-native: read the edit history from disco_order_edits (was read from FM).
-  if (ctx.authType === 'disco') {
+  // KEYED ON THE ORDER'S RESTAURANT, NOT THE SESSION. See orderRestaurantIsNative:
+  // the master password issues an FM session, so a native order used to take the
+  // FamilyMeal branch below and ask FM about an order it has no record of.
+  if (await orderRestaurantIsNative(ref)) {
     try {
       await runDiscoOrderMigrations()
       const history = (await sql`

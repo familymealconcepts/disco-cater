@@ -7,6 +7,7 @@ import { sendOrderRefundEmail } from '../../../../../../lib/order/refund-email'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { stripeClient } from '../../../../../../lib/order/native-payment'
 import { cancelDelivery } from '../../../../../../lib/expedite'
+import { isDiscoNativeRestaurant } from '../../../../../../lib/order/native-checkout'
 
 export const runtime = 'nodejs'
 
@@ -56,6 +57,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   let alreadyRefunded = 0
   let orderTotal = 0
   let discoReference = ''
+  // The ORDER'S OWN restaurant. This is what decides which Stripe refunds the
+  // money — more precise than the caller's session and than the selected scope,
+  // because it is a property of the thing being refunded.
+  let orderRestaurantRef = ''
   // The status BEFORE this refund overwrites it. A PARTIAL_REFUND normally means
   // the order is still going ahead — but not always: a cancelled or voided order
   // stays refundable on purpose, so a restaurant can cancel first and refund part
@@ -66,6 +71,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     await runDiscoOrderMigrations()
     const rows = (await sql`
       SELECT o.reference AS disco_reference, o.order_status AS prior_status,
+             o.restaurant_reference AS order_restaurant_ref,
              COALESCE(NULLIF(o.total, 0),
                (SELECT MAX(sp.total) FROM disco_stripe_payments sp WHERE sp.order_reference = o.reference AND sp.total > 0)
              ) AS total,
@@ -73,9 +79,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
       FROM disco_orders o
       WHERE o.reference = ${ref}::uuid OR o.fm_order_reference = ${ref}::uuid
       LIMIT 1
-    `) as Array<{ disco_reference: string; prior_status: string | null; total: string | null; refund: string | null }>
+    `) as Array<{ disco_reference: string; prior_status: string | null; total: string | null; refund: string | null; order_restaurant_ref: string | null }>
     if (!rows.length) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
     discoReference = rows[0].disco_reference
+    orderRestaurantRef = String(rows[0].order_restaurant_ref || '')
     priorStatus = String(rows[0].prior_status || '').toUpperCase()
     orderTotal = Number(rows[0].total) || 0
     alreadyRefunded = Number(rows[0].refund) || 0
@@ -93,7 +100,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   // flipping the status while the money silently fails to move. FM-charged orders
   // are still refunded by FM (best-effort; FM owns their Stripe).
   let stripeRefundId: string | null = null
-  if (ctx.authType === 'disco') {
+  // ── KEYED ON THE ORDER'S RESTAURANT, NOT THE CALLER'S SESSION ──────────────
+  // This tested ctx.authType === 'disco'. The master password issues an FM
+  // session and the team refunds from it, so a DISCO-NATIVE order took the FM
+  // branch below — which PUTs to {FM}/api/orders/{ref}/refund for an order
+  // FamilyMeal has no record of.
+  //
+  // And that branch swallows its own failure ("non-fatal"), so execution
+  // continued and the order was still marked REFUND with an event written and a
+  // refund email sent, while no money moved. The native branch's own comment
+  // says this was fixed — "no more flipping the status while the money silently
+  // fails to move" — but only for a disco session.
+  //
+  // Never fired in production: all five Disco refund events carry a real Stripe
+  // refund id except one, #87803110, which is an FM-backed Test Kitchen order
+  // where a null id is correct because FM issues that refund. Fixed before it
+  // could, not after.
+  const orderIsNative = await isDiscoNativeRestaurant(orderRestaurantRef)
+  if (orderIsNative) {
     const stripe = stripeClient(process.env.STRIPE_SECRET_KEY)
     if (!stripe) return NextResponse.json({ error: 'Refunds are temporarily unavailable.' }, { status: 503 })
     try {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { isDiscoNativeRestaurant } from './order/native-checkout'
+import { sql } from './db'
 
 /**
  * The guard for every FamilyMeal-backed MENU route.
@@ -47,4 +48,27 @@ export async function refuseIfNativeMenuSurface(ref: string | null | undefined):
     },
     { status: 409 },
   )
+}
+
+/**
+ * Is the restaurant that owns THIS ORDER Disco-native?
+ *
+ * Order routes branched on ctx.authType === 'disco', which is the caller's
+ * cookie. The master password issues an FM session and the team works from it,
+ * so a native order took the FamilyMeal branch — asking FM about an order it has
+ * no record of. The order's own restaurant is the only correct discriminator,
+ * and it does not change with who is looking.
+ *
+ * Accepts either the Disco reference or the mirrored FM reference, matching how
+ * every order route already looks orders up.
+ */
+export async function orderRestaurantIsNative(orderRef: string): Promise<boolean> {
+  if (!orderRef) return false
+  const rows = (await sql`
+    SELECT restaurant_reference FROM disco_orders
+     WHERE reference = ${orderRef}::uuid OR fm_order_reference = ${orderRef}::uuid
+     LIMIT 1
+  `.catch(() => [])) as Array<{ restaurant_reference: string | null }>
+  const ref = rows[0]?.restaurant_reference
+  return ref ? isDiscoNativeRestaurant(String(ref)) : false
 }

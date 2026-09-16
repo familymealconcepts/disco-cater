@@ -3,6 +3,7 @@ import { getRestaurantAuthHeader, getRestaurantRef } from '../../../../../lib/re
 import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-context'
 import { requireWritableRestaurantRef } from '../../../../../lib/restaurant-write-scope'
 import { sql, runDiscoOrderMigrations } from '../../../../../lib/db'
+import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -22,8 +23,11 @@ export async function PUT(req: NextRequest) {
   const ref = check.ref
 
   // Disco-native: bulk-complete the restaurant's outstanding (DUE) orders in Neon.
+  // KEYED ON THE RESTAURANT `ref` ALREADY RESOLVED ABOVE, not on the session —
+  // the master password issues an FM session, so a native restaurant used to
+  // bulk-complete against FamilyMeal.
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') {
+  if (await isDiscoNativeRestaurant(ref)) {
     const from = toIso(req.nextUrl.searchParams.get('fromDate'))
     const to = toIso(req.nextUrl.searchParams.get('toDate'))
     try {
