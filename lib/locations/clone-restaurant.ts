@@ -82,42 +82,26 @@ export async function cloneDiscoRestaurantMenus(sourceRef: string, newRef: strin
   // row at all — not an empty one, none — and with no tax config its checkout
   // refuses every order. Both existing native copies are in that state.
   //
-  // DELIBERATELY NOT COPIED:
-  //   • stripe_account_id (and the stripe_* status columns). A duplicate must
-  //     never inherit another restaurant's payout destination — that would route
-  //     one restaurant's money into another's account. The duplicate starts with
-  //     no connected account and onboards its own.
-  //   • promo codes. They live in their own table and duplicating live discount
-  //     codes is not wanted.
-  //   • money_flow. Payout-adjacent; left at the column default rather than
-  //     inherited on a guess.
-  // visible is forced FALSE: a duplicate is a draft, never silently listed.
-  const src = (await sql`
-    SELECT tax_rates, notification_emails, notification_sms_numbers, text_notifications_enabled,
-           order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
-           lead_gen_one_pct, lead_gen_two_pct, online_ordering_enabled
-    FROM disco_restaurant_overrides WHERE restaurant_reference = ${sourceRef}::uuid LIMIT 1
-  `) as Record<string, unknown>[]
-  const ov = src[0]
-  await sql`
-    INSERT INTO disco_restaurant_overrides (
-      restaurant_reference, visible, tax_rates, notification_emails, notification_sms_numbers,
-      text_notifications_enabled, order_reminder_emails_enabled, admin_order_reminder_emails_enabled,
-      lead_gen_one_pct, lead_gen_two_pct, online_ordering_enabled
-    ) VALUES (
-      ${newRef}::uuid, false,
-      ${ov?.tax_rates ? JSON.stringify(ov.tax_rates) : null}::jsonb,
-      ${(ov?.notification_emails as string) ?? null},
-      ${(ov?.notification_sms_numbers as string) ?? null},
-      ${(ov?.text_notifications_enabled as boolean) ?? null},
-      ${(ov?.order_reminder_emails_enabled as boolean) ?? null},
-      ${(ov?.admin_order_reminder_emails_enabled as boolean) ?? null},
-      ${(ov?.lead_gen_one_pct as string) ?? null},
-      ${(ov?.lead_gen_two_pct as string) ?? null},
-      ${(ov?.online_ordering_enabled as boolean) ?? null}
-    )
-    ON CONFLICT (restaurant_reference) DO NOTHING
-  `
+  // ── STEP 8 REMOVED: THE OVERRIDES COPY LIVES IN cloneDiscoRestaurantOverrides ──
+  //
+  // This function used to copy the settings row itself, with
+  //   WHERE restaurant_reference = ${sourceRef}::uuid
+  // against disco_restaurant_overrides — whose restaurant_reference column is
+  // TEXT, not uuid. Postgres has no text = uuid operator, so every call threw
+  //   operator does not exist: text = uuid   (SQLSTATE 42883)
+  // and took the whole clone down with it. disco_restaurant_cache has the same
+  // text column; every OTHER table this function touches is genuinely uuid, which
+  // is why the cast is correct everywhere else and wrong only here.
+  //
+  // It was already redundant: 993e259 added cloneDiscoRestaurantOverrides, which
+  // does the same job correctly (no cast, against the text column) and copies
+  // strictly more — delivery_order_time_windows, enable_menu_search, nash_allowed,
+  // shipday_enabled, money_flow — while still withholding the Stripe account. The
+  // clone route calls it immediately after this function. Two copies of one
+  // decision, and the broken one ran first.
+  //
+  // Everything the old block documented it would NOT copy still holds, and is
+  // stated where the copying now happens. See cloneDiscoRestaurantOverrides.
 
   // 9. Restaurant-wide closed days / holidays
   const closed = (await sql`SELECT name, holiday, from_date, to_date FROM disco_restaurant_closed_days WHERE restaurant_reference = ${sourceRef}::uuid`) as Record<string, unknown>[]
