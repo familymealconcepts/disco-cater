@@ -154,7 +154,14 @@ export default function BulkPricingClient() {
     setSummary({ ok, fail, failedLocs })
     // apply-one moved FM's "current restaurant" per location — re-sync it to the
     // admin's actual selection so the rest of the portal stays consistent.
-    try { if (selectedRef) await setRestaurant(selectedRef, selectedName || undefined) } catch {}
+    // Best-effort restore of the caller's previous location after the fan-out.
+    // A failed restore is logged rather than swallowed: it leaves the operator
+    // scoped somewhere they did not choose, which is worth knowing about.
+    try {
+      if (selectedRef && !(await setRestaurant(selectedRef, selectedName || undefined))) {
+        console.error('[bulk-pricing] could not restore the previously selected location:', selectedRef)
+      }
+    } catch (e) { console.error('[bulk-pricing] restore threw:', e) }
     setApplying(false)
     // Re-run the search IN PLACE so "Current base"/"Current display"/etc. reflect
     // the new values, keeping the search term, current results, and the summary

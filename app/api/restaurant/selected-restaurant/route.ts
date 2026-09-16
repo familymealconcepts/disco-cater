@@ -4,9 +4,13 @@ import {
   getRestaurantAuthHeader,
   getRestaurantHomeRef,
   getRestaurantRole,
+  getFmSystemAdminPermittedRefs,
   RESTAURANT_COOKIE_OPTS,
+  RESTAURANT_TOKEN_COOKIE,
   SELECTED_RESTAURANT_COOKIE,
 } from '../../../../lib/restaurant-auth'
+import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
+import { sql } from '../../../../lib/db'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
 
@@ -68,6 +72,47 @@ export async function PUT(req: NextRequest) {
   if (role !== 'SYSTEM_ADMIN') {
     const home = await getRestaurantHomeRef()
     if (ref !== home) return forbidden()
+    return setSelection(ref)
+  }
+
+  // ── A DISCO-NATIVE TARGET IS DISCO'S TO AUTHORIZE, NOT FAMILYMEAL'S ────────
+  // Below this point the caller holds an FM SYSTEM_ADMIN token — which is what
+  // the master password issues, and how the Disco Cater team enters every
+  // restaurant. Asking FM to select a Disco-native restaurant is asking the wrong
+  // system: FM has never heard of it, refuses, and the cookie is never set. The
+  // user then lands on whatever was previously selected. That is exactly what
+  // happened when Peter clicked "Stacks & Cordials - Royal Oak (Copy)" and the
+  // portal switched to Clawson.
+  //
+  // WHAT ACTUALLY GRANTS THE RIGHT, since this session has no email and no
+  // disco_restaurant_location_access grants to check:
+  //   FM has already decided which restaurants this token manages
+  //   (getFmSystemAdminPermittedRefs -> FM's own system-admin/restaurants/list).
+  //   A native reference is permitted if it shares a MULTI-UNIT LINK with at
+  //   least one of those. So the right is inherited from FM's decision and
+  //   bounded by the caller's own chain — it cannot reach a restaurant FM did not
+  //   already authorize them for, and it needs no Disco identity.
+  //
+  // A native restaurant in NO chain, or in a chain containing nothing FM
+  // authorized, is refused. That is deliberate: with no link to a permitted
+  // restaurant there is nothing establishing that this admin owns it, and
+  // guessing in the permissive direction here would hand someone another
+  // operator's restaurant.
+  if (await isDiscoNativeRestaurant(ref)) {
+    const token = (await cookies()).get(RESTAURANT_TOKEN_COOKIE)?.value || ''
+    if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+    const fmPermitted = await getFmSystemAdminPermittedRefs(token)
+    if (!fmPermitted.size) return forbidden()
+    const linked = (await sql`
+      SELECT 1
+        FROM disco_multi_unit_link_members target
+        JOIN disco_multi_unit_link_members sibling
+          ON sibling.link_reference = target.link_reference
+       WHERE target.restaurant_reference = ${ref}
+         AND sibling.restaurant_reference = ANY(${[...fmPermitted]}::text[])
+       LIMIT 1
+    `.catch(() => [])) as unknown[]
+    if (!linked.length) return forbidden()
     return setSelection(ref)
   }
 
