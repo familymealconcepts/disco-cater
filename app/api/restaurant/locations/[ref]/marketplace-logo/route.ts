@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { uploadLocationImage } from '../../../../../../lib/locations/upload-image'
+import { isDiscoNativeRestaurant } from '../../../../../../lib/order/native-checkout'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -12,7 +13,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const { ref } = await params
 
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType === 'disco') return uploadLocationImage(req, ref, 'image_url', 'marketplace-logos')
+  // KEYED ON THE LOCATION BEING ACTED ON, not on the session. `ref` is the
+  // location in the URL, so its own native flag is the right discriminator —
+  // a master-password FM session used to send a native location's change to
+  // FamilyMeal, which does not own it.
+  if (await isDiscoNativeRestaurant(ref)) return uploadLocationImage(req, ref, 'image_url', 'marketplace-logos')
 
   let h: Record<string, string>
   try { h = await getRestaurantAuthHeader() } catch {
