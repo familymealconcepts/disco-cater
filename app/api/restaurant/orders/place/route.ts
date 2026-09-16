@@ -105,6 +105,14 @@ async function mirrorOrderToNeon(args: {
 // attachment, the "update, …" line format, and a trailing (DE) marker. Looks the
 // restaurant name + city/state up from the cache (best-effort). Never throws;
 // skips when the webhook is unset.
+/** disco_orders.is_direct_entry for one order reference. Defaults false on any error. */
+async function orderIsDirectEntry(orderRef: string): Promise<boolean> {
+  try {
+    const r = (await sql`SELECT is_direct_entry FROM disco_orders WHERE reference = ${orderRef}::uuid LIMIT 1`) as { is_direct_entry: boolean }[]
+    return r[0]?.is_direct_entry === true
+  } catch { return false }
+}
+
 async function sendOrderUpdatedSlack(o: {
   orderRef: string
   restaurantRef: string
@@ -112,6 +120,8 @@ async function sendOrderUpdatedSlack(o: {
   newTotal: number
   sourceOfOrder: string
   serviceType: string // 'P' (pickup) | 'D' (delivery)
+  /** disco_orders.is_direct_entry for THIS order — read, never assumed. */
+  isDirectEntry?: boolean
   oldDate?: string
   oldTime?: string
   newDate?: string
@@ -148,7 +158,12 @@ async function sendOrderUpdatedSlack(o: {
       : `${newDate} ${newTime}`.trim()
 
     // update, {restaurantName}, {city}, {state}, ({delta} from $orig to $new), {when} - ({P|D})(DE)
-    const text = `update, ${place}, ${city}, ${state}, (${deltaStr} from $${orig.toFixed(2)} to $${next.toFixed(2)}), ${when} - (${o.serviceType})(DE)`
+    // (DE) ONLY WHEN THE ORDER REALLY WAS DIRECT ENTRY. This was hardcoded, so
+    // every order-update ping claimed direct entry regardless — including edits
+    // to ordinary customer orders. A space separates the two codes: "(3D) (DE)"
+    // rather than "(3D)(DE)", which scans as one token.
+    const de = o.isDirectEntry === true ? ' (DE)' : ''
+    const text = `update, ${place}, ${city}, ${state}, (${deltaStr} from $${orig.toFixed(2)} to $${next.toFixed(2)}), ${when} - (${o.serviceType})${de}`
 
     await fetch(url, {
       method: 'POST',
@@ -229,6 +244,23 @@ export async function POST(req: NextRequest) {
       companyName: (placeBody.companyName as string) ?? null,
       headcount: (placeBody.headcount ?? cd.headcount ?? null) as number | null,
       stripe,
+      // ── DIRECT ENTRY, RECORDED AT THE ONE PLACE THAT KNOWS ──────────────────
+      // THIS ROUTE IS the direct-entry route. It has a single client caller —
+      // CheckoutDrawer, and only when ?mode=direct-entry is on the URL — and it
+      // is the sole caller of assertRestaurantAcceptsDirectEntry. Reaching here
+      // therefore means staff placed this on a customer's behalf; there is no
+      // other way in.
+      //
+      // Set HERE and passed down, rather than sniffed inside the shared
+      // placement module, because that module also serves the customer route
+      // /api/order/place. Anything it inferred locally — the session type, which
+      // cookie is present, which auth context resolved — would be an adjacent
+      // fact standing in for the real one, which is the defect shape behind the
+      // clone route, the password reset and the super-admin 404.
+      //
+      // Covers BOTH money paths: placeNativeCheckout (card) and
+      // placeNativeInvoiceCheckout (invoice) receive this same object.
+      isDirectEntry: true,
     }
 
     // ── Native INVOICE branch (M7): place UNPAID + email a Stripe invoice ──
@@ -330,6 +362,10 @@ export async function POST(req: NextRequest) {
           newTotal: Number(es.newTotal) || 0,
           sourceOfOrder: String(es.sourceoforder ?? ''),
           serviceType: isDelivery ? 'D' : 'P',
+          // Read the order's OWN flag rather than assuming. An edit can arrive on
+          // any order, customer-placed or not, so this ping must not inherit the
+          // direct-entry-ness of the route it happens to be edited through.
+          isDirectEntry: await orderIsDirectEntry(String(es.orderRef ?? orderRef)),
           oldDate: optStr(es.oldDate),
           oldTime: optStr(es.oldTime),
           newDate: optStr(es.newDate),

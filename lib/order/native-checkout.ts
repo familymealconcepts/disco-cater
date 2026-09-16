@@ -51,6 +51,20 @@ export interface NativeCheckoutInput {
   // 1P Direct URL ('FAMILYMEAL') vs 3P marketplace URL ('DISCO', default). Drives
   // both source_of_order and lead-gen suppression (see priceNativeOrder).
   sourceOfOrder?: 'DISCO' | 'FAMILYMEAL'
+  /**
+   * Staff placed this order on a customer's behalf, via the direct-entry surface.
+   *
+   * PASSED IN EXPLICITLY, never derived here. The only thing that knows is the
+   * ROUTE: /api/restaurant/orders/place exists solely for direct entry (it is the
+   * sole caller of assertRestaurantAcceptsDirectEntry and has exactly one client
+   * caller — CheckoutDrawer when ?mode=direct-entry). This module is SHARED with
+   * the customer path /api/order/place, so anything it inferred locally — the
+   * session type, the auth context, which cookie is present — would be an
+   * adjacent fact standing in for the real one. That substitution is the shape
+   * behind the clone-route, password-reset and super-admin-404 bugs, so the fact
+   * travels as a parameter and nothing guesses it.
+   */
+  isDirectEntry?: boolean
 }
 
 export interface NativePlaceInput extends NativeCheckoutInput {
@@ -423,6 +437,20 @@ export interface PriceNativeCartInput {
   // validateNativeDelivery was called with the raw pre-discount subtotal.
   restaurantPromoCode?: string | null
   sourceOfOrder?: 'DISCO' | 'FAMILYMEAL'
+  /**
+   * Staff placed this order on a customer's behalf, via the direct-entry surface.
+   *
+   * PASSED IN EXPLICITLY, never derived here. The only thing that knows is the
+   * ROUTE: /api/restaurant/orders/place exists solely for direct entry (it is the
+   * sole caller of assertRestaurantAcceptsDirectEntry and has exactly one client
+   * caller — CheckoutDrawer when ?mode=direct-entry). This module is SHARED with
+   * the customer path /api/order/place, so anything it inferred locally — the
+   * session type, the auth context, which cookie is present — would be an
+   * adjacent fact standing in for the real one. That substitution is the shape
+   * behind the clone-route, password-reset and super-admin-404 bugs, so the fact
+   * travels as a parameter and nothing guesses it.
+   */
+  isDirectEntry?: boolean
 }
 
 export interface PriceNativeCartResult {
@@ -806,14 +834,14 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
 
   const orderRows = (await sql`
     INSERT INTO disco_orders (
-      order_number, order_status, order_type, delivery_type, source_of_order,
+      order_number, order_status, order_type, delivery_type, source_of_order, is_direct_entry,
       restaurant_reference, restaurant_name, restaurant_address, restaurant_phone,
       customer_email, customer_first_name, customer_last_name, customer_phone,
       order_date, order_time, delivery_time_window, tips, tips_type,
       delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
       delivery_lat, delivery_lng, subtotal, total, fee, note, delivery_instructions, company_name, persons, menu_reference, created_at, updated_at
     ) VALUES (
-      ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, ${input.sourceOfOrder ?? 'DISCO'},
+      ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, ${input.sourceOfOrder ?? 'DISCO'}, ${input.isDirectEntry === true},
       ${input.restaurantReference}::uuid, ${rName}, ${rAddr}, ${rPhone},
       ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
       ${input.orderDate}::date, ${input.orderTime}::time, ${deliveryTimeWindow}, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},

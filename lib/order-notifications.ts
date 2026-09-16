@@ -103,6 +103,8 @@ async function sendNewOrderSlack(o: {
   orderDateIso: string
   /** The human service-type label from fulfillmentLabel(). Printed verbatim. */
   serviceLabel: string
+  /** disco_orders.is_direct_entry — staff placed this on a customer's behalf. */
+  isDirectEntry?: boolean
 }): Promise<void> {
   const url = process.env.SLACK_NEW_ORDER_WEBHOOK_URL
   if (!url) return
@@ -117,7 +119,25 @@ async function sendNewOrderSlack(o: {
     const loc = [o.city, o.state].filter(Boolean).join(', ')
     // [Restaurant Name], [City, State], ($total), [1P|3P], [M/DD/YY] - ([service type])
     // filter(Boolean) so a missing city/state doesn't leave a stray comma.
-    const text = [o.restaurantName, loc, `(${amount})`, tag, `${fmtSlackDate(o.orderDateIso)} - (${svc})`]
+    // ── PLACEMENT: (DE), CONDITIONALLY ─────────────────────────────────────
+    // A third independent fact, alongside SOURCE (1P/3P — who sent it, and
+    // whether lead-gen applies) and SERVICE (P/SD/3D — how the food travels).
+    // (DE) means staff keyed the order on a customer's behalf. It was absent
+    // from this line entirely, so a direct-entry order was indistinguishable
+    // from a customer-placed one.
+    //
+    // SPACED: "(3D) (DE)", not "(3D)(DE)". Two two-character codes in brackets
+    // with no separator scan as a single token. The vocabulary is unchanged, so
+    // grepping (DE) still finds both Disco's lines and FamilyMeal's.
+    //
+    // CONDITIONAL, WHICH FM'S IS NOT. FM hardcodes (DE) into every branch of a
+    // second getServiceCode in StripeServiceImpl and reads no field at all, so
+    // every message from that path carries it whether or not the order was
+    // direct entry. Disco's is accurate; FM's is not. The two systems will
+    // therefore disagree on some lines in the same channel — that is FM's
+    // behaviour, deliberately not copied, and NOT a Disco bug.
+    const de = o.isDirectEntry === true ? ' (DE)' : ''
+    const text = [o.restaurantName, loc, `(${amount})`, tag, `${fmtSlackDate(o.orderDateIso)} - (${svc})${de}`]
       .filter(Boolean)
       .join(', ')
     // Send as a Slack attachment with a color so the message renders with the
@@ -624,6 +644,7 @@ export async function dispatchOrderConfirmations(
         total: totalPrice,
         orderDateIso: normDateStr(o.order_date),
         serviceLabel: shared.orderService,
+        isDirectEntry,
       })
     } else {
       console.log('[order-notifications] Slack already notified, skipping:', reference)

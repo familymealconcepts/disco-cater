@@ -40,6 +40,18 @@ export interface NativeCheckoutParams {
   restaurantPromoCode?: string | null
   stripe: Stripe
   savedOpts?: { customerId?: string }
+  /**
+   * Staff placed this on a customer's behalf. Set ONLY by
+   * /api/restaurant/orders/place, the direct-entry route; the customer route
+   * /api/order/place leaves it undefined. See NativePlaceInput.isDirectEntry for
+   * why this travels as a parameter rather than being sniffed from the session.
+   *
+   * Carried identically by BOTH money paths below — placeNativeCheckout (card)
+   * and placeNativeInvoiceCheckout (invoice) — because they share this params
+   * object and the same buildNativeOrder prelude. The invoice path is the newer
+   * of the two and was verified independently rather than assumed to inherit it.
+   */
+  isDirectEntry?: boolean
 }
 
 interface BuiltNativeOrder { input: NativePlaceInput; promo: NativePromoResolution | null }
@@ -196,6 +208,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     tip,
     restaurantPromoCode: params.restaurantPromoCode,
     sourceOfOrder,
+    isDirectEntry: params.isDirectEntry === true,
   })
   if (!priced.deliveryValid) {
     return { ok: false, status: 400, error: priced.deliveryMessage || 'That delivery address is not serviceable.' }
@@ -234,6 +247,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   const input: NativePlaceInput = {
     restaurantReference: ref,
     sourceOfOrder,
+    isDirectEntry: params.isDirectEntry === true,
     customerEmail: params.customerEmail,
     customerFirstName: params.customerFirstName ?? undefined,
     customerLastName: params.customerLastName ?? undefined,
