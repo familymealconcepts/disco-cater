@@ -994,6 +994,38 @@ export async function sendCustomerItemUnavailableRefund(params: {
   }
 }
 
+/**
+ * Restaurant-only notice that an invoice order has now been PAID.
+ *
+ * MIRRORS FM, which sends invoice-paid-notification-to-restaurant.ftl to the
+ * deduplicated restaurant notification emails when the invoice settles
+ * (EmailNotificationServiceImpl, invoice-paid template). It is ADDITIONAL to the
+ * order confirmation, never a replacement: that already went out at placement,
+ * because the kitchen must prepare the food whether or not the invoice is paid.
+ * This one answers a different question -- "has the money arrived" -- which is
+ * the restaurant's, not the kitchen's.
+ *
+ * No customer copy: Stripe emails its own receipt for a paid invoice, and FM
+ * likewise sends only the restaurant here.
+ */
+export async function sendRestaurantInvoicePaid(params: {
+  to: string; orderNumber: string | number; total: number; customerName?: string; orderDate?: string
+}): Promise<{ success: boolean }> {
+  try {
+    const p = params
+    const who = p.customerName ? ` from ${escapeHtml(p.customerName)}` : ''
+    const content = `
+<p style="margin:0 0 12px 0;">The invoice for order <strong>#${escapeHtml(p.orderNumber)}</strong>${who}${p.orderDate ? ` (for ${escapeHtml(p.orderDate)})` : ''} has been <strong>paid</strong>.</p>
+<p style="margin:0 0 12px 0;">Amount: <strong>$${p.total.toFixed(2)}</strong></p>
+<p style="margin:0;">No action needed — you already received the order confirmation when it was placed. This is confirmation that payment has cleared.</p>
+`
+    return await sendEmail({ to: p.to, subject: `Invoice paid — order #${p.orderNumber} | Disco Cater`, html: layout(content) })
+  } catch (err) {
+    console.error('[email/notifications] sendRestaurantInvoicePaid failed:', err instanceof Error ? err.message : err)
+    return { success: false }
+  }
+}
+
 export async function sendRestaurantItemUnavailableAlert(params: {
   to: string; orderNumber: string | number; itemName: string; orderDate?: string
 }): Promise<{ success: boolean }> {

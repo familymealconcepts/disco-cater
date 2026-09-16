@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendOrderEditPaymentFailed } from '../../../../lib/email/notifications'
-import { dispatchOrderConfirmations } from '../../../../lib/order-notifications'
+import { dispatchOrderConfirmations, dispatchInvoicePaidRestaurantNotification } from '../../../../lib/order-notifications'
 import { handleNativePaymentIntentSucceeded } from '../../../../lib/order/native-payment-succeeded'
 import { applyPendingEdit } from '../../../../lib/order-edit'
 import { alertOps } from '../../../../lib/ops-alert'
@@ -408,8 +408,22 @@ export async function POST(request: NextRequest) {
               })
             }
           }
-          // Customer + restaurant confirmations (shared, idempotent per order).
+          // ── CONFIRMATIONS ALREADY WENT OUT AT PLACEMENT ────────────────────
+          // The invoice branch of /api/restaurant/orders/place dispatches the full
+          // set (customer email, restaurant email, SMS, Slack) when the invoice is
+          // CREATED, mirroring FM's StripeServiceImpl.createInvoice. This call is
+          // therefore a no-op in the ordinary case -- claimConfirmationSend has
+          // already been won -- and is KEPT deliberately as the backstop for an
+          // order whose placement dispatch failed or predates that change.
           waitUntil(dispatchOrderConfirmations(order.id, 'STRIPE_WEBHOOK'))
+
+          // FM's SEPARATE invoice-paid notice to the restaurant
+          // (invoice-paid-notification-to-restaurant.ftl). Additional to the
+          // confirmation above, never a replacement: that one told the kitchen an
+          // order exists, this one tells the restaurant the money arrived. No
+          // customer copy -- Stripe sends its own receipt for a paid invoice, and
+          // FM sends none either.
+          waitUntil(dispatchInvoicePaidRestaurantNotification(order.id))
         }
         break
       }
