@@ -107,6 +107,9 @@ export default function LocationsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [switching, setSwitching] = useState<string | null>(null)
+  // Which row's Copy is in flight, so the button can disable itself and a second
+  // click cannot fire a second clone before the first answers.
+  const [copying, setCopying] = useState<string | null>(null)
   const [editing, setEditing] = useState<EditLocationFullData | null>(null)
   const [editLoading, setEditLoading] = useState(false)
   const [toast, setToast] = useState('')
@@ -312,11 +315,29 @@ export default function LocationsPage() {
   }
 
   async function copyLocation(loc: Location) {
-    const res = await fetch(`/api/restaurant/locations/${loc.reference}/clone`, { method: 'POST' })
-    if (res.ok) {
-      showToast(`Copy for ${loc.businessName} successfully created!`)
-      setPage(0)
-      load()
+    // A REFUSAL MUST NEVER BE SILENT. This had no else branch at all, so every
+    // non-2xx -- 401, 403, 404, 500 -- was discarded and the button simply did
+    // nothing: no toast, no error, no new location. That is exactly how Kealoha
+    // experienced it on Stacks & Cordials, where the route was answering 403 the
+    // whole time. Whatever the route decides, the operator is told.
+    setCopying(loc.reference)
+    try {
+      const res = await fetch(`/api/restaurant/locations/${loc.reference}/clone`, { method: 'POST' })
+      let body: { error?: string } = {}
+      try { body = await res.json() } catch { /* a non-JSON body is still a failure */ }
+      if (res.ok) {
+        showToast(`Copy for ${loc.businessName} successfully created!`)
+        setPage(0)
+        load()
+      } else {
+        // The route's own sentence when it has one -- it is written for the
+        // operator and names what to do next -- and never a bare status code.
+        showToast(body.error || `Could not duplicate ${loc.businessName}. Email concierge@discocater.com and we’ll look into it.`)
+      }
+    } catch {
+      showToast(`Could not reach the server to duplicate ${loc.businessName}. Check your connection and try again.`)
+    } finally {
+      setCopying(null)
     }
   }
 
@@ -427,6 +448,7 @@ export default function LocationsPage() {
                 isDragged={draggedRef === loc.reference}
                 shift={shiftFor(i)}
                 switching={switching === loc.reference}
+                copying={copying === loc.reference}
                 onDragStart={e => handleRowDragStart(e, loc.reference)}
                 onDragEnd={handleRowDragEnd}
                 onToggleStatus={() => toggleStatus(loc)}
@@ -584,12 +606,13 @@ interface LocationCellsProps {
   onToggleStatus?: () => void
   onSwitch?: () => void
   onCopy?: () => void
+  copying?: boolean
   onEdit?: () => void
 }
 
 // The seven <td>s of a location row, shared by the live row and the ghost clone
 // so they can never visually drift apart.
-function LocationCells({ loc, switching, dragHandle, widths, onToggleStatus, onSwitch, onCopy, onEdit }: LocationCellsProps) {
+function LocationCells({ loc, switching, copying, dragHandle, widths, onToggleStatus, onSwitch, onCopy, onEdit }: LocationCellsProps) {
   const slug = loc.businessNameWithoutSpaces || ''
   const checkoutHref = slug ? `${DISCO_FRONTEND}${slug}` : ''
   const cell: React.CSSProperties = { padding: '14px 14px', fontSize: 13, color: DARK, borderTop: '1px solid #f0f0f0', verticalAlign: 'middle' }
@@ -649,7 +672,7 @@ function LocationCells({ loc, switching, dragHandle, widths, onToggleStatus, onS
       </td>
       <td style={{ ...cell, ...w(6), textAlign: 'right' }}>
         <div style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
-          <button onClick={onCopy} title="Copy" style={iconBtn}><IconCopy /></button>
+          <button onClick={onCopy} disabled={copying} title={copying ? 'Duplicating…' : 'Copy'} style={{ ...iconBtn, opacity: copying ? 0.45 : 1, cursor: copying ? 'default' : 'pointer' }}><IconCopy /></button>
           <button onClick={onEdit} title="Edit" style={iconBtn}><IconEdit /></button>
         </div>
       </td>
@@ -667,13 +690,14 @@ interface LocationRowProps {
   onToggleStatus: () => void
   onSwitch: () => void
   onCopy: () => void
+  copying?: boolean
   onEdit: () => void
 }
 
 function LocationRow({
   loc, isDragged, shift, switching,
   onDragStart, onDragEnd,
-  onToggleStatus, onSwitch, onCopy, onEdit,
+  onToggleStatus, onSwitch, onCopy, onEdit, copying,
 }: LocationRowProps) {
   return (
     <tr
@@ -693,6 +717,7 @@ function LocationRow({
         onToggleStatus={onToggleStatus}
         onSwitch={onSwitch}
         onCopy={onCopy}
+        copying={copying}
         onEdit={onEdit}
       />
     </tr>

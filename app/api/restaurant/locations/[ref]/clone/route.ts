@@ -4,11 +4,55 @@ import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { getLocationAccessRefs, grantLocationAccess } from '../../../../../../lib/disco-restaurant-auth'
 import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
-import { getCallerScopeRefs } from '../../../../../../lib/order/order-scope'
 import { sql, runMigrations, runDiscoOrderMigrations } from '../../../../../../lib/db'
 import { cloneDiscoRestaurantMenus, cloneDiscoRestaurantOverrides } from '../../../../../../lib/locations/clone-restaurant'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
+
+/**
+ * May this FM-session caller act on `ref`?
+ *
+ * ── WHY NOT getCallerScopeRefs ────────────────────────────────────────────────
+ * For an FM session that helper returns exactly ONE reference — getRestaurantRef(),
+ * the currently-SELECTED location. That is right for an order route, which always
+ * operates on the location you are looking at, and wrong here: the Locations page
+ * lists every location in the chain and puts a Copy button on each row, so the set
+ * the button is OFFERED on is the chain, while the set it was AUTHORIZED against
+ * was a single row. Copying any location other than the selected one answered 403.
+ *
+ * This is what blocked Kealoha on Stacks & Cordials. Our team enters a restaurant
+ * with the master password, which for an FM-backed chain logs in as an FM
+ * SYSTEM_ADMIN (audit: FM_MASTER_PASSWORD_READ, adminRole SYSTEM_ADMIN,
+ * alex@stacksncordials.com) and issues an fm_restaurant_token — so ctx.authType is
+ * 'fm', ctx.email is '' and there is no Disco identity to scope with.
+ *
+ * ── THE SOURCE OF TRUTH IS THE ONE THE LIST ALREADY USES ──────────────────────
+ * FM's /api/system-admin/restaurants is what decides which locations this admin
+ * manages, and app/api/restaurant/locations/route.ts already authorizes the list
+ * against exactly that. Reusing it means the button cannot be offered on a row the
+ * clone would then refuse — the two can no longer disagree.
+ *
+ * This is NOT the "reaching back to FM for a native restaurant" defect. The DATA
+ * still comes wholly from Disco (the clone is written from disco_restaurant_cache
+ * and disco_restaurant_overrides, zero FM). What is being asked of FM here is who
+ * an FM USER is, which only FM can answer, because the caller's identity is an FM
+ * identity. A disco session never reaches this function.
+ */
+async function fmCallerMayActOn(ref: string): Promise<boolean> {
+  const want = ref.trim().toLowerCase()
+  try {
+    const h = await getRestaurantAuthHeader()
+    const res = await fetch(`${FM}/api/system-admin/restaurants?size=1000`, { headers: h })
+    if (!res.ok) return false
+    const data = await res.json()
+    const list: Array<{ reference?: unknown }> = Array.isArray(data?.content) ? data.content : []
+    return list.some((l) => String(l?.reference ?? '').trim().toLowerCase() === want)
+  } catch {
+    // A refusal, never a silent allow: failing open here would let any FM session
+    // duplicate any location.
+    return false
+  }
+}
 
 export async function POST(_req: Request, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params
@@ -47,8 +91,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
     const scope = ctx.authType === 'disco' ? await resolveDiscoGroupScope(ctx) : null
     const allowed = scope
       ? discoRefAllowed(scope, ref)
-      : (await getCallerScopeRefs(ctx)).has(ref.trim().toLowerCase())
-    if (!allowed) return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+      : await fmCallerMayActOn(ref)
+    if (!allowed) {
+      return NextResponse.json({
+        error: 'You don’t have access to this location, so it was not duplicated. If you reached it through the master password, open the location first and try again — or email concierge@discocater.com.',
+      }, { status: 403 })
+    }
     const s = rows[0]
     const newRef = randomUUID()
     const newSlug = `${(s.slug as string) || 'location'}-copy-${newRef.slice(0, 8)}`
