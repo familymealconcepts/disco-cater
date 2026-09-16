@@ -194,7 +194,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
         address, address_line2, city, state, zipcode, phone, timezone, icon_url, is_disco_native, is_live
       ) VALUES (
         ${newRef}, ${((s.name as string) || 'Location') + ' (Copy)'}, ${newSlug}, ${s.cuisine}, ${s.description}, ${s.image_url}, ${s.lat}, ${s.lng}, ${s.location},
-        ${s.address}, ${s.address_line2}, ${s.city}, ${s.state}, ${s.zipcode}, ${s.phone}, ${s.timezone}, ${s.icon_url}, true, false
+        ${s.address}, ${s.address_line2}, ${s.city}, ${s.state}, ${s.zipcode}, ${s.phone}, ${s.timezone}, ${s.icon_url}, true, true
       )`
     // Make the clone visible in the SA's group without dropping existing locations:
     // if they're already on explicit access, just add the clone; otherwise backfill
@@ -209,6 +209,21 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
       for (const r of toGrant) await grantLocationAccess(ctx.email, r, ctx.email).catch(() => {})
     }
 
+    // ── IS_LIVE TRUE, AND STRIPE IS THE GATE ─────────────────────────────────
+    // Matches FM, which builds a copy with .status(RestaurantStatus.ACCEPTED) and
+    // never touches `blocked` (entity default FALSE) — so an FM duplicate is
+    // immediately listed and orderable. Observed live too: [COPY] Tap 42 -
+    // Aventura and [COPY] Inga's Alpine Tavern both sit in FM's public list today.
+    //
+    // This used to write is_live=false with visible=false, on the reasoning that a
+    // duplicate is a draft. That conflated two separate things and is what made a
+    // duplicate nobody could find: marketplace visibility is not the mechanism for
+    // stopping orders. WHETHER IT CAN SELL IS DECIDED BY STRIPE — a duplicate
+    // inherits no stripe_account_id (see cloneDiscoRestaurantOverrides), and the
+    // native marketplace feed already requires visible + online-ordering + a
+    // Stripe account, so it stays out of the public feed on the Stripe leg alone
+    // while being fully visible to the people who run the restaurant.
+    //
     // ── THE DUPLICATE MUST JOIN THE CHAIN, OR NOBODY CAN SEE IT ───────────────
     // FM does this explicitly and it is the step Disco was missing:
     //

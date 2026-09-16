@@ -166,7 +166,7 @@ export async function cloneDiscoRestaurantOverrides(sourceRef: string, newRef: s
       nash_allowed, shipday_enabled, money_flow
       -- stripe_account_id / stripe_onboarding_complete intentionally absent; see header.
     ) VALUES (
-      ${newRef}, false,
+      ${newRef}, true,
       ${s.tax_rates ? JSON.stringify(s.tax_rates) : null}::jsonb,
       ${(s.notification_emails as string) ?? null},
       ${(s.notification_sms_numbers as string) ?? null},
