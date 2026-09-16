@@ -346,9 +346,17 @@ export default function LocationsPage() {
   async function switchToLocation(loc: Location) {
     setSwitching(loc.reference)
     try {
-      // setRestaurant handles the FM PUT + localStorage + broadcast +
-      // refreshName so the sidebar header updates in one shot.
-      await setRestaurant(loc.reference, loc.businessName)
+      // setRestaurant handles the PUT + localStorage + broadcast + refreshName so
+      // the sidebar header updates in one shot — and now REPORTS WHETHER IT
+      // WORKED. It used to be fired and ignored, so a refused switch still
+      // flipped the view and navigated: the sidebar showed the location you
+      // clicked while every API stayed scoped to the previous one. Clicking
+      // "Stacks & Cordials - Royal Oak (Copy)" landed on Clawson that way.
+      const switched = await setRestaurant(loc.reference, loc.businessName)
+      if (!switched) {
+        showToast(`Couldn’t switch to ${loc.businessName}. You’re still on your previous location — nothing was changed.`)
+        return
+      }
       // Clicking a location is the "manage this location operationally"
       // intent — flip into the narrow Restaurant User nav (Orders,
       // Manage Menus, Availability) and land on Orders.

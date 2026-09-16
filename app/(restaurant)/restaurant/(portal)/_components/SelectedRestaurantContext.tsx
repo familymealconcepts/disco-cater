@@ -19,7 +19,8 @@ interface ContextValue {
   /** Set the view mode and persist. */
   setViewMode: (mode: ViewMode) => void
   /** Select a location (PUT FM current + cookie + localStorage + broadcast). */
-  setRestaurant: (ref: string, name?: string) => Promise<void>
+  /** Resolves true only if the switch actually took effect server-side. */
+  setRestaurant: (ref: string, name?: string) => Promise<boolean>
   /** Clear selection (DELETE FM current + cookies + localStorage + broadcast). */
   clearRestaurant: () => Promise<void>
   /** Force re-pull of /api/restaurant/profile to refresh the canonical name. */
@@ -150,10 +151,34 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
     } catch {}
   }, [ref])
 
-  const setRestaurant = useCallback(async (newRef: string, newName?: string) => {
-    await fetch(`/api/restaurant/selected-restaurant?restaurantReference=${encodeURIComponent(newRef)}`, {
-      method: 'PUT', credentials: 'include',
-    })
+  /**
+   * Switch the selected restaurant. Returns whether the switch actually happened.
+   *
+   * THE RESPONSE IS CHECKED, AND IT DID NOT USED TO BE. The PUT was fired and
+   * ignored, so a REFUSED switch was indistinguishable from a successful one: the
+   * ref state, the sidebar name and localStorage were all updated regardless, and
+   * the caller navigated. The server meanwhile kept the OLD cookie, which is the
+   * only thing any API scopes on — so the portal showed one restaurant's name over
+   * another restaurant's data. That is how clicking "Stacks & Cordials - Royal Oak
+   * (Copy)" landed on Clawson.
+   *
+   * refreshName() eventually pulled the real name back from the server, so the
+   * LABEL self-corrected after a round trip — but `ref` and the localStorage copy
+   * stayed wrong indefinitely, and they are what client-side code reads.
+   *
+   * On failure nothing is mutated: no ref, no name, no localStorage, no broadcast.
+   * The caller gets false and is responsible for not navigating.
+   */
+  const setRestaurant = useCallback(async (newRef: string, newName?: string): Promise<boolean> => {
+    let res: Response
+    try {
+      res = await fetch(`/api/restaurant/selected-restaurant?restaurantReference=${encodeURIComponent(newRef)}`, {
+        method: 'PUT', credentials: 'include',
+      })
+    } catch {
+      return false
+    }
+    if (!res.ok) return false
     setRef(newRef)
     try { localStorage.setItem(STORAGE_REF, newRef) } catch {}
     if (newName) {
@@ -166,6 +191,7 @@ export function SelectedRestaurantProvider({ children }: { children: React.React
     // Always confirm name from the server post-switch so the cached
     // value can't lie about which restaurant we're on.
     refreshName()
+    return true
   }, [name, refreshName])
 
   const clearRestaurant = useCallback(async () => {

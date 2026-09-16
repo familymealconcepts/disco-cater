@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers'
 import { validateDiscoRestaurantSession, getDiscoGroupAccounts } from './disco-restaurant-auth'
 import { getFmServiceAuthHeader } from './fm-service-auth'
-import { SELECTED_RESTAURANT_COOKIE } from './restaurant-auth'
+import { SELECTED_RESTAURANT_COOKIE, getRestaurantRef } from './restaurant-auth'
 
 export interface RestaurantAuthContext {
   restaurantReference: string
@@ -93,8 +93,36 @@ export function usesServiceAccount(ctx: RestaurantAuthContext): boolean {
 // error — resolves to the session's home reference. A cookie value is never
 // trusted alone for that role.
 export async function resolveDiscoScopeRef(ctx: RestaurantAuthContext): Promise<string> {
+  // ── AN FM SESSION HAS A SCOPE TOO, AND THIS USED TO RETURN '' FOR IT ────────
+  // getRestaurantAuthContext sets restaurantReference: '' for every FM session
+  // (the reference is resolved per-request from the FM token instead), so the
+  // guard below returned an empty string and every caller treated it as "no
+  // restaurant in context". For the Disco-native endpoints that is fatal:
+  // /api/restaurant/disco-menus answers 400, and menu-manager renders
+  // "No active menus" with Active 0 / Inactive 0 / Archived 0.
+  //
+  // That is what Peter saw on Stacks & Cordials. The data was never missing —
+  // Clawson holds 2 menus / 80 items and Royal Oak 1 menu / 35 items, both
+  // untouched since conversion. The page simply had no reference to ask about.
+  //
+  // It also explains the symptom he described: the sidebar LABEL changed between
+  // locations while the menus stayed empty. The label comes from
+  // /api/restaurant/profile via getRestaurantRef(), which does read the selected
+  // cookie; this function did not, so the native scope never moved — it was never
+  // resolved at all.
+  //
+  // Because the master password issues an FM session and the team enters every
+  // restaurant that way, EVERY native restaurant's menu-manager has been empty
+  // for us since it shipped.
+  //
+  // SAFE, because getRestaurantRef is FM's own answer: it returns the JWT's home
+  // restaurant, and honours the selected cookie only after checking it against
+  // getFmSystemAdminPermittedRefs — FM's list of what this admin manages. No
+  // access is widened; a reference is simply resolved where none was before.
+  if (ctx.authType !== 'disco') return (await getRestaurantRef()) || ''
+
   const home = ctx.restaurantReference
-  if (ctx.authType !== 'disco' || !home) return home
+  if (!home) return home
   const cookieStore = await cookies()
   const selected = (cookieStore.get(SELECTED_RESTAURANT_COOKIE)?.value || '').trim()
   if (ctx.role === 'SUPER_ADMIN') return selected || home
