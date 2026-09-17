@@ -31,6 +31,7 @@ import {
   sendOrderUpdated, sendOrderUpdatedRestaurant, sendOrderEditRefundIssued,
   sendOrderEditPaymentRequired, sendOrderEditPendingRestaurant, type EditItem,
 } from '../../../../../../lib/email/notifications'
+import { resolveRestaurantNotificationEmails } from '../../../../../../lib/order-notifications'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 import { orderPdfFilename } from '../../../../../../lib/download-filename'
 import { isDiscoNativeRestaurant, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
@@ -474,8 +475,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
         sendOrderEditRefundIssued({ to: customerEmail, firstName, orderNumber, businessName, refundAmount: Math.abs(delta) }).catch(() => {})
       }
     }
-    const restaurantEmail = discoOrder?.restaurant_email || ''
-    if (restaurantEmail) {
+    // EVERY configured recipient, not disco_orders.restaurant_email. That column
+    // is empty on all 109 native orders (the native placement path never writes
+    // it), so this branch used to skip silently and the kitchen was never told
+    // its delivery had moved — while the customer's email went out fine.
+    // FamilyMeal sends the ORDER CHANGE email to the customer AND to every
+    // address in getRestaurantNotificationEmailsDeduplicated; this is that list.
+    const restaurantEmails = await resolveRestaurantNotificationEmails(
+      discoOrder?.restaurant_reference ?? null, discoOrder?.restaurant_email ?? null,
+    )
+    if (!restaurantEmails.length) {
+      console.warn('[orders/edit] no restaurant recipient at any fallback level — restaurant not told of edit:', ref)
+    }
+    if (restaurantEmails.length) {
       // Attach the updated order PDF (best-effort — never blocks the email).
       let attachments: { filename: string; content: Uint8Array; contentType: string }[] | undefined
       if (discoOrder?.reference) {
@@ -487,7 +499,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
           if (pdf) attachments = [{ filename: orderPdfFilename(businessName, orderNumber, discoOrder.reference), content: pdf, contentType: 'application/pdf' }]
         } catch (e) { console.error('[orders/edit] order PDF build failed:', e instanceof Error ? e.message : e) }
       }
-      sendOrderUpdatedRestaurant({ to: restaurantEmail, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, items: newItems, newTotal, delta, attachments }).catch(() => {})
+      for (const to of restaurantEmails) {
+        sendOrderUpdatedRestaurant({ to, orderNumber, businessName, orderDate: dateStr, orderTime: timeStr, items: newItems, newTotal, delta, attachments }).catch(() => {})
+      }
     }
 
     // Expedite — push the updated date/time/items to the courier (best-effort).
@@ -596,8 +610,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     `.catch(e => console.error('[orders/edit] pending edit insert:', e))
 
     if (customerEmail) sendOrderEditPaymentRequired({ to: customerEmail, firstName, orderNumber, businessName, amountDue: delta, invoiceUrl: invoiceUrl || undefined }).catch(() => {})
-    const restaurantEmail = discoOrder?.restaurant_email || ''
-    if (restaurantEmail) sendOrderEditPendingRestaurant({ to: restaurantEmail, orderNumber, businessName, amountDue: delta }).catch(() => {})
+    // Same resolver as the applied-edit tail above — see its comment.
+    const pendingRestaurantEmails = await resolveRestaurantNotificationEmails(
+      discoOrder?.restaurant_reference ?? null, discoOrder?.restaurant_email ?? null,
+    )
+    for (const to of pendingRestaurantEmails) {
+      sendOrderEditPendingRestaurant({ to, orderNumber, businessName, amountDue: delta }).catch(() => {})
+    }
 
     return NextResponse.json({ status: 'pending_payment', editType, delta, amountDue: delta, invoiceUrl, editNumber: newEditNumber })
   }

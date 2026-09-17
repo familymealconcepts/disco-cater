@@ -4,7 +4,8 @@
 
 import { sql } from './db'
 import { getFmServiceAuthHeader } from './fm-service-auth'
-import { sendOrderEditPaymentConfirmed } from './email/notifications'
+import { sendOrderEditPaymentConfirmed, sendOrderUpdatedRestaurant } from './email/notifications'
+import { resolveRestaurantNotificationEmails } from './order-notifications'
 import { modifyDelivery, buildPayloadFromNeon } from './expedite'
 import { formatTime12 } from './utils/time'
 
@@ -504,7 +505,7 @@ export function computeNewTotals(
 // order money/date/items, marks the edit succeeded, records the payment, syncs
 // FM (best-effort), and emails the customer a confirmation. Callers must only
 // invoke this when the invoice is paid. Sub-writes are best-effort.
-function fmtDateHuman(iso: string): string {
+export function fmtDateHuman(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '')
   if (!m) return iso || ''
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
@@ -583,6 +584,32 @@ export async function applyPendingEdit(args: {
       items: Array.isArray(p.newItems) ? (p.newItems as { count: number; name: string; price: number }[]) : undefined,
       newTotal: typeof p.newTotal === 'number' ? p.newTotal : undefined,
     }).catch(err => console.error('[applyPendingEdit] email:', err))
+  }
+
+  // ── AND THE RESTAURANT ────────────────────────────────────────────────────
+  // This path told the CUSTOMER only. An edit held for payment and then applied
+  // on invoice.paid changed the kitchen's order — quantities, date, time — and
+  // nobody at the kitchen was sent anything at all. FamilyMeal's equivalent
+  // sends the same ORDER CHANGE message to the customer and to every configured
+  // restaurant recipient; this is the second half.
+  try {
+    const restaurantEmails = await resolveRestaurantNotificationEmails(restaurantRef || null, null)
+    if (!restaurantEmails.length) {
+      console.warn('[applyPendingEdit] no restaurant recipient at any fallback level:', orderReference)
+    }
+    for (const to of restaurantEmails) {
+      sendOrderUpdatedRestaurant({
+        to,
+        orderNumber: String(p.orderNumber || ''),
+        businessName: String(p.businessName || 'the restaurant'),
+        orderDate: fmtDateHuman(orderDateIso), orderTime: fmtTimeHuman(orderTime),
+        items: Array.isArray(p.newItems) ? (p.newItems as { count: number; name: string; price: number }[]) : [],
+        newTotal: typeof p.newTotal === 'number' ? p.newTotal : (newTotal ?? 0),
+        delta: typeof p.delta === 'number' ? p.delta : 0,
+      }).catch(err => console.error('[applyPendingEdit] restaurant email:', err))
+    }
+  } catch (e) {
+    console.error('[applyPendingEdit] restaurant notify failed (non-fatal):', e instanceof Error ? e.message : e)
   }
 
   // Expedite — push the updated date/time/items to the courier (best-effort).

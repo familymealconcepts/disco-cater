@@ -29,6 +29,73 @@ import { sanitizePhone } from './utils/phone'
 // notification recipient.
 const SENTINEL_EMAIL_RE = /^stripe-import\+.+@familymeal\.com$/i
 
+/**
+ * WHO AT THE RESTAURANT HEARS ABOUT AN ORDER.
+ *
+ * FamilyMeal's rule, from EmailNotificationServiceImpl:
+ *
+ *     private List<String> getRestaurantNotificationEmailsDeduplicated(Restaurant restaurant) {
+ *         var notificationSetting = restaurant.getNotificationSetting();
+ *         if (Objects.nonNull(notificationSetting) && Objects.nonNull(notificationSetting.getEmail())
+ *                 && !notificationSetting.getEmail().isEmpty()) {
+ *             return new ArrayList<>(new LinkedHashSet<>(notificationSetting.getEmail()));
+ *         }
+ *         return restaurant.getAdmins().stream()
+ *                 .map(User::getEmail).filter(Objects::nonNull).distinct().collect(Collectors.toList());
+ *     }
+ *
+ * — the configured "Email Notification Recipients" list, or else every admin.
+ * Disco mirrors that list onto disco_restaurant_overrides.notification_emails and
+ * keeps the order's own restaurant_email as a middle rung.
+ *
+ * ── WHY THIS IS A FUNCTION ──────────────────────────────────────────────────
+ * This ladder lived inline in dispatchOrderConfirmations, so placement resolved
+ * recipients properly while every other surface read disco_orders.restaurant_email
+ * on its own. That column is EMPTY on all 109 native orders — the native placement
+ * path never writes it — so those surfaces silently told the restaurant nothing.
+ * It is why DeCheco's was not told that #900000173 moved from 11:30 to 12:00: the
+ * customer email went out, the restaurant branch saw '' and skipped.
+ *
+ * Returns lowercased, de-duplicated addresses, or [] when there is no real one.
+ * The stripe-import sentinel is excluded on purpose: it is provably undeliverable
+ * (Mailgun hard-bounces it every time), so falling back to it is worse than
+ * nothing — the send gets claimed as success and the gap becomes invisible.
+ */
+export async function resolveRestaurantNotificationEmails(
+  restaurantReference: string | null | undefined,
+  orderRestaurantEmail?: string | null,
+): Promise<string[]> {
+  const restRef = (restaurantReference || '').trim()
+  let list: string[] = []
+
+  if (restRef) {
+    try {
+      const ov = (await sql`
+        SELECT notification_emails FROM disco_restaurant_overrides WHERE restaurant_reference = ${restRef} LIMIT 1
+      `) as { notification_emails: string | null }[]
+      list = String(ov[0]?.notification_emails || '').split(',').map(e => e.trim()).filter(Boolean)
+    } catch { /* fall through to the rungs below */ }
+  }
+
+  if (!list.length && orderRestaurantEmail && String(orderRestaurantEmail).trim()) {
+    list = [String(orderRestaurantEmail).trim()]
+  }
+
+  if (!list.length && restRef) {
+    try {
+      const acct = (await sql`
+        SELECT email FROM disco_restaurant_accounts
+        WHERE restaurant_reference = ${restRef} AND email IS NOT NULL
+        ORDER BY created_at ASC LIMIT 1
+      `) as { email: string }[]
+      if (acct[0]?.email && !SENTINEL_EMAIL_RE.test(acct[0].email)) list = [acct[0].email]
+    } catch { /* leave empty rather than guess */ }
+  }
+
+  return Array.from(new Set(list.map(e => e.toLowerCase()).filter(e => !SENTINEL_EMAIL_RE.test(e))))
+}
+
+
 // Normalize a stored phone to E.164 for Twilio: strip non-digits, prepend +1 for
 // a 10-digit US number (or + for an 11-digit number already starting with 1).
 function toE164(raw: string | null | undefined): string {
