@@ -1177,12 +1177,14 @@ export async function carryOverTaxRates(ref: string, walled?: FmWalledFieldsResu
   // inherited Disco's NEW-restaurant rates. 186 of 188 ended up differing from
   // FM, every one of them charging more.
   //
-  // Only written when FM actually holds a value. A null means FM's payload
-  // carried no rate — not that the rate is zero — so the existing value is left
-  // alone rather than zeroing a commission on missing data.
+  // Written whenever FamilyMeal has a record of the restaurant. A null rate
+  // there is not "no value": FM's own charge-time code resolves null to zero
+  // (Objects.requireNonNullElse(..., 0) in applyDiscoLeadGenFees), so zero IS
+  // FM's rate and carrying it is carrying FM. Only a restaurant FamilyMeal has
+  // never heard of keeps Disco's new-restaurant defaults.
   try {
     const lg = await fmLeadGenRates(ref)
-    if (lg.one !== null || lg.two !== null) {
+    if (lg.fmHasRecord) {
       await sql`
         INSERT INTO disco_restaurant_overrides (restaurant_reference, lead_gen_one_pct, lead_gen_two_pct, updated_at)
         VALUES (${ref}, ${lg.one}, ${lg.two}, NOW())
