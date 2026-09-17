@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../../lib/admin-auth'
+import { nativeOnlyRestaurants } from '../../../../../lib/admin/native-restaurant-merge'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -29,7 +30,17 @@ export async function GET(req: NextRequest) {
         location: [r?.address?.city, r?.address?.state].filter(Boolean).join(', '),
       }))
       .filter(r => r.reference && r.name)
-    return NextResponse.json(results)
+
+    // Disco-native restaurants FamilyMeal has no record of. Without this the
+    // Menu Import picker could not find a restaurant that exists only on Disco
+    // Cater — which is exactly the kind of restaurant someone is importing a
+    // menu into.
+    const native = (await nativeOnlyRestaurants(q, 20)).map(r => ({
+      reference: r.reference,
+      name: r.businessName,
+      location: [r.city, r.state].filter(Boolean).join(', '),
+    }))
+    return NextResponse.json([...results, ...native].sort((a, b) => a.name.localeCompare(b.name)))
   } catch {
     return NextResponse.json([])
   }

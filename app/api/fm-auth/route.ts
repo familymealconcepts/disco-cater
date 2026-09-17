@@ -101,6 +101,17 @@ export async function POST(req: NextRequest) {
     if (!email || !password) return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
 
     const customer = await getDiscoCustomer(email).catch(() => null)
+
+    // A disabled account cannot sign in. Checked BEFORE the password so a
+    // disabled customer is never handed a session, and checked here rather than
+    // only in the admin UI — an enable/disable toggle the login path ignores is
+    // a control that lies. The message deliberately does not distinguish
+    // "disabled" from "wrong password" to anyone who is not already the account
+    // holder; it names support because there IS a way back.
+    if (customer?.disabled_at) {
+      return NextResponse.json({ error: 'This account has been disabled. Please contact support.' }, { status: 403 })
+    }
+
     const isSentinel = !!customer && customer.password_hash === FM_MIGRATED
     let fm: FmAuthResult | null = null
 

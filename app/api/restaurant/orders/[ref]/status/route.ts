@@ -3,9 +3,7 @@ import { getRestaurantAuthContext, getFmHeaderForRestaurant } from '../../../../
 import { assertOrderInScope } from '../../../../../../lib/order/order-scope'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
 import { fmFetch } from '../../../../../../lib/fm-fetch'
-import { sendOrderCancellationEmail } from '../../../../../../lib/order/cancellation-email'
-import { voidUnpaidOrderInvoice } from '../../../../../../lib/order/invoice-void'
-import Stripe from 'stripe'
+import { applyNativeStatusChange, voidInvoiceBeforeCancel, normalizeOrderStatus, ALLOWED_ORDER_STATUSES } from '../../../../../../lib/order/native-status-change'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -13,21 +11,6 @@ export const dynamic = 'force-dynamic'
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// disco_orders.order_status CHECK set (001_disco_orders.sql).
-const ALLOWED = new Set([
-  'CART', 'RESERVED', 'DUE', 'COMPLETED', 'CANCELED', 'CANCELLED', 'REFUND', 'REFUNDED',
-  'PARTIAL_REFUND', 'EXPIRED', 'VOID', 'VOIDED', 'UNPAID', 'PAID', 'PAYMENT_FAILED', 'REOPEN',
-])
-
-// Normalize the few UI aliases to the canonical Neon status.
-function normStatus(s: string): string {
-  const u = (s || '').toUpperCase()
-  if (u === 'COMPLETE') return 'COMPLETED'
-  if (u === 'CANCEL') return 'CANCELED'
-  if (u === 'REFUND') return 'REFUNDED'
-  if (u === 'VOID') return 'VOIDED'
-  return u
-}
 
 // PUT /api/restaurant/orders/{ref}/status?orderStatus=...
 //
@@ -69,32 +52,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
   if (!UUID_RE.test(ref)) return NextResponse.json({ error: 'Invalid order reference' }, { status: 400 })
 
   const raw = req.nextUrl.searchParams.get('orderStatus') || ''
-  const status = normStatus(raw)
-  if (!ALLOWED.has(status)) return NextResponse.json({ error: 'Unsupported status' }, { status: 400 })
+  const status = normalizeOrderStatus(raw)
+  if (!ALLOWED_ORDER_STATUSES.has(status)) return NextResponse.json({ error: 'Unsupported status' }, { status: 400 })
 
   // Ownership: enforce BEFORE the FM proxy so a foreign ref can't mutate FM state either.
   const scope = await assertOrderInScope(ref, ctx)
   if (!scope.ok) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
-  // ── Void an open invoice BEFORE cancelling (see THE ONE EXCEPTION above) ──
-  // Order matters: void first, then flip the status. If the void succeeds but the
-  // status write fails we are left with an un-payable invoice on a still-UNPAID
-  // order — recoverable. The reverse (cancelled order, live invoice) is the money
-  // bug itself, so it must never be reachable.
-  if (status === 'CANCELED' || status === 'CANCELLED') {
-    const key = process.env.STRIPE_SECRET_KEY
-    const stripe = key ? new Stripe(key, { apiVersion: '2025-01-27.acacia' } as unknown as ConstructorParameters<typeof Stripe>[1]) : null
-    const voided = await voidUnpaidOrderInvoice(ref, stripe)
-    if (voided.action === 'failed') {
-      console.error('[orders/status] invoice void failed — refusing to cancel:', ref, voided.invoiceId, voided.error)
-      return NextResponse.json({
-        error: `This order was not cancelled: its invoice could not be voided, so the customer could still pay it. ${voided.error}`,
-      }, { status: 502 })
-    }
-    if (voided.action === 'voided') {
-      console.log('[orders/status] voided invoice before cancel:', ref, voided.invoiceId)
-    }
-  }
+  // Void BEFORE the FM proxy: the invariant is "withdraw the bill, THEN flip the
+  // status", and FM's status counts as a status.
+  const v = await voidInvoiceBeforeCancel(ref, status)
+  if (!v.ok) return NextResponse.json({ error: v.error }, { status: v.status })
 
   // Best-effort FM proxy (FM-synced orders). Uses the user's FM token when present,
   // else the SUPER_ADMIN service account. Never fatal.
@@ -108,44 +76,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ ref:
     console.error('[orders/status] FM updateStatus failed (non-fatal):', e instanceof Error ? e.message : e)
   }
 
-  // Neon write — the source of truth for the restaurant portal.
-  try {
-    await runDiscoOrderMigrations()
-    const rows = (await sql`
-      UPDATE disco_orders SET order_status = ${status}, updated_at = NOW()
-      WHERE reference = ${ref}::uuid OR fm_order_reference = ${ref}::uuid
-      RETURNING reference
-    `) as Array<{ reference: string }>
-
-    if (!rows.length) {
-      // No Neon row yet (un-synced FM-only order). The FM proxy above already
-      // attempted the change; report ok so the portal reflects it.
-      return NextResponse.json({ ok: true, orderStatus: status, neon: false })
-    }
-
-    await sql`
-      INSERT INTO disco_order_events (order_reference, event_type, event_data, source)
-      VALUES (${rows[0].reference}::uuid, 'STATUS_CHANGED', ${JSON.stringify({ status })}::jsonb, 'DISCO_STATUS')
-    `.catch(e => console.error('[orders/status] event insert (non-fatal):', e instanceof Error ? e.message : e))
-
-    // Tell the customer. This route was silent on cancellation while /void was
-    // not, so the COMMON cancel path told nobody — and because cancelling is
-    // deliberately status-only (it does not refund), that was the exact case
-    // where the customer was left holding a charge with no message.
-    //
-    // Idempotent, DISCO-source-only and non-throwing inside the helper, so a
-    // repeat call or an email failure can never turn a successful cancellation
-    // into an error response.
-    if (status === 'CANCELED' || status === 'CANCELLED') {
-      const r = await sendOrderCancellationEmail(rows[0].reference, 'DISCO_STATUS')
-      if (!r.sent && r.reason !== 'not-disco-source' && r.reason !== 'already-sent') {
-        console.error('[orders/status] cancellation email not sent:', r.reason)
-      }
-    }
-
-    return NextResponse.json({ ok: true, orderStatus: status, neon: true })
-  } catch (e) {
-    console.error('[orders/status] Neon update failed:', e instanceof Error ? e.message : e)
-    return NextResponse.json({ error: 'Unable to update status' }, { status: 500 })
-  }
+  // Neon write, invoice void, event and cancellation email all live in ONE
+  // place now, shared with the super-admin route — see lib/order/native-status-change.ts.
+  const r = await applyNativeStatusChange(ref, status, 'DISCO_STATUS', { invoiceAlreadyVoided: true })
+  if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status })
+  return NextResponse.json({ ok: true, orderStatus: r.orderStatus, neon: r.neon })
 }

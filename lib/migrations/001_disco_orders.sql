@@ -773,3 +773,13 @@ CREATE INDEX IF NOT EXISTS disco_conversions_at_idx ON disco_conversions (conver
 ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS reset_token TEXT;
 ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_disco_customers_reset_token ON disco_customers (reset_token) WHERE reset_token IS NOT NULL;
+
+-- Disabling a Disco-native customer account.
+--
+-- The super-admin Users screen has an enable/disable toggle that only ever
+-- reached FamilyMeal. A customer who signed up on Disco Cater has no FM user, so
+-- there was nothing to toggle — and nothing in Neon to record the decision
+-- either. This is that record. It is ENFORCED at login (app/api/fm-auth), not
+-- merely displayed: a flag the login path ignores would be a toggle that lies.
+ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
+ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS disabled_by TEXT;

@@ -59,12 +59,13 @@ export interface DiscoCustomerRow {
   fm_reference: string | null
   needs_password_reset: boolean | null
   company_name: string | null
+  disabled_at: string | null
 }
 
 export async function getDiscoCustomer(email: string): Promise<DiscoCustomerRow | null> {
   const rows = (await sql`
     SELECT id, email, password_hash, first_name, last_name, phone,
-           fm_customer_number, fm_reference, needs_password_reset, company_name
+           fm_customer_number, fm_reference, needs_password_reset, company_name, disabled_at
     FROM disco_customers WHERE email = ${email.toLowerCase()} LIMIT 1
   `) as DiscoCustomerRow[]
   return rows[0] ?? null

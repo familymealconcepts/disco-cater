@@ -175,7 +175,7 @@ export default function ManageSystemAdminsPage() {
     setError('')
     const isNew = !editing.reference
     const res = await fetch(
-      isNew ? '/api/admin/system-admins' : `/api/admin/system-admins/${editing.reference}`,
+      isNew ? '/api/admin/system-admins' : `/api/admin/system-admins/${encodeURIComponent(editing.reference ?? "")}`,
       {
         method: isNew ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -208,8 +208,14 @@ export default function ManageSystemAdminsPage() {
   }
 
   async function deleteAdmin(u: SysAdmin) {
-    if (!confirm(`Delete system admin ${u.email}?`)) return
-    const res = await fetch(`/api/admin/system-admins/${u.reference}`, { method: 'DELETE' })
+    // Say which one it is. A Disco-native account is archived, not deleted —
+    // promising deletion and archiving instead is the kind of small lie that
+    // makes an admin distrust the whole screen.
+    const msg = u.source === 'DISCO'
+      ? `Archive system admin ${u.email}? They lose all location access immediately.`
+      : `Delete system admin ${u.email}?`
+    if (!confirm(msg)) return
+    const res = await fetch(`/api/admin/system-admins/${encodeURIComponent(u.reference)}`, { method: 'DELETE' })
     if (res.ok) load()
   }
 
@@ -276,15 +282,13 @@ export default function ManageSystemAdminsPage() {
                   })()}
                 </td>
                 <td style={{ ...cell, textAlign: 'right' }}>
-                  {/* EDIT AND DELETE ARE FM ENDPOINTS. A Disco-native account has no
-                      FM user behind it, so both would 404 against a synthetic
-                      `disco:<email>` reference. Showing the row read-only is the
-                      honest state: the person IS a system admin and their reach is
-                      real, it is simply managed in the restaurant portal. Making
-                      them editable here is a separate piece of work. */}
-                  {u.source === 'DISCO' ? (
-                    <span style={{ fontSize: 12, color: '#999' }} title="Managed in the restaurant portal">Portal-managed</span>
-                  ) : (<>
+                  {/* Disco-native rows are edited and deleted too. Their
+                      `disco:<email>` reference is routed to Neon by
+                      /api/admin/system-admins/[id] instead of to FamilyMeal —
+                      see that route. Deleting a native account ARCHIVES it
+                      (it is attached to orders and grants), which is what the
+                      listing already treats as gone. */}
+                  <>
                   <button onClick={() => setEditing({
                     reference: u.reference,
                     firstName: u.firstName,
@@ -296,7 +300,7 @@ export default function ManageSystemAdminsPage() {
                     restaurantReferences: (u.managedRestaurants || u.restaurants || []).map(r => r.reference),
                   })} style={linkBtn}>Edit</button>
                   <button onClick={() => deleteAdmin(u)} style={{ ...linkBtn, color: '#E76F51' }}>Delete</button>
-                  </>)}
+                  </>
                 </td>
               </tr>
             ))}
