@@ -783,3 +783,12 @@ CREATE INDEX IF NOT EXISTS idx_disco_customers_reset_token ON disco_customers (r
 -- merely displayed: a flag the login path ignores would be a toggle that lies.
 ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ;
 ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS disabled_by TEXT;
+
+-- The Stripe transfer that paid the restaurant for an INVOICE-path order.
+--
+-- The card path puts the payout inside the charge (transfer_data), so a refund
+-- can reverse it with reverse_transfer and never needs an id. The invoice path
+-- pays out with a SEPARATE transfers.create in the webhook, and that id was
+-- recorded nowhere — so there was nothing to reverse when money had to go back.
+-- Recorded now, at the moment the transfer succeeds.
+ALTER TABLE disco_stripe_payments ADD COLUMN IF NOT EXISTS stripe_transfer_id TEXT;

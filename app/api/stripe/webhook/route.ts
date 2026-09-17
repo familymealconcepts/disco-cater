@@ -341,8 +341,8 @@ export async function POST(request: NextRequest) {
         }
 
         const orders = (await sql`
-          SELECT id, reference FROM disco_orders WHERE reference = ${orderReference}::uuid LIMIT 1
-        `) as { id: number; reference: string }[]
+          SELECT id, reference, restaurant_reference FROM disco_orders WHERE reference = ${orderReference}::uuid LIMIT 1
+        `) as { id: number; reference: string; restaurant_reference: string }[]
 
         if (orders.length === 0) {
           console.log('[Webhook] invoice.payment_succeeded — order not found, skipping:', orderReference)
@@ -392,7 +392,7 @@ export async function POST(request: NextRequest) {
           } else if (!withhold && connectedAccountId && transferDollars > 0) {
             try {
               // idempotencyKey → a webhook retry can't double-pay the restaurant.
-              await stripe.transfers.create({
+              const payout = await stripe.transfers.create({
                 amount: Math.round(transferDollars * 100),
                 currency: 'usd',
                 destination: connectedAccountId,
@@ -400,6 +400,28 @@ export async function POST(request: NextRequest) {
                 transfer_group: order.reference,
                 metadata: { orderReference: order.reference, kind: 'native_invoice_payout' },
               }, { idempotencyKey: `native-invoice-transfer-${invoice.id}` })
+
+              // ── RECORD THE PAYMENT, OR THE ORDER CAN NEVER BE REFUNDED ────
+              // refundNativeOrder resolves its PaymentIntent from
+              // disco_stripe_payments, and this path wrote no row at all — so a
+              // paid invoice order threw "No Stripe payment is linked to this
+              // order". The transfer id is recorded with it because the invoice
+              // payout is a SEPARATE transfer, not transfer_data on the charge,
+              // so a refund has nothing to reverse without it.
+              const invPi = (invoice as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
+              const invPiId = typeof invPi === 'string' ? invPi : (invPi?.id ?? null)
+              await sql`
+                INSERT INTO disco_stripe_payments
+                  (order_reference, restaurant_reference, stripe_payment_intent_id, stripe_transfer_id,
+                   charge_id, status, total, created_at)
+                VALUES (${order.reference}::uuid, ${order.restaurant_reference}::uuid, ${invPiId},
+                        ${payout.id}, ${chargeId}, 'SUCCEEDED', ${transferDollars > 0 ? (invoice.amount_paid ?? 0) / 100 : 0}, NOW())
+                ON CONFLICT (stripe_payment_intent_id) DO UPDATE
+                  SET stripe_transfer_id = EXCLUDED.stripe_transfer_id,
+                      charge_id = EXCLUDED.charge_id,
+                      status = 'SUCCEEDED',
+                      updated_at = NOW()
+              `.catch(e => console.error('[Webhook] native invoice payment row insert failed (non-fatal):', e instanceof Error ? e.message : e))
             } catch (e) {
               console.error('[Webhook] native invoice payout transfer failed:', e instanceof Error ? e.message : e)
               await alertOps('native invoice paid but payout transfer failed', {

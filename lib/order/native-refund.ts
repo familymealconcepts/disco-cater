@@ -35,12 +35,159 @@ import { alertOps } from '../ops-alert'
 // succeeded) does NOT throw — the customer-facing refund is real either way; the
 // reversal failure is alerted to ops instead, since silently swallowing it would
 // leave the restaurant temporarily over-paid with no visibility into why.
+
+/**
+ * REFUNDING AN INVOICE-PATH ORDER — credit note, then transfer reversal.
+ *
+ * ── WHY THIS IS SEPARATE FROM THE CARD PATH ─────────────────────────────────
+ * A card order is a destination charge: the payout rides inside the charge as
+ * transfer_data, so a refund can hand Stripe `reverse_transfer: true` and both
+ * halves move together. An invoice order is not. Disco's invoice is created on
+ * the PLATFORM account and the restaurant is paid afterwards by a SEPARATE
+ * transfers.create in the webhook. So there is no transfer_data to reverse, and
+ * the two halves have to be moved explicitly:
+ *
+ *   1. a credit note on the paid invoice, which returns the customer's money
+ *   2. a transfer reversal, which takes the restaurant's payout back
+ *
+ * Without step 2 the customer is made whole out of Disco's own pocket.
+ *
+ * ── FAMILYMEAL IS THE SPECIFICATION FOR STEP 1 ──────────────────────────────
+ * FM returns money on an invoice with a credit note, not a PaymentIntent refund
+ * — StripeServiceImpl.issueCreditNoteOnPaidInvoice, which requires the invoice
+ * to be paid and caps the amount by Stripe-reported headroom:
+ *
+ *     long amountPaid = inv.getAmountPaid() != null ? inv.getAmountPaid() : 0L;
+ *     long postCn = inv.getPostPaymentCreditNotesAmount() != null ? inv.getPostPaymentCreditNotesAmount() : 0L;
+ *     long headroom = Math.max(0L, amountPaid - postCn);
+ *     long applyCents = Math.min(requestedCents, headroom);
+ *
+ * That headroom cap is what stops a second refund double-crediting the same
+ * invoice, and it is reproduced exactly below.
+ *
+ * FM passes only `setAmount`. On the API version this codebase pins
+ * (2025-01-27.acacia) Stripe REJECTS that on a paid invoice — verified in test
+ * mode: "The sum of refunds, credit amount, and out of band amount ($0.00) must
+ * equal the credit note post_payment_amount ($139.15)." So `refund_amount` is
+ * passed alongside `amount`, which is what actually returns cash to the card.
+ *
+ * ── THE PARTIAL RULE ────────────────────────────────────────────────────────
+ * The restaurant's share is reversed PROPORTIONALLY to the amount refunded,
+ * which is what Stripe's own `reverse_transfer: true` does on the card path —
+ * so a partial refund moves the same money whichever way the order was paid.
+ */
+async function refundNativeInvoiceOrder(
+  stripe: Stripe,
+  orderReference: string,
+  amountDollars: number,
+): Promise<{ refundId: string; status: string; paymentIntentId: string } | null> {
+  const rows = (await sql`
+    SELECT o.stripe_invoice_id,
+           (SELECT p.stripe_transfer_id FROM disco_stripe_payments p
+             WHERE p.order_reference = o.reference AND p.stripe_transfer_id IS NOT NULL
+             ORDER BY p.created_at DESC LIMIT 1) AS stripe_transfer_id
+      FROM disco_orders o WHERE o.reference = ${orderReference}::uuid LIMIT 1
+  `.catch(() => [])) as { stripe_invoice_id: string | null; stripe_transfer_id: string | null }[]
+  const invoiceId = rows[0]?.stripe_invoice_id
+  if (!invoiceId) return null   // not an invoice order — caller keeps its own error
+
+  const invoice = await stripe.invoices.retrieve(invoiceId)
+  if (invoice.status !== 'paid') {
+    throw new Error(`This order's invoice is ${invoice.status}, not paid, so there is nothing to refund. Void the invoice instead.`)
+  }
+
+  // FM's headroom rule, exactly.
+  const amountPaid = invoice.amount_paid ?? 0
+  const postCn = invoice.post_payment_credit_notes_amount ?? 0
+  const headroom = Math.max(0, amountPaid - postCn)
+  const requested = cents(amountDollars)
+  const apply = Math.min(requested, headroom)
+  if (apply <= 0) {
+    throw new Error(`This invoice has already been credited in full (${(postCn / 100).toFixed(2)} of ${(amountPaid / 100).toFixed(2)}), so there is nothing left to refund.`)
+  }
+
+  const creditNote = await stripe.creditNotes.create({
+    invoice: invoiceId,
+    amount: apply,
+    refund_amount: apply,
+    reason: 'product_unsatisfactory',
+    memo: `Disco Cater refund for order ${orderReference}`,
+  })
+
+  // ── AND TAKE THE RESTAURANT'S SHARE BACK ──────────────────────────────────
+  // Best-effort in the sense that the customer's money has already moved and
+  // must not be un-refunded — but never silent: a failure here means Disco is
+  // covering the difference, so it is surfaced to ops.
+  const transferId = rows[0]?.stripe_transfer_id || (await findInvoicePayoutTransfer(stripe, orderReference))
+  if (transferId) {
+    try {
+      const transfer = await stripe.transfers.retrieve(transferId)
+      const remaining = transfer.amount - (transfer.amount_reversed ?? 0)
+      const share = Math.min(remaining, Math.round(transfer.amount * (apply / amountPaid)))
+      if (share > 0) {
+        await stripe.transfers.createReversal(transferId, { amount: share })
+      }
+    } catch (e) {
+      console.error('[native-refund] invoice payout reversal FAILED — the customer was refunded and the restaurant kept its payout:', orderReference, e instanceof Error ? e.message : e)
+      await alertOps('invoice refund issued but the restaurant payout was NOT reversed', {
+        orderReference, invoiceId, creditNoteId: creditNote.id,
+        error: e instanceof Error ? e.message : String(e),
+      })
+    }
+  } else {
+    console.error('[native-refund] no payout transfer found to reverse for invoice order:', orderReference)
+    await alertOps('invoice refund issued but no payout transfer could be found to reverse', { orderReference, invoiceId, creditNoteId: creditNote.id })
+  }
+
+  // The credit note reports its refund under `refunds[]` on current API versions
+  // and under a flat `refund` on the pinned one; test mode returns BOTH. Read the
+  // array first (it is what the SDK types describe) and fall back to the flat field.
+  const cn = creditNote as unknown as {
+    refunds?: Array<{ refund?: string | { id?: string } | null }> | null
+    refund?: string | { id?: string } | null
+  }
+  const fromArray = cn.refunds?.[0]?.refund
+  const fromFlat = cn.refund
+  const pick = (v: string | { id?: string } | null | undefined) => (typeof v === 'string' ? v : v?.id)
+  const refundId = pick(fromArray) || pick(fromFlat)
+  const pi = (invoice as unknown as { payment_intent?: string | { id?: string } | null }).payment_intent
+  return {
+    refundId: refundId || creditNote.id,
+    status: 'succeeded',
+    paymentIntentId: (typeof pi === 'string' ? pi : pi?.id) || '',
+  }
+}
+
+/** Last-resort lookup when the transfer id was never recorded (orders paid before that column existed). */
+async function findInvoicePayoutTransfer(stripe: Stripe, orderReference: string): Promise<string | null> {
+  try {
+    const list = await stripe.transfers.list({ transfer_group: orderReference, limit: 10 })
+    const hit = list.data.find(t => t.metadata?.kind === 'native_invoice_payout') || list.data[0]
+    return hit?.id ?? null
+  } catch { return null }
+}
+
 export async function refundNativeOrder(
   stripe: Stripe,
   orderReference: string,
   amountDollars: number,
   transferReversalDollars?: number,
 ): Promise<{ refundId: string; status: string; paymentIntentId: string }> {
+  // ── KEYED ON THE ORDER, NOT ON WHAT HAPPENS TO BE RECORDED ────────────────
+  // Checked FIRST. An invoice-path order does have a PaymentIntent — the one
+  // that paid the invoice — and the webhook now records it, so testing for a
+  // missing payment row would never route here and the refund would fall
+  // through to a plain PaymentIntent refund: the customer made whole, the
+  // restaurant's payout untouched, and Disco absorbing the difference. Verified
+  // in test mode before this was moved: charge.amount_refunded=13915 with
+  // transfer.amount_reversed=0.
+  //
+  // disco_orders.stripe_invoice_id is set only by placeNativeInvoiceOrder
+  // (native-checkout.ts). Order-EDIT invoices use pending_stripe_invoice_id, so
+  // a card order that was later edited is not mistaken for an invoice order.
+  const viaInvoice = await refundNativeInvoiceOrder(stripe, orderReference, amountDollars)
+  if (viaInvoice) return viaInvoice
+
   const pays = (await sql`
     SELECT stripe_payment_intent_id FROM disco_stripe_payments
     WHERE order_reference = ${orderReference}::uuid AND stripe_payment_intent_id IS NOT NULL
