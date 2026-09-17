@@ -55,3 +55,11 @@ scripts/run-migration.ts
 # stray working CSVs (never commit)
 /*.csv
 tests/e2e/a11y-out/
+
+# Operational CSV pulls live in data/ and are NOT repo content. Two of them
+# (no-admin-contact, unverified-stripe-accounts) were committed twice by a
+# `git add -A`, because the rule above (/*.csv) only covers the repo ROOT.
+# data/converted-today.csv was already tracked before this line and stays so —
+# .gitignore does not untrack what git already knows about.
+data/no-admin-contact.csv
+data/unverified-stripe-accounts.csv
