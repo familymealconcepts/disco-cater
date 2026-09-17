@@ -1,4 +1,5 @@
 import type Stripe from 'stripe'
+import { repriceCartFromMenu } from './native-cart-reprice'
 import {
   fmItemsToNativeCart, isNativeOrderingOpen, isNativeDateClosed, isNativeDailyCapReached,
   isNativeDateTimeValid, loadRestaurantServiceChargePct, loadMenuFulfillmentAvailability, loadMenuOrderMinimums,
@@ -81,7 +82,23 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
   // gates below, not after, so those gates validate against the menu the order
   // actually claims — a direct API call could otherwise name a wide-open menu's
   // reference while its items are really from one with a tighter cutoff.
-  const items = fmItemsToNativeCart(cd.items as Parameters<typeof fmItemsToNativeCart>[0])
+  const clientItems = fmItemsToNativeCart(cd.items as Parameters<typeof fmItemsToNativeCart>[0])
+
+  // ── EVERY PRICE COMES FROM THE MENU, NOT FROM THE REQUEST ─────────────────
+  // Until this call the subtotal was computed from the `price` fields in the
+  // posted cart and nothing ever re-read disco_menu_items, so the amount charged
+  // was whatever the request said. Same reasoning as the date and menu gates
+  // just below: the picker only hides invalid options, it does not stop a direct
+  // API call from sending its own. See lib/order/native-cart-reprice.ts.
+  const repriced = await repriceCartFromMenu(ref, clientItems)
+  if (!repriced.ok) return { ok: false, status: repriced.status, error: repriced.error }
+  if (repriced.corrected > 0) {
+    // Not fatal — the menu price is simply used. Logged because a mismatch is
+    // either a stale cart or someone sending their own prices, and both are
+    // worth being able to see.
+    console.warn(`[native-place-checkout] cart prices did not match the menu; used the menu's: restaurant=${ref} corrections=${repriced.corrected}`)
+  }
+  const items = repriced.items
   const menuReference = resolveCartMenuReference(items)
 
   // Daily order-capacity gate (max_orders_per_day) — checked right after the
