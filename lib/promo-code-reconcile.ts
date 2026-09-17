@@ -17,6 +17,33 @@
 // money_flow column deserves. Revisit once this has alerted a few times
 // without surprises.
 //
+// ── FM-BACKED RESTAURANTS ONLY, AND THAT IS THE WHOLE POINT ─────────────────
+// Converting a restaurant to Disco-native means Disco Cater owns its promo
+// codes. FamilyMeal's coupon is then a SNAPSHOT from before conversion that
+// nothing updates, so comparing a native restaurant against it does not detect
+// drift — it reports the conversion itself, every morning, forever. Confirmed
+// with Peter: Atlanta Bread - Decatur's CATERING10 is 10% in Disco and 100% in
+// FM, and DISCO IS CORRECT. 15 of the 28 drifts this reported were native
+// restaurants and every one of them was this.
+//
+// There is nothing to reconcile a native restaurant's codes AGAINST: Disco is
+// the only writer and the only reader, so a mismatch with FM is not a fact
+// about Disco's data. They are excluded from the query, not just from the
+// alert.
+//
+// ── DATES ARE COMPARED IN THE RESTAURANT'S OWN TIMEZONE ─────────────────────
+// This reported a one-day end-date drift on EVERY remaining restaurant — 13 of
+// 13 FM-backed. Not a timezone read on one side: a unit mismatch. Neon's
+// valid_until is the last INSTANT of the last valid day in the restaurant's
+// local time (Pete's Bagels - Ybor: 2027-01-01 04:59:59.999+00, which is
+// 2026-12-31 23:59:59.999 Eastern), while FM's endDate is that day's CALENDAR
+// DATE, 2026-12-31. Rendering the instant in UTC rolled it to the next day.
+//
+// localDate renders in disco_restaurant_cache.timezone, the zone the value was
+// written in, which also handles the non-Eastern rows correctly — Bertolone's
+// stores 05:59:59.999+00, right for Central, wrong for Eastern. With this,
+// those 13 drifts become 13 matches and 0 drifts.
+//
 // Scoped to the ~40-50 restaurants that currently have an ACTIVE,
 // restaurant-funded promo code — not the full ~1,058-restaurant reachable
 // population the tax/notifications/closed-days mechanism covers. Checking
@@ -24,9 +51,10 @@
 // have is the wrong cost/value trade for this field; the moment a
 // restaurant activates its first native promo code, it enters this set
 // automatically (the query is live, not a fixed list).
+import { createHash } from 'crypto'
 import { sql } from './db'
 import { readWalledFieldsForRestaurants } from './fm-master-admin-read'
-import { alertOps } from './ops-alert'
+import { alertOnce } from './ops-alert'
 
 export type PromoDriftKind = 'fm-has-code-neon-does-not' | 'neon-has-stale-code' | 'value-mismatch'
 
@@ -51,6 +79,7 @@ export interface PromoCodeReconcileResult {
 interface NeonPromoRow {
   restaurant_reference: string
   name: string | null
+  timezone: string | null
   code: string
   discount_value: string
   valid_from: string | Date | null
@@ -59,30 +88,45 @@ interface NeonPromoRow {
   max_uses_per_user: number
 }
 
-// Date-only string compare — Neon's driver returns timestamptz columns as
-// Date objects (not strings — confirmed live, this threw on the first real
-// run), FM sends plain "YYYY-MM-DD". Deliberately NOT timezone-tolerant: a
-// fudge factor here would risk masking a real multi-day drift (Elmwood
-// Park's FRAN10 was off by three years) the same way it would absorb a
-// one-day artifact. Report the literal (UTC) difference; a human decides
-// which this is.
-function dateOnly(v: string | Date | null): string | null {
+/**
+ * The calendar date a stored instant represents IN THE RESTAURANT'S OWN
+ * TIMEZONE — the zone it was written in — so it can be compared to FM's plain
+ * "YYYY-MM-DD".
+ *
+ * This is not a fudge factor, and the distinction matters because the previous
+ * comment here argued against one. It does not widen the comparison or tolerate
+ * a day either side: it converts one side into the other's unit before an exact
+ * compare. A genuine multi-day drift (Francesca Elmwood Park's FRAN10, off by
+ * three years) still reports at its full size. What stops reporting is the
+ * artifact of reading 2026-12-31 23:59:59.999 Eastern as "2027-01-01".
+ */
+function localDate(v: string | Date | null, timezone: string | null): string | null {
   if (!v) return null
-  if (v instanceof Date) return v.toISOString().slice(0, 10)
-  return String(v).slice(0, 10)
+  const d = v instanceof Date ? v : new Date(String(v))
+  if (Number.isNaN(d.getTime())) return null
+  const fmt = (tz: string) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d)
+  // en-CA gives YYYY-MM-DD. An unknown/absent zone falls back to Eastern, which
+  // is what the writer defaulted to; never throw a reconciler over a bad zone.
+  try { return fmt(timezone || 'America/New_York') } catch { return fmt('America/New_York') }
 }
 
 export async function reconcilePromoCodes(): Promise<PromoCodeReconcileResult> {
   const startedAt = Date.now()
 
+  // is_disco_native = false ONLY. A converted restaurant's codes are Disco's own
+  // and FM's copy is a pre-conversion snapshot — see the header. An INNER JOIN,
+  // deliberately: a promo row whose restaurant is not in the cache at all cannot
+  // be shown to be FM-backed, and this job only makes claims about FM-backed ones.
   const rows = (await sql`
-    SELECT p.restaurant_reference, c.name, p.code, p.discount_value, p.valid_from, p.valid_until, p.max_uses, p.max_uses_per_user
+    SELECT p.restaurant_reference, c.name, c.timezone, p.code, p.discount_value, p.valid_from, p.valid_until, p.max_uses, p.max_uses_per_user
     FROM (
       SELECT restaurant_ref AS restaurant_reference, code, discount_value, valid_from, valid_until, max_uses, max_uses_per_user
       FROM promo_codes
       WHERE active = true AND funded_by = 'RESTAURANT' AND scope = 'restaurant' AND restaurant_ref IS NOT NULL
     ) p
-    LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = p.restaurant_reference
+    JOIN disco_restaurant_cache c ON c.restaurant_reference = p.restaurant_reference
+    WHERE COALESCE(c.is_disco_native, false) = false
   `.catch(() => [])) as NeonPromoRow[]
 
   if (rows.length === 0) {
@@ -103,7 +147,7 @@ export async function reconcilePromoCodes(): Promise<PromoCodeReconcileResult> {
     const fm = w.promoCode
     const neon = {
       code: row.code, discountPct: Number(row.discount_value),
-      validFrom: dateOnly(row.valid_from), validUntil: dateOnly(row.valid_until),
+      validFrom: localDate(row.valid_from, row.timezone), validUntil: localDate(row.valid_until, row.timezone),
       maxUses: row.max_uses, maxUsesPerUser: row.max_uses_per_user,
     }
 
@@ -161,10 +205,33 @@ export async function reconcilePromoCodes(): Promise<PromoCodeReconcileResult> {
     }
   }
 
+  // ── ONE LINE, AND ONLY WHEN THE SET CHANGES ───────────────────────────────
+  // This posted 27 bullet lines every morning: one per drifting restaurant, with
+  // code names, both sides' values and date comparisons. A channel is for
+  // noticing, not for reading a report — the same list re-posted daily stops
+  // being read at all, which is the failure mode that hides the 28th entry.
+  //
+  // The detail is not lost. It is on the returned PromoCodeReconcileResult, and
+  // logged in full below, so the cron response and the function log both carry
+  // it for anyone who goes looking.
+  //
+  // KEYED ON THE SET, so the same restaurants do not re-alert tomorrow and a new
+  // one does. Sorted references, hashed: the key must change when membership
+  // changes and must NOT change when only a value inside a drift moves, because
+  // that is the same restaurants still drifting — already reported, still true.
   if (drifts.length > 0) {
-    const lines = drifts.map(d => `• ${d.restaurantName || d.restaurantReference} (${d.restaurantReference}) [${d.kind}]: ${d.detail}`).join('\n')
-    await alertOps(
-      `promo-code-reconcile: ${drifts.length} drift(s) found out of ${rows.length} active restaurant-funded code(s) checked (report only, nothing changed):\n${lines}`,
+    const detail = drifts
+      .map(d => `${d.restaurantName || d.restaurantReference} (${d.restaurantReference}) [${d.kind}]: ${d.detail}`)
+      .join('\n')
+    console.warn(`[promo-code-reconcile] ${drifts.length} drift(s) of ${rows.length} checked:\n${detail}`)
+
+    const fingerprint = createHash('sha256')
+      .update(drifts.map(d => d.restaurantReference).sort().join(','))
+      .digest('hex')
+      .slice(0, 16)
+    await alertOnce(
+      `promo-code-reconcile:${fingerprint}`,
+      `promo-code-reconcile: ${drifts.length} promo code drift(s) against FamilyMeal across ${rows.length} FM-backed restaurant-funded code(s). Details are in the cron log.`,
     )
   }
 
