@@ -64,7 +64,17 @@ async function main() {
         SELECT LOWER(name) AS n, name AS raw_name, price::float8 AS price, updated_at, created_at
           FROM disco_menu_items WHERE restaurant_reference::text = ${loc.ref}
       `) as Array<{ n: string; raw_name: string; price: number; updated_at: string | Date | null; created_at: string | Date | null }>
-      const byName = new Map(neon.map(r => [r.n, r]))
+      // A restaurant can carry the SAME item name on several menus at different
+      // prices (Francesca has 237 items across menus). Keying by name and taking
+      // one row reports a divergence whenever the arbitrary winner disagrees,
+      // which is a false positive. Collect EVERY Disco price for a name, and
+      // count it as a divergence only when FamilyMeal's price matches NONE of
+      // them — then report the closest one, which is the real gap.
+      const byName = new Map<string, typeof neon>()
+      for (const r of neon) {
+        if (!byName.has(r.n)) byName.set(r.n, [])
+        byName.get(r.n)!.push(r)
+      }
 
       const menus = await j<Array<{ reference: string }>>(`/public-api/menu?restaurantReference=${loc.ref}`)
       if (!Array.isArray(menus) || !menus.length) { noFmMenu++; noFmMenuNames.push(loc.name); continue }
@@ -78,21 +88,29 @@ async function main() {
             const n = String(p?.name || '').trim().toLowerCase()
             if (!n) continue
             seenFm.add(n)
-            const d = byName.get(n)
-            if (!d) { onlyInFm++; continue }
+            const candidates = byName.get(n)
+            if (!candidates || !candidates.length) { onlyInFm++; continue }
             compared++
-            const a = Number(d.price), b = Number(p.price)
-            if (!Number.isFinite(a) || !Number.isFinite(b)) continue
-            if (Math.abs(a - b) > 0.005) {
-              divergences.push({
-                restaurant: loc.name, ref: loc.ref, item: d.raw_name,
-                disco: a, fm: b, diff: a - b,
-                discoUpdated: d.updated_at ? String(d.updated_at).slice(0, 19) : null,
-                discoCreated: d.created_at ? String(d.created_at).slice(0, 19) : null,
-                fmUpdated: p?.updatedDate ? String(p.updatedDate).slice(0, 19) : (p?.modifiedDate ? String(p.modifiedDate).slice(0, 19) : null),
-                convertedAt: loc.convertedAt,
-              })
+            const b = Number(p.price)
+            if (!Number.isFinite(b)) continue
+            // Agreement with ANY same-named Disco item clears it.
+            if (candidates.some(c => Number.isFinite(Number(c.price)) && Math.abs(Number(c.price) - b) <= 0.005)) continue
+            // No match — report the closest Disco price, the smallest real gap.
+            let d = candidates[0]
+            for (const c of candidates) {
+              if (Math.abs(Number(c.price) - b) < Math.abs(Number(d.price) - b)) d = c
             }
+            const a = Number(d.price)
+            if (!Number.isFinite(a)) continue
+            divergences.push({
+              restaurant: loc.name, ref: loc.ref,
+              item: d.raw_name + (candidates.length > 1 ? ` [${candidates.length} same-named items, closest shown]` : ''),
+              disco: a, fm: b, diff: a - b,
+              discoUpdated: d.updated_at ? String(d.updated_at).slice(0, 19) : null,
+              discoCreated: d.created_at ? String(d.created_at).slice(0, 19) : null,
+              fmUpdated: p?.updatedDate ? String(p.updatedDate).slice(0, 19) : (p?.modifiedDate ? String(p.modifiedDate).slice(0, 19) : null),
+              convertedAt: loc.convertedAt,
+            })
           }
         }
       }
@@ -118,16 +136,22 @@ async function main() {
   console.log(`restaurants affected:                       ${rests.size}`)
   console.log()
 
+  // Was the Disco item ever edited after import? updated_at > created_at means a
+  // Disco-side change; equal means the difference came in at import.
   const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(n).toFixed(2)
+  const editedFlag = (d: Div) => {
+    if (!d.discoUpdated || !d.discoCreated) return '?'
+    return new Date(d.discoUpdated).getTime() - new Date(d.discoCreated).getTime() > 5000 ? 'edited-in-disco' : 'as-imported'
+  }
   console.log('WORST FIRST')
   console.log('-'.repeat(110))
   console.log(
     'DIFF'.padStart(10) + '  ' + 'DISCO'.padStart(9) + '  ' + 'FAMILYMEAL'.padStart(10) + '  ' +
-    'RESTAURANT'.padEnd(32) + '  ITEM')
+    'RESTAURANT'.padEnd(30) + '  ' + 'ORIGIN'.padEnd(16) + '  ITEM')
   for (const d of divergences) {
     console.log(
       money(d.diff).padStart(10) + '  ' + money(d.disco).padStart(9) + '  ' + money(d.fm).padStart(10) + '  ' +
-      d.restaurant.slice(0, 32).padEnd(32) + '  ' + d.item)
+      d.restaurant.slice(0, 30).padEnd(30) + '  ' + editedFlag(d).padEnd(16) + '  ' + d.item)
   }
 
   console.log()
