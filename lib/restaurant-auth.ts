@@ -58,6 +58,25 @@ export async function getRestaurantUserRef(): Promise<string | null> {
   return await getRestaurantRef()
 }
 
+/**
+ * The FamilyMeal user's EMAIL, from the JWT's `sub` claim.
+ *
+ * getRestaurantUserRef deliberately never returns this — it needs a UUID and
+ * FM rejects an email there. This is the opposite need: identifying the PERSON
+ * behind an FM session, which getRestaurantAuthContext leaves blank (ctx.email
+ * is '' for every FM session). Used where a surface has to say who is acting.
+ */
+export async function getRestaurantEmail(): Promise<string | null> {
+  const store = await cookies()
+  const token = store.get(RESTAURANT_TOKEN_COOKIE)?.value
+  if (!token) return null
+  const payload = decodeJwt(token)
+  for (const c of [payload?.sub, payload?.email, payload?.user_name]) {
+    if (typeof c === 'string' && c.includes('@')) return c.trim().toLowerCase()
+  }
+  return null
+}
+
 // Decode role from JWT payload field 'role'
 export async function getRestaurantRole(): Promise<string | null> {
   const store = await cookies()
