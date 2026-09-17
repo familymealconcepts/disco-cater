@@ -32,6 +32,7 @@ import {
   sendOrderEditPaymentRequired, sendOrderEditPendingRestaurant, type EditItem,
 } from '../../../../../../lib/email/notifications'
 import { resolveRestaurantNotificationEmails } from '../../../../../../lib/order-notifications'
+import { repriceEditLinesFromMenu } from '../../../../../../lib/order/native-cart-reprice'
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 import { orderPdfFilename } from '../../../../../../lib/download-filename'
 import { isDiscoNativeRestaurant, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
@@ -164,6 +165,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
 
   const restaurantRef = base.restaurantRef || discoOrder?.restaurant_reference || ctx?.restaurantReference || ''
   const isNative = restaurantRef ? await isDiscoNativeRestaurant(restaurantRef) : false
+
+  // ── PRICES COME FROM THE MENU, NOT FROM THE REQUEST ───────────────────────
+  // Same weakness native checkout had: every figure below — the new subtotal,
+  // the Stripe delta charged or refunded, the rows written to disco_order_items
+  // — was computed from the `price` fields in the posted body, and nothing
+  // re-read disco_menu_items. Prices are set at the menu level, so the menu is
+  // the authority here too. Add-ons are validated as belonging to the item they
+  // are attached to; an item no longer on the menu is refused.
+  //
+  // Native orders only: an FM-backed order's menu lives in FamilyMeal, which is
+  // read-only and has no disco_menu_items rows to price against.
+  if (isNative) {
+    const repriced = await repriceEditLinesFromMenu(restaurantRef, activeLines)
+    if (!repriced.ok) return NextResponse.json({ error: repriced.error }, { status: repriced.status })
+    if (repriced.corrected > 0) {
+      console.warn(`[orders/edit] edit prices did not match the menu; used the menu's: order=${ref} corrections=${repriced.corrected}`)
+    }
+    activeLines.length = 0
+    activeLines.push(...repriced.lines)
+  }
 
   // ── 2. RECALCULATE MONEY ────────────────────────────────────────────────────
   // Native orders: run the SAME cent-exact tiered engine placement uses (tax

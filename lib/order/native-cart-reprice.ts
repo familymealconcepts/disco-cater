@@ -119,3 +119,64 @@ export async function repriceCartFromMenu(restaurantReference: string, items: Na
 
   return { ok: true, items: out, corrected }
 }
+
+/**
+ * The same rule for the ORDER-EDIT wire shape.
+ *
+ * An edit line carries the BASE price with add-ons listed separately
+ * (cartSubtotal adds them per meal), where a checkout cart item carries the
+ * FOLDED unit price. Same menu, same validation, different arithmetic on the way
+ * in and out — so this adapts rather than duplicating the rule.
+ *
+ * Edit add-ons carry no `reference` on the wire (EditOrderClient sends name,
+ * price and quantity only), so they resolve by NAME within the item's own
+ * enabled, visible groups — the fallback repriceCartFromMenu already documents.
+ *
+ * Native orders only. An FM-backed order's menu lives in FamilyMeal, which is
+ * read-only here and has no disco_menu_items rows to price against, so those
+ * lines are returned untouched.
+ */
+export interface EditLineLike {
+  reference: string; name: string; price: number; quantity: number
+  addOns?: { name: string; price: number; count?: number; quantity?: number }[]
+}
+
+export type EditRepriceResult =
+  | { ok: true; lines: EditLineLike[]; corrected: number }
+  | { ok: false; status: number; error: string }
+
+export async function repriceEditLinesFromMenu<T extends EditLineLike>(
+  restaurantReference: string,
+  lines: T[],
+): Promise<{ ok: true; lines: T[]; corrected: number } | { ok: false; status: number; error: string }> {
+  if (!lines?.length) return { ok: true, lines, corrected: 0 }
+
+  const asCart: NativeCartItem[] = lines.map(l => ({
+    reference: l.reference,
+    name: l.name,
+    // price is the folded unit price in the cart shape; for the round-trip we
+    // only read basePrice and addOns back out, so folding here is harmless.
+    price: Number(l.price) || 0,
+    basePrice: Number(l.price) || 0,
+    quantity: Math.max(1, Math.trunc(Number(l.quantity) || 1)),
+    addOns: (l.addOns || []).map(a => ({
+      name: String(a.name || ''),
+      price: Number(a.price) || 0,
+      quantity: Math.max(1, Math.trunc(Number(a.quantity ?? a.count) || 1)),
+    })),
+  }))
+
+  const r = await repriceCartFromMenu(restaurantReference, asCart)
+  if (!r.ok) return r
+
+  const out = lines.map((l, i) => {
+    const priced = r.items[i]
+    const addOns = (l.addOns || []).map((a, j) => {
+      const pa = priced.addOns?.[j]
+      return pa ? { ...a, name: pa.name, price: pa.price } : a
+    })
+    // Back to the edit shape: BASE price, add-ons alongside.
+    return { ...l, name: priced.name, price: priced.basePrice ?? priced.price, addOns: l.addOns ? addOns : l.addOns }
+  })
+  return { ok: true, lines: out as T[], corrected: r.corrected }
+}
