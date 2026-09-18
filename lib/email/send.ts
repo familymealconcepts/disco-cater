@@ -87,10 +87,20 @@ const ORDERS_BCC = 'noreply@familymeal.com'
 // unlike ORDERS_BCC this isn't gated on the From address, so it applies across
 // every template/caller of sendEmail(). She filters on her end.
 const KEALOHA_BCC = 'kealoha@discocater.com'
-// Default Reply-To so any reply lands in Kealoha's inbox. Callers that need a
-// different Reply-To (currently only the concierge conversion invite email,
-// by design) pass their own params.replyTo, which wins over this default.
-const DEFAULT_REPLY_TO = 'kealoha@discocater.com'
+// Default Reply-To. A SHARED mailbox, not a person: a transactional email is
+// from Disco Cater, and a restaurant replying to an order confirmation should
+// reach whoever is on duty rather than one individual's inbox — which is also
+// what stops replies going unanswered while she is away.
+//
+// KEALOHA_BCC above is unchanged and deliberately so. She still receives a copy
+// of every outbound email; what moves is only where a REPLY lands. The two are
+// independent, so this is not a trade between "reply-to her" and "bcc her" —
+// she keeps the copy either way.
+//
+// Callers that need a different Reply-To (currently only the concierge
+// conversion invite email, by design) pass their own params.replyTo, which
+// still wins over this default.
+const DEFAULT_REPLY_TO = 'concierge@discocater.com'
 
 // ── THE `Sender:` HEADER ────────────────────────────────────────────────────
 //
