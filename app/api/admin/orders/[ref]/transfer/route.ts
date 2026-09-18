@@ -5,6 +5,7 @@ import { sendEmail } from '../../../../../../lib/email/send'
 import { layout } from '../../../../../../lib/email/layout'
 import { modifyDelivery, buildPayloadFromNeon } from '../../../../../../lib/expedite'
 import { syncOneFmOrder } from '../../../../../../lib/fm-orders-sync'
+import { resolveRestaurantNotificationEmails } from '../../../../../../lib/order-notifications'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -22,16 +23,19 @@ interface OrderRow {
   customer_email: string
 }
 
-// Resolve a restaurant's contact email from disco_restaurant_accounts (the cache
-// has no email). Returns null when the restaurant has no Disco account.
-async function restaurantEmail(restaurantReference: string): Promise<string | null> {
-  const rows = (await sql`
-    SELECT email FROM disco_restaurant_accounts
-    WHERE restaurant_reference = ${restaurantReference}
-    ORDER BY id ASC LIMIT 1
-  `) as Array<{ email: string | null }>
-  return rows[0]?.email ?? null
-}
+// Restaurant recipients come from the shared ladder — the configured "Email
+// Notification Recipients" list, then the order's own restaurant_email, then the
+// restaurant admin's account — the same resolver every other order notification
+// uses (lib/order-notifications.ts).
+//
+// IT USED TO BE `SELECT email FROM disco_restaurant_accounts ... ORDER BY id
+// LIMIT 1`, one row, no sentinel filter. That yields nothing usable for 4,047 of
+// 4,097 restaurants (3,888 have no account row at all, 159 resolve to the
+// stripe-import sentinel, which Mailgun hard-bounces every time). On the one
+// real transfer to date, #900000148 Two Hands - Tribeca -> NoHo, BOTH sides
+// resolved to their sentinel address, so neither kitchen was told the order had
+// moved while the customer was emailed about it. The ladder returns
+// naz@twohandshospitality.com for both.
 
 // POST /api/admin/orders/{ref}/transfer  — SUPER_ADMIN only.
 // Reassigns an order to another restaurant (Neon), logs the event, notifies the
@@ -91,16 +95,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       return NextResponse.json({ error: 'Order is already at this location' }, { status: 400 })
     }
 
-    const newEmail = await restaurantEmail(newRef)
-    const oldEmail = order.restaurant_email || (await restaurantEmail(oldRef))
+    const newEmails = await resolveRestaurantNotificationEmails(newRef, null)
+    const oldEmails = await resolveRestaurantNotificationEmails(oldRef, order.restaurant_email)
 
     // Reassign the order. Keep restaurant_name / restaurant_email coherent with
     // the new owning location so dashboards and future emails are correct.
+    //
+    // restaurant_email takes the first RESOLVED recipient, or NULL — never the
+    // raw account row. This previously wrote the stripe-import sentinel into the
+    // order (that is what #900000148 carries), which is an address known to
+    // hard-bounce; the resolver filters it out, so storing it only misleads
+    // anyone reading the row.
     await sql`
       UPDATE disco_orders
       SET restaurant_reference = ${newRef}::uuid,
           restaurant_name = ${dest.name},
-          restaurant_email = ${newEmail},
+          restaurant_email = ${newEmails[0] ?? null},
           updated_at = NOW()
       WHERE reference = ${order.reference}::uuid
     `
@@ -116,41 +126,47 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     `
 
     const orderNum = order.order_number
-    const newName = dest.name || 'the new location'
 
-    // Notifications — best-effort; a send failure must not fail the transfer.
-    const emailResults = await Promise.allSettled([
-      // a. Customer
+    // ── NOTIFICATIONS ────────────────────────────────────────────────────────
+    // THE CUSTOMER IS NOT TOLD. Peter's decision: a diner does not need to know
+    // which of a chain's kitchens is cooking their order, and "your order has
+    // been transferred" reads as though something went wrong when nothing has —
+    // the date, time, items and price are all unchanged. This is a deliberate
+    // divergence from nothing: FamilyMeal has no location-transfer feature at
+    // all (no endpoint sets an existing order's restaurant, and its portal has
+    // no such control), so there is no FM behaviour this departs from.
+    //
+    // BOTH RESTAURANTS ARE, and to every configured recipient rather than one
+    // account row. The receiving kitchen has to cook the order; the losing one
+    // has to stop. Best-effort — a send failure must not fail the transfer.
+    const oldSends = oldEmails.map(to =>
       sendEmail({
-        to: order.customer_email,
-        subject: `Your Disco Cater order #${orderNum} has been transferred`,
+        to,
+        subject: `Order #${orderNum} transferred to another location`,
         html: layout(`
-          <p style="font-size:18px;font-weight:700;margin:0 0 12px;">Your order has been transferred</p>
-          <p style="margin:0 0 12px;">Your order has been transferred to <strong>${newName}</strong>. All other order details remain the same.</p>
+          <p style="margin:0 0 12px;">Order #${orderNum} has been transferred to another location. You no longer need to prepare it.</p>
         `),
-      }),
-      // b. Old restaurant (only if we have a contact email)
-      oldEmail
-        ? sendEmail({
-            to: oldEmail,
-            subject: `Order #${orderNum} transferred to another location`,
-            html: layout(`
-              <p style="margin:0 0 12px;">Order #${orderNum} has been transferred to another location.</p>
-            `),
-          })
-        : Promise.resolve({ success: false, error: 'no old restaurant email' }),
-      // c. New restaurant (only if we have a contact email)
-      newEmail
-        ? sendEmail({
-            to: newEmail,
-            subject: `Order #${orderNum} assigned to your location`,
-            html: layout(`
-              <p style="margin:0 0 12px;">Order #${orderNum} has been assigned to your location. Please prepare as scheduled.</p>
-            `),
-          })
-        : Promise.resolve({ success: false, error: 'no new restaurant email' }),
+      }))
+    const newSends = newEmails.map(to =>
+      sendEmail({
+        to,
+        subject: `Order #${orderNum} assigned to your location`,
+        html: layout(`
+          <p style="margin:0 0 12px;">Order #${orderNum} has been assigned to your location. Please prepare as scheduled.</p>
+        `),
+      }))
+    const [oldResults, newResults] = await Promise.all([
+      Promise.allSettled(oldSends),
+      Promise.allSettled(newSends),
     ])
-    const emailOk = (i: number) => emailResults[i].status === 'fulfilled' && (emailResults[i] as PromiseFulfilledResult<{ success: boolean }>).value.success
+    const okCount = (rs: PromiseSettledResult<{ success: boolean }>[]) =>
+      rs.filter(r => r.status === 'fulfilled' && r.value.success).length
+
+    // Neither side having a reachable recipient is worth seeing: the order moved
+    // and no kitchen was told by email. Logged rather than alerted — a transfer
+    // is a deliberate, supervised action with an operator watching the response.
+    if (!oldEmails.length) console.warn('[admin/orders/transfer] no reachable recipient at the losing restaurant:', oldRef)
+    if (!newEmails.length) console.error('[admin/orders/transfer] no reachable recipient at the RECEIVING restaurant — nobody was told to cook it:', newRef, 'order', orderNum)
 
     // Expedite pickup-location update — best-effort, gated on an active delivery.
     // The order's restaurant_reference was just updated to newRef, so the rebuilt
@@ -167,7 +183,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       success: true,
       from: oldRef,
       to: newRef,
-      emails: { customer: emailOk(0), oldRestaurant: emailOk(1), newRestaurant: emailOk(2) },
+      emails: {
+        // customer: deliberately not sent — see the notifications block.
+        oldRestaurant: { sent: okCount(oldResults), recipients: oldEmails.length },
+        newRestaurant: { sent: okCount(newResults), recipients: newEmails.length },
+      },
       expedite,
     })
   } catch (err) {
