@@ -262,8 +262,17 @@ export async function POST(req: NextRequest) {
     const email = String(cust.email ?? '').trim()
     if (!email) return NextResponse.json({ error: 'A customer email is required.' }, { status: 400 })
 
+    // Restaurant-funded promo. placeNativeCheckout / placeNativeInvoiceCheckout
+    // already accept and resolve this (native-place-checkout.ts:41,226,260) — the
+    // direct-entry route simply never passed it, so even a payload carrying the
+    // code priced at full. Same field name the customer route uses.
+    const restaurantPromoCode = typeof (placeBody as Record<string, unknown>)?.restaurantPromoCode === 'string'
+      ? String((placeBody as Record<string, unknown>).restaurantPromoCode).trim() || null
+      : null
+
     const sharedParams = {
       restaurantReference: restaurantRef,
+      restaurantPromoCode,
       customerEmail: email,
       customerFirstName: (cust.firstName as string) ?? null,
       customerLastName: (cust.lastName as string) ?? null,

@@ -950,7 +950,14 @@ export default function CheckoutDrawer({
             // recompute the discounted total + restaurant transfer and adjust the FM
             // PaymentIntent pre-charge. serviceChargePct lets the server reproduce
             // FM's pricing to the cent (self-check).
-            ...(appliedPromo?.type === 'restaurant' && !isDirectEntry ? { restaurantPromoCode: appliedPromo.code, serviceChargePct } : {}),
+            // SENT ON DIRECT ENTRY TOO. This carried `&& !isDirectEntry`, so a promo
+            // a staff member applied during direct entry was stripped from the
+            // payload before it left the browser — the drawer discounted the
+            // DISPLAY locally, so it looked applied, and the order was placed at
+            // full price. Apollo Bagels - Hoboken #900000195: NEIGHBORS50 (50%)
+            // showed as applied, the order stored discount $0.00, and the invoice
+            // billed the undiscounted $170.79.
+            ...(appliedPromo?.type === 'restaurant' ? { restaurantPromoCode: appliedPromo.code, serviceChargePct } : {}),
             ...(orderType === 'DELIVERY' ? { deliveryAddress: fmAddr } : {}),
           }),
         })
