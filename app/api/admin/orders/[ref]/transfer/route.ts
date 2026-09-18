@@ -60,9 +60,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     // Validate the destination restaurant exists in the cache, and grab its
     // address/coords for the dlivrd pickup update + its name for the order row.
     const destRows = (await sql`
-      SELECT name, address, lat, lng FROM disco_restaurant_cache
+      SELECT name, address, phone, lat, lng FROM disco_restaurant_cache
       WHERE restaurant_reference = ${newRef}
-    `) as Array<{ name: string | null; address: string | null; lat: string | null; lng: string | null }>
+    `) as Array<{ name: string | null; address: string | null; phone: string | null; lat: string | null; lng: string | null }>
     if (!destRows.length) {
       return NextResponse.json({ error: 'Destination restaurant not found' }, { status: 400 })
     }
@@ -106,10 +106,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     // order (that is what #900000148 carries), which is an address known to
     // hard-bounce; the resolver filters it out, so storing it only misleads
     // anyone reading the row.
+    // ── EVERY DENORMALISED STORE FIELD MOVES, NOT JUST THE NAME ──────────────
+    // disco_orders carries its own copy of the restaurant's name, address, phone
+    // and email, and the order PDF prefers those over the cache (order-pdf.ts:
+    // `o.restaurant_address || cacheAddress`), so a stale copy is never
+    // corrected by the fallback. This used to update name and email only, which
+    // put the RIGHT store name above the WRONG address and phone on #900000148's
+    // PDF: "Two Hands - NoHo" over Tribeca's 251 Church St and 6467185619. The
+    // destination's address was already being selected here and simply never
+    // written.
     await sql`
       UPDATE disco_orders
       SET restaurant_reference = ${newRef}::uuid,
           restaurant_name = ${dest.name},
+          restaurant_address = ${dest.address},
+          restaurant_phone = ${dest.phone},
           restaurant_email = ${newEmails[0] ?? null},
           updated_at = NOW()
       WHERE reference = ${order.reference}::uuid
