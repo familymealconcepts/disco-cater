@@ -274,6 +274,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       tipDollars: Number(discoOrder.tips) || 0,
       discountPct, leadGenPct, scPct,
       orderType: base.orderType === 'DELIVERY' ? 'DELIVERY' : 'PICKUP',
+      // AN EXEMPT ORDER STAYS EXEMPT THROUGH AN EDIT. Derived from the order's
+      // own stored exemption id rather than a re-entered flag: changing a line
+      // would otherwise recompute tax from the live rate and silently reinstate
+      // it on an order the customer is exempt on.
+      taxExempt: !!(discoOrder as { tax_exempt_id?: string | null }).tax_exempt_id,
     }
     nativeCtx = editCtx
     const oldB = await priceNativeOrderAtSubtotal(restaurantRef, base.subtotal, editCtx)

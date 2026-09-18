@@ -117,6 +117,7 @@ export interface DiscoOrderRow {
   restaurant_reference: string
   restaurant_name: string | null
   restaurant_email: string | null
+  tax_exempt_id?: string | null
   customer_email: string
   customer_first_name: string | null
   customer_last_name: string | null
@@ -140,7 +141,7 @@ export async function getDiscoOrder(ref: string): Promise<DiscoOrderRow | null> 
              restaurant_reference, restaurant_name, restaurant_email,
              customer_email, customer_first_name, customer_last_name,
              to_char(order_date,'YYYY-MM-DD') AS order_date, order_time::text AS order_time, tips, tips_type,
-             COALESCE(edit_count, 0) AS edit_count, edit_status
+             COALESCE(edit_count, 0) AS edit_count, edit_status, tax_exempt_id
       FROM disco_orders
       WHERE fm_order_reference = ${ref}::uuid OR reference = ${ref}::uuid
       LIMIT 1

@@ -942,10 +942,20 @@ export default function CheckoutDrawer({
             // Disco-only order note (utensils) for the Neon mirror (stripped before
             // FM). Persisted to disco_orders.note; surfaced on every order surface.
             ...(wantsUtensils ? { note: 'Include utensils' } : {}),
-            // Tax exempt (customer flow only): tells /api/order/place to reduce the
-            // FM PaymentIntent by the tax before confirm. taxAmount is FM's reported
-            // sales tax (state+local+other) — the exact amount baked into the PI.
-            ...(taxExemptApplied && !isDirectEntry ? { taxExemptApplied: true, taxAmount: fm?.tax ?? 0, taxExemptState } : {}),
+            // Tax exempt, BOTH FLOWS. This carried `&& !isDirectEntry`, the twin of
+            // the promo exclusion below it: a staff member entering an exemption
+            // during direct entry saw tax drop on screen (the drawer zeroes the
+            // DISPLAY locally) while the order priced with full tax. Lee Lowry was
+            // charged tax on two Supernatural orders this way and Kealoha refunded
+            // it by hand.
+            //
+            // taxAmount is FM's reported sales tax, used only by the FM-backed path
+            // to reduce the PaymentIntent. The NATIVE path ignores it and zeroes tax
+            // in computeBreakdown instead, from taxExempt — the id and state travel
+            // so the server can validate and store them.
+            ...(taxExemptApplied
+              ? { taxExemptApplied: true, taxExempt: true, taxAmount: fm?.tax ?? 0, taxExemptId, taxExemptState }
+              : {}),
             // Restaurant-funded promo (customer flow): tells /api/order/place to
             // recompute the discounted total + restaurant transfer and adjust the FM
             // PaymentIntent pre-charge. serviceChargePct lets the server reproduce

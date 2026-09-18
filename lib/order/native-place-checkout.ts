@@ -39,6 +39,10 @@ export interface NativeCheckoutParams {
   // Restaurant-funded promo code (M6). Applied only when it resolves to a valid
   // RESTAURANT-funded percent code for this restaurant; otherwise ignored.
   restaurantPromoCode?: string | null
+  /** Tax exemption for this order — see lib/order/tax-exempt.ts. */
+  taxExempt?: boolean
+  taxExemptId?: string | null
+  taxExemptState?: string | null
   stripe: Stripe
   savedOpts?: { customerId?: string }
   /**
@@ -224,6 +228,7 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     deliveryAddress: params.deliveryAddress as NativeDeliveryAddressInput | undefined,
     tip,
     restaurantPromoCode: params.restaurantPromoCode,
+    taxExempt: params.taxExempt === true,
     sourceOfOrder,
     isDirectEntry: params.isDirectEntry === true,
   })
@@ -283,6 +288,10 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
     deliveryInstructions: params.deliveryInstructions ?? null,
     companyName: params.companyName ?? null,
     persons: params.headcount ?? null,
+    // The switch that zeroed the tax above, plus the record stored on the order.
+    taxExempt: params.taxExempt === true,
+    taxExemptId: params.taxExemptId ?? null,
+    taxExemptState: params.taxExemptState ?? null,
   }
   return { ok: true, built: { input, promo } }
 }

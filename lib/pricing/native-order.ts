@@ -179,6 +179,8 @@ export interface NativeOrderInput {
   // marketplace link → lead-gen fee applies. Mirrors the FM path, which drops the
   // lead-gen fee for FAMILYMEAL-sourced orders while still charging the 3% fee.
   sourceOfOrder?: 'DISCO' | 'FAMILYMEAL'
+  /** Tax exemption for THIS order. True zeroes the three sales-tax components. */
+  taxExempt?: boolean
 }
 
 export interface NativePricedOrder extends Breakdown {
@@ -205,6 +207,8 @@ export interface FrozenEditContext {
   leadGenPct: number     // frozen % — the tier already applied at placement, never re-derived
   scPct: number
   orderType: 'PICKUP' | 'DELIVERY'
+  /** Frozen from the order — an exempt order stays exempt through an edit. */
+  taxExempt?: boolean
 }
 
 // Re-price an already-placed native order at a NEW subtotal (an item edit),
@@ -230,7 +234,9 @@ export async function priceNativeOrderAtSubtotal(
     thirdPartyDeliverySubsiding: ctx.thirdPartyDeliverySubsiding,
     tip: { custom: true, amount: ctx.tipDollars },
   })
-  const breakdown = computeBreakdown(order, { ...cfg, leadGenPct: ctx.leadGenPct }, ctx.discountPct)
+  // THE EDIT PATH RE-APPLIES IT. Without this, changing a line would recompute
+  // tax from the rate and silently reinstate it on an exempt order.
+  const breakdown = computeBreakdown(order, { ...cfg, leadGenPct: ctx.leadGenPct, taxExempt: ctx.taxExempt === true }, ctx.discountPct)
   return { ...breakdown, taxReliable }
 }
 
@@ -244,6 +250,6 @@ export async function priceNativeOrder(input: NativeOrderInput): Promise<NativeP
   // orders pay lead-gen. The tier is still reported for the record, but the fee is 0.
   const leadGenPct = input.sourceOfOrder === 'FAMILYMEAL' ? 0 : resolvedPct
   const order = routeFulfillment(input)
-  const breakdown = computeBreakdown(order, { ...cfg, leadGenPct }, input.discountPct ?? 0)
+  const breakdown = computeBreakdown(order, { ...cfg, leadGenPct, taxExempt: input.taxExempt === true }, input.discountPct ?? 0)
   return { ...breakdown, leadGenPct, leadGenTier: tier, priorOrders, fulfillment: input.fulfillment, taxReliable }
 }

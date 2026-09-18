@@ -42,6 +42,14 @@ export interface NativeCheckoutInput {
   restaurantReference: string
   customerEmail: string
   fulfillment: Fulfillment
+  /**
+   * TAX EXEMPTION, per order. `taxExempt` is the switch that zeroes the three
+   * sales-tax components (see PricingConfig.taxExempt); the id and state are the
+   * record, stored on the order and printed on the confirmation and PDF.
+   */
+  taxExempt?: boolean
+  taxExemptId?: string | null
+  taxExemptState?: string | null
   items: NativeCartItem[]
   tip?: NativeTip
   deliveryFee?: number                 // customer-facing delivery fee (third-party: net of subsidy)
@@ -422,6 +430,8 @@ export interface PriceNativeCartInput {
   restaurantReference: string
   customerEmail: string
   items: NativeCartItem[]
+  /** Tax exemption for this order — zeroes the three sales-tax components. */
+  taxExempt?: boolean
   orderType: 'PICKUP' | 'DELIVERY'
   // Present at real placement (and the /validate-address step) once the diner
   // has entered a real address; absent during the FIRST pricing preview
@@ -562,6 +572,7 @@ export async function priceNativeCart(input: PriceNativeCartInput): Promise<Pric
     tip: input.tip,
     discountPct,
     sourceOfOrder: input.sourceOfOrder,
+    taxExempt: input.taxExempt === true,
   })
 
   return {
@@ -593,6 +604,7 @@ export async function priceNativeCheckout(input: NativeCheckoutInput): Promise<N
     tip: input.tip ?? { custom: false, pct: 0 },
     discountPct: input.discountPct,
     sourceOfOrder: input.sourceOfOrder,
+    taxExempt: input.taxExempt === true,
   })
   return { ...breakdown, subtotal }
 }
@@ -839,14 +851,14 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
       customer_email, customer_first_name, customer_last_name, customer_phone,
       order_date, order_time, delivery_time_window, tips, tips_type,
       delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
-      delivery_lat, delivery_lng, subtotal, total, fee, note, delivery_instructions, company_name, persons, menu_reference, created_at, updated_at
+      delivery_lat, delivery_lng, subtotal, total, fee, note, delivery_instructions, company_name, persons, menu_reference, tax_exempt_id, tax_exempt_state, created_at, updated_at
     ) VALUES (
       ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, ${input.sourceOfOrder ?? 'DISCO'}, ${input.isDirectEntry === true},
       ${input.restaurantReference}::uuid, ${rName}, ${rAddr}, ${rPhone},
       ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
       ${input.orderDate}::date, ${input.orderTime}::time, ${deliveryTimeWindow}, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},
       ${da.addressLine1 ?? null}, ${da.addressLine2 ?? null}, ${da.city ?? null}, ${da.state ?? null}, ${daZip},
-      ${daLat}, ${daLng}, ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${input.note ?? null}, ${input.deliveryInstructions ?? null}, ${input.companyName ?? null}, ${input.persons ?? null}, ${menuReference ?? null}::uuid, NOW(), NOW()
+      ${daLat}, ${daLng}, ${b.subtotal}, ${b.total}, ${b.familyMealFee}, ${input.note ?? null}, ${input.deliveryInstructions ?? null}, ${input.companyName ?? null}, ${input.persons ?? null}, ${menuReference ?? null}::uuid, ${input.taxExemptId ?? null}, ${input.taxExemptState ?? null}, NOW(), NOW()
     )
     RETURNING id, reference, order_number
   `) as { id: number; reference: string; order_number: string | number }[]

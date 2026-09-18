@@ -7,6 +7,7 @@ import { getRestaurantAuthContext } from '../../../../../lib/restaurant-auth-con
 import { getCallerScopeRefs } from '../../../../../lib/order/order-scope'
 import { isDiscoNativeRestaurant } from '../../../../../lib/order/native-checkout'
 import { placeNativeCheckout, placeNativeInvoiceCheckout } from '../../../../../lib/order/native-place-checkout'
+import { parseTaxExempt } from '../../../../../lib/order/tax-exempt'
 import { dispatchOrderConfirmations } from '../../../../../lib/order-notifications'
 import { dispatchExpediteForOrder, nativeDispatchEnabled } from '../../../../../lib/expedite'
 import { sanitizePhoneFields } from '../../../../../lib/utils/phone'
@@ -270,9 +271,20 @@ export async function POST(req: NextRequest) {
       ? String((placeBody as Record<string, unknown>).restaurantPromoCode).trim() || null
       : null
 
+    // Tax exemption, per order. The same exclusion that stripped the promo also
+    // stripped this on direct entry (CheckoutDrawer's `taxExemptApplied &&
+    // !isDirectEntry`), so a staff member entering an exemption number saw tax
+    // drop on screen and the order priced with full tax anyway.
+    const tx = parseTaxExempt({ ...(placeBody as Record<string, unknown>), ...(cd as Record<string, unknown>) })
+    if (!tx.ok) return NextResponse.json({ error: tx.error }, { status: 400 })
+    const taxExempt = tx.applied
+    const taxExemptId = tx.applied ? tx.id : null
+    const taxExemptState = tx.applied ? tx.state : null
+
     const sharedParams = {
       restaurantReference: restaurantRef,
       restaurantPromoCode,
+      taxExempt, taxExemptId, taxExemptState,
       customerEmail: email,
       customerFirstName: (cust.firstName as string) ?? null,
       customerLastName: (cust.lastName as string) ?? null,

@@ -107,6 +107,26 @@ export interface PricingConfig {
   stripePct: number             // 2.9
   stripeFlat: number            // 0.30
   leadGenPct: number            // applicable lead-gen % (derived from FM's actual transfer); 0 if none
+  /**
+   * TAX EXEMPTION. True zeroes the three SALES TAX components and nothing else.
+   *
+   * Mirrors FamilyMeal's own branch in PriceCalculateService:
+   *
+   *     if (taxExempt == Boolean.TRUE) {
+   *         priceModel.setLocalSalesTaxInPrice(BigDecimal.ZERO);
+   *         priceModel.setOtherSalesTaxInPrice(BigDecimal.ZERO);
+   *         priceModel.setStateSalesTaxInPrice(BigDecimal.ZERO);
+   *     }
+   *
+   * Applied AFTER the rates compute and BEFORE the total is summed, so the
+   * customer is charged a total with no tax in it. Service charge, the platform
+   * fee, delivery and tips are untouched — exemption covers what the TAX RATE
+   * computes, nothing else.
+   *
+   * The exemption ID itself is a record, not the switch: it is stored on the
+   * order and printed, but this boolean is what changes the money.
+   */
+  taxExempt?: boolean
 }
 
 export interface PricingOrder {
@@ -141,9 +161,12 @@ export function computeBreakdown(order: PricingOrder, cfg: PricingConfig, discou
   const base = discountedBase(s, discountPct)
   const serviceCharge = r2(base * cfg.scPct / 100)
   const taxBase = base + serviceCharge
-  const stateTax = r2(taxBase * cfg.stateTax.percent / 100 + cfg.stateTax.fixedAmount)
-  const localTax = r2(taxBase * cfg.localTax.percent / 100 + cfg.localTax.fixedAmount)
-  const otherTax = cfg.otherTax.applies ? r2(taxBase * cfg.otherTax.percent / 100 + cfg.otherTax.fixedAmount) : 0
+  // Computed first, then zeroed if exempt — the same order FM uses, so a
+  // configured rate is still visible in the code path and only the applied
+  // amount changes.
+  const stateTax = cfg.taxExempt ? 0 : r2(taxBase * cfg.stateTax.percent / 100 + cfg.stateTax.fixedAmount)
+  const localTax = cfg.taxExempt ? 0 : r2(taxBase * cfg.localTax.percent / 100 + cfg.localTax.fixedAmount)
+  const otherTax = cfg.taxExempt ? 0 : (cfg.otherTax.applies ? r2(taxBase * cfg.otherTax.percent / 100 + cfg.otherTax.fixedAmount) : 0)
   const familyMealFee = r2(base * cfg.familyMealPct / 100)
 
   const tipVal = order.tipCustom ? r2(order.tipAmount) : r2(base * order.tipPct / 100)
