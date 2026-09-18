@@ -152,6 +152,37 @@ const HISTORY_STATUSES = ['COMPLETED', 'REOPEN', 'CANCELED', 'EXPIRED', 'RESERVE
 const COUNTS_STATUSES = ['COMPLETED', 'DUE']
 const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'PARTIAL_REFUND', 'CANCELED', 'VOID', 'VOIDED'])
 
+// ── A REFUND IS A REVENUE FACT, NOT A SCHEDULING ONE ────────────────────────
+// A refunded or partially refunded order that has NOT HAPPENED YET is still an
+// order the kitchen has to cook. Supernatural #900000192 was partially refunded
+// ($12.83 of $231.71 — 94% still paid) and disappeared into Order History four
+// days before its 09/22 pickup, where Kealoha could not move it back because
+// TERMINAL also disables the status control.
+//
+// KEYED ON THE ORDER'S DATE, not on status. Once the date has passed the order
+// belongs in History like any other finished order; until then it is active
+// whatever its refund state. This is deliberately not FM's rule — FM keys on
+// status alone, and merely counts PARTIAL_REFUND among the statuses it expects
+// to be prepared (CountOfPickUpsByDateAndTimeRepository). Same outcome for the
+// case that matters, decided on the fact that actually determines it.
+const REFUND_STATUSES = new Set(['REFUND', 'REFUNDED', 'PARTIAL_REFUND'])
+
+/** Local-midnight start of the order's fulfilment day, or null if unparseable. */
+function orderDayStart(o: { orderDate?: string | null }): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(o.orderDate ?? '').slice(0, 10))
+  if (!m) return null
+  return new Date(+m[1], +m[2] - 1, +m[3]).getTime()
+}
+
+/** A refunded order whose fulfilment date has not yet passed. */
+function isUpcomingRefunded(o: { orderStatus?: string; orderDate?: string | null }): boolean {
+  if (!REFUND_STATUSES.has(String(o.orderStatus ?? ''))) return false
+  const day = orderDayStart(o)
+  if (day === null) return false
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  return day >= today.getTime()
+}
+
 // Both spellings are live in disco_orders (the status route's ALLOWED set and
 // normStatus carry CANCELED and CANCELLED), so anything keyed on "is this order
 // cancelled" must read both or the Due button would miss half of them.
@@ -1424,7 +1455,12 @@ function OrdersContent() {
   const ordersRef = useRef<Order[]>([])
   useEffect(() => { ordersRef.current = orders }, [orders])
 
-  const statuses = tab === 'active' ? ACTIVE_STATUSES : HISTORY_STATUSES
+  // Refund statuses are requested in BOTH tabs and split by date below: an
+  // upcoming refunded order belongs in Active, a past one in History, and the
+  // server filter alone cannot tell them apart.
+  const statuses = tab === 'active'
+    ? [...ACTIVE_STATUSES, ...REFUND_STATUSES]
+    : HISTORY_STATUSES
 
   function setTab(t: string) {
     const p = new URLSearchParams(searchParams.toString())
@@ -1622,9 +1658,17 @@ function OrdersContent() {
   )
 
   // Recurring filter is applied client-side over the currently-loaded page.
+  // THE DATE SPLIT. The Active tab now requests refund statuses too, so a
+  // refunded order that has already happened must be filtered back out here, and
+  // the History tab must drop the ones that have not happened yet — otherwise an
+  // upcoming refunded order would appear in both.
+  const tabFiltered = orders.filter(o => {
+    if (!REFUND_STATUSES.has(String(o.orderStatus ?? ''))) return true
+    return tab === 'active' ? isUpcomingRefunded(o) : !isUpcomingRefunded(o)
+  })
   const displayedOrders = recurringFilter === 'all'
-    ? orders
-    : orders.filter(o => recurringFilter === 'recurring' ? isRecurringOrder(o) : !isRecurringOrder(o))
+    ? tabFiltered
+    : tabFiltered.filter(o => recurringFilter === 'recurring' ? isRecurringOrder(o) : !isRecurringOrder(o))
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: F }}>
@@ -1863,7 +1907,7 @@ function OrdersContent() {
                       <td style={{ padding: '12px 14px' }}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusDotColor(order), flexShrink: 0 }} />
-                        {TERMINAL.has(order.orderStatus) ? (
+                        {TERMINAL.has(order.orderStatus) && !isUpcomingRefunded(order) ? (
                           <span style={{ fontSize: 13, color: '#888' }}>{statusLabel(order)}</span>
                         ) : (
                           <select
