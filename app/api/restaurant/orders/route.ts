@@ -6,6 +6,7 @@ import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-contex
 import { getLocationAccessRefs } from '../../../../lib/disco-restaurant-auth'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { syncRestaurantOrders } from '../../../../lib/fm-orders-sync'
+import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
 import { cookies } from 'next/headers'
 import { displayEmail } from '../../../../lib/customer-email-guard'
 
@@ -272,8 +273,25 @@ export async function GET(req: NextRequest) {
   if (scopeRef && UUID_RE.test(scopeRef)) {
     const syncRef = scopeRef
     waitUntil(
-      syncRestaurantOrders(syncRef, { withItems: false, pageSize: 50, maxPages: 1 })
-        .catch(e => console.error('[restaurant/orders] background sync failed (non-fatal):', e instanceof Error ? e.message : e)),
+      (async () => {
+        // ── A DISCO-NATIVE RESTAURANT MUST NEVER CALL FAMILYMEAL ──────────────
+        // Converting a restaurant to native means Neon owns its orders. FM has
+        // no order rows for it at all — Bird & Co.'s FM tenant schema
+        // (150_08c8be73…) holds only flyway_schema_history_restaurant, while its
+        // 346 real orders live in disco_orders. Syncing FROM FamilyMeal for a
+        // native restaurant can only ever pull nothing, and on 2026-09-20 it did
+        // far worse than nothing: this call (two FM requests per invocation, the
+        // public-api URL plus the admin fallback) was the traffic that froze
+        // FamilyMeal's backend.
+        //
+        // KEYED ON THE RESTAURANT, NOT THE SESSION — the same rule as
+        // lib/fm-menu-surface-guard.ts and the dashboard/stats branch. Note it
+        // gates on syncRef, the very reference the sync would use, rather than
+        // re-resolving it: a gate that asks about a DIFFERENT reference than the
+        // one it guards is the defect shape this repo keeps repeating.
+        if (await isDiscoNativeRestaurant(syncRef)) return
+        await syncRestaurantOrders(syncRef, { withItems: false, pageSize: 50, maxPages: 1 })
+      })().catch(e => console.error('[restaurant/orders] background sync failed (non-fatal):', e instanceof Error ? e.message : e)),
     )
   }
 

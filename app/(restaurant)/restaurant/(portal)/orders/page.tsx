@@ -167,6 +167,21 @@ const TERMINAL = new Set(['EXPIRED', 'REOPEN', 'REFUND', 'PARTIAL_REFUND', 'CANC
 // case that matters, decided on the fact that actually determines it.
 const REFUND_STATUSES = new Set(['REFUND', 'REFUNDED', 'PARTIAL_REFUND'])
 
+// MODULE-LEVEL, AND IT MUST STAY THAT WAY.
+// This was written inline in the component as
+//   tab === 'active' ? [...ACTIVE_STATUSES, ...REFUND_STATUSES] : HISTORY_STATUSES
+// which built a NEW ARRAY ON EVERY RENDER. `statuses` is a dependency of the
+// loadOrders useCallback, and loadOrders is the only dependency of the effect
+// that calls it, so a fresh array identity each render meant: render → new
+// loadOrders → effect fires → fetch → setState → render → … an unbounded loop.
+// Each iteration hit /api/restaurant/orders, which kicks off an FM order sync,
+// so ONE open Active tab sent ~2,700 requests/minute to FamilyMeal and was the
+// direct cause of the 2026-09-20 FM outage (Bird & Co., ref 08c8be73…).
+// HISTORY_STATUSES was already a module constant, which is why only the Active
+// tab looped. Keep this one at module scope so its identity is stable for the
+// life of the module and cannot drift back into the render body.
+const ACTIVE_TAB_STATUSES = [...ACTIVE_STATUSES, ...REFUND_STATUSES]
+
 /** Local-midnight start of the order's fulfilment day, or null if unparseable. */
 function orderDayStart(o: { orderDate?: string | null }): number | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(o.orderDate ?? '').slice(0, 10))
@@ -1458,9 +1473,7 @@ function OrdersContent() {
   // Refund statuses are requested in BOTH tabs and split by date below: an
   // upcoming refunded order belongs in Active, a past one in History, and the
   // server filter alone cannot tell them apart.
-  const statuses = tab === 'active'
-    ? [...ACTIVE_STATUSES, ...REFUND_STATUSES]
-    : HISTORY_STATUSES
+  const statuses = tab === 'active' ? ACTIVE_TAB_STATUSES : HISTORY_STATUSES
 
   function setTab(t: string) {
     const p = new URLSearchParams(searchParams.toString())
