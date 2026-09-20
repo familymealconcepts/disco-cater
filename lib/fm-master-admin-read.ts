@@ -32,6 +32,7 @@
 import { sql } from './db'
 import { alertOps } from './ops-alert'
 import { getFmServiceAuthHeader } from './fm-service-auth'
+import { createLoginGuard, FM_LOGIN_TIMEOUT_MS } from './fm-login-guard'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -248,6 +249,15 @@ export async function auditMasterPasswordUse(args: {
 // Every one of these is a GET, or the /login call needed to obtain a token, or
 // the explicitly-permitted selection switch — never a write to restaurant data.
 //
+// One login guard per master-admin email. Tokens are per-identity, so the guards
+// must be too — a single shared guard would hand one admin's JWT to another.
+const masterGuards = new Map<string, ReturnType<typeof createLoginGuard>>()
+function guardFor(email: string) {
+  let g = masterGuards.get(email)
+  if (!g) { g = createLoginGuard(`master admin ${email}`); masterGuards.set(email, g) }
+  return g
+}
+
 // homeRestaurant is NOT sourced from this login's JWT — see FmAdminIdentity's
 // comment. Decoding it back out here proved unreliable on the one real
 // conversion run so far (came back null on the actual run, non-null on an
@@ -256,15 +266,26 @@ export async function auditMasterPasswordUse(args: {
 async function loginAsFmAdmin(email: string): Promise<{ token: string }> {
   const password = process.env.FM_MASTER_PASSWORD
   if (!password) throw new Error('FM_MASTER_PASSWORD is not configured')
-  const res = await fetch(`${FM}/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ email, password }),
+
+  // Rate-bounded per identity — see lib/fm-login-guard.ts. This deliberately does
+  // NOT share lib/fm-service-auth.ts's cache: different credentials
+  // (FM_MASTER_PASSWORD, not FM_ADMIN_PASSWORD) and a different token per email.
+  // It gets the same single-flight / breaker / backoff / timeout protections so
+  // it cannot become a second unprotected door to FM's /login.
+  const token = await guardFor(email).get(async () => {
+    const res = await fetch(`${FM}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ email, password }),
+      signal: AbortSignal.timeout(FM_LOGIN_TIMEOUT_MS),
+    })
+    if (!res.ok) throw new Error(`FM login failed for ${email}: HTTP ${res.status}`)
+    const body = await res.json().catch(() => null)
+    const t = String(body?.authorization || body?.token || '').replace(/^Bearer\s+/i, '').trim()
+    if (!t) throw new Error(`FM login for ${email} returned no token`)
+    return t
   })
-  if (!res.ok) throw new Error(`FM login failed for ${email}: HTTP ${res.status}`)
-  const body = await res.json().catch(() => null)
-  const token = String(body?.authorization || body?.token || '').replace(/^Bearer\s+/i, '').trim()
-  if (!token) throw new Error(`FM login for ${email} returned no token`)
+
   const claims = decodeJwt(token)
   const jwtRestaurant = (claims?.restaurant as string) || null
   if (jwtRestaurant) console.log(`[fm-master-admin-read] ${email}: JWT restaurant claim = ${jwtRestaurant} (logged for cross-check only, not used as the restore target)`)

@@ -22,6 +22,7 @@ import { getAdminTokenFromRequest } from '../../../../lib/admin-auth'
 import { markRestaurantSyncActive } from '../../../../lib/syncState'
 import { sql, runMigrations } from '../../../../lib/db'
 import { alertOps } from '../../../../lib/ops-alert'
+import { getFmServiceToken } from '../../../../lib/fm-service-auth'
 
 // Cross-run cursor: where the next run starts in the qualifying list. Persisted
 // in Neon (sync_state) so each daily run drains the NEXT CAP restaurants instead
@@ -116,26 +117,12 @@ interface FmRestaurant {
 }
 
 // ── STEP 1 — FM admin login ──────────────────────────────────────────────────
-
-async function fmLogin(): Promise<string> {
-  const email = process.env.FM_ADMIN_EMAIL
-  const password = process.env.FM_ADMIN_PASSWORD
-  if (!email || !password) throw new Error('FM_ADMIN_EMAIL / FM_ADMIN_PASSWORD are not configured')
-
-  const res = await fetch(`${FM}/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ email, password }),
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`FM login failed (HTTP ${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`)
-  }
-  const data = await res.json().catch(() => ({}))
-  const token = String(data?.authorization || '').replace(/^Bearer\s+/i, '').trim()
-  if (!token) throw new Error('FM login returned no authorization token')
-  return token
-}
+//
+// This used to hold a private login helper that duplicated lib/fm-service-auth.ts
+// against the SAME service account (FM_ADMIN_EMAIL / FM_ADMIN_PASSWORD) with no
+// caching, no backoff and no timeout. Removed 2026-09-20 after the FM login-storm
+// outage: a second, unprotected door to the same endpoint defeats the breaker in
+// the shared helper. Use the shared helper so this cron is rate-bounded too.
 
 // ── STEP 2 — fetch all marketplace restaurants (paginated) ───────────────────
 
@@ -235,7 +222,7 @@ async function runSync() {
   const offset = await readSyncOffset()
 
   // STEP 1
-  const token = await fmLogin()
+  const token = await getFmServiceToken()
 
   // STEP 2
   const all = await fetchAllMarketplace(token)

@@ -10,21 +10,19 @@
 //   FM_ADMIN_PASSWORD  its password
 //
 // The JWT is cached in-module per lambda and reused until ~1 min before expiry.
+//
+// Rate-bounding (single-flight, circuit breaker, backoff, timeout) lives in
+// lib/fm-login-guard.ts — see that file for why it exists. Short version: this
+// helper sits on a per-request path, and before 2026-09-20 it cached ONLY on
+// success, so an FM outage turned every Disco request into a fresh /login and
+// helped freeze FM's backend. The guard makes FM errors reduce Disco's login
+// rate instead of raising it.
+
+import { createLoginGuard, FM_LOGIN_TIMEOUT_MS } from './fm-login-guard'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
-let cachedToken: string | null = null
-let cachedExpMs = 0
-
-function decodeExpMs(token: string): number {
-  try {
-    const json = Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
-    const payload = JSON.parse(json)
-    return typeof payload.exp === 'number' ? payload.exp * 1000 : 0
-  } catch {
-    return 0
-  }
-}
+const guard = createLoginGuard('service account')
 
 async function login(): Promise<string> {
   const email = process.env.FM_ADMIN_EMAIL
@@ -37,29 +35,34 @@ async function login(): Promise<string> {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ email, password }),
     cache: 'no-store',
+    signal: AbortSignal.timeout(FM_LOGIN_TIMEOUT_MS),
   })
   if (!res.ok) throw new Error(`FM service login failed: ${res.status}`)
   const data = await res.json().catch(() => null)
   // FM /login returns { authorization, refreshToken, ... }. The authorization
   // value may carry a "Bearer " prefix; FM's own API expects the raw JWT, so
-  // strip it (mirrors the sync-restaurants cron's fmLogin()).
+  // strip it (mirrors the sync-restaurants cron, which now calls this helper).
   const token = String(data?.authorization || data?.token || '').replace(/^Bearer\s+/i, '').trim()
   if (!token) throw new Error('FM service login returned no token')
   return token
 }
 
-/** Returns a valid service JWT, logging in (or re-logging in) as needed. */
+/** Returns a valid service JWT, logging in (or re-logging in) as needed.
+ *
+ *  Throws without calling FM while the breaker is open. Callers that already
+ *  tolerate an FM failure (most catch and fall back to Neon) see the same error
+ *  shape as before — just instantly instead of after a hang, and without adding
+ *  load to an already-failing FM. */
 export async function getFmServiceToken(forceRefresh = false): Promise<string> {
-  const now = Date.now()
-  if (!forceRefresh && cachedToken && now < cachedExpMs - 60_000) return cachedToken
-  const token = await login()
-  cachedToken = token
-  const exp = decodeExpMs(token)
-  cachedExpMs = exp > 0 ? exp : now + 30 * 60_000 // fallback 30 min if no exp claim
-  return token
+  return guard.get(login, forceRefresh)
 }
 
 /** FM expects the raw JWT in Authorization (no "Bearer " prefix). */
 export async function getFmServiceAuthHeader(forceRefresh = false): Promise<Record<string, string>> {
   return { Authorization: await getFmServiceToken(forceRefresh) }
+}
+
+/** Observability for health/debug routes — never throws, never calls FM. */
+export function fmServiceAuthState() {
+  return guard.state()
 }
