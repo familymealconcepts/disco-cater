@@ -6,6 +6,32 @@ import { getRestaurantRef } from '../../../../lib/restaurant-auth'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
+/**
+ * The reference THIS ROUTE WILL ACTUALLY ACT ON — used for the native guard so
+ * the guard and the FM call can never disagree about which restaurant is in play.
+ *
+ * It used to guard on `await getRestaurantRef()` alone. That reads the
+ * `fm_restaurant_token` cookie, which a DISCO-NATIVE SESSION DOES NOT HAVE, so it
+ * returned null, refuseIfNativeMenuSurface's `if (!ref) return null` no-opped, and
+ * the route walked straight on to FamilyMeal's menu API for a native restaurant —
+ * including the POST, which creates a real menu in FM (MenuAdminController ->
+ * menuService.createMenuByAdmin -> menuRepository.save). 206 of 214 native
+ * restaurants hold a Disco account and could take that path.
+ *
+ * Each branch below is the reference that branch's FM call uses:
+ *   • service-account branch -> ctx.restaurantReference (the ?restaurantReference=
+ *     query param on FM's /api/admin/menu)
+ *   • FM-token branch        -> getRestaurantRef(), which honours FM's own selected
+ *     location, i.e. what FM resolves the session-scoped /api/menu against
+ * Guarding on anything else (e.g. the JWT's home-restaurant claim) would let the
+ * guard and the call point at different restaurants.
+ */
+async function menuSurfaceRef(
+  ctx: NonNullable<Awaited<ReturnType<typeof getRestaurantAuthContext>>>,
+): Promise<string> {
+  return usesServiceAccount(ctx) ? ctx.restaurantReference : ((await getRestaurantRef()) || '')
+}
+
 // FM's SUPER_ADMIN menus endpoint returns MenuAdminResponseDto (`type`,
 // `scheduleOption`) whereas the menus page reads `menuType` + top-level
 // `startDate`/`endDate`. Alias those, pass the rest through. Disco branch only.
@@ -58,17 +84,17 @@ async function enrichMenus(
 }
 
 export async function GET(req: NextRequest) {
-  {
-    // FM MENU SURFACE — REFUSED FOR A DISCO-NATIVE RESTAURANT. See
-    // lib/fm-menu-surface-guard.ts. Keyed on the SELECTED RESTAURANT, never the
-    // session: the master password issues an FM session, so a session-based check
-    // sent our own team to FamilyMeal's menu screens for native restaurants.
-    const guard = await refuseIfNativeMenuSurface(await getRestaurantRef())
-    if (guard) return guard
-  }
-
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  {
+    // FM MENU SURFACE — REFUSED FOR A DISCO-NATIVE RESTAURANT. See
+    // lib/fm-menu-surface-guard.ts. Keyed on THE RESTAURANT, never the session.
+    // Resolved after ctx (see menuSurfaceRef) because the pre-ctx cookie read
+    // was blind to Disco-native sessions and silently let them through.
+    const guard = await refuseIfNativeMenuSurface(await menuSurfaceRef(ctx))
+    if (guard) return guard
+  }
   const h = await getFmHeaderForRestaurant(ctx)
   try {
     const sp = req.nextUrl.searchParams
@@ -105,17 +131,17 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  {
-    // FM MENU SURFACE — REFUSED FOR A DISCO-NATIVE RESTAURANT. See
-    // lib/fm-menu-surface-guard.ts. Keyed on the SELECTED RESTAURANT, never the
-    // session: the master password issues an FM session, so a session-based check
-    // sent our own team to FamilyMeal's menu screens for native restaurants.
-    const guard = await refuseIfNativeMenuSurface(await getRestaurantRef())
-    if (guard) return guard
-  }
-
   const ctx = await getRestaurantAuthContext()
   if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  {
+    // FM MENU SURFACE — REFUSED FOR A DISCO-NATIVE RESTAURANT. See
+    // lib/fm-menu-surface-guard.ts. Keyed on THE RESTAURANT, never the session.
+    // Resolved after ctx (see menuSurfaceRef) because the pre-ctx cookie read
+    // was blind to Disco-native sessions and silently let them through.
+    const guard = await refuseIfNativeMenuSurface(await menuSurfaceRef(ctx))
+    if (guard) return guard
+  }
   const h = await getFmHeaderForRestaurant(ctx)
   try {
     const body = await req.json()
