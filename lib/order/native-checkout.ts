@@ -853,7 +853,7 @@ export async function placeNativeOrder(input: NativePlaceInput): Promise<NativeP
       delivery_address_line1, delivery_address_line2, delivery_city, delivery_state, delivery_zip,
       delivery_lat, delivery_lng, subtotal, total, fee, note, delivery_instructions, company_name, persons, menu_reference, tax_exempt_id, tax_exempt_state, created_at, updated_at
     ) VALUES (
-      ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, ${input.sourceOfOrder ?? 'DISCO'}, ${input.isDirectEntry === true},
+      ${orderNumber}::bigint, ${initialStatus}, ${orderType}, ${deliveryType}, ${input.sourceOfOrder ?? (input.isDirectEntry === true ? 'FAMILYMEAL' : 'DISCO')}, ${input.isDirectEntry === true},
       ${input.restaurantReference}::uuid, ${rName}, ${rAddr}, ${rPhone},
       ${input.customerEmail}, ${input.customerFirstName ?? null}, ${input.customerLastName ?? null}, ${input.customerPhone ?? null},
       ${input.orderDate}::date, ${input.orderTime}::time, ${deliveryTimeWindow}, ${tipsTotal}, ${input.tip?.custom ? 'CUSTOM' : 'PERCENTAGE'},

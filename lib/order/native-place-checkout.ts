@@ -121,12 +121,28 @@ async function buildNativePlaceInput(params: NativeCheckoutParams): Promise<Buil
 
   // 1P vs 3P attribution — the SAME signal the client sends the FM path
   // (CheckoutDrawer sets 'FAMILYMEAL' for the /order/{slug} 1P Direct link, 'DISCO'
-  // for the /restaurants/{slug} marketplace link). Only an EXPLICIT 'FAMILYMEAL'
-  // suppresses the lead-gen fee; anything else (incl. an absent value) is treated
-  // as 'DISCO' — native's historical default, so a lost signal errs toward charging
-  // the marketplace fee rather than silently giving it away.
+  // for the /restaurants/{slug} marketplace link). An EXPLICIT value always wins;
+  // it is only the FALLBACK that changed.
+  //
+  // THE DEFAULT IS KEYED ON DIRECT ENTRY. A direct-entry order is the restaurant
+  // typing in an order itself — it did not come from the marketplace at all, so
+  // there is no lead to have generated and no lead-gen fee to charge. Defaulting it
+  // to 'DISCO' billed a marketplace fee on an order the marketplace never produced,
+  // and showed it as 3P in the portal (SourcePill: DISCO -> 3P).
+  //
+  // The drawer already sends 'FAMILYMEAL' for direct entry (CheckoutDrawer:915,
+  // since 88df454), so orders placed through the UI were already right. This fixes
+  // the SERVER-SIDE fallback, which is what any caller that omits the field gets —
+  // scripts, future callers, or the drawer if that field is ever dropped.
+  //
+  // For a non-direct-entry order the fallback is unchanged ('DISCO'), so a lost
+  // signal on the customer path still errs toward charging the marketplace fee
+  // rather than silently giving it away.
+  const explicitSource = String(cd.sourceoforder ?? '').toUpperCase()
   const sourceOfOrder: 'DISCO' | 'FAMILYMEAL' =
-    String(cd.sourceoforder ?? '').toUpperCase() === 'FAMILYMEAL' ? 'FAMILYMEAL' : 'DISCO'
+    explicitSource === 'FAMILYMEAL' ? 'FAMILYMEAL'
+      : explicitSource === 'DISCO' ? 'DISCO'
+        : params.isDirectEntry === true ? 'FAMILYMEAL' : 'DISCO'
 
   const orderTypeRaw = String(cd.orderType ?? (params.deliveryAddress ? 'DELIVERY' : 'PICKUP'))
   // Normalized once here rather than re-derived per gate — the order-minimum gate
