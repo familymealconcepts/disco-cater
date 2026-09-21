@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
-import { getRestaurantAuthHeader } from '../../../../../../lib/restaurant-auth'
+import { getRestaurantAuthHeader, getRestaurantEmail } from '../../../../../../lib/restaurant-auth'
 import { getRestaurantAuthContext } from '../../../../../../lib/restaurant-auth-context'
 import { getLocationAccessRefs, grantLocationAccess } from '../../../../../../lib/disco-restaurant-auth'
 import { resolveDiscoGroupScope, discoRefAllowed } from '../../../../../../lib/restaurant-write-scope'
@@ -196,17 +196,47 @@ export async function POST(_req: Request, { params }: { params: Promise<{ ref: s
         ${newRef}, ${((s.name as string) || 'Location') + ' (Copy)'}, ${newSlug}, ${s.cuisine}, ${s.description}, ${s.image_url}, ${s.lat}, ${s.lng}, ${s.location},
         ${s.address}, ${s.address_line2}, ${s.city}, ${s.state}, ${s.zipcode}, ${s.phone}, ${s.timezone}, ${s.icon_url}, true, true
       )`
-    // Make the clone visible in the SA's group without dropping existing locations:
-    // if they're already on explicit access, just add the clone; otherwise backfill
-    // their current group into explicit access (else granting one ref would hide the
-    // rest, since explicit access wins over business-name grouping).
-    // Only a disco session has a real email to grant against — an FM session's
-    // ctx.email is always '' (see RestaurantAuthContext), and location access is a
-    // disco-native concept, so there is nothing to grant for an FM caller.
-    if (scope && ctx.email) {
-      const existing = await getLocationAccessRefs(ctx.email)
-      const toGrant = existing.length || scope.unrestricted ? [newRef] : [...scope.refs, newRef]
-      for (const r of toGrant) await grantLocationAccess(ctx.email, r, ctx.email).catch(() => {})
+    // ── THE COPY IS OWNED BY WHOEVER MADE IT, AND BY WHOEVER OWNS THE SOURCE ──
+    // Access is expressed ONLY through disco_restaurant_location_access, the same
+    // mechanism getDiscoGroupAccounts checks first and the same one the Locations
+    // page and resolveDiscoScopeRef already honour. Nothing new is invented here.
+    //
+    // Two grants, for two different reasons:
+    //
+    // 1. THE ACTOR. The system admin who clicked Copy must be able to manage what
+    //    they just created. This used to run only `if (scope && ctx.email)` — a
+    //    DISCO session — and an FM session's ctx.email is always '' (see
+    //    RestaurantAuthContext), so a clone made with the master password, which is
+    //    how the Disco Cater team enters every restaurant, granted nobody anything.
+    //    The actor's identity for an FM session comes from the FM JWT's own `sub`
+    //    claim (getRestaurantEmail — the same resolver d77c35f added for exactly
+    //    this gap), so both session types now name a real person.
+    //
+    // 2. EVERYONE WHO ALREADY OWNS THE SOURCE. "The same access to the copy as
+    //    they have to the source" is satisfied by mirroring the source's existing
+    //    grants onto the copy, so a chain whose locations are shared by several
+    //    admins does not end up with a copy only one of them can see.
+    //
+    // The backfill in (1) is unchanged in spirit: explicit access WINS over
+    // business-name grouping, so granting a single ref to someone who had no
+    // explicit rows would hide every other location they previously reached by
+    // name. When they have no explicit rows yet, their whole current group is
+    // written out alongside the copy.
+    const actorEmail = (ctx.email || (await getRestaurantEmail()) || '').trim().toLowerCase()
+    if (actorEmail) {
+      const existing = await getLocationAccessRefs(actorEmail)
+      // An FM caller has no `scope`; it was authorized by fmCallerMayActOn instead.
+      // With no group to backfill, grant the copy alone — there is nothing to hide.
+      const toGrant = existing.length || !scope || scope.unrestricted ? [newRef] : [...scope.refs, newRef]
+      for (const r of toGrant) await grantLocationAccess(actorEmail, r, actorEmail).catch(() => {})
+    }
+    // Mirror the SOURCE's grants onto the copy. ON CONFLICT DO NOTHING inside
+    // grantLocationAccess makes re-granting the actor harmless.
+    const sourceOwners = (await sql`
+      SELECT account_email FROM disco_restaurant_location_access WHERE restaurant_reference = ${ref}
+    `.catch(() => [])) as { account_email: string }[]
+    for (const o of sourceOwners) {
+      await grantLocationAccess(o.account_email, newRef, actorEmail || o.account_email).catch(() => {})
     }
 
     // ── IS_LIVE TRUE, AND STRIPE IS THE GATE ─────────────────────────────────
