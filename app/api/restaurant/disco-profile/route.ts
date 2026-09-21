@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runMigrations } from '../../../../lib/db'
 import { getRestaurantAuthContext, resolveDiscoScopeRef } from '../../../../lib/restaurant-auth-context'
-import { getRestaurantRef } from '../../../../lib/restaurant-auth'
+import { getRestaurantRef, SELECTED_RESTAURANT_COOKIE } from '../../../../lib/restaurant-auth'
+import { cookies } from 'next/headers'
 import { requireWritableRestaurantRef } from '../../../../lib/restaurant-write-scope'
 
 export const runtime = 'nodejs'
@@ -73,6 +74,38 @@ export async function PUT(req: NextRequest) {
     const check = await requireWritableRestaurantRef(body?.restaurant_reference)
     if (!check.ok) return NextResponse.json({ error: check.error }, { status: check.status })
     const ref = check.ref
+
+    // ── MAY-WRITE IS NOT THE SAME QUESTION AS IS-THIS-WHAT-YOU-ARE-LOOKING-AT ──
+    // requireWritableRestaurantRef only asks whether the caller is ALLOWED to
+    // write this reference. It says nothing about whether the reference is the
+    // restaurant the form was actually showing — and for a chain admin every
+    // location in the chain is allowed, so a wrong reference sails through.
+    //
+    // That was live exposure. Opening a DUPLICATED location's Account page on an
+    // FM (master-password) session rendered the SOURCE's name and reference,
+    // because getRestaurantRef() discards a selected reference FamilyMeal has
+    // never heard of and falls back to the JWT's home restaurant. Saving then
+    // rewrote the live source's name, phone, address and logo while the operator
+    // believed they were editing the copy.
+    //
+    // COMPARE AGAINST THE VIEWER'S OWN SELECTION, not against a re-resolution.
+    // The selected-restaurant cookie is what the operator actually clicked, and
+    // it is set for a Disco-native target too (see 4a5299e). Falling back to
+    // resolveRef() covers a single-location ADMIN, who has no selection.
+    //
+    // REFUSE, never redirect the write. Silently retargeting is how the DeCheco's
+    // bug behaved (load Location A, switch to B, save, and the write landed on B);
+    // an explicit refusal tells the operator to reload instead of guessing which
+    // restaurant they meant.
+    const store = await cookies()
+    const selected = (store.get(SELECTED_RESTAURANT_COOKIE)?.value || '').trim()
+    const viewing = selected || (await resolveRef()) || ''
+    if (viewing && viewing.toLowerCase() !== ref.toLowerCase()) {
+      console.error('[disco-profile] refused a write whose reference is not the one in view:', { claimed: ref, viewing })
+      return NextResponse.json({
+        error: 'This page was loaded for a different location than the one you have selected, so nothing was saved. Reload the page and try again.',
+      }, { status: 409 })
+    }
     const restaurantName = String(body?.restaurantName || '').trim()
     const phone = String(body?.phone || '').trim()
     const address = String(body?.address || '').trim()
