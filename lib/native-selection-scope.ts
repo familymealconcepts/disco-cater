@@ -50,3 +50,36 @@ export async function nativeSelectionAllowed(
   `.catch(() => [])) as unknown[]
   return rows.length > 0
 }
+
+/**
+ * Every DISCO-NATIVE restaurant an FM SYSTEM_ADMIN token may reach, by the same
+ * rule as nativeSelectionAllowed: it shares a multi-unit link with a restaurant
+ * FamilyMeal already authorized this token for.
+ *
+ * ── WHY A SET AND NOT JUST THE BOOLEAN ──────────────────────────────────────
+ * resolveWriteScope() needs the whole reachable set, not a yes/no on one
+ * reference. Without it the WRITE scope stayed FM's list alone, so an operator
+ * could select a duplicated location and see it correctly and then be refused
+ * when they saved ("You do not have access to that restaurant"). View and write
+ * must agree: the same rule that lets you select a native restaurant lets you
+ * write it, or the portal shows you a page it will not let you use.
+ *
+ * NEVER THROWS — returns [] and leaves the caller's scope exactly as it was,
+ * which fails closed.
+ */
+export async function nativeRefsReachableFrom(
+  fmPermitted: Set<string> | ReadonlySet<string>,
+): Promise<string[]> {
+  if (!fmPermitted.size) return []
+  const rows = (await sql`
+    SELECT DISTINCT c.restaurant_reference AS ref
+      FROM disco_restaurant_cache c
+      JOIN disco_multi_unit_link_members target
+        ON target.restaurant_reference = c.restaurant_reference
+      JOIN disco_multi_unit_link_members sibling
+        ON sibling.link_reference = target.link_reference
+     WHERE c.is_disco_native = true
+       AND sibling.restaurant_reference = ANY(${[...fmPermitted]}::text[])
+  `.catch(() => [])) as { ref: string }[]
+  return rows.map(r => r.ref).filter(Boolean)
+}
