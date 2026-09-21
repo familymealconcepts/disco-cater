@@ -13,6 +13,7 @@ import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
 import { sql } from '../../../../lib/db'
 import { getRestaurantAuthContext } from '../../../../lib/restaurant-auth-context'
 import { discoGroupRefs } from '../../../../lib/disco-restaurant-auth'
+import { nativeSelectionAllowed } from '../../../../lib/native-selection-scope'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -103,16 +104,10 @@ export async function PUT(req: NextRequest) {
     if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     const fmPermitted = await getFmSystemAdminPermittedRefs(token)
     if (!fmPermitted.size) return forbidden()
-    const linked = (await sql`
-      SELECT 1
-        FROM disco_multi_unit_link_members target
-        JOIN disco_multi_unit_link_members sibling
-          ON sibling.link_reference = target.link_reference
-       WHERE target.restaurant_reference = ${ref}
-         AND sibling.restaurant_reference = ANY(${[...fmPermitted]}::text[])
-       LIMIT 1
-    `.catch(() => [])) as unknown[]
-    if (!linked.length) return forbidden()
+    // Shared with getRestaurantRef() via lib/native-selection-scope.ts — one
+    // implementation, so the surface that SETS the selection and the surface that
+    // READS it can never disagree about whether it was allowed.
+    if (!(await nativeSelectionAllowed(ref, fmPermitted))) return forbidden()
     return setSelection(ref)
   }
 

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { fmFetch } from './fm-fetch'
+import { nativeSelectionAllowed } from './native-selection-scope'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -174,7 +175,22 @@ export async function getRestaurantRef(): Promise<string | null> {
   if (!selected || selected === home) return home
 
   const permitted = await getFmSystemAdminPermittedRefs(token)
-  return permitted.has(selected) ? selected : home
+  if (permitted.has(selected)) return selected
+
+  // ── A DISCO-NATIVE SELECTION IS DISCO'S TO AUTHORIZE, NOT FAMILYMEAL'S ─────
+  // `permitted` is FM's list. A Disco-native restaurant is never in it, so
+  // returning `home` here discarded the operator's actual selection and handed
+  // back the JWT's home restaurant instead. Every surface built on
+  // getRestaurantRef() then showed the WRONG restaurant on an FM session — and
+  // /api/restaurant/disco-profile wrote to it, rewriting a live source's profile
+  // when the operator was looking at its duplicate.
+  //
+  // Same rule as /api/restaurant/selected-restaurant (4a5299e), now shared via
+  // lib/native-selection-scope.ts so the two cannot drift: honour the selection
+  // when it is native AND shares a multi-unit link with something FM permitted.
+  if (await nativeSelectionAllowed(selected, permitted)) return selected
+
+  return home
 }
 
 // For Middleware (Edge runtime — next/headers not available)

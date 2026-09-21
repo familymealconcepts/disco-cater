@@ -29,7 +29,18 @@ export async function GET() {
   // dashboard got an empty profile and its "your restaurant appears at …"
   // marketplace link fell back to the generic list (RM9). Build the profile from
   // Neon so the slug (and name) point at the restaurant's own marketplace page.
-  if (ctx.authType === 'disco') {
+  // ── KEYED ON THE RESTAURANT, NOT THE SESSION ───────────────────────────────
+  // This branch used to require ctx.authType === 'disco', so an FM session — what
+  // the master password issues, and how the Disco Cater team enters every
+  // restaurant — skipped Neon entirely and proxied FamilyMeal. FM has no record of
+  // a Disco-native restaurant, so it answered with the SESSION'S restaurant: for a
+  // duplicated location that is the LIVE SOURCE, whose name and reference the
+  // Account page then rendered and sent back as its write target.
+  //
+  // resolveDiscoScopeRef already answers for BOTH session types (it delegates to
+  // getRestaurantRef for an FM session), so dropping the gate is enough — the same
+  // shape dashboard/stats already uses.
+  {
     const scope = await resolveDiscoScopeRef(ctx)
     if (scope && await isDiscoNativeRestaurant(scope)) {
       const rows = (await sql`
