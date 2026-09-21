@@ -32,17 +32,43 @@ interface EligibilityResult {
 }
 
 async function checkEligibility(ref: string): Promise<EligibilityResult> {
-  const acct = (await sql`
-    SELECT is_disco_native, fm_restaurant_reference FROM disco_restaurant_accounts
-    WHERE restaurant_reference = ${ref} LIMIT 1
-  `) as { is_disco_native: boolean | null; fm_restaurant_reference: string | null }[]
-  const cache = (await sql`SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1`) as { name: string | null }[]
+  // ── EXISTENCE AND NATIVENESS BOTH COME FROM THE CACHE ─────────────────────
+  // This used to answer "Restaurant not found." whenever
+  // disco_restaurant_accounts had no row for the reference — and a DUPLICATED
+  // location never has one, because the clone route creates a cache row, an
+  // overrides row and a multi-unit link membership but deliberately no account
+  // (there is no person to create an identity for). So the one restaurant this
+  // tool exists to remove was the one restaurant it claimed did not exist.
+  // "Stacks & Cordials - Royal Oak (Copy)" is exactly that row.
+  //
+  // It also read is_disco_native from disco_restaurant_accounts, which is the
+  // STALE copy of that flag: disco_restaurant_cache.is_disco_native is
+  // authoritative (Bird & Co. reads true on the cache and false on the account).
+  // Keying the native test on the account could refuse a genuinely-native
+  // restaurant, or — worse — admit an FM-backed one whose account row happened
+  // to say true.
+  //
+  // Existence is now the cache row, and nativeness is the cache's flag. The
+  // FM-record check below is unchanged in intent but no longer requires an
+  // account row to exist in order to pass.
+  const cache = (await sql`
+    SELECT name, is_disco_native FROM disco_restaurant_cache WHERE restaurant_reference = ${ref} LIMIT 1
+  `) as { name: string | null; is_disco_native: boolean | null }[]
   const restaurantName = cache[0]?.name ?? null
 
-  if (!acct.length) {
+  if (!cache.length) {
     return { eligible: false, reason: 'Restaurant not found.', restaurantName, orderCount: 0, order: null }
   }
-  if (acct[0].is_disco_native !== true || acct[0].fm_restaurant_reference) {
+
+  // An FM record anywhere still disqualifies — the daily map-cache cron would
+  // re-create the row from FM's live list. Scoped to rows that actually carry an
+  // FM reference, so a missing account row is simply "no FM record", not a block.
+  const fmLinked = (await sql`
+    SELECT 1 FROM disco_restaurant_accounts
+    WHERE restaurant_reference = ${ref} AND fm_restaurant_reference IS NOT NULL LIMIT 1
+  `) as unknown[]
+
+  if (cache[0].is_disco_native !== true || fmLinked.length) {
     return {
       eligible: false,
       reason: 'FM-backed — a Neon-only delete would be silently re-created by the daily map-cache cron (it reads FM\'s live restaurant list and upserts, never deletes). This tool only works for Disco-native restaurants with no FM record.',
