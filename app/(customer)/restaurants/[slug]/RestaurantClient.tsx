@@ -1483,7 +1483,47 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
   const headerImg = restaurant.iconUrl || null
   const tags = restaurant.cuisines?.length ? restaurant.cuisines : restaurant.cuisine ? [restaurant.cuisine] : []
 
-  const [taxTooltip, setTaxTooltip] = useState(false)
+  // ── FEES TOOLTIP: ANCHORED IN VIEWPORT COORDINATES, NOT INSIDE THE PANEL ────
+  // It used to be position:absolute inside the Order Summary. That panel sets
+  // overflowY:'auto' (desktop line ~2104, mobile ~2146) and, per CSS, an
+  // overflow that is not `visible` on ONE axis computes the other axis to `auto`
+  // too — so the panel clips horizontally as well. The tooltip is ~220px wide and
+  // centred on a 14px icon sitting near the panel's left edge, so most of it
+  // extended past that edge and was cut off, unreadable.
+  //
+  // position:fixed escapes every ancestor's overflow. Safe here: no ancestor sets
+  // transform/filter/will-change, which are the only things that would trap a
+  // fixed element in a local containing block.
+  //
+  // Coordinates are captured from the icon on hover and CLAMPED to the viewport,
+  // so it stays fully visible wherever the icon sits — including the mobile cart
+  // sheet, which renders the same cartPanel through its own overflowY:'auto'.
+  const [taxTooltip, setTaxTooltip] = useState<{ left: number; top: number; below: boolean } | null>(null)
+  const TOOLTIP_W = 220
+  const showTaxTooltip = (el: HTMLElement | null) => {
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const half = TOOLTIP_W / 2
+    // Keep 8px clear of both edges however narrow the viewport is.
+    const left = Math.min(Math.max(r.left + r.width / 2, 8 + half), window.innerWidth - 8 - half)
+    // Prefer above; flip below only when there isn't room, so it never runs off
+    // the top on a short viewport.
+    const below = r.top < 90
+    setTaxTooltip({ left, top: below ? r.bottom + 6 : r.top - 6, below })
+  }
+  // The panel scrolls; a fixed tooltip does not follow it. Dismiss on any scroll
+  // or resize rather than let it hang next to nothing. Capture phase so it fires
+  // for the panel's own scroll, not just the window's.
+  useEffect(() => {
+    if (!taxTooltip) return
+    const dismiss = () => setTaxTooltip(null)
+    window.addEventListener('scroll', dismiss, true)
+    window.addEventListener('resize', dismiss)
+    return () => {
+      window.removeEventListener('scroll', dismiss, true)
+      window.removeEventListener('resize', dismiss)
+    }
+  }, [taxTooltip])
 
   // Pulsing placeholder shown on the amount while a pricing preview is fetching.
   const priceSkeleton = (
@@ -1634,14 +1674,32 @@ export default function RestaurantClient({ restaurant, fmSlug, fmRef, menuData, 
                   Fees
                   <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
                     <span
-                      onMouseEnter={() => setTaxTooltip(true)}
-                      onMouseLeave={() => setTaxTooltip(false)}
+                      onMouseEnter={e => showTaxTooltip(e.currentTarget)}
+                      onMouseLeave={() => setTaxTooltip(null)}
+                      onFocus={e => showTaxTooltip(e.currentTarget)}
+                      onBlur={() => setTaxTooltip(null)}
+                      tabIndex={0}
+                      aria-label="A small platform fee. This allows us to be free for restaurants."
                       style={{ width: 14, height: 14, borderRadius: '50%', background: '#ddd', color: '#666', fontSize: 9, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', userSelect: 'none' as const }}>
                       ℹ
                     </span>
                     {taxTooltip && (
-                      <div style={{ position: 'absolute', bottom: 'calc(100% + 6px)', left: '50%', transform: 'translateX(-50%)', background: '#fff', border: '1px solid #e8e8e8', borderRadius: 8, padding: '10px 13px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)', whiteSpace: 'nowrap', zIndex: 20, pointerEvents: 'none' as const, minWidth: 200 }}>
-                        <div style={{ fontSize: 11, color: '#727272', fontStyle: 'italic', lineHeight: 1.4 }}>This allows us to be free for restaurants.</div>
+                      <div
+                        role="tooltip"
+                        style={{
+                          position: 'fixed',
+                          left: taxTooltip.left,
+                          top: taxTooltip.top,
+                          transform: taxTooltip.below ? 'translateX(-50%)' : 'translate(-50%, -100%)',
+                          width: TOOLTIP_W,
+                          background: '#fff', border: '1px solid #e8e8e8', borderRadius: 8,
+                          padding: '10px 13px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                          // `normal`, not `nowrap`: with a fixed width the text wraps
+                          // instead of running past the viewport on a narrow screen.
+                          whiteSpace: 'normal',
+                          zIndex: 2147483000, pointerEvents: 'none' as const,
+                        }}>
+                        <div style={{ fontSize: 11, color: '#727272', fontStyle: 'italic', lineHeight: 1.4 }}>A small platform fee. This allows us to be free for restaurants.</div>
                       </div>
                     )}
                   </span>
