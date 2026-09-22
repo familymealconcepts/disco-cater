@@ -41,7 +41,14 @@ export async function findBareOrdersOnNativeRestaurants(): Promise<BareOrderFind
     FROM disco_orders o
     LEFT JOIN disco_sale_transactions t ON t.order_id = o.id
     JOIN disco_restaurant_cache c ON c.restaurant_reference = o.restaurant_reference::text
-    WHERE t.id IS NULL AND c.is_disco_native = true
+    -- FM_LIST is the PROVISIONAL row written at insert (lib/fm-orders-sync.ts's
+    -- writeProvisionalSaleTransaction): it carries subtotal/total/fee so the
+    -- financial report is never silently understated, but it still has no
+    -- per-component tax/tip breakdown and no items. That is exactly the gap this
+    -- check exists to surface, so it must keep counting as bare — otherwise
+    -- adding the provisional row would have silenced this alert rather than
+    -- fixed anything.
+    WHERE (t.id IS NULL OR t.source = 'FM_LIST') AND c.is_disco_native = true
     ORDER BY o.created_at DESC
   `.catch(() => [])) as {
     order_number: string | number; reference: string; restaurant_reference: string

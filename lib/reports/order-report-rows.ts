@@ -196,7 +196,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
            t.source, t.subtotal, t.state_tax, t.local_tax, t.other_tax,
            t.own_delivery_fee, t.third_party_delivery_fee, t.tips_in_price, t.third_party_delivery_tips,
            t.service_charge, t.discount, t.lead_gen_one_disco_fee, t.lead_gen_two_disco_fee,
-           t.total, t.stripe_fee, t.third_party_delivery_subsiding
+           t.total, t.fee, t.stripe_fee, t.third_party_delivery_subsiding
       FROM disco_orders o
       LEFT JOIN disco_sale_transactions t
         ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
@@ -234,7 +234,22 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       discount: n(row.discount),
       leadGenOne: n(row.lead_gen_one_disco_fee),
       leadGenTwo: n(row.lead_gen_two_disco_fee),
-      gross: n(row.total),
+      // ── GROSS EXCLUDES THE FAMILYMEAL 3% FEE ──────────────────────────────
+      // Peter's ruling (2026-09-22): the fee never reaches the restaurant, so it
+      // does not belong in a restaurant-facing figure.
+      //
+      // This used to be n(row.total) alone, matching FM's SalesSummaryReport
+      // query (`coalesce(trst.total, 0) AS gross`). But FM contradicts ITSELF:
+      // its restaurant dashboard builds grossSum from components and never adds
+      // the fee (DashboardSaleStatisticsMapper.convertToGrossSum = subtotal +
+      // taxes + delivery + tips + serviceCharge − discounts). So excluding it
+      // here aligns with FM's own restaurant-facing definition, and only differs
+      // from FM's admin export.
+      //
+      // The report carries no Fee column, which is what made this invisible:
+      // the fee sat inside Gross with nothing on the sheet to account for it.
+      // Total Distributed is untouched — it never included the fee.
+      gross: r2(n(row.total) - n(row.fee)),
       stripeFee: n(row.stripe_fee),
       refundAmount: refund,
       thirdPartySubsidy: n(row.third_party_delivery_subsiding),

@@ -268,6 +268,58 @@ async function syncOrderItemsFromDetails(orderId: number, details: Record<string
 // resolveTipsInPrice (not a residual from total — verified against 800 real
 // historical orders, ~90% accurate; the ~10% miss is a pre-existing FM data
 // quirk, not something any available field resolves).
+/**
+ * A sale transaction written from the LIST payload, at insert time, always.
+ *
+ * ── WHY THIS EXISTS ─────────────────────────────────────────────────────────
+ * disco_sale_transactions was only ever written by syncOrderDetail, which costs
+ * one FM call per order. On the withItems:false paths that fetch is skipped for
+ * anything not upcoming ("historical rows keep their cheap header-only path"),
+ * so a past-dated order inserted by those paths got a HEADER WITH NO MONEY.
+ *
+ * The reporting consequence is silent and total: lib/reports/order-report-rows.ts
+ * selects t.* through a LEFT JOIN, so such an order still appears as a row while
+ * contributing ZERO to Gross, Net Sales, every tax, and Total Distributed. It
+ * does not look like missing data, it looks like a smaller restaurant. Measured
+ * 2026-09-22: 249 orders, $86,360.77, across 43 restaurants — Stacks & Cordials
+ * - Clawson alone was understated by $1,079.74 against FM's own report.
+ *
+ * repairBareOrderDetail already heals these, but it is bounded (cap 20 per
+ * restaurant per run, 50 restaurants per hourly run) so a fleet-wide backlog
+ * takes days — and it was starved entirely while the FM origin rate limits were
+ * shedding the sync.
+ *
+ * So the row is now written at insert from what the LIST already gives us — no
+ * extra FM call, no backfill-timeout risk (the reason the detail fetch is gated
+ * in the first place). The money the report needs most is exact: subtotal, total
+ * and fee all come straight from FM's list payload.
+ *
+ * NULL, NEVER 0, for what the list does not carry (taxes, service charge,
+ * delivery fees, discount, lead gen, Stripe fee, tips). A fabricated 0 would read
+ * as "this order had no tax", which is worse than an honest unknown — the same
+ * rule buildSaleTransactionFields already follows.
+ *
+ * source = 'FM_LIST' marks it provisional, which is what lets
+ * repairBareOrderDetail still find it and syncSaleTransactionFromDetails still
+ * replace it. Without that marker a partial row would look complete and would
+ * never be enriched.
+ */
+async function writeProvisionalSaleTransaction(orderId: number, o: NormalizedFmOrder): Promise<void> {
+  const existing = (await sql`
+    SELECT id FROM disco_sale_transactions WHERE order_id = ${orderId} AND transaction_type = 'ORIGINAL' LIMIT 1
+  `.catch(() => [])) as { id: number }[]
+  if (existing.length) return
+
+  await sql`
+    INSERT INTO disco_sale_transactions (
+      order_id, transaction_status, transaction_type, subtotal, total, fee, source
+    ) VALUES (
+      ${orderId}, ${transactionStatusForOrder(String(o.status || '').toUpperCase())}, 'ORIGINAL',
+      ${o.subtotal}, ${o.total}, ${o.fee}, 'FM_LIST'
+    )
+  `.catch(e => console.error('[fm-orders-sync] provisional sale_transaction insert failed:', orderId, e instanceof Error ? e.message : e))
+}
+
 async function syncSaleTransactionFromDetails(orderId: number, details: Record<string, unknown>): Promise<void> {
   const order = (((details?.data as Record<string, unknown>)?.order as Record<string, unknown>)
     ?? (details?.order as Record<string, unknown>)
@@ -310,7 +362,9 @@ async function syncSaleTransactionFromDetails(orderId: number, details: Record<s
   }
   const txnStatus = transactionStatusForOrder(statusSource)
 
-  await sql`DELETE FROM disco_sale_transactions WHERE order_id = ${orderId} AND source = 'FM_SYNC'`
+  // FM_LIST is the provisional row written at insert (see writeProvisionalSaleTransaction);
+  // this detail-sourced row supersedes it.
+  await sql`DELETE FROM disco_sale_transactions WHERE order_id = ${orderId} AND source IN ('FM_SYNC', 'FM_LIST')`
   await sql`
     INSERT INTO disco_sale_transactions (
       order_id, transaction_status, transaction_type, subtotal, total, fee, service_charge, stripe_fee,
@@ -399,6 +453,10 @@ async function upsertOne(o: NormalizedFmOrder, restaurantReference: string, with
       }
       return 'skipped'
     }
+    // ALWAYS, before anything conditional below. This is the row the financial
+    // report reads; it must exist for every inserted order regardless of which
+    // pull created it. Cheap (no FM call) and idempotent.
+    if (inserted[0]?.id) await writeProvisionalSaleTransaction(inserted[0].id, o)
     if (withItems && inserted[0]?.id) await syncOrderDetail(inserted[0].id, o.fmRef)
 
     // ── ITEMS FOR ANY UPCOMING ORDER, WHATEVER ITS SOURCE ──────────────────────
@@ -591,7 +649,7 @@ export async function repairBareOrderDetail(
     LEFT JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
     WHERE o.restaurant_reference = ${restaurantReference}::uuid
       AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
-      AND o.is_deleted = false AND t.id IS NULL
+      AND o.is_deleted = false AND (t.id IS NULL OR t.source = 'FM_LIST')
   `.catch(() => [])) as { n: number }[]
   const bareBefore = countRows[0]?.n ?? 0
   if (bareBefore === 0) return { bareBefore, repaired: 0 }
@@ -617,7 +675,7 @@ export async function repairBareOrderDetail(
     LEFT JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
     WHERE o.restaurant_reference = ${restaurantReference}::uuid
       AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
-      AND o.is_deleted = false AND t.id IS NULL
+      AND o.is_deleted = false AND (t.id IS NULL OR t.source = 'FM_LIST')
       AND o.order_date >= CURRENT_DATE
     ORDER BY o.order_date ASC, o.order_time ASC NULLS LAST
   `.catch(() => [])) as { id: number; fm_ref: string }[]
@@ -629,7 +687,7 @@ export async function repairBareOrderDetail(
     LEFT JOIN disco_sale_transactions t ON t.order_id = o.id AND t.transaction_type = 'ORIGINAL'
     WHERE o.restaurant_reference = ${restaurantReference}::uuid
       AND o.source_of_order = 'FAMILYMEAL' AND o.fm_order_reference IS NOT NULL
-      AND o.is_deleted = false AND t.id IS NULL
+      AND o.is_deleted = false AND (t.id IS NULL OR t.source = 'FM_LIST')
       AND o.order_date < CURRENT_DATE
     ORDER BY o.placed_at DESC NULLS LAST
     LIMIT ${remaining}

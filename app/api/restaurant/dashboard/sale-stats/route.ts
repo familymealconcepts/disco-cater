@@ -98,7 +98,15 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       COUNT(*)::int AS "totalOrdersCount",
       COALESCE(SUM(o.subtotal), 0)::float8 AS "subtotalOrdersSum",
       COALESCE(AVG(o.subtotal), 0)::float8 AS "subtotalOrdersAvg",
-      COALESCE(SUM(o.total), 0)::float8 AS "totalOrdersSum",
+      -- "Total Amount" on the restaurant dashboard. The FamilyMeal 3% fee is
+      -- SUBTRACTED: it is taken out before payout and never reaches the
+      -- restaurant, so a restaurant-facing total must not include it (Peter's
+      -- ruling, 2026-09-22). FM's own restaurant dashboard agrees — its
+      -- grossSum is built from components and never adds the fee.
+      -- st.fee is populated on 100% of ORIGINAL rows (verified fleet-wide:
+      -- 25,037 rows, zero NULLs), and COALESCE keeps an order with no
+      -- transaction row from nulling the whole sum.
+      COALESCE(SUM(o.total), 0)::float8 - COALESCE(SUM(st.fee), 0)::float8 AS "totalOrdersSum",
       COALESCE(SUM(st.state_tax), 0)::float8 AS "stateSalesTaxInPriceSum",
       COALESCE(SUM(st.local_tax), 0)::float8 AS "localSalesTaxInPriceSum",
       COALESCE(SUM(st.other_tax), 0)::float8 AS "otherSalesTaxInPriceSum",
