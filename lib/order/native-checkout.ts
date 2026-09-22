@@ -15,6 +15,7 @@ import { buildNativeScheduleOption, type NativeScheduleConfig } from '../schedul
 import { isDateTimeBookable } from '../scheduling/cutoffs'
 import { validateNativeDelivery, type NativeDeliveryAddress } from './native-delivery'
 import { resolveNativeRestaurantPromo, type NativePromoResolution, type NativePromoReason } from '../promo-native'
+import { TAX_EXEMPT_ID_RE } from './tax-exempt'
 
 export interface NativeCartItem {
   reference?: string; name: string; price: number; quantity: number
@@ -710,7 +711,32 @@ export async function priceNativeFmDto(body: Record<string, unknown>): Promise<R
   // trusts supplied coordinates rather than geocoding, so forwarding costs no
   // geocode — the original reason for withholding it does not apply.
   const deliveryAddress = (body?.deliveryAddress ?? undefined) as NativeDeliveryAddressInput | undefined
+
+  // ── THE PREVIEW MUST PRICE THE EXEMPTION, NOT LEAVE IT TO THE CLIENT ────────
+  // This used to ignore tax exemption entirely, so the preview always came back
+  // fully taxed and CheckoutDrawer subtracted the tax on screen itself. On a
+  // Disco-native restaurant that made the displayed total a client-side fiction:
+  // the customer saw tax removed and was charged it.
+  //
+  // THE SIGNAL IS THE ID, and it is already being sent. buildCheckoutDto includes
+  // taxExemptId ONLY when `taxExemptApplied && taxExemptId`, and the drawer's
+  // Apply button requires a valid id AND a state before it can be applied — so
+  // the id's presence is exactly "the customer applied an exemption".
+  //
+  // Deliberately NOT read from a new `taxExempt` flag on the DTO: /api/order/init
+  // rest-spreads everything it does not destructure straight through to FM, and
+  // FM must keep the tax in its own total (see buildCheckoutDto's comment) or the
+  // FM-backed place route cannot subtract it from the PaymentIntent. Reusing the
+  // id changes nothing about what FM receives.
+  //
+  // Validated with the same regex as placement so the preview cannot zero tax for
+  // an id that parseTaxExempt would later reject. The state is not needed here —
+  // it does not enter the arithmetic — and is enforced at placement.
+  const previewExemptId = String(body?.taxExemptId ?? '').replace(/[\s\-.]/g, '')
+  const taxExempt = TAX_EXEMPT_ID_RE.test(previewExemptId)
+
   const priced = await priceNativeCart({
+    taxExempt,
     restaurantReference: restaurantRef,
     customerEmail: '', // total is lead-gen-independent; place() resolves the real customer
     items,

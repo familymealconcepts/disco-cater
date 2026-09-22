@@ -10,6 +10,7 @@ import { applyRestaurantFundedDiscount, type ApplyResult } from '../../../../lib
 import { geocodeAddress } from '../../../../lib/geocode'
 import { isDiscoNativeRestaurant } from '../../../../lib/order/native-checkout'
 import { placeNativeCheckout } from '../../../../lib/order/native-place-checkout'
+import { parseTaxExempt } from '../../../../lib/order/tax-exempt'
 import { assertRestaurantOrderable, orderableErrorBody } from '../../../../lib/restaurant-orderable'
 import { getCustomerSession } from '../../../../lib/customer-auth'
 import { alertOps } from '../../../../lib/ops-alert'
@@ -348,7 +349,27 @@ export async function POST(req: NextRequest) {
       // backend already sources the order's customer name from the request
       // body via a separate RestaurantCustomer record, never the account.
       const cd = (body?.checkoutDetails ?? {}) as Record<string, unknown>
+
+      // ── TAX EXEMPTION, THE SAME WAY DIRECT ENTRY DOES IT ─────────────────────
+      // placeNativeCheckout reads params.taxExempt — it does NOT look inside
+      // checkoutDetails. This call passed neither, so on a Disco-native
+      // restaurant the exemption was silently dropped: priceNativeOrder received
+      // taxExempt:false and charged all three sales-tax components, while
+      // CheckoutDrawer had already subtracted the tax from the total on screen
+      // (displayTax = taxExemptApplied ? 0 : fm.tax). The customer was shown one
+      // figure and charged a higher one, and tax_exempt_id/tax_exempt_state were
+      // stored as NULL, so nothing recorded that they had ever claimed it.
+      //
+      // Same shared validator as /api/restaurant/orders/place (6-12 digits after
+      // stripping separators, plus a required state) so the two checkout paths
+      // cannot diverge on what counts as a valid exemption.
+      const tx = parseTaxExempt({ ...(body as Record<string, unknown>), ...cd })
+      if (!tx.ok) return NextResponse.json({ error: tx.error }, { status: 400 })
+
       const outcome = await placeNativeCheckout({
+        taxExempt: tx.applied,
+        taxExemptId: tx.applied ? tx.id : null,
+        taxExemptState: tx.applied ? tx.state : null,
         restaurantReference: body.restaurantRef,
         customerEmail: session.email,
         customerFirstName: body?.customer?.firstName ?? session.firstName ?? null,

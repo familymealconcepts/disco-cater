@@ -432,10 +432,23 @@ export default function CheckoutDrawer({
   // ── Computed ───────────────────────────────────────────────────────────────
   const fm = useMemo(() => extractFmMoney(fmTotals), [fmTotals])
   const displayDeliveryFee = fm?.deliveryFee ?? null
-  // Tax exempt → show $0 for the sales-tax portion. FM is NOT told about the
-  // exemption (we strip taxExempt from the update so it doesn't 500), so it still
-  // returns tax — we zero it here and remove it from the total (fmTotalEffective).
-  const displayTax = taxExemptApplied ? 0 : (fm?.tax ?? null)
+  // ── WHO APPLIED THE EXEMPTION: THE SERVER, OR THIS COMPONENT? ──────────────
+  // FM is deliberately NOT told about the exemption (buildCheckoutDto withholds
+  // it so FM keeps the tax in its own total, which the FM-backed place route then
+  // subtracts from the PaymentIntent). So on the FM path the preview really does
+  // come back fully taxed and the zeroing has to happen here.
+  //
+  // A DISCO-NATIVE preview is different: priceNativeFmDto now prices the exemption
+  // server-side, so its tax and total already reflect it. Subtracting again here
+  // would double-count. Worse, the old unconditional subtraction is what made the
+  // displayed total a fiction on native — the client removed tax the server had
+  // charged, so the customer saw one number and was charged a higher one.
+  //
+  // priceNativeFmDto returns `native: true` at the envelope root, which is how we
+  // tell the two apart without another round trip.
+  const isNativePreview = (fmTotals as { native?: boolean } | null)?.native === true
+  const exemptAppliedClientSide = taxExemptApplied && !isNativePreview
+  const displayTax = taxExemptApplied ? (isNativePreview ? (fm?.tax ?? null) : 0) : (fm?.tax ?? null)
   const displayTips = fm?.tips ?? tipAmt
   const displaySvc = fm?.serviceCharge ?? svcAmt        // per-menu service charge
   const displayFee = fm?.fee ?? null                    // platform (~3%) fee
@@ -448,7 +461,7 @@ export default function CheckoutDrawer({
   // the taxExempt flag from the FM update so FM never zeroes it server-side), so
   // subtract the FM-reported tax client-side to reflect the exemption in the total.
   const fmTotalEffective = fm?.total != null
-    ? (taxExemptApplied ? Math.max(0, Math.round((fm.total - (fm.tax ?? 0)) * 100) / 100) : fm.total)
+    ? (exemptAppliedClientSide ? Math.max(0, Math.round((fm.total - (fm.tax ?? 0)) * 100) / 100) : fm.total)
     : null
   // The order total — single formula, used for BOTH the Review & Pay display/
   // Place Order button (PaymentStep's payTotal below just reads this) and
