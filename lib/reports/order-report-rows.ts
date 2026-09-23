@@ -58,20 +58,28 @@ export const ORDER_REPORT_COLUMNS: ReportColumnDef[] = [
   { key: 'otherTax', label: 'Tax (Other)', financial: true },
   { key: 'selfDeliveryFee', label: 'Delivery Fee (Self-Delivery)', financial: true },
   { key: 'thirdPartyDeliveryFee', label: 'Delivery Fee (Third-Party)', financial: true },
-  // ── TIP SPLIT ───────────────────────────────────────────────────────────────
-  // FM has ONE "Tip" column because on FM every tip reaches the restaurant. On a
-  // native third-party delivery it does not: the tip routes to
-  // third_party_delivery_tips and is excluded from the transfer, because the
-  // courier network invoices Disco separately. Verified on real money —
-  // #900000162 ($26.80) and #900000160 ($67.20) both settled with the tip
-  // excluded from transfer_data.amount.
+  // ── TIP SPLIT, BY FULFILMENT TYPE ───────────────────────────────────────────
+  // FM's restaurant dashboard breaks tips out three ways — pickupTipsInPrice,
+  // owndeliveryTipsInPrice, thirdpartyTipsInPrice — and these mirror it. All
+  // three are tips the RESTAURANT receives, so all three are inside Gross.
   //
-  // A single "Tip" column therefore has no honest value: showing the restaurant's
-  // share alone reads as "no tip was left", and showing the sum claims money the
-  // restaurant never receives. Two columns, and the second one SAYS SO in its
-  // header rather than relying on anyone knowing the settlement rule.
-  { key: 'tipRestaurant', label: 'Tip (Restaurant)', financial: true },
-  { key: 'tipThirdParty', label: 'Tip (Third-Party, not paid out)', financial: true },
+  // The fourth column is the courier tip (third_party_delivery_tips), which FM
+  // carries separately as thirdPartyDeliveryTipsOrdersSum. It is NOT the
+  // restaurant's money: on a third-party delivery the tip goes to the courier
+  // network, which invoices Disco separately, and it never enters
+  // transfer_data.amount. Verified on real money — #900000162 ($26.80) and
+  // #900000160 ($67.20) both settled with the tip excluded.
+  //
+  // It stays on the sheet, excluded from Gross and SAYING SO in its header,
+  // because Gross now excludes it: drop the column and the customer charge no
+  // longer reconciles to the visible figures. The two are not redundant either —
+  // 14 third-party orders carry BOTH a restaurant tip and a courier tip
+  // ($819.08 of restaurant tips across them), so folding them into one column
+  // would either claim or hide real money.
+  { key: 'tipPickup', label: 'Tips (Pickup)', financial: true },
+  { key: 'tipSelfDelivery', label: 'Tips (Self Delivery)', financial: true },
+  { key: 'tipThirdPartyDelivery', label: 'Tips (Third-Party Delivery)', financial: true },
+  { key: 'tipCourier', label: 'Courier Tip (Third-Party, not paid out)', financial: true },
   { key: 'serviceCharge', label: 'Service charge', financial: true },
   { key: 'discount', label: 'Discount', financial: true },
   { key: 'leadGenOne', label: 'Lead Gen 1', financial: true },
@@ -109,8 +117,10 @@ export interface OrderReportRow {
   otherTax: number
   selfDeliveryFee: number
   thirdPartyDeliveryFee: number
-  tipRestaurant: number
-  tipThirdParty: number
+  tipPickup: number
+  tipSelfDelivery: number
+  tipThirdPartyDelivery: number
+  tipCourier: number
   serviceCharge: number
   discount: number
   leadGenOne: number
@@ -130,10 +140,20 @@ export interface OrderReportRow {
 const n = (v: unknown): number => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
 const r2 = (x: number) => Math.round(x * 100) / 100
 
-/** FM's serviceType CASE, reproduced exactly. */
-function serviceTypeOf(deliveryType: string | null): string {
+/**
+ * FM's serviceType CASE, plus the value FM never emits.
+ *
+ * THE LITERAL STRING 'PICKUP' USED TO FALL THROUGH TO 'Third-Party Delivery'.
+ * FM records a pickup as a NULL delivery_type, so the original CASE only tested
+ * null/'' — but Disco's own native checkout writes the literal 'PICKUP'. 87
+ * orders (67 NATIVE_CHECKOUT + 20 legacy), every one with zero delivery fee and
+ * zero courier tip, were therefore reported as third-party deliveries. With the
+ * per-fulfilment tip and delivery columns below, that mistake would have moved
+ * real pickup tips into the third-party bucket and out of Gross.
+ */
+export function serviceTypeOf(deliveryType: string | null): string {
   if (deliveryType === 'OWN_DELIVERY') return 'Self-Delivery'
-  if (deliveryType == null || deliveryType === '') return 'Pickup'
+  if (deliveryType == null || deliveryType === '' || deliveryType === 'PICKUP') return 'Pickup'
   return 'Third-Party Delivery'
 }
 
@@ -211,6 +231,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
 
   return rows.map(row => {
     const refund = n(row.refund)
+    const service = serviceTypeOf((row.delivery_type as string) ?? null)
     // THE BRANCH. t.source, never o.source_of_order — see the header.
     const isNative = String(row.source ?? '') === 'NATIVE_CHECKOUT'
     const totalDistributed = isNative ? nativeTotalDistributed(row) : fmTotalDistributed(row, refund)
@@ -219,7 +240,7 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       orderId: String(row.order_number ?? ''),
       customerName: [row.customer_first_name, row.customer_last_name].filter(Boolean).join(' ').trim(),
       createdDate: row.created_at ? new Date(row.created_at as string).toISOString().slice(0, 10) : '',
-      serviceType: serviceTypeOf((row.delivery_type as string) ?? null),
+      serviceType: service,
       orderDate: String(row.order_date ?? ''),
       orderTime: String(row.order_time ?? '').slice(0, 5),
       netSales: n(row.subtotal),
@@ -228,28 +249,43 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
       otherTax: n(row.other_tax),
       selfDeliveryFee: n(row.own_delivery_fee),
       thirdPartyDeliveryFee: n(row.third_party_delivery_fee),
-      tipRestaurant: n(row.tips_in_price),
-      tipThirdParty: n(row.third_party_delivery_tips),
+      // The restaurant's own tip, filed under the fulfilment type it was left on.
+      tipPickup: service === 'Pickup' ? n(row.tips_in_price) : 0,
+      tipSelfDelivery: service === 'Self-Delivery' ? n(row.tips_in_price) : 0,
+      tipThirdPartyDelivery: service === 'Third-Party Delivery' ? n(row.tips_in_price) : 0,
+      // The courier's tip. Never the restaurant's — excluded from Gross below.
+      tipCourier: n(row.third_party_delivery_tips),
       serviceCharge: n(row.service_charge),
       discount: n(row.discount),
       leadGenOne: n(row.lead_gen_one_disco_fee),
       leadGenTwo: n(row.lead_gen_two_disco_fee),
-      // ── GROSS EXCLUDES THE FAMILYMEAL 3% FEE ──────────────────────────────
-      // Peter's ruling (2026-09-22): the fee never reaches the restaurant, so it
-      // does not belong in a restaurant-facing figure.
+      // ── GROSS IS WHAT THE RESTAURANT ACTUALLY RECEIVES ────────────────────
+      // Three things are excluded, and none of them is a naming judgement —
+      // each was checked against what Stripe actually transferred.
       //
-      // This used to be n(row.total) alone, matching FM's SalesSummaryReport
-      // query (`coalesce(trst.total, 0) AS gross`). But FM contradicts ITSELF:
-      // its restaurant dashboard builds grossSum from components and never adds
-      // the fee (DashboardSaleStatisticsMapper.convertToGrossSum = subtotal +
-      // taxes + delivery + tips + serviceCharge − discounts). So excluding it
-      // here aligns with FM's own restaurant-facing definition, and only differs
-      // from FM's admin export.
+      //  1. The FamilyMeal 3% fee (Peter's ruling, 2026-09-22) — never reaches
+      //     the restaurant. No Fee column exists here either; it is simply not
+      //     part of a restaurant-facing sheet. Super-admin surfaces keep it.
+      //  2. The third-party DELIVERY FEE — paid to the courier network.
+      //  3. The third-party (courier) TIP — likewise the courier's.
       //
-      // The report carries no Fee column, which is what made this invisible:
-      // the fee sat inside Gross with nothing on the sheet to account for it.
-      // Total Distributed is untouched — it never included the fee.
-      gross: r2(n(row.total) - n(row.fee)),
+      // MEASURED, not inferred. Across 43 Gracious Bakery + Stacks & Cordials
+      // orders that have a real Stripe transfer:
+      //     gross = total − fee                          matched 18/43
+      //     FM's own convertToGross                      matched 18/43
+      //     gross = total − fee − 3P delivery − 3P tips  matched 43/43
+      // The 25 failures in the first two are exactly the third-party orders; on
+      // #95807513 the old figure read $803.08 against a $586.16 transfer.
+      //
+      // Built from the visible components rather than as total − fee so the
+      // columns on the sheet provably add up to this number; the two are
+      // algebraically identical (total already equals the components plus fee,
+      // 3P delivery and courier tip) and reconcileRow() re-checks it per row.
+      gross: r2(
+        n(row.subtotal) + n(row.state_tax) + n(row.local_tax) + n(row.other_tax)
+        + n(row.own_delivery_fee) + n(row.tips_in_price) + n(row.service_charge)
+        - n(row.discount),
+      ),
       stripeFee: n(row.stripe_fee),
       refundAmount: refund,
       thirdPartySubsidy: n(row.third_party_delivery_subsiding),
@@ -277,12 +313,34 @@ export async function buildOrderReportRows(opts: BuildOptions): Promise<OrderRep
  * so a caller can refuse to render rather than publish a wrong figure.
  */
 export function reconcileRow(r: OrderReportRow): { ok: boolean; expected: number; delta: number } {
+  // The restaurant's own tip, wherever it was filed. Exactly one of the three is
+  // non-zero for any row (they are keyed off the row's single service type), so
+  // summing them is the same figure the old single tipRestaurant column held.
+  const ownTip = r.tipPickup + r.tipSelfDelivery + r.tipThirdPartyDelivery
   const expected = r.settlement === 'native'
-    ? r2(r.netSales + r.tipRestaurant + r.stateTax + r.localTax + r.otherTax + r.selfDeliveryFee + r.serviceCharge
+    ? r2(r.netSales + ownTip + r.stateTax + r.localTax + r.otherTax + r.selfDeliveryFee + r.serviceCharge
         - r.thirdPartySubsidy - r.discount - r.stripeFee - r.leadGenOne - r.leadGenTwo)
-    : r2((r.netSales + r.stateTax + r.localTax + r.otherTax + r.tipRestaurant + r.serviceCharge + r.selfDeliveryFee)
+    : r2((r.netSales + r.stateTax + r.localTax + r.otherTax + ownTip + r.serviceCharge + r.selfDeliveryFee)
         - (r.discount + r.stripeFee + r.leadGenOne + r.leadGenTwo + r.refundAmount))
   const delta = r2(Math.abs(expected - r.totalDistributed))
+  return { ok: delta < 0.011, expected, delta }
+}
+
+/**
+ * Do the money columns on the sheet add up to the Gross printed beside them?
+ *
+ * Gross is built from components, so this cannot drift silently — but it is the
+ * claim the whole report rests on ("the columns sum exactly to gross"), and the
+ * excluded pair (third-party delivery fee, courier tip) is precisely the part a
+ * future edit is most likely to get wrong. Cheap to assert, so assert it.
+ */
+export function reconcileGross(r: OrderReportRow): { ok: boolean; expected: number; delta: number } {
+  const expected = r2(
+    r.netSales + r.stateTax + r.localTax + r.otherTax + r.selfDeliveryFee
+    + r.tipPickup + r.tipSelfDelivery + r.tipThirdPartyDelivery
+    + r.serviceCharge - r.discount,
+  )
+  const delta = r2(Math.abs(expected - r.gross))
   return { ok: delta < 0.011, expected, delta }
 }
 
@@ -292,8 +350,10 @@ export function totalsRow(rows: OrderReportRow[]): Partial<OrderReportRow> {
   return {
     netSales: sum(r => r.netSales), stateTax: sum(r => r.stateTax), localTax: sum(r => r.localTax),
     otherTax: sum(r => r.otherTax), selfDeliveryFee: sum(r => r.selfDeliveryFee),
-    thirdPartyDeliveryFee: sum(r => r.thirdPartyDeliveryFee), tipRestaurant: sum(r => r.tipRestaurant),
-    tipThirdParty: sum(r => r.tipThirdParty), serviceCharge: sum(r => r.serviceCharge),
+    thirdPartyDeliveryFee: sum(r => r.thirdPartyDeliveryFee),
+    tipPickup: sum(r => r.tipPickup), tipSelfDelivery: sum(r => r.tipSelfDelivery),
+    tipThirdPartyDelivery: sum(r => r.tipThirdPartyDelivery), tipCourier: sum(r => r.tipCourier),
+    serviceCharge: sum(r => r.serviceCharge),
     discount: sum(r => r.discount), leadGenOne: sum(r => r.leadGenOne), leadGenTwo: sum(r => r.leadGenTwo),
     gross: sum(r => r.gross), stripeFee: sum(r => r.stripeFee), refundAmount: sum(r => r.refundAmount),
     thirdPartySubsidy: sum(r => r.thirdPartySubsidy), totalDistributed: sum(r => r.totalDistributed),

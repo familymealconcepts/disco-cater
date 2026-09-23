@@ -98,15 +98,22 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       COUNT(*)::int AS "totalOrdersCount",
       COALESCE(SUM(o.subtotal), 0)::float8 AS "subtotalOrdersSum",
       COALESCE(AVG(o.subtotal), 0)::float8 AS "subtotalOrdersAvg",
-      -- "Total Amount" on the restaurant dashboard. The FamilyMeal 3% fee is
-      -- SUBTRACTED: it is taken out before payout and never reaches the
-      -- restaurant, so a restaurant-facing total must not include it (Peter's
-      -- ruling, 2026-09-22). FM's own restaurant dashboard agrees — its
-      -- grossSum is built from components and never adds the fee.
+      -- "Total Amount" on the restaurant dashboard: what the restaurant actually
+      -- receives. THREE things come out, and the same definition as
+      -- lib/reports/order-report-rows.ts's Gross — the two must never disagree.
+      --   1. the FamilyMeal 3% fee (Peter's ruling, 2026-09-22)
+      --   2. the third-party DELIVERY FEE  — the courier network's
+      --   3. the third-party (courier) TIP — likewise
+      -- Measured against real Stripe transfers on 43 Gracious/Stacks orders:
+      -- subtracting only the fee matched 18/43 (the pickups); subtracting all
+      -- three matched 43/43.
       -- st.fee is populated on 100% of ORIGINAL rows (verified fleet-wide:
       -- 25,037 rows, zero NULLs), and COALESCE keeps an order with no
       -- transaction row from nulling the whole sum.
-      COALESCE(SUM(o.total), 0)::float8 - COALESCE(SUM(st.fee), 0)::float8 AS "totalOrdersSum",
+      COALESCE(SUM(o.total), 0)::float8
+        - COALESCE(SUM(st.fee), 0)::float8
+        - COALESCE(SUM(st.third_party_delivery_fee), 0)::float8
+        - COALESCE(SUM(st.third_party_delivery_tips), 0)::float8 AS "totalOrdersSum",
       COALESCE(SUM(st.state_tax), 0)::float8 AS "stateSalesTaxInPriceSum",
       COALESCE(SUM(st.local_tax), 0)::float8 AS "localSalesTaxInPriceSum",
       COALESCE(SUM(st.other_tax), 0)::float8 AS "otherSalesTaxInPriceSum",
@@ -117,8 +124,13 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       COALESCE(SUM(st.own_delivery_fee), 0)::float8 AS "ownDeliveryPriceSum",
       COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN st.third_party_delivery_fee ELSE 0 END), 0)::float8 AS "doordashDeliveryFeeSum",
       COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN 0 ELSE st.third_party_delivery_fee END), 0)::float8 AS "thirdPartyDeliveryFeeSum",
-      COALESCE(SUM(CASE WHEN o.delivery_type = 'OWN_DELIVERY' THEN 0 ELSE st.tips_in_price END), 0)::float8 AS "pickupTipsInPrice",
+      -- Tips by fulfilment type, matching FM's pickup/owndelivery/thirdparty
+      -- split. "Pickup" is NULL, '' or the literal 'PICKUP' — Disco's native
+      -- checkout writes the literal, which the previous ELSE-branch swept into
+      -- pickup along with every third-party order.
+      COALESCE(SUM(CASE WHEN COALESCE(o.delivery_type,'') IN ('','PICKUP') THEN st.tips_in_price ELSE 0 END), 0)::float8 AS "pickupTipsInPrice",
       COALESCE(SUM(CASE WHEN o.delivery_type = 'OWN_DELIVERY' THEN st.tips_in_price ELSE 0 END), 0)::float8 AS "owndeliveryTipsInPrice",
+      COALESCE(SUM(CASE WHEN o.delivery_type = 'OWN_DELIVERY' OR COALESCE(o.delivery_type,'') IN ('','PICKUP') THEN 0 ELSE st.tips_in_price END), 0)::float8 AS "thirdpartyTipsInPrice",
       COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN st.third_party_delivery_tips ELSE 0 END), 0)::float8 AS "doordashTipsOrdersSum",
       COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN 0 ELSE st.third_party_delivery_tips END), 0)::float8 AS "thirdPartyDeliveryTipsOrdersSum"
     FROM disco_orders o
