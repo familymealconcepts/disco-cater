@@ -162,8 +162,14 @@ export default function RestaurantSettingsPage() {
     const res = await fetch('/api/restaurant/disco-url', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ restaurant_reference: restaurantRef, slug: urlSlug }) })
     const d = await res.json().catch(() => ({}))
     if (!res.ok) {
-      setUrlError(d.error || 'Could not save URL.')
-      if (res.status === 400 || res.status === 403 || res.status === 409) load()
+      // DO NOT call load() here. It was called on 400/403/409 to re-sync, but
+      // load() also does setUrlError('') and setUrlSlug(s.slug || '') — so it
+      // wiped the message that had just been set and put the old slug back in
+      // the box. The user saw the field revert with no explanation, which is
+      // exactly how a rejected save (a taken URL, or the 403 this route used to
+      // return for every FM session) looked identical to "nothing happened".
+      // Keep what they typed and show why it was refused so it can be fixed.
+      setUrlError(d.error || `Could not save URL (HTTP ${res.status}).`)
       return
     }
     setSlug(urlSlug); setUrlError(''); setFlash('URL updated'); setTimeout(() => setFlash(''), 2000)

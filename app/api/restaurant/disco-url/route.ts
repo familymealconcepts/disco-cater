@@ -21,8 +21,27 @@ function slugError(s: string): string | null {
 // (case-insensitive) — same intent as the FM "unique across all restaurants" rule
 // and the menu-URL collision check. Zero FM.
 export async function PUT(req: NextRequest) {
+  // ── DO NOT GATE THIS ON authType === 'disco' ────────────────────────────────
+  // It used to, and that is what made saving the Disco Cater URL look broken:
+  // every FM-authenticated session got a flat 403 "Not authorized" here, while
+  // this route's GET counterpart (disco-settings) happily served the page. So
+  // the field rendered the correct slug for the correct restaurant and then
+  // refused every save.
+  //
+  // FM sessions are the NORMAL way both the restaurant's own admin and the Disco
+  // team reach a converted or duplicated location: the master password issues an
+  // FM session (see lib/fm-master-admin-read.ts), and a native restaurant's
+  // operator is often still an FM SYSTEM_ADMIN. Reproduced on Stacks & Cordials
+  // as alex@stacksncordials.com against both Southfield (native-only, not in FM
+  // at all) and Royal Oak (in FM, directly permitted) — both 403'd.
+  //
+  // Authorization is NOT being relaxed. requireWritableRestaurantRef below is the
+  // real check and already understands both session types, including reaching a
+  // Disco-native reference from an FM token via a shared multi-unit link
+  // (lib/native-selection-scope.ts). This gate was a second, cruder door that
+  // only ever produced false negatives. Same shape as disco-settings' PUT.
   const ctx = await getRestaurantAuthContext()
-  if (ctx?.authType !== 'disco') return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
+  if (!ctx) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
   let body: Record<string, unknown>
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid body' }, { status: 400 }) }
