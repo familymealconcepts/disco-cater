@@ -329,11 +329,52 @@ async function writeProvisionalSaleTransaction(orderId: number, o: NormalizedFmO
   `.catch(e => console.error('[fm-orders-sync] provisional sale_transaction insert failed:', orderId, e instanceof Error ? e.message : e))
 }
 
+/**
+ * serviceCharge and tipsInPrice are NOT on the endpoint the mirror reads.
+ *
+ * loadFmOrderDetails calls /public-api/v2/orders/{ref}/details, and its
+ * data.order carries subtotal, taxes, delivery fees, thirdPartyDeliveryTipsInPrice,
+ * tips (a PERCENT), fee and total — but no serviceCharge, no tipsInPrice and no
+ * stripeFee. FM's ADMIN route GET /api/orders/{ref} does carry the first two.
+ *
+ * This cost a real correction: the first version of this fix read
+ * order.serviceCharge here and was verified against the admin route, which
+ * proved the field exists on AN FM endpoint rather than on THE endpoint this
+ * function is handed. Every row it wrote still had service_charge NULL, and
+ * tipsInPrice fell back to the percent recompute that causes the third-party
+ * double-count. One supplemental admin fetch, only when the fields are actually
+ * missing, closes both.
+ *
+ * Best-effort: a failure here returns nothing and the caller keeps NULL, which
+ * stays honest. Never throws.
+ */
+async function fetchAdminOrderFees(fmRef: string): Promise<{ serviceCharge?: unknown; tipsInPrice?: unknown }> {
+  if (!isUuid(fmRef)) return {}
+  try {
+    const auth = await getFmServiceAuthHeader()
+    const res = await fmFetch(`${FM}/api/orders/${fmRef}`, { headers: { ...auth, Accept: 'application/json' }, cache: 'no-store' })
+    if (!res.ok) return {}
+    const j = (await res.json().catch(() => null)) as Record<string, unknown> | null
+    if (!j) return {}
+    return { serviceCharge: j.serviceCharge, tipsInPrice: j.tipsInPrice }
+  } catch { return {} }
+}
+
 async function syncSaleTransactionFromDetails(orderId: number, details: Record<string, unknown>): Promise<void> {
   const order = (((details?.data as Record<string, unknown>)?.order as Record<string, unknown>)
     ?? (details?.order as Record<string, unknown>)
     ?? details
     ?? {}) as Record<string, unknown>
+
+  // Fill the two fields this payload cannot supply. Only when absent, so an
+  // endpoint that ever starts returning them costs no extra call.
+  let serviceChargeRaw: unknown = order.serviceCharge
+  let tipsInPriceRaw: unknown = order.tipsInPrice
+  if (serviceChargeRaw === undefined || tipsInPriceRaw === undefined) {
+    const extra = await fetchAdminOrderFees(s(order.reference))
+    if (serviceChargeRaw === undefined) serviceChargeRaw = extra.serviceCharge
+    if (tipsInPriceRaw === undefined) tipsInPriceRaw = extra.tipsInPrice
+  }
 
   // A FM_BACKFILL row, when one exists, was reconstructed from the real fm_backup
   // snapshot (precomputed tips, real service_charge, stripe fee) — strictly more
@@ -365,7 +406,7 @@ async function syncSaleTransactionFromDetails(orderId: number, details: Record<s
     // reporting: 1,914 rows across 157 restaurants, $591.28 of it on the
     // Stacks & Cordials orders alone. Read it, and let nOrNull keep a genuinely
     // absent value NULL rather than turning it into a zero.
-    serviceCharge: nOrNull(order.serviceCharge),
+    serviceCharge: nOrNull(serviceChargeRaw),
     // tipsInPrice WAS forced to null here so resolveTipsInPrice would recompute it
     // from the order-level `tips` percent. On a third-party-delivery order that
     // percent IS the courier tip, which FM reports separately as
@@ -375,7 +416,14 @@ async function syncSaleTransactionFromDetails(orderId: number, details: Record<s
     // it inflated tips from $298.31 to $454.53). FM's detail response carries the
     // real tipsInPrice — read it, and keep the percent fallback only for a payload
     // that genuinely omits the field.
-    tipsInPrice: nOrNull(order.tipsInPrice), rawTips: rawTips > 0 ? rawTips : null, tipsType: s(order.tipsType) || null,
+    // rawTips is FM's order-level tip PERCENT. On a third-party delivery that
+    // percent IS the courier tip, already carried by thirdPartyDeliveryTipsInPrice
+    // — recomputing it into tips_in_price as well is the double-count. Suppress
+    // the fallback in exactly that case, so even if the admin fetch above fails
+    // the tip can never be counted twice.
+    tipsInPrice: nOrNull(tipsInPriceRaw),
+    rawTips: rawTips > 0 && n(order.thirdPartyDeliveryTipsInPrice) <= 0 ? rawTips : null,
+    tipsType: s(order.tipsType) || null,
   })
 
   // Payment status derived from the order, never hardcoded. This row used to be
