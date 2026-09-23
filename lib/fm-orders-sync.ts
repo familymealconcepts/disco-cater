@@ -48,6 +48,15 @@ const ALLOWED_DELIVERY_TYPES = new Set([
 
 function n(v: unknown): number { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '')); return Number.isFinite(x) ? x : 0 }
 function s(v: unknown): string { return typeof v === 'string' ? v : (v == null ? '' : String(v)) }
+// Like n(), but ABSENT STAYS ABSENT. n() coerces a missing field to 0, which for a
+// money column is a claim ("this order had no service charge") rather than a
+// reading. Every FM money field that may legitimately be missing must come
+// through here so "FM didn't tell us" is stored as NULL, never as zero.
+function nOrNull(v: unknown): number | null {
+  if (v == null || v === '') return null
+  const x = typeof v === 'number' ? v : parseFloat(String(v))
+  return Number.isFinite(x) ? x : null
+}
 function round2(x: number): number { return Math.round(x * 100) / 100 }
 
 export interface SyncResult {
@@ -342,12 +351,31 @@ async function syncSaleTransactionFromDetails(orderId: number, details: Record<s
     thirdPartyDeliverySubsiding: null,
     thirdPartyDeliveryTips: n(order.thirdPartyDeliveryTipsInPrice), doordashTips: null,
     discount: n(order.discount),
-    // Not exposed by this endpoint at all (unlike service_charge, which has a
-    // dead field to point at — lead gen and Stripe fee have no field here,
-    // dead or otherwise) — NULL, not 0.
+    // Lead gen and Stripe fee are genuinely absent from this endpoint — no
+    // field, dead or otherwise — so they stay NULL, never 0. Stripe fee lives
+    // only in FM's own tbl_restaurant_sale_transactions, which is not reachable
+    // over any FM HTTP route we can authenticate to; scripts/backfill-fm-sale-
+    // transaction-fees.ts fills it from there. See that script's header.
     leadGenOne: null, leadGenTwo: null, stripeFee: null,
-    serviceCharge: null,
-    tipsInPrice: null, rawTips: rawTips > 0 ? rawTips : null, tipsType: s(order.tipsType) || null,
+    // serviceCharge WAS hardcoded null here, described as a "dead field". It is
+    // not dead: FM's order-detail response carries the real value (verified
+    // against FM's own tbl_restaurant_sale_transactions — order #11372483
+    // returns 32.9 over HTTP and stores 32.90 in the table). Hardcoding null
+    // silently dropped the service charge from every FM-backed restaurant's
+    // reporting: 1,914 rows across 157 restaurants, $591.28 of it on the
+    // Stacks & Cordials orders alone. Read it, and let nOrNull keep a genuinely
+    // absent value NULL rather than turning it into a zero.
+    serviceCharge: nOrNull(order.serviceCharge),
+    // tipsInPrice WAS forced to null here so resolveTipsInPrice would recompute it
+    // from the order-level `tips` percent. On a third-party-delivery order that
+    // percent IS the courier tip, which FM reports separately as
+    // thirdPartyDeliveryTipsInPrice — so the same tip was written into BOTH
+    // tips_in_price and third_party_delivery_tips and counted twice by any report
+    // that adds the two columns (263 FM_SYNC rows corrected fleet-wide; on Stacks & Cordials
+    // it inflated tips from $298.31 to $454.53). FM's detail response carries the
+    // real tipsInPrice — read it, and keep the percent fallback only for a payload
+    // that genuinely omits the field.
+    tipsInPrice: nOrNull(order.tipsInPrice), rawTips: rawTips > 0 ? rawTips : null, tipsType: s(order.tipsType) || null,
   })
 
   // Payment status derived from the order, never hardcoded. This row used to be
