@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader } from '../../../../lib/admin-auth'
 import { sql } from '../../../../lib/db'
+import { deriveTiers, type TieredAdmin } from '../../../../lib/admin/system-admin-tier'
 
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
@@ -11,6 +12,15 @@ interface FmSystemAdmin {
   // the page to badge the row and to disable the FM-only edit/delete actions on a
   // Disco-native account.
   source?: 'FM' | 'DISCO' | 'BOTH'
+  /**
+   * DISPLAY ONLY. 'PRIMARY' = the group's founding system admin, 'REGIONAL' = a
+   * later one, null = not placeable in a group. Carries no authority: nothing
+   * reads it for access, and it is computed after every permission decision has
+   * already been made. See deriveTiers().
+   */
+  tier?: 'PRIMARY' | 'REGIONAL' | null
+  /** Creation order within its own account system. Not returned to the client. */
+  _order?: [number, number]
 }
 
 // ── DISCO-NATIVE SYSTEM ADMINS ──────────────────────────────────────────────
@@ -39,7 +49,8 @@ async function fetchDiscoSystemAdmins(): Promise<FmSystemAdmin[]> {
                  ORDER BY c.name
                ) FILTER (WHERE g.restaurant_reference IS NOT NULL),
                '[]'
-             ) AS managed
+             ) AS managed,
+             EXTRACT(EPOCH FROM a.created_at) AS created_epoch
         FROM disco_restaurant_accounts a
         LEFT JOIN disco_restaurant_location_access g ON lower(g.account_email) = lower(a.email)
         LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = g.restaurant_reference
@@ -47,7 +58,7 @@ async function fetchDiscoSystemAdmins(): Promise<FmSystemAdmin[]> {
          AND a.archived_at IS NULL
          AND a.email NOT LIKE 'stripe-import+%'
        GROUP BY a.email, a.first_name, a.last_name
-    `) as Array<{ email: string; first_name: string | null; last_name: string | null; managed: { reference: string; businessName: string | null }[] }>
+    `) as Array<{ email: string; first_name: string | null; last_name: string | null; managed: { reference: string; businessName: string | null }[]; created_epoch: number | null }>
     return rows.map(r => ({
       // Prefixed so it can never be mistaken for an FM user reference and posted
       // to an FM endpoint — the page keys off this to disable edit/delete.
@@ -57,6 +68,11 @@ async function fetchDiscoSystemAdmins(): Promise<FmSystemAdmin[]> {
       email: r.email,
       managedRestaurants: (r.managed || []).map(m => ({ reference: m.reference, businessName: m.businessName || undefined })),
       source: 'DISCO' as const,
+      // Bucket 1 sorts every Disco-native account AFTER every FM one. Native
+      // accounts only exist post-conversion, so within a group that shares both
+      // the FM admin is always the founding one — and the two clocks (FM's list
+      // position vs a Neon timestamp) are not otherwise comparable.
+      _order: [1, Number(r.created_epoch ?? 0)] as [number, number],
     }))
   } catch (e) {
     // NEVER let a Neon failure blank the FM list. Losing the Disco rows is a
@@ -114,11 +130,19 @@ function mergeAdminLists(fm: FmSystemAdmin[], disco: FmSystemAdmin[]): FmSystemA
 const FM_FETCH_SIZE = 2000
 
 async function fetchAllFmSystemAdmins(h: Record<string, string>): Promise<FmSystemAdmin[]> {
-  const res = await fetch(`${FM}/api/admin/users/system-admin?size=${FM_FETCH_SIZE}`, { headers: h })
+  // sort=createdDate,asc is what makes the Primary/Regional column possible.
+  // AdminSystemAdminResponseDto carries NO createdDate field, and FM exposes no
+  // endpoint that does for system admins — but the endpoint sorts by createdDate
+  // (its own @SortDefault), so the position in this array IS the creation order.
+  // Requested explicitly rather than relying on the default, and ascending so
+  // index 0 is the earliest.
+  const res = await fetch(`${FM}/api/admin/users/system-admin?size=${FM_FETCH_SIZE}&sort=createdDate,asc`, { headers: h })
   if (!res.ok) throw new Error(`FM system-admin fetch failed: ${res.status}`)
   const j = await res.json()
-  return (j.content || []) as FmSystemAdmin[]
+  // Bucket 0 = FM, so an FM admin always outranks a Disco-native one.
+  return ((j.content || []) as FmSystemAdmin[]).map((a, i) => ({ ...a, _order: [0, i] as [number, number] }))
 }
+
 
 export async function GET(req: NextRequest) {
   let h: Record<string, string>
@@ -146,6 +170,10 @@ export async function GET(req: NextRequest) {
       fetchDiscoSystemAdmins(),
     ])
     const merged = mergeAdminLists(fmAll, discoAll)
+    // Over the FULL population, before any search filter or page slice — a group
+    // is only reconstructable from every admin who shares its restaurants, and a
+    // 25-row page would fragment it and relabel people differently per page.
+    deriveTiers(merged)
 
     const matches = !search ? merged : merged.filter(a =>
       `${a.firstName || ''} ${a.lastName || ''}`.toLowerCase().includes(search) ||
@@ -154,8 +182,10 @@ export async function GET(req: NextRequest) {
     )
 
     const start = page * size
+    // _order is an internal ordering key, not part of the contract.
+    const stripOrder = ({ _order, ...rest }: FmSystemAdmin) => rest
     return NextResponse.json({
-      content: matches.slice(start, start + size),
+      content: matches.slice(start, start + size).map(stripOrder),
       totalElements: matches.length,
       totalPages: Math.max(1, Math.ceil(matches.length / size)),
     })

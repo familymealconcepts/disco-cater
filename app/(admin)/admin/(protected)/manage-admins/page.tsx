@@ -16,6 +16,9 @@ interface SysAdmin {
   // FM's user-list response embeds the assigned-locations list under
   // managedRestaurants[] — confirmed by UpdateAdminComponent.ts:106-107.
   managedRestaurants?: { reference: string; businessName?: string }[]
+  // Display only. Derived server-side (see the API route's deriveTiers) and read
+  // by nothing but the badge below — it grants and withholds nothing.
+  tier?: 'PRIMARY' | 'REGIONAL' | null
   // Which account system this person lives in. 'DISCO' rows come from
   // disco_restaurant_accounts and have no FM user to edit or delete.
   source?: 'FM' | 'DISCO' | 'BOTH'
@@ -237,13 +240,14 @@ export default function ManageSystemAdminsPage() {
             <tr>
               <th style={colHead}>Name</th>
               <th style={colHead}>Email</th>
+              <th style={colHead}>Tier</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Locations</th>
               <th style={{ ...colHead, textAlign: 'right' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
-            {!loading && !displayRows.length && <tr><td colSpan={4} style={{ ...cell, textAlign: 'center', color: '#999' }}>No system admins.</td></tr>}
+            {loading && <tr><td colSpan={5} style={{ ...cell, textAlign: 'center', color: '#999' }}>Loading…</td></tr>}
+            {!loading && !displayRows.length && <tr><td colSpan={5} style={{ ...cell, textAlign: 'center', color: '#999' }}>No system admins.</td></tr>}
             {!loading && displayRows.map(u => (
               <tr key={u.reference}>
                 <td style={cell}>
@@ -258,6 +262,21 @@ export default function ManageSystemAdminsPage() {
                   )}
                 </td>
                 <td style={{ ...cell, color: '#555' }}>{u.email}</td>
+                {/* Primary = the group's founding system admin, who sees all of
+                    its locations. Regional = a later one, scoped to some of them.
+                    An em dash means this admin holds no locations, so there is no
+                    group to place them in — better than guessing a tier. */}
+                <td style={cell}>
+                  {u.tier === 'PRIMARY' ? (
+                    <span title="Primary — the system admin associated with this group's first restaurant, with access to all of its locations"
+                      style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.3, color: '#0F7B4F', background: '#E8F5EE', border: '1px solid #9ED3B8', borderRadius: 4, padding: '2px 6px' }}>Primary</span>
+                  ) : u.tier === 'REGIONAL' ? (
+                    <span title="Regional — added to the group after the primary admin, with access to selected locations"
+                      style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.3, color: '#7A5B13', background: '#FBF3DF', border: '1px solid #E3CC8F', borderRadius: 4, padding: '2px 6px' }}>Regional</span>
+                  ) : (
+                    <span title="No locations assigned, so this admin cannot be placed in a group" style={{ color: '#bbb' }}>—</span>
+                  )}
+                </td>
                 {/* FM's user-list response embeds the assigned locations under
                     managedRestaurants[] (same field the Edit dialog reads), so
                     count that first; fall back to a numeric `locations` or the
