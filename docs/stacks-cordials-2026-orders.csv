@@ -1,20 +1,20 @@
-Location,Order ID,Name,Created Date,Service,Order Date,Order Time,Net Sales,Tax (State),Tax (Local),Tax (Other),Delivery Fee (Self-Delivery),Delivery Fee (Third-Party),Tips (Pickup),Tips (Self Delivery),Tips (Third-Party Delivery),"Courier Tip (Third-Party, not paid out)",Service charge,Discount,Lead Gen 1,Lead Gen 2,Gross,Stripe Fee,Refund Amount,Total Distributed,Stripe Transfer ID,Transfer Amount,Transfer Reversed,Payment Status
-Stacks & Cordials - Royal Oak,38953548,Michelle Benman,2026-01-08,Pickup,2026-01-09,11:15,339.99,22.44,0,0,0,0,34,0,0,0,34,0,0,0,430.43,13.08,0,417.35,,,,
-Stacks & Cordials - Royal Oak,83901355,Jennifer Reno-Fowler,2026-01-23,Third-Party Delivery,2026-01-24,18:30,79.98,5.28,0,0,0,12,0,0,0,12,8,0,0,0,93.26,3.77,0,89.49,,,,
-Stacks & Cordials - Clawson,90079268,Tiffany Salem,2026-02-03,Third-Party Delivery,2026-02-11,12:00,249,16.43,0,0,0,37.35,0,0,0,37.35,24.9,0,0,0,290.33,11.1,0,279.23,,,,
-Stacks & Cordials - Royal Oak,41700239,Tracy Dzendzel,2026-03-09,Third-Party Delivery,2026-03-10,12:00,224.95,14.85,0,0,0,33.74,0,0,0,0,22.5,0,0,0,262.3,9.08,0,253.22,,,,
-Stacks & Cordials - Royal Oak,57841326,Hayley Serr,2026-04-04,Pickup,2026-04-06,14:30,234.96,15.51,0,0,0,0,23.5,0,0,0,23.5,0,0,0,297.47,9.13,0,288.34,,,,
-Stacks & Cordials - Royal Oak,27385542,Evan Woolford,2026-04-22,Pickup,2026-04-25,15:00,234.96,15.51,0,0,0,0,35.24,0,0,0,23.5,0,0,0,309.21,9.47,0,299.74,,,,
-Stacks & Cordials - Royal Oak,21778941,Marcus Karana,2026-05-02,Third-Party Delivery,2026-05-04,10:30,249,16.43,0,0,0,37.35,0,0,0,0,24.9,0,0,0,290.33,10.02,0,280.31,,,,
-Stacks & Cordials - Clawson,44038969,Marcus Karana,2026-05-22,Third-Party Delivery,2026-05-22,13:30,219.96,14.52,0,0,0,32.99,0,0,0,0,22,0,0,0,256.48,8.89,0,247.59,,,,
-Stacks & Cordials - Clawson,94724798,Hayley  Hantler,2026-06-07,Third-Party Delivery,2026-06-13,14:30,999,65.93,0,0,0,85,0,0,0,0,99.9,0,0,0,1164.83,37.41,0,1127.42,,,,
-Stacks & Cordials - Clawson,89762533,Leah Vanderhoff,2026-07-07,Third-Party Delivery,2026-07-09,11:00,688.99,45.47,0,0,0,85,0,0,0,0,68.9,0,0,0,803.36,26.66,0,776.7,tr_3TqdG9Kp5OWEZLTA03j7qpkK,776.7,no,succeeded
-Stacks & Cordials - Clawson,54339336,Allison Swanson,2026-07-07,Third-Party Delivery,2026-07-10,11:15,314.94,20.79,0,0,0,47.24,0,0,0,47.24,31.49,0,0,0,367.22,13.96,0,353.26,tr_3TqdXrKp5OWEZLTA11I0UQaV,353.25,no,succeeded
-Stacks & Cordials - Royal Oak,34140194,Ken Bloink,2026-08-10,Third-Party Delivery,2026-08-15,14:45,519.9,34.31,0,0,0,77.99,0,0,0,10,51.99,0,0,0,606.2,20.88,0,585.32,tr_3U31PzKp5OWEZLTA1JFG6Wxe,585.32,no,succeeded
-Stacks & Cordials - Royal Oak,32835650,Shaun Fulton,2026-08-14,Third-Party Delivery,2026-08-18,11:15,229.96,15.18,0,0,0,34.49,0,0,0,34.49,23,0,0,0,268.14,10.28,0,257.86,tr_3U4Jt7Kp5OWEZLTA1uxtF3nt,257.85,no,succeeded
-Stacks & Cordials - Clawson,19080612,Anna Drake,2026-08-24,Third-Party Delivery,2026-08-26,11:30,304,20.06,0,0,0,45.6,0,0,0,20,30.4,0,0,0,354.46,12.75,0,341.71,tr_3U7xxzKp5OWEZLTA0fX16wFV,341.71,no,succeeded
-Stacks & Cordials - Royal Oak,99336600,Kimberly Coomer,2026-08-27,Third-Party Delivery,2026-08-28,12:00,229.95,15.18,0,0,0,34.49,0,0,0,34.49,23,0,0,0,268.13,10.28,0,257.85,tr_3U95b5Kp5OWEZLTA0jJTFHwX,257.84,no,succeeded
-Stacks & Cordials - Clawson,36594966,Mary Caraway,2026-08-31,Pickup,2026-09-01,12:15,214.95,14.19,0,0,0,0,0,0,0,0,21.5,0,0,0,250.64,7.76,0,242.88,tr_3UAXS4Kp5OWEZLTA1yV8PtDL,242.88,no,succeeded
-Stacks & Cordials - Royal Oak,22696173,Marcus	 Karana,2026-09-09,Third-Party Delivery,2026-09-10,10:00,249,16.43,0,0,0,37.35,0,0,0,10,24.9,0,0,0,290.33,10.31,0,280.02,tr_3UDjk7Kp5OWEZLTA1mXIeY5V,280.02,no,succeeded
-Stacks & Cordials - Clawson,11372483,Madison Hintz,2026-08-27,Pickup,2026-09-11,11:45,328.99,21.71,0,0,0,0,0,0,0,0,32.9,0,0,0,383.6,11.71,0,371.89,tr_3U9A5hKp5OWEZLTA0iXFsQ4Z,371.89,no,succeeded
-TOTAL — 18 orders,,,,,,,5912.48,390.22,0,0,0,600.59,92.74,0,0,205.57,591.28,0,0,0,6986.72,236.54,0,6750.18,,6750.18,,
+Location,Order ID,Name,Created Date,Service,Order Date,Order Time,Net Sales,Tax (State),Tax (Local),Tax (Other),Delivery Fee (Self-Delivery),Delivery Fee (Third-Party),Tips (Pickup),Tips (Self Delivery),Tips (Third-Party Delivery),Service charge,Discount,Lead Gen 1,Lead Gen 2,Gross,Stripe Fee,Refund Amount,Total Distributed,Stripe Transfer ID,Transfer Amount,Transfer Reversed,Payment Status
+Stacks & Cordials - Royal Oak,38953548,Michelle Benman,2026-01-08,Pickup,2026-01-09,11:15,339.99,22.44,0,0,0,0,34,0,0,34,0,0,0,430.43,13.08,0,417.35,,,,
+Stacks & Cordials - Royal Oak,83901355,Jennifer Reno-Fowler,2026-01-23,Third-Party Delivery,2026-01-24,18:30,79.98,5.28,0,0,0,12,0,0,12,8,0,0,0,93.26,3.77,0,89.49,,,,
+Stacks & Cordials - Clawson,90079268,Tiffany Salem,2026-02-03,Third-Party Delivery,2026-02-11,12:00,249,16.43,0,0,0,37.35,0,0,37.35,24.9,0,0,0,290.33,11.1,0,279.23,,,,
+Stacks & Cordials - Royal Oak,41700239,Tracy Dzendzel,2026-03-09,Third-Party Delivery,2026-03-10,12:00,224.95,14.85,0,0,0,33.74,0,0,0,22.5,0,0,0,262.3,9.08,0,253.22,,,,
+Stacks & Cordials - Royal Oak,57841326,Hayley Serr,2026-04-04,Pickup,2026-04-06,14:30,234.96,15.51,0,0,0,0,23.5,0,0,23.5,0,0,0,297.47,9.13,0,288.34,,,,
+Stacks & Cordials - Royal Oak,27385542,Evan Woolford,2026-04-22,Pickup,2026-04-25,15:00,234.96,15.51,0,0,0,0,35.24,0,0,23.5,0,0,0,309.21,9.47,0,299.74,,,,
+Stacks & Cordials - Royal Oak,21778941,Marcus Karana,2026-05-02,Third-Party Delivery,2026-05-04,10:30,249,16.43,0,0,0,37.35,0,0,0,24.9,0,0,0,290.33,10.02,0,280.31,,,,
+Stacks & Cordials - Clawson,44038969,Marcus Karana,2026-05-22,Third-Party Delivery,2026-05-22,13:30,219.96,14.52,0,0,0,32.99,0,0,0,22,0,0,0,256.48,8.89,0,247.59,,,,
+Stacks & Cordials - Clawson,94724798,Hayley  Hantler,2026-06-07,Third-Party Delivery,2026-06-13,14:30,999,65.93,0,0,0,85,0,0,0,99.9,0,0,0,1164.83,37.41,0,1127.42,,,,
+Stacks & Cordials - Clawson,89762533,Leah Vanderhoff,2026-07-07,Third-Party Delivery,2026-07-09,11:00,688.99,45.47,0,0,0,85,0,0,0,68.9,0,0,0,803.36,26.66,0,776.7,tr_3TqdG9Kp5OWEZLTA03j7qpkK,776.7,no,succeeded
+Stacks & Cordials - Clawson,54339336,Allison Swanson,2026-07-07,Third-Party Delivery,2026-07-10,11:15,314.94,20.79,0,0,0,47.24,0,0,47.24,31.49,0,0,0,367.22,13.96,0,353.26,tr_3TqdXrKp5OWEZLTA11I0UQaV,353.25,no,succeeded
+Stacks & Cordials - Royal Oak,34140194,Ken Bloink,2026-08-10,Third-Party Delivery,2026-08-15,14:45,519.9,34.31,0,0,0,77.99,0,0,10,51.99,0,0,0,606.2,20.88,0,585.32,tr_3U31PzKp5OWEZLTA1JFG6Wxe,585.32,no,succeeded
+Stacks & Cordials - Royal Oak,32835650,Shaun Fulton,2026-08-14,Third-Party Delivery,2026-08-18,11:15,229.96,15.18,0,0,0,34.49,0,0,34.49,23,0,0,0,268.14,10.28,0,257.86,tr_3U4Jt7Kp5OWEZLTA1uxtF3nt,257.85,no,succeeded
+Stacks & Cordials - Clawson,19080612,Anna Drake,2026-08-24,Third-Party Delivery,2026-08-26,11:30,304,20.06,0,0,0,45.6,0,0,20,30.4,0,0,0,354.46,12.75,0,341.71,tr_3U7xxzKp5OWEZLTA0fX16wFV,341.71,no,succeeded
+Stacks & Cordials - Royal Oak,99336600,Kimberly Coomer,2026-08-27,Third-Party Delivery,2026-08-28,12:00,229.95,15.18,0,0,0,34.49,0,0,34.49,23,0,0,0,268.13,10.28,0,257.85,tr_3U95b5Kp5OWEZLTA0jJTFHwX,257.84,no,succeeded
+Stacks & Cordials - Clawson,36594966,Mary Caraway,2026-08-31,Pickup,2026-09-01,12:15,214.95,14.19,0,0,0,0,0,0,0,21.5,0,0,0,250.64,7.76,0,242.88,tr_3UAXS4Kp5OWEZLTA1yV8PtDL,242.88,no,succeeded
+Stacks & Cordials - Royal Oak,22696173,Marcus	 Karana,2026-09-09,Third-Party Delivery,2026-09-10,10:00,249,16.43,0,0,0,37.35,0,0,10,24.9,0,0,0,290.33,10.31,0,280.02,tr_3UDjk7Kp5OWEZLTA1mXIeY5V,280.02,no,succeeded
+Stacks & Cordials - Clawson,11372483,Madison Hintz,2026-08-27,Pickup,2026-09-11,11:45,328.99,21.71,0,0,0,0,0,0,0,32.9,0,0,0,383.6,11.71,0,371.89,tr_3U9A5hKp5OWEZLTA0iXFsQ4Z,371.89,no,succeeded
+TOTAL — 18 orders,,,,,,,5912.48,390.22,0,0,0,600.59,92.74,0,205.57,591.28,0,0,0,6986.72,236.54,0,6750.18,,6750.18,,
