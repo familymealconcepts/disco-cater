@@ -36,6 +36,7 @@ import { repriceEditLinesFromMenu } from '../../../../../../lib/order/native-car
 import { buildOrderPdfByReference } from '../../../../../../lib/order/order-pdf'
 import { orderPdfFilename } from '../../../../../../lib/download-filename'
 import { isDiscoNativeRestaurant, loadRestaurantServiceChargePct } from '../../../../../../lib/order/native-checkout'
+import { assertFiniteMoney } from '../../../../../../lib/promo-pricing'
 import { createNativeOrderPaymentIntent, getRestaurantPayoutConfig, type RestaurantPayoutConfig } from '../../../../../../lib/order/native-payment'
 import { refundNativeOrder } from '../../../../../../lib/order/native-refund'
 import { priceNativeOrderAtSubtotal, type Fulfillment, type FrozenEditContext } from '../../../../../../lib/pricing/native-order'
@@ -447,6 +448,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     const thirdPartyDeliverySubsiding = b ? (nativeCtx?.thirdPartyDeliverySubsiding ?? null) : null
     const leadGenOne = b ? (nativeLeadGenTier === 1 ? b.leadGen : 0) : null
     const leadGenTwo = b ? (nativeLeadGenTier === 2 ? b.leadGen : 0) : null
+
+    // ── REFUSE TO PERSIST A NON-FINITE MONEY VALUE ──────────────────────────
+    // Postgres `numeric` accepts 'NaN' silently, and one NaN poisons every SUM
+    // that touches it: orders 900000097-900000101 turned two restaurants' gross
+    // AND the fleet total into NaN in reporting. placeNativeOrder has guarded
+    // this since those orders were written; THIS path — the only other place a
+    // recalculated breakdown reaches disco_sale_transactions — did not.
+    //
+    // Placed above the INSERT so a bad amount leaves no row behind. The Stripe
+    // action has already happened by this point, so throwing here is the lesser
+    // harm: a missing ledger row is visible and repairable, a NaN one silently
+    // corrupts every report that sums it.
+    assertFiniteMoney({
+      newSubtotal, delta, newFee,
+      serviceCharge: b?.serviceCharge, stripeFee: b?.stripeFee,
+      stateTax: b?.stateTax, localTax: b?.localTax, otherTax: b?.otherTax,
+      tipsInPrice: b?.tipsInPrice, thirdPartyDeliveryTips: b?.thirdPartyDeliveryTips,
+      ownDeliveryFee, thirdPartyDeliveryFee, thirdPartyDeliverySubsiding,
+      discount: b?.discount, leadGenOne, leadGenTwo,
+    }, `orders/edit recordStripe(order=${discoOrder.reference})`)
+
     await sql`
       INSERT INTO disco_sale_transactions (
         order_id, transaction_type, transaction_status, subtotal, total, fee, stripe_payment_intent_id, transaction_date, paid_at,
