@@ -58,7 +58,34 @@ export async function GET() {
                COALESCE(o.nash_allowed, false) AS "nashAllowed",
                COALESCE(o.shipday_enabled, false) AS "shipdayEnabled",
                COALESCE(o.visible, false) AS "visible",
-               o.online_ordering_enabled AS "onlineOrderingEnabled"
+               o.online_ordering_enabled AS "onlineOrderingEnabled",
+               -- ── THE FM ROW THIS NATIVE ROW SUPERSEDES ────────────────────
+               -- 21 restaurants render TWICE in the ordering list: this native
+               -- row holding the menu, the account and the Stripe account, and
+               -- an empty FamilyMeal row for the same business under a different
+               -- reference. The FM rows cannot be deleted — most render straight
+               -- from FM's live admin list, and the rest would be recreated by
+               -- the 04:00 mirror — so the page hides them using this.
+               --
+               -- Two guards, both load-bearing:
+               --   <> c.restaurant_reference  — 155 of 177 native accounts point
+               --     at themselves, where hiding "the FM row" would hide this row.
+               --   NOT EXISTS (... is_disco_native) — never hide a reference that
+               --     is itself a native restaurant. This is what keeps Atlanta
+               --     Bread's two LIVE locations (Asheville, 34 orders; Westside,
+               --     15 orders) rendering as two rows: they look like a pair only
+               --     because of fm_restaurant_reference cross-wiring, and
+               --     collapsing them would hide a real restaurant.
+               (SELECT a2.fm_restaurant_reference::text
+                  FROM disco_restaurant_accounts a2
+                 WHERE a2.restaurant_reference = c.restaurant_reference
+                   AND a2.fm_restaurant_reference IS NOT NULL
+                   AND a2.fm_restaurant_reference::text <> c.restaurant_reference::text
+                   AND NOT EXISTS (
+                     SELECT 1 FROM disco_restaurant_cache c2
+                      WHERE c2.restaurant_reference = a2.fm_restaurant_reference
+                        AND c2.is_disco_native = true)
+                 LIMIT 1) AS "supersedesFmReference"
         FROM disco_restaurant_cache c
         LEFT JOIN disco_restaurant_accounts a
                ON a.restaurant_reference = c.restaurant_reference

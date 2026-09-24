@@ -51,6 +51,8 @@ interface Restaurant {
   // Merged-in Disco-native restaurant that has no FM record (from
   // /api/admin/disco-native-orphans) — flagged so it's never invisible.
   discoOnly?: boolean
+  /** The empty FamilyMeal row this native row supersedes — hidden from the list. */
+  supersedesFmReference?: string | null
   stripeConnected?: boolean
   fmCreationFailed?: boolean
   fmCreationError?: string
@@ -803,7 +805,22 @@ export default function RestaurantsOrderingPage() {
     // rows here, after computing fmRefs against the FULL unfiltered set (a
     // status-filtered dedup set could wrongly un-hide an orphan that happens
     // to share a reference with an FM row of a different status).
-    const fmRowsFiltered = statusFilter ? rows.filter(r => r.restaurantStatus === statusFilter) : rows
+    // ── COLLAPSE THE DUPLICATE PAIRS ────────────────────────────────────────
+    // 21 restaurants rendered twice: the Disco-native row holding the menu, the
+    // account and the Stripe account, plus an empty FamilyMeal row for the same
+    // business under a different reference. Neither could be deleted — most FM
+    // rows come straight from FM's live admin list and the rest are recreated by
+    // the 04:00 mirror — so the native row declares which FM reference it
+    // supersedes (see the orphans endpoint) and that FM row is dropped here.
+    //
+    // Computed from the FULL orphan set, not the filtered one, so a status
+    // filter can never un-hide a superseded row. Atlanta Bread is deliberately
+    // unaffected: its two live locations are excluded at the SQL level.
+    const supersededFmRefs = new Set(
+      discoOrphans.map(o => o.supersedesFmReference).filter((x): x is string => !!x),
+    )
+    const fmRowsFiltered = (statusFilter ? rows.filter(r => r.restaurantStatus === statusFilter) : rows)
+      .filter(r => !supersededFmRefs.has(r.reference))
     const combined = [...orphanRows, ...fmRowsFiltered]
 
     const q = search.trim().toLowerCase()
