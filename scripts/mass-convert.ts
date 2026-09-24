@@ -33,6 +33,33 @@ const SKIP_NAMES = new Set(['Good&Fantzye', 'Test Kitchen', '29 Hance Bakehouse'
 interface Row { ref: string; name: string; acct: string | null; orders: number }
 
 async function build(): Promise<Row[]> {
+  // ── EXPLICIT REF LIST (--refs=<file>) ──────────────────────────────────────
+  // The default queue is whatever data/stripe-account-resolutions.json resolved,
+  // which is the population that run was built for. A targeted batch — e.g. a
+  // bottom-quartile slice expanded to whole restaurant groups — is a different
+  // set, so it is passed in rather than inferred. Everything downstream is
+  // unchanged: same order (ascending FM order count), same progress file, same
+  // skip-and-continue, same restartability.
+  const refsArg = process.argv.find(a => a.startsWith('--refs='))
+  if (refsArg) {
+    const wanted: string[] = JSON.parse(readFileSync(refsArg.slice('--refs='.length), 'utf8'))
+    const counts0 = JSON.parse(readFileSync('data/fm-order-counts-504.json', 'utf8')).counts as { ref: string; fmOrders: number | null }[]
+    const orderBy0 = new Map(counts0.map(c => [c.ref, c.fmOrders ?? 0]))
+    const res0 = JSON.parse(readFileSync('data/stripe-account-resolutions.json', 'utf8'))
+    const acct0 = new Map<string, string>()
+    for (const r of res0.resolutions as { bucket: string; restaurantReference: string; stripeAccountId: string }[]) {
+      if (r.bucket === 'resolved') acct0.set(r.restaurantReference, r.stripeAccountId)
+    }
+    const rows0 = (await sql`
+      SELECT c.restaurant_reference AS ref, c.name, c.slug
+      FROM disco_restaurant_cache c
+      WHERE c.restaurant_reference = ANY(${wanted}) AND NOT c.is_disco_native
+    `) as { ref: string; name: string; slug: string | null }[]
+    return rows0
+      .map(r => ({ ref: r.ref, name: r.name, acct: acct0.get(r.ref) ?? null, orders: orderBy0.get(r.ref) ?? 0 }))
+      .sort((a, b) => a.orders - b.orders || a.name.localeCompare(b.name))
+  }
+
   const res = JSON.parse(readFileSync('data/stripe-account-resolutions.json', 'utf8'))
   const acctByRef = new Map<string, string>()
   for (const r of res.resolutions as { bucket: string; restaurantReference: string; stripeAccountId: string }[]) {
@@ -54,7 +81,7 @@ async function build(): Promise<Row[]> {
 }
 
 async function main() {
-  const limit = Number(process.argv[2] || '0') || Infinity
+  const limit = Number(process.argv.find(a => /^\d+$/.test(a)) || '0') || Infinity
   const stripe = new Stripe(process.env.STRIPE_READONLY_KEY!)
   const queue = await build()
   // APPEND-ONLY. The old map-rewrite lost Hello Halloumi when two runs
