@@ -129,7 +129,18 @@ export async function POST() {
       // Not in the cache yet → insert a Sanity-sourced row keyed by FM reference
       // (preferred) or slug. Coords may be absent (then it won't show until FM
       // refresh supplies them under the same reference).
-      const key = fmRef || slug
+      // KEYED BY THE FM REFERENCE ONLY — NEVER BY THE SLUG.
+      // This used to fall back to `slug` when a Sanity doc had no fmReference,
+      // which inserted a cache row whose restaurant_reference was a slug string
+      // rather than a UUID. That is a second record for a restaurant that
+      // already exists: "502-baking-company" sits beside the real row holding 74
+      // orders, and "yosemite-ranch" beside one holding 285. They can never
+      // match an order, an account or a Stripe account, because nothing else in
+      // the system keys on a slug.
+      // A Sanity doc with no fmReference cannot be resolved to a restaurant, so
+      // it is skipped and counted rather than invented.
+      const key = fmRef
+      if (!key) { skipped++; continue }
       const lat = typeof d.lat === 'number' && Number.isFinite(d.lat) ? d.lat : null
       const lng = typeof d.lng === 'number' && Number.isFinite(d.lng) ? d.lng : null
       const location = d.location ? String(d.location) : null

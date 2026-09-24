@@ -151,7 +151,27 @@ export async function refreshRestaurantCache(): Promise<{
            ${c.addressLine1}, ${c.addressLine2}, ${c.city}, ${c.state}, ${c.zipcode}, ${c.timezone}, NOW())
         ON CONFLICT (restaurant_reference) DO UPDATE SET
           name = EXCLUDED.name,
-          slug = EXCLUDED.slug,
+          -- NEVER TAKE A SLUG ANOTHER RESTAURANT ALREADY HOLDS.
+          -- FamilyMeal contains genuine duplicate restaurant records (Blasteran
+          -- twice, Yosemite Ranch seven times, 502 Baking Company three times,
+          -- and eight Phoenix pairs), and this mirror faithfully copies each one
+          -- in. When two FM records carry the same slug, the second overwrote
+          -- the first's and the customer slug lookup had two candidates.
+          -- Blasteran ended up with a live native page and an empty FM row both
+          -- answering to "blasteran".
+          -- Keeping the existing value means the row that got there first keeps
+          -- the slug and the later duplicate stays slug-less, which is what the
+          -- customer lookup needs. This is also why clearing the slug in the
+          -- database alone was not a fix: this job runs at 04:00 and would have
+          -- put it straight back.
+          slug = CASE
+            WHEN EXCLUDED.slug IS NOT NULL AND EXISTS (
+              SELECT 1 FROM disco_restaurant_cache dup
+               WHERE LOWER(dup.slug) = LOWER(EXCLUDED.slug)
+                 AND dup.restaurant_reference <> EXCLUDED.restaurant_reference)
+            THEN disco_restaurant_cache.slug
+            ELSE EXCLUDED.slug
+          END,
           lat = EXCLUDED.lat,
           lng = EXCLUDED.lng,
           location = EXCLUDED.location,
