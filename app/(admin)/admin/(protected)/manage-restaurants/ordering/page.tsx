@@ -1206,7 +1206,6 @@ export default function RestaurantsOrderingPage() {
                 isArchived: ov.archivedAt != null,
               }) : null
               const dropOff = readiness?.wouldDropOff ? readiness : null
-              const drift = ov?.isDiscoNative && ov.menuDriftDetected ? ov.menuDriftDetails : null
               const inviteDead = ov?.isDiscoNative && ov.inviteExpired
               return (
                 <tr key={r._rowId}>
@@ -1218,14 +1217,25 @@ export default function RestaurantsOrderingPage() {
                   <td style={{ ...cell, fontWeight: 600, wordBreak: 'break-word' }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {r.businessName}
-                      {r.discoOnly ? (
-                        <span
-                          title={r.fmCreationFailed ? `FamilyMeal record creation failed: ${r.fmCreationError || 'unknown error'}` : 'Live in Disco with no FamilyMeal record'}
-                          style={{ fontSize: 10, fontWeight: 600, color: '#B45309', background: '#FEF3C7', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}
-                        >Disco-only · no FM record</span>
-                      ) : overrideMap[r.reference]?.isDiscoNative ? (
+                      {/* "Disco-only · no FM record" USED TO SIT HERE and is gone.
+                          It fired on every row the orphans endpoint returned —
+                          all 216 Disco-native restaurants — and 188 of those do
+                          have an FM record, so it was wrong 87% of the time.
+                          More to the point, Disco Cater is a standalone platform:
+                          a native restaurant having no FamilyMeal record is its
+                          NORMAL state, not a defect worth flagging.
+                          The real warning it was buried inside — FM record
+                          creation actually failing at signup — is now its own
+                          badge below, and fires on 2 restaurants. */}
+                      {overrideMap[r.reference]?.isDiscoNative && (
                         <span style={{ fontSize: 10, fontWeight: 400, color: '#6B7280', background: '#F3F4F6', padding: '2px 6px', borderRadius: 4 }}>Disco</span>
-                      ) : null}
+                      )}
+                      {r.fmCreationFailed && (
+                        <span
+                          title={`FamilyMeal record creation failed at signup: ${r.fmCreationError || 'unknown error'}`}
+                          style={{ fontSize: 10, fontWeight: 600, color: '#B45309', background: '#FEF3C7', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}
+                        >FM creation failed</span>
+                      )}
                       {ov?.archivedAt && (
                         <span
                           title={`Archived ${new Date(ov.archivedAt).toLocaleDateString()} — hidden from the marketplace, admin lists, and portal login. Restore to reverse.`}
@@ -1264,26 +1274,6 @@ export default function RestaurantsOrderingPage() {
                           Admin invite expired, unused
                           <span style={{ display: 'block', fontWeight: 400, marginTop: 1 }}>
                             Nobody has logged in — resend from the ⋯ menu.
-                          </span>
-                        </span>
-                      </div>
-                    )}
-                    {drift && (
-                      <div
-                        title={drift.map(d => {
-                          if (d.type === 'price_changed') return `• ${d.name}: price $${d.before} → $${d.after} on FM`
-                          if (d.type === 'category_changed') return `• ${d.name}: category "${d.before}" → "${d.after}" on FM`
-                          if (d.type === 'renamed') return `• renamed "${d.before}" → "${d.after}" on FM`
-                          if (d.type === 'added') return `• "${d.name}" added on FM — not in the native menu`
-                          return `• "${d.name}" removed on FM — still in the native menu`
-                        }).join('\n')}
-                        style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 5, marginTop: 5, maxWidth: 260, fontSize: 10.5, fontWeight: 600, lineHeight: 1.35, color: '#B45309', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 5, padding: '3px 7px' }}
-                      >
-                        <span style={{ flexShrink: 0 }}>⚠</span>
-                        <span>
-                          FM menu changed since import
-                          <span style={{ display: 'block', fontWeight: 400, marginTop: 1 }}>
-                            {drift.length} item{drift.length === 1 ? '' : 's'} differ from the native menu — hover for details
                           </span>
                         </span>
                       </div>
