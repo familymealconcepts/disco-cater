@@ -650,7 +650,6 @@ export async function sendTeamMemberInvite(params: {
   inviterName?: string
 }): Promise<{ success: boolean }> {
   try {
-    const restaurant = params.restaurantName || 'Disco Cater'
     // DELIBERATELY IMPERSONAL, AND DELIBERATELY LOCATION-AGNOSTIC.
     //
     // It used to open "Hi <first name>," and name the inviter. Both are gone: it
@@ -663,8 +662,8 @@ export async function sendTeamMemberInvite(params: {
     // the portal show them what they actually have.
     //
     // `firstName`, `inviterName` and `restaurantName` are all still accepted so
-    // the six callers need no change; only `restaurantName` is still used, and
-    // only in the subject line.
+    // the six callers need no change, and all three are now intentionally
+    // unused — neither the subject nor the body names anyone or anything.
     const content = `
 <p>Hello,</p>
 <p>You've been invited to Disco Cater. Click below to set your password, then sign in to manage your locations.</p>
@@ -674,7 +673,11 @@ ${button('Set your password', params.inviteUrl)}
 `
     return await sendEmail({
       to: params.to,
-      subject: `You've been invited to join ${restaurant} on Disco Cater`,
+      // Deliberately does NOT name a restaurant. A system admin is routinely
+      // invited to several locations at once, so naming one misstates the scope
+      // of the access — the same reason the body stopped naming one. Leads with
+      // the single action this email exists for.
+      subject: 'Set up your Disco Cater account',
       html: layout(content),
       // By design: this is the concierge conversion/invite email, so replies
       // go to concierge@discocater.com, not the platform-wide Kealoha default.
