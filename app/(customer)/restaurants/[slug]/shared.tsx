@@ -410,12 +410,13 @@ async function loadDiscoNativeRestaurant(slug: string) {
              c.timezone,
              COALESCE(o.online_ordering_enabled, true) AS online_ordering_enabled,
              COALESCE(o.enable_menu_search, false) AS enable_menu_search,
+             COALESCE(o.is_premium, false) AS is_premium,
              o.announcement, COALESCE(o.delivery_order_time_windows, 'exact') AS delivery_order_time_windows
       FROM disco_restaurant_cache c
       LEFT JOIN disco_restaurant_overrides o ON o.restaurant_reference = c.restaurant_reference
       WHERE LOWER(c.slug) = LOWER(${slug}) AND c.is_disco_native = true AND c.is_live = true
       LIMIT 1
-    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; timezone: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; announcement: string | null; delivery_order_time_windows: string }[]
+    `, runMigrations)) as { restaurant_reference: string; name: string; slug: string | null; address: string | null; location: string | null; cuisine: string | null; description: string | null; image_url: string | null; icon_url: string | null; timezone: string | null; online_ordering_enabled: boolean; enable_menu_search: boolean; is_premium: boolean; announcement: string | null; delivery_order_time_windows: string }[]
     const r = rows[0]
     if (!r) return null
 
@@ -610,7 +611,13 @@ async function loadDiscoNativeRestaurant(slug: string) {
         // Marketplace Image; native restaurants never carried it before, so the
         // header silently fell straight to image_url regardless of a real logo.
         iconUrl: r.icon_url || null, imageUrl: r.image_url || null,
-        isDisco: true, location: r.location || undefined,
+        // isDisco WAS HARDCODED TRUE here, so every Disco-native restaurant
+        // rendered the "🪩 PREMIUM" badge whether or not Premium was ticked in
+        // Super Admin. The FM-backed path below already reads the real column
+        // (isPremium: r.is_premium); this one now does too, so the badge follows
+        // disco_restaurant_overrides.is_premium on both paths. No restaurant's
+        // stored Premium status is changed by this — only what is displayed.
+        isDisco: r.is_premium === true, location: r.location || undefined,
       },
       menuData,
       reference: r.restaurant_reference,
