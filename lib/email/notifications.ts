@@ -651,14 +651,23 @@ export async function sendTeamMemberInvite(params: {
 }): Promise<{ success: boolean }> {
   try {
     const restaurant = params.restaurantName || 'Disco Cater'
-    // DELIBERATELY IMPERSONAL. This email used to open "Hi <first name>," and
-    // then name the inviter — "<inviter> has invited you to manage …". Both are
-    // gone: it addresses nobody by name and names nobody else. `firstName` and
-    // `inviterName` are still accepted so the four callers need no change, and
-    // are intentionally unused.
+    // DELIBERATELY IMPERSONAL, AND DELIBERATELY LOCATION-AGNOSTIC.
+    //
+    // It used to open "Hi <first name>," and name the inviter. Both are gone: it
+    // addresses nobody by name and names nobody else.
+    //
+    // It also used to say "invited you to manage <Restaurant>" — wrong for a
+    // system admin, who is routinely invited to manage SEVERAL locations at
+    // once. Naming one of them is misleading about the scope of the access
+    // they are being given. The body now names no restaurant at all and lets
+    // the portal show them what they actually have.
+    //
+    // `firstName`, `inviterName` and `restaurantName` are all still accepted so
+    // the six callers need no change; only `restaurantName` is still used, and
+    // only in the subject line.
     const content = `
 <p>Hello,</p>
-<p>You've been invited to manage ${escapeHtml(restaurant)} on Disco Cater. Click below to set your password and get started.</p>
+<p>You've been invited to Disco Cater. Click below to set your password, then sign in to manage your locations.</p>
 ${button('Set your password', params.inviteUrl)}
 <p style="color:#888;font-size:13px;">This link expires in 14 days. If you weren't expecting this, please contact us at <a href="mailto:concierge@discocater.com" style="color:#5B6FE8;">concierge@discocater.com</a>.</p>
 <p>Thanks,<br/>The Disco Cater Team</p>
