@@ -338,6 +338,20 @@ export async function fmRegister(data: {
         // FM /registration requires a digits-only phone. Sanitize here too so
         // EVERY caller of fmRegister is safe, not just the ones that remember.
         firstName: data.firstName, lastName: data.lastName, phoneNumber: sanitizePhone(data.phoneNumber),
+        // ── BRAND THE WELCOME EMAIL ───────────────────────────────────────
+        // Customer accounts are deliberately SHARED between Disco Cater and
+        // FamilyMeal, so a Disco signup really does create an FM user and FM
+        // really does send the welcome mail. It used to send a "Welcome to
+        // FamilyMeal" to people who had never heard of FamilyMeal — 40 of them
+        // between 2026-09-14 and 2026-09-24, order #900000232 among them.
+        //
+        // FM now brands that mail from this field via the same
+        // BrandResolverService it already uses for order mail. Set HERE rather
+        // than in each route so both callers (auth/signup and fm-auth) are
+        // covered by construction; fmRegister is Disco-only, so DISCO is always
+        // the right answer. Omitting it means FamilyMeal, which is what every
+        // non-Disco caller of FM's /registration continues to get.
+        source: 'DISCO',
       }),
     })
     if (!res.ok) return null
