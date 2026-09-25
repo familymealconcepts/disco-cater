@@ -14,7 +14,7 @@
 import { layout, button } from './layout'
 import { fulfillmentTag } from '../order/fulfillment-label'
 import { sendEmail, type SendResult } from './send'
-import { isThirdPartyFulfillment, isDeliveryFulfillment } from '../order/fulfillment-label'
+import { isThirdPartyFulfillment, isDeliveryFulfillment, customerFulfillmentLabel } from '../order/fulfillment-label'
 
 // ── small helpers ────────────────────────────────────────────────────────────
 
@@ -271,7 +271,7 @@ export async function sendCustomerOrderConfirmation(
 ${p.orderEditNotice ? `<p style="font-size:15px;line-height:1.5;margin-bottom:12px;">${escapeHtml(p.orderEditNotice)}</p>` : ''}
 ${p.additionalInvoiceDue != null ? `<p style="margin-bottom:12px;"><strong>Additional amount due (invoice):</strong> ${money(p.additionalInvoiceDue)}</p>` : ''}
 <p style="margin:0;">
-<strong>${escapeHtml(p.orderService)}</strong>: ${p.orderDate ? escapeHtml(p.orderDate) : ''}${p.orderTime ? ` at ${escapeHtml(p.orderTime)}` : ''}
+<strong>${escapeHtml(customerFulfillmentLabel(p.orderService))}</strong>: ${p.orderDate ? escapeHtml(p.orderDate) : ''}${p.orderTime ? ` at ${escapeHtml(p.orderTime)}` : ''}
 ${p.persons != null && p.persons > 0 ? `<br/>Headcount: <strong>${escapeHtml(p.persons)}</strong>` : ''}
 </p>
 ${HR}
@@ -411,7 +411,7 @@ export async function sendCustomerOrderReminder(
 <p style="margin:0;"><strong>${name ? `${name}, ` : ''}your order ${escapeHtml(p.orderNumber)} will be ready on:</strong></p>
 ${HR}
 <p style="margin:0;">
-${p.orderService ? `Order type: ${escapeHtml(p.orderService)}<br/>` : ''}
+${p.orderService ? `Order type: ${escapeHtml(customerFulfillmentLabel(p.orderService))}<br/>` : ''}
 ${p.orderDate ? `Order date: ${escapeHtml(p.orderDate)}<br/>` : ''}
 ${p.orderTime ? `Order time: ${escapeHtml(p.orderTime)}<br/>` : ''}
 </p>
@@ -428,9 +428,12 @@ ${anyQuestions(p)}
 `
     return await sendEmail({
       to: p.to,
-      // FM format: "REMINDER: Your {PICKUP/DELIVERY/THIRD-PARTY DELIVERY} Order
-      // will be ready on: {MM/DD/YYYY} at {H:MM AM/PM} for {First} {Last}".
-      subject: `REMINDER: Your ${p.orderService} Order will be ready on: ${p.orderDate} at ${p.orderTime} for ${[p.firstName, p.lastName].filter(Boolean).join(' ')}`.trim(),
+      // FM's shape, but with FM's courier disclosure removed: FM sends
+      // "Your THIRD-PARTY DELIVERY Order", which tells a diner who booked the
+      // driver rather than anything they can act on. customerFulfillmentLabel
+      // collapses both delivery flavours to "Delivery"; the restaurant's own
+      // reminder below still carries the operational label.
+      subject: `REMINDER: Your ${customerFulfillmentLabel(p.orderService)} Order will be ready on: ${p.orderDate} at ${p.orderTime} for ${[p.firstName, p.lastName].filter(Boolean).join(' ')}`.trim(),
       html: layout(content),
     })
   } catch (err) {

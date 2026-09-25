@@ -238,3 +238,40 @@ export function fulfillmentTag(label: string | null | undefined): string {
     default: return ''
   }
 }
+
+/**
+ * The fulfillment wording a CUSTOMER sees.
+ *
+ * Collapses the three operational labels to the two facts a diner acts on:
+ * they are either collecting the food or receiving it.
+ *
+ *     Pickup                -> 'Pickup'
+ *     Self-Delivery         -> 'Delivery'
+ *     Third-Party Delivery  -> 'Delivery'
+ *
+ * WHY THE DELIVERY SPLIT DISAPPEARS. Who drives — the restaurant's own van or
+ * a courier network Disco or FamilyMeal booked — is a fact about our plumbing,
+ * exactly like which network it is. fulfillmentLabel's own header already
+ * refuses to surface Dlivrd/Nash/DoorDash for that reason; "Third-Party" is the
+ * same disclosure one level up, and it was reaching diners in a subject line:
+ *
+ *     REMINDER: Your Third-Party Delivery Order will be ready on: ...
+ *
+ * The diner's experience is identical either way: food arrives at their
+ * address. "Self-Delivery" is no better — it names an internal distinction and
+ * reads like the customer is delivering it themselves.
+ *
+ * RESTAURANTS KEEP ALL THREE. This is wording only. It must not be used for the
+ * restaurant email, the portal, Slack, SMS, the admin views or the order PDF,
+ * which is the kitchen's operational document — a restaurant genuinely needs to
+ * know whether a courier is coming or its own driver is going out. Nor is it a
+ * classification: routing and dispatch continue to read delivery_type.
+ *
+ * Takes fulfillmentLabel()'s OUTPUT for the same reason fulfillmentTag does —
+ * one derivation from the enums, then mappings off it. Anything unrecognised
+ * falls through to 'Delivery' rather than leaking a raw value, and the only way
+ * to reach that is a caller passing something fulfillmentLabel did not produce.
+ */
+export function customerFulfillmentLabel(label: string | null | undefined): 'Pickup' | 'Delivery' {
+  return String(label ?? '').trim() === 'Pickup' ? 'Pickup' : 'Delivery'
+}
