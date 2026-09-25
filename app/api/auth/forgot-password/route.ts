@@ -63,19 +63,7 @@ export async function POST(req: NextRequest) {
     // sentinel (no real hash yet, still verified against FM until their next
     // sign-in migrates them). Diners with a real hash never reach this.
     try {
-      // ── BRAND + DESTINATION FOR THE FALLBACK ──────────────────────────────
-      // Reached only for FM-owned logins, where FM mints the new password and
-      // emails it — Disco cannot send this one itself. FM now takes a
-      // per-request redirect URL which drives BOTH the sign-in link in the mail
-      // and the brand, via BrandResolverService.resolveBrandNameFromUrl.
-      //
-      // NON-WWW IS LOAD-BEARING. That resolver matches the literal substring
-      // "/disco". "https://discocater.com/…" contains it ("//discocater");
-      // "https://www.discocater.com/…" does NOT, and would silently fall back to
-      // FamilyMeal branding. The bare host 302s to www, so the customer still
-      // lands in the right place. Do not add "www." here.
-      const discoRedirectUrl = 'https://discocater.com/?action=signIn'
-      const res = await fetch(`${FM}/forgotPassword?email=${encodeURIComponent(email)}&redirectUrl=${encodeURIComponent(discoRedirectUrl)}`, {
+      const res = await fetch(`${FM}/forgotPassword?email=${encodeURIComponent(email)}`, {
         method: 'POST',
         headers: { Accept: 'application/json' },
       })
