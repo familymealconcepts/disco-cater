@@ -10,7 +10,7 @@
 
 import type { NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
-import { randomBytes } from 'crypto'
+import { randomBytes, createHmac } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { sql } from './db'
 import { sanitizePhone } from './utils/phone'
@@ -369,5 +369,131 @@ export async function syncFmProfilePhoneToDigits(fm: FmAuthResult | null): Promi
     console.log(`[customer-auth] FM phone self-heal for ${fm.email}: "${raw}" → "${digits}" (${res.ok ? 'ok' : `fm ${res.status}`})`)
   } catch (err) {
     console.error('[customer-auth] FM phone self-heal failed (non-fatal):', err instanceof Error ? err.message : err)
+  }
+}
+
+// ── FM account linkage, created ON DEMAND ────────────────────────────────────
+//
+// Signup deliberately no longer creates an FM user. The FM account exists for
+// exactly one purpose — placing orders at FM-BACKED restaurants, which is the
+// only path that needs an FM JWT (app/api/order/place returns on the native
+// branch before the JWT is ever read). Creating one for everybody meant FM sent
+// a "Welcome to FamilyMeal" to every Disco signup: 128 of the 135 people who
+// signed up in the 30 days to 2026-09-24, to serve ONE FM-backed order.
+//
+// So the account is created at the moment it is first needed, by
+// ensureFmAccount below.
+
+/**
+ * The password Disco uses for FM accounts IT created.
+ *
+ * Deterministic rather than stored: an FM JWT may be needed again in a later
+ * session, long after the one-off registration, and re-registering is not an
+ * option (FM rejects a duplicate email). Deriving it means Disco can always
+ * re-authenticate without keeping a reversible secret per customer in the
+ * database.
+ *
+ * NOT the customer's own password, and not meant to be: they never type this,
+ * and Disco's own reset (customer-set-password) deliberately never touches FM,
+ * so the two sides already diverge by design.
+ *
+ * ROTATING THE SECRET BREAKS THIS. Change FM_LINK_SECRET and Disco can no
+ * longer mint JWTs for the FM accounts it created — those customers fall back
+ * to the "sign in again" path, which cannot help them because they do not know
+ * this password. Treat it as long-lived.
+ */
+function deriveFmLinkPassword(email: string): string | null {
+  const secret = process.env.FM_LINK_SECRET || process.env.UNSUBSCRIBE_SECRET
+  if (!secret) return null
+  // Domain-separated so reusing UNSUBSCRIBE_SECRET cannot collide with the
+  // unsubscribe tokens it was minted for.
+  const raw = createHmac('sha256', secret).update(`fm-link:${email.trim().toLowerCase()}`).digest('base64url')
+  // FM only enforces @NotBlank on password, but keep it obviously non-guessable
+  // and mixed-class in case that ever tightens.
+  return `Dc1!${raw.slice(0, 40)}`
+}
+
+export type EnsureFmAccountResult =
+  | { ok: true; fm: FmAuthResult }
+  // The email exists in FM under a password Disco does not know (a customer who
+  // registered on FamilyMeal directly, or one whose FM password predates this
+  // change). Signing in supplies the real password, which mints the JWT.
+  | { ok: false; reason: 'needs-signin' }
+  | { ok: false; reason: 'unavailable' }
+
+/**
+ * Get an FM JWT for a customer who has no usable one on their session, creating
+ * the FM account if this is their first FM-backed order.
+ *
+ * Order matters:
+ *   1. Log in with the derived password — succeeds when Disco already created
+ *      this FM account on an earlier order. Tried FIRST because it is the
+ *      common repeat case and costs one call.
+ *   2. Register, then log in — the genuinely-new-to-FM customer. FM sends its
+ *      welcome here, which is correct: this is the moment they actually become
+ *      a FamilyMeal customer.
+ *   3. Otherwise the email is already in FM under someone else's password →
+ *      'needs-signin'. The caller turns that into a message the order UI
+ *      already renders, and its existing sign-in form fixes it, because
+ *      signing in runs fmLogin with the customer's REAL password.
+ *
+ * Customers who signed up BEFORE this change are unaffected: their FM password
+ * is their Disco password, so their ordinary sign-in already puts an FM JWT on
+ * the session and they never reach this function.
+ */
+export async function ensureFmAccount(data: {
+  email: string; firstName: string; lastName: string; phoneNumber?: string | null
+}): Promise<EnsureFmAccountResult> {
+  const derived = deriveFmLinkPassword(data.email)
+  if (!derived) {
+    console.error('[customer-auth] ensureFmAccount: no FM_LINK_SECRET/UNSUBSCRIBE_SECRET set — cannot link an FM account')
+    return { ok: false, reason: 'unavailable' }
+  }
+
+  const existing = await fmLogin(data.email, derived)
+  if (existing) return { ok: true, fm: existing }
+
+  const created = await fmRegister({
+    email: data.email, password: derived,
+    firstName: data.firstName, lastName: data.lastName,
+    phoneNumber: sanitizePhone(data.phoneNumber || ''),
+  })
+  // fmRegister maps a response WITHOUT an authorization token to null, and FM's
+  // /registration does not return one, so a successful create still lands here.
+  // Log in to find out which it was.
+  const after = await fmLogin(data.email, derived)
+  if (after) return { ok: true, fm: after }
+  if (created) return { ok: true, fm: created }
+
+  return { ok: false, reason: 'needs-signin' }
+}
+
+/** Persist a freshly minted FM JWT so later requests in this session reuse it. */
+export async function updateCustomerSessionFmTokens(
+  sessionToken: string, fmJwt: string | null, fmRefresh: string | null,
+): Promise<void> {
+  try {
+    await sql`
+      UPDATE disco_customer_sessions
+      SET fm_jwt = ${fmJwt || null}, fm_refresh_token = ${fmRefresh || null}
+      WHERE session_token = ${sessionToken}
+    `
+  } catch (e) {
+    // Non-fatal: the caller already has the JWT for THIS request; losing the
+    // write only costs an extra mint next time.
+    console.error('[customer-auth] session FM token update failed:', e instanceof Error ? e.message : e)
+  }
+}
+
+/** Record the FM reference once Disco has linked an FM account. */
+export async function setCustomerFmReference(email: string, fmReference: string | null): Promise<void> {
+  if (!fmReference) return
+  try {
+    await sql`
+      UPDATE disco_customers SET fm_reference = ${fmReference}
+      WHERE lower(email) = lower(${email}) AND (fm_reference IS NULL OR fm_reference = '')
+    `
+  } catch (e) {
+    console.error('[customer-auth] fm_reference update failed:', e instanceof Error ? e.message : e)
   }
 }

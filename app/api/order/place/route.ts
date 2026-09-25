@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { waitUntil } from '@vercel/functions'
 import { randomUUID } from 'node:crypto'
 import Stripe from 'stripe'
-import { getFmCustomerJwt } from '../../../../lib/customer-auth'
+import {
+  getFmCustomerJwt, ensureFmAccount,
+  updateCustomerSessionFmTokens, setCustomerFmReference,
+} from '../../../../lib/customer-auth'
 import { sanitizePhoneFields } from '../../../../lib/utils/phone'
 import { sql } from '../../../../lib/db'
 import { fmFetch } from '../../../../lib/fm-fetch'
@@ -419,9 +422,41 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const token = await getFmCustomerJwt(req)
+    // ── FM-BACKED ONLY. The native branch returned above without ever needing
+    // an FM JWT, which is exactly why signup no longer creates an FM account.
+    let token = await getFmCustomerJwt(req)
     // Vercel log: surface whether the FM JWT resolved (never log the token).
     console.log('[order/place] FM JWT present:', !!token)
+
+    if (!token) {
+      // First FM-backed order for a customer who signed up after FM
+      // registration moved out of signup: create the FM account now. See
+      // ensureFmAccount — it also covers the repeat case, where Disco created
+      // the account on an earlier order and only needs a fresh JWT.
+      const session = await getCustomerSession(req)
+      if (session) {
+        const linked = await ensureFmAccount({
+          email: session.email, firstName: session.firstName, lastName: session.lastName,
+          phoneNumber: null,
+        })
+        if (linked.ok) {
+          token = linked.fm.authorization
+          // Persist so /confirm-payment and the rest of this session reuse it
+          // instead of minting again.
+          await updateCustomerSessionFmTokens(session.sessionToken, linked.fm.authorization, linked.fm.refreshToken || null)
+          await setCustomerFmReference(session.email, linked.fm.reference || null)
+          console.log('[order/place] linked FM account on demand for this order')
+        } else if (linked.reason === 'needs-signin') {
+          // The email is already in FM under a password Disco does not know.
+          // Signing in supplies the real one — the order UI renders this
+          // message and already has a sign-in form.
+          return NextResponse.json({
+            error: 'Please sign in again to place this order — we need to confirm your FamilyMeal account.',
+          }, { status: 401 })
+        }
+      }
+    }
+
     if (!token) {
       console.warn('[order/place] No FM JWT — order will NOT be placed. Customer must be logged in with a valid FM session.')
       return NextResponse.json({ error: 'Authentication required. Please log in again.' }, { status: 401 })

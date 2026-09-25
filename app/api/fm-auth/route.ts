@@ -7,9 +7,9 @@ import {
   CUSTOMER_COOKIE, CUSTOMER_COOKIE_OPTS, FM_MIGRATED,
   hashCustomerPassword, verifyCustomerPassword,
   getDiscoCustomer, upsertDiscoCustomer, createCustomerSession, deleteCustomerSession,
-  fmLogin, fmRegister, syncFmProfilePhoneToDigits, type FmAuthResult,
+  fmLogin, syncFmProfilePhoneToDigits, type FmAuthResult,
 } from '../../../lib/customer-auth'
-import { sanitizePhone } from '../../../lib/utils/phone'
+import { sendCustomerWelcome } from '../../../lib/email/notifications'
 
 export const runtime = 'nodejs'
 
@@ -65,17 +65,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'An account with this email already exists.' }, { status: 409 })
       }
       const passwordHash = await hashCustomerPassword(password)
-      // Also create the FM account (needed for order placement). Best-effort: if
-      // FM is down we still create the Disco account + session, just no fm_jwt.
-      // FM /registration requires a digits-only phone ("Phone number has wrong
-      // format" otherwise); sanitize for FM, keep the entered value in Neon.
-      let fm = await fmRegister({ email, password, firstName, lastName, phoneNumber: sanitizePhone(phoneNumber) })
-      // FM may create the account but not return a JWT from /registration (or the
-      // email already exists in FM). Fall back to an FM /login so we still capture
-      // the FM JWT — order placement (disco_token / order/place) depends on it.
-      if (!fm) fm = await fmLogin(email, password)
-      if (!fm) console.warn('[fm-auth] FM registration unavailable — creating Disco-only account for', email)
-      // If the FM fallback login surfaced an existing formatted phone, fix it.
+      // NO FM ACCOUNT HERE — see ensureFmAccount in lib/customer-auth.ts, and
+      // the identical note in app/api/auth/signup/route.ts. FM's /registration
+      // always sends "Welcome to FamilyMeal" and is the only way to create an
+      // FM user, so the account is now created at the moment it is first
+      // needed: an order at an FM-BACKED restaurant.
+      //
+      // The LOGIN attempt stays. It links a customer who already has a
+      // FamilyMeal account under this email and password, and sends no welcome
+      // because it creates nothing.
+      const fm = await fmLogin(email, password)
       if (fm) waitUntil(syncFmProfilePhoneToDigits(fm))
 
       try {
@@ -91,6 +90,10 @@ export async function POST(req: NextRequest) {
       let sessionToken: string
       try { sessionToken = await createCustomerSession(email, fm?.authorization, fm?.refreshToken) }
       catch (e) { console.error('[fm-auth] session insert failed:', e instanceof Error ? e.message : e); return NextResponse.json({ error: 'Unable to create your account. Please try again.' }, { status: 500 }) }
+
+      // Disco's OWN welcome. waitUntil so the mailer can never block or fail a
+      // signup that has already succeeded.
+      waitUntil(sendCustomerWelcome({ to: email, firstName }))
 
       const resp = NextResponse.json(userPayload(email, fm, null, { firstName, lastName, phoneNumber }))
       setCustomerCookies(resp, sessionToken, fm)
