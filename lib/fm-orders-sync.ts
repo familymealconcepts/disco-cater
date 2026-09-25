@@ -977,7 +977,53 @@ export async function syncAllRestaurantOrders(
     }
   }
 
+  // ── CONVERTED RESTAURANTS THAT STILL TAKE FAMILYMEAL ORDERS ────────────────
+  // Converting a restaurant to native does NOT stop FamilyMeal sending it
+  // orders: diners keep ordering on familymeal.com, and those orders arrive
+  // with source_of_order = 'FAMILYMEAL' and must still mirror into Neon or the
+  // restaurant never sees an order it has to cook.
+  //
+  // Two things conspired to hide them for days. app/api/restaurant/orders
+  // deliberately skips the on-demand sync for a native restaurant (that call
+  // froze FamilyMeal's backend on 2026-09-20 and the gate stays), so the hourly
+  // rotation became the ONLY path — and at 50 of ~4,100 per run that is a
+  // ~3.4-DAY round trip. Apollo Bagels - Hoboken #33932962, placed 2026-09-23
+  // for delivery 2026-09-28, was still invisible two days later.
+  //
+  // So sweep them ahead of the rotation. This is a small, exactly-targeted list
+  // (214 of 271 converted restaurants have FM order history at the time of
+  // writing, not the whole fleet), rotated by the same cursor offset so every
+  // one is covered within a few runs instead of days. Capped so it can never
+  // become a second unbounded job, and ONE page per restaurant — enough to
+  // catch new arrivals, with the rotation still doing the deep passes.
+  const CONVERTED_CAP = 60
+  const convertedRows = (await sql`
+    SELECT DISTINCT c.restaurant_reference::text AS ref
+    FROM disco_restaurant_cache c
+    JOIN disco_orders o ON o.restaurant_reference = c.restaurant_reference
+    WHERE c.is_disco_native = true
+      AND o.source_of_order = 'FAMILYMEAL'
+      AND o.is_deleted = false
+    ORDER BY 1
+  `.catch(() => [])) as { ref: string }[]
+  const convertedAll = convertedRows.map(r => r.ref).filter(isUuid)
+  const convertedDone = new Set<string>()
+  if (convertedAll.length) {
+    const start = convertedAll.length ? (offset % convertedAll.length) : 0
+    const slice = convertedAll.length <= CONVERTED_CAP
+      ? convertedAll
+      : [...convertedAll, ...convertedAll].slice(start, start + CONVERTED_CAP)
+    for (const ref of slice) {
+      if (convertedDone.has(ref)) continue
+      convertedDone.add(ref)
+      results.push(await syncRestaurantOrders(ref, { withItems: false, pageSize: 50, maxPages: 1, stopAtKnownDate: true }))
+    }
+    console.log(`[fm-orders-sync] converted-restaurant sweep: ${convertedDone.size} of ${convertedAll.length} (offset=${offset})`)
+  }
+
   for (const ref of refs) {
+    // Already swept above this run — the rotation must not pay for it twice.
+    if (convertedDone.has(ref)) continue
     let stopAtKnownDate = opts.stopAtKnownDate
     let maxPages = opts.maxPages ?? 3
 
