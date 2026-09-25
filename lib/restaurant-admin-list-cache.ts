@@ -19,25 +19,52 @@ import { alertOps } from './ops-alert'
 // writes into the staging table and swaps it in for the live one, via an
 // instant catalog-only three-way RENAME (no row copy, no long lock).
 
+import { fmFetch } from './fm-fetch'
+
 const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
-const SIZE = 500
-const MAX_PAGES = 50
+// 250, not 500. Pages of 500 return 230-270 KB each and were slow enough that
+// page 4 hit the ~100s Cloudflare proxy timeout in front of FM: nginx logged it
+// as 499 (client closed request) at 06:05:24 on two consecutive days, and the
+// single short retry then hit the same slow page and failed the same way. That
+// is what "1 page failed even after retry" was. Halving the page halves the
+// per-request work; the extra round trips are cheap because this endpoint is
+// NOT in FM's rate-limited `orders` zone (zero 429s against it).
+const SIZE = 250
+const MAX_PAGES = 100
 
 type FmRow = Record<string, unknown>
 
-// One retry with a short backoff on any failure; a 401 force-refreshes the
-// service token first (it can expire mid-run on a slow full pull) and
-// retries immediately, without waiting out the backoff meant for FM 5xxs.
+// FOUR attempts with exponential backoff, not two with a flat 1.5s. A 401
+// force-refreshes the service token first (it can expire mid-run on a slow full
+// pull) and retries immediately, without waiting out the backoff meant for slow
+// pages and FM 5xxs.
+//
+// TWO ATTEMPTS WAS NOT ENOUGH, and the reason is that the failure is not random:
+// a page that times out at the proxy takes just as long on the immediate retry,
+// so both attempts failed for the same reason 1.5 seconds apart. Backing off
+// gives FM room to drain whatever made that page slow.
+//
+// Goes through fmFetch for its 429/502/503/504 retry and Retry-After handling,
+// with a 60s timeout — generous on purpose, since a full page legitimately takes
+// several seconds and the default 10s would turn a slow page into a hard failure.
+const PAGE_ATTEMPTS = 4
+const PAGE_TIMEOUT_MS = 60_000
+
 async function fetchPageWithRetry(page: number, getHeader: (force?: boolean) => Promise<Record<string, string>>): Promise<any | null> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < PAGE_ATTEMPTS; attempt++) {
     try {
       const header = await getHeader()
       const params = new URLSearchParams({ page: String(page), size: String(SIZE) })
-      const res = await fetch(`${FM}/api/admin/restaurants?${params}`, { headers: header, cache: 'no-store' })
+      const res = await fmFetch(`${FM}/api/admin/restaurants?${params}`, { headers: header, cache: 'no-store' }, PAGE_TIMEOUT_MS)
       if (res.status === 401) { await getHeader(true); continue }
       if (res.ok) return await res.json().catch(() => null)
-    } catch { /* fall through to retry */ }
-    if (attempt === 0) await new Promise((r) => setTimeout(r, 1500))
+      console.warn(`[admin-list-cache] page ${page} attempt ${attempt + 1} failed: HTTP ${res.status}`)
+    } catch (e) {
+      // Includes the proxy cutting a slow page: fetch throws rather than
+      // returning a status, which is why this must retry on a throw too.
+      console.warn(`[admin-list-cache] page ${page} attempt ${attempt + 1} errored: ${e instanceof Error ? e.message : e}`)
+    }
+    if (attempt < PAGE_ATTEMPTS - 1) await new Promise((r) => setTimeout(r, 1500 * Math.pow(2, attempt)))
   }
   return null
 }

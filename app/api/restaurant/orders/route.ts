@@ -274,15 +274,29 @@ export async function GET(req: NextRequest) {
     const syncRef = scopeRef
     waitUntil(
       (async () => {
-        // ── A DISCO-NATIVE RESTAURANT MUST NEVER CALL FAMILYMEAL ──────────────
-        // Converting a restaurant to native means Neon owns its orders. FM has
-        // no order rows for it at all — Bird & Co.'s FM tenant schema
-        // (150_08c8be73…) holds only flyway_schema_history_restaurant, while its
-        // 346 real orders live in disco_orders. Syncing FROM FamilyMeal for a
-        // native restaurant can only ever pull nothing, and on 2026-09-20 it did
-        // far worse than nothing: this call (two FM requests per invocation, the
-        // public-api URL plus the admin fallback) was the traffic that froze
+        // ── NO ON-PAGE FM CALL FOR A DISCO-NATIVE RESTAURANT ──────────────────
+        // THIS IS A LOAD GATE, NOT A CORRECTNESS ONE. It exists for exactly one
+        // reason: on 2026-09-20 this call — two FM requests per invocation, the
+        // public-api URL plus the admin fallback, on every load of the orders
+        // page for every native restaurant — was the traffic that froze
         // FamilyMeal's backend.
+        //
+        // CONVERTED RESTAURANTS DO KEEP TAKING FAMILYMEAL ORDERS. An earlier
+        // version of this comment claimed FM has no order rows for a native
+        // restaurant, and that is false: diners keep ordering on familymeal.com,
+        // those orders arrive with source_of_order = 'FAMILYMEAL', and they must
+        // still mirror. Believing otherwise is what made the failure invisible —
+        // Apollo Bagels - Hoboken #33932962 ($1,004.04, placed 09-23 for
+        // delivery 09-28) and Kips Bay #30017011 sat live and PAID in FM while
+        // showing nowhere in Disco.
+        //
+        // THEY ARRIVE VIA THE BACKGROUND SYNC INSTEAD. syncAllRestaurantOrders
+        // sweeps converted restaurants ahead of its rotation (see the
+        // converted-restaurant sweep in lib/fm-orders-sync.ts), so a new FM order
+        // lands within roughly 20 minutes rather than on page load. Peter's
+        // ruling 2026-09-25: that latency is fine, and the instant on-page check
+        // stays off. So do not "fix" this by removing the gate — the sync owns
+        // this now, and re-enabling the per-page-load call re-creates the outage.
         //
         // KEYED ON THE RESTAURANT, NOT THE SESSION — the same rule as
         // lib/fm-menu-surface-guard.ts and the dashboard/stats branch. Note it
