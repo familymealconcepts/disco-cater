@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sql, runDiscoOrderMigrations } from '../../../../lib/db'
 import { sendEmail } from '../../../../lib/email/send'
+import { layout } from '../../../../lib/email/layout'
 import { buildReport, isReportDue, reportPeriod, ReportReconciliationError, type ScheduledReportConfig } from '../../../../lib/reports/native-reports'
 import { alertOps } from '../../../../lib/ops-alert'
 
@@ -68,7 +69,10 @@ export async function GET(req: NextRequest) {
         const res = await sendEmail({
           to: recipients.join(','),
           subject: `${r.name} — ${period.from} to ${period.to} | Disco Cater`,
-          html: `<p>Your scheduled report <strong>${r.name}</strong> for ${period.from} to ${period.to} is attached (${gen.rowCount} order${gen.rowCount === 1 ? '' : 's'}).</p>`,
+          // layout() like every other transactional email — this was the one
+          // sender passing bare HTML, so the report arrived with no Disco Cater
+          // logo and no concierge footer while carrying a "| Disco Cater" subject.
+          html: layout(`<p>Your scheduled report <strong>${r.name}</strong> for ${period.from} to ${period.to} is attached (${gen.rowCount} order${gen.rowCount === 1 ? '' : 's'}).</p>`),
           attachments: [{ filename, content: gen.body, contentType: gen.contentType }],
         })
         if (!res.success) { status = 'FAILED'; error = res.error || 'email failed' }
