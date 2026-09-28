@@ -2,15 +2,48 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminAuthHeader, getAdminEmail } from '../../../../../../lib/admin-auth'
 import { runDiscoOrderMigrations, sql } from '../../../../../../lib/db'
 import { discoEmailDomain, grantLocationAccess } from '../../../../../../lib/disco-restaurant-auth'
+import { getFmServiceAuthHeader } from '../../../../../../lib/fm-service-auth'
+import { fmFetch } from '../../../../../../lib/fm-fetch'
+
+const FM = process.env.FM_API_BASE_URL || 'https://api.familymeal.com'
 
 export const runtime = 'nodejs'
 
 // POST /api/admin/restaurants/{ref}/promote-system-admin
-// Disco-native SYSTEM_ADMIN promotion. Sets role = 'SYSTEM_ADMIN' on the
-// restaurant's Disco account AND every account in the same group (same
-// business_name, or same email domain as a fallback) so the whole group gets
-// all-locations access in the restaurant portal. This mirrors FM's "promote to
-// SYSTEM_ADMIN" but is driven entirely from Neon — no FM call.
+//
+// "Transfer to System Admin". FamilyMeal is the specification, so this now does
+// what FM's own action does and then keeps Neon in step — it used to do ONLY the
+// Neon half, which is why it reported success while the person stayed a
+// single-location ADMIN in their portal.
+//
+// ── WHAT FM DOES (RestaurantServiceImpl.transferAdminToSystemAdmin) ──────────
+//   PUT /api/admin/restaurants/{reference}/system-admin   (SUPER_ADMIN only)
+//   restaurant.getAdmins().stream().findFirst().ifPresent(user -> {
+//       if (Role.ADMIN.equals(user.getRole())) {
+//           user.setRole(Role.SYSTEM_ADMIN);
+//           if (restaurant.getRestaurantGroup() == null) {
+//               var g = createRestaurantGroup(restaurant.getBusinessName());
+//               restaurant.setRestaurantGroup(g); user.setRestaurantGroup(g);
+//           } else { user.setRestaurantGroup(restaurant.getRestaurantGroup()); }
+//       }
+//   });
+// So: the restaurant's FIRST admin, and ONLY if they are currently ADMIN, becomes
+// SYSTEM_ADMIN and is attached to the restaurant's group — creating a group named
+// after the business when the restaurant has none. It is the ROLE change that
+// gives the portal its system-admin level. FM writes no
+// tbl_system_admin_restaurants rows here, and neither do we — mirroring exactly,
+// not designing new role logic.
+//
+// Disco's service account (FM_ADMIN_EMAIL) is SUPER_ADMIN in FM, so it can call
+// that endpoint directly; it is already the account behind every other
+// /api/admin/... proxy in this codebase.
+//
+// ── DISCO-NATIVE RESTAURANTS ─────────────────────────────────────────────────
+// A converted restaurant's people may have no FM role to change — FM may 404, or
+// find an admin who is not ADMIN, in which case FM's own method is a no-op. That
+// is not a failure: the Neon half below is what their portal reads. Both halves
+// run independently and both outcomes are reported, so the caller is never told
+// something happened that did not.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ ref: string }> }) {
   // Super admin must be authenticated (same guard as the sibling FM proxies).
   try { await getAdminAuthHeader() } catch {
@@ -25,19 +58,53 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   try {
     await runDiscoOrderMigrations() // ensures role + business_name columns exist
 
+    // NEVER MATCH THE STRIPE-IMPORT SENTINEL. importRestaurantStripeAccount
+    // creates a login-disabled holder row (stripe-import+{ref}@familymeal.com)
+    // for restaurants that had no account to attach a Stripe id to. It matches on
+    // restaurant_reference, so it silently absorbed promotions meant for real
+    // people: Rooted Cafe was "promoted" three times, each one re-promoting the
+    // sentinel and returning success while Nicole Tomaszewski was never touched.
+    // 233 of these sentinels currently hold SYSTEM_ADMIN for exactly that reason.
     const accounts = (await sql`
       SELECT id, email, business_name, restaurant_name, restaurant_reference
       FROM disco_restaurant_accounts
-      WHERE restaurant_reference = ${ref}
-         OR (${email} <> '' AND LOWER(email) = ${email})
+      WHERE (restaurant_reference = ${ref}
+         OR (${email} <> '' AND LOWER(email) = ${email}))
+        AND email NOT LIKE 'stripe-import+%'
+        AND archived_at IS NULL
       ORDER BY id ASC
     `) as Array<{ id: number; email: string; business_name: string | null; restaurant_name: string | null; restaurant_reference: string | null }>
 
+    // ── FM'S HALF, FIRST ────────────────────────────────────────────────────
+    // This is the part that actually gives the portal its system-admin level for
+    // an FM-backed login, and the part that was missing entirely.
+    let fm: { ok: boolean; status: number; detail: string }
+    try {
+      const h = await getFmServiceAuthHeader()
+      const res = await fmFetch(`${FM}/api/admin/restaurants/${ref}/system-admin`, { method: 'PUT', headers: h })
+      fm = {
+        ok: res.ok,
+        status: res.status,
+        detail: res.ok
+          ? 'FamilyMeal transferred the restaurant\'s admin to SYSTEM_ADMIN.'
+          : `FamilyMeal returned ${res.status}.`,
+      }
+    } catch (e) {
+      fm = { ok: false, status: 0, detail: `FamilyMeal call failed: ${e instanceof Error ? e.message : e}` }
+    }
+    if (!fm.ok) console.error('[promote-system-admin] FM transfer did not succeed:', ref, fm.status, fm.detail)
+
+    // No Disco row is NOT a failure any more — FM's half may well have done the
+    // work. Only report a hard error when NEITHER side could do anything.
     if (!accounts.length) {
-      // No Disco-native account row → they've never logged into the Disco portal.
-      // Return a clear, actionable error (never a false success).
+      if (fm.ok) {
+        return NextResponse.json({
+          success: true, updatedCount: 0, fm: fm.detail,
+          message: 'Transferred to System Admin in FamilyMeal. No Disco portal account exists for this restaurant yet, so no Disco-side role was changed.',
+        })
+      }
       return NextResponse.json(
-        { error: 'This user must log into the restaurant portal at least once before they can be promoted to System Admin.' },
+        { error: `Could not transfer to System Admin. ${fm.detail} No Disco portal account exists for this restaurant either.` },
         { status: 404 },
       )
     }
@@ -90,7 +157,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       }
     }
 
-    return NextResponse.json({ success: true, updatedCount: promotedIds.size })
+    // Report what actually happened, per side. The old response fed a toast that
+    // claimed "access granted to all locations" — this action grants each promoted
+    // account its OWN home location only, so that wording was never true.
+    const grantedCount = ids.length
+    return NextResponse.json({
+      success: true,
+      updatedCount: promotedIds.size,
+      grantedCount,
+      fm: fm.detail,
+      fmOk: fm.ok,
+      message: `${fm.ok ? 'Transferred in FamilyMeal. ' : `FamilyMeal: ${fm.detail} `}`
+        + `${promotedIds.size} Disco account${promotedIds.size === 1 ? '' : 's'} set to System Admin.`,
+    })
   } catch (err) {
     console.error('[promote-system-admin] failed:', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: 'Unable to promote to System Admin' }, { status: 500 })

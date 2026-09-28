@@ -673,7 +673,11 @@ export default function RestaurantsOrderingPage() {
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
         setPromoteConfirm(null)
-        showToast('Promoted to System Admin — access granted to all locations.')
+        // Report what the action ACTUALLY did. The old text claimed "access
+        // granted to all locations", which this action has never done — it grants
+        // each promoted account its own home location only, and the reach a
+        // System Admin gets comes from FamilyMeal's role change, not from here.
+        showToast(data?.message || 'Transferred to System Admin.')
       } else {
         showToast(data?.error || 'Could not promote to System Admin')
       }
