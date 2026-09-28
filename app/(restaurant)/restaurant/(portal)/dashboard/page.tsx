@@ -431,8 +431,18 @@ export default function DashboardPage() {
   // "Third-Party Tips" on the restaurant's own dashboard reads as money they are
   // owed. The same wording is used in the Orders report column.
   const deliveryTipsTitle = isDoorDash ? 'DoorDash Tips (not paid out)' : 'Third-Party Tips (not paid out)'
-  const hasServiceCharge = restaurant.feeCategories && restaurant.feeCategories.length > 0
-  const serviceChargeTitle = hasServiceCharge
+  // ── SHOW THE CARD WHENEVER THERE IS SERVICE CHARGE TO SHOW ──────────────────
+  // This used to gate ONLY on restaurant.feeCategories — FamilyMeal's per-restaurant
+  // NAMING of the charge. That is a label, not a fact about the money: a restaurant
+  // that has taken service charge but has no feeCategories row got no card at all,
+  // and the amount vanished from the summary while still sitting inside Total
+  // Amount. Fleet-wide there is ~$109.8k of it, so the gap was not hypothetical.
+  //
+  // feeCategories still decides the TITLE — a restaurant that calls it something
+  // else keeps its own wording — but the presence of money decides the CARD.
+  const hasFeeCategoryName = !!(restaurant.feeCategories && restaurant.feeCategories.length > 0)
+  const hasServiceCharge = hasFeeCategoryName || (saleStats.serviceChargesSum ?? 0) > 0
+  const serviceChargeTitle = hasFeeCategoryName
     ? restaurant.feeCategories![0].displayFeeCategoriesName
     : 'Service Charge'
 
