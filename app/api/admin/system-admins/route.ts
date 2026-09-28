@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminAuthHeader } from '../../../../lib/admin-auth'
+import { getAdminAuthHeader, getAdminEmail } from '../../../../lib/admin-auth'
+import { randomUUID } from 'crypto'
+import { hashPassword, setInviteToken, grantLocationAccess } from '../../../../lib/disco-restaurant-auth'
+import { sendTeamMemberInvite } from '../../../../lib/email/notifications'
 import { sql } from '../../../../lib/db'
 import { deriveTiers, type TieredAdmin } from '../../../../lib/admin/system-admin-tier'
 
@@ -195,6 +198,103 @@ export async function GET(req: NextRequest) {
   }
 }
 
+const SITE_URL = 'https://www.discocater.com'
+
+/**
+ * Create a system admin entirely in Neon, with no FamilyMeal user at all.
+ *
+ * WHY THIS EXISTS. FM's createSystemAdmin ends in an unconditional
+ * `processManager.startProcess(systemAdminUserCreatedProcessDefinition, ...)` —
+ * no flag, no branch — which sends "You're invited: Join the {group} team on
+ * FamilyMeal". FamilyMeal cannot be redeployed, so the ONLY way to stop that
+ * email is not to call FM. Peter's ruling 2026-09-27: for a purely Disco-native
+ * set of locations, don't.
+ *
+ * THIS IS NOT A NEW ACCOUNT MODEL. A Disco-native SYSTEM_ADMIN already exists
+ * and is already first-class: conversion creates exactly these rows
+ * (inviteFmAuthorizedUsersFor, which runs even under skipInvites because grants
+ * are reach, not credentials), the listing merges them as source 'DISCO', and
+ * [id]/route.ts already edits and archives them off the `disco:` prefix. 184 of
+ * them exist today. This only adds the missing CREATE door.
+ *
+ * NOTHING ABOUT ROLE OR REACH CHANGES. The row carries the same SYSTEM_ADMIN
+ * role and the same disco_restaurant_location_access grants an FM-created admin
+ * resolves through — getDiscoGroupAccounts reads that table and neither knows
+ * nor cares which system minted the account.
+ *
+ * WHAT THE PERSON GIVES UP is a login at familymeal.com, and nothing in the
+ * Disco portal: a Disco session carries fmToken null, so every FM call Disco
+ * makes on their behalf already uses the FM SERVICE account
+ * (restaurant-auth-context.ts — `if (ctx.fmToken) ... else getFmServiceAuthHeader()`).
+ * That is why they can still administer an FM-backed location later.
+ */
+async function createNativeSystemAdmin(
+  body: { email?: string; firstName?: string; lastName?: string; restaurantReferences?: string[] },
+  refs: string[],
+  actorEmail: string | null,
+): Promise<NextResponse> {
+  const email = String(body.email || '').trim().toLowerCase()
+  const firstName = String(body.firstName || '').trim()
+  const lastName = String(body.lastName || '').trim()
+  if (!email) return NextResponse.json({ error: 'Email is required' }, { status: 400 })
+
+  // Placeholder hash, never a usable credential — the invite link below is how
+  // they set a real password. Same shape as the sub-admin create path.
+  const placeholderHash = await hashPassword(randomUUID())
+  const home = refs[0]
+  const nameRows = (await sql`
+    SELECT name FROM disco_restaurant_cache WHERE restaurant_reference = ${home} LIMIT 1
+  `) as Array<{ name: string | null }>
+  const restaurantName = nameRows[0]?.name || 'Disco Cater'
+
+  await sql`
+    INSERT INTO disco_restaurant_accounts (
+      email, password_hash, restaurant_reference, first_name, last_name,
+      role, created_by, updated_at
+    ) VALUES (
+      ${email}, ${placeholderHash}, ${home}, ${firstName || null}, ${lastName || null},
+      'SYSTEM_ADMIN', ${actorEmail}, NOW()
+    )
+    ON CONFLICT (email) DO UPDATE SET
+      role = 'SYSTEM_ADMIN', created_by = ${actorEmail},
+      first_name = COALESCE(EXCLUDED.first_name, disco_restaurant_accounts.first_name),
+      last_name = COALESCE(EXCLUDED.last_name, disco_restaurant_accounts.last_name),
+      updated_at = NOW()
+  `
+
+  // Grants are the reach. Each one independently, so a single bad reference
+  // cannot cost the admin the rest of their locations.
+  for (const ref of refs) {
+    await grantLocationAccess(email, ref, actorEmail || 'super-admin')
+      .catch(e => console.error('[admin/system-admins] grant failed:', ref, e instanceof Error ? e.message : e))
+  }
+
+  // Best-effort, exactly like the sub-admin path: the account and its grants are
+  // already correct, and a mailer failure must not undo them. A super admin can
+  // re-send from the team screen.
+  try {
+    const token = await setInviteToken(email)
+    await sendTeamMemberInvite({
+      to: email,
+      firstName,
+      inviteUrl: `${SITE_URL}/restaurant/accept-invite?token=${token}`,
+      restaurantName,
+      inviterName: actorEmail || undefined,
+    })
+  } catch (e) {
+    console.error('[admin/system-admins] native invite failed:', e instanceof Error ? e.message : e)
+  }
+
+  // The `disco:` reference the listing and [id] routes already understand.
+  return NextResponse.json({
+    ok: true,
+    reference: `${DISCO_ADMIN_PREFIX}${email}`,
+    email,
+    source: 'DISCO',
+    locations: refs.length,
+  })
+}
+
 export async function POST(req: NextRequest) {
   let h: Record<string, string>
   try { h = await getAdminAuthHeader() } catch {
@@ -203,6 +303,36 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     body.role = 'SYSTEM_ADMIN'
+
+    // ── NATIVE-ONLY SETS NEVER TOUCH FAMILYMEAL ─────────────────────────────
+    // Resolved from the posted references against disco_restaurant_cache, the
+    // AUTHORITATIVE flag (disco_restaurant_accounts.is_disco_native is written
+    // once at account creation and goes stale — reading it here would misroute
+    // exactly the converted restaurants this is for).
+    //
+    // ALL native, or nothing. A mixed set proxies to FM unchanged: those
+    // locations' admins may still need a familymeal.com login, and FM's invite
+    // is the one carrying the password FM knows. Two invites with two different
+    // set-password links would be worse than one wrongly-branded invite.
+    const refs = Array.isArray(body.restaurantReferences)
+      ? (body.restaurantReferences as unknown[]).map(r => String(r || '').trim()).filter(Boolean)
+      : []
+    if (refs.length) {
+      const rows = (await sql`
+        SELECT restaurant_reference::text AS ref, COALESCE(is_disco_native, false) AS native
+        FROM disco_restaurant_cache
+        WHERE restaurant_reference::text = ANY(${refs})
+      `.catch(() => [])) as Array<{ ref: string; native: boolean }>
+      // Every posted reference must be present AND native. A reference with no
+      // cache row is NOT assumed native — unknown means defer to FM.
+      const nativeRefs = new Set(rows.filter(r => r.native).map(r => r.ref))
+      const allNative = refs.every(r => nativeRefs.has(r))
+      if (allNative) {
+        const actor = await getAdminEmail().catch(() => null)
+        return await createNativeSystemAdmin(body, refs, actor)
+      }
+    }
+
     const res = await fetch(`${FM}/api/admin/users/system-admin`, {
       method: 'POST', headers: { ...h, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
