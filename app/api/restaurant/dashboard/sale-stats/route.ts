@@ -120,6 +120,11 @@ async function discoSaleStats(ctx: NonNullable<Awaited<ReturnType<typeof getRest
       COALESCE(SUM(st.lead_gen_one_disco_fee), 0)::float8 AS "leadgenonediscofee",
       COALESCE(SUM(st.lead_gen_two_disco_fee), 0)::float8 AS "leadgentwodiscofee",
       COALESCE(SUM(st.service_charge), 0)::float8 AS "serviceChargesSum",
+      -- Same column the Orders report's Discount uses (lib/reports/order-report-rows.ts),
+      -- so the dashboard and the report cannot disagree. Stored POSITIVE and
+      -- SUBTRACTED in the total identity:
+      --   Total Amount = Net Sales + Tax + Service Charge + Self-Delivery + Own Tips - Discount
+      COALESCE(SUM(st.discount), 0)::float8 AS "discountsSum",
       COALESCE(SUM(st.stripe_fee), 0)::float8 AS "stripeFeeSum",
       COALESCE(SUM(st.own_delivery_fee), 0)::float8 AS "ownDeliveryPriceSum",
       COALESCE(SUM(CASE WHEN o.delivery_type = 'DOORDASH' THEN st.third_party_delivery_fee ELSE 0 END), 0)::float8 AS "doordashDeliveryFeeSum",

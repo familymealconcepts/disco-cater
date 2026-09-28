@@ -44,6 +44,7 @@ interface SaleStats {
   owndeliveryTipsInPrice?: number | null
   stripeFeeSum?: number | null
   serviceChargesSum?: number | null
+  discountsSum?: number | null
   leadgenonediscofee?: number | null
   leadgentwodiscofee?: number | null
 }
@@ -440,6 +441,7 @@ export default function DashboardPage() {
   //
   // feeCategories still decides the TITLE — a restaurant that calls it something
   // else keeps its own wording — but the presence of money decides the CARD.
+  const hasDiscount = (saleStats.discountsSum ?? 0) > 0
   const hasFeeCategoryName = !!(restaurant.feeCategories && restaurant.feeCategories.length > 0)
   const hasServiceCharge = hasFeeCategoryName || (saleStats.serviceChargesSum ?? 0) > 0
   const serviceChargeTitle = hasFeeCategoryName
@@ -606,6 +608,14 @@ export default function DashboardPage() {
         <Card title={deliveryFeeTitle} value={deliveryFee} unavailableReason={NOT_AVAILABLE_REASON} />
         <Card title={deliveryTipsTitle} value={deliveryTips} unavailableReason={NOT_AVAILABLE_REASON} />
         {hasServiceCharge && <Card title={serviceChargeTitle} value={saleStats.serviceChargesSum} unavailableReason={NOT_AVAILABLE_REASON} />}
+        {/* DISCOUNT READS NEGATIVE, ON PURPOSE. The other cards are all things
+            ADDED to reach Total Amount; discount is the only one taken away:
+              Total Amount = Net Sales + Tax + Service Charge + Self-Delivery + Own Tips - Discount
+            Shown as -$X so the column literally adds up for anyone checking it by
+            hand, and gray to match Stripe Fees, the grid's other deduction.
+            Rendered only when there IS a discount — otherwise every restaurant
+            that has never run a promo gains a permanent "-$0.00" card. */}
+        {hasDiscount && <Card title="Discount" value={-(saleStats.discountsSum ?? 0)} gray unavailableReason={NOT_AVAILABLE_REASON} />}
         <Card title="Stripe Fees" value={saleStats.stripeFeeSum} gray unavailableReason={NOT_AVAILABLE_REASON} />
         <Card title="Total Amount" value={saleStats.totalOrdersSum} />
       </div>
