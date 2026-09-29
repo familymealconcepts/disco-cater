@@ -142,13 +142,22 @@ export async function isDiscoRestaurantArchived(restaurantReference: string): Pr
 }
 
 // Create a session token (30 day expiry)
-export async function createDiscoRestaurantSession(restaurantReference: string, email: string): Promise<string> {
+export async function createDiscoRestaurantSession(
+  restaurantReference: string,
+  email: string,
+  opts?: { role?: string | null; viaMasterPassword?: boolean; restaurantName?: string | null },
+): Promise<string> {
   console.log('[disco-session] creating session for:', email)
   const token = randomUUID()
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+  // role/viaMasterPassword are set ONLY for a master-password entry into a
+  // restaurant whose admin has no disco_restaurant_accounts row. For every
+  // ordinary login both stay at their defaults (null / false) and validation
+  // behaves exactly as it always has — the account row supplies the role.
   await sql`
-    INSERT INTO disco_restaurant_sessions (token, restaurant_reference, email, expires_at)
-    VALUES (${token}, ${restaurantReference}, ${email}, ${expiresAt.toISOString()})
+    INSERT INTO disco_restaurant_sessions (token, restaurant_reference, email, expires_at, role, via_master_password, restaurant_name)
+    VALUES (${token}, ${restaurantReference}, ${email}, ${expiresAt.toISOString()},
+            ${opts?.role ?? null}, ${opts?.viaMasterPassword === true}, ${opts?.restaurantName ?? null})
   `
   return token
 }
@@ -163,18 +172,33 @@ export async function createDiscoRestaurantSession(restaurantReference: string, 
 // depending on the legacy business_name-match grouping fallback
 // (getDiscoGroupAccounts) that businessName used to feed.
 export async function validateDiscoRestaurantSession(token: string): Promise<DiscoRestaurantSession | null> {
+  // ── WHY THIS JOIN IS LEFT, AND WHY THAT DOES NOT WEAKEN IT ────────────────
+  // It was an INNER JOIN, which is correct for every ordinary session: the
+  // account row is the credential, and losing it must end the session. That is
+  // preserved verbatim by the via_master_password guard in the WHERE clause —
+  // an ordinary session (via_master_password = FALSE) still validates ONLY
+  // while its account row exists.
+  //
+  // What the LEFT JOIN adds is the one case that has no account row by
+  // definition: the Disco team entering an FM-backed restaurant with the master
+  // password, where the admin's email has never existed in Neon. Its role comes
+  // from the session, where FamilyMeal's own answer at login was recorded.
+  // Nothing here decides WHAT a role may do — only where the role is read from.
   const rows = (await sql`
-    SELECT s.restaurant_reference, s.email, a.first_name, a.last_name, a.role,
-           c.name AS restaurant_name
+    SELECT s.restaurant_reference, s.email, a.first_name, a.last_name,
+           COALESCE(a.role, s.role) AS role,
+           s.via_master_password,
+           COALESCE(c.name, s.restaurant_name) AS restaurant_name
     FROM disco_restaurant_sessions s
-    JOIN disco_restaurant_accounts a ON a.email = s.email
+    LEFT JOIN disco_restaurant_accounts a ON a.email = s.email
     LEFT JOIN disco_restaurant_cache c ON c.restaurant_reference = s.restaurant_reference
     WHERE s.token = ${token} AND s.expires_at > NOW()
+      AND (a.email IS NOT NULL OR s.via_master_password = TRUE)
     LIMIT 1
   `) as Array<{
     restaurant_reference: string; email: string
     first_name: string | null; last_name: string | null; restaurant_name: string | null
-    role: string | null
+    role: string | null; via_master_password: boolean
   }>
   if (!rows.length) return null
   return {

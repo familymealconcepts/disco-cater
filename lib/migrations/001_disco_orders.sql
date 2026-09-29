@@ -792,3 +792,27 @@ ALTER TABLE disco_customers ADD COLUMN IF NOT EXISTS disabled_by TEXT;
 -- recorded nowhere — so there was nothing to reverse when money had to go back.
 -- Recorded now, at the moment the transfer succeeds.
 ALTER TABLE disco_stripe_payments ADD COLUMN IF NOT EXISTS stripe_transfer_id TEXT;
+
+-- ── Master-password sessions for restaurants with no Disco account row ───────
+-- The Disco team enters restaurants on behalf of admins using the master
+-- password. That worked only because the restaurant login fell through to
+-- FamilyMeal, which accepts the master password too — so every master-password
+-- entry into an FM-backed restaurant bypassed Disco entirely and left NO audit
+-- record (296 MASTER_PASSWORD_LOGIN rows exist, all 41 restaurants native, zero
+-- FM-backed). Closing the fallback without this would drop the team from every
+-- FM-backed restaurant.
+--
+-- A session for an email Neon has never seen cannot resolve a role from
+-- disco_restaurant_accounts, because there is no row — so the role FamilyMeal
+-- itself returns at login is carried on the session instead. via_master_password
+-- is what permits an account-less session to validate at all; an ordinary
+-- session still requires its account row to exist, exactly as before.
+ALTER TABLE disco_restaurant_sessions ADD COLUMN IF NOT EXISTS role TEXT;
+ALTER TABLE disco_restaurant_sessions ADD COLUMN IF NOT EXISTS via_master_password BOOLEAN NOT NULL DEFAULT FALSE;
+-- The restaurant's display name for a master-password session. validate reads
+-- the name from disco_restaurant_cache, and the restaurants this path exists to
+-- reach are exactly the ones absent from that cache (refreshRestaurantCache
+-- rejects every row FamilyMeal has blocked), so the portal would render with no
+-- restaurant name at all. FamilyMeal's /login does not return one, so it is
+-- resolved once at login and carried here.
+ALTER TABLE disco_restaurant_sessions ADD COLUMN IF NOT EXISTS restaurant_name TEXT;
