@@ -154,6 +154,33 @@ export async function setCustomerPasswordByResetToken(token: string, passwordHas
   return rows[0]?.email ?? null
 }
 
+/**
+ * Set a signed-in customer's password hash directly, by email.
+ *
+ * The reset-token twin above is for someone who has LOST their password; this is
+ * for someone who has it and is changing it from the Security page. Both write
+ * the same column, because that column is the credential: login verifies
+ * `password_hash` with verifyCustomerPassword and nothing else.
+ *
+ * Deliberately does NOT touch FamilyMeal, matching
+ * /api/auth/customer-set-password. FM's copy is no longer what signs a diner in,
+ * and 41 of 232 customers have no FM account at all — writing there would fail
+ * for them and change nothing for anyone else.
+ */
+export async function setCustomerPassword(email: string, passwordHash: string): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE disco_customers
+    SET password_hash = ${passwordHash},
+        reset_token = NULL,
+        reset_token_expires_at = NULL,
+        needs_password_reset = false,
+        updated_at = NOW()
+    WHERE lower(email) = lower(${email})
+    RETURNING email
+  `) as Array<{ email: string }>
+  return rows.length > 0
+}
+
 // Create a 30-day session row, storing the FM JWT/refresh when available.
 export async function createCustomerSession(email: string, fmJwt?: string | null, fmRefresh?: string | null): Promise<string> {
   const token = generateSessionToken()
